@@ -1,0 +1,41 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["DOM", "DOM.Iterable", "ESNext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "incremental": true,
+    "baseUrl": ".",
+    "paths": {
+      "@birim/core": ["packages/core/src/index.ts"],
+      "@birim/core/*": ["packages/core/src/*"],
+      "@birim/geometry": ["packages/geometry/src/index.ts"],
+      "@birim/geometry/*": ["packages/geometry/src/*"],
+      "@birim/catalog": ["packages/catalog/src/index.ts"],
+      "@birim/catalog/*": ["packages/catalog/src/*"],
+      "@birim/pricing": ["packages/pricing/src/index.ts"],
+      "@birim/pricing/*": ["packages/pricing/src/*"],
+      "@birim/manufacturing": ["packages/manufacturing/src/index.ts"],
+      "@birim/manufacturing/*": ["packages/manufacturing/src/*"],
+      "@birim/integrations": ["packages/integrations/src/index.ts"],
+      "@birim/integrations/*": ["packages/integrations/src/*"]
+    }
+  },
+  "include": [
+    "packages/**/src/**/*.ts",
+    "packages/**/src/**/*.tsx",
+    "apps/**/*.ts",
+    "apps/**/*.tsx",
+    "tests/**/*.ts",
+    "vitest.config.ts"
+  ],
+  "exclude": ["node_modules", "dist", ".next"]
+}

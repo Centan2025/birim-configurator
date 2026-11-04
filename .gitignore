@@ -1,0 +1,14 @@
+# Birim Configurator (.gitignore)
+node_modules/
+.next/
+out/
+build/
+dist/
+*.log
+.DS_Store
+Thumbs.db
+.env.local
+.env.*.local
+coverage/
+playwright-report/
+test-results/

@@ -1,0 +1,21 @@
+{
+  "name": "birim-configurator-root",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm --workspace=apps/configurator run dev",
+    "build": "npm --workspace=apps/configurator run build",
+    "start": "npm --workspace=apps/configurator run start",
+    "lint": "npm --workspace=apps/configurator run lint",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.7"
+  }
+}
