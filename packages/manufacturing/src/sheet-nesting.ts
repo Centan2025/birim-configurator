@@ -61,10 +61,27 @@ interface FreeRect {
  * 2D Guillotine Bin Packing Optimizer.
  * Places cut pieces onto minimum number of standard sheets considering kerf, trimming and grain direction.
  */
+// Global deterministic memoization cache for nesting results
+const nestingCache = new Map<string, NestingOptimizationResult[]>();
+
+function computeNestingKey(pieces: CutPiece[], sheetConfig: SheetDimension): string {
+  let key = `${sheetConfig.name}_${sheetConfig.lengthMm}_${sheetConfig.widthMm}_${sheetConfig.kerfMm}|`;
+  for (let i = 0; i < pieces.length; i++) {
+    const p = pieces[i];
+    key += `${p.id}:${p.lengthMm}x${p.widthMm}x${p.quantity}:${p.grain}:${p.materialId};`;
+  }
+  return key;
+}
+
 export function optimizeSheetNesting(
   pieces: CutPiece[],
   sheetConfig: SheetDimension = STANDARD_SHEET_2800x2070
 ): NestingOptimizationResult[] {
+  if (!pieces || pieces.length === 0) return [];
+
+  const cacheKey = computeNestingKey(pieces, sheetConfig);
+  const cached = nestingCache.get(cacheKey);
+  if (cached) return cached;
   // Group pieces by material
   const materialGroups = new Map<string, CutPiece[]>();
   pieces.forEach((p) => {
@@ -285,5 +302,6 @@ export function optimizeSheetNesting(
     });
   });
 
+  nestingCache.set(cacheKey, results);
   return results;
 }

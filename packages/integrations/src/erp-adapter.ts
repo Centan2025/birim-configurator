@@ -1,4 +1,4 @@
-import { DesignProject } from "@birim/core";
+import { DesignProject, evaluateProjectCompatibility } from "@birim/core";
 import { ManufacturingBOM } from "@birim/manufacturing";
 import { ERPBlueprintPayload, IERPAdapter, AuditLogEntry } from "./types";
 
@@ -13,9 +13,15 @@ export class MockERPAdapter implements IERPAdapter {
     orderId = "order_mock_001",
     idempotencyKey?: string
   ): Promise<{ success: boolean; blueprintId: string; itemsCount: number }> {
-    // Production lock check: must be technically validated or approved
     if (bom.validationWarnings.length > 0 && bom.validationWarnings.some((w) => w.includes("ERR_"))) {
       throw new Error("Üretim engeli (ERR_): Tasarım kritik imalat hataları içeriyor, ERP'ye aktarılamaz.");
+    }
+
+    const compatibility = evaluateProjectCompatibility(project);
+    if (compatibility.overallStatus === "INCOMPATIBLE" || compatibility.overallStatus === "UNVERIFIED") {
+      throw new Error(
+        `Üretim engeli (${compatibility.overallStatus}): Tasarım doğrulanmamış veya uyumsuz V4 kuralları içeriyor, ERP/CNC'ye aktarılamaz.`
+      );
     }
 
     if (idempotencyKey && this.idempotencyRegistry.has(idempotencyKey)) {
@@ -81,6 +87,9 @@ export class MockERPAdapter implements IERPAdapter {
         project_title: project.title,
         branch_id: project.branchId,
         generated_at: new Date().toISOString(),
+        library_version_id: project.libraryVersionId || "lib_v4_0_0",
+        compatibility_status: compatibility.overallStatus,
+        cnc_production_approved: compatibility.canApproveProduction,
       },
     };
 

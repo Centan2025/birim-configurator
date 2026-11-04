@@ -1,4 +1,4 @@
-import { DesignProject } from "@birim/core";
+import { CompatibilityStatus, DesignProject } from "@birim/core";
 import { ManufacturingBOM } from "@birim/manufacturing";
 import { PricingBreakdown } from "@birim/pricing";
 
@@ -21,12 +21,16 @@ export interface StoreQuoteItemPayload {
   configuratorSnapshot: {
     designId: string;
     version: number;
+    libraryVersionId?: string;
     title: string;
     category: string;
     dimensionsSummary: string;
     calculatedPriceEur: number;
     calculatedPriceTry: number;
     materialsSummary: string;
+    selectedDoorSystems?: string[];
+    selectedHardwareSkus?: string[];
+    compatibilityStatus?: CompatibilityStatus;
     bomSummary: {
       totalPieces: number;
       totalAreaM2: number;
@@ -65,6 +69,9 @@ export interface ERPBlueprintPayload {
     project_title: string;
     branch_id: string;
     generated_at: string;
+    library_version_id?: string;
+    compatibility_status?: CompatibilityStatus;
+    cnc_production_approved?: boolean;
   };
 }
 

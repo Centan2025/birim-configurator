@@ -1,13 +1,14 @@
 import { ParametricPart, DrillingHole } from "@birim/core";
+import { getDrillingTemplateForHardware } from "@birim/catalog";
 
 export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
   const holes: DrillingHole[] = [];
   const { width, height } = part.dimensions;
+  const drillTpl = getDrillingTemplateForHardware(part.hardwareRefId);
 
   // 1. Side Panels (Sol ve Sağ Yan)
-  if (part.role.includes("side")) {
-    const isLeft = part.role.includes("left");
-    const face = isLeft ? "face_front" : "face_front";
+  if (part.role.includes("side") && !part.role.includes("drawer")) {
+    const face = "face_front";
 
     // Minifix bolt holes for bottom and top panel joints (at 50mm and width - 50mm)
     const jointXPositions = [50, Math.max(80, width - 50)];
@@ -18,7 +19,7 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
         diameter: 8,
         depth: 12,
         x,
-        y: 18 / 2, // center of 18mm bottom panel
+        y: 18 / 2,
         z: 0,
         direction: face,
         purpose: "minifix_bolt",
@@ -27,7 +28,7 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
         id: `H_${part.id}_dowel_bot_${idx}`,
         diameter: 8,
         depth: 12,
-        x: x + 32, // System 32 dowel pair
+        x: x + 32,
         y: 18 / 2,
         z: 0,
         direction: face,
@@ -57,10 +58,11 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
       });
     });
 
-    // System 32 Shelf Pin Line Boring (every 32mm in intermediate heights)
+    // System 32 Shelf Pin Line Boring
     const startY = 300;
     const endY = height - 300;
-    const frontX = 37; // Standard 37mm inset
+    // Inset door shifts front row back by doorThickness + 2mm (37 + 20 = 57mm)
+    const frontX = part.isInsetDoor ? 57 : drillTpl.system32FrontSetbackMm;
     const backX = Math.max(100, width - 50);
 
     for (let y = startY; y <= endY; y += 64) {
@@ -86,8 +88,16 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
       });
     }
 
-    // Hinge mounting plate holes (37mm inset, 32mm vertical pitch)
-    const hingePositionsY = height > 2000 ? [100, 750, 1400, height - 100] : [100, height / 2, height - 100];
+    // Hinge mounting plate holes (37mm or 57mm inset, 32mm vertical pitch)
+    const hingePositionsY =
+      height > 2000
+        ? [100, 620, 1140, 1660, height - 100]
+        : height > 1600
+        ? [100, 750, 1400, height - 100]
+        : height > 900
+        ? [100, Math.round(height / 2), height - 100]
+        : [100, Math.max(180, height - 100)];
+
     hingePositionsY.forEach((hy, idx) => {
       holes.push({
         id: `H_${part.id}_hinge_mount_${idx}_a`,
@@ -114,11 +124,9 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
 
   // 2. Horizontal Panels: Bottom, Top, Shelves
   else if (part.role === "carcass_bottom" || part.role === "carcass_top" || part.role === "shelf") {
-    // Minifix Cam Pockets: Ø15mm, depth 13.5mm, 34mm from left/right edge
     if (part.role !== "shelf") {
       const edgePositionsY = [50, Math.max(80, height - 50)];
       edgePositionsY.forEach((y, idx) => {
-        // Left edge minifix cam
         holes.push({
           id: `H_${part.id}_cam_left_${idx}`,
           diameter: 15,
@@ -129,7 +137,6 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
           direction: "face_front",
           purpose: "minifix_cam",
         });
-        // Right edge minifix cam
         holes.push({
           id: `H_${part.id}_cam_right_${idx}`,
           diameter: 15,
@@ -144,46 +151,94 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
     }
   }
 
-  // 3. Doors (Kapaklar): Blum 35mm hinge cups
+  // 3. Doors (Kapaklar): Manufacturer-Specific Hinge Cups (Blum 45x9.5, Hettich TH52x5.5, Salice 48x9) & Handle Holes
   else if (part.role.includes("door")) {
-    const isLeftHinged = part.role.includes("left");
-    const cupX = isLeftHinged ? 21.5 : width - 21.5;
-    const hingePositionsY = height > 2000 ? [100, 750, 1400, height - 100] : [100, height / 2, height - 100];
+    const isSlidingOrLift =
+      part.label.includes("Sürgülü") ||
+      part.label.includes("Kalkar") ||
+      part.label.includes("Tambur");
 
-    hingePositionsY.forEach((hy, idx) => {
-      // 35mm cup hole
-      holes.push({
-        id: `H_${part.id}_hinge_cup_${idx}`,
-        diameter: 35,
-        depth: 12.5,
-        x: cupX,
-        y: hy,
-        z: 0,
-        direction: "face_back",
-        purpose: "hinge_cup",
+    if (!isSlidingOrLift) {
+      const isLeftHinged = part.role.includes("left");
+      const cupRadius = drillTpl.cupDiameterMm / 2; // 17.5mm
+      const cupCenterDist = cupRadius + drillTpl.cupEdgeTabMm; // 21.5mm
+      const cupX = isLeftHinged ? cupCenterDist : width - cupCenterDist;
+      const halfBossPitch = drillTpl.bossPitchMm / 2; // 22.5mm (Blum), 26.0mm (Hettich TH52), 24.0mm (Salice)
+      const bossOffset = drillTpl.bossOffsetMm; // 9.5mm (Blum), 5.5mm (Hettich), 9.0mm (Salice)
+      const effectiveCupDepth = part.hardwareRefId ? drillTpl.cupDepthMm : 12.5;
+
+      const hingePositionsY =
+        height > 2000
+          ? [100, 620, 1140, 1660, height - 100]
+          : height > 1600
+          ? [100, 750, 1400, height - 100]
+          : height > 900
+          ? [100, Math.round(height / 2), height - 100]
+          : [100, Math.max(180, height - 100)];
+
+      hingePositionsY.forEach((hy, idx) => {
+        // 35mm cup hole with manufacturer-specific depth (13.0mm Blum, 11.7mm 155°, 12.8mm Hettich, 12.5mm legacy default)
+        holes.push({
+          id: `H_${part.id}_hinge_cup_${idx}`,
+          diameter: drillTpl.cupDiameterMm,
+          depth: effectiveCupDepth,
+          x: cupX,
+          y: hy,
+          z: 0,
+          direction: "face_back",
+          purpose: "hinge_cup",
+        });
+        // 2x 8mm boss holes using manufacturer bossPitchMm & bossOffsetMm
+        holes.push({
+          id: `H_${part.id}_hinge_screw_${idx}_a`,
+          diameter: 8,
+          depth: 11,
+          x: cupX + (isLeftHinged ? bossOffset : -bossOffset),
+          y: hy - halfBossPitch,
+          z: 0,
+          direction: "face_back",
+          purpose: "hinge_cup",
+        });
+        holes.push({
+          id: `H_${part.id}_hinge_screw_${idx}_b`,
+          diameter: 8,
+          depth: 11,
+          x: cupX + (isLeftHinged ? bossOffset : -bossOffset),
+          y: hy + halfBossPitch,
+          z: 0,
+          direction: "face_back",
+          purpose: "hinge_cup",
+        });
       });
-      // 2x 8mm dowel holes for Blum knock-in hinges
+    }
+
+    // Handle drilling holes (if C-C spacing is defined, e.g., 160mm or 960mm)
+    if (part.handleSpacingMm && part.handleSpacingMm > 0) {
+      const isLeftHinged = part.role.includes("left");
+      const handleX = isLeftHinged ? Math.max(35, width - 45) : 45;
+      const centerY = Math.round(height / 2);
+      const halfCc = part.handleSpacingMm / 2;
       holes.push({
-        id: `H_${part.id}_hinge_screw_${idx}_a`,
-        diameter: 8,
-        depth: 11,
-        x: cupX + (isLeftHinged ? 9.5 : -9.5),
-        y: hy - 22.5,
+        id: `H_${part.id}_handle_a`,
+        diameter: 5,
+        depth: 18,
+        x: handleX,
+        y: Math.max(40, centerY - halfCc),
         z: 0,
-        direction: "face_back",
-        purpose: "hinge_cup",
+        direction: "face_front",
+        purpose: "handle",
       });
       holes.push({
-        id: `H_${part.id}_hinge_screw_${idx}_b`,
-        diameter: 8,
-        depth: 11,
-        x: cupX + (isLeftHinged ? 9.5 : -9.5),
-        y: hy + 22.5,
+        id: `H_${part.id}_handle_b`,
+        diameter: 5,
+        depth: 18,
+        x: handleX,
+        y: Math.min(height - 40, centerY + halfCc),
         z: 0,
-        direction: "face_back",
-        purpose: "hinge_cup",
+        direction: "face_front",
+        purpose: "handle",
       });
-    });
+    }
   }
 
   return holes;

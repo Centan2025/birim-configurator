@@ -101,7 +101,7 @@ export default function BomModal({ isOpen, onClose }: BomModalProps) {
               <Download className="w-3.5 h-3.5" />
               JSON
             </button>
-            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white">
+            <button onClick={onClose} title="Kapat" className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white">
               <X className="w-5 h-5" />
             </button>
           </div>

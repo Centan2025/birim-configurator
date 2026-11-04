@@ -6,13 +6,30 @@ import {
   ValidationIssue,
   createDefaultWardrobeModule,
   ModuleInstance,
+  DesignProjectSchema,
+  evaluateProjectCompatibility,
+  migrateV3ProjectToV4,
 } from "@birim/core";
 import { generateBOMForProject, ManufacturingBOM } from "@birim/manufacturing";
 import { calculateProjectPrice, PricingBreakdown } from "@birim/pricing";
-import { WARDROBE_TEMPLATES, createKitchenLinearProject, analyzeAndAdviseSpan, SmartAdvisorFeedback } from "@birim/catalog";
+import {
+  WARDROBE_TEMPLATES,
+  createKitchenLinearProject,
+  createKitchenLProject,
+  createKitchenUProject,
+  analyzeAndAdviseSpan,
+  SmartAdvisorFeedback,
+} from "@birim/catalog";
 
 export type ViewMode = "3d" | "2d_elevation" | "2d_plan" | "2d_section";
 export type CameraPreset = "front" | "side" | "top" | "iso";
+
+export interface SavedProjectMeta {
+  id: string;
+  title: string;
+  date: string;
+  priceEur: number;
+}
 
 interface ConfiguratorState {
   project: DesignProject;
@@ -24,6 +41,9 @@ interface ConfiguratorState {
   explodedFactor: number;
   isOrthographic: boolean;
   cameraPreset: CameraPreset;
+  uiMode: "simple" | "technical";
+  activeBayIndex: number;
+  autoSaveStatus: "saved" | "saving" | "unsaved";
   validationIssues: ValidationIssue[];
   bom: ManufacturingBOM;
   pricing: PricingBreakdown;
@@ -32,6 +52,9 @@ interface ConfiguratorState {
   future: DesignProject[];
 
   // Actions
+  setUiMode: (mode: "simple" | "technical") => void;
+  setActiveBayIndex: (idx: number) => void;
+  setAutoSaveStatus: (status: "saved" | "saving" | "unsaved") => void;
   setViewMode: (mode: ViewMode) => void;
   setCameraPreset: (preset: CameraPreset) => void;
   setSelectedComponentId: (id: string | null) => void;
@@ -41,6 +64,7 @@ interface ConfiguratorState {
   setExplodedFactor: (factor: number) => void;
   toggleDoorOpen: () => void;
   toggleOrthographic: () => void;
+  setOrthographic: (isOrthographic: boolean) => void;
 
   // Project & Module actions
   updateProjectTitle: (title: string) => void;
@@ -62,7 +86,16 @@ interface ConfiguratorState {
 
   // Multi-module management
   addAdjacentModule: () => void;
+  duplicateActiveModule: () => void;
   removeActiveModule: () => void;
+  moveActiveModule: (deltaX: number) => void;
+
+  // Persistence & Storage
+  saveToStorage: (name?: string) => string;
+  loadFromStorage: (id: string) => boolean;
+  getSavedProjects: () => SavedProjectMeta[];
+  exportProjectJSON: () => string;
+  importProjectJSON: (jsonStr: string) => { success: boolean; error?: string };
 
   // Production approval
   approveProduction: () => { success: boolean; message: string };
@@ -75,7 +108,32 @@ interface ConfiguratorState {
   redo: () => void;
   applyTemplate: (templateId: string) => void;
   loadLinearKitchen: () => void;
+  loadLKitchen: () => void;
+  loadUKitchen: () => void;
   resetToDefault: () => void;
+}
+
+function cloneProject(project: DesignProject): DesignProject {
+  return {
+    ...project,
+    version: (project.version || 1) + 1,
+    updatedAt: new Date().toISOString(),
+    modules: project.modules.map((m) => ({
+      ...m,
+      dimensions: { ...m.dimensions },
+      position: { ...m.position },
+      carcass: { ...m.carcass },
+      bays: m.bays.map((b) => ({
+        ...b,
+        door: { ...b.door },
+        shelves: b.shelves.map((s) => ({ ...s })),
+        drawers: b.drawers.map((d) => ({ ...d })),
+        hangingRails: b.hangingRails.map((r) => ({ ...r })),
+        specialFittings: b.specialFittings ? b.specialFittings.map((f) => ({ ...f })) : [],
+        subDividers: b.subDividers ? b.subDividers.map((sd) => ({ ...sd })) : [],
+      })),
+    })),
+  };
 }
 
 function recompute(project: DesignProject) {
@@ -100,6 +158,9 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   explodedFactor: 0,
   isOrthographic: false,
   cameraPreset: "iso",
+  uiMode: "simple",
+  activeBayIndex: 0,
+  autoSaveStatus: "saved",
   validationIssues: initIssues,
   bom: initBom,
   pricing: initPricing,
@@ -107,6 +168,9 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   history: [],
   future: [],
 
+  setUiMode: (uiMode) => set({ uiMode }),
+  setActiveBayIndex: (activeBayIndex) => set({ activeBayIndex }),
+  setAutoSaveStatus: (autoSaveStatus) => set({ autoSaveStatus }),
   setViewMode: (viewMode) => set({ viewMode }),
   setCameraPreset: (cameraPreset) => set({ cameraPreset }),
   setSelectedComponentId: (selectedComponentId) => set({ selectedComponentId }),
@@ -115,6 +179,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   setDrawerOpenMm: (drawerOpenMm) => set({ drawerOpenMm }),
   setExplodedFactor: (explodedFactor) => set({ explodedFactor }),
   toggleOrthographic: () => set((s) => ({ isOrthographic: !s.isOrthographic })),
+  setOrthographic: (isOrthographic) => set({ isOrthographic }),
   toggleDoorOpen: () => {
     const cur = get().doorOpenAngleDeg;
     set({ doorOpenAngleDeg: cur > 0 ? 0 : 75 });
@@ -128,7 +193,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
 
   setDimensions: (width, height, depth) => {
     const { project, history, activeModuleIndex } = get();
-    const updated = JSON.parse(JSON.stringify(project)) as DesignProject;
+    const updated = cloneProject(project);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod) return;
 
@@ -149,7 +214,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
 
   setPlinthHeight: (plinth) => {
     const { project, history, activeModuleIndex } = get();
-    const updated = JSON.parse(JSON.stringify(project)) as DesignProject;
+    const updated = cloneProject(project);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod) return;
 
@@ -168,7 +233,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
 
   setMaterials: (bodyMatId, doorMatId) => {
     const { project, history, activeModuleIndex } = get();
-    const updated = JSON.parse(JSON.stringify(project)) as DesignProject;
+    const updated = cloneProject(project);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod) return;
 
@@ -189,7 +254,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   setBayCount: (count) => {
     const { project, history, activeModuleIndex } = get();
     if (count < 1 || count > 8) return;
-    const updated = JSON.parse(JSON.stringify(project)) as DesignProject;
+    const updated = cloneProject(project);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod) return;
 
@@ -222,7 +287,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
 
   setBayDoorType: (bayIdx, type) => {
     const { project, history, activeModuleIndex } = get();
-    const updated = JSON.parse(JSON.stringify(project)) as DesignProject;
+    const updated = cloneProject(project);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
 
@@ -241,7 +306,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
 
   addShelf: (bayIdx) => {
     const { project, history, activeModuleIndex } = get();
-    const updated = JSON.parse(JSON.stringify(project)) as DesignProject;
+    const updated = cloneProject(project);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
 
@@ -268,7 +333,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
 
   removeShelf: (bayIdx, shelfId) => {
     const { project, history, activeModuleIndex } = get();
-    const updated = JSON.parse(JSON.stringify(project)) as DesignProject;
+    const updated = cloneProject(project);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
 
@@ -287,7 +352,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
 
   addHangingRail: (bayIdx) => {
     const { project, history, activeModuleIndex } = get();
-    const updated = JSON.parse(JSON.stringify(project)) as DesignProject;
+    const updated = cloneProject(project);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
 
@@ -311,7 +376,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
 
   removeHangingRail: (bayIdx, railId) => {
     const { project, history, activeModuleIndex } = get();
-    const updated = JSON.parse(JSON.stringify(project)) as DesignProject;
+    const updated = cloneProject(project);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
 
@@ -330,7 +395,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
 
   addDrawer: (bayIdx) => {
     const { project, history, activeModuleIndex } = get();
-    const updated = JSON.parse(JSON.stringify(project)) as DesignProject;
+    const updated = cloneProject(project);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
 
@@ -359,7 +424,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
 
   removeDrawer: (bayIdx, drawerId) => {
     const { project, history, activeModuleIndex } = get();
-    const updated = JSON.parse(JSON.stringify(project)) as DesignProject;
+    const updated = cloneProject(project);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
 
@@ -378,7 +443,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
 
   addSpecialFitting: (bayIdx, type) => {
     const { project, history, activeModuleIndex } = get();
-    const updated = JSON.parse(JSON.stringify(project)) as DesignProject;
+    const updated = cloneProject(project);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
 
@@ -406,7 +471,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
 
   removeSpecialFitting: (bayIdx, fittingId) => {
     const { project, history, activeModuleIndex } = get();
-    const updated = JSON.parse(JSON.stringify(project)) as DesignProject;
+    const updated = cloneProject(project);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
 
@@ -425,7 +490,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
 
   addAdjacentModule: () => {
     const { project, history } = get();
-    const updated = JSON.parse(JSON.stringify(project)) as DesignProject;
+    const updated = cloneProject(project);
     const lastMod = updated.modules[updated.modules.length - 1];
     const newX = lastMod ? lastMod.position.x + lastMod.dimensions.width : 0;
 
@@ -472,10 +537,38 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     });
   },
 
+  duplicateActiveModule: () => {
+    const { project, history, activeModuleIndex } = get();
+    const updated = cloneProject(project);
+    const targetMod = updated.modules[activeModuleIndex] || updated.modules[0];
+    if (!targetMod) return;
+
+    const lastMod = updated.modules[updated.modules.length - 1];
+    const newX = lastMod ? lastMod.position.x + lastMod.dimensions.width : 0;
+
+    const clonedMod: ModuleInstance = JSON.parse(JSON.stringify(targetMod));
+    clonedMod.id = `mod_${Date.now()}`;
+    clonedMod.name = `${targetMod.name} (Kopya)`;
+    clonedMod.position.x = newX;
+
+    updated.modules.push(clonedMod);
+    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    set({
+      history: [...history.slice(-15), project],
+      future: [],
+      project: updated,
+      activeModuleIndex: updated.modules.length - 1,
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+    });
+  },
+
   removeActiveModule: () => {
     const { project, history, activeModuleIndex } = get();
-    if (project.modules.length <= 1) return; // Keep at least one module
-    const updated = JSON.parse(JSON.stringify(project)) as DesignProject;
+    if (project.modules.length <= 1) return;
+    const updated = cloneProject(project);
     updated.modules.splice(activeModuleIndex, 1);
 
     const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
@@ -491,6 +584,116 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     });
   },
 
+  moveActiveModule: (deltaX: number) => {
+    const { project, history, activeModuleIndex } = get();
+    const updated = cloneProject(project);
+    const mod = updated.modules[activeModuleIndex];
+    if (!mod) return;
+
+    mod.position.x = Math.max(0, mod.position.x + deltaX);
+    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    set({
+      history: [...history.slice(-15), project],
+      future: [],
+      project: updated,
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+    });
+  },
+
+  saveToStorage: (name?: string) => {
+    const { project, pricing } = get();
+    const saveId = `saved_${project.id}_${Date.now()}`;
+    const title = name || project.title;
+    const saveEntry = {
+      id: saveId,
+      title,
+      date: new Date().toISOString(),
+      priceEur: pricing.totalWithVatEur,
+      project: { ...project, title },
+    };
+
+    try {
+      const existing = JSON.parse(localStorage.getItem("birim_saved_projects") || "[]");
+      existing.unshift(saveEntry);
+      localStorage.setItem("birim_saved_projects", JSON.stringify(existing.slice(0, 30)));
+    } catch {
+      // fallback
+    }
+    return saveId;
+  },
+
+  loadFromStorage: (id: string) => {
+    try {
+      const list = JSON.parse(localStorage.getItem("birim_saved_projects") || "[]");
+      const found = list.find((item: { id: string; project: DesignProject }) => item.id === id);
+      if (found && found.project) {
+        const migrated = migrateV3ProjectToV4(found.project);
+        const { validationIssues, bom, pricing, smartAdvice } = recompute(migrated);
+        set({
+          project: migrated,
+          activeModuleIndex: 0,
+          history: [],
+          future: [],
+          validationIssues,
+          bom,
+          pricing,
+          smartAdvice,
+        });
+        return true;
+      }
+    } catch {
+      // fallback
+    }
+    return false;
+  },
+
+  getSavedProjects: () => {
+    try {
+      const list = JSON.parse(localStorage.getItem("birim_saved_projects") || "[]");
+      return list.map((item: { id: string; title: string; date: string; priceEur: number }) => ({
+        id: item.id,
+        title: item.title,
+        date: item.date,
+        priceEur: item.priceEur,
+      }));
+    } catch {
+      return [];
+    }
+  },
+
+  exportProjectJSON: () => {
+    const { project } = get();
+    return JSON.stringify(project, null, 2);
+  },
+
+  importProjectJSON: (jsonStr: string) => {
+    try {
+      const parsed = JSON.parse(jsonStr);
+      const val = DesignProjectSchema.safeParse(parsed);
+      if (!val.success) {
+        return { success: false, error: "Geçersiz Birim Proje JSON formatı." };
+      }
+      const validProject = migrateV3ProjectToV4(val.data as DesignProject);
+      const { validationIssues, bom, pricing, smartAdvice } = recompute(validProject);
+      set({
+        project: validProject,
+        activeModuleIndex: 0,
+        history: [],
+        future: [],
+        validationIssues,
+        bom,
+        pricing,
+        smartAdvice,
+      });
+      return { success: true };
+    } catch (e: unknown) {
+      return { success: false, error: e instanceof Error ? e.message : "JSON ayrıştırma hatası" };
+    }
+  },
+
   approveProduction: () => {
     const { project, validationIssues } = get();
     const blockingErrors = validationIssues.filter((i) => i.blockingProduction || i.severity === "error");
@@ -501,7 +704,15 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       };
     }
 
-    const updated = JSON.parse(JSON.stringify(project)) as DesignProject;
+    const v4Compat = evaluateProjectCompatibility(project);
+    if (!v4Compat.canApproveProduction) {
+      return {
+        success: false,
+        message: `Üretim onayı verilemez (${v4Compat.overallStatus}): Doğrulanmamış veya uyumsuz kapak/donanım kuralı mevcut.`,
+      };
+    }
+
+    const updated = cloneProject(project);
     updated.status = "production_approved";
     updated.updatedAt = new Date().toISOString();
     const { validationIssues: newIssues, bom, pricing, smartAdvice } = recompute(updated);
@@ -522,12 +733,11 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
 
   applySmartSpan: (spanWidth) => {
     const { project, history } = get();
-    const updated = JSON.parse(JSON.stringify(project)) as DesignProject;
+    const updated = cloneProject(project);
     const mod = updated.modules[0];
     if (!mod) return;
 
     mod.dimensions.width = spanWidth;
-    // Suggest bay count: 1 bay per 600-900mm
     const optimalBays = Math.min(4, Math.max(1, Math.round(spanWidth / 800)));
     mod.bays = [];
     for (let i = 0; i < optimalBays; i++) {
@@ -633,12 +843,47 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     });
   },
 
+  loadLKitchen: () => {
+    const { project, history } = get();
+    const lProj = createKitchenLProject();
+    const { validationIssues, bom, pricing, smartAdvice } = recompute(lProj);
+    set({
+      history: [...history.slice(-15), project],
+      future: [],
+      project: lProj,
+      activeModuleIndex: 0,
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+      selectedComponentId: null,
+    });
+  },
+
+  loadUKitchen: () => {
+    const { project, history } = get();
+    const uProj = createKitchenUProject();
+    const { validationIssues, bom, pricing, smartAdvice } = recompute(uProj);
+    set({
+      history: [...history.slice(-15), project],
+      future: [],
+      project: uProj,
+      activeModuleIndex: 0,
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+      selectedComponentId: null,
+    });
+  },
+
   resetToDefault: () => {
     const def = createInitialProject();
     const { validationIssues, bom, pricing, smartAdvice } = recompute(def);
     set({
       project: def,
       activeModuleIndex: 0,
+      activeBayIndex: 0,
       history: [],
       future: [],
       validationIssues,

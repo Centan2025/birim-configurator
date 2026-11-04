@@ -1,4 +1,4 @@
-import { DesignProject } from "@birim/core";
+import { DesignProject, evaluateProjectCompatibility } from "@birim/core";
 import { ManufacturingBOM } from "@birim/manufacturing";
 import { PricingBreakdown } from "@birim/pricing";
 import { IStoreAdapter, StoreQuoteItemPayload, AuditLogEntry } from "./types";
@@ -15,7 +15,6 @@ export class MockStoreAdapter implements IStoreAdapter {
     quoteId = "quote_mock_default",
     idempotencyKey?: string
   ): Promise<{ success: boolean; snapshotId: string; timestamp: string }> {
-    // Idempotency check: if key already exists, return previous result
     if (idempotencyKey && this.idempotencyRegistry.has(idempotencyKey)) {
       const existingSnapshotId = this.idempotencyRegistry.get(idempotencyKey)!;
       return {
@@ -27,6 +26,18 @@ export class MockStoreAdapter implements IStoreAdapter {
 
     const mainMod = project.modules[0];
     const snapshotId = `snp_${project.id}_v${project.version}_${Date.now()}`;
+    const compatibility = evaluateProjectCompatibility(project);
+
+    const selectedDoorSystems = Array.from(
+      new Set(
+        project.modules.flatMap((m) =>
+          m.bays
+            .map((b) => String(b.door?.doorSystemId || b.door?.type || ""))
+            .filter((v) => v.length > 0 && v !== "open")
+        )
+      )
+    );
+    const selectedHardwareSkus = bom.hardwareList.map((h) => h.sku);
 
     const payload: StoreQuoteItemPayload = {
       quoteId,
@@ -37,6 +48,7 @@ export class MockStoreAdapter implements IStoreAdapter {
       configuratorSnapshot: {
         designId: project.id,
         version: project.version,
+        libraryVersionId: project.libraryVersionId || "lib_v4_0_0",
         title: project.title,
         category: mainMod ? mainMod.category : "custom",
         dimensionsSummary: mainMod
@@ -47,6 +59,9 @@ export class MockStoreAdapter implements IStoreAdapter {
         materialsSummary: mainMod
           ? `Gövde: ${mainMod.carcass.bodyMaterialId} | Kapak: ${mainMod.carcass.doorMaterialId}`
           : "Çoklu Malzeme",
+        selectedDoorSystems,
+        selectedHardwareSkus,
+        compatibilityStatus: compatibility.overallStatus,
         bomSummary: {
           totalPieces: bom.summary.totalPiecesCount,
           totalAreaM2: bom.summary.totalPanelAreaM2,
@@ -62,7 +77,6 @@ export class MockStoreAdapter implements IStoreAdapter {
       this.idempotencyRegistry.set(idempotencyKey, snapshotId);
     }
 
-    // Write audit log
     this.auditLogs.push({
       id: `AUDIT_${Date.now()}`,
       timestamp: new Date().toISOString(),
