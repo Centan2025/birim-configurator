@@ -9,8 +9,9 @@ export const DEFAULT_MATERIALS: MaterialDefinition[] = [
     colorHex: "#f3f4f6",
     roughness: 0.5,
     metalness: 0.05,
-    costPerM2: 24, // EUR / m²
+    costPerM2: 24,
     edgeBandCostPerM: 1.5,
+    hasGrain: false,
   },
   {
     id: "mat_melamine_anthracite",
@@ -22,6 +23,7 @@ export const DEFAULT_MATERIALS: MaterialDefinition[] = [
     metalness: 0.1,
     costPerM2: 28,
     edgeBandCostPerM: 1.8,
+    hasGrain: false,
   },
   {
     id: "mat_veneer_oak",
@@ -33,6 +35,7 @@ export const DEFAULT_MATERIALS: MaterialDefinition[] = [
     metalness: 0.0,
     costPerM2: 75,
     edgeBandCostPerM: 4.2,
+    hasGrain: true,
   },
   {
     id: "mat_veneer_walnut",
@@ -44,6 +47,7 @@ export const DEFAULT_MATERIALS: MaterialDefinition[] = [
     metalness: 0.0,
     costPerM2: 95,
     edgeBandCostPerM: 5.0,
+    hasGrain: true,
   },
   {
     id: "mat_lacquer_cream",
@@ -55,6 +59,7 @@ export const DEFAULT_MATERIALS: MaterialDefinition[] = [
     metalness: 0.05,
     costPerM2: 68,
     edgeBandCostPerM: 3.5,
+    hasGrain: false,
   },
   {
     id: "mat_lacquer_sage",
@@ -66,6 +71,7 @@ export const DEFAULT_MATERIALS: MaterialDefinition[] = [
     metalness: 0.05,
     costPerM2: 68,
     edgeBandCostPerM: 3.5,
+    hasGrain: false,
   },
   {
     id: "mat_smoked_glass",
@@ -77,6 +83,7 @@ export const DEFAULT_MATERIALS: MaterialDefinition[] = [
     metalness: 0.9,
     costPerM2: 125,
     edgeBandCostPerM: 0,
+    hasGrain: false,
   },
 ];
 
@@ -100,6 +107,7 @@ export function createDefaultWardrobeModule(id = "module_1"): ModuleInstance {
       edgeBandThickness: 1,
       bodyMaterialId: "mat_melamine_white",
       doorMaterialId: "mat_veneer_oak",
+      jointType: "minifix_dowel",
     },
     isOpenFront: false,
     bays: [
@@ -120,6 +128,7 @@ export function createDefaultWardrobeModule(id = "module_1"): ModuleInstance {
           { id: "rail_0_1", bayIndex: 0, elevationY: 1680 },
         ],
         drawers: [],
+        specialFittings: [],
       },
       {
         index: 1,
@@ -140,6 +149,7 @@ export function createDefaultWardrobeModule(id = "module_1"): ModuleInstance {
           { id: "drawer_1_1", bayIndex: 1, elevationY: 0, height: 180, slideType: "soft_close" },
           { id: "drawer_1_2", bayIndex: 1, elevationY: 185, height: 180, slideType: "soft_close" },
         ],
+        specialFittings: [],
       },
     ],
   };
@@ -167,9 +177,11 @@ export function createInitialProject(): DesignProject {
           thickness: 150,
           position: { x: 0, y: 0, z: 0 },
           rotationY: 0,
+          elements: [],
         },
       ],
       ceilingHeight: 2700,
+      elements: [],
     },
     modules: [mod],
     createdAt: new Date().toISOString(),

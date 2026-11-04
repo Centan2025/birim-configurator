@@ -3,13 +3,15 @@ import { ComponentGeometry, ModuleGeometryBreakdown } from "./types";
 
 export interface GenerateGeometryOptions {
   doorOpenAngleDeg?: number; // 0 = closed, 90 = open
+  drawerOpenMm?: number; // 0 = closed, 350 = pulled out
+  explodedFactor?: number; // 0 = normal, 1 = fully exploded
 }
 
 export function generateModuleGeometry(
   module: ModuleInstance,
   options: GenerateGeometryOptions = {}
 ): ModuleGeometryBreakdown {
-  const { doorOpenAngleDeg = 0 } = options;
+  const { doorOpenAngleDeg = 0, drawerOpenMm = 0, explodedFactor = 0 } = options;
   const { width, height, depth } = module.dimensions;
   const {
     panelThickness: T,
@@ -25,69 +27,74 @@ export function generateModuleGeometry(
   const netInnerH = calculateNetInnerHeight(module);
   const netInnerD = calculateNetInnerDepth(module);
 
+  // Exploded offsets
+  const explodeX = explodedFactor > 0 ? explodedFactor * 250 : 0;
+  const explodeY = explodedFactor > 0 ? explodedFactor * 200 : 0;
+  const explodeZ = explodedFactor > 0 ? explodedFactor * 300 : 0;
+
   // 1. Plinth (Baza)
   if (plinthHeight > 0) {
     components.push({
       id: `${module.id}_plinth_front`,
       role: "plinth",
       label: "Baza Ön",
-      dimensions: { width: width, height: plinthHeight, depth: T },
-      position: { x: 0, y: 0, z: depth - T - 20 }, // 20mm inset
+      dimensions: { width, height: plinthHeight, depth: T },
+      position: { x: 0, y: explodeY > 0 ? -explodeY : 0, z: depth - T - 20 },
       materialId: bodyMaterialId,
     });
   }
 
-  // 2. Left Side Panel (Sol Yan)
+  // 2. Left Side Panel
   const sideH = height - plinthHeight;
   components.push({
     id: `${module.id}_side_left`,
     role: "carcass_side_left",
     label: "Sol Yan Panel",
     dimensions: { width: T, height: sideH, depth },
-    position: { x: 0, y: plinthHeight, z: 0 },
+    position: { x: explodeX > 0 ? -explodeX : 0, y: plinthHeight, z: 0 },
     materialId: bodyMaterialId,
   });
 
-  // 3. Right Side Panel (Sağ Yan)
+  // 3. Right Side Panel
   components.push({
     id: `${module.id}_side_right`,
     role: "carcass_side_right",
     label: "Sağ Yan Panel",
     dimensions: { width: T, height: sideH, depth },
-    position: { x: width - T, y: plinthHeight, z: 0 },
+    position: { x: width - T + explodeX, y: plinthHeight, z: 0 },
     materialId: bodyMaterialId,
   });
 
-  // 4. Bottom Panel (Alt Panel)
+  // 4. Bottom Panel
   const innerSpanW = width - 2 * T;
   components.push({
     id: `${module.id}_bottom`,
     role: "carcass_bottom",
     label: "Alt Panel",
     dimensions: { width: innerSpanW, height: T, depth },
-    position: { x: T, y: plinthHeight, z: 0 },
+    position: { x: T, y: plinthHeight - explodeY * 0.5, z: 0 },
     materialId: bodyMaterialId,
   });
 
-  // 5. Top Panel (Üst Panel)
+  // 5. Top Panel
   components.push({
     id: `${module.id}_top`,
     role: "carcass_top",
     label: "Üst Panel",
     dimensions: { width: innerSpanW, height: T, depth },
-    position: { x: T, y: height - T, z: 0 },
+    position: { x: T, y: height - T + explodeY, z: 0 },
     materialId: bodyMaterialId,
   });
 
-  // 6. Back Panel (Arkalık)
-  const backW = innerSpanW + 16; // 8mm groove on each side
+  // 6. Back Panel
+  const backW = innerSpanW + 16;
   const backH = netInnerH + 16;
   components.push({
     id: `${module.id}_back`,
     role: "carcass_back",
     label: "Arkalık",
     dimensions: { width: backW, height: backH, depth: T_back },
-    position: { x: T - 8, y: plinthHeight + T - 8, z: 12 },
+    position: { x: T - 8, y: plinthHeight + T - 8, z: 12 - explodeZ * 0.8 },
     materialId: bodyMaterialId,
   });
 
@@ -98,7 +105,7 @@ export function generateModuleGeometry(
     const bayW = bayWidths[bayIdx] || 0;
     const bayStartX = currentX;
 
-    // Intermediate Divider (Dikme) if not the last bay
+    // Intermediate Divider
     if (bayIdx < module.bays.length - 1) {
       const dividerX = bayStartX + bayW;
       components.push({
@@ -139,39 +146,62 @@ export function generateModuleGeometry(
       });
     });
 
-    // Drawers
+    // Special Fittings (Trouser rack, shoe rack, etc.)
+    bay.specialFittings?.forEach((fit, fIdx) => {
+      components.push({
+        id: fit.id || `${module.id}_bay_${bayIdx}_fit_${fIdx}`,
+        role: "shelf",
+        label: `Özel Donanım (${fit.type}) B${bayIdx + 1}`,
+        bayIndex: bayIdx,
+        dimensions: { width: bayW - 20, height: fit.height, depth: netInnerD - 40 },
+        position: { x: bayStartX + 10, y: plinthHeight + T + fit.elevationY, z: 30 },
+        materialId: "mat_metal_chrome",
+      });
+    });
+
+    // Drawers with forward pull-out animation
     bay.drawers.forEach((drawer, dIdx) => {
-      // Drawer Front (Klapa)
       const frontH = drawer.height - 3;
       const frontW = bayW - 4;
+      const pulledZ = drawerOpenMm;
+
+      // Drawer Front
       components.push({
         id: `${drawer.id}_front`,
         role: "drawer_front",
         label: `Çekmece Önü B${bayIdx + 1}-${dIdx + 1}`,
         bayIndex: bayIdx,
         dimensions: { width: frontW, height: frontH, depth: T },
-        position: { x: bayStartX + 2, y: plinthHeight + T + drawer.elevationY + 1.5, z: depth - T },
+        position: {
+          x: bayStartX + 2,
+          y: plinthHeight + T + drawer.elevationY + 1.5,
+          z: depth - T + pulledZ + explodeZ,
+        },
         materialId: drawer.frontMaterialId || doorMaterialId,
         isFrontFacing: true,
       });
 
-      // Drawer Inner Box
+      // Drawer Box
       components.push({
         id: `${drawer.id}_box`,
         role: "drawer_box",
         label: `Çekmece Gövdesi B${bayIdx + 1}-${dIdx + 1}`,
         bayIndex: bayIdx,
         dimensions: { width: bayW - 24, height: Math.max(60, frontH - 40), depth: Math.min(500, netInnerD - 50) },
-        position: { x: bayStartX + 12, y: plinthHeight + T + drawer.elevationY + 10, z: 40 },
+        position: {
+          x: bayStartX + 12,
+          y: plinthHeight + T + drawer.elevationY + 10,
+          z: 40 + pulledZ + explodeZ * 0.7,
+        },
         materialId: bodyMaterialId,
       });
     });
 
-    // Doors (if front is not open and bay door is defined)
+    // Doors
     if (!module.isOpenFront && bay.door && bay.door.type !== "open") {
       const doorH = netInnerH + 2 * T - 2 * doorPerimeterGap;
       const doorY = plinthHeight + doorPerimeterGap;
-      const doorZ = depth; // flush against front carcass edge
+      const doorZ = depth + explodeZ;
       const rad = (doorOpenAngleDeg * Math.PI) / 180;
 
       if (bay.door.type === "single_left") {
@@ -204,7 +234,6 @@ export function generateModuleGeometry(
         const totalSpan = bayW + (bayIdx === 0 ? T : T / 2) + (bayIdx === module.bays.length - 1 ? T : T / 2);
         const leafW = (totalSpan - 3 * doorPerimeterGap) / 2;
 
-        // Left leaf
         components.push({
           id: `${bay.door.id}_leaf_left`,
           role: "door_left",
@@ -217,7 +246,6 @@ export function generateModuleGeometry(
           isFrontFacing: true,
         });
 
-        // Right leaf
         components.push({
           id: `${bay.door.id}_leaf_right`,
           role: "door_right",
@@ -226,6 +254,24 @@ export function generateModuleGeometry(
           dimensions: { width: leafW, height: doorH, depth: T },
           position: { x: bayStartX - (bayIdx === 0 ? T : T / 2) + doorPerimeterGap + leafW + doorPerimeterGap, y: doorY, z: doorZ },
           rotation: [0, rad, 0],
+          materialId: bay.door.doorMaterialId || doorMaterialId,
+          isFrontFacing: true,
+        });
+      } else if (bay.door.type === "sliding") {
+        // Sliding door: slides sideways along track
+        const slideOffset = (doorOpenAngleDeg / 90) * (bayW * 0.75);
+        const doorW = bayW + T;
+        components.push({
+          id: `${bay.door.id}_sliding`,
+          role: "door_left",
+          label: `Sürgülü Kapak B${bayIdx + 1}`,
+          bayIndex: bayIdx,
+          dimensions: { width: doorW, height: doorH, depth: T },
+          position: {
+            x: bayStartX - (bayIdx === 0 ? T : 0) + slideOffset,
+            y: doorY,
+            z: doorZ + (bayIdx % 2 === 0 ? 0 : 25), // dual track offset
+          },
           materialId: bay.door.doorMaterialId || doorMaterialId,
           isFrontFacing: true,
         });
@@ -243,4 +289,11 @@ export function generateModuleGeometry(
     netInnerHeight: netInnerH,
     netInnerDepth: netInnerD,
   };
+}
+
+export function generateMultiModuleGeometry(
+  modules: ModuleInstance[],
+  options: GenerateGeometryOptions = {}
+): ModuleGeometryBreakdown[] {
+  return modules.map((m) => generateModuleGeometry(m, options));
 }

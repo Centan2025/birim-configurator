@@ -31,6 +31,7 @@ export const WARDROBE_TEMPLATES: ModuleTemplate[] = [
         edgeBandThickness: 1,
         bodyMaterialId: "mat_melamine_white",
         doorMaterialId: "mat_veneer_oak",
+        jointType: "minifix_dowel",
       },
       bays: [
         {
@@ -42,6 +43,7 @@ export const WARDROBE_TEMPLATES: ModuleTemplate[] = [
           ],
           hangingRails: [{ id: `rail_${id}_0`, bayIndex: 0, elevationY: 1730 }],
           drawers: [],
+          specialFittings: [],
         },
       ],
     }),
@@ -67,6 +69,7 @@ export const WARDROBE_TEMPLATES: ModuleTemplate[] = [
         edgeBandThickness: 1,
         bodyMaterialId: "mat_melamine_white",
         doorMaterialId: "mat_lacquer_cream",
+        jointType: "minifix_dowel",
       },
       bays: [
         {
@@ -80,6 +83,7 @@ export const WARDROBE_TEMPLATES: ModuleTemplate[] = [
           ],
           hangingRails: [],
           drawers: [],
+          specialFittings: [],
         },
         {
           index: 1,
@@ -90,6 +94,7 @@ export const WARDROBE_TEMPLATES: ModuleTemplate[] = [
             { id: `drw_${id}_1_1`, bayIndex: 1, elevationY: 0, height: 180, slideType: "soft_close" },
             { id: `drw_${id}_1_2`, bayIndex: 1, elevationY: 185, height: 180, slideType: "soft_close" },
           ],
+          specialFittings: [],
         },
       ],
     }),
@@ -98,12 +103,12 @@ export const WARDROBE_TEMPLATES: ModuleTemplate[] = [
     templateId: "tpl_wardrobe_walkin_open",
     name: "Açık Giyinme Odası Modülü (Walk-in)",
     description: "Kapak kullanılmayan modern açık giyinme sistemi",
-    category: "wardrobe",
+    category: "wardrobe_walkin",
     defaultDimensions: { width: 1000, height: 2300, depth: 550 },
     createInstance: (id, name = "Açık Giyinme Modülü") => ({
       id,
       name,
-      category: "wardrobe",
+      category: "wardrobe_walkin",
       isOpenFront: true,
       position: { x: 0, y: 0, z: 0 },
       dimensions: { width: 1000, height: 2300, depth: 550 },
@@ -116,6 +121,7 @@ export const WARDROBE_TEMPLATES: ModuleTemplate[] = [
         edgeBandThickness: 1,
         bodyMaterialId: "mat_veneer_walnut",
         doorMaterialId: "mat_veneer_walnut",
+        jointType: "minifix_dowel",
       },
       bays: [
         {
@@ -133,6 +139,7 @@ export const WARDROBE_TEMPLATES: ModuleTemplate[] = [
             { id: `drw_${id}_0_1`, bayIndex: 0, elevationY: 0, height: 160, slideType: "push_to_open" },
             { id: `drw_${id}_0_2`, bayIndex: 0, elevationY: 165, height: 160, slideType: "push_to_open" },
           ],
+          specialFittings: [],
         },
       ],
     }),
@@ -161,6 +168,7 @@ export const KITCHEN_TEMPLATES: ModuleTemplate[] = [
         edgeBandThickness: 1,
         bodyMaterialId: "mat_melamine_white",
         doorMaterialId: "mat_lacquer_sage",
+        jointType: "minifix_dowel",
       },
       bays: [
         {
@@ -169,6 +177,7 @@ export const KITCHEN_TEMPLATES: ModuleTemplate[] = [
           shelves: [{ id: `shelf_${id}_0_mid`, bayIndex: 0, elevationY: 340, isAdjustable: true }],
           hangingRails: [],
           drawers: [],
+          specialFittings: [],
         },
       ],
     }),
@@ -194,6 +203,7 @@ export const KITCHEN_TEMPLATES: ModuleTemplate[] = [
         edgeBandThickness: 1,
         bodyMaterialId: "mat_melamine_white",
         doorMaterialId: "mat_lacquer_sage",
+        jointType: "minifix_dowel",
       },
       bays: [
         {
@@ -206,6 +216,7 @@ export const KITCHEN_TEMPLATES: ModuleTemplate[] = [
             { id: `drw_${id}_0_2`, bayIndex: 0, elevationY: 145, height: 280, slideType: "soft_close" },
             { id: `drw_${id}_0_3`, bayIndex: 0, elevationY: 430, height: 280, slideType: "soft_close" },
           ],
+          specialFittings: [],
         },
       ],
     }),
@@ -231,6 +242,7 @@ export const KITCHEN_TEMPLATES: ModuleTemplate[] = [
         edgeBandThickness: 1,
         bodyMaterialId: "mat_melamine_white",
         doorMaterialId: "mat_lacquer_sage",
+        jointType: "minifix_dowel",
       },
       bays: [
         {
@@ -239,6 +251,7 @@ export const KITCHEN_TEMPLATES: ModuleTemplate[] = [
           shelves: [],
           hangingRails: [],
           drawers: [],
+          specialFittings: [],
         },
       ],
     }),
@@ -264,6 +277,7 @@ export const KITCHEN_TEMPLATES: ModuleTemplate[] = [
         edgeBandThickness: 1,
         bodyMaterialId: "mat_melamine_white",
         doorMaterialId: "mat_lacquer_sage",
+        jointType: "minifix_dowel",
       },
       bays: [
         {
@@ -275,6 +289,7 @@ export const KITCHEN_TEMPLATES: ModuleTemplate[] = [
           ],
           hangingRails: [],
           drawers: [],
+          specialFittings: [],
         },
       ],
     }),
@@ -300,6 +315,7 @@ export const KITCHEN_TEMPLATES: ModuleTemplate[] = [
         edgeBandThickness: 1,
         bodyMaterialId: "mat_melamine_white",
         doorMaterialId: "mat_lacquer_sage",
+        jointType: "minifix_dowel",
       },
       bays: [
         {
@@ -315,6 +331,7 @@ export const KITCHEN_TEMPLATES: ModuleTemplate[] = [
             { id: `drw_${id}_0_2`, bayIndex: 0, elevationY: 185, height: 180, slideType: "soft_close" },
             { id: `drw_${id}_0_3`, bayIndex: 0, elevationY: 370, height: 180, slideType: "soft_close" },
           ],
+          specialFittings: [],
         },
       ],
     }),

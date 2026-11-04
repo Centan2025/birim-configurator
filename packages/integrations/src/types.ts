@@ -2,10 +2,22 @@ import { DesignProject } from "@birim/core";
 import { ManufacturingBOM } from "@birim/manufacturing";
 import { PricingBreakdown } from "@birim/pricing";
 
+export interface AuditLogEntry {
+  id: string;
+  timestamp: string;
+  userId: string;
+  branchId: string;
+  action: "QUOTE_SNAPSHOT_CREATED" | "PRODUCTION_BLUEPRINT_EXPORTED" | "DESIGN_LOCKED";
+  resourceId: string;
+  details: Record<string, string | number>;
+}
+
 export interface StoreQuoteItemPayload {
   quoteId: string;
   cartItemId: string;
   branchId: string;
+  idempotencyKey?: string;
+  signature?: string;
   configuratorSnapshot: {
     designId: string;
     version: number;
@@ -19,6 +31,7 @@ export interface StoreQuoteItemPayload {
       totalPieces: number;
       totalAreaM2: number;
       totalHardwareCount: number;
+      totalDrillingHolesCount: number;
     };
     rawProjectData: DesignProject;
   };
@@ -28,15 +41,18 @@ export interface ERPBlueprintPayload {
   id?: string;
   order_id: string;
   version: number;
+  branch_id: string;
+  idempotency_key?: string;
   status: "draft" | "active" | "completed" | "archived";
   items: {
     piece_id: string;
     label: string;
     material: string;
-    dimensions_mm: [number, number, number]; // [length, width, thickness]
+    dimensions_mm: [number, number, number];
     edge_banding: { top: boolean; bottom: boolean; left: boolean; right: boolean; thickness_mm: number };
     grain: string;
-    workshops: string[]; // e.g. ["ebatlama", "kenar_bantlama", "cnc", "montaj"]
+    workshops: string[];
+    drilling_count: number;
   }[];
   hardware_items: {
     sku: string;
@@ -53,9 +69,22 @@ export interface ERPBlueprintPayload {
 }
 
 export interface IStoreAdapter {
-  createOrUpdateQuoteItem(project: DesignProject, bom: ManufacturingBOM, pricing: PricingBreakdown, quoteId: string): Promise<{ success: boolean; snapshotId: string; timestamp: string }>;
+  createOrUpdateQuoteItem(
+    project: DesignProject,
+    bom: ManufacturingBOM,
+    pricing: PricingBreakdown,
+    quoteId: string,
+    idempotencyKey?: string
+  ): Promise<{ success: boolean; snapshotId: string; timestamp: string }>;
+  getAuditLogs(): AuditLogEntry[];
 }
 
 export interface IERPAdapter {
-  publishProductionBlueprint(project: DesignProject, bom: ManufacturingBOM, orderId: string): Promise<{ success: boolean; blueprintId: string; itemsCount: number }>;
+  publishProductionBlueprint(
+    project: DesignProject,
+    bom: ManufacturingBOM,
+    orderId: string,
+    idempotencyKey?: string
+  ): Promise<{ success: boolean; blueprintId: string; itemsCount: number }>;
+  getAuditLogs(): AuditLogEntry[];
 }

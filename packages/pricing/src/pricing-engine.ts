@@ -1,14 +1,16 @@
 import { DEFAULT_MATERIALS, MaterialDefinition } from "@birim/core";
 import { ManufacturingBOM } from "@birim/manufacturing";
-import { PricingBreakdown, PricingParameters } from "./types";
+import { PricingBreakdown, PricingParameters, MaterialAlternativeComparison } from "./types";
 
 export const DEFAULT_PRICING_PARAMS: PricingParameters = {
-  wasteFactorPercent: 12, // %12 fire
+  wasteFactorPercent: 12,
   laborRatePerHourEur: 28,
   estimatedHoursPerM2: 0.65,
   operationalOverheadPercent: 10,
   assemblyCostEur: 95,
-  targetMarginPercent: 35, // %35 kâr marjı
+  cncCostPerHoleEur: 0.04, // 0.04 EUR per drilling operation
+  packagingCostEur: 35,
+  targetMarginPercent: 35,
   currency: "EUR",
   eurTryExchangeRate: 38.5,
 };
@@ -54,26 +56,33 @@ export function calculateProjectPrice(
     });
   });
 
-  const rawMaterialsTotal = totalMaterialCostEur + totalEdgeBandCostEur + totalHardwareCostEur;
+  // 4. CNC Drilling Operations Cost
+  const totalHolesCount = bom.summary.totalDrillingHolesCount || 0;
+  const cncDrillingCost = totalHolesCount * params.cncCostPerHoleEur;
 
-  // 4. Labor cost: based on total panel area & estimated hours
+  const rawMaterialsTotal = totalMaterialCostEur + totalEdgeBandCostEur + totalHardwareCostEur + cncDrillingCost;
+
+  // 5. Labor cost: based on total panel area & estimated hours
   const totalHours = bom.summary.totalPanelAreaM2 * params.estimatedHoursPerM2;
   const laborCost = totalHours * params.laborRatePerHourEur;
 
-  // 5. Operational overhead
+  // 6. Operational overhead
   const operationalOverhead = (rawMaterialsTotal + laborCost) * (params.operationalOverheadPercent / 100);
 
-  // 6. Net production cost
+  // 7. Net production cost
   const netProductionCost = rawMaterialsTotal + laborCost + operationalOverhead;
 
-  // 7. Margin
-  const marginAmount = (netProductionCost + params.assemblyCostEur) * (params.targetMarginPercent / 100);
+  // 8. Fixed logistics (assembly & packaging)
+  const logisticsTotal = params.assemblyCostEur + params.packagingCostEur;
 
-  // 8. Net subtotal before VAT
-  const subtotalNetEur = netProductionCost + params.assemblyCostEur + marginAmount;
+  // 9. Margin
+  const marginAmount = (netProductionCost + logisticsTotal) * (params.targetMarginPercent / 100);
+
+  // 10. Net subtotal before VAT
+  const subtotalNetEur = netProductionCost + logisticsTotal + marginAmount;
   const subtotalNetTry = subtotalNetEur * params.eurTryExchangeRate;
 
-  // 9. VAT (KDV %20)
+  // 11. VAT (KDV %20)
   const vatRatePercent = 20;
   const vatAmountEur = subtotalNetEur * (vatRatePercent / 100);
   const vatAmountTry = subtotalNetTry * (vatRatePercent / 100);
@@ -81,16 +90,45 @@ export function calculateProjectPrice(
   const totalWithVatEur = subtotalNetEur + vatAmountEur;
   const totalWithVatTry = subtotalNetTry + vatAmountTry;
 
+  // Compute Material Alternatives Comparison
+  const materialAlternatives: MaterialAlternativeComparison[] = DEFAULT_MATERIALS.map((altMat) => {
+    let altMatCostEur = 0;
+    bom.materialUsage.forEach((item) => {
+      altMatCostEur += item.grossAreaM2 * altMat.costPerM2;
+    });
+
+    const altRaw = altMatCostEur + totalEdgeBandCostEur + totalHardwareCostEur + cncDrillingCost;
+    const altOverhead = (altRaw + laborCost) * (params.operationalOverheadPercent / 100);
+    const altNetProd = altRaw + laborCost + altOverhead;
+    const altMargin = (altNetProd + logisticsTotal) * (params.targetMarginPercent / 100);
+    const altSubtotalEur = altNetProd + logisticsTotal + altMargin;
+    const altTotalVatEur = altSubtotalEur * 1.2;
+
+    const diffEur = altTotalVatEur - totalWithVatEur;
+    const diffPercent = totalWithVatEur > 0 ? (diffEur / totalWithVatEur) * 100 : 0;
+
+    return {
+      materialId: altMat.id,
+      materialName: altMat.name,
+      totalWithVatEur: Number(altTotalVatEur.toFixed(2)),
+      totalWithVatTry: Number((altTotalVatEur * params.eurTryExchangeRate).toFixed(2)),
+      diffEur: Number(diffEur.toFixed(2)),
+      diffPercent: Number(diffPercent.toFixed(1)),
+    };
+  });
+
   return {
     currency: params.currency,
     materialCost: Number(totalMaterialCostEur.toFixed(2)),
     edgeBandCost: Number(totalEdgeBandCostEur.toFixed(2)),
     hardwareCost: Number(totalHardwareCostEur.toFixed(2)),
+    cncDrillingCost: Number(cncDrillingCost.toFixed(2)),
     rawMaterialsTotal: Number(rawMaterialsTotal.toFixed(2)),
     laborCost: Number(laborCost.toFixed(2)),
     operationalOverhead: Number(operationalOverhead.toFixed(2)),
     netProductionCost: Number(netProductionCost.toFixed(2)),
     assemblyCost: Number(params.assemblyCostEur.toFixed(2)),
+    packagingCost: Number(params.packagingCostEur.toFixed(2)),
     marginAmount: Number(marginAmount.toFixed(2)),
     subtotalNetEur: Number(subtotalNetEur.toFixed(2)),
     subtotalNetTry: Number(subtotalNetTry.toFixed(2)),
@@ -103,6 +141,8 @@ export function calculateProjectPrice(
       materialLines,
       hardwareLines,
       totalEdgeBandMeters: bom.summary.totalEdgeBandMeters,
+      totalHolesCount,
     },
+    materialAlternatives,
   };
 }

@@ -1,5 +1,5 @@
 import { UnitLength } from "@birim/core";
-import { ComponentGeometry, ModuleGeometryBreakdown } from "./types";
+import { ModuleGeometryBreakdown, ComponentGeometry } from "./types";
 
 export interface Rect2D {
   id: string;
@@ -37,15 +37,14 @@ export function generateElevation2D(
   selectedComponentId?: string
 ): Elevation2DData {
   const { overall, components, bayWidths } = breakdown;
-  const padding = 150; // extra space for dimension lines
+  const padding = 150;
 
   const elements: Rect2D[] = components
-    .filter((c) => c.role !== "carcass_back" && c.role !== "hanging_rail") // back panel is hidden, rail drawn as bar
+    .filter((c) => c.role !== "carcass_back" && c.role !== "hanging_rail")
     .map((c) => ({
       id: c.id,
       label: c.label,
       x: c.position.x,
-      // In SVG / 2D Canvas Y=0 is at top, so flip Y: top = overall.height - (y + height)
       y: overall.height - (c.position.y + c.dimensions.height),
       width: c.dimensions.width,
       height: c.dimensions.height,
@@ -54,7 +53,6 @@ export function generateElevation2D(
     }));
 
   const dimensionLines: DimensionLine2D[] = [
-    // Total Width top dimension
     {
       id: "dim_total_width",
       x1: 0,
@@ -66,7 +64,6 @@ export function generateElevation2D(
       orientation: "horizontal",
       offset: -40,
     },
-    // Total Height left dimension
     {
       id: "dim_total_height",
       x1: -50,
@@ -80,8 +77,7 @@ export function generateElevation2D(
     },
   ];
 
-  // Individual bay width dimensions at bottom
-  let currentX = 18; // assuming 18mm side
+  let currentX = 18;
   bayWidths.forEach((bw, i) => {
     dimensionLines.push({
       id: `dim_bay_${i}`,
@@ -161,6 +157,76 @@ export function generateTopPlan2D(
       y: -padding,
       width: overall.width + padding * 2,
       height: overall.depth + padding * 2,
+    },
+    elements,
+    dimensionLines,
+    bayLines: [],
+  };
+}
+
+/**
+ * Generates Cross-section 2D view (Düşey Kesit Çizimi) slicing through Depth x Height
+ */
+export function generateCrossSection2D(
+  breakdown: ModuleGeometryBreakdown,
+  selectedComponentId?: string
+): Elevation2DData {
+  const { overall, components } = breakdown;
+  const padding = 120;
+
+  // Filter components visible in depth cross-section (bottom, top, plinth, shelves, drawer boxes)
+  const elements: Rect2D[] = components
+    .filter(
+      (c) =>
+        c.role === "carcass_bottom" ||
+        c.role === "carcass_top" ||
+        c.role === "plinth" ||
+        c.role === "shelf" ||
+        c.role === "drawer_box" ||
+        c.role === "carcass_back"
+    )
+    .map((c) => ({
+      id: c.id,
+      label: c.label,
+      x: c.position.z,
+      y: overall.height - (c.position.y + c.dimensions.height),
+      width: c.dimensions.depth,
+      height: c.dimensions.height,
+      role: c.role,
+      isSelected: c.id === selectedComponentId,
+    }));
+
+  const dimensionLines: DimensionLine2D[] = [
+    {
+      id: "dim_sec_depth",
+      x1: 0,
+      y1: -30,
+      x2: overall.depth,
+      y2: -30,
+      value: overall.depth,
+      label: `Net Derinlik: ${overall.depth} mm`,
+      orientation: "horizontal",
+      offset: -30,
+    },
+    {
+      id: "dim_sec_height",
+      x1: -40,
+      y1: overall.height,
+      x2: -40,
+      y2: 0,
+      value: overall.height,
+      label: `Net Yükseklik: ${overall.height} mm`,
+      orientation: "vertical",
+      offset: -40,
+    },
+  ];
+
+  return {
+    viewBox: {
+      x: -padding,
+      y: -padding,
+      width: overall.depth + padding * 2,
+      height: overall.height + padding * 2,
     },
     elements,
     dimensionLines,
