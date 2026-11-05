@@ -1,0 +1,1636 @@
+[
+  {
+    "id": "tpl_kb_01_single_door",
+    "family": "fam_kitchen_base",
+    "name": "Tek Kapaklı Alt Dolap",
+    "dimensions": {
+      "width": 450,
+      "height": 720,
+      "depth": 580
+    },
+    "components": 11,
+    "cutPieces": 8,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kb_02_double_door",
+    "family": "fam_kitchen_base",
+    "name": "Çift Kapaklı Alt Dolap",
+    "dimensions": {
+      "width": 800,
+      "height": 720,
+      "depth": 580
+    },
+    "components": 15,
+    "cutPieces": 9,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kb_03_single_drawer",
+    "family": "fam_kitchen_base",
+    "name": "Tek Derin Çekmeceli Alt Dolap",
+    "dimensions": {
+      "width": 600,
+      "height": 720,
+      "depth": 580
+    },
+    "components": 16,
+    "cutPieces": 11,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "WARN_DRAWER_HEIGHT",
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kb_04_two_drawers",
+    "family": "fam_kitchen_base",
+    "name": "İki Çekmeceli Alt Dolap (2 Derin)",
+    "dimensions": {
+      "width": 800,
+      "height": 720,
+      "depth": 580
+    },
+    "components": 26,
+    "cutPieces": 16,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kb_05_three_drawers",
+    "family": "fam_kitchen_base",
+    "name": "Üç Çekmeceli Alt Dolap (1+2)",
+    "dimensions": {
+      "width": 800,
+      "height": 720,
+      "depth": 580
+    },
+    "components": 36,
+    "cutPieces": 21,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kb_06_four_drawers",
+    "family": "fam_kitchen_base",
+    "name": "Dört Çekmeceli Alt Dolap",
+    "dimensions": {
+      "width": 600,
+      "height": 720,
+      "depth": 580
+    },
+    "components": 46,
+    "cutPieces": 26,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kb_07_door_internal_drawer",
+    "family": "fam_kitchen_base",
+    "name": "Kapak + İç Çekmeceli Alt Dolap",
+    "dimensions": {
+      "width": 600,
+      "height": 720,
+      "depth": 580
+    },
+    "components": 25,
+    "cutPieces": 18,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kb_08_sink_base",
+    "family": "fam_kitchen_base",
+    "name": "Evye Alt Dolabı",
+    "dimensions": {
+      "width": 800,
+      "height": 720,
+      "depth": 580
+    },
+    "components": 14,
+    "cutPieces": 8,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kb_09_oven_housing",
+    "family": "fam_kitchen_base",
+    "name": "Ankastre Fırın Alt Dolabı",
+    "dimensions": {
+      "width": 600,
+      "height": 720,
+      "depth": 580
+    },
+    "components": 17,
+    "cutPieces": 12,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kb_10_dishwasher_front",
+    "family": "fam_kitchen_base",
+    "name": "Bulaşık Makinesi Entegrasyon Cephesi",
+    "dimensions": {
+      "width": 600,
+      "height": 720,
+      "depth": 580
+    },
+    "components": 10,
+    "cutPieces": 7,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kb_11_narrow_spice",
+    "family": "fam_kitchen_base",
+    "name": "Dar Baharatlık Modülü",
+    "dimensions": {
+      "width": 200,
+      "height": 720,
+      "depth": 580
+    },
+    "components": 11,
+    "cutPieces": 8,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kb_12_waste_sorting",
+    "family": "fam_kitchen_base",
+    "name": "Çöp Ayrıştırma Dolabı",
+    "dimensions": {
+      "width": 600,
+      "height": 720,
+      "depth": 580
+    },
+    "components": 11,
+    "cutPieces": 8,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kb_13_blind_corner",
+    "family": "fam_kitchen_base",
+    "name": "Kör Köşe Alt Dolabı (LeMans)",
+    "dimensions": {
+      "width": 1050,
+      "height": 720,
+      "depth": 580
+    },
+    "components": 12,
+    "cutPieces": 9,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "WARN_SHELF_SPAN_DEFLECTION",
+      "V41_FACTORY_RULES_UNVERIFIED",
+      "CHK_12_SHELF_SPAN_DEFLECTION",
+      "CHK_05_HINGED_LEAF_TOO_WIDE"
+    ]
+  },
+  {
+    "id": "tpl_kb_14_l_corner",
+    "family": "fam_kitchen_base",
+    "name": "L Köşe Alt Dolabı (90° Katlanır)",
+    "dimensions": {
+      "width": 900,
+      "height": 720,
+      "depth": 900
+    },
+    "components": 15,
+    "cutPieces": 9,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kb_15_diagonal_corner",
+    "family": "fam_kitchen_base",
+    "name": "Diyagonal (45°) Köşe Alt Dolabı",
+    "dimensions": {
+      "width": 900,
+      "height": 720,
+      "depth": 900
+    },
+    "components": 11,
+    "cutPieces": 8,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kb_16_open_shelf",
+    "family": "fam_kitchen_base",
+    "name": "Açık Raflı Alt Modül",
+    "dimensions": {
+      "width": 450,
+      "height": 720,
+      "depth": 580
+    },
+    "components": 8,
+    "cutPieces": 8,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kb_17_bottle_rack",
+    "family": "fam_kitchen_base",
+    "name": "Şaraplık / Şişelik Modülü",
+    "dimensions": {
+      "width": 300,
+      "height": 720,
+      "depth": 580
+    },
+    "components": 10,
+    "cutPieces": 10,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kb_18_cooktop_base",
+    "family": "fam_kitchen_base",
+    "name": "Ocak Altı Modülü",
+    "dimensions": {
+      "width": 900,
+      "height": 720,
+      "depth": 580
+    },
+    "components": 36,
+    "cutPieces": 21,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kb_19_drawer_door_combo",
+    "family": "fam_kitchen_base",
+    "name": "Çekmece + Kapak Kombinasyonu",
+    "dimensions": {
+      "width": 600,
+      "height": 720,
+      "depth": 580
+    },
+    "components": 21,
+    "cutPieces": 13,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kb_20_custom_base",
+    "family": "fam_kitchen_base",
+    "name": "Özel Ölçü Alt Modül",
+    "dimensions": {
+      "width": 600,
+      "height": 720,
+      "depth": 580
+    },
+    "components": 11,
+    "cutPieces": 8,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kw_01_single_door",
+    "family": "fam_kitchen_wall",
+    "name": "Tek Kapaklı Üst Dolap",
+    "dimensions": {
+      "width": 450,
+      "height": 720,
+      "depth": 350
+    },
+    "components": 11,
+    "cutPieces": 8,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kw_02_double_door",
+    "family": "fam_kitchen_wall",
+    "name": "Çift Kapaklı Üst Dolap",
+    "dimensions": {
+      "width": 800,
+      "height": 720,
+      "depth": 350
+    },
+    "components": 15,
+    "cutPieces": 9,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kw_03_open_shelf",
+    "family": "fam_kitchen_wall",
+    "name": "Açık Raflı Üst Modül",
+    "dimensions": {
+      "width": 600,
+      "height": 720,
+      "depth": 350
+    },
+    "components": 7,
+    "cutPieces": 7,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kw_04_glass_door",
+    "family": "fam_kitchen_wall",
+    "name": "Cam Kapaklı Vitrin Üst Dolap",
+    "dimensions": {
+      "width": 800,
+      "height": 720,
+      "depth": 350
+    },
+    "components": 15,
+    "cutPieces": 9,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kw_05_lift_stay_single",
+    "family": "fam_kitchen_wall",
+    "name": "Yukarı Kalkar Tek Kapak (HK top)",
+    "dimensions": {
+      "width": 800,
+      "height": 450,
+      "depth": 350
+    },
+    "components": 10,
+    "cutPieces": 7,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kw_06_lift_bifold",
+    "family": "fam_kitchen_wall",
+    "name": "İki Parçalı Katlanır Kalkar (HF top)",
+    "dimensions": {
+      "width": 900,
+      "height": 780,
+      "depth": 350
+    },
+    "components": 15,
+    "cutPieces": 9,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kw_07_lift_parallel",
+    "family": "fam_kitchen_wall",
+    "name": "Paralel Yukarı Kalkar (HL top)",
+    "dimensions": {
+      "width": 900,
+      "height": 500,
+      "depth": 350
+    },
+    "components": 10,
+    "cutPieces": 7,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kw_08_lift_up_over",
+    "family": "fam_kitchen_wall",
+    "name": "Üstten Döner Kalkar (HS top)",
+    "dimensions": {
+      "width": 900,
+      "height": 720,
+      "depth": 350
+    },
+    "components": 11,
+    "cutPieces": 8,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED",
+      "CHK_02_LIFT_STAY_HEIGHT_EXCEEDED"
+    ]
+  },
+  {
+    "id": "tpl_kw_09_hood_cabinet",
+    "family": "fam_kitchen_wall",
+    "name": "Davlumbaz Üst Dolabı",
+    "dimensions": {
+      "width": 600,
+      "height": 720,
+      "depth": 350
+    },
+    "components": 10,
+    "cutPieces": 7,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED",
+      "CHK_02_LIFT_STAY_HEIGHT_EXCEEDED"
+    ]
+  },
+  {
+    "id": "tpl_kw_10_microwave_wall",
+    "family": "fam_kitchen_wall",
+    "name": "Mikrodalga Nişli Üst Dolap",
+    "dimensions": {
+      "width": 600,
+      "height": 720,
+      "depth": 380
+    },
+    "components": 10,
+    "cutPieces": 7,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED",
+      "CHK_02_LIFT_STAY_HEIGHT_EXCEEDED"
+    ]
+  },
+  {
+    "id": "tpl_kw_11_corner_wall",
+    "family": "fam_kitchen_wall",
+    "name": "Köşe Üst Dolabı",
+    "dimensions": {
+      "width": 650,
+      "height": 720,
+      "depth": 650
+    },
+    "components": 15,
+    "cutPieces": 9,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kw_12_horizontal_wide",
+    "family": "fam_kitchen_wall",
+    "name": "Yatay Geniş Üst Dolap",
+    "dimensions": {
+      "width": 1200,
+      "height": 360,
+      "depth": 350
+    },
+    "components": 14,
+    "cutPieces": 8,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kw_13_narrow_wall",
+    "family": "fam_kitchen_wall",
+    "name": "Dar Üst Dolap",
+    "dimensions": {
+      "width": 300,
+      "height": 720,
+      "depth": 350
+    },
+    "components": 11,
+    "cutPieces": 8,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kw_14_led_shelf_unit",
+    "family": "fam_kitchen_wall",
+    "name": "Aydınlatmalı Üst Dolap",
+    "dimensions": {
+      "width": 900,
+      "height": 720,
+      "depth": 350
+    },
+    "components": 16,
+    "cutPieces": 10,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kw_15_custom_wall",
+    "family": "fam_kitchen_wall",
+    "name": "Özel Ölçü Üst Modül",
+    "dimensions": {
+      "width": 600,
+      "height": 720,
+      "depth": 350
+    },
+    "components": 11,
+    "cutPieces": 8,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kt_01_pantry_shelved",
+    "family": "fam_kitchen_tall",
+    "name": "Raflı Boy Kiler Dolabı",
+    "dimensions": {
+      "width": 600,
+      "height": 2150,
+      "depth": 580
+    },
+    "components": 15,
+    "cutPieces": 12,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kt_02_pantry_pullout",
+    "family": "fam_kitchen_tall",
+    "name": "Çekmeceli / Tandem Kiler Dolabı",
+    "dimensions": {
+      "width": 450,
+      "height": 2150,
+      "depth": 580
+    },
+    "components": 11,
+    "cutPieces": 8,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kt_03_pantry_internal_drawers",
+    "family": "fam_kitchen_tall",
+    "name": "İç Çekmeceli Boy Kiler (SPACE TOWER)",
+    "dimensions": {
+      "width": 600,
+      "height": 2150,
+      "depth": 580
+    },
+    "components": 40,
+    "cutPieces": 29,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kt_04_oven_tower",
+    "family": "fam_kitchen_tall",
+    "name": "Ankastre Fırın Kulesi",
+    "dimensions": {
+      "width": 600,
+      "height": 2150,
+      "depth": 580
+    },
+    "components": 32,
+    "cutPieces": 19,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kt_05_oven_microwave_tower",
+    "family": "fam_kitchen_tall",
+    "name": "Fırın + Mikrodalga Kulesi",
+    "dimensions": {
+      "width": 600,
+      "height": 2150,
+      "depth": 580
+    },
+    "components": 33,
+    "cutPieces": 20,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kt_06_builtin_fridge",
+    "family": "fam_kitchen_tall",
+    "name": "Ankastre Buzdolabı Boy Dolabı",
+    "dimensions": {
+      "width": 600,
+      "height": 2150,
+      "depth": 580
+    },
+    "components": 11,
+    "cutPieces": 8,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kt_07_fridge_surround",
+    "family": "fam_kitchen_tall",
+    "name": "Solo Buzdolabı Çevresi Ünitesi",
+    "dimensions": {
+      "width": 950,
+      "height": 2150,
+      "depth": 650
+    },
+    "components": 11,
+    "cutPieces": 8,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED",
+      "CHK_14_APPLIANCE_WIDTH_EN1116",
+      "CHK_02_LIFT_STAY_HEIGHT_EXCEEDED",
+      "CHK_03_LIFT_POWER_FACTOR_OVERLOAD"
+    ]
+  },
+  {
+    "id": "tpl_kt_08_utility_cleaning",
+    "family": "fam_kitchen_tall",
+    "name": "Temizlik Dolabı",
+    "dimensions": {
+      "width": 600,
+      "height": 2150,
+      "depth": 600
+    },
+    "components": 13,
+    "cutPieces": 10,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kt_09_broom_vacuum",
+    "family": "fam_kitchen_tall",
+    "name": "Süpürge & Şarj İstasyonu Dolabı",
+    "dimensions": {
+      "width": 500,
+      "height": 2150,
+      "depth": 580
+    },
+    "components": 12,
+    "cutPieces": 9,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kt_10_open_niche_tall",
+    "family": "fam_kitchen_tall",
+    "name": "Açık Kahve Nişli Boy Dolap",
+    "dimensions": {
+      "width": 800,
+      "height": 2150,
+      "depth": 580
+    },
+    "components": 29,
+    "cutPieces": 19,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kt_11_pocket_appliance",
+    "family": "fam_kitchen_tall",
+    "name": "Pocket Kapaklı Cihaz Dolabı (REVEGO)",
+    "dimensions": {
+      "width": 1300,
+      "height": 2200,
+      "depth": 650
+    },
+    "components": 47,
+    "cutPieces": 33,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_kt_12_custom_tall",
+    "family": "fam_kitchen_tall",
+    "name": "Özel Ölçü Boy Dolap",
+    "dimensions": {
+      "width": 600,
+      "height": 2150,
+      "depth": 580
+    },
+    "components": 14,
+    "cutPieces": 11,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_wd_01_single_door",
+    "family": "fam_wardrobe",
+    "name": "Tek Kapaklı Gardırop",
+    "dimensions": {
+      "width": 500,
+      "height": 2200,
+      "depth": 600
+    },
+    "components": 13,
+    "cutPieces": 9,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_wd_02_two_door",
+    "family": "fam_wardrobe",
+    "name": "Çift Kapaklı Gardırop",
+    "dimensions": {
+      "width": 1000,
+      "height": 2200,
+      "depth": 600
+    },
+    "components": 17,
+    "cutPieces": 10,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "WARN_SHELF_SPAN_DEFLECTION",
+      "V41_FACTORY_RULES_UNVERIFIED",
+      "CHK_12_SHELF_SPAN_DEFLECTION"
+    ]
+  },
+  {
+    "id": "tpl_wd_03_three_door",
+    "family": "fam_wardrobe",
+    "name": "Üç Kapaklı Gardırop",
+    "dimensions": {
+      "width": 1500,
+      "height": 2200,
+      "depth": 600
+    },
+    "components": 57,
+    "cutPieces": 35,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_wd_04_four_door",
+    "family": "fam_wardrobe",
+    "name": "Dört Kapaklı Gardırop",
+    "dimensions": {
+      "width": 2000,
+      "height": 2200,
+      "depth": 600
+    },
+    "components": 29,
+    "cutPieces": 15,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "WARN_SHELF_SPAN_DEFLECTION",
+      "WARN_SHELF_SPAN_DEFLECTION",
+      "V41_FACTORY_RULES_UNVERIFIED",
+      "CHK_12_SHELF_SPAN_DEFLECTION",
+      "CHK_12_SHELF_SPAN_DEFLECTION"
+    ]
+  },
+  {
+    "id": "tpl_wd_05_sliding_2door",
+    "family": "fam_wardrobe",
+    "name": "Sürgülü İki Kapaklı Gardırop",
+    "dimensions": {
+      "width": 1800,
+      "height": 2200,
+      "depth": 650
+    },
+    "components": 23,
+    "cutPieces": 13,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_wd_06_sliding_3door",
+    "family": "fam_wardrobe",
+    "name": "Sürgülü Üç Kapaklı Gardırop",
+    "dimensions": {
+      "width": 2700,
+      "height": 2200,
+      "depth": 650
+    },
+    "components": 32,
+    "cutPieces": 17,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_wd_07_sliding_4door",
+    "family": "fam_wardrobe",
+    "name": "Sürgülü Dört Kapaklı Gardırop",
+    "dimensions": {
+      "width": 3200,
+      "height": 2200,
+      "depth": 650
+    },
+    "components": 41,
+    "cutPieces": 21,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_wd_08_open_walkin",
+    "family": "fam_wardrobe",
+    "name": "Açık Gövde Giyinme Modülü",
+    "dimensions": {
+      "width": 1000,
+      "height": 2300,
+      "depth": 550
+    },
+    "components": 30,
+    "cutPieces": 18,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "WARN_SHELF_SPAN_DEFLECTION",
+      "V41_FACTORY_RULES_UNVERIFIED",
+      "CHK_12_SHELF_SPAN_DEFLECTION"
+    ]
+  },
+  {
+    "id": "tpl_wd_09_hanging_heavy",
+    "family": "fam_wardrobe",
+    "name": "Askılık Ağırlıklı Gardırop (Asansörlü)",
+    "dimensions": {
+      "width": 1000,
+      "height": 2300,
+      "depth": 600
+    },
+    "components": 18,
+    "cutPieces": 10,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "WARN_SHELF_SPAN_DEFLECTION",
+      "V41_FACTORY_RULES_UNVERIFIED",
+      "CHK_12_SHELF_SPAN_DEFLECTION"
+    ]
+  },
+  {
+    "id": "tpl_wd_10_shelf_heavy",
+    "family": "fam_wardrobe",
+    "name": "Raf Ağırlıklı Gardırop",
+    "dimensions": {
+      "width": 800,
+      "height": 2200,
+      "depth": 600
+    },
+    "components": 19,
+    "cutPieces": 13,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_wd_11_drawer_heavy",
+    "family": "fam_wardrobe",
+    "name": "Çekmece Ağırlıklı Gardırop",
+    "dimensions": {
+      "width": 900,
+      "height": 2200,
+      "depth": 600
+    },
+    "components": 49,
+    "cutPieces": 29,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_wd_12_mixed_organizer",
+    "family": "fam_wardrobe",
+    "name": "Karma İç Düzenli Gardırop",
+    "dimensions": {
+      "width": 1200,
+      "height": 2300,
+      "depth": 600
+    },
+    "components": 57,
+    "cutPieces": 35,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_wd_13_corner_wardrobe",
+    "family": "fam_wardrobe",
+    "name": "Köşe Gardırop Modülü",
+    "dimensions": {
+      "width": 1050,
+      "height": 2200,
+      "depth": 1050
+    },
+    "components": 17,
+    "cutPieces": 10,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "WARN_SHELF_SPAN_DEFLECTION",
+      "V41_FACTORY_RULES_UNVERIFIED",
+      "CHK_12_SHELF_SPAN_DEFLECTION"
+    ]
+  },
+  {
+    "id": "tpl_wd_14_walkin_l_unit",
+    "family": "fam_wardrobe",
+    "name": "L Giyinme Odası Modülü",
+    "dimensions": {
+      "width": 1000,
+      "height": 2300,
+      "depth": 550
+    },
+    "components": 10,
+    "cutPieces": 9,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "WARN_SHELF_SPAN_DEFLECTION",
+      "V41_FACTORY_RULES_UNVERIFIED",
+      "CHK_12_SHELF_SPAN_DEFLECTION"
+    ]
+  },
+  {
+    "id": "tpl_wd_15_walkin_u_unit",
+    "family": "fam_wardrobe",
+    "name": "U Giyinme Odası Merkez Modülü",
+    "dimensions": {
+      "width": 1200,
+      "height": 2300,
+      "depth": 550
+    },
+    "components": 30,
+    "cutPieces": 19,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "WARN_SHELF_SPAN_DEFLECTION",
+      "V41_FACTORY_RULES_UNVERIFIED",
+      "CHK_12_SHELF_SPAN_DEFLECTION"
+    ]
+  },
+  {
+    "id": "tpl_wd_16_island_dresser",
+    "family": "fam_wardrobe",
+    "name": "Ada Çekmece & Takı Ünitesi",
+    "dimensions": {
+      "width": 1200,
+      "height": 900,
+      "depth": 800
+    },
+    "components": 69,
+    "cutPieces": 39,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_wd_17_trouser_unit",
+    "family": "fam_wardrobe",
+    "name": "Pantolonluk Ünitesi",
+    "dimensions": {
+      "width": 900,
+      "height": 2200,
+      "depth": 600
+    },
+    "components": 17,
+    "cutPieces": 10,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_wd_18_shoe_tower",
+    "family": "fam_wardrobe",
+    "name": "Ayakkabılık Ünitesi",
+    "dimensions": {
+      "width": 800,
+      "height": 2200,
+      "depth": 450
+    },
+    "components": 19,
+    "cutPieces": 13,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_wd_19_glass_showcase",
+    "family": "fam_wardrobe",
+    "name": "Cam Kapaklı Vitrin Gardırop",
+    "dimensions": {
+      "width": 1000,
+      "height": 2300,
+      "depth": 600
+    },
+    "components": 18,
+    "cutPieces": 12,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "WARN_SHELF_SPAN_DEFLECTION",
+      "V41_FACTORY_RULES_UNVERIFIED",
+      "CHK_12_SHELF_SPAN_DEFLECTION"
+    ]
+  },
+  {
+    "id": "tpl_wd_20_builtin_niche",
+    "family": "fam_wardrobe",
+    "name": "Özel Ölçü / Gömme Dolap",
+    "dimensions": {
+      "width": 1600,
+      "height": 2500,
+      "depth": 600
+    },
+    "components": 29,
+    "cutPieces": 15,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_sc_01_inner_corner",
+    "family": "fam_special_corner",
+    "name": "İç Köşe Dönüş Modülü (90°)",
+    "dimensions": {
+      "width": 900,
+      "height": 2200,
+      "depth": 900
+    },
+    "components": 17,
+    "cutPieces": 11,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_sc_02_outer_corner",
+    "family": "fam_special_corner",
+    "name": "Dış Köşe Kolon Sarma Modülü",
+    "dimensions": {
+      "width": 600,
+      "height": 2200,
+      "depth": 600
+    },
+    "components": 14,
+    "cutPieces": 11,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_sc_03_blind_corner_tall",
+    "family": "fam_special_corner",
+    "name": "Kör Köşe Boy Modül",
+    "dimensions": {
+      "width": 1100,
+      "height": 2200,
+      "depth": 600
+    },
+    "components": 13,
+    "cutPieces": 10,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "WARN_SHELF_SPAN_DEFLECTION",
+      "V41_FACTORY_RULES_UNVERIFIED",
+      "CHK_12_SHELF_SPAN_DEFLECTION",
+      "CHK_03_DOOR_WEIGHT_EXCEEDS_HINGE_LIMIT",
+      "CHK_05_HINGED_LEAF_TOO_WIDE"
+    ]
+  },
+  {
+    "id": "tpl_sc_04_diagonal_tall",
+    "family": "fam_special_corner",
+    "name": "Diyagonal (45°) Köşe Dolabı",
+    "dimensions": {
+      "width": 1000,
+      "height": 2200,
+      "depth": 1000
+    },
+    "components": 13,
+    "cutPieces": 9,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "WARN_SHELF_SPAN_DEFLECTION",
+      "V41_FACTORY_RULES_UNVERIFIED",
+      "CHK_12_SHELF_SPAN_DEFLECTION",
+      "CHK_03_DOOR_WEIGHT_EXCEEDS_HINGE_LIMIT",
+      "CHK_05_HINGED_LEAF_TOO_WIDE"
+    ]
+  },
+  {
+    "id": "tpl_sc_05_sloped_ceiling",
+    "family": "fam_special_corner",
+    "name": "Eğimli Tavan (Çatı Arası) Modülü",
+    "dimensions": {
+      "width": 900,
+      "height": 2100,
+      "depth": 600
+    },
+    "components": 17,
+    "cutPieces": 11,
+    "dimensionalMismatch": false,
+    "status": "PARTIALLY WORKING",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED",
+      "UNVERIFIED_CUSTOM_GEOMETRY"
+    ]
+  },
+  {
+    "id": "tpl_sc_06_under_stairs",
+    "family": "fam_special_corner",
+    "name": "Merdiven Altı Kademeli Modül",
+    "dimensions": {
+      "width": 1200,
+      "height": 1800,
+      "depth": 600
+    },
+    "components": 27,
+    "cutPieces": 15,
+    "dimensionalMismatch": false,
+    "status": "PARTIALLY WORKING",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED",
+      "UNVERIFIED_CUSTOM_GEOMETRY"
+    ]
+  },
+  {
+    "id": "tpl_sc_07_narrow_niche",
+    "family": "fam_special_corner",
+    "name": "Dar Niş Dolabı (250mm)",
+    "dimensions": {
+      "width": 250,
+      "height": 2150,
+      "depth": 580
+    },
+    "components": 15,
+    "cutPieces": 12,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_sc_08_stepped_depth",
+    "family": "fam_special_corner",
+    "name": "Kademeli Derinlik Geçiş Modülü",
+    "dimensions": {
+      "width": 600,
+      "height": 2200,
+      "depth": 450
+    },
+    "components": 14,
+    "cutPieces": 11,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_sc_09_terminal_end",
+    "family": "fam_special_corner",
+    "name": "Serbest Biçimli Açık Bitiş Modülü",
+    "dimensions": {
+      "width": 350,
+      "height": 2200,
+      "depth": 600
+    },
+    "components": 11,
+    "cutPieces": 11,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_sc_10_custom_geometry",
+    "family": "fam_special_corner",
+    "name": "Özel Üretim Geometrisi (Bespoke)",
+    "dimensions": {
+      "width": 800,
+      "height": 2200,
+      "depth": 600
+    },
+    "components": 17,
+    "cutPieces": 11,
+    "dimensionalMismatch": false,
+    "status": "PARTIALLY WORKING",
+    "issues": [
+      "V41_FACTORY_RULES_UNVERIFIED",
+      "UNVERIFIED_CUSTOM_GEOMETRY"
+    ]
+  },
+  {
+    "id": "tpl_cm_01_plinth_strip",
+    "family": "fam_complementary",
+    "name": "Baza Ön Boy Bandı",
+    "dimensions": {
+      "width": 2400,
+      "height": 100,
+      "depth": 18
+    },
+    "components": 1,
+    "cutPieces": 1,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "ERR_HEIGHT_TOO_SMALL",
+      "ERR_DEPTH_TOO_SMALL",
+      "WARN_SHELF_SPAN_DEFLECTION",
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_cm_02_leveling_feet",
+    "family": "fam_complementary",
+    "name": "Ayarlanabilir Baza Ayağı Seti",
+    "dimensions": {
+      "width": 600,
+      "height": 100,
+      "depth": 500
+    },
+    "components": 1,
+    "cutPieces": 1,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "ERR_HEIGHT_TOO_SMALL",
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_cm_03_skirting",
+    "family": "fam_complementary",
+    "name": "Süpürgelik / Yan Baza Dönüşü",
+    "dimensions": {
+      "width": 580,
+      "height": 100,
+      "depth": 18
+    },
+    "components": 1,
+    "cutPieces": 1,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "ERR_HEIGHT_TOO_SMALL",
+      "ERR_DEPTH_TOO_SMALL",
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_cm_04_wall_filler",
+    "family": "fam_complementary",
+    "name": "Duvar Bitiş Dolgu Paneli (Kör Parça)",
+    "dimensions": {
+      "width": 50,
+      "height": 2200,
+      "depth": 100
+    },
+    "components": 1,
+    "cutPieces": 1,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "ERR_WIDTH_TOO_SMALL",
+      "ERR_DEPTH_TOO_SMALL",
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_cm_05_end_panel",
+    "family": "fam_complementary",
+    "name": "Görünür Yan Bitiş Paneli",
+    "dimensions": {
+      "width": 18,
+      "height": 2200,
+      "depth": 600
+    },
+    "components": 1,
+    "cutPieces": 1,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "ERR_WIDTH_TOO_SMALL",
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_cm_06_top_infill",
+    "family": "fam_complementary",
+    "name": "Üst Tavan Kapama Paneli",
+    "dimensions": {
+      "width": 2400,
+      "height": 150,
+      "depth": 18
+    },
+    "components": 1,
+    "cutPieces": 1,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "ERR_HEIGHT_TOO_SMALL",
+      "ERR_DEPTH_TOO_SMALL",
+      "WARN_SHELF_SPAN_DEFLECTION",
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_cm_07_fascia_panel",
+    "family": "fam_complementary",
+    "name": "Cihaz / Evye Alın Paneli",
+    "dimensions": {
+      "width": 600,
+      "height": 110,
+      "depth": 18
+    },
+    "components": 1,
+    "cutPieces": 1,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "ERR_HEIGHT_TOO_SMALL",
+      "ERR_DEPTH_TOO_SMALL",
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_cm_08_back_cladding",
+    "family": "fam_complementary",
+    "name": "Dekoratif Arkalık / Duvar Lambri",
+    "dimensions": {
+      "width": 1200,
+      "height": 2200,
+      "depth": 18
+    },
+    "components": 1,
+    "cutPieces": 1,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "ERR_DEPTH_TOO_SMALL",
+      "WARN_SHELF_SPAN_DEFLECTION",
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_cm_09_countertop",
+    "family": "fam_complementary",
+    "name": "Mutfak Tezgâhı (Countertop)",
+    "dimensions": {
+      "width": 2400,
+      "height": 40,
+      "depth": 600
+    },
+    "components": 1,
+    "cutPieces": 1,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "ERR_HEIGHT_TOO_SMALL",
+      "WARN_SHELF_SPAN_DEFLECTION",
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_cm_10_waterfall_edge",
+    "family": "fam_complementary",
+    "name": "Tezgâh Yan Düşey Bitişi (Waterfall)",
+    "dimensions": {
+      "width": 40,
+      "height": 860,
+      "depth": 600
+    },
+    "components": 1,
+    "cutPieces": 1,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "ERR_WIDTH_TOO_SMALL",
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_cm_11_backsplash",
+    "family": "fam_complementary",
+    "name": "Tezgâh Arası Paneli (Backsplash)",
+    "dimensions": {
+      "width": 2400,
+      "height": 600,
+      "depth": 18
+    },
+    "components": 1,
+    "cutPieces": 1,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "ERR_DEPTH_TOO_SMALL",
+      "WARN_SHELF_SPAN_DEFLECTION",
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_cm_12_crown_molding",
+    "family": "fam_complementary",
+    "name": "Üst Taç / Işık Bandı Profili",
+    "dimensions": {
+      "width": 2400,
+      "height": 60,
+      "depth": 40
+    },
+    "components": 1,
+    "cutPieces": 1,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "ERR_HEIGHT_TOO_SMALL",
+      "ERR_DEPTH_TOO_SMALL",
+      "WARN_SHELF_SPAN_DEFLECTION",
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_cm_13_led_channel",
+    "family": "fam_complementary",
+    "name": "Gömme LED Aydınlatma Profili",
+    "dimensions": {
+      "width": 1000,
+      "height": 16,
+      "depth": 16
+    },
+    "components": 1,
+    "cutPieces": 1,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "ERR_HEIGHT_TOO_SMALL",
+      "ERR_DEPTH_TOO_SMALL",
+      "WARN_SHELF_SPAN_DEFLECTION",
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_cm_14_wall_bracket",
+    "family": "fam_complementary",
+    "name": "Duvar Askı Rayı & Devrilme Önleyici",
+    "dimensions": {
+      "width": 2400,
+      "height": 45,
+      "depth": 16
+    },
+    "components": 1,
+    "cutPieces": 1,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "ERR_HEIGHT_TOO_SMALL",
+      "ERR_DEPTH_TOO_SMALL",
+      "WARN_SHELF_SPAN_DEFLECTION",
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  },
+  {
+    "id": "tpl_cm_15_service_spacer",
+    "family": "fam_complementary",
+    "name": "Montaj / Tesisat Servis Boşluğu Elemanı",
+    "dimensions": {
+      "width": 600,
+      "height": 2150,
+      "depth": 50
+    },
+    "components": 1,
+    "cutPieces": 1,
+    "dimensionalMismatch": false,
+    "status": "UNVERIFIED",
+    "issues": [
+      "ERR_DEPTH_TOO_SMALL",
+      "V41_FACTORY_RULES_UNVERIFIED"
+    ]
+  }
+]

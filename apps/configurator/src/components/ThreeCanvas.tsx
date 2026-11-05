@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useCallback } from "react";
 import * as THREE from "three";
+import { createComponentMesh, publishSceneDiagnostics, createModuleGroup } from "./componentMesh";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { useConfiguratorStore } from "../store/useConfiguratorStore";
 import { generateModuleGeometry } from "@birim/geometry";
@@ -369,14 +370,13 @@ export default function ThreeCanvas() {
         explodedFactor,
       });
 
-      const modOffsetX = mod.position.x;
-      const modOffsetY = mod.position.y;
-      const modOffsetZ = mod.position.z;
+      const moduleGroup = createModuleGroup(mod);
+      meshGroup.add(moduleGroup);
 
       breakdown.components.forEach((comp) => {
         const matDef = matMap.get(comp.materialId) || DEFAULT_MATERIALS[0];
         const isSelected = comp.id === selectedComponentId;
-        const isRail = comp.role === "hanging_rail" || comp.role.includes("fit");
+        const isRail = comp.role === "door_handle" || comp.role === "drawer_handle" || comp.role === "gola_profile" || comp.role === "hanging_rail" || comp.role.includes("fit");
 
         const material = getPanelMaterial(matDef, isSelected, isRail);
         const wireMat = getEdgeMaterial(isSelected);
@@ -385,57 +385,12 @@ export default function ThreeCanvas() {
         const compH = Math.max(1, comp.dimensions.height);
         const compD = Math.max(1, comp.dimensions.depth);
 
-        // Handle pivot for swinging door opening
-        if (
-          comp.role.includes("door") &&
-          comp.rotation &&
-          comp.rotation[1] !== 0 &&
-          !comp.id.includes("sliding")
-        ) {
-          const doorMesh = new THREE.Mesh(UNIT_BOX_GEO, material);
-          doorMesh.scale.set(compW, compH, compD);
-          doorMesh.castShadow = true;
-          doorMesh.receiveShadow = true;
-          doorMesh.userData = { componentId: comp.id, role: comp.role, matDef };
-
-          const pivot = new THREE.Group();
-          const isLeftDoor = comp.role === "door_left";
-          const hingeX = isLeftDoor ? comp.position.x : comp.position.x + comp.dimensions.width;
-
-          pivot.position.set(modOffsetX + hingeX, modOffsetY + comp.position.y, modOffsetZ + comp.position.z);
-
-          const localOffsetX = isLeftDoor ? comp.dimensions.width / 2 : -comp.dimensions.width / 2;
-          doorMesh.position.set(localOffsetX, comp.dimensions.height / 2, comp.dimensions.depth / 2);
-
-          const wire = new THREE.LineSegments(UNIT_EDGES_GEO, wireMat);
-          wire.scale.copy(doorMesh.scale);
-          doorMesh.add(wire);
-
-          pivot.rotation.y = comp.rotation[1];
-          pivot.add(doorMesh);
-          meshGroup.add(pivot);
-        } else {
-          const mesh = new THREE.Mesh(UNIT_BOX_GEO, material);
-          mesh.scale.set(compW, compH, compD);
-          mesh.castShadow = true;
-          mesh.receiveShadow = true;
-          mesh.userData = { componentId: comp.id, role: comp.role, matDef };
-
-          mesh.position.set(
-            modOffsetX + comp.position.x + comp.dimensions.width / 2,
-            modOffsetY + comp.position.y + comp.dimensions.height / 2,
-            modOffsetZ + comp.position.z + comp.dimensions.depth / 2
-          );
-
-          const wire = new THREE.LineSegments(UNIT_EDGES_GEO, wireMat);
-          wire.scale.copy(mesh.scale);
-          mesh.add(wire);
-
-          meshGroup.add(mesh);
-        }
+        const componentGroup = createComponentMesh(comp, material, wireMat, { componentId: comp.id, role: comp.role, matDef });
+        moduleGroup.add(componentGroup);
       });
     });
 
+    if (rendererRef.current) publishSceneDiagnostics(rendererRef.current.domElement, meshGroup);
     requestRender();
   }, [project, activeModIndex, doorAngle, drawerOpenMm, explodedFactor, requestRender, selectedComponentId]);
 

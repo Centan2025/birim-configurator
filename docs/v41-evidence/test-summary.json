@@ -1,0 +1,23 @@
+{
+  "unit": {
+    "numTotalTests": 87,
+    "numPassedTests": 87,
+    "numFailedTests": 0
+  },
+  "chromium": {
+    "startTime": "2026-11-05T07:23:20.579Z",
+    "duration": 119731.56199999999,
+    "expected": 27,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "date": "2026-11-05",
+  "branch": "codex/v41-independent-audit",
+  "baseline": "27e3938",
+  "targetedFinalSaveDialog": {
+    "passed": 1,
+    "failed": 0,
+    "scenario": "tablet storage quota error uses alert role"
+  }
+}

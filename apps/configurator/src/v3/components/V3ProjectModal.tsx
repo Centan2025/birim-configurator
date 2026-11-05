@@ -13,6 +13,7 @@ export const V3ProjectModal: React.FC<{
   const [saveTitle, setSaveTitle] = useState(project.title);
   const [savedList, setSavedList] = useState<SavedProjectMeta[]>([]);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [feedbackIsError, setFeedbackIsError] = useState(false);
 
   const refresh = () => {
     setSavedList(getSavedProjects());
@@ -23,15 +24,22 @@ export const V3ProjectModal: React.FC<{
       setSaveTitle(project.title);
       refresh();
       setFeedback(null);
+      setFeedbackIsError(false);
     }
   }, [isOpen, project.title]);
 
   if (!isOpen) return null;
 
   const handleSave = () => {
-    const id = saveToStorage(saveTitle.trim() || project.title);
-    setFeedback(`Tasarım kaydedildi (${id.slice(0, 10)})`);
-    refresh();
+    try {
+      const id = saveToStorage(saveTitle.trim() || project.title);
+      setFeedbackIsError(false);
+      setFeedback(`Tasarım kaydedildi (${id.slice(0, 10)})`);
+      refresh();
+    } catch (error) {
+      setFeedbackIsError(true);
+      setFeedback(error instanceof Error ? error.message : "Kayıt başarısız.");
+    }
   };
 
   const handleLoad = (id: string) => {
@@ -81,10 +89,11 @@ export const V3ProjectModal: React.FC<{
 
         {feedback && (
           <div
+            role={feedbackIsError ? "alert" : "status"}
             data-testid="v3-modal-feedback"
-            className="px-5 py-2.5 bg-emerald-50 border-b border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center gap-1.5"
+            className={`px-5 py-2.5 border-b text-xs font-semibold flex items-center gap-1.5 ${feedbackIsError ? "bg-red-50 border-red-200 text-red-800" : "bg-emerald-50 border-emerald-200 text-emerald-800"}`}
           >
-            <Check className="w-3.5 h-3.5" />
+            {feedbackIsError ? <X className="w-3.5 h-3.5" /> : <Check className="w-3.5 h-3.5" />}
             <span>{feedback}</span>
           </div>
         )}

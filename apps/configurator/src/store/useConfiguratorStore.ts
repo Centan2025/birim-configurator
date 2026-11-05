@@ -9,16 +9,25 @@ import {
   DesignProjectSchema,
   evaluateProjectCompatibility,
   migrateV3ProjectToV4,
+  inferDoorSystemIdFromType,
+  HandleCategory,
+  SUPPORTED_PROJECT_SCHEMA_VERSION,
+  ArchitecturalElement,
+  WallDefinition,
+  FloorPlanUnderlay,
+  convertUnderlayPolylinesToWalls,
 } from "@birim/core";
 import { generateBOMForProject, ManufacturingBOM } from "@birim/manufacturing";
 import { calculateProjectPrice, PricingBreakdown } from "@birim/pricing";
 import {
   WARDROBE_TEMPLATES,
+  getV4TemplateById,
   createKitchenLinearProject,
   createKitchenLProject,
   createKitchenUProject,
   analyzeAndAdviseSpan,
   SmartAdvisorFeedback,
+  HANDLE_PROFILES,
 } from "@birim/catalog";
 
 export type ViewMode = "3d" | "2d_elevation" | "2d_plan" | "2d_section";
@@ -29,6 +38,29 @@ export interface SavedProjectMeta {
   title: string;
   date: string;
   priceEur: number;
+}
+
+export interface ProjectRevisionSnapshot {
+  revisionId: string;
+  label: string;
+  version: number;
+  createdAt: string;
+  priceEur: number;
+  cutPiecesCount: number;
+  moduleCount: number;
+  project: DesignProject;
+}
+
+export interface ProjectRevisionDiff {
+  fromRevisionId: string;
+  toRevisionId: string;
+  versionDelta: number;
+  moduleCountDelta: number;
+  cutPiecesDelta: number;
+  priceDeltaEur: number;
+  addedModuleIds: string[];
+  removedModuleIds: string[];
+  modifiedModuleIds: string[];
 }
 
 interface ConfiguratorState {
@@ -50,6 +82,9 @@ interface ConfiguratorState {
   smartAdvice: SmartAdvisorFeedback;
   history: DesignProject[];
   future: DesignProject[];
+  revisions: ProjectRevisionSnapshot[];
+  batchStartProject: DesignProject | null;
+  selectedModuleIds: string[];
 
   // Actions
   setUiMode: (mode: "simple" | "technical") => void;
@@ -73,6 +108,7 @@ interface ConfiguratorState {
   setMaterials: (bodyMatId?: string, doorMatId?: string) => void;
   setBayCount: (count: number) => void;
   setBayDoorType: (bayIdx: number, type: "single_left" | "single_right" | "double" | "sliding" | "open") => void;
+  setBayHandleCategory: (bayIdx: number, category: HandleCategory, handleProfileId?: string) => void;
 
   // Interior fittings
   addShelf: (bayIdx: number) => void;
@@ -89,6 +125,47 @@ interface ConfiguratorState {
   duplicateActiveModule: () => void;
   removeActiveModule: () => void;
   moveActiveModule: (deltaX: number) => void;
+  toggleModuleSelection: (moduleId: string, additive?: boolean) => void;
+  selectAllModules: () => void;
+  clearModuleSelection: () => void;
+  batchMoveSelectedModules: (deltaX: number, deltaZ?: number) => void;
+  batchSetSelectedModulesMaterial: (bodyMatId?: string, doorMatId?: string) => void;
+  batchRemoveSelectedModules: () => void;
+
+  // Room, Wall, Obstacle & Floorplan Underlay (WP-06)
+  setRoomDimensions: (mainWallLengthMm: number, ceilingHeightMm?: number) => void;
+  addWallSegment: (wall: {
+    name?: string;
+    length: number;
+    height?: number;
+    thickness?: number;
+    position: { x: number; y: number; z: number };
+    rotationY: number;
+  }) => string;
+  updateWallSegment: (
+    wallId: string,
+    patch: {
+      name?: string;
+      length?: number;
+      height?: number;
+      thickness?: number;
+      position?: Partial<WallDefinition["position"]>;
+      rotationY?: number;
+    }
+  ) => void;
+  removeWallSegment: (wallId: string) => void;
+  addSpaceObstacle: (obstacle: Omit<ArchitecturalElement, "id"> & { id?: string }) => string;
+  updateSpaceObstacle: (
+    obstacleId: string,
+    patch: {
+      name?: string;
+      position?: Partial<ArchitecturalElement["position"]>;
+      dimensions?: Partial<ArchitecturalElement["dimensions"]>;
+    }
+  ) => void;
+  removeSpaceObstacle: (obstacleId: string) => void;
+  setFloorPlanUnderlay: (underlay: FloorPlanUnderlay | null) => void;
+  importWallsFromUnderlay: (replaceExisting?: boolean) => number;
 
   // Persistence & Storage
   saveToStorage: (name?: string) => string;
@@ -96,6 +173,13 @@ interface ConfiguratorState {
   getSavedProjects: () => SavedProjectMeta[];
   exportProjectJSON: () => string;
   importProjectJSON: (jsonStr: string) => { success: boolean; error?: string };
+
+  // Revisions & Atomic Batch Undo
+  beginHistoryTransaction: () => void;
+  commitHistoryTransaction: () => void;
+  createRevisionSnapshot: (label?: string) => string;
+  restoreRevisionSnapshot: (revisionId: string) => boolean;
+  diffRevisions: (fromRevisionId: string, toRevisionId: string) => ProjectRevisionDiff | null;
 
   // Production approval
   approveProduction: () => { success: boolean; message: string };
@@ -114,10 +198,33 @@ interface ConfiguratorState {
 }
 
 function cloneProject(project: DesignProject): DesignProject {
+  const nextVersion = (project.version || 1) + 1;
   return {
     ...project,
-    version: (project.version || 1) + 1,
+    status: "draft",
+    version: nextVersion,
+    schemaVersion: SUPPORTED_PROJECT_SCHEMA_VERSION,
+    catalogVersion: project.catalogVersion || project.libraryVersionId || "lib_v4_0_0",
+    revisionId: `rev_v${nextVersion}`,
     updatedAt: new Date().toISOString(),
+    space: {
+      ...project.space,
+      walls: project.space.walls.map((w) => ({
+        ...w,
+        position: { ...w.position },
+        elements: w.elements ? w.elements.map((el) => ({ ...el, position: { ...el.position }, dimensions: { ...el.dimensions } })) : [],
+      })),
+      elements: project.space.elements
+        ? project.space.elements.map((el) => ({
+            ...el,
+            position: { ...el.position },
+            dimensions: { ...el.dimensions },
+          }))
+        : [],
+      floorPlanUnderlay: project.space.floorPlanUnderlay
+        ? structuredClone(project.space.floorPlanUnderlay)
+        : undefined,
+    },
     modules: project.modules.map((m) => ({
       ...m,
       dimensions: { ...m.dimensions },
@@ -138,11 +245,23 @@ function cloneProject(project: DesignProject): DesignProject {
 
 function recompute(project: DesignProject) {
   const validationIssues = validateProject(project);
+  const compat = evaluateProjectCompatibility(project);
+  project.verificationSnapshot = {
+    overallStatus: compat.overallStatus,
+    canApproveProduction: compat.canApproveProduction,
+    unverifiedCount: compat.evidenceMatrix.unverifiedPartOrOpCount,
+    evaluatedAt: compat.evidenceMatrix.evaluatedAt,
+  };
   const bom = generateBOMForProject(project);
   const pricing = calculateProjectPrice(bom);
   const activeMod = project.modules[0] || createDefaultWardrobeModule();
   const smartAdvice = analyzeAndAdviseSpan(activeMod.dimensions.width, activeMod.dimensions.height);
   return { validationIssues, bom, pricing, smartAdvice };
+}
+
+function nextHistory(history: DesignProject[], current: DesignProject, batchStartProject: DesignProject | null): DesignProject[] {
+  if (batchStartProject) return history;
+  return [...history.slice(-15), current];
 }
 
 const initialProj = createInitialProject();
@@ -160,13 +279,16 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   cameraPreset: "iso",
   uiMode: "simple",
   activeBayIndex: 0,
-  autoSaveStatus: "saved",
+  autoSaveStatus: "unsaved",
   validationIssues: initIssues,
   bom: initBom,
   pricing: initPricing,
   smartAdvice: initAdvice,
   history: [],
   future: [],
+  revisions: [],
+  batchStartProject: null,
+  selectedModuleIds: initialProj.modules[0] ? [initialProj.modules[0].id] : [],
 
   setUiMode: (uiMode) => set({ uiMode }),
   setActiveBayIndex: (activeBayIndex) => set({ activeBayIndex }),
@@ -174,7 +296,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   setViewMode: (viewMode) => set({ viewMode }),
   setCameraPreset: (cameraPreset) => set({ cameraPreset }),
   setSelectedComponentId: (selectedComponentId) => set({ selectedComponentId }),
-  setActiveModuleIndex: (activeModuleIndex) => set({ activeModuleIndex }),
+  setActiveModuleIndex: (activeModuleIndex) => set({ activeModuleIndex: Math.max(0, Math.min(get().project.modules.length - 1, activeModuleIndex)), activeBayIndex: 0, selectedComponentId: null }),
   setDoorOpenAngleDeg: (doorOpenAngleDeg) => set({ doorOpenAngleDeg }),
   setDrawerOpenMm: (drawerOpenMm) => set({ drawerOpenMm }),
   setExplodedFactor: (explodedFactor) => set({ explodedFactor }),
@@ -185,26 +307,129 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     set({ doorOpenAngleDeg: cur > 0 ? 0 : 75 });
   },
 
+  beginHistoryTransaction: () => {
+    const { batchStartProject, project } = get();
+    if (!batchStartProject) {
+      set({ batchStartProject: structuredClone(project) });
+    }
+  },
+
+  commitHistoryTransaction: () => {
+    const { batchStartProject, history } = get();
+    if (!batchStartProject) return;
+    set({
+      history: [...history.slice(-15), batchStartProject],
+      future: [],
+      batchStartProject: null,
+    });
+  },
+
+  createRevisionSnapshot: (label) => {
+    const { project, pricing, bom, revisions } = get();
+    const revisionId = `rev_${project.version}_${revisions.length + 1}`;
+    const snap: ProjectRevisionSnapshot = {
+      revisionId,
+      label: label || `Revizyon v${project.version}`,
+      version: project.version,
+      createdAt: new Date().toISOString(),
+      priceEur: pricing.totalWithVatEur,
+      cutPiecesCount: bom.cutList.length,
+      moduleCount: project.modules.length,
+      project: structuredClone({ ...project, revisionId }),
+    };
+    set({ revisions: [...revisions, snap] });
+    return revisionId;
+  },
+
+  restoreRevisionSnapshot: (revisionId) => {
+    const { revisions, project, history } = get();
+    const target = revisions.find((r) => r.revisionId === revisionId);
+    if (!target) return false;
+    const restored = structuredClone(target.project);
+    const { validationIssues, bom, pricing, smartAdvice } = recompute(restored);
+    set({
+      history: [...history.slice(-15), project],
+      future: [],
+      project: restored,
+      autoSaveStatus: "unsaved",
+      activeModuleIndex: 0,
+      activeBayIndex: 0,
+      selectedComponentId: null,
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+    });
+    return true;
+  },
+
+  diffRevisions: (fromRevisionId, toRevisionId) => {
+    const { revisions } = get();
+    const fromSnap = revisions.find((r) => r.revisionId === fromRevisionId);
+    const toSnap = revisions.find((r) => r.revisionId === toRevisionId);
+    if (!fromSnap || !toSnap) return null;
+
+    const fromMap = new Map(fromSnap.project.modules.map((m) => [m.id, m]));
+    const toMap = new Map(toSnap.project.modules.map((m) => [m.id, m]));
+
+    const addedModuleIds = toSnap.project.modules.filter((m) => !fromMap.has(m.id)).map((m) => m.id);
+    const removedModuleIds = fromSnap.project.modules.filter((m) => !toMap.has(m.id)).map((m) => m.id);
+    const modifiedModuleIds = toSnap.project.modules
+      .filter((m) => {
+        const prev = fromMap.get(m.id);
+        return prev && JSON.stringify(prev) !== JSON.stringify(m);
+      })
+      .map((m) => m.id);
+
+    return {
+      fromRevisionId,
+      toRevisionId,
+      versionDelta: toSnap.version - fromSnap.version,
+      moduleCountDelta: toSnap.moduleCount - fromSnap.moduleCount,
+      cutPiecesDelta: toSnap.cutPiecesCount - fromSnap.cutPiecesCount,
+      priceDeltaEur: Number((toSnap.priceEur - fromSnap.priceEur).toFixed(2)),
+      addedModuleIds,
+      removedModuleIds,
+      modifiedModuleIds,
+    };
+  },
+
   updateProjectTitle: (title) => {
     const current = get().project;
     const updated: DesignProject = { ...current, title, updatedAt: new Date().toISOString() };
-    set({ project: updated });
+    set({ project: updated, autoSaveStatus: "unsaved" });
   },
 
   setDimensions: (width, height, depth) => {
-    const { project, history, activeModuleIndex } = get();
+    const { project, history, activeModuleIndex, batchStartProject } = get();
     const updated = cloneProject(project);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod) return;
 
-    mod.dimensions = { width, height, depth };
+    if (![width, height, depth].every(Number.isFinite)) return;
+    const template = mod.templateId ? getV4TemplateById(mod.templateId) : undefined;
+    const limits = template?.dimensionLimits;
+    const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
+    const next = {
+      width: mod.isFixedWidth ? mod.dimensions.width : clamp(width, limits?.minW ?? 200, limits?.maxW ?? 3600),
+      height: clamp(height, limits?.minH ?? 300, limits?.maxH ?? 2800),
+      depth: clamp(depth, limits?.minD ?? 200, limits?.maxD ?? 950),
+    };
+    const oldInner = Math.max(1, mod.dimensions.height - mod.carcass.plinthHeight - 2 * mod.carcass.panelThickness);
+    const newInner = Math.max(1, next.height - mod.carcass.plinthHeight - 2 * mod.carcass.panelThickness);
+    if (next.height !== mod.dimensions.height) mod.bays.forEach((b) => {
+      b.shelves.forEach((s) => { s.elevationY = clamp(s.elevationY * newInner / oldInner, 0, Math.max(0, newInner - (s.thickness ?? mod.carcass.panelThickness))); });
+      b.hangingRails.forEach((r) => { r.elevationY = clamp(r.elevationY * newInner / oldInner, 0, Math.max(0, newInner - 25)); });
+    });
+    mod.dimensions = next;
     updated.updatedAt = new Date().toISOString();
     const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
 
     set({
-      history: [...history.slice(-15), project],
+      history: nextHistory(history, project, batchStartProject),
       future: [],
       project: updated,
+      autoSaveStatus: "unsaved",
       validationIssues,
       bom,
       pricing,
@@ -213,7 +438,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   },
 
   setPlinthHeight: (plinth) => {
-    const { project, history, activeModuleIndex } = get();
+    const { project, history, activeModuleIndex, batchStartProject } = get();
     const updated = cloneProject(project);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod) return;
@@ -221,9 +446,10 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     mod.carcass.plinthHeight = plinth;
     const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
     set({
-      history: [...history.slice(-15), project],
+      history: nextHistory(history, project, batchStartProject),
       future: [],
       project: updated,
+      autoSaveStatus: "unsaved",
       validationIssues,
       bom,
       pricing,
@@ -232,18 +458,22 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   },
 
   setMaterials: (bodyMatId, doorMatId) => {
-    const { project, history, activeModuleIndex } = get();
+    const { project, history, activeModuleIndex, batchStartProject } = get();
     const updated = cloneProject(project);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod) return;
 
     if (bodyMatId) mod.carcass.bodyMaterialId = bodyMatId;
-    if (doorMatId) mod.carcass.doorMaterialId = doorMatId;
+    if (doorMatId) {
+      mod.carcass.doorMaterialId = doorMatId;
+      mod.bays.forEach((b) => { b.door.doorMaterialId = doorMatId; b.drawers.forEach((d) => { d.frontMaterialId = doorMatId; }); });
+    }
     const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
     set({
-      history: [...history.slice(-15), project],
+      history: nextHistory(history, project, batchStartProject),
       future: [],
       project: updated,
+      autoSaveStatus: "unsaved",
       validationIssues,
       bom,
       pricing,
@@ -252,7 +482,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   },
 
   setBayCount: (count) => {
-    const { project, history, activeModuleIndex } = get();
+    const { project, history, activeModuleIndex, batchStartProject } = get();
     if (count < 1 || count > 8) return;
     const updated = cloneProject(project);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
@@ -275,9 +505,10 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     }
     const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
     set({
-      history: [...history.slice(-15), project],
+      history: nextHistory(history, project, batchStartProject),
       future: [],
       project: updated,
+      autoSaveStatus: "unsaved",
       validationIssues,
       bom,
       pricing,
@@ -286,17 +517,45 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   },
 
   setBayDoorType: (bayIdx, type) => {
-    const { project, history, activeModuleIndex } = get();
+    const { project, history, activeModuleIndex, batchStartProject } = get();
     const updated = cloneProject(project);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
 
     mod.bays[bayIdx].door.type = type;
+    mod.bays[bayIdx].door.doorSystemId = inferDoorSystemIdFromType(type);
+    mod.bays[bayIdx].door.overlayType = "full_overlay";
+    mod.isOpenFront = false;
     const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
     set({
-      history: [...history.slice(-15), project],
+      history: nextHistory(history, project, batchStartProject),
       future: [],
       project: updated,
+      autoSaveStatus: "unsaved",
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+    });
+  },
+
+  setBayHandleCategory: (bayIdx, category, handleProfileId) => {
+    const { project, history, activeModuleIndex, batchStartProject } = get();
+    const updated = cloneProject(project);
+    const mod = updated.modules[activeModuleIndex] || updated.modules[0];
+    if (!mod || !mod.bays[bayIdx]) return;
+
+    const matchedProfile =
+      (handleProfileId ? HANDLE_PROFILES.find((p) => p.id === handleProfileId) : undefined) ||
+      HANDLE_PROFILES.find((p) => p.category === category);
+    mod.bays[bayIdx].door.handleCategory = category;
+    mod.bays[bayIdx].door.handleProfileId = matchedProfile?.id;
+    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    set({
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      project: updated,
+      autoSaveStatus: "unsaved",
       validationIssues,
       bom,
       pricing,
@@ -305,7 +564,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   },
 
   addShelf: (bayIdx) => {
-    const { project, history, activeModuleIndex } = get();
+    const { project, history, activeModuleIndex, batchStartProject } = get();
     const updated = cloneProject(project);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
@@ -321,9 +580,10 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
 
     const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
     set({
-      history: [...history.slice(-15), project],
+      history: nextHistory(history, project, batchStartProject),
       future: [],
       project: updated,
+      autoSaveStatus: "unsaved",
       validationIssues,
       bom,
       pricing,
@@ -332,7 +592,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   },
 
   removeShelf: (bayIdx, shelfId) => {
-    const { project, history, activeModuleIndex } = get();
+    const { project, history, activeModuleIndex, batchStartProject } = get();
     const updated = cloneProject(project);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
@@ -340,9 +600,10 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     mod.bays[bayIdx].shelves = mod.bays[bayIdx].shelves.filter((s) => s.id !== shelfId);
     const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
     set({
-      history: [...history.slice(-15), project],
+      history: nextHistory(history, project, batchStartProject),
       future: [],
       project: updated,
+      autoSaveStatus: "unsaved",
       validationIssues,
       bom,
       pricing,
@@ -351,7 +612,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   },
 
   addHangingRail: (bayIdx) => {
-    const { project, history, activeModuleIndex } = get();
+    const { project, history, activeModuleIndex, batchStartProject } = get();
     const updated = cloneProject(project);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
@@ -364,9 +625,10 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
 
     const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
     set({
-      history: [...history.slice(-15), project],
+      history: nextHistory(history, project, batchStartProject),
       future: [],
       project: updated,
+      autoSaveStatus: "unsaved",
       validationIssues,
       bom,
       pricing,
@@ -375,7 +637,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   },
 
   removeHangingRail: (bayIdx, railId) => {
-    const { project, history, activeModuleIndex } = get();
+    const { project, history, activeModuleIndex, batchStartProject } = get();
     const updated = cloneProject(project);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
@@ -383,9 +645,10 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     mod.bays[bayIdx].hangingRails = mod.bays[bayIdx].hangingRails.filter((r) => r.id !== railId);
     const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
     set({
-      history: [...history.slice(-15), project],
+      history: nextHistory(history, project, batchStartProject),
       future: [],
       project: updated,
+      autoSaveStatus: "unsaved",
       validationIssues,
       bom,
       pricing,
@@ -394,7 +657,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   },
 
   addDrawer: (bayIdx) => {
-    const { project, history, activeModuleIndex } = get();
+    const { project, history, activeModuleIndex, batchStartProject } = get();
     const updated = cloneProject(project);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
@@ -412,9 +675,10 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
 
     const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
     set({
-      history: [...history.slice(-15), project],
+      history: nextHistory(history, project, batchStartProject),
       future: [],
       project: updated,
+      autoSaveStatus: "unsaved",
       validationIssues,
       bom,
       pricing,
@@ -423,7 +687,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   },
 
   removeDrawer: (bayIdx, drawerId) => {
-    const { project, history, activeModuleIndex } = get();
+    const { project, history, activeModuleIndex, batchStartProject } = get();
     const updated = cloneProject(project);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
@@ -431,9 +695,10 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     mod.bays[bayIdx].drawers = mod.bays[bayIdx].drawers.filter((d) => d.id !== drawerId);
     const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
     set({
-      history: [...history.slice(-15), project],
+      history: nextHistory(history, project, batchStartProject),
       future: [],
       project: updated,
+      autoSaveStatus: "unsaved",
       validationIssues,
       bom,
       pricing,
@@ -442,7 +707,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   },
 
   addSpecialFitting: (bayIdx, type) => {
-    const { project, history, activeModuleIndex } = get();
+    const { project, history, activeModuleIndex, batchStartProject } = get();
     const updated = cloneProject(project);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
@@ -459,9 +724,10 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
 
     const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
     set({
-      history: [...history.slice(-15), project],
+      history: nextHistory(history, project, batchStartProject),
       future: [],
       project: updated,
+      autoSaveStatus: "unsaved",
       validationIssues,
       bom,
       pricing,
@@ -470,7 +736,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   },
 
   removeSpecialFitting: (bayIdx, fittingId) => {
-    const { project, history, activeModuleIndex } = get();
+    const { project, history, activeModuleIndex, batchStartProject } = get();
     const updated = cloneProject(project);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
@@ -478,9 +744,10 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     mod.bays[bayIdx].specialFittings = mod.bays[bayIdx].specialFittings.filter((f) => f.id !== fittingId);
     const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
     set({
-      history: [...history.slice(-15), project],
+      history: nextHistory(history, project, batchStartProject),
       future: [],
       project: updated,
+      autoSaveStatus: "unsaved",
       validationIssues,
       bom,
       pricing,
@@ -489,46 +756,52 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   },
 
   addAdjacentModule: () => {
-    const { project, history } = get();
+    const { project, history, activeModuleIndex, batchStartProject } = get();
     const updated = cloneProject(project);
-    const lastMod = updated.modules[updated.modules.length - 1];
-    const newX = lastMod ? lastMod.position.x + lastMod.dimensions.width : 0;
+    const targetMod = updated.modules[activeModuleIndex] || updated.modules[0];
+    const maxRightX = updated.modules.reduce(
+      (maxX, m, idx) => Math.max(maxX, (m.position?.x ?? idx * 1000) + m.dimensions.width),
+      0
+    );
 
-    const newMod: ModuleInstance = {
-      id: `mod_${Date.now()}`,
-      name: `Kabin ${updated.modules.length + 1}`,
-      category: "wardrobe",
-      position: { x: newX, y: 0, z: 0 },
-      dimensions: { width: 900, height: 2200, depth: 600 },
-      carcass: {
-        panelThickness: 18,
-        backPanelThickness: 8,
-        backPanelType: "grooved",
-        plinthHeight: 80,
-        doorPerimeterGap: 2,
-        edgeBandThickness: 1,
-        bodyMaterialId: "mat_melamine_white",
-        doorMaterialId: "mat_veneer_oak",
-        jointType: "minifix_dowel",
-      },
-      bays: [
-        {
-          index: 0,
-          door: { id: `door_${Date.now()}`, bayIndex: 0, type: "single_left", softClose: true },
-          shelves: [{ id: `shelf_${Date.now()}`, bayIndex: 0, elevationY: 1800, isAdjustable: false }],
-          hangingRails: [{ id: `rail_${Date.now()}`, bayIndex: 0, elevationY: 1730 }],
-          drawers: [],
-          specialFittings: [],
-        },
-      ],
-    };
+    if (targetMod) {
+      const clonedMod: ModuleInstance = JSON.parse(JSON.stringify(targetMod));
+      const uid = `${Date.now()}_${updated.modules.length + 1}`;
+      clonedMod.id = `mod_${uid}`;
+      const baseName = targetMod.name.replace(/\s*\(Kopya\)|\s*#\d+$/g, "").trim();
+      clonedMod.name = `${baseName} #${updated.modules.length + 1}`;
+      clonedMod.position = {
+        x: maxRightX,
+        y: targetMod.position?.y ?? 0,
+        z: targetMod.position?.z ?? 0,
+      };
+      clonedMod.bays.forEach((b, i) => {
+        b.door.id = `${clonedMod.id}_door_${i}`;
+        b.shelves.forEach((s, j) => {
+          s.id = `${clonedMod.id}_shelf_${i}_${j}`;
+        });
+        b.drawers.forEach((d, j) => {
+          d.id = `${clonedMod.id}_drw_${i}_${j}`;
+        });
+        b.hangingRails.forEach((r, j) => {
+          r.id = `${clonedMod.id}_rail_${i}_${j}`;
+        });
+        (b.specialFittings ?? []).forEach((f, j) => {
+          f.id = `${clonedMod.id}_fit_${i}_${j}`;
+        });
+        (b.subDividers ?? []).forEach((sd, j) => {
+          sd.id = `${clonedMod.id}_subdiv_${i}_${j}`;
+        });
+      });
+      updated.modules.push(clonedMod);
+    }
 
-    updated.modules.push(newMod);
     const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
     set({
-      history: [...history.slice(-15), project],
+      history: nextHistory(history, project, batchStartProject),
       future: [],
       project: updated,
+      autoSaveStatus: "unsaved",
       activeModuleIndex: updated.modules.length - 1,
       validationIssues,
       bom,
@@ -538,7 +811,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   },
 
   duplicateActiveModule: () => {
-    const { project, history, activeModuleIndex } = get();
+    const { project, history, activeModuleIndex, batchStartProject } = get();
     const updated = cloneProject(project);
     const targetMod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!targetMod) return;
@@ -547,16 +820,21 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     const newX = lastMod ? lastMod.position.x + lastMod.dimensions.width : 0;
 
     const clonedMod: ModuleInstance = JSON.parse(JSON.stringify(targetMod));
-    clonedMod.id = `mod_${Date.now()}`;
+    clonedMod.id = `mod_${crypto.randomUUID()}`;
+    clonedMod.bays.forEach((b, i) => {
+      b.door.id = `${clonedMod.id}_door_${i}`;
+      for (const items of [b.shelves, b.drawers, b.hangingRails, b.specialFittings ?? [], b.subDividers ?? []]) items.forEach((item, j) => { item.id = `${clonedMod.id}_${i}_${item.id}_${j}`; });
+    });
     clonedMod.name = `${targetMod.name} (Kopya)`;
     clonedMod.position.x = newX;
 
     updated.modules.push(clonedMod);
     const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
     set({
-      history: [...history.slice(-15), project],
+      history: nextHistory(history, project, batchStartProject),
       future: [],
       project: updated,
+      autoSaveStatus: "unsaved",
       activeModuleIndex: updated.modules.length - 1,
       validationIssues,
       bom,
@@ -566,17 +844,20 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   },
 
   removeActiveModule: () => {
-    const { project, history, activeModuleIndex } = get();
+    const { project, history, activeModuleIndex, batchStartProject } = get();
     if (project.modules.length <= 1) return;
     const updated = cloneProject(project);
     updated.modules.splice(activeModuleIndex, 1);
+    const nextIdx = Math.min(activeModuleIndex, Math.max(0, updated.modules.length - 1));
 
     const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
     set({
-      history: [...history.slice(-15), project],
+      history: nextHistory(history, project, batchStartProject),
       future: [],
       project: updated,
-      activeModuleIndex: 0,
+      autoSaveStatus: "unsaved",
+      activeModuleIndex: nextIdx,
+      selectedComponentId: null,
       validationIssues,
       bom,
       pricing,
@@ -585,7 +866,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   },
 
   moveActiveModule: (deltaX: number) => {
-    const { project, history, activeModuleIndex } = get();
+    const { project, history, activeModuleIndex, batchStartProject } = get();
     const updated = cloneProject(project);
     const mod = updated.modules[activeModuleIndex];
     if (!mod) return;
@@ -593,9 +874,10 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     mod.position.x = Math.max(0, mod.position.x + deltaX);
     const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
     set({
-      history: [...history.slice(-15), project],
+      history: nextHistory(history, project, batchStartProject),
       future: [],
       project: updated,
+      autoSaveStatus: "unsaved",
       validationIssues,
       bom,
       pricing,
@@ -605,23 +887,32 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
 
   saveToStorage: (name?: string) => {
     const { project, pricing } = get();
-    const saveId = `saved_${project.id}_${Date.now()}`;
+    const saveId = `saved_${project.id}_${crypto.randomUUID()}`;
     const title = name || project.title;
     const saveEntry = {
       id: saveId,
       title,
       date: new Date().toISOString(),
       priceEur: pricing.totalWithVatEur,
-      project: { ...project, title },
+      project: {
+        ...project,
+        title,
+        schemaVersion: SUPPORTED_PROJECT_SCHEMA_VERSION,
+        catalogVersion: project.catalogVersion || project.libraryVersionId || "lib_v4_0_0",
+        revisionId: project.revisionId || `rev_v${project.version || 1}`,
+      },
     };
 
     try {
       const existing = JSON.parse(localStorage.getItem("birim_saved_projects") || "[]");
+      if (!Array.isArray(existing)) throw new Error("Kayıt listesi bozuk; JSON dışa aktarımını kullanın.");
       existing.unshift(saveEntry);
       localStorage.setItem("birim_saved_projects", JSON.stringify(existing.slice(0, 30)));
-    } catch {
-      // fallback
+    } catch (error) {
+      set({ autoSaveStatus: "unsaved" });
+      throw new Error(error instanceof Error ? `Kayıt başarısız: ${error.message}` : "Kayıt başarısız.");
     }
+    set({ autoSaveStatus: "saved" });
     return saveId;
   },
 
@@ -630,13 +921,20 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       const list = JSON.parse(localStorage.getItem("birim_saved_projects") || "[]");
       const found = list.find((item: { id: string; project: DesignProject }) => item.id === id);
       if (found && found.project) {
-        const migrated = migrateV3ProjectToV4(found.project);
+        if (typeof found.project.schemaVersion === "number" && found.project.schemaVersion > SUPPORTED_PROJECT_SCHEMA_VERSION) {
+          return false;
+        }
+        const validated = DesignProjectSchema.safeParse(found.project);
+        if (!validated.success) return false;
+        const migrated = migrateV3ProjectToV4({ ...validated.data, status: "draft" } as DesignProject);
         const { validationIssues, bom, pricing, smartAdvice } = recompute(migrated);
         set({
           project: migrated,
+          autoSaveStatus: "saved",
           activeModuleIndex: 0,
           history: [],
           future: [],
+          batchStartProject: null,
           validationIssues,
           bom,
           pricing,
@@ -666,23 +964,40 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
 
   exportProjectJSON: () => {
     const { project } = get();
-    return JSON.stringify(project, null, 2);
+    return JSON.stringify(
+      {
+        ...project,
+        schemaVersion: SUPPORTED_PROJECT_SCHEMA_VERSION,
+        catalogVersion: project.catalogVersion || project.libraryVersionId || "lib_v4_0_0",
+        revisionId: project.revisionId || `rev_v${project.version || 1}`,
+      },
+      null,
+      2
+    );
   },
 
   importProjectJSON: (jsonStr: string) => {
     try {
       const parsed = JSON.parse(jsonStr);
+      if (typeof parsed?.schemaVersion === "number" && parsed.schemaVersion > SUPPORTED_PROJECT_SCHEMA_VERSION) {
+        return {
+          success: false,
+          error: `Desteklenmeyen ileri şema sürümü: v${parsed.schemaVersion}. Maksimum desteklenen sürüm: v${SUPPORTED_PROJECT_SCHEMA_VERSION}.`,
+        };
+      }
       const val = DesignProjectSchema.safeParse(parsed);
       if (!val.success) {
         return { success: false, error: "Geçersiz Birim Proje JSON formatı." };
       }
-      const validProject = migrateV3ProjectToV4(val.data as DesignProject);
+      const validProject = migrateV3ProjectToV4({ ...val.data, status: "draft" } as DesignProject);
       const { validationIssues, bom, pricing, smartAdvice } = recompute(validProject);
       set({
         project: validProject,
+        autoSaveStatus: "unsaved",
         activeModuleIndex: 0,
         history: [],
         future: [],
+        batchStartProject: null,
         validationIssues,
         bom,
         pricing,
@@ -719,6 +1034,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
 
     set({
       project: updated,
+      autoSaveStatus: "unsaved",
       validationIssues: newIssues,
       bom,
       pricing,
@@ -732,7 +1048,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   },
 
   applySmartSpan: (spanWidth) => {
-    const { project, history } = get();
+    const { project, history, batchStartProject } = get();
     const updated = cloneProject(project);
     const mod = updated.modules[0];
     if (!mod) return;
@@ -753,9 +1069,10 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
 
     const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
     set({
-      history: [...history.slice(-15), project],
+      history: nextHistory(history, project, batchStartProject),
       future: [],
       project: updated,
+      autoSaveStatus: "unsaved",
       validationIssues,
       bom,
       pricing,
@@ -772,8 +1089,13 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
 
     set({
       project: previous,
+      autoSaveStatus: "unsaved",
+      activeModuleIndex: Math.min(get().activeModuleIndex, previous.modules.length - 1),
+      activeBayIndex: 0,
+      selectedComponentId: null,
       history: newHistory,
       future: [project, ...future],
+      batchStartProject: null,
       validationIssues,
       bom,
       pricing,
@@ -790,8 +1112,13 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
 
     set({
       project: next,
+      autoSaveStatus: "unsaved",
+      activeModuleIndex: Math.min(get().activeModuleIndex, next.modules.length - 1),
+      activeBayIndex: 0,
+      selectedComponentId: null,
       history: [...history, project],
       future: newFuture,
+      batchStartProject: null,
       validationIssues,
       bom,
       pricing,
@@ -804,10 +1131,13 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     if (!tpl) return;
     const { project, history } = get();
     const newMod = tpl.createInstance(`mod_${Date.now()}`);
+    const nextVersion = project.version + 1;
     const updated: DesignProject = {
       ...project,
       modules: [newMod],
-      version: project.version + 1,
+      version: nextVersion,
+      schemaVersion: SUPPORTED_PROJECT_SCHEMA_VERSION,
+      revisionId: `rev_v${nextVersion}`,
       updatedAt: new Date().toISOString(),
     };
     const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
@@ -815,7 +1145,9 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     set({
       history: [...history.slice(-15), project],
       future: [],
+      batchStartProject: null,
       project: updated,
+      autoSaveStatus: "unsaved",
       activeModuleIndex: 0,
       validationIssues,
       bom,
@@ -833,6 +1165,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     set({
       history: [...history.slice(-15), project],
       future: [],
+      batchStartProject: null,
       project: kitchenProj,
       activeModuleIndex: 0,
       validationIssues,
@@ -850,6 +1183,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     set({
       history: [...history.slice(-15), project],
       future: [],
+      batchStartProject: null,
       project: lProj,
       activeModuleIndex: 0,
       validationIssues,
@@ -867,6 +1201,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     set({
       history: [...history.slice(-15), project],
       future: [],
+      batchStartProject: null,
       project: uProj,
       activeModuleIndex: 0,
       validationIssues,
@@ -882,10 +1217,14 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     const { validationIssues, bom, pricing, smartAdvice } = recompute(def);
     set({
       project: def,
+      autoSaveStatus: "unsaved",
       activeModuleIndex: 0,
       activeBayIndex: 0,
       history: [],
       future: [],
+      revisions: [],
+      batchStartProject: null,
+      selectedModuleIds: def.modules[0] ? [def.modules[0].id] : [],
       validationIssues,
       bom,
       pricing,
@@ -895,5 +1234,391 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       drawerOpenMm: 0,
       explodedFactor: 0,
     });
+  },
+
+  toggleModuleSelection: (moduleId, additive = true) => {
+    const { selectedModuleIds, project } = get();
+    const modIndex = project.modules.findIndex((m) => m.id === moduleId);
+    if (modIndex < 0) return;
+
+    if (!additive) {
+      set({
+        selectedModuleIds: [moduleId],
+        activeModuleIndex: modIndex,
+        activeBayIndex: 0,
+        selectedComponentId: null,
+      });
+      return;
+    }
+
+    const exists = selectedModuleIds.includes(moduleId);
+    const nextIds = exists
+      ? selectedModuleIds.filter((id) => id !== moduleId)
+      : [...selectedModuleIds, moduleId];
+    set({
+      selectedModuleIds: nextIds.length > 0 ? nextIds : [moduleId],
+      activeModuleIndex: modIndex,
+    });
+  },
+
+  selectAllModules: () => {
+    const { project } = get();
+    set({ selectedModuleIds: project.modules.map((m) => m.id) });
+  },
+
+  clearModuleSelection: () => {
+    const { project, activeModuleIndex } = get();
+    const activeMod = project.modules[activeModuleIndex] || project.modules[0];
+    set({ selectedModuleIds: activeMod ? [activeMod.id] : [] });
+  },
+
+  batchMoveSelectedModules: (deltaX, deltaZ = 0) => {
+    const { project, selectedModuleIds, activeModuleIndex, history, batchStartProject } = get();
+    const targetIds =
+      selectedModuleIds.length > 0
+        ? new Set(selectedModuleIds)
+        : new Set([project.modules[activeModuleIndex]?.id].filter(Boolean));
+    if (targetIds.size === 0) return;
+
+    const updated = cloneProject(project);
+    updated.modules.forEach((mod) => {
+      if (targetIds.has(mod.id)) {
+        mod.position.x = Math.round(mod.position.x + deltaX);
+        mod.position.z = Math.round(mod.position.z + deltaZ);
+      }
+    });
+    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    set({
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      project: updated,
+      autoSaveStatus: "unsaved",
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+    });
+  },
+
+  batchSetSelectedModulesMaterial: (bodyMatId, doorMatId) => {
+    const { project, selectedModuleIds, activeModuleIndex, history, batchStartProject } = get();
+    const targetIds =
+      selectedModuleIds.length > 0
+        ? new Set(selectedModuleIds)
+        : new Set([project.modules[activeModuleIndex]?.id].filter(Boolean));
+    if (targetIds.size === 0) return;
+
+    const updated = cloneProject(project);
+    updated.modules.forEach((mod) => {
+      if (targetIds.has(mod.id)) {
+        if (bodyMatId) mod.carcass.bodyMaterialId = bodyMatId;
+        if (doorMatId) mod.carcass.doorMaterialId = doorMatId;
+      }
+    });
+    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    set({
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      project: updated,
+      autoSaveStatus: "unsaved",
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+    });
+  },
+
+  batchRemoveSelectedModules: () => {
+    const { project, selectedModuleIds, history, batchStartProject } = get();
+    if (project.modules.length <= 1 || selectedModuleIds.length === 0) return;
+    const targetIds = new Set(selectedModuleIds);
+    const updated = cloneProject(project);
+    const remaining = updated.modules.filter((m) => !targetIds.has(m.id));
+    if (remaining.length === 0) {
+      remaining.push(updated.modules[0]);
+    }
+    updated.modules = remaining;
+    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    set({
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      project: updated,
+      activeModuleIndex: 0,
+      selectedModuleIds: [remaining[0].id],
+      autoSaveStatus: "unsaved",
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+    });
+  },
+
+  setRoomDimensions: (mainWallLengthMm, ceilingHeightMm) => {
+    const { project, history, batchStartProject } = get();
+    const updated = cloneProject(project);
+    const safeLen = Math.max(800, Math.min(15000, Math.round(mainWallLengthMm)));
+    const safeCeil =
+      ceilingHeightMm !== undefined
+        ? Math.max(1800, Math.min(6000, Math.round(ceilingHeightMm)))
+        : updated.space.ceilingHeight;
+    updated.space.ceilingHeight = safeCeil;
+    if (updated.space.walls.length === 0) {
+      updated.space.walls.push({
+        id: "wall_main",
+        name: "Ana Duvar",
+        length: safeLen,
+        height: safeCeil,
+        thickness: 150,
+        position: { x: 0, y: 0, z: 0 },
+        rotationY: 0,
+        elements: [],
+      });
+    } else {
+      updated.space.walls[0].length = safeLen;
+      updated.space.walls.forEach((w) => {
+        w.height = safeCeil;
+      });
+    }
+    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    set({
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      project: updated,
+      autoSaveStatus: "unsaved",
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+    });
+  },
+
+  addWallSegment: (wallInput) => {
+    const { project, history, batchStartProject } = get();
+    const updated = cloneProject(project);
+    const wallId = `wall_${Date.now()}_${updated.space.walls.length + 1}`;
+    const newWall: WallDefinition = {
+      id: wallId,
+      name: wallInput.name || `Duvar ${updated.space.walls.length + 1}`,
+      length: Math.max(200, Math.round(wallInput.length)),
+      height: wallInput.height || updated.space.ceilingHeight || 2600,
+      thickness: wallInput.thickness || 150,
+      position: {
+        x: Math.round(wallInput.position.x),
+        y: Math.round(wallInput.position.y || 0),
+        z: Math.round(wallInput.position.z),
+      },
+      rotationY: Math.round(wallInput.rotationY),
+      elements: [],
+    };
+    updated.space.walls.push(newWall);
+    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    set({
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      project: updated,
+      autoSaveStatus: "unsaved",
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+    });
+    return wallId;
+  },
+
+  updateWallSegment: (wallId, patch) => {
+    const { project, history, batchStartProject } = get();
+    const updated = cloneProject(project);
+    const targetIdx = updated.space.walls.findIndex((w) => w.id === wallId);
+    if (targetIdx < 0) return;
+
+    const current = updated.space.walls[targetIdx];
+    updated.space.walls[targetIdx] = {
+      ...current,
+      name: patch.name ?? current.name,
+      length:
+        patch.length !== undefined
+          ? Math.max(200, Math.min(15000, Math.round(patch.length)))
+          : current.length,
+      height:
+        patch.height !== undefined
+          ? Math.max(1800, Math.min(6000, Math.round(patch.height)))
+          : current.height,
+      thickness:
+        patch.thickness !== undefined
+          ? Math.max(50, Math.min(600, Math.round(patch.thickness)))
+          : current.thickness,
+      position: {
+        x:
+          patch.position?.x !== undefined
+            ? Math.round(patch.position.x)
+            : current.position.x,
+        y:
+          patch.position?.y !== undefined
+            ? Math.round(patch.position.y)
+            : current.position.y,
+        z:
+          patch.position?.z !== undefined
+            ? Math.round(patch.position.z)
+            : current.position.z,
+      },
+      rotationY:
+        patch.rotationY !== undefined
+          ? ((Math.round(patch.rotationY) % 360) + 360) % 360
+          : current.rotationY,
+    };
+
+    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    set({
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      project: updated,
+      autoSaveStatus: "unsaved",
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+    });
+  },
+
+  removeWallSegment: (wallId) => {
+    const { project, history, batchStartProject } = get();
+    if (project.space.walls.length <= 1) return;
+    const updated = cloneProject(project);
+    const remaining = updated.space.walls.filter((w) => w.id !== wallId);
+    if (remaining.length === 0) return;
+    updated.space.walls = remaining;
+    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    set({
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      project: updated,
+      autoSaveStatus: "unsaved",
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+    });
+  },
+
+  addSpaceObstacle: (obstacleInput) => {
+    const { project, history, batchStartProject } = get();
+    const updated = cloneProject(project);
+    const obstacleId =
+      obstacleInput.id || `arch_${obstacleInput.type}_${Date.now()}`;
+    const newObstacle: ArchitecturalElement = {
+      id: obstacleId,
+      type: obstacleInput.type,
+      name: obstacleInput.name,
+      position: { ...obstacleInput.position },
+      dimensions: { ...obstacleInput.dimensions },
+    };
+    updated.space.elements = [...(updated.space.elements || []), newObstacle];
+    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    set({
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      project: updated,
+      autoSaveStatus: "unsaved",
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+    });
+    return obstacleId;
+  },
+
+  updateSpaceObstacle: (obstacleId, patch) => {
+    const { project, history, batchStartProject } = get();
+    const updated = cloneProject(project);
+    updated.space.elements = (updated.space.elements || []).map((el) =>
+      el.id === obstacleId
+        ? {
+            ...el,
+            name: patch.name ?? el.name,
+            position: patch.position
+              ? { ...el.position, ...patch.position }
+              : el.position,
+            dimensions: patch.dimensions
+              ? { ...el.dimensions, ...patch.dimensions }
+              : el.dimensions,
+          }
+        : el
+    );
+    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    set({
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      project: updated,
+      autoSaveStatus: "unsaved",
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+    });
+  },
+
+  removeSpaceObstacle: (obstacleId) => {
+    const { project, history, batchStartProject } = get();
+    const updated = cloneProject(project);
+    updated.space.elements = (updated.space.elements || []).filter(
+      (el) => el.id !== obstacleId
+    );
+    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    set({
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      project: updated,
+      autoSaveStatus: "unsaved",
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+    });
+  },
+
+  setFloorPlanUnderlay: (underlay) => {
+    const { project, history, batchStartProject } = get();
+    const updated = cloneProject(project);
+    updated.space.floorPlanUnderlay = underlay ?? undefined;
+    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    set({
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      project: updated,
+      autoSaveStatus: "unsaved",
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+    });
+  },
+
+  importWallsFromUnderlay: (replaceExisting = false) => {
+    const { project, history, batchStartProject } = get();
+    const underlay = project.space.floorPlanUnderlay;
+    if (!underlay || !underlay.polylines || underlay.polylines.length === 0) return 0;
+
+    const extractedWalls = convertUnderlayPolylinesToWalls(
+      underlay,
+      project.space.ceilingHeight || 2600
+    );
+    if (extractedWalls.length === 0) return 0;
+
+    const updated = cloneProject(project);
+    updated.space.walls = replaceExisting
+      ? extractedWalls
+      : [...updated.space.walls, ...extractedWalls];
+    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    set({
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      project: updated,
+      autoSaveStatus: "unsaved",
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+    });
+    return extractedWalls.length;
   },
 }));

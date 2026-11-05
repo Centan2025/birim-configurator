@@ -114,20 +114,35 @@ export default function TopPlan2D() {
         {/* Dimension Lines */}
         {planData.dimensionLines.map((dim) => {
           const isH = dim.orientation === "horizontal";
+          const midX = (dim.x1 + dim.x2) / 2;
+          const midY = (dim.y1 + dim.y2) / 2;
+          const pillW = Math.max(170, dim.label.length * 17 + 32);
+          const pillH = 46;
+
           return (
             <g key={dim.id} className="select-none pointer-events-none">
-              <line x1={dim.x1} y1={dim.y1} x2={dim.x2} y2={dim.y2} stroke="#f59e0b" strokeWidth="1.5" />
+              <line x1={dim.x1} y1={dim.y1} x2={dim.x2} y2={dim.y2} stroke="#f59e0b" strokeWidth="3" />
               {isH ? (
                 <>
-                  <line x1={dim.x1} y1={dim.y1 - 6} x2={dim.x1} y2={dim.y1 + 6} stroke="#f59e0b" strokeWidth="1.5" />
-                  <line x1={dim.x2} y1={dim.y2 - 6} x2={dim.x2} y2={dim.y2 + 6} stroke="#f59e0b" strokeWidth="1.5" />
+                  <line x1={dim.x1} y1={dim.y1 - 15} x2={dim.x1} y2={dim.y1 + 15} stroke="#f59e0b" strokeWidth="3" />
+                  <line x1={dim.x2} y1={dim.y2 - 15} x2={dim.x2} y2={dim.y2 + 15} stroke="#f59e0b" strokeWidth="3" />
+                  <rect
+                    x={midX - pillW / 2}
+                    y={dim.y1 - pillH - 8}
+                    width={pillW}
+                    height={pillH}
+                    rx={10}
+                    fill="#0f172a"
+                    stroke="#f59e0b"
+                    strokeWidth="2.5"
+                  />
                   <text
-                    x={(dim.x1 + dim.x2) / 2}
-                    y={dim.y1 - 8}
+                    x={midX}
+                    y={dim.y1 - 18}
                     textAnchor="middle"
                     fill="#fbbf24"
-                    fontSize="13"
-                    fontWeight="600"
+                    fontSize="26"
+                    fontWeight="700"
                     fontFamily="monospace"
                   >
                     {dim.label}
@@ -135,19 +150,31 @@ export default function TopPlan2D() {
                 </>
               ) : (
                 <>
-                  <line x1={dim.x1 - 6} y1={dim.y1} x2={dim.x1 + 6} y2={dim.y1} stroke="#f59e0b" strokeWidth="1.5" />
-                  <line x1={dim.x2 - 6} y1={dim.y2} x2={dim.x2 + 6} y2={dim.y2} stroke="#f59e0b" strokeWidth="1.5" />
-                  <text
-                    x={dim.x1 - 10}
-                    y={(dim.y1 + dim.y2) / 2 + 4}
-                    textAnchor="end"
-                    fill="#fbbf24"
-                    fontSize="13"
-                    fontWeight="600"
-                    fontFamily="monospace"
-                  >
-                    {dim.label}
-                  </text>
+                  <line x1={dim.x1 - 15} y1={dim.y1} x2={dim.x1 + 15} y2={dim.y1} stroke="#f59e0b" strokeWidth="3" />
+                  <line x1={dim.x2 - 15} y1={dim.y2} x2={dim.x2 + 15} y2={dim.y2} stroke="#f59e0b" strokeWidth="3" />
+                  <g transform={`translate(${dim.x1 - 38}, ${midY}) rotate(-90)`}>
+                    <rect
+                      x={-pillW / 2}
+                      y={-pillH / 2}
+                      width={pillW}
+                      height={pillH}
+                      rx={10}
+                      fill="#0f172a"
+                      stroke="#f59e0b"
+                      strokeWidth="2.5"
+                    />
+                    <text
+                      x={0}
+                      y={9}
+                      textAnchor="middle"
+                      fill="#fbbf24"
+                      fontSize="26"
+                      fontWeight="700"
+                      fontFamily="monospace"
+                    >
+                      {dim.label}
+                    </text>
+                  </g>
                 </>
               )}
             </g>

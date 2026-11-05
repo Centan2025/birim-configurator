@@ -30,6 +30,88 @@ export const DEFAULT_RULES: SystemRulesConfig = {
   hingeZonesY: [100, 850, 1500, 2050],
 };
 
+/** Module position is the minimum room-plan corner, rotation is in degrees. */
+export function calculateModulePlacement(module: ModuleInstance) {
+  const rotationYRad = ((module.rotation?.y ?? 0) * Math.PI) / 180;
+  const c = Math.cos(rotationYRad),
+    s = Math.sin(rotationYRad);
+  const corners = [0, module.dimensions.width].flatMap((x) =>
+    [0, module.dimensions.depth].map((z) => ({ x: x * c + z * s, z: -x * s + z * c }))
+  );
+  const minX = Math.min(...corners.map((p) => p.x)),
+    minZ = Math.min(...corners.map((p) => p.z));
+  return {
+    rotationYRad,
+    origin: { x: module.position.x - minX, y: module.position.y, z: module.position.z - minZ },
+    width: Math.max(...corners.map((p) => p.x)) - minX,
+    depth: Math.max(...corners.map((p) => p.z)) - minZ,
+  };
+}
+
+/**
+ * Computes the 3D AABB of a module's front door/drawer opening sweep zone in room coordinates.
+ */
+export function getModuleFrontSweepBounds(module: ModuleInstance): {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  minZ: number;
+  maxZ: number;
+} | null {
+  if (
+    module.isOpenFront ||
+    module.category === "complementary" ||
+    !module.bays.some((b) => (b.door.type !== "open" && b.door.type !== "sliding") || b.drawers.length > 0)
+  ) {
+    return null;
+  }
+  const place = calculateModulePlacement(module);
+  const rotY = (((module.rotation?.y ?? 0) % 360) + 360) % 360;
+  const sweepDepth = Math.min(550, Math.max(350, Math.round(module.dimensions.width / Math.max(1, module.bays.length))));
+  const minY = module.position.y;
+  const maxY = module.position.y + module.dimensions.height;
+
+  if (rotY === 90) {
+    return {
+      minX: module.position.x + place.width,
+      maxX: module.position.x + place.width + sweepDepth,
+      minY,
+      maxY,
+      minZ: module.position.z,
+      maxZ: module.position.z + place.depth,
+    };
+  }
+  if (rotY === 180) {
+    return {
+      minX: module.position.x,
+      maxX: module.position.x + place.width,
+      minY,
+      maxY,
+      minZ: module.position.z - sweepDepth,
+      maxZ: module.position.z,
+    };
+  }
+  if (rotY === 270) {
+    return {
+      minX: module.position.x - sweepDepth,
+      maxX: module.position.x,
+      minY,
+      maxY,
+      minZ: module.position.z,
+      maxZ: module.position.z + place.depth,
+    };
+  }
+  return {
+    minX: module.position.x,
+    maxX: module.position.x + place.width,
+    minY,
+    maxY,
+    minZ: module.position.z + place.depth,
+    maxZ: module.position.z + place.depth + sweepDepth,
+  };
+}
+
 export function calculateBayWidths(module: ModuleInstance): UnitLength[] {
   const { width } = module.dimensions;
   const { panelThickness } = module.carcass;
@@ -55,11 +137,16 @@ export function calculateBayWidths(module: ModuleInstance): UnitLength[] {
   const uniformWidth = Math.floor(remainingWidth / variableBaysCount);
   const remainder = remainingWidth - uniformWidth * variableBaysCount;
 
-  return module.bays.map((b, idx) => {
+  let distributedRemainder = false;
+  return module.bays.map((b) => {
     if (b.customWidth && b.customWidth > 0) {
       return b.customWidth;
     }
-    return idx === 0 ? uniformWidth + remainder : uniformWidth;
+    if (!distributedRemainder) {
+      distributedRemainder = true;
+      return uniformWidth + remainder;
+    }
+    return uniformWidth;
   });
 }
 
@@ -170,7 +257,6 @@ export function validateModule(
 
         // Check internal drawer hinge collision
         if (drawer.isInternal && bay.door.type !== "open") {
-          // If drawer elevation matches hinge zone
           const isNearHinge = rules.hingeZonesY.some((hy) => Math.abs(drawer.elevationY - hy) < 50);
           if (isNearHinge) {
             issues.push({
@@ -212,7 +298,7 @@ export function validateModule(
 }
 
 /**
- * Validates entire project including multi-module collisions and architectural space boundaries.
+ * Validates entire project including multi-module collisions, front opening sweeps, and architectural space boundaries.
  */
 export function validateProject(project: DesignProject): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
@@ -222,8 +308,13 @@ export function validateProject(project: DesignProject): ValidationIssue[] {
     issues.push(...validateModule(mod));
   });
 
-  // 2. Ceiling height check
+  // 2. Ceiling height & explicit architectural obstacle checks
   const ceiling = project.space.ceilingHeight || 2600;
+  const allObstacles = [
+    ...(project.space.elements || []),
+    ...(project.space.walls || []).flatMap((w) => w.elements || []),
+  ];
+
   project.modules.forEach((mod) => {
     const modTopY = mod.position.y + mod.dimensions.height;
     if (modTopY > ceiling) {
@@ -235,23 +326,64 @@ export function validateProject(project: DesignProject): ValidationIssue[] {
         blockingProduction: true,
       });
     }
+
+    const place = calculateModulePlacement(mod);
+    const mMinX = mod.position.x;
+    const mMaxX = mod.position.x + place.width;
+    const mMinY = mod.position.y;
+    const mMaxY = modTopY;
+    const mMinZ = mod.position.z;
+    const mMaxZ = mod.position.z + place.depth;
+
+    allObstacles.forEach((obs) => {
+      const oMinX = obs.position.x;
+      const oMaxX = obs.position.x + obs.dimensions.width;
+      const oMinY = obs.position.y;
+      const oMaxY = obs.position.y + obs.dimensions.height;
+      const oMinZ = obs.position.z;
+      const oMaxZ = obs.position.z + obs.dimensions.depth;
+
+      const xHit = mMinX < oMaxX - 0.001 && mMaxX > oMinX + 0.001;
+      const yHit = mMinY < oMaxY - 0.001 && mMaxY > oMinY + 0.001;
+      const zHit = mMinZ < oMaxZ - 0.001 && mMaxZ > oMinZ + 0.001;
+
+      if (xHit && yHit && zHit) {
+        if (obs.type === "column" || obs.type === "beam") {
+          issues.push({
+            severity: "error",
+            code: "ERR_COLUMN_COLLISION",
+            message: `Modül "${mod.name}" taşıyıcı eleman "${obs.name}" ile çakışıyor.`,
+            targetId: mod.id,
+            blockingProduction: true,
+          });
+        } else if (obs.type === "window" || obs.type === "door") {
+          issues.push({
+            severity: "error",
+            code: obs.type === "window" ? "ERR_WINDOW_COLLISION" : "ERR_DOOR_OBSTACLE_COLLISION",
+            message: `Modül "${mod.name}" mimari açıklık "${obs.name}" ile çakışıyor.`,
+            targetId: mod.id,
+            blockingProduction: true,
+          });
+        }
+      }
+    });
   });
 
-  // 3. Multi-module 3D collision / overlap check (AABB)
+  // 3. Multi-module 3D collision / overlap check (AABB) & Front Opening Sweep Collision
   for (let i = 0; i < project.modules.length; i++) {
     for (let j = i + 1; j < project.modules.length; j++) {
       const m1 = project.modules[i];
       const m2 = project.modules[j];
 
+      const a = calculateModulePlacement(m1),
+        b = calculateModulePlacement(m2);
       const xOverlap =
-        m1.position.x < m2.position.x + m2.dimensions.width &&
-        m1.position.x + m1.dimensions.width > m2.position.x;
+        m1.position.x < m2.position.x + b.width - 0.001 && m1.position.x + a.width > m2.position.x + 0.001;
       const yOverlap =
         m1.position.y < m2.position.y + m2.dimensions.height &&
         m1.position.y + m1.dimensions.height > m2.position.y;
       const zOverlap =
-        m1.position.z < m2.position.z + m2.dimensions.depth &&
-        m1.position.z + m1.dimensions.depth > m2.position.z;
+        m1.position.z < m2.position.z + b.depth - 0.001 && m1.position.z + a.depth > m2.position.z + 0.001;
 
       if (xOverlap && yOverlap && zOverlap) {
         issues.push({
@@ -260,6 +392,46 @@ export function validateProject(project: DesignProject): ValidationIssue[] {
           message: `"${m1.name}" ve "${m2.name}" modülleri 3D uzayda çakışıyor.`,
           targetId: `${m1.id}_${m2.id}`,
           blockingProduction: true,
+        });
+        continue;
+      }
+
+      const sweep1 = getModuleFrontSweepBounds(m1);
+      const sweep2 = getModuleFrontSweepBounds(m2);
+      const rot1 = (((m1.rotation?.y ?? 0) % 360) + 360) % 360;
+      const rot2 = (((m2.rotation?.y ?? 0) % 360) + 360) % 360;
+
+      // Check if m1's front opening sweep hits m2's solid body or vice versa
+      const s1HitsM2Body =
+        sweep1 &&
+        yOverlap &&
+        sweep1.minX < m2.position.x + b.width - 0.001 &&
+        sweep1.maxX > m2.position.x + 0.001 &&
+        sweep1.minZ < m2.position.z + b.depth - 0.001 &&
+        sweep1.maxZ > m2.position.z + 0.001;
+      const s2HitsM1Body =
+        sweep2 &&
+        yOverlap &&
+        sweep2.minX < m1.position.x + a.width - 0.001 &&
+        sweep2.maxX > m1.position.x + 0.001 &&
+        sweep2.minZ < m1.position.z + a.depth - 0.001 &&
+        sweep2.maxZ > m1.position.z + 0.001;
+      const perpendicularSweepsIntersect =
+        sweep1 &&
+        sweep2 &&
+        rot1 !== rot2 &&
+        yOverlap &&
+        sweep1.minX < sweep2.maxX - 0.001 &&
+        sweep1.maxX > sweep2.minX + 0.001 &&
+        sweep1.minZ < sweep2.maxZ - 0.001 &&
+        sweep1.maxZ > sweep2.minZ + 0.001;
+
+      if (s1HitsM2Body || s2HitsM1Body || perpendicularSweepsIntersect) {
+        issues.push({
+          severity: "warning",
+          code: "WARN_FRONT_OPENING_SWEEP_COLLISION",
+          message: `"${m1.name}" ve "${m2.name}" kapak/çekmece açılım süpürme hacimleri çakışıyor; köşe kör dolgu çıtası (min 50mm) veya açılış yönü kontrolü önerilir.`,
+          targetId: `${m1.id}_${m2.id}`,
         });
       }
     }

@@ -92,8 +92,8 @@ describe("Birim Configurator V4 — Universal Furniture Module & Hardware Librar
       const priceBlum110 = calculateProjectPrice(bomBlum110);
 
       const doorPieceBlum110 = bomBlum110.cutList.find((p) => p.pieceName.includes("Kapak"))!;
-      const blum110Cup = doorPieceBlum110.holes.find((h) => h.id.includes("hinge_cup_0"))!;
-      const blum110ScrewA = doorPieceBlum110.holes.find((h) => h.id.includes("hinge_screw_0_a"))!;
+      const blum110Cup = doorPieceBlum110.holes!.find((h) => h.id.includes("hinge_cup_0"))!;
+      const blum110ScrewA = doorPieceBlum110.holes!.find((h) => h.id.includes("hinge_screw_0_a"))!;
       expect(blum110Cup.depth).toBe(13.0);
       // Blum 45mm pitch (+/-22.5mm), 9.5mm offset from cupX (21.5 + 9.5 = 31.0mm)
       expect(blum110ScrewA.x).toBe(31.0);
@@ -106,7 +106,7 @@ describe("Birim Configurator V4 — Universal Furniture Module & Hardware Librar
       const bomBlum155 = generateBOMForProject(projBlum155);
       const priceBlum155 = calculateProjectPrice(bomBlum155);
       const doorPieceBlum155 = bomBlum155.cutList.find((p) => p.pieceName.includes("Kapak"))!;
-      const blum155Cup = doorPieceBlum155.holes.find((h) => h.id.includes("hinge_cup_0"))!;
+      const blum155Cup = doorPieceBlum155.holes!.find((h) => h.id.includes("hinge_cup_0"))!;
       expect(blum155Cup.depth).toBe(11.7);
       expect(bomBlum155.hardwareList.some((h) => h.sku === "71B7550")).toBe(true);
       expect(priceBlum155.totalWithVatEur).toBeGreaterThan(priceBlum110.totalWithVatEur);
@@ -116,8 +116,8 @@ describe("Birim Configurator V4 — Universal Furniture Module & Hardware Librar
       projHettich.modules[0].bays[0].door.hardwareProductId = "hw_hettich_9071205";
       const bomHettich = generateBOMForProject(projHettich);
       const doorPieceHettich = bomHettich.cutList.find((p) => p.pieceName.includes("Kapak"))!;
-      const hettichCup = doorPieceHettich.holes.find((h) => h.id.includes("hinge_cup_0"))!;
-      const hettichScrewA = doorPieceHettich.holes.find((h) => h.id.includes("hinge_screw_0_a"))!;
+      const hettichCup = doorPieceHettich.holes!.find((h) => h.id.includes("hinge_cup_0"))!;
+      const hettichScrewA = doorPieceHettich.holes!.find((h) => h.id.includes("hinge_screw_0_a"))!;
       expect(hettichCup.depth).toBe(12.8);
       expect(hettichScrewA.x).toBe(27.0);
       expect(hettichCup.y - hettichScrewA.y).toBe(26.0);
@@ -128,8 +128,8 @@ describe("Birim Configurator V4 — Universal Furniture Module & Hardware Librar
       projSalice.modules[0].bays[0].door.hardwareProductId = "hw_salice_c7p6ae9";
       const bomSalice = generateBOMForProject(projSalice);
       const doorPieceSalice = bomSalice.cutList.find((p) => p.pieceName.includes("Kapak"))!;
-      const saliceCup = doorPieceSalice.holes.find((h) => h.id.includes("hinge_cup_0"))!;
-      const saliceScrewA = doorPieceSalice.holes.find((h) => h.id.includes("hinge_screw_0_a"))!;
+      const saliceCup = doorPieceSalice.holes!.find((h) => h.id.includes("hinge_cup_0"))!;
+      const saliceScrewA = doorPieceSalice.holes!.find((h) => h.id.includes("hinge_screw_0_a"))!;
       expect(saliceCup.depth).toBe(12.0);
       expect(saliceScrewA.x).toBe(30.5);
       expect(saliceCup.y - saliceScrewA.y).toBe(24.0);
@@ -139,7 +139,7 @@ describe("Birim Configurator V4 — Universal Furniture Module & Hardware Librar
       projInset.modules[0].bays[0].door.overlayType = "inset";
       const bomInset = generateBOMForProject(projInset);
       const sidePanelInset = bomInset.cutList.find((p) => p.pieceName.includes("Sol Yan"))!;
-      const frontPinHole = sidePanelInset.holes.find((h) => h.purpose === "shelf_pin")!;
+      const frontPinHole = sidePanelInset.holes!.find((h) => h.purpose === "shelf_pin")!;
       expect(frontPinHole.x).toBe(57);
     });
   });
@@ -227,7 +227,7 @@ describe("Birim Configurator V4 — Universal Furniture Module & Hardware Librar
       expect(
         evaluateProjectCompatibility({ ...createInitialProject(), modules: [s1Mod] })
           .canApproveProduction
-      ).toBe(true);
+      ).toBe(false);
 
       // 2. 4-Carcass Master Wardrobe (3600mm Wall Smart Builder)
       const s2Proposals = generateSmartWallLayouts(3600, 2200, 600, "wardrobe");
@@ -274,7 +274,7 @@ describe("Birim Configurator V4 — Universal Furniture Module & Hardware Librar
       expect(
         evaluateProjectCompatibility({ ...createInitialProject(), modules: [s9Mod] })
           .canApproveProduction
-      ).toBe(true);
+      ).toBe(false);
 
       // 10. Open Walk-In Closet + Wardrobe Interior Wizard
       const s10Mod = applyWardrobeInteriorWizard(
@@ -360,7 +360,7 @@ describe("Birim Configurator V4 — Universal Furniture Module & Hardware Librar
       );
       const snap = storeAdapter.getSnapshot(quoteRes.snapshotId)!;
       expect(snap.configuratorSnapshot.libraryVersionId).toBe("lib_v4_0_0");
-      expect(snap.configuratorSnapshot.compatibilityStatus).toBe("COMPATIBLE");
+      expect(snap.configuratorSnapshot.compatibilityStatus).toBe("UNVERIFIED");
 
       // ERP adapter blocks UNVERIFIED bespoke/sloped ceiling design
       const erpAdapter = new MockERPAdapter();

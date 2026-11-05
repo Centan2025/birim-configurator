@@ -1,4 +1,5 @@
 import {
+  calculateModulePlacement,
   DesignProject,
   ModuleInstance,
   ArchitecturalElement,
@@ -102,8 +103,9 @@ export function getModuleOrientedFootprint(
   const rawH = mod.dimensions.height;
   const rawD = mod.dimensions.depth;
 
-  const planWidth = isRotated90 ? rawD : rawW;
-  const planDepth = isRotated90 ? rawW : rawD;
+  const placement = calculateModulePlacement(mod);
+  const planWidth = placement.width;
+  const planDepth = placement.depth;
 
   return {
     moduleId: mod.id,

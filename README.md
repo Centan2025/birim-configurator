@@ -2,6 +2,8 @@
 
 Birim markası için özel olarak geliştirilmiş bağımsız, yüksek performanslı **Parametrik Dolap ve Mutfak Konfigürasyon Motoru**.
 
+> **Ajanlar için başlangıç:** [AGENTS.md](AGENTS.md), [sonraki ajan devir notu](docs/NEXT_AGENT_HANDOFF.md) ve [V4.2+ ayrıntılı yol haritası](docs/V42_PLUS_EXECUTION_ROADMAP.md). Güncel denetim sonucu [V4.1 kısmi kabul raporundadır](docs/V41_ACCEPTANCE_REPORT.md); aşağıdaki genel özellik listesi tam ürün/üretim kabulü anlamına gelmez.
+
 Mağaza personelinin hızlı tasarımı, eş zamanlı 2D teknik kot çizimleri, 3D WebGL etkileşimli görselleştirmesi, deterministik fiyatlandırması, parça kesim listesi (BOM) ve Birim Store / ERP entegrasyon altyapısını içerir.
 
 ---

@@ -1,0 +1,52 @@
+[
+  {
+    "category": "knob",
+    "ms": 488,
+    "meshes": 4
+  },
+  {
+    "category": "bar_handle",
+    "ms": 457,
+    "meshes": 6
+  },
+  {
+    "category": "long_profile_handle",
+    "ms": 570,
+    "meshes": 6
+  },
+  {
+    "category": "edge_profile",
+    "ms": 571,
+    "meshes": 4
+  },
+  {
+    "category": "recessed_grip",
+    "ms": 701,
+    "meshes": 8
+  },
+  {
+    "category": "gola_profile",
+    "ms": 664,
+    "meshes": 4
+  },
+  {
+    "category": "j_pull",
+    "ms": 581,
+    "meshes": 4
+  },
+  {
+    "category": "milled_wood_grip",
+    "ms": 560,
+    "meshes": 6
+  },
+  {
+    "category": "decorative_bespoke",
+    "ms": 586,
+    "meshes": 10
+  },
+  {
+    "category": "handleless_plain",
+    "ms": 499,
+    "meshes": 0
+  }
+]

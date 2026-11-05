@@ -5,18 +5,54 @@ import {
   ValidationIssue,
 } from "./types";
 import { DEFAULT_MATERIALS } from "./defaults";
-import { validateModule, validateProject } from "./rules";
+import { validateProject } from "./rules";
 import {
   calculateFourSpaceDimensions,
   inferDoorSystemIdFromType,
 } from "./v4-profiles";
+import {
+  EvidenceCoverageMatrix,
+  isSourceFullyVerifiedForProduction,
+  PartOperationVerificationEntry,
+} from "./v4-source-registry";
 
 export interface CompatibilityReport {
   overallStatus: CompatibilityStatus;
   canApproveProduction: boolean;
   checkedCategoriesCount: number;
   issues: ValidationIssue[];
+  evidenceMatrix: EvidenceCoverageMatrix;
 }
+
+export interface EvaluateCompatibilityOptions {
+  hardwareSourceMap?: Record<string, { sourceId?: string; revision?: string; sku?: string }>;
+  referenceDateIso?: string;
+  activeCatalogVersion?: string;
+}
+
+const DEFAULT_HARDWARE_SOURCE_MAP: Record<string, { sourceId: string; revision: string }> = {
+  hw_blum_71b3550: { sourceId: "SRC_BLUM_CAT_HINGE", revision: "2024.1" },
+  hw_blum_71b3650: { sourceId: "SRC_BLUM_CAT_HINGE", revision: "2024.1" },
+  hw_blum_71b3750: { sourceId: "SRC_BLUM_CAT_HINGE", revision: "2024.1" },
+  hw_blum_71b7550: { sourceId: "SRC_BLUM_CAT_HINGE", revision: "2024.1" },
+  hw_blum_71b9550: { sourceId: "SRC_BLUM_CAT_HINGE", revision: "2024.1" },
+  hw_hettich_9071205: { sourceId: "SRC_HETTICH_SENSYS", revision: "2024.1" },
+  hw_hettich_9099540: { sourceId: "SRC_HETTICH_SENSYS", revision: "2024.1" },
+  hw_salice_c7p6ae9: { sourceId: "SRC_SALICE_SILENTIA", revision: "2024.1" },
+  hw_blum_legrabox_m40: { sourceId: "SRC_BLUM_LEGRABOX", revision: "2024.1" },
+  hw_blum_legrabox_c70: { sourceId: "SRC_BLUM_LEGRABOX", revision: "2024.1" },
+  hw_blum_tandembox_m30: { sourceId: "SRC_BLUM_TANDEMBOX", revision: "2024.1" },
+  hw_blum_movento_760h: { sourceId: "SRC_BLUM_MOVENTO", revision: "2024.1" },
+  hw_hettich_avantech_m: { sourceId: "SRC_HETTICH_AVANTECH", revision: "2024.1" },
+  hw_blum_aventos_hk_27: { sourceId: "SRC_BLUM_AVENTOS", revision: "2024.1" },
+  hw_blum_aventos_hf_25: { sourceId: "SRC_BLUM_AVENTOS", revision: "2024.1" },
+  hw_blum_aventos_hl_25: { sourceId: "SRC_BLUM_AVENTOS", revision: "2024.1" },
+  hw_hettich_topline_l: { sourceId: "SRC_HETTICH_WINGLINE", revision: "2024.1" },
+  hw_hafele_slido_bottom: { sourceId: "SRC_HAFELE_MATRIX", revision: "2024.1" },
+  hw_hettich_wingline_l: { sourceId: "SRC_HETTICH_WINGLINE", revision: "2024.1" },
+  hw_blum_revego_uno: { sourceId: "SRC_BLUM_REVEGO", revision: "2024.1" },
+  hw_hawa_concepta3_25: { sourceId: "SRC_HAWA_CONCEPTA3", revision: "2024.1" },
+};
 
 /**
  * FAZ 07 — Universal Compatibility Engine (15 Deterministic Rule Categories)
@@ -351,6 +387,85 @@ export function evaluateModuleCompatibility(module: ModuleInstance): ValidationI
 
     // Category 8: Handle & Opening Mechanism Compatibility
     if (
+      handleCat === "gola_profile" &&
+      (dSys === "hinged_inset" || bay.door.overlayType === "inset" || bay.door.type.startsWith("inset"))
+    ) {
+      issues.push({
+        severity: "error",
+        code: "CHK_08_GOLA_INCOMPATIBLE_WITH_INSET",
+        message: `Bölme ${bayIdx + 1}: Gola profil kanalı gövde ön kenarında kapak arkası parmak boşluğu gerektirir; içerlek (inset) kapakla kullanılamaz.`,
+        targetId: bay.door.id,
+        blockingProduction: true,
+        compatibilityStatus: "INCOMPATIBLE",
+        categoryIndex: 8,
+        suggestions: [
+          "Kapak biniş tipini Tam Binişli (full_overlay) yapın.",
+          "İçerlek kapak için Düğme Kulp (knob), Çubuk Kulp (bar_handle) veya Bas-Aç seçin.",
+        ],
+        sourceId: "SRC_BIRIM_FACTORY_V3",
+      });
+    }
+
+    if (handleCat === "recessed_grip" && T_door < 18) {
+      issues.push({
+        severity: "error",
+        code: "CHK_08_RECESSED_GRIP_MIN_THICKNESS",
+        message: `Bölme ${bayIdx + 1}: Gömme kulp (recessed_grip) havuz derinliği en az 18mm kapak kalınlığı gerektirir (Mevcut: ${T_door}mm).`,
+        targetId: bay.door.id,
+        blockingProduction: true,
+        compatibilityStatus: "INCOMPATIBLE",
+        categoryIndex: 8,
+        suggestions: [
+          "Kapak kalınlığını en az 18mm yapın.",
+          "İnce kapak için Kenar Profil Kulpu (edge_profile) veya Kulpsuz Bas-Aç seçin.",
+        ],
+        sourceId: "SRC_HAFELE_HANDLES",
+      });
+    }
+
+    if (
+      handleCat === "long_profile_handle" &&
+      leafInfo &&
+      leafInfo.leafCount > 0 &&
+      leafInfo.leafHeightMm < 1040
+    ) {
+      issues.push({
+        severity: "error",
+        code: "CHK_08_HANDLE_LENGTH_EXCEEDS_FRONT",
+        message: `Bölme ${bayIdx + 1}: 1000mm Dikey Boy Profil Kulp (HANDLE_LONG_960), kapak kanat yüksekliğini (${leafInfo.leafHeightMm}mm, min 1040mm) aşıyor.`,
+        targetId: bay.door.id,
+        blockingProduction: true,
+        compatibilityStatus: "INCOMPATIBLE",
+        categoryIndex: 8,
+        suggestions: [
+          "Standart Çubuk Kulp (bar_handle, 184mm) veya Kenar Profil Kulpu (edge_profile) seçin.",
+          "Kapak kanat yüksekliğini en az 1040mm olacak şekilde dolap boyunu büyütün.",
+        ],
+        sourceId: "SRC_HAFELE_HANDLES",
+      });
+    }
+
+    if (
+      handleCat === "long_profile_handle" &&
+      bay.drawers.some((d) => !d.isInternal) &&
+      bayW < 1040
+    ) {
+      issues.push({
+        severity: "error",
+        code: "CHK_08_HANDLE_LENGTH_EXCEEDS_FRONT",
+        message: `Bölme ${bayIdx + 1}: 1000mm Boy Profil Kulp (HANDLE_LONG_960), dış çekmece klapa genişliğini (${bayW}mm, min 1040mm) aşıyor.`,
+        targetId: bay.door.id,
+        blockingProduction: true,
+        compatibilityStatus: "INCOMPATIBLE",
+        categoryIndex: 8,
+        suggestions: [
+          "Çekmeceli bölmede Çubuk Kulp (bar_handle) veya Kenar Profil Kulpu (edge_profile) seçin.",
+        ],
+        sourceId: "SRC_HAFELE_HANDLES",
+      });
+    }
+
+    if (
       handleCat === "handleless_plain" &&
       (openTech === "manual_standard" || openTech === "soft_close") &&
       dSys !== "open"
@@ -485,16 +600,70 @@ export function evaluateModuleCompatibility(module: ModuleInstance): ValidationI
  * Evaluates full project compatibility combining base V3.1 geometric validations
  * with the 15-category V4 Universal Compatibility Engine.
  */
-export function evaluateProjectCompatibility(project: DesignProject): CompatibilityReport {
+export function evaluateProjectCompatibility(
+  project: DesignProject,
+  options: EvaluateCompatibilityOptions = {}
+): CompatibilityReport {
   const baseIssues = validateProject(project);
+  const hwMap = { ...DEFAULT_HARDWARE_SOURCE_MAP, ...(options.hardwareSourceMap || {}) };
+  const refDate = options.referenceDateIso || "2026-11-05";
+  const activeCatalogVersion = options.activeCatalogVersion || project.libraryVersionId || "lib_v4_0_0";
+
+  const matrixEntries: PartOperationVerificationEntry[] = [];
   const v4Issues: ValidationIssue[] = [];
+
+  // 1. Check factory CNC / beam saw baseline source
+  const factoryCheck = isSourceFullyVerifiedForProduction("SRC_BIRIM_FACTORY_V3", "3.1", refDate);
+  matrixEntries.push({
+    targetId: "Biesse_Selco_WNT_600",
+    targetType: "cnc_machine",
+    sourceId: "SRC_BIRIM_FACTORY_V3",
+    requiredSourceRevision: "3.1",
+    status: factoryCheck.verified ? "VERIFIED" : "NEEDS_EVIDENCE",
+    missingDomains: factoryCheck.missingDomains,
+    blockingReason: factoryCheck.reason,
+  });
+
+  if (!factoryCheck.verified) {
+    v4Issues.push({
+      code: "V41_FACTORY_RULES_UNVERIFIED",
+      severity: "warning",
+      blockingProduction: true,
+      compatibilityStatus: "UNVERIFIED",
+      targetId: project.id,
+      sourceId: "SRC_BIRIM_FACTORY_V3",
+      message:
+        "Üretim kuralları, kulp montaj ölçüleri ve CNC postprocessor fiziksel fabrika doğrulaması bekliyor. Görselleştirme ve fiyatlar temsilidir.",
+    });
+  }
+
+  // 2. Check draft catalog / libraryVersionId
+  if (activeCatalogVersion.includes("draft") || activeCatalogVersion.includes("unverified")) {
+    matrixEntries.push({
+      targetId: activeCatalogVersion,
+      targetType: "catalog_release",
+      status: "NEEDS_EVIDENCE",
+      missingDomains: ["physicalFactorySample"],
+      blockingReason: `Taslak katalog sürümü (${activeCatalogVersion}) ile üretim onayı verilemez.`,
+    });
+    v4Issues.push({
+      code: "CHK_15_DRAFT_CATALOG_VERSION",
+      severity: "warning",
+      blockingProduction: true,
+      compatibilityStatus: "UNVERIFIED",
+      targetId: project.id,
+      message: `Proje taslak katalog sürümüne (${activeCatalogVersion}) bağlı; üretim onayı için yayınlanmış ve doğrulanmış sürüm gereklidir.`,
+    });
+  }
 
   project.modules.forEach((mod) => {
     v4Issues.push(...evaluateModuleCompatibility(mod));
 
-    // Category 6: Overhead Lift Opening Sweep vs Ceiling Height
-    mod.bays.forEach((bay) => {
+    // Evaluate module hardware & handle verification coverage
+    mod.bays.forEach((bay, bayIdx) => {
       const dSys = bay.door.doorSystemId || inferDoorSystemIdFromType(bay.door.type);
+
+      // Overhead Lift Opening Sweep vs Ceiling Height
       if (
         (dSys === "lift_up_stay" || dSys === "lift_parallel" || dSys === "lift_bi_fold") &&
         mod.position.y + mod.dimensions.height + 180 > project.space.ceilingHeight
@@ -513,8 +682,75 @@ export function evaluateProjectCompatibility(project: DesignProject): Compatibil
           sourceId: "SRC_BLUM_AVENTOS",
         });
       }
+
+      // Check door hardware source & revision
+      if (bay.door.hardwareProductId) {
+        const hwId = bay.door.hardwareProductId;
+        const hwMeta = hwMap[hwId];
+        if (!hwMeta || !hwMeta.sourceId) {
+          matrixEntries.push({
+            targetId: `${mod.id}_bay_${bayIdx}_${hwId}`,
+            targetType: "hardware_sku",
+            sourceId: undefined,
+            status: "INVALID_SOURCE",
+            missingDomains: ["sourceTechData", "cadGeometry", "bomFormula", "drillingPattern", "physicalFactorySample"],
+            blockingReason: `Donanım "${hwId}" için kayıtlı teknik kaynak (sourceId) bulunamadı.`,
+          });
+          v4Issues.push({
+            code: "CHK_15_UNVERIFIED_HARDWARE_SOURCE",
+            severity: "warning",
+            blockingProduction: true,
+            compatibilityStatus: "UNVERIFIED",
+            targetId: bay.door.id,
+            message: `Donanım (${hwId}) için doğrulanmış birincil teknik kaynak bulunamadı.`,
+          });
+        } else {
+          const check = isSourceFullyVerifiedForProduction(hwMeta.sourceId, hwMeta.revision, refDate);
+          const isRevMismatch = check.reason?.includes("sürüm uyuşmazlığı") || check.reason?.includes("süresi");
+          matrixEntries.push({
+            targetId: `${mod.id}_bay_${bayIdx}_${hwId}`,
+            targetType: "hardware_sku",
+            sourceId: hwMeta.sourceId,
+            requiredSourceRevision: hwMeta.revision,
+            status: check.verified ? "VERIFIED" : isRevMismatch ? "REVISION_MISMATCH" : "NEEDS_EVIDENCE",
+            missingDomains: check.missingDomains,
+            blockingReason: check.reason,
+          });
+          if (!check.verified) {
+            v4Issues.push({
+              code: isRevMismatch ? "CHK_15_SOURCE_REVISION_MISMATCH" : "CHK_15_INCOMPLETE_VERIFICATION_SCOPE",
+              severity: "warning",
+              blockingProduction: true,
+              compatibilityStatus: "UNVERIFIED",
+              targetId: bay.door.id,
+              sourceId: hwMeta.sourceId,
+              message: check.reason || `Donanım (${hwId}) doğrulama kapsamı eksik.`,
+            });
+          }
+        }
+      }
     });
   });
+
+  // 3. Detect forged/tampered production_approved status when unverified items exist
+  const unverifiedPartOrOpCount = matrixEntries.filter((e) => e.status !== "VERIFIED").length;
+  if (project.status === "production_approved" && unverifiedPartOrOpCount > 0) {
+    matrixEntries.push({
+      targetId: project.id,
+      targetType: "module",
+      status: "TAMPERED_APPROVAL",
+      missingDomains: ["physicalFactorySample"],
+      blockingReason: "Proje JSON statüsü 'production_approved' olarak işaretlenmiş ancak doğrulanmamış üretim/kaynak kapsamları mevcut.",
+    });
+    v4Issues.push({
+      code: "CHK_15_TAMPERED_PRODUCTION_APPROVAL",
+      severity: "error",
+      blockingProduction: true,
+      compatibilityStatus: "UNVERIFIED",
+      targetId: project.id,
+      message: "Doğrulanmamış teknik kaynak veya fiziksel numune eksiği varken dışarıdan 'production_approved' statüsü kabul edilemez.",
+    });
+  }
 
   const mergedMap = new Map<string, ValidationIssue>();
   [...baseIssues, ...v4Issues].forEach((issue) => {
@@ -534,7 +770,8 @@ export function evaluateProjectCompatibility(project: DesignProject): Compatibil
   });
 
   const allIssues = Array.from(mergedMap.values());
-  const hasUnverified = allIssues.some((i) => i.compatibilityStatus === "UNVERIFIED");
+  const hasUnverified =
+    unverifiedPartOrOpCount > 0 || allIssues.some((i) => i.compatibilityStatus === "UNVERIFIED");
   const hasIncompatible = allIssues.some(
     (i) =>
       i.compatibilityStatus === "INCOMPATIBLE" ||
@@ -553,10 +790,19 @@ export function evaluateProjectCompatibility(project: DesignProject): Compatibil
     ? "COMPATIBLE_WITH_CONDITIONS"
     : "COMPATIBLE";
 
+  const canApproveProduction = !hasIncompatible && !hasUnverified;
+
   return {
     overallStatus,
-    canApproveProduction: !hasIncompatible && !hasUnverified,
+    canApproveProduction,
     checkedCategoriesCount: 15,
     issues: allIssues,
+    evidenceMatrix: {
+      evaluatedAt: new Date().toISOString(),
+      activeCatalogVersion,
+      entries: matrixEntries,
+      unverifiedPartOrOpCount,
+      allProductionGatesSatisfied: canApproveProduction,
+    },
   };
 }

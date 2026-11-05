@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import {
   useV3Adapter,
@@ -136,6 +136,9 @@ export const V3UnifiedWorkspace: React.FC<{
     addAdjacentModule,
     duplicateActiveModule,
     removeActiveModule,
+    removeModuleAt,
+    removeSelectedInteriorComponent,
+    selectedComponentId,
     moveActiveModule,
     rotateActiveModule90,
     applyTemplate,
@@ -152,6 +155,10 @@ export const V3UnifiedWorkspace: React.FC<{
   const [leftTab, setLeftTab] = useState<"templates" | "materials">("templates");
   const [selectedV4Family, setSelectedV4Family] = useState<ModuleFamilyId>("fam_wardrobe");
   const [studioView, setStudioView] = useState<"3d" | "2d">("3d");
+  const [studio2DMode, setStudio2DMode] = useState<"elevation" | "section" | "plan">(
+    "elevation"
+  );
+  const [show3DDimensions, setShow3DDimensions] = useState<boolean>(true);
   const [snapMm, setSnapMm] = useState<number>(50);
   const [zenMode, setZenMode] = useState(false);
   const [showRulesModal, setShowRulesModal] = useState(false);
@@ -162,6 +169,79 @@ export const V3UnifiedWorkspace: React.FC<{
     text: string;
     ok: boolean;
   } | null>(null);
+  const [adminRefreshTick, setAdminRefreshTick] = useState(0);
+  const [newDraftName, setNewDraftName] = useState("Özel V4.2 Dolap Şablonu");
+  const [newDraftWidth, setNewDraftWidth] = useState<number>(800);
+  const [newDraftHeight, setNewDraftHeight] = useState<number>(720);
+  const [newDraftDepth, setNewDraftDepth] = useState<number>(580);
+  const [newDraftDoorSys, setNewDraftDoorSys] = useState<DoorSystemId>("hinged_double");
+  const [studioLeftWidthPx, setStudioLeftWidthPx] = useState<number>(288);
+  const [studioRightWidthPx, setStudioRightWidthPx] = useState<number>(356);
+  const [planSplitRatioPct, setPlanSplitRatioPct] = useState<number>(58);
+  const [resizingPanel, setResizingPanel] = useState<
+    "studio-left" | "studio-right" | "plan-split" | null
+  >(null);
+  const [planRightView, setPlanRightView] = useState<
+    "3d-iso" | "3d-front" | "3d-side" | "3d-top" | "2d-elevation" | "2d-section"
+  >("3d-iso");
+
+  useEffect(() => {
+    if (!resizingPanel) return;
+    const onMouseMove = (ev: MouseEvent) => {
+      if (resizingPanel === "studio-left") {
+        setStudioLeftWidthPx(Math.max(220, Math.min(520, ev.clientX)));
+      } else if (resizingPanel === "studio-right") {
+        setStudioRightWidthPx(
+          Math.max(280, Math.min(580, window.innerWidth - ev.clientX))
+        );
+      } else if (resizingPanel === "plan-split") {
+        const pct = Math.round(
+          (ev.clientX / Math.max(1, window.innerWidth)) * 100
+        );
+        setPlanSplitRatioPct(Math.max(25, Math.min(75, pct)));
+      }
+    };
+    const onMouseUp = () => setResizingPanel(null);
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, [resizingPanel]);
+
+  useEffect(() => {
+    if (mode === "plan") return;
+    const onKeyDown = (ev: KeyboardEvent) => {
+      const tag = (ev.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "z") {
+        ev.preventDefault();
+        if (ev.shiftKey) {
+          redo();
+        } else {
+          undo();
+        }
+      } else if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "y") {
+        ev.preventDefault();
+        redo();
+      } else if (ev.key === "Delete" || ev.key === "Backspace") {
+        ev.preventDefault();
+        if (!removeSelectedInteriorComponent() && project.modules.length > 1) {
+          removeActiveModule();
+        }
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [
+    mode,
+    undo,
+    redo,
+    removeSelectedInteriorComponent,
+    project.modules.length,
+    removeActiveModule,
+  ]);
 
   if (!activeModule) return null;
   const { width, height, depth } = activeModule.dimensions;
@@ -196,7 +276,7 @@ export const V3UnifiedWorkspace: React.FC<{
         <header className="h-14 bg-white/95 backdrop-blur-md border-b border-stone-200/90 flex items-center justify-between px-4 shrink-0 z-30">
           {/* Left: Brand & Project Title */}
           <div className="flex items-center gap-3">
-            <V3BrandBadge subtitle="V4.0" />
+            <V3BrandBadge subtitle="V4.1" />
             <div className="h-4 w-px bg-stone-200 hidden sm:block" />
             <div className="hidden md:flex items-center gap-2 text-xs">
               <span
@@ -292,32 +372,130 @@ export const V3UnifiedWorkspace: React.FC<{
               </button>
             </nav>
 
-            {/* Studio 3D / 2D Elevation Sub-Toggle */}
+            {/* Studio View Options (3D Perspective/Front/Side/Top + 2D Elevation/Section/Plan + Dimensions) */}
             {mode === "studio" && (
-              <div className="hidden sm:inline-flex items-center p-1 rounded-xl bg-stone-100 border border-stone-200/90 text-xs">
+              <div
+                data-testid="studio-view-switcher"
+                className="hidden sm:inline-flex items-center gap-0.5 p-1 rounded-xl bg-stone-100 border border-stone-200/90 text-xs"
+              >
                 <button
                   type="button"
                   data-testid="studio-view-3d"
-                  onClick={() => setStudioView("3d")}
-                  className={`px-2.5 py-1.5 rounded-lg font-semibold transition cursor-pointer ${
-                    studioView === "3d"
+                  onClick={() => {
+                    setStudioView("3d");
+                    setCameraPreset("iso");
+                  }}
+                  className={`px-2 py-1.5 rounded-lg font-semibold transition cursor-pointer ${
+                    studioView === "3d" && cameraPreset === "iso"
                       ? "bg-stone-900 text-white"
                       : "text-stone-600 hover:text-stone-900"
                   }`}
                 >
-                  3D
+                  3D Perspektif
+                </button>
+                <button
+                  type="button"
+                  data-testid="studio-view-3d-front"
+                  onClick={() => {
+                    setStudioView("3d");
+                    setCameraPreset("front");
+                  }}
+                  className={`px-2 py-1.5 rounded-lg font-semibold transition cursor-pointer ${
+                    studioView === "3d" && cameraPreset === "front"
+                      ? "bg-stone-900 text-white"
+                      : "text-stone-600 hover:text-stone-900"
+                  }`}
+                >
+                  3D Ön
+                </button>
+                <button
+                  type="button"
+                  data-testid="studio-view-3d-side"
+                  onClick={() => {
+                    setStudioView("3d");
+                    setCameraPreset("side");
+                  }}
+                  className={`px-2 py-1.5 rounded-lg font-semibold transition cursor-pointer ${
+                    studioView === "3d" && cameraPreset === "side"
+                      ? "bg-stone-900 text-white"
+                      : "text-stone-600 hover:text-stone-900"
+                  }`}
+                >
+                  3D Yan
+                </button>
+                <button
+                  type="button"
+                  data-testid="studio-view-3d-top"
+                  onClick={() => {
+                    setStudioView("3d");
+                    setCameraPreset("top");
+                  }}
+                  className={`px-2 py-1.5 rounded-lg font-semibold transition cursor-pointer ${
+                    studioView === "3d" && cameraPreset === "top"
+                      ? "bg-stone-900 text-white"
+                      : "text-stone-600 hover:text-stone-900"
+                  }`}
+                >
+                  3D Üst
                 </button>
                 <button
                   type="button"
                   data-testid="studio-view-2d"
-                  onClick={() => setStudioView("2d")}
-                  className={`px-2.5 py-1.5 rounded-lg font-semibold transition cursor-pointer ${
-                    studioView === "2d"
+                  onClick={() => {
+                    setStudioView("2d");
+                    setStudio2DMode("elevation");
+                  }}
+                  className={`px-2 py-1.5 rounded-lg font-semibold transition cursor-pointer ${
+                    studioView === "2d" && studio2DMode === "elevation"
                       ? "bg-stone-900 text-white"
                       : "text-stone-600 hover:text-stone-900"
                   }`}
                 >
                   2D Cephe
+                </button>
+                <button
+                  type="button"
+                  data-testid="studio-view-2d-section"
+                  onClick={() => {
+                    setStudioView("2d");
+                    setStudio2DMode("section");
+                  }}
+                  className={`px-2 py-1.5 rounded-lg font-semibold transition cursor-pointer ${
+                    studioView === "2d" && studio2DMode === "section"
+                      ? "bg-stone-900 text-white"
+                      : "text-stone-600 hover:text-stone-900"
+                  }`}
+                >
+                  2D Kesit
+                </button>
+                <button
+                  type="button"
+                  data-testid="studio-view-2d-plan"
+                  onClick={() => {
+                    setStudioView("2d");
+                    setStudio2DMode("plan");
+                  }}
+                  className={`px-2 py-1.5 rounded-lg font-semibold transition cursor-pointer ${
+                    studioView === "2d" && studio2DMode === "plan"
+                      ? "bg-stone-900 text-white"
+                      : "text-stone-600 hover:text-stone-900"
+                  }`}
+                >
+                  2D Plan
+                </button>
+                <button
+                  type="button"
+                  data-testid="studio-toggle-dimensions"
+                  onClick={() => setShow3DDimensions((prev) => !prev)}
+                  className={`px-2 py-1.5 rounded-lg font-semibold flex items-center gap-1 transition cursor-pointer ${
+                    show3DDimensions
+                      ? "bg-amber-700 text-white"
+                      : "text-stone-600 hover:text-stone-900"
+                  }`}
+                  title="3D Perspektif Ölçü Çizgilerini Göster / Gizle"
+                >
+                  <Ruler className="w-3 h-3" />
+                  <span>Ölçü</span>
                 </button>
               </div>
             )}
@@ -491,10 +669,20 @@ export const V3UnifiedWorkspace: React.FC<{
         {mode === "studio" && (
           <aside
             data-testid="studio-left-library"
-            className={`transition-all duration-200 border-r border-stone-200/90 bg-white flex flex-col z-20 shrink-0 ${
-              leftOpen ? "w-72" : "w-14"
-            }`}
+            className="border-r border-stone-200/90 bg-white flex flex-col z-20 shrink-0 relative"
+            style={{ width: leftOpen ? `${studioLeftWidthPx}px` : "56px" }}
           >
+            {leftOpen && (
+              <div
+                data-testid="studio-left-resize-handle"
+                title="Sol panel genişliğini değiştirmek için sürükleyin"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  setResizingPanel("studio-left");
+                }}
+                className="absolute top-0 right-0 w-1.5 h-full cursor-col-resize hover:bg-amber-600/40 active:bg-amber-700/60 z-30 transition-colors"
+              />
+            )}
             <div className="h-11 border-b border-stone-200/80 flex items-center justify-between px-3">
               {leftOpen && (
                 <div className="flex items-center gap-1 bg-stone-100 p-1 rounded-xl w-full mr-2">
@@ -558,12 +746,7 @@ export const V3UnifiedWorkspace: React.FC<{
                         >
                           <div className="p-1.5 rounded-lg bg-white border border-stone-200/80 shadow-2xs shrink-0 mt-0.5">
                             <V3IsometricModuleIcon
-                              widthMm={tpl.defaultDimensions.width}
-                              heightMm={tpl.defaultDimensions.height}
-                              depthMm={tpl.defaultDimensions.depth}
-                              bayCount={tpl.defaultDimensions.width >= 1600 ? 2 : 1}
-                              hasDrawers={tpl.templateId.includes("master")}
-                              isOpenFront={tpl.templateId.includes("walkin")}
+                              module={tpl.createInstance(`preview_${tpl.templateId}`)}
                               size="md"
                             />
                           </div>
@@ -591,26 +774,46 @@ export const V3UnifiedWorkspace: React.FC<{
                         type="button"
                         data-testid="studio-tpl-kitchen-linear"
                         onClick={loadLinearKitchen}
-                        className="w-full text-left p-3 rounded-xl bg-stone-50 hover:bg-amber-50/60 border border-stone-200/90 hover:border-amber-700/50 transition cursor-pointer"
+                        className="w-full text-left p-2.5 rounded-xl bg-stone-50 hover:bg-amber-50/60 border border-stone-200/90 hover:border-amber-700/50 transition flex items-start gap-2.5 cursor-pointer"
                       >
-                        <div className="text-xs font-bold text-stone-900">
-                          Doğrusal Mutfak (3.2m)
+                        <div className="p-1.5 rounded-lg bg-white border border-stone-200/80 shadow-2xs shrink-0 mt-0.5">
+                          <V3IsometricModuleIcon
+                            template={v4ModuleTemplates.find(
+                              (t) => t.templateId === "tpl_kb_08_sink_base"
+                            )}
+                            size="md"
+                          />
                         </div>
-                        <div className="text-[11px] text-stone-500 mt-0.5">
-                          Evye + Çekmeceli Modül + Boy Kiler + Üst Dolaplar
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-bold text-stone-900">
+                            Doğrusal Mutfak (3.2m)
+                          </div>
+                          <div className="text-[11px] text-stone-500 mt-0.5">
+                            Evye + Çekmeceli Modül + Boy Kiler + Üst Dolaplar
+                          </div>
                         </div>
                       </button>
                       <button
                         type="button"
                         data-testid="studio-tpl-kitchen-l"
                         onClick={loadLKitchen}
-                        className="w-full text-left p-3 rounded-xl bg-stone-50 hover:bg-amber-50/60 border border-stone-200/90 hover:border-amber-700/50 transition cursor-pointer"
+                        className="w-full text-left p-2.5 rounded-xl bg-stone-50 hover:bg-amber-50/60 border border-stone-200/90 hover:border-amber-700/50 transition flex items-start gap-2.5 cursor-pointer"
                       >
-                        <div className="text-xs font-bold text-stone-900">
-                          L Tipi Mutfak (90° Köşe Dönüşlü)
+                        <div className="p-1.5 rounded-lg bg-white border border-stone-200/80 shadow-2xs shrink-0 mt-0.5">
+                          <V3IsometricModuleIcon
+                            template={v4ModuleTemplates.find(
+                              (t) => t.templateId === "tpl_kb_14_l_corner"
+                            )}
+                            size="md"
+                          />
                         </div>
-                        <div className="text-[11px] text-stone-500 mt-0.5">
-                          90° köşe dönüş modülü, pencere & tesisat kontrolü
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-bold text-stone-900">
+                            L Tipi Mutfak (90° Köşe Dönüşlü)
+                          </div>
+                          <div className="text-[11px] text-stone-500 mt-0.5">
+                            90° köşe dönüş modülü, pencere & tesisat kontrolü
+                          </div>
                         </div>
                       </button>
                     </div>
@@ -626,19 +829,38 @@ export const V3UnifiedWorkspace: React.FC<{
                           type="button"
                           data-testid="v4-smart-wall-4carcass"
                           onClick={() => applySmartWallProposal("smart_layout_4_equal", 3600)}
-                          className="p-2 rounded-xl bg-amber-50/80 hover:bg-amber-100 border border-amber-300 text-left text-[11px] cursor-pointer"
+                          className="p-2 rounded-xl bg-amber-50/80 hover:bg-amber-100 border border-amber-300 text-left text-[11px] flex items-center gap-1.5 cursor-pointer"
                         >
-                          <div className="font-bold text-stone-900">3.6m → 4 Gövde</div>
-                          <div className="text-[10px] text-stone-600">Simetrik 4 Karkas</div>
+                          <V3IsometricModuleIcon
+                            widthMm={2000}
+                            heightMm={2200}
+                            depthMm={600}
+                            bayCount={4}
+                            size="sm"
+                          />
+                          <div>
+                            <div className="font-bold text-stone-900">3.6m → 4 Gövde</div>
+                            <div className="text-[10px] text-stone-600">Simetrik 4 Karkas</div>
+                          </div>
                         </button>
                         <button
                           type="button"
                           data-testid="v4-smart-wall-mixed"
                           onClick={() => applySmartWallProposal("smart_layout_mixed_wardrobe", 3600)}
-                          className="p-2 rounded-xl bg-amber-50/80 hover:bg-amber-100 border border-amber-300 text-left text-[11px] cursor-pointer"
+                          className="p-2 rounded-xl bg-amber-50/80 hover:bg-amber-100 border border-amber-300 text-left text-[11px] flex items-center gap-1.5 cursor-pointer"
                         >
-                          <div className="font-bold text-stone-900">3.6m → Karma</div>
-                          <div className="text-[10px] text-stone-600">Asimetrik Dizilim</div>
+                          <V3IsometricModuleIcon
+                            widthMm={2000}
+                            heightMm={2200}
+                            depthMm={600}
+                            bayCount={3}
+                            hasDrawers={true}
+                            size="sm"
+                          />
+                          <div>
+                            <div className="font-bold text-stone-900">3.6m → Karma</div>
+                            <div className="text-[10px] text-stone-600">Asimetrik Dizilim</div>
+                          </div>
                         </button>
                       </div>
                       <button
@@ -673,20 +895,29 @@ export const V3UnifiedWorkspace: React.FC<{
 
                       <div
                         data-testid="v4-template-list"
-                        className="space-y-1.5 max-h-64 overflow-y-auto pr-0.5"
+                        className="space-y-1.5 max-h-72 overflow-y-auto pr-0.5"
                       >
                         {familyTemplates.map((vt) => (
                           <div
                             key={vt.templateId}
-                            className="p-2 rounded-xl bg-stone-50 border border-stone-200/90 flex items-center justify-between gap-2"
+                            className="p-2 rounded-xl bg-stone-50 hover:bg-amber-50/40 border border-stone-200/90 flex items-center justify-between gap-2 transition"
                           >
-                            <div className="min-w-0">
-                              <div className="text-[11px] font-bold text-stone-900 truncate">
-                                {vt.name}
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div className="p-1 rounded-lg bg-white border border-stone-200/80 shadow-2xs shrink-0">
+                                <V3IsometricModuleIcon
+                                  template={vt}
+                                  size="sm"
+                                  testId={`v4-tpl-visual-${vt.templateId}`}
+                                />
                               </div>
-                              <div className="text-[10px] font-mono text-stone-500">
-                                {vt.defaultDimensions.width}×{vt.defaultDimensions.height}×
-                                {vt.defaultDimensions.depth}mm
+                              <div className="min-w-0">
+                                <div className="text-[11px] font-bold text-stone-900 truncate">
+                                  {vt.name}
+                                </div>
+                                <div className="text-[10px] font-mono text-stone-500">
+                                  {vt.defaultDimensions.width}×{vt.defaultDimensions.height}×
+                                  {vt.defaultDimensions.depth}mm
+                                </div>
                               </div>
                             </div>
                             <div className="flex items-center gap-1 shrink-0">
@@ -787,11 +1018,25 @@ export const V3UnifiedWorkspace: React.FC<{
         {(mode === "plan" || (mode === "studio" && studioView === "2d")) && (
           <div
             className={`${
-              mode === "plan" ? "w-[58%] border-r border-stone-300" : "flex-1"
+              mode === "plan" ? "border-r border-stone-300" : "flex-1"
             } h-full relative flex flex-col shrink-0`}
+            style={
+              mode === "plan" ? { width: `${planSplitRatioPct}%` } : undefined
+            }
           >
+            {mode === "plan" && (
+              <div
+                data-testid="plan-split-resize-handle"
+                title="2D Plan ve 3D/Görünüş panel oranını değiştirmek için sürükleyin"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  setResizingPanel("plan-split");
+                }}
+                className="absolute top-0 -right-1 w-2 h-full cursor-col-resize hover:bg-amber-600/50 active:bg-amber-700/70 z-30 transition-colors"
+              />
+            )}
             <V3CadViewport2D
-              mode={mode === "plan" ? "plan" : "elevation"}
+              mode={mode === "plan" ? "plan" : studio2DMode}
               interactivePlan={mode === "plan"}
               snapMm={snapMm}
             />
@@ -799,39 +1044,62 @@ export const V3UnifiedWorkspace: React.FC<{
             {mode === "plan" && (
               <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5 bg-white/95 backdrop-blur-md p-1.5 rounded-xl border border-stone-200 shadow-sm flex-wrap max-w-[92%]">
                 {project.modules.map((m, idx) => (
-                  <button
+                  <div
                     key={m.id}
-                    type="button"
-                    data-testid={`plan-mod-tab-${idx}`}
-                    onClick={() => setActiveModuleIndex(idx)}
-                    className={`px-2.5 py-1 rounded-xl text-xs font-semibold flex items-center gap-2 transition cursor-pointer ${
+                    className={`rounded-xl text-xs font-semibold flex items-center gap-1 transition ${
                       activeModuleIndex === idx
                         ? "bg-amber-700 text-white shadow-xs"
                         : "bg-stone-100 hover:bg-stone-200 text-stone-800"
                     }`}
                   >
-                    <V3IsometricModuleIcon module={m} size="sm" />
-                    <div className="text-left leading-tight">
-                      <div className="font-bold">
-                        {idx + 1}. {m.name}
+                    <button
+                      type="button"
+                      data-testid={`plan-mod-tab-${idx}`}
+                      onClick={() => setActiveModuleIndex(idx)}
+                      className="px-2.5 py-1 flex items-center gap-2 cursor-pointer"
+                    >
+                      <V3IsometricModuleIcon module={m} size="sm" />
+                      <div className="text-left leading-tight">
+                        <div className="font-bold">
+                          {idx + 1}. {m.name}
+                        </div>
+                        <div
+                          className={`text-[10px] font-mono ${
+                            activeModuleIndex === idx ? "text-amber-100" : "text-stone-500"
+                          }`}
+                        >
+                          {m.dimensions.width}×{m.dimensions.height}mm • {m.bays.length} Bölme
+                        </div>
                       </div>
-                      <div
-                        className={`text-[10px] font-mono ${
-                          activeModuleIndex === idx ? "text-amber-100" : "text-stone-500"
+                    </button>
+                    {project.modules.length > 1 && (
+                      <button
+                        type="button"
+                        data-testid={`plan-delete-mod-${idx}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeModuleAt(idx);
+                        }}
+                        title="Bu modülü sil"
+                        className={`mr-1.5 p-1 rounded-lg transition cursor-pointer ${
+                          activeModuleIndex === idx
+                            ? "hover:bg-amber-800 text-amber-100 hover:text-white"
+                            : "hover:bg-red-100 text-stone-400 hover:text-red-700"
                         }`}
                       >
-                        {m.dimensions.width}×{m.dimensions.height}mm • {m.bays.length} Bölme
-                      </div>
-                    </div>
-                  </button>
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
                 ))}
                 <button
                   type="button"
                   data-testid="plan-add-module-btn"
                   onClick={addAdjacentModule}
+                  title="Aktif modülün bir kopyasını yanına bitişik ekle"
                   className="px-3 py-2 rounded-xl bg-stone-900 hover:bg-stone-800 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
                 >
-                  <Plus className="w-3.5 h-3.5" /> Modül Ekle
+                  <Plus className="w-3.5 h-3.5" /> Aynı Modülden Ekle
                 </button>
               </div>
             )}
@@ -843,10 +1111,13 @@ export const V3UnifiedWorkspace: React.FC<{
           className={`${
             mode === "studio" && studioView === "2d"
               ? "hidden"
-              : mode === "plan"
-              ? "w-[42%]"
               : "flex-1"
           } relative h-full flex flex-col overflow-hidden`}
+          style={
+            mode === "plan"
+              ? { width: `${100 - planSplitRatioPct}%` }
+              : undefined
+          }
         >
           <V3ThreeViewport
             theme={
@@ -858,48 +1129,168 @@ export const V3UnifiedWorkspace: React.FC<{
             }
             showGrid={!(mode === "showroom" && zenMode)}
             showInCanvasHud={mode !== "showroom"}
+            showDimensions={show3DDimensions}
+            onToggleDimensions={() => setShow3DDimensions((prev) => !prev)}
           />
+
+          {/* PLAN MODE RIGHT PANE: VIEW ALTERNATIVES (GÖRÜNÜŞ ALTERNATİFLERİ) */}
+          {mode === "plan" && (
+            <>
+              {(planRightView === "2d-elevation" ||
+                planRightView === "2d-section") && (
+                <div
+                  data-testid="plan-right-2d-overlay"
+                  className="absolute inset-0 z-10 bg-[#F7F6F2] flex flex-col"
+                >
+                  <V3CadViewport2D
+                    mode={
+                      planRightView === "2d-elevation" ? "elevation" : "section"
+                    }
+                    interactivePlan={false}
+                    snapMm={snapMm}
+                  />
+                </div>
+              )}
+
+              <div
+                data-testid="plan-right-view-switcher"
+                className="absolute top-3 left-3 right-3 z-20 flex items-center justify-between gap-2 bg-white/95 backdrop-blur-md px-2.5 py-1.5 rounded-xl border border-stone-200/90 shadow-sm flex-wrap"
+              >
+                <div className="flex items-center gap-1 flex-wrap">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400 px-1">
+                    Görünüş:
+                  </span>
+                  {[
+                    { id: "3d-iso", label: "3D Perspektif", cam: "iso" as const },
+                    { id: "3d-front", label: "3D Ön", cam: "front" as const },
+                    { id: "3d-side", label: "3D Yan", cam: "side" as const },
+                    { id: "3d-top", label: "3D Üst", cam: "top" as const },
+                    { id: "2d-elevation", label: "2D Ön Cephe" },
+                    { id: "2d-section", label: "2D Yan Kesit" },
+                  ].map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      data-testid={`plan-right-view-${opt.id}`}
+                      onClick={() => {
+                        setPlanRightView(
+                          opt.id as
+                            | "3d-iso"
+                            | "3d-front"
+                            | "3d-side"
+                            | "3d-top"
+                            | "2d-elevation"
+                            | "2d-section"
+                        );
+                        if (opt.cam) {
+                          setCameraPreset(opt.cam);
+                        }
+                      }}
+                      className={`px-2 py-1 rounded-lg text-[11px] font-semibold transition cursor-pointer ${
+                        planRightView === opt.id
+                          ? "bg-stone-900 text-white shadow-2xs"
+                          : "bg-stone-100 hover:bg-stone-200 text-stone-700"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    data-testid="plan-right-toggle-dimensions"
+                    onClick={() => setShow3DDimensions((prev) => !prev)}
+                    className={`px-2 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer ${
+                      show3DDimensions
+                        ? "bg-amber-700 text-white"
+                        : "bg-stone-100 hover:bg-stone-200 text-stone-700"
+                    }`}
+                    title="3D Perspektif Ölçülerini Göster / Gizle"
+                  >
+                    <Ruler className="w-3 h-3" />
+                    <span>Ölçü</span>
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="plan-right-door-toggle"
+                    onClick={toggleDoorOpen}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer ${
+                      doorOpenAngleDeg > 0
+                        ? "bg-amber-700 text-white"
+                        : "bg-stone-100 hover:bg-stone-200 text-stone-700"
+                    }`}
+                  >
+                    <DoorOpen className="w-3 h-3" />
+                    <span>{doorOpenAngleDeg > 0 ? "Kapat" : "İçini Aç"}</span>
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
 
           {/* STUDIO FLOATING MODULE & DOOR PILL */}
           {mode === "studio" && (
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 bg-white/95 backdrop-blur-md px-3 py-2 rounded-2xl border border-stone-200/90 shadow-lg max-w-[95%] overflow-x-auto">
-              <div className="flex items-center gap-1.5 pr-2 border-r border-stone-200">
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 bg-white/95 backdrop-blur-md px-3 py-2 rounded-2xl border border-stone-200/90 shadow-lg max-w-[95%] overflow-hidden">
+              <div className="flex items-center gap-1.5 min-w-0 overflow-x-auto pr-2 border-r border-stone-200">
                 {project.modules.map((m, idx) => (
-                  <button
+                  <div
                     key={m.id}
-                    type="button"
-                    data-testid={`studio-mod-pill-${idx}`}
-                    onClick={() => setActiveModuleIndex(idx)}
-                    className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-2 transition shrink-0 cursor-pointer ${
+                    className={`rounded-xl text-xs font-semibold flex items-center gap-1 transition shrink-0 ${
                       activeModuleIndex === idx
                         ? "bg-stone-900 text-white shadow-xs"
                         : "bg-stone-100 hover:bg-stone-200 text-stone-800"
                     }`}
                   >
-                    <V3IsometricModuleIcon module={m} size="sm" />
-                    <div className="text-left leading-tight">
-                      <div className="font-bold">{m.name}</div>
-                      <div
-                        className={`text-[10px] font-mono ${
-                          activeModuleIndex === idx ? "text-amber-300" : "text-stone-500"
+                    <button
+                      type="button"
+                      data-testid={`studio-mod-pill-${idx}`}
+                      onClick={() => setActiveModuleIndex(idx)}
+                      className="px-2.5 py-1.5 flex items-center gap-2 cursor-pointer"
+                    >
+                      <V3IsometricModuleIcon module={m} size="sm" />
+                      <div className="text-left leading-tight">
+                        <div className="font-bold">{m.name}</div>
+                        <div
+                          className={`text-[10px] font-mono ${
+                            activeModuleIndex === idx ? "text-amber-300" : "text-stone-500"
+                          }`}
+                        >
+                          {m.dimensions.width}×{m.dimensions.height}×{m.dimensions.depth}
+                        </div>
+                      </div>
+                    </button>
+                    {project.modules.length > 1 && (
+                      <button
+                        type="button"
+                        data-testid={`studio-delete-mod-${idx}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeModuleAt(idx);
+                        }}
+                        title="Bu modülü sil"
+                        className={`mr-1.5 p-1 rounded-lg transition cursor-pointer ${
+                          activeModuleIndex === idx
+                            ? "hover:bg-stone-700 text-stone-300 hover:text-red-300"
+                            : "hover:bg-red-100 text-stone-400 hover:text-red-700"
                         }`}
                       >
-                        {m.dimensions.width}×{m.dimensions.height}×{m.dimensions.depth}
-                      </div>
-                    </div>
-                  </button>
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
                 ))}
-                <button
-                  type="button"
-                  data-testid="studio-pill-add-module"
-                  onClick={addAdjacentModule}
-                  className="px-2.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 text-xs font-bold flex items-center gap-1 shrink-0 cursor-pointer"
-                  title="Yanına Yeni Modül Ekle"
-                >
-                  <Plus className="w-3.5 h-3.5 text-amber-700" />
-                  <span>+ Modül</span>
-                </button>
               </div>
+              <button
+                type="button"
+                data-testid="studio-pill-add-module"
+                onClick={addAdjacentModule}
+                className="px-2.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 text-xs font-bold flex items-center gap-1 shrink-0 cursor-pointer"
+                title="Aktif modülün bir kopyasını yanına bitişik ekle (farklı şablon için sol paneldeki +Ekle düğmesini kullanın)"
+              >
+                <Plus className="w-3.5 h-3.5 text-amber-700" />
+                <span>+ Aynı Modülden Ekle</span>
+              </button>
               <button
                 type="button"
                 data-testid="studio-door-toggle"
@@ -1014,6 +1405,8 @@ export const V3UnifiedWorkspace: React.FC<{
                         type="range"
                         min={0}
                         max={350}
+                        data-testid="showroom-drawer-open-slider"
+                        aria-label="Çekmece açılma mesafesi"
                         step={25}
                         value={drawerOpenMm}
                         onChange={(e) => setDrawerOpenMm(Number(e.target.value))}
@@ -1104,22 +1497,86 @@ export const V3UnifiedWorkspace: React.FC<{
         {mode === "studio" && (
           <aside
             data-testid="studio-right-inspector"
-            className="border-l border-stone-200/90 bg-white flex flex-col z-20 shrink-0"
-            style={{ width: "356px" }}
+            className="border-l border-stone-200/90 bg-white flex flex-col z-20 shrink-0 relative"
+            style={{ width: `${studioRightWidthPx}px` }}
           >
-            <div className="h-11 border-b border-stone-200/80 px-4 flex items-center justify-between bg-stone-50/70">
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-amber-700" />
-                <span className="text-xs font-bold uppercase tracking-wider text-stone-800 truncate">
-                  {activeModule.name}
-                </span>
+            <div
+              data-testid="studio-right-resize-handle"
+              title="Sağ panel genişliğini değiştirmek için sürükleyin"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setResizingPanel("studio-right");
+              }}
+              className="absolute top-0 left-0 w-1.5 h-full cursor-col-resize hover:bg-amber-600/40 active:bg-amber-700/60 z-30 transition-colors"
+            />
+            <div className="h-12 border-b border-stone-200/80 px-3 flex items-center justify-between gap-2 bg-stone-50/70">
+              <div className="flex items-center gap-2 min-w-0">
+                <V3IsometricModuleIcon
+                  module={activeModule}
+                  size="sm"
+                  testId="studio-active-module-visual"
+                />
+                <div className="min-w-0">
+                  <div className="text-xs font-bold uppercase tracking-wider text-stone-800 truncate">
+                    {activeModule.name}
+                  </div>
+                  <div className="text-[10px] font-mono text-stone-500">
+                    {width}×{height}×{depth} mm
+                  </div>
+                </div>
               </div>
-              <span className="text-[11px] font-mono text-stone-500">
-                {width}×{height}×{depth}
-              </span>
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  data-testid="studio-duplicate-active-module-btn"
+                  onClick={duplicateActiveModule}
+                  title="Aktif modülü yanına kopyala"
+                  className="px-2 py-1 rounded-lg bg-white hover:bg-stone-100 border border-stone-200 text-stone-700 text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
+                >
+                  <Copy className="w-3 h-3 text-amber-700" />
+                  <span>Kopyala</span>
+                </button>
+                <button
+                  type="button"
+                  data-testid="studio-delete-active-module-btn"
+                  disabled={project.modules.length <= 1}
+                  onClick={removeActiveModule}
+                  title={
+                    project.modules.length <= 1
+                      ? "Projede en az 1 modül kalmalıdır"
+                      : "Aktif modülü sil (Delete)"
+                  }
+                  className="px-2 py-1 rounded-lg bg-red-50 hover:bg-red-100 disabled:opacity-40 border border-red-200 text-red-700 text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  <span>Sil</span>
+                </button>
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-3.5 space-y-3.5">
+              {selectedComponentId && (
+                <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-300 flex items-center justify-between gap-2 text-xs">
+                  <div className="min-w-0">
+                    <div className="font-bold text-amber-900">Seçili Parça</div>
+                    <div className="text-[10px] font-mono text-amber-800 truncate">
+                      {selectedComponentId}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    data-testid="studio-delete-selected-component-btn"
+                    onClick={() => {
+                      removeSelectedInteriorComponent();
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-red-600 hover:bg-red-700 text-white text-[11px] font-bold flex items-center gap-1 shrink-0 cursor-pointer"
+                    title="Seçili iç parçayı (raf, çekmece, askı, ara dikme) sil"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    <span>Parçayı Sil</span>
+                  </button>
+                </div>
+              )}
               {/* V4 Universal Compatibility Status Banner */}
               <div
                 data-testid="v4-compatibility-card"
@@ -2036,6 +2493,7 @@ export const V3UnifiedWorkspace: React.FC<{
                       <label className="text-[11px] font-bold text-stone-700 block mb-1">
                         2. Kulp & Profil Sistemi (10 Kategori)
                       </label>
+                      <p className="text-[10px] text-amber-800 mb-1">Geometriler temsilidir. Kulp montajı ve gelişmiş kapak hareketleri teknik doğrulama bekliyor.</p>
                       <select
                         aria-label="V4 Kulp Kategorisi"
                         data-testid="v4-handle-select"
@@ -2191,6 +2649,13 @@ export const V3UnifiedWorkspace: React.FC<{
           className="min-h-[76px] bg-white border-t border-stone-200 px-5 py-2.5 flex flex-wrap items-center justify-between gap-4 shrink-0 z-30 text-xs"
         >
           <div className="flex items-center gap-2.5">
+            <div className="p-1 rounded-lg bg-stone-50 border border-stone-200 shrink-0">
+              <V3IsometricModuleIcon
+                module={activeModule}
+                size="sm"
+                testId="plan-active-module-visual"
+              />
+            </div>
             <div>
               <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">
                 Seçili Modül ({activeModuleIndex + 1}/{project.modules.length})
@@ -2458,29 +2923,167 @@ export const V3UnifiedWorkspace: React.FC<{
                 </div>
               </div>
 
+              <p className="text-amber-800">Katalog teknik inceleme bekliyor. Kulp geometrileri ve gelişmiş mekanizma hareketleri temsilidir; montaj/CNC onayı değildir.</p>
+
+              {/* WP-08 & WP-08.1 Interactive Local Library Authoring & Rollback Controls */}
+              <div
+                data-testid="v4-library-authoring-bar"
+                className="flex flex-col gap-2.5 p-3 rounded-xl bg-amber-50/70 border border-amber-200"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="p-1 rounded-lg bg-white border border-stone-200">
+                      <V3IsometricModuleIcon
+                        widthMm={newDraftWidth}
+                        heightMm={newDraftHeight}
+                        depthMm={newDraftDepth}
+                        bayCount={newDraftWidth >= 900 ? 2 : 1}
+                        isOpenFront={newDraftDoorSys === "open"}
+                        size="sm"
+                      />
+                    </div>
+                    <input
+                      data-testid="v4-library-draft-name-input"
+                      type="text"
+                      value={newDraftName}
+                      onChange={(e) => setNewDraftName(e.target.value)}
+                      placeholder="Yeni şablon adı..."
+                      className="px-2.5 py-1 rounded-lg border border-stone-300 bg-white text-xs font-medium text-stone-900"
+                    />
+                    <input
+                      data-testid="v4-library-draft-width-input"
+                      type="number"
+                      min={150}
+                      max={3600}
+                      step={50}
+                      value={newDraftWidth}
+                      onChange={(e) => setNewDraftWidth(Number(e.target.value) || 600)}
+                      title="Genişlik W (mm)"
+                      className="w-16 px-2 py-1 rounded-lg border border-stone-300 bg-white text-xs font-mono font-bold text-stone-900"
+                    />
+                    <input
+                      data-testid="v4-library-draft-height-input"
+                      type="number"
+                      min={100}
+                      max={2800}
+                      step={50}
+                      value={newDraftHeight}
+                      onChange={(e) => setNewDraftHeight(Number(e.target.value) || 720)}
+                      title="Yükseklik H (mm)"
+                      className="w-16 px-2 py-1 rounded-lg border border-stone-300 bg-white text-xs font-mono font-bold text-stone-900"
+                    />
+                    <input
+                      data-testid="v4-library-draft-depth-input"
+                      type="number"
+                      min={16}
+                      max={1000}
+                      step={20}
+                      value={newDraftDepth}
+                      onChange={(e) => setNewDraftDepth(Number(e.target.value) || 580)}
+                      title="Derinlik D (mm)"
+                      className="w-16 px-2 py-1 rounded-lg border border-stone-300 bg-white text-xs font-mono font-bold text-stone-900"
+                    />
+                    <select
+                      data-testid="v4-library-draft-doorsys-select"
+                      value={newDraftDoorSys}
+                      onChange={(e) => setNewDraftDoorSys(e.target.value as DoorSystemId)}
+                      className="px-2 py-1 rounded-lg border border-stone-300 bg-white text-xs font-semibold text-stone-800"
+                    >
+                      {doorSystemDefinitions.map((ds) => (
+                        <option key={ds.id} value={ds.id}>
+                          {ds.name}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      data-testid="v4-library-create-draft-btn"
+                      onClick={() => {
+                        const cleanName = newDraftName.trim() || "Özel Taslak Şablon";
+                        libraryAdminStore.createDraftTemplateEntry({
+                          id: `tpl_draft_${Date.now()}`,
+                          code: `TPL-DRAFT-${adminRefreshTick + 1}`,
+                          name: cleanName,
+                          familyId: selectedV4Family,
+                          sourceId: "SRC_BIRIM_V4_SPEC",
+                          defaultDimensions: {
+                            width: newDraftWidth,
+                            height: newDraftHeight,
+                            depth: newDraftDepth,
+                          },
+                          defaultDoorSystemId: newDraftDoorSys,
+                        });
+                        libraryAdminStore.saveToLocalStorage();
+                        setAdminRefreshTick((t) => t + 1);
+                      }}
+                      className="px-3 py-1 rounded-lg bg-stone-900 hover:bg-stone-800 text-white font-semibold cursor-pointer"
+                    >
+                      + Taslak Şablon Oluştur (DRAFT)
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-[11px] text-stone-600">
+                    <span>Toplam Kayıt: {adminRecords.length}</span>
+                    {libraryAdminStore.getReleases().length > 0 && (
+                      <button
+                        type="button"
+                        data-testid="v4-library-rollback-btn"
+                        onClick={() => {
+                          const rels = libraryAdminStore.getReleases();
+                          const lastRel = rels[rels.length - 1];
+                          if (lastRel) {
+                            libraryAdminStore.rollbackToRelease(lastRel.releaseId);
+                            libraryAdminStore.saveToLocalStorage();
+                            setAdminRefreshTick((t) => t + 1);
+                          }
+                        }}
+                        className="px-2 py-1 rounded bg-white border border-stone-300 hover:bg-stone-100 font-semibold text-stone-700 cursor-pointer"
+                      >
+                        Son Sürüme Geri Dön (Rollback)
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               <div className="space-y-1.5">
-                {adminRecords.slice(0, 25).map((rec) => (
-                  <div
-                    key={rec.id}
-                    className="flex items-center justify-between p-2 rounded-xl bg-stone-50 border border-stone-200"
-                  >
-                    <div>
-                      <span className="font-bold text-stone-900">{rec.name}</span>
-                      <span className="ml-2 text-[10px] font-mono text-stone-500">
-                        [{rec.entityType} • v{rec.semver}]
+                {adminRecords.slice(0, 25).map((rec) => {
+                  const matchedTpl = v4ModuleTemplates.find((t) => t.templateId === rec.id);
+                  return (
+                    <div
+                      key={rec.id}
+                      className="flex items-center justify-between p-2 rounded-xl bg-stone-50 border border-stone-200"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        {rec.entityType === "MODULE_TEMPLATE" && (
+                          <div className="p-0.5 rounded bg-white border border-stone-200 shrink-0">
+                            <V3IsometricModuleIcon
+                              template={matchedTpl}
+                              widthMm={rec.defaultDimensions?.width}
+                              heightMm={rec.defaultDimensions?.height}
+                              depthMm={rec.defaultDimensions?.depth}
+                              size="sm"
+                            />
+                          </div>
+                        )}
+                        <div className="truncate">
+                          <span className="font-bold text-stone-900">{rec.name}</span>
+                          <span className="ml-2 text-[10px] font-mono text-stone-500">
+                            [{rec.entityType} • v{rec.semver}]
+                          </span>
+                        </div>
+                      </div>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
+                          rec.lifecycleState === "PUBLISHED"
+                            ? "bg-emerald-100 text-emerald-800"
+                            : "bg-amber-100 text-amber-800"
+                        }`}
+                      >
+                        {rec.lifecycleState}
                       </span>
                     </div>
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                        rec.lifecycleState === "PUBLISHED"
-                          ? "bg-emerald-100 text-emerald-800"
-                          : "bg-amber-100 text-amber-800"
-                      }`}
-                    >
-                      {rec.lifecycleState}
-                    </span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>

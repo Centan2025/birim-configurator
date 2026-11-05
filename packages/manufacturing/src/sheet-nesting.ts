@@ -22,8 +22,8 @@ export interface PlacedPiece {
   materialName: string;
   x: number;
   y: number;
-  width: number; // along sheet width
-  length: number; // along sheet length
+  width: number; // X extent, along sheet length
+  length: number; // Y extent, along sheet width
   isRotated: boolean;
 }
 
@@ -65,12 +65,7 @@ interface FreeRect {
 const nestingCache = new Map<string, NestingOptimizationResult[]>();
 
 function computeNestingKey(pieces: CutPiece[], sheetConfig: SheetDimension): string {
-  let key = `${sheetConfig.name}_${sheetConfig.lengthMm}_${sheetConfig.widthMm}_${sheetConfig.kerfMm}|`;
-  for (let i = 0; i < pieces.length; i++) {
-    const p = pieces[i];
-    key += `${p.id}:${p.lengthMm}x${p.widthMm}x${p.quantity}:${p.grain}:${p.materialId};`;
-  }
-  return key;
+  return JSON.stringify([sheetConfig, pieces]);
 }
 
 export function optimizeSheetNesting(
@@ -85,14 +80,16 @@ export function optimizeSheetNesting(
   // Group pieces by material
   const materialGroups = new Map<string, CutPiece[]>();
   pieces.forEach((p) => {
-    const list = materialGroups.get(p.materialId) || [];
+    const groupKey = `${p.materialId}::${p.thicknessMm}`;
+    const list = materialGroups.get(groupKey) || [];
     list.push(p);
-    materialGroups.set(p.materialId, list);
+    materialGroups.set(groupKey, list);
   });
 
   const results: NestingOptimizationResult[] = [];
 
-  materialGroups.forEach((matPieces, matId) => {
+  materialGroups.forEach((matPieces) => {
+    const matId = matPieces[0].materialId;
     const matName = matPieces[0]?.materialName || "Bilinmeyen Malzeme";
     const usableW = sheetConfig.lengthMm - 2 * sheetConfig.trimCutMm;
     const usableH = sheetConfig.widthMm - 2 * sheetConfig.trimCutMm;
@@ -136,9 +133,6 @@ export function optimizeSheetNesting(
     };
 
     let activeSheets: { sheet: OptimizedSheet; freeRects: FreeRect[] }[] = [];
-    if (itemsToPlace.length > 0) {
-      activeSheets.push(createNewSheet(0));
-    }
 
     itemsToPlace.forEach((item) => {
       let placed = false;
@@ -183,8 +177,8 @@ export function optimizeSheetNesting(
             pieceId: item.piece.id,
             pieceName: item.piece.pieceName,
             materialName: item.piece.materialName,
-            x: Math.round(rect.x),
-            y: Math.round(rect.y),
+            x: rect.x,
+            y: rect.y,
             width: placeW,
             length: placeH,
             isRotated: bestRotate,
@@ -234,7 +228,7 @@ export function optimizeSheetNesting(
           activeSheets.push(newEntry);
 
           const rect = newEntry.freeRects[0];
-          const bestRotate = item.w > rect.w && item.canRotate && item.h <= rect.w;
+          const bestRotate = (item.w > rect.w || item.h > rect.h) && item.canRotate && item.h <= rect.w && item.w <= rect.h;
           const placeW = bestRotate ? item.h : item.w;
           const placeH = bestRotate ? item.w : item.h;
 
@@ -242,8 +236,8 @@ export function optimizeSheetNesting(
             pieceId: item.piece.id,
             pieceName: item.piece.pieceName,
             materialName: item.piece.materialName,
-            x: Math.round(rect.x),
-            y: Math.round(rect.y),
+            x: rect.x,
+            y: rect.y,
             width: placeW,
             length: placeH,
             isRotated: bestRotate,
@@ -302,6 +296,7 @@ export function optimizeSheetNesting(
     });
   });
 
+  if (nestingCache.size >= 32) nestingCache.delete(nestingCache.keys().next().value!);
   nestingCache.set(cacheKey, results);
   return results;
 }

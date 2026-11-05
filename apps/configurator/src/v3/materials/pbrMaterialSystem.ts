@@ -286,12 +286,13 @@ export function getV3PbrMaterial(
   // 2. Smoked Glass with Aluminum Frame sheen
   if (matDef.category === "glass" || matDef.id.includes("glass")) {
     const mat = new THREE.MeshPhysicalMaterial({
-      color: new THREE.Color("#262b30"),
+      color: new THREE.Color(matDef.colorHex),
       metalness: 0.15,
       roughness: 0.08,
       transmission: 0.58,
       transparent: true,
       opacity: 0.82,
+      depthWrite: false,
       ior: 1.52,
       reflectivity: 0.95,
       clearcoat: 1.0,
@@ -363,4 +364,21 @@ export function getPbrCacheStats(): { texturesCount: number; materialsCount: num
     texturesCount: textureCache.size,
     materialsCount: pbrMaterialCache.size,
   };
+}
+
+
+/**
+ * WP-10: Computes physical millimeter-based UV repeat factors and rotation
+ * for panel dimensions (in mm) and wood grain direction.
+ */
+export function computePhysicalUvScale(
+  widthMm: number,
+  heightMm: number,
+  grain: "lengthwise" | "crosswise" | "none" = "lengthwise"
+): { repeatX: number; repeatY: number; rotationRad: number } {
+  const referenceTileMm = 600;
+  const repeatX = Math.max(0.1, Number((widthMm / referenceTileMm).toFixed(3)));
+  const repeatY = Math.max(0.1, Number((heightMm / referenceTileMm).toFixed(3)));
+  const rotationRad = grain === "crosswise" ? Math.PI / 2 : 0;
+  return { repeatX, repeatY, rotationRad };
 }

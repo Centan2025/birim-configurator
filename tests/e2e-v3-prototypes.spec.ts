@@ -13,7 +13,7 @@ test.describe("BİRİM CONFIGURATOR V3.0 — 3-Prototype Verification & UX Audit
 
   test("0. V2 Baseline Audit & Preservation Check (/)", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto("http://localhost:3300/", { waitUntil: "networkidle" });
+    await page.goto("/", { waitUntil: "networkidle" });
     await expect(page.locator("text=BİRİM CONFIGURATOR V2")).toBeVisible();
     await expect(page.locator("canvas")).toBeVisible();
     await page.screenshot({ path: path.join(outDir, "v2_baseline_desktop.png") });
@@ -23,7 +23,7 @@ test.describe("BİRİM CONFIGURATOR V3.0 — 3-Prototype Verification & UX Audit
     page,
   }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto("http://localhost:3300/v3/studio", { waitUntil: "networkidle" });
+    await page.goto("/v3/studio", { waitUntil: "networkidle" });
     await page.evaluate(() => localStorage.clear());
 
     await expect(page.getByTestId("v3-studio-root")).toBeVisible();
@@ -91,7 +91,7 @@ test.describe("BİRİM CONFIGURATOR V3.0 — 3-Prototype Verification & UX Audit
     page,
   }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto("http://localhost:3300/v3/plan", { waitUntil: "networkidle" });
+    await page.goto("/v3/plan", { waitUntil: "networkidle" });
     await page.evaluate(() => localStorage.clear());
 
     await expect(page.getByTestId("v3-plan-root")).toBeVisible();
@@ -153,7 +153,7 @@ test.describe("BİRİM CONFIGURATOR V3.0 — 3-Prototype Verification & UX Audit
     page,
   }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto("http://localhost:3300/v3/showroom", { waitUntil: "networkidle" });
+    await page.goto("/v3/showroom", { waitUntil: "networkidle" });
     await page.evaluate(() => localStorage.clear());
 
     await expect(page.getByTestId("v3-showroom-root")).toBeVisible();

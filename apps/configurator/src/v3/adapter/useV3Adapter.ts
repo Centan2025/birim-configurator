@@ -16,6 +16,7 @@ import {
   OpeningTechnology,
 } from "@birim/core";
 import {
+  analyzeAndAdviseSpan,
   WARDROBE_TEMPLATES,
   KITCHEN_TEMPLATES,
   V4_MODULE_FAMILIES,
@@ -69,6 +70,19 @@ export {
   KITCHEN_ENGINEERING_RULE_REGISTRY,
 };
 
+/** One transaction for adapter edits; derived manufacturing state cannot lag geometry. */
+function commitAdapterState(patch: Partial<ReturnType<typeof useConfiguratorStore.getState>>) {
+  const state = useConfiguratorStore.getState();
+  if (!patch.project) { useConfiguratorStore.setState(patch); return; }
+  const project = { ...patch.project, status: "draft" as const, version: Math.max(state.project.version + 1, patch.project.version), updatedAt: new Date().toISOString() };
+  const bom = generateBOMForProject(project);
+  const active = project.modules[patch.activeModuleIndex ?? state.activeModuleIndex] ?? project.modules[0];
+  useConfiguratorStore.setState({ ...patch, project, bom, pricing: calculateProjectPrice(bom), validationIssues: validateProject(project),
+    smartAdvice: analyzeAndAdviseSpan(active.dimensions.width, active.dimensions.height), autoSaveStatus: "unsaved",
+    history: patch.history ?? [...state.history.slice(-15), state.project], future: patch.future ?? [],
+  });
+}
+
 /**
  * Safe V3.1 + V4 Universal Library Adapter over the Configurator Store.
  * Includes spatial & kitchen engineering rules, 90° corner rotation support,
@@ -80,6 +94,7 @@ export function useV3Adapter() {
   const activeBayIndex = useConfiguratorStore((s) => s.activeBayIndex);
   const viewMode = useConfiguratorStore((s) => s.viewMode);
   const selectedComponentId = useConfiguratorStore((s) => s.selectedComponentId);
+  const selectedModuleIds = useConfiguratorStore((s) => s.selectedModuleIds);
   const doorOpenAngleDeg = useConfiguratorStore((s) => s.doorOpenAngleDeg);
   const drawerOpenMm = useConfiguratorStore((s) => s.drawerOpenMm);
   const explodedFactor = useConfiguratorStore((s) => s.explodedFactor);
@@ -91,6 +106,7 @@ export function useV3Adapter() {
   const smartAdvice = useConfiguratorStore((s) => s.smartAdvice);
   const history = useConfiguratorStore((s) => s.history);
   const future = useConfiguratorStore((s) => s.future);
+  const revisions = useConfiguratorStore((s) => s.revisions);
 
   // Store Actions
   const setActiveModuleIndex = useConfiguratorStore((s) => s.setActiveModuleIndex);
@@ -124,12 +140,33 @@ export function useV3Adapter() {
   const duplicateActiveModule = useConfiguratorStore((s) => s.duplicateActiveModule);
   const removeActiveModule = useConfiguratorStore((s) => s.removeActiveModule);
   const moveActiveModule = useConfiguratorStore((s) => s.moveActiveModule);
+  const toggleModuleSelection = useConfiguratorStore((s) => s.toggleModuleSelection);
+  const selectAllModules = useConfiguratorStore((s) => s.selectAllModules);
+  const clearModuleSelection = useConfiguratorStore((s) => s.clearModuleSelection);
+  const batchMoveSelectedModules = useConfiguratorStore((s) => s.batchMoveSelectedModules);
+  const batchSetSelectedModulesMaterial = useConfiguratorStore((s) => s.batchSetSelectedModulesMaterial);
+  const batchRemoveSelectedModules = useConfiguratorStore((s) => s.batchRemoveSelectedModules);
+
+  const setRoomDimensions = useConfiguratorStore((s) => s.setRoomDimensions);
+  const addWallSegment = useConfiguratorStore((s) => s.addWallSegment);
+  const updateWallSegment = useConfiguratorStore((s) => s.updateWallSegment);
+  const removeWallSegment = useConfiguratorStore((s) => s.removeWallSegment);
+  const addSpaceObstacle = useConfiguratorStore((s) => s.addSpaceObstacle);
+  const updateSpaceObstacle = useConfiguratorStore((s) => s.updateSpaceObstacle);
+  const removeSpaceObstacle = useConfiguratorStore((s) => s.removeSpaceObstacle);
+  const setFloorPlanUnderlay = useConfiguratorStore((s) => s.setFloorPlanUnderlay);
+  const importWallsFromUnderlay = useConfiguratorStore((s) => s.importWallsFromUnderlay);
 
   const saveToStorage = useConfiguratorStore((s) => s.saveToStorage);
   const loadFromStorage = useConfiguratorStore((s) => s.loadFromStorage);
   const getSavedProjects = useConfiguratorStore((s) => s.getSavedProjects);
   const exportProjectJSON = useConfiguratorStore((s) => s.exportProjectJSON);
   const importProjectJSON = useConfiguratorStore((s) => s.importProjectJSON);
+  const beginHistoryTransaction = useConfiguratorStore((s) => s.beginHistoryTransaction);
+  const commitHistoryTransaction = useConfiguratorStore((s) => s.commitHistoryTransaction);
+  const createRevisionSnapshot = useConfiguratorStore((s) => s.createRevisionSnapshot);
+  const restoreRevisionSnapshot = useConfiguratorStore((s) => s.restoreRevisionSnapshot);
+  const diffRevisions = useConfiguratorStore((s) => s.diffRevisions);
   const approveProduction = useConfiguratorStore((s) => s.approveProduction);
   const applySmartSpan = useConfiguratorStore((s) => s.applySmartSpan);
 
@@ -240,7 +277,7 @@ export function useV3Adapter() {
           }
         : m
     );
-    useConfiguratorStore.setState({
+    commitAdapterState({
       history: [...state.history.slice(-15), curProj],
       future: [],
       project: { ...curProj, modules: nextMods, updatedAt: new Date().toISOString() },
@@ -268,7 +305,7 @@ export function useV3Adapter() {
           ? { ...m, position: { ...m.position, x: clampedX, z: clampedZ } }
           : m
       );
-      useConfiguratorStore.setState({
+      commitAdapterState({
         activeModuleIndex: modIdx,
         project: { ...curProj, modules: nextMods, updatedAt: new Date().toISOString() },
       });
@@ -294,7 +331,7 @@ export function useV3Adapter() {
       }
       return m;
     });
-    useConfiguratorStore.setState({
+    commitAdapterState({
       project: {
         ...curProj,
         modules: enhancedModules,
@@ -333,7 +370,7 @@ export function useV3Adapter() {
       }
       return m;
     });
-    useConfiguratorStore.setState({
+    commitAdapterState({
       project: {
         ...curProj,
         modules: enhancedModules,
@@ -352,7 +389,7 @@ export function useV3Adapter() {
   const loadLinearKitchen = useCallback(() => {
     loadLinearKitchenBase();
     const curProj = useConfiguratorStore.getState().project;
-    useConfiguratorStore.setState({
+    commitAdapterState({
       project: {
         ...curProj,
         space: {
@@ -366,7 +403,7 @@ export function useV3Adapter() {
   /**
    * Add or update an architectural obstacle (Window, Column, Plumbing) in the room
    */
-  const updateObstaclePosition = useCallback((obsId: string, newX: number) => {
+  const updateObstaclePosition = useCallback((obsId: string, newX: number, newZ?: number) => {
     const curProj = useConfiguratorStore.getState().project;
     const currentElements: ArchitecturalElement[] =
       curProj.space.elements.length > 0
@@ -374,10 +411,17 @@ export function useV3Adapter() {
         : getEffectiveSpaceObstacles(curProj);
     const updatedElements = currentElements.map((el) =>
       el.id === obsId
-        ? { ...el, position: { ...el.position, x: Math.max(0, Math.round(newX)) } }
+        ? {
+            ...el,
+            position: {
+              ...el.position,
+              x: Math.max(0, Math.round(newX)),
+              z: typeof newZ === "number" ? Math.max(0, Math.round(newZ)) : el.position.z,
+            },
+          }
         : el
     );
-    useConfiguratorStore.setState({
+    commitAdapterState({
       project: {
         ...curProj,
         space: { ...curProj.space, elements: updatedElements },
@@ -399,6 +443,7 @@ export function useV3Adapter() {
 
       const updatedMod = updater({
         ...targetMod,
+        carcass: { ...targetMod.carcass },
         bays: targetMod.bays.map((b) => ({
           ...b,
           door: { ...b.door },
@@ -415,6 +460,7 @@ export function useV3Adapter() {
       );
       const nextProj = {
         ...curProj,
+        status: "draft" as const,
         version: (curProj.version || 1) + 1,
         updatedAt: new Date().toISOString(),
         modules: nextModules,
@@ -423,7 +469,7 @@ export function useV3Adapter() {
       const nextBom = generateBOMForProject(nextProj);
       const nextPricing = calculateProjectPrice(nextBom);
 
-      useConfiguratorStore.setState({
+      commitAdapterState({
         history: pushHistory ? [...state.history.slice(-15), curProj] : state.history,
         future: pushHistory ? [] : state.future,
         project: nextProj,
@@ -453,6 +499,13 @@ export function useV3Adapter() {
         const bay = mod.bays[bayIdx];
         if (!bay) return mod;
         const nextDoor = { ...bay.door, ...updates };
+        if (updates.handleCategory) nextDoor.handleProfileId = undefined;
+        if (updates.doorSystemId) {
+          mod.isOpenFront = updates.doorSystemId === "open";
+          const types: Partial<Record<DoorSystemId, typeof nextDoor.type>> = { open: "open", hinged_single: "single_left", hinged_double: "double", hinged_inset: "inset_left", hinged_overlay_variant: "half_overlay_left", sliding_top_hung: "sliding", sliding_bottom_rolling: "sliding_bottom", lift_up_stay: "lift_up_stay", lift_parallel: "lift_parallel", lift_bi_fold: "lift_bi_fold", folding_side: "folding", pocket_retractable: "pocket", tambour_roller: "tambour" };
+          nextDoor.type = types[updates.doorSystemId] ?? "single_left";
+          nextDoor.overlayType = updates.doorSystemId === "hinged_inset" ? "inset" : updates.doorSystemId === "hinged_overlay_variant" ? "half_overlay" : "full_overlay";
+        }
         if (updates.doorSystemId) {
           if (updates.doorSystemId === "hinged_double") nextDoor.type = "double";
           else if (updates.doorSystemId === "hinged_single") nextDoor.type = "single_left";
@@ -505,7 +558,7 @@ export function useV3Adapter() {
     const nextBom = generateBOMForProject(nextProj);
     const nextPricing = calculateProjectPrice(nextBom);
 
-    useConfiguratorStore.setState({
+    commitAdapterState({
       history: [...state.history.slice(-15), curProj],
       future: [],
       project: nextProj,
@@ -554,7 +607,7 @@ export function useV3Adapter() {
     const nextBom = generateBOMForProject(nextProj);
     const nextPricing = calculateProjectPrice(nextBom);
 
-    useConfiguratorStore.setState({
+    commitAdapterState({
       history: [...state.history.slice(-15), curProj],
       future: [],
       project: nextProj,
@@ -584,7 +637,7 @@ export function useV3Adapter() {
     const nextBom = generateBOMForProject(nextProj);
     const nextPricing = calculateProjectPrice(nextBom);
 
-    useConfiguratorStore.setState({
+    commitAdapterState({
       history: [...state.history.slice(-15), curProj],
       future: [],
       project: nextProj,
@@ -611,7 +664,7 @@ export function useV3Adapter() {
     const nextBom = generateBOMForProject(nextProj);
     const nextPricing = calculateProjectPrice(nextBom);
 
-    useConfiguratorStore.setState({
+    commitAdapterState({
       history: [...state.history.slice(-15), curProj],
       future: [],
       project: nextProj,
@@ -863,6 +916,95 @@ export function useV3Adapter() {
     [commitActiveModuleUpdate]
   );
 
+  /**
+   * Remove module at a specific index (keeps at least 1 module in the project)
+   */
+  const removeModuleAt = useCallback((modIdx: number) => {
+    const state = useConfiguratorStore.getState();
+    if (state.project.modules.length <= 1) return;
+    if (modIdx < 0 || modIdx >= state.project.modules.length) return;
+    const updated = JSON.parse(JSON.stringify(state.project));
+    updated.modules.splice(modIdx, 1);
+    const nextIdx =
+      state.activeModuleIndex === modIdx
+        ? Math.min(modIdx, Math.max(0, updated.modules.length - 1))
+        : state.activeModuleIndex > modIdx
+        ? state.activeModuleIndex - 1
+        : state.activeModuleIndex;
+    commitAdapterState({
+      project: updated,
+      activeModuleIndex: nextIdx,
+      selectedComponentId: null,
+    });
+  }, []);
+
+  /**
+   * Remove currently selected interior item (shelf, drawer, hanging rail, fitting, or sub-divider)
+   */
+  const removeSelectedInteriorComponent = useCallback((): boolean => {
+    const state = useConfiguratorStore.getState();
+    const selId = state.selectedComponentId;
+    if (!selId) return false;
+    const mod = state.project.modules[state.activeModuleIndex] || state.project.modules[0];
+    if (!mod) return false;
+
+    for (let bIdx = 0; bIdx < mod.bays.length; bIdx++) {
+      const bay = mod.bays[bIdx];
+      const shelfMatch = bay.shelves.find(
+        (s, sIdx) => s.id === selId || `${mod.id}_bay_${bIdx}_shelf_${sIdx}` === selId
+      );
+      if (shelfMatch) {
+        removeShelf(bIdx, shelfMatch.id);
+        setSelectedComponentId(null);
+        return true;
+      }
+
+      const drawerMatch = bay.drawers.find(
+        (d) => selId === d.id || selId.startsWith(`${d.id}_`)
+      );
+      if (drawerMatch) {
+        removeDrawer(bIdx, drawerMatch.id);
+        setSelectedComponentId(null);
+        return true;
+      }
+
+      const railMatch = bay.hangingRails.find(
+        (r, rIdx) => r.id === selId || `${mod.id}_bay_${bIdx}_rail_${rIdx}` === selId
+      );
+      if (railMatch) {
+        removeHangingRail(bIdx, railMatch.id);
+        setSelectedComponentId(null);
+        return true;
+      }
+
+      const fitMatch = (bay.specialFittings || []).find(
+        (f, fIdx) => f.id === selId || `${mod.id}_bay_${bIdx}_fit_${fIdx}` === selId
+      );
+      if (fitMatch) {
+        removeSpecialFitting(bIdx, fitMatch.id);
+        setSelectedComponentId(null);
+        return true;
+      }
+
+      const subDivMatch = (bay.subDividers || []).find(
+        (sd, sdIdx) => sd.id === selId || `${mod.id}_bay_${bIdx}_subdiv_${sdIdx}` === selId
+      );
+      if (subDivMatch) {
+        removeSubDivider(bIdx, subDivMatch.id);
+        setSelectedComponentId(null);
+        return true;
+      }
+    }
+    return false;
+  }, [
+    removeShelf,
+    removeDrawer,
+    removeHangingRail,
+    removeSpecialFitting,
+    removeSubDivider,
+    setSelectedComponentId,
+  ]);
+
   return {
     project,
     activeModule,
@@ -873,6 +1015,7 @@ export function useV3Adapter() {
     doorMaterial,
     viewMode,
     selectedComponentId,
+    selectedModuleIds,
     doorOpenAngleDeg,
     drawerOpenMm,
     explodedFactor,
@@ -886,6 +1029,7 @@ export function useV3Adapter() {
     bom,
     pricing,
     smartAdvice,
+    revisions,
     canUndo: history.length > 0,
     canRedo: future.length > 0,
 
@@ -933,7 +1077,24 @@ export function useV3Adapter() {
     addAdjacentModule,
     duplicateActiveModule,
     removeActiveModule,
+    removeModuleAt,
+    removeSelectedInteriorComponent,
     moveActiveModule,
+    toggleModuleSelection,
+    selectAllModules,
+    clearModuleSelection,
+    batchMoveSelectedModules,
+    batchSetSelectedModulesMaterial,
+    batchRemoveSelectedModules,
+    setRoomDimensions,
+    addWallSegment,
+    updateWallSegment,
+    removeWallSegment,
+    addSpaceObstacle,
+    updateSpaceObstacle,
+    removeSpaceObstacle,
+    setFloorPlanUnderlay,
+    importWallsFromUnderlay,
     rotateActiveModule90,
     setModulePosition,
     updateObstaclePosition,
@@ -950,6 +1111,11 @@ export function useV3Adapter() {
     getSavedProjects,
     exportProjectJSON,
     importProjectJSON,
+    beginHistoryTransaction,
+    commitHistoryTransaction,
+    createRevisionSnapshot,
+    restoreRevisionSnapshot,
+    diffRevisions,
     approveProduction,
     applySmartSpan,
     undo,

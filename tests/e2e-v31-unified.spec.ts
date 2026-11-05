@@ -15,7 +15,7 @@ test.describe("BİRİM CONFIGURATOR V3.1 — Unified Workspace, PBR, Direct Edit
     page,
   }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto("http://localhost:3300/v3", { waitUntil: "networkidle" });
+    await page.goto("/v3", { waitUntil: "networkidle" });
     await page.evaluate(() => localStorage.clear());
 
     await expect(page.getByTestId("v3-unified-root")).toBeVisible();
@@ -91,7 +91,7 @@ test.describe("BİRİM CONFIGURATOR V3.1 — Unified Workspace, PBR, Direct Edit
     page,
   }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto("http://localhost:3300/v3", { waitUntil: "networkidle" });
+    await page.goto("/v3", { waitUntil: "networkidle" });
 
     // Switch to Plan Mode and load 6-Module Linear Kitchen with Window, Plumbing & Column
     await page.getByTestId("v3-mode-plan").click();
@@ -149,7 +149,7 @@ test.describe("BİRİM CONFIGURATOR V3.1 — Unified Workspace, PBR, Direct Edit
     page,
   }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto("http://localhost:3300/v3", { waitUntil: "networkidle" });
+    await page.goto("/v3", { waitUntil: "networkidle" });
 
     // Switch to Showroom Mode for close-up PBR inspection
     await page.getByTestId("v3-mode-showroom").click();

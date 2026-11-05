@@ -29,15 +29,6 @@ describe("Store & ERP Integration Adapters", () => {
     const bom = generateBOMForProject(proj);
 
     const erpAdapter = new MockERPAdapter();
-    const result = await erpAdapter.publishProductionBlueprint(proj, bom, "order_2026_0991");
-
-    expect(result.success).toBe(true);
-    expect(result.itemsCount).toBe(bom.cutList.length);
-
-    const blueprint = erpAdapter.getBlueprint(result.blueprintId);
-    expect(blueprint).toBeDefined();
-    expect(blueprint!.order_id).toBe("order_2026_0991");
-    expect(blueprint!.items[0].workshops).toContain("ebatlama");
-    expect(blueprint!.items[0].workshops).toContain("montaj_paketleme");
+    await expect(erpAdapter.publishProductionBlueprint(proj, bom, "order_2026_0991")).rejects.toThrow(/UNVERIFIED/);
   });
 });

@@ -22,18 +22,8 @@ const STANDARD_WASTE_FACTOR = 1.12; // Flat 12% comparison reference
 
 const bomProjectCache = new Map<string, ManufacturingBOM>();
 
-function computeProjectBOMKey(project: DesignProject): string {
-  let key = `p:${project.id}:${project.version || 1}:`;
-  for (let i = 0; i < project.modules.length; i++) {
-    const m = project.modules[i];
-    key += `${m.id}:${m.dimensions.width}x${m.dimensions.height}x${m.dimensions.depth}:${m.carcass.panelThickness}:${m.carcass.backPanelThickness}:${m.carcass.doorThickness || 18}:${m.carcass.jointType}:${m.carcass.bodyMaterialId}:${m.carcass.doorMaterialId}:${m.bays.length}:`;
-    for (let b = 0; b < m.bays.length; b++) {
-      const bay = m.bays[b];
-      const drHw = bay.drawers.map((d) => `${d.hardwareProductId || "std"}_${d.nominalLengthMm || 0}`).join(",");
-      key += `b${b}:sh${bay.shelves.length}:dr${bay.drawers.length}(${drHw}):r${bay.hangingRails.length}:sd${bay.subDividers?.length || 0}:d${bay.door.type}:${bay.door.doorSystemId || ""}:${bay.door.overlayType || ""}:${bay.door.handleCategory || ""}:${bay.door.openingTechnology || ""}:${bay.door.hardwareProductId || ""}:fit${bay.specialFittings?.length || 0};`;
-    }
-  }
-  return key;
+function computeProjectBOMKey(project: DesignProject, materialsMap: Map<string, MaterialDefinition>): string {
+  return JSON.stringify([project, Array.from(materialsMap.entries())]);
 }
 
 export function generateBOMForProject(
@@ -61,13 +51,13 @@ export function generateBOMForProject(
     };
   }
 
-  const cacheKey = computeProjectBOMKey(project);
+  const cacheKey = computeProjectBOMKey(project, materialsMap);
   const cached = bomProjectCache.get(cacheKey);
   if (cached) return cached;
 
   const cutList: CutPiece[] = [];
   const hardwareMap: Map<string, HardwareBOMItem> = new Map();
-  const validationWarnings: string[] = [];
+  const validationWarnings: string[] = ["UNVERIFIED: Üretim kuralları ve montaj koordinatları fabrika teknik doğrulaması bekliyor; CNC çıktısı üretime hazır değildir."];
   let totalDrillingHolesCount = 0;
 
   function addHardware(
@@ -118,12 +108,39 @@ export function generateBOMForProject(
       if (module.category === "kitchen_wall") {
         addHardware("HW_WALL_HANGER_EN14749", "EN 14749 Ağır Yük Üst Dolap Duvar Askı Elemanı", "connector", 2, "adet", 4.2);
       }
+    } else {
+      if (module.complementaryRole === "leveling_feet") {
+        addHardware("HW_LEVELING_FEET", "Ayarlanabilir Baza Ayağı 80-100mm", "leg", 4, "adet", 1.2);
+      } else if (module.complementaryRole === "led_channel") {
+        const meters = Math.max(1, Number((module.dimensions.width / 1000).toFixed(2)));
+        addHardware("HW_FITTING_LED", "Alüminyum Gömme LED Aydınlatma Profili (Metretül)", "special", meters, "metre", 14.0);
+      } else if (module.complementaryRole === "wall_bracket") {
+        addHardware("HW_WALL_HANGER_EN14749", "EN 14749 Ağır Yük Üst Dolap Duvar Askı Elemanı", "connector", 2, "adet", 4.2);
+      } else if (module.complementaryRole === "service_spacer") {
+        addHardware("HW_SERVICE_SPACER", "Tesisat Boşluğu Ayar Aparatı", "connector", 2, "adet", 2.5);
+      }
     }
 
     // Track door hardware per bay so multi-leaf systems (sliding/lift/pocket/folding) add mechanisms accurately
     const bayMechanismAdded = new Set<number>();
 
     geo.components.forEach((comp) => {
+      if (comp.role === "hanging_rail") {
+        addHardware("HW_HANGING_RAIL", `Oval Alüminyum Elbise Askı Borusu ${comp.dimensions.width}mm`, "rod", 1, "adet", 4.5);
+        addHardware("HW_RAIL_SOCKET", "Askı Borusu Flanşı (Sağ-Sol Takım)", "connector", 1, "takım", 1.8);
+        return;
+      }
+      if (
+        comp.isManufacturablePanel === false ||
+        comp.role === "door_handle" ||
+        comp.role === "gola_profile" ||
+        comp.role === "drawer_handle" ||
+        comp.role === "drawer_slide" ||
+        comp.role === "special_fitting"
+      ) {
+        return;
+      }
+
       let mat = bodyMat;
       let grain: CutPiece["grain"] = mat.hasGrain ? "lengthwise" : "none";
       let edgeBanding: EdgeBandingConfig = {
@@ -164,10 +181,6 @@ export function generateBOMForProject(
         width = comp.dimensions.depth;
         edgeBanding = { top: false, bottom: false, left: true, right: false, thickness: 1 };
         addHardware("HW_SHELF_PIN", "Kilitli Raf Pimi 5mm (Häfele)", "fastener", 4, "adet", 0.15);
-      } else if (comp.role === "hanging_rail") {
-        addHardware("HW_HANGING_RAIL", `Oval Alüminyum Elbise Askı Borusu ${length}mm`, "rod", 1, "adet", 4.5);
-        addHardware("HW_RAIL_SOCKET", "Askı Borusu Flanşı (Sağ-Sol Takım)", "connector", 1, "takım", 1.8);
-        return;
       } else if (comp.role === "countertop") {
         mat = materialsMap.get(comp.materialId) || bodyMat;
         length = comp.dimensions.width;
@@ -229,17 +242,24 @@ export function generateBOMForProject(
         // Handle hardware (skip if handleless_plain)
         const handleCat = bay?.door.handleCategory || "bar_handle";
         if (handleCat !== "handleless_plain") {
-          const hProfile = HANDLE_PROFILES.find((hp) => hp.category === handleCat) || HANDLE_PROFILES[1];
+          const hProfile =
+            HANDLE_PROFILES.find((hp) => hp.id === bay?.door.handleProfileId) ||
+            HANDLE_PROFILES.find((hp) => hp.category === handleCat) ||
+            HANDLE_PROFILES[1];
           addHardware(hProfile.sku, hProfile.name, "handle", 1, "adet", hProfile.unitPriceEur);
         }
       } else if (comp.role === "drawer_front") {
-        mat = doorMat;
+        mat = materialsMap.get(comp.materialId) || doorMat;
         grain = mat.hasGrain ? "lengthwise" : "none";
         length = comp.dimensions.width;
         width = comp.dimensions.height;
         edgeBanding = { top: true, bottom: true, left: true, right: true, thickness: 1 };
-        if (bay?.door.handleCategory !== "handleless_plain") {
-          addHardware("HW_DRAWER_HANDLE", "Çekmece Gizli Entegre Kulp", "handle", 1, "adet", 4.5);
+        const drawer = bay?.drawers.find((d) => `${d.id}_front` === comp.id);
+        if (!drawer?.isInternal && bay?.door.handleCategory !== "handleless_plain") {
+          const profile =
+            HANDLE_PROFILES.find((p) => p.id === bay?.door.handleProfileId) ||
+            HANDLE_PROFILES.find((p) => p.category === (bay?.door.handleCategory || "bar_handle"))!;
+          addHardware(profile.sku, profile.name, "handle", 1, "adet", profile.unitPriceEur);
         }
       } else if (
         comp.role === "drawer_box" ||
@@ -249,7 +269,7 @@ export function generateBOMForProject(
         comp.role === "drawer_bottom"
       ) {
         if (comp.role === "drawer_side_left") {
-          const drawerCfg = bay?.drawers[0];
+          const drawerCfg = bay?.drawers.find((d) => `${d.id}_side_left` === comp.id);
           const drHw = getHardwareProductById(drawerCfg?.hardwareProductId);
           const optimalNl =
             drawerCfg?.nominalLengthMm ||
@@ -261,11 +281,9 @@ export function generateBOMForProject(
           const runnerPrice = drHw?.unitPriceEur || 28.0;
           addHardware(runnerSku, runnerName, "slide", 1, "takım", runnerPrice);
         }
-        length = comp.dimensions.depth || comp.dimensions.width;
-        width = comp.dimensions.height || comp.dimensions.depth;
+        length = comp.role === "drawer_bottom" || comp.role === "drawer_back" ? comp.dimensions.width : comp.dimensions.depth;
+        width = comp.role === "drawer_bottom" ? comp.dimensions.depth : comp.dimensions.height;
         edgeBanding = { top: true, bottom: false, left: false, right: false, thickness: 1 };
-      } else if (comp.role === "drawer_handle" || comp.role === "drawer_slide") {
-        return;
       } else if (comp.role === "plinth") {
         length = comp.dimensions.width;
         width = comp.dimensions.height;
@@ -287,16 +305,14 @@ export function generateBOMForProject(
       if (edgeBanding.right) edgeBandMeters += length / 1000;
 
       const stablePartId = `P_${module.id}_${comp.id}`;
-      const thicknessMm = Math.round(
-        comp.role === "carcass_back"
-          ? module.carcass.backPanelThickness
-          : comp.role.includes("door")
-          ? bay?.door.doorThicknessMm || module.carcass.doorThickness || 18
-          : comp.dimensions.width || 18
-      );
-
-      const handleCat = bay?.door.handleCategory || "bar_handle";
-      const hProfile = HANDLE_PROFILES.find((hp) => hp.category === handleCat);
+      const thicknessMm =
+        comp.thicknessAxis === "x"
+          ? comp.dimensions.width
+          : comp.thicknessAxis === "y"
+            ? comp.dimensions.height
+            : comp.thicknessAxis === "z"
+              ? comp.dimensions.depth
+              : Math.min(comp.dimensions.width, comp.dimensions.height, comp.dimensions.depth);
 
       const parametricPart: ParametricPart = {
         id: stablePartId,
@@ -318,7 +334,8 @@ export function generateBOMForProject(
         rotation: comp.rotation,
         isFrontFacing: comp.isFrontFacing,
         hardwareRefId: bay?.door.hardwareProductId,
-        handleSpacingMm: hProfile?.holeSpacingCcMm || undefined,
+        // Catalog C-C alone does not establish a verified mounting specification.
+        handleSpacingMm: undefined,
         isInsetDoor,
       };
 
@@ -411,7 +428,7 @@ export function generateBOMForProject(
     projectId: project.id,
     version: project.version,
     createdAt: new Date().toISOString(),
-    approvalStatus: project.status === "production_approved" ? "production_approved" : "draft",
+    approvalStatus: "draft",
     summary: {
       totalPiecesCount: cutList.length,
       totalPanelAreaM2: Number(totalPanelAreaM2.toFixed(2)),
@@ -425,6 +442,7 @@ export function generateBOMForProject(
     nestingResults,
     validationWarnings,
   };
+  if (bomProjectCache.size >= 32) bomProjectCache.delete(bomProjectCache.keys().next().value!);
   bomProjectCache.set(cacheKey, result);
   return result;
 }

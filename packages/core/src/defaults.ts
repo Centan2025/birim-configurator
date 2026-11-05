@@ -1,4 +1,4 @@
-import { DesignProject, MaterialDefinition, ModuleInstance } from "./types";
+import { DesignProject, MaterialDefinition, ModuleInstance, SUPPORTED_PROJECT_SCHEMA_VERSION } from "./types";
 
 export const DEFAULT_MATERIALS: MaterialDefinition[] = [
   {
@@ -139,7 +139,7 @@ export function createDefaultWardrobeModule(id = "module_1"): ModuleInstance {
     name: "Master Gardırop Modülü",
     category: "wardrobe",
     moduleFamilyId: "fam_wardrobe",
-    templateId: "tpl_wd_03_three_door",
+    templateId: "tpl_wardrobe_3door_drawers",
     position: { x: 0, y: 0, z: 0 },
     dimensions: {
       width: 1800,
@@ -195,7 +195,10 @@ export function createDefaultWardrobeModule(id = "module_1"): ModuleInstance {
           softClose: true,
           hingeCount: 8,
         },
-        shelves: [{ id: "shelf_1_top", bayIndex: 1, elevationY: 1800, isAdjustable: false }],
+        shelves: [
+          { id: "shelf_1_drw_top", bayIndex: 1, elevationY: 365, isAdjustable: false },
+          { id: "shelf_1_top", bayIndex: 1, elevationY: 1800, isAdjustable: false },
+        ],
         hangingRails: [{ id: "rail_1_1", bayIndex: 1, elevationY: 1730 }],
         drawers: [
           { id: "drawer_1_1", bayIndex: 1, elevationY: 0, height: 180, slideType: "soft_close" },
@@ -209,10 +212,15 @@ export function createDefaultWardrobeModule(id = "module_1"): ModuleInstance {
 
 export function createInitialProject(): DesignProject {
   const mod = createDefaultWardrobeModule();
+  mod.bays[0].customWidth = 575;
   return {
     id: "proj_demo_01",
     version: 1,
+    schemaVersion: SUPPORTED_PROJECT_SCHEMA_VERSION,
+    catalogVersion: "lib_v4_0_0",
+    revisionId: "rev_v1",
     libraryVersionId: "lib_v4_0_0",
+    constructionProfileId: "profile_birim_factory_std",
     title: "Vadi İstanbul Villa - Ebeveyn Giyinme Odası",
     customerName: "Centan Mimarlık",
     branchId: "branch_vadistanbul",

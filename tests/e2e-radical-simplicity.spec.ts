@@ -23,7 +23,7 @@ test.describe("BİRİM CONFIGURATOR — Radical Simplicity & Professional Power 
     // Verify Brand, Title and Mode Switcher
     await expect(page.locator("text=BİRİM CONFIGURATOR V2")).toBeVisible();
     await expect(page.locator("button:has-text('Kolay Tasarım (Mağaza)')")).toBeVisible();
-    await expect(page.locator("text=Otomatik Kaydedildi")).toBeVisible();
+    await expect(page.locator("text=Kaydedilmedi")).toBeVisible();
 
     // Verify EasyInspector is active by default
     await expect(page.locator("text=Kolay Tasarım Paneli")).toBeVisible();

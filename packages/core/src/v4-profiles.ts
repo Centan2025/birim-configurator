@@ -151,6 +151,13 @@ export interface FourSpaceDimensionsBreakdown {
     leafWeightKg: number;
     powerFactorLf: number;
     recommendedHingesPerLeaf: number;
+    overlayType: DoorOverlayType;
+    doorX0Mm: UnitLength;
+    doorY0Mm: UnitLength;
+    doorZ0Mm: UnitLength;
+    fullDoorSpanWidthMm: UnitLength;
+    baseDoorHeightMm: UnitLength;
+    centerRevealGapMm: UnitLength;
   }[];
 }
 
@@ -228,8 +235,12 @@ export function calculateFourSpaceDimensions(module: ModuleInstance): FourSpaceD
     DEFAULT_MATERIALS.find((m) => m.id === module.carcass.doorMaterialId) || DEFAULT_MATERIALS[2];
   const densityKgM3 = doorMat.densityKgPerM3 || 750;
 
+  let currentBayStartX = T;
   const doorLeaves = module.bays.map((bay, bayIdx) => {
     const bayW = bayClearWidthsMm[bayIdx] || 0;
+    const bayStartX = currentBayStartX;
+    currentBayStartX += bayW + T;
+
     const dType = bay.door.type;
     const dSys = bay.door.doorSystemId || inferDoorSystemIdFromType(dType);
     const overlayType: DoorOverlayType =
@@ -239,27 +250,6 @@ export function calculateFourSpaceDimensions(module: ModuleInstance): FourSpaceD
         : dSys === "hinged_overlay_variant" || dType.startsWith("half_overlay")
         ? "half_overlay"
         : "full_overlay");
-
-    if (module.isOpenFront || dType === "open" || dSys === "open") {
-      return {
-        bayIndex: bayIdx,
-        leafCount: 0,
-        leafWidthMm: 0,
-        leafHeightMm: 0,
-        leafThicknessMm: T_door,
-        leafWeightKg: 0,
-        powerFactorLf: 0,
-        recommendedHingesPerLeaf: 0,
-      };
-    }
-
-    const isDouble =
-      dType === "double" ||
-      dType === "inset_double" ||
-      dSys === "hinged_double" ||
-      dSys === "folding_side";
-    const isBiFoldLift = dType === "lift_bi_fold" || dSys === "lift_bi_fold";
-    const leafCount = isDouble || isBiFoldLift ? 2 : 1;
 
     const leftOverlay =
       overlayType === "inset"
@@ -278,16 +268,91 @@ export function calculateFourSpaceDimensions(module: ModuleInstance): FourSpaceD
         ? T - gap
         : T / 2 - gap / 2;
 
-    const totalDoorSpanW = Math.max(0, bayW + leftOverlay + rightOverlay);
-    const leafWidthMm = isDouble
-      ? Math.max(0, Math.round((totalDoorSpanW - profile.centerRevealGapMm) / 2))
-      : Math.round(totalDoorSpanW);
+    const tplId = (module.templateId || "").toLowerCase();
+    const extDrawers = bay.drawers.filter((d) => !d.isInternal);
+    const bottomExtDrawers = extDrawers.filter((d) => d.elevationY < netInnerHeightMm * 0.55);
+    const topExtDrawers = extDrawers.filter((d) => d.elevationY >= netInnerHeightMm * 0.55);
+
+    const bottomDrawersSpan =
+      bottomExtDrawers.length > 0
+        ? Math.max(...bottomExtDrawers.map((d) => d.elevationY + d.height)) + T
+        : 0;
+
+    let openCavityBottomCut = bottomDrawersSpan;
+    if (tplId.includes("oven_microwave_tower")) {
+      openCavityBottomCut = Math.max(bottomDrawersSpan, 380) + 600 + 380 + 2 * T;
+    } else if (tplId.includes("oven_tower")) {
+      openCavityBottomCut = Math.max(bottomDrawersSpan, 380) + 600 + T;
+    } else if (tplId.includes("niche_tall")) {
+      openCavityBottomCut = Math.max(bottomDrawersSpan, 400) + 550 + T;
+    } else if (tplId.includes("microwave_wall")) {
+      openCavityBottomCut = Math.max(bottomDrawersSpan, 360);
+    } else if (tplId.includes("fridge_surround")) {
+      openCavityBottomCut = Math.max(bottomDrawersSpan, 1720);
+    }
+
+    const applyPartialDoorCut =
+      !dSys.startsWith("sliding") && dSys !== "pocket_retractable" && dSys !== "tambour_roller";
+    const bottomCutMm = applyPartialDoorCut ? openCavityBottomCut : 0;
+    const topCutMm =
+      applyPartialDoorCut && topExtDrawers.length > 0
+        ? Math.max(0, netInnerHeightMm - Math.min(...topExtDrawers.map((d) => d.elevationY)) + T)
+        : 0;
+
+    const rawDoorY0Mm = overlayType === "inset" ? plinth + T + gap : plinth + gap;
+    const doorX0Mm = overlayType === "inset" ? bayStartX + gap : bayStartX - leftOverlay;
+    const doorY0Mm = rawDoorY0Mm + bottomCutMm;
+    const doorZ0Mm = overlayType === "inset" ? depth - T : depth;
+    const totalDoorSpanW = Math.max(80, bayW + leftOverlay + rightOverlay);
+
+    if (module.isOpenFront || dType === "open" || dSys === "open") {
+      return {
+        bayIndex: bayIdx,
+        leafCount: 0,
+        leafWidthMm: 0,
+        leafHeightMm: 0,
+        leafThicknessMm: T_door,
+        leafWeightKg: 0,
+        powerFactorLf: 0,
+        recommendedHingesPerLeaf: 0,
+        overlayType,
+        doorX0Mm,
+        doorY0Mm,
+        doorZ0Mm,
+        fullDoorSpanWidthMm: totalDoorSpanW,
+        baseDoorHeightMm: 0,
+        centerRevealGapMm: profile.centerRevealGapMm,
+      };
+    }
+
+    const isHingedOrFold =
+      !dSys.startsWith("sliding") &&
+      !dSys.startsWith("lift_") &&
+      dSys !== "pocket_retractable" &&
+      dSys !== "tambour_roller";
+    const isDouble =
+      dType === "double" ||
+      dType === "inset_double" ||
+      dSys === "hinged_double" ||
+      dSys === "folding_side" ||
+      (isHingedOrFold && totalDoorSpanW > 600);
+    const isBiFoldLift = dType === "lift_bi_fold" || dSys === "lift_bi_fold";
+    const leafCount = isDouble || isBiFoldLift ? 2 : 1;
+
+    const rawLeafWidthMm =
+      dSys === "folding_side" || dType === "folding"
+        ? Math.max(0, Math.round((totalDoorSpanW - gap) / 2))
+        : isDouble
+        ? Math.max(0, Math.round((totalDoorSpanW - profile.centerRevealGapMm) / 2))
+        : Math.round(totalDoorSpanW);
+    const leafWidthMm = isHingedOrFold ? Math.min(600, rawLeafWidthMm) : rawLeafWidthMm;
 
     const golaDeduction = bay.door.handleCategory === "gola_profile" ? 30 : 0;
-    const baseDoorHeight =
+    const rawBaseDoorHeight =
       overlayType === "inset"
-        ? Math.max(0, netInnerHeightMm - 2 * gap - golaDeduction)
-        : Math.max(0, sidePanelHeightMm - 2 * gap - golaDeduction);
+        ? Math.max(80, netInnerHeightMm - 2 * gap - golaDeduction)
+        : Math.max(80, sidePanelHeightMm - 2 * gap - golaDeduction);
+    const baseDoorHeight = Math.max(80, rawBaseDoorHeight - bottomCutMm - topCutMm);
 
     const leafHeightMm = isBiFoldLift
       ? Math.round((baseDoorHeight - gap) / 2)
@@ -323,6 +388,13 @@ export function calculateFourSpaceDimensions(module: ModuleInstance): FourSpaceD
       leafWeightKg,
       powerFactorLf,
       recommendedHingesPerLeaf,
+      overlayType,
+      doorX0Mm,
+      doorY0Mm,
+      doorZ0Mm,
+      fullDoorSpanWidthMm: totalDoorSpanW,
+      baseDoorHeightMm: baseDoorHeight,
+      centerRevealGapMm: profile.centerRevealGapMm,
     };
   });
 
@@ -393,9 +465,13 @@ export function inferDoorSystemIdFromType(type: string): DoorSystemId {
  * populating canonical V4 doorSystemId, overlayType, handleCategory, openingTechnology, and moduleFamilyId.
  */
 export function migrateV3ProjectToV4(project: DesignProject): DesignProject {
+  const catalogVersion = project.catalogVersion || project.libraryVersionId || "lib_v4_0_0";
   return {
     ...project,
-    libraryVersionId: project.libraryVersionId || "lib_v4_0_0",
+    schemaVersion: 4,
+    catalogVersion,
+    libraryVersionId: project.libraryVersionId || catalogVersion,
+    revisionId: project.revisionId || `rev_v${project.version || 1}`,
     constructionProfileId: project.constructionProfileId || "profile_birim_factory_std",
     modules: project.modules.map((mod) => {
       const moduleFamilyId =

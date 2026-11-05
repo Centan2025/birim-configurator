@@ -75,6 +75,7 @@ export const WARDROBE_TEMPLATES: ModuleTemplate[] = [
         {
           index: 0,
           door: { id: `door_${id}_0`, bayIndex: 0, type: "single_left", softClose: true, hingeCount: 4 },
+          customWidth: 575,
           shelves: [
             { id: `shelf_${id}_0_1`, bayIndex: 0, elevationY: 1750, isAdjustable: false },
             { id: `shelf_${id}_0_2`, bayIndex: 0, elevationY: 1350, isAdjustable: true },
@@ -88,7 +89,7 @@ export const WARDROBE_TEMPLATES: ModuleTemplate[] = [
         {
           index: 1,
           door: { id: `door_${id}_1`, bayIndex: 1, type: "double", softClose: true, hingeCount: 8 },
-          shelves: [{ id: `shelf_${id}_1_top`, bayIndex: 1, elevationY: 1800, isAdjustable: false }],
+          shelves: [{ id: `shelf_${id}_1_drw_top`, bayIndex: 1, elevationY: 365, isAdjustable: false }, { id: `shelf_${id}_1_top`, bayIndex: 1, elevationY: 1800, isAdjustable: false }],
           hangingRails: [{ id: `rail_${id}_1`, bayIndex: 1, elevationY: 1730 }],
           drawers: [
             { id: `drw_${id}_1_1`, bayIndex: 1, elevationY: 0, height: 180, slideType: "soft_close" },
@@ -212,9 +213,9 @@ export const KITCHEN_TEMPLATES: ModuleTemplate[] = [
           shelves: [],
           hangingRails: [],
           drawers: [
-            { id: `drw_${id}_0_1`, bayIndex: 0, elevationY: 0, height: 140, slideType: "soft_close" },
-            { id: `drw_${id}_0_2`, bayIndex: 0, elevationY: 145, height: 280, slideType: "soft_close" },
-            { id: `drw_${id}_0_3`, bayIndex: 0, elevationY: 430, height: 280, slideType: "soft_close" },
+            { id: `drw_${id}_0_1`, bayIndex: 0, elevationY: 0, height: 215, slideType: "soft_close" },
+            { id: `drw_${id}_0_2`, bayIndex: 0, elevationY: 220, height: 215, slideType: "soft_close" },
+            { id: `drw_${id}_0_3`, bayIndex: 0, elevationY: 440, height: 140, slideType: "soft_close" },
           ],
           specialFittings: [],
         },

@@ -15,11 +15,11 @@ test.describe("BİRİM CONFIGURATOR V4 — Universal Module & Hardware Library E
     page,
   }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto("http://localhost:3300/v3", { waitUntil: "networkidle" });
+    await page.goto("/v3", { waitUntil: "networkidle" });
     await page.evaluate(() => localStorage.clear());
 
     await expect(page.getByTestId("v3-unified-root")).toBeVisible();
-    await expect(page.getByTestId("v4-compatibility-card")).toContainText("COMPATIBLE");
+    await expect(page.getByTestId("v4-compatibility-card")).toContainText("UNVERIFIED");
     await expect(page.getByTestId("v4-four-space-summary")).toBeVisible();
 
     // Browse V4 Kitchen Base Family (20 templates) and apply 3-Drawer Base Module
@@ -46,7 +46,7 @@ test.describe("BİRİM CONFIGURATOR V4 — Universal Module & Hardware Library E
     page,
   }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto("http://localhost:3300/v3", { waitUntil: "networkidle" });
+    await page.goto("/v3", { waitUntil: "networkidle" });
     await page.evaluate(() => localStorage.clear());
 
     const initialPrice = await page.getByTestId("studio-total-price").textContent();
@@ -64,8 +64,8 @@ test.describe("BİRİM CONFIGURATOR V4 — Universal Module & Hardware Library E
 
     // Fix by selecting Push-to-Open + Soft-Close (TIP-ON BLUMOTION)
     await page.getByTestId("v4-opening-select").selectOption("push_to_open_soft_close");
-    await expect(page.getByTestId("v4-compatibility-card")).toContainText("COMPATIBLE");
-    await expect(page.getByTestId("v4-compatibility-card")).toContainText("Üretime Uygun");
+    await expect(page.getByTestId("v4-compatibility-card")).toContainText("UNVERIFIED");
+    await expect(page.getByTestId("v4-compatibility-card")).toContainText("Bloklu");
 
     // Step 4: Swap Hardware Manufacturer Profile from Blum 71B3550 to Blum 155° Zero-Protrusion (hw_blum_71b7550)
     await page.getByTestId("v4-hardware-sku-select").selectOption("hw_blum_71b7550");

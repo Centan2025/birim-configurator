@@ -4,6 +4,12 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Birim Configurator | Parametrik Dolap ve Mutfak Platformu",
   description: "Birim Mağaza & Üretim Entegre Parametrik Tasarım ve Konfigürasyon Motoru",
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "32x32" },
+      { url: "/icon.svg", type: "image/svg+xml" },
+    ],
+  },
 };
 
 export default function RootLayout({

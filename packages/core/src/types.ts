@@ -335,6 +335,24 @@ export interface WallDefinition {
   elements: ArchitecturalElement[];
 }
 
+export interface FloorPlanPolyline {
+  points: { x: UnitLength; z: UnitLength }[];
+  layer?: string;
+}
+
+export interface FloorPlanUnderlay {
+  fileName: string;
+  fileType: "dxf" | "dwg" | "pdf" | "svg" | "image";
+  scaleMmPerUnit: number;
+  widthMm: UnitLength;
+  depthMm: UnitLength;
+  offsetXMm: UnitLength;
+  offsetZMm: UnitLength;
+  opacity: number;
+  dataUrl?: string;
+  polylines?: FloorPlanPolyline[];
+}
+
 export interface SpaceDefinition {
   id: string;
   name: string;
@@ -350,11 +368,24 @@ export interface SpaceDefinition {
   walls: WallDefinition[];
   ceilingHeight: UnitLength;
   elements: ArchitecturalElement[];
+  floorPlanUnderlay?: FloorPlanUnderlay;
+}
+
+export const SUPPORTED_PROJECT_SCHEMA_VERSION = 4;
+
+export interface ProjectVerificationSnapshot {
+  overallStatus: CompatibilityStatus;
+  canApproveProduction: boolean;
+  unverifiedCount: number;
+  evaluatedAt: string;
 }
 
 export interface DesignProject {
   id: string;
   version: number;
+  schemaVersion?: number;
+  catalogVersion?: string;
+  revisionId?: string;
   libraryVersionId?: string;
   constructionProfileId?: string;
   title: string;
@@ -363,6 +394,7 @@ export interface DesignProject {
   status: "draft" | "technically_validated" | "quoted" | "production_approved" | "exported_to_erp";
   space: SpaceDefinition;
   modules: ModuleInstance[];
+  verificationSnapshot?: ProjectVerificationSnapshot;
   createdAt: string;
   updatedAt: string;
 }
