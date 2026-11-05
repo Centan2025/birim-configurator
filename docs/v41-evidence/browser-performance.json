@@ -1,0 +1,28 @@
+[
+  {
+    "count": 20,
+    "lastAddMs": 390,
+    "meshes": 272,
+    "metrics": {
+      "renderCpuMs": 3.199999988079071,
+      "drawCalls": 498,
+      "triangles": 4994,
+      "geometries": 13,
+      "textures": 7
+    },
+    "usedJSHeapBytes": 37300000
+  },
+  {
+    "count": 50,
+    "lastAddMs": 314,
+    "meshes": 632,
+    "metrics": {
+      "renderCpuMs": 3.5999999940395355,
+      "drawCalls": 1158,
+      "triangles": 11474,
+      "geometries": 13,
+      "textures": 7
+    },
+    "usedJSHeapBytes": 37300000
+  }
+]

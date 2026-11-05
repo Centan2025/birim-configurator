@@ -1,4 +1,4 @@
-import { ParametricPart, DrillingHole } from "@birim/core";
+import { ParametricPart, DrillingHole, calculateDoorHingePositionsY } from "@birim/core";
 import { getDrillingTemplateForHardware } from "@birim/catalog";
 
 export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
@@ -58,24 +58,60 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
       });
     });
 
-    // System 32 Shelf Pin Line Boring
-    const startY = 300;
-    const endY = height - 300;
-    // Inset door shifts front row back by doorThickness + 2mm (37 + 20 = 57mm)
+    // Hinge mounting plate holes (37mm or 57mm inset, 32mm vertical pitch)
+    // Computed before System 32 shelf pin holes so colliding shelf pin holes on the same X column are suppressed
     const frontX = part.isInsetDoor ? 57 : drillTpl.system32FrontSetbackMm;
     const backX = Math.max(100, width - 50);
 
-    for (let y = startY; y <= endY; y += 64) {
+    const hingePositionsY =
+      part.hingePositionsY && part.hingePositionsY.length > 0
+        ? part.hingePositionsY
+        : calculateDoorHingePositionsY(height);
+
+    const hingeMountYCoords: number[] = [];
+    hingePositionsY.forEach((hy, idx) => {
+      const yA = hy - 16;
+      const yB = hy + 16;
+      hingeMountYCoords.push(yA, yB);
       holes.push({
-        id: `H_${part.id}_shelf_pin_front_${y}`,
+        id: `H_${part.id}_hinge_mount_${idx}_a`,
         diameter: 5,
         depth: 12,
         x: frontX,
-        y,
+        y: yA,
         z: 0,
         direction: face,
-        purpose: "shelf_pin",
+        purpose: "hinge_mount",
       });
+      holes.push({
+        id: `H_${part.id}_hinge_mount_${idx}_b`,
+        diameter: 5,
+        depth: 12,
+        x: frontX,
+        y: yB,
+        z: 0,
+        direction: face,
+        purpose: "hinge_mount",
+      });
+    });
+
+    // System 32 Shelf Pin Line Boring (with automatic collision avoidance against hinge mounting plate holes)
+    const startY = 300;
+    const endY = height - 300;
+    for (let y = startY; y <= endY; y += 64) {
+      const collidesWithHingeMount = hingeMountYCoords.some((hmy) => Math.abs(hmy - y) < 12);
+      if (!collidesWithHingeMount) {
+        holes.push({
+          id: `H_${part.id}_shelf_pin_front_${y}`,
+          diameter: 5,
+          depth: 12,
+          x: frontX,
+          y,
+          z: 0,
+          direction: face,
+          purpose: "shelf_pin",
+        });
+      }
       holes.push({
         id: `H_${part.id}_shelf_pin_back_${y}`,
         diameter: 5,
@@ -87,39 +123,6 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
         purpose: "shelf_pin",
       });
     }
-
-    // Hinge mounting plate holes (37mm or 57mm inset, 32mm vertical pitch)
-    const hingePositionsY =
-      height > 2000
-        ? [100, 620, 1140, 1660, height - 100]
-        : height > 1600
-        ? [100, 750, 1400, height - 100]
-        : height > 900
-        ? [100, Math.round(height / 2), height - 100]
-        : [100, Math.max(180, height - 100)];
-
-    hingePositionsY.forEach((hy, idx) => {
-      holes.push({
-        id: `H_${part.id}_hinge_mount_${idx}_a`,
-        diameter: 5,
-        depth: 12,
-        x: frontX,
-        y: hy - 16,
-        z: 0,
-        direction: face,
-        purpose: "hinge_mount",
-      });
-      holes.push({
-        id: `H_${part.id}_hinge_mount_${idx}_b`,
-        diameter: 5,
-        depth: 12,
-        x: frontX,
-        y: hy + 16,
-        z: 0,
-        direction: face,
-        purpose: "hinge_mount",
-      });
-    });
   }
 
   // 2. Horizontal Panels: Bottom, Top, Shelves
@@ -168,13 +171,9 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
       const effectiveCupDepth = part.hardwareRefId ? drillTpl.cupDepthMm : 12.5;
 
       const hingePositionsY =
-        height > 2000
-          ? [100, 620, 1140, 1660, height - 100]
-          : height > 1600
-          ? [100, 750, 1400, height - 100]
-          : height > 900
-          ? [100, Math.round(height / 2), height - 100]
-          : [100, Math.max(180, height - 100)];
+        part.hingePositionsY && part.hingePositionsY.length > 0
+          ? part.hingePositionsY
+          : calculateDoorHingePositionsY(height);
 
       hingePositionsY.forEach((hy, idx) => {
         // 35mm cup hole with manufacturer-specific depth (13.0mm Blum, 11.7mm 155°, 12.8mm Hettich, 12.5mm legacy default)

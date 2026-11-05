@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SUPPORTED_PROJECT_SCHEMA_VERSION } from "./types";
 
 export const OpeningDirectionSchema = z.enum([
   "left",
@@ -162,6 +163,8 @@ export const SpecialFittingConfigSchema = z.object({
     "wire_basket",
     "tie_rack",
     "led_profile",
+    "led_vertical_strip",
+    "led_rod_strip",
     "wardrobe_lift",
     "jewelry_tray",
     "corner_lemans",
@@ -189,6 +192,8 @@ export const DoorConfigSchema = z.object({
   handleType: z.enum(["standard", "integrated_profile", "push_to_open", "none"]).optional(),
   softClose: z.boolean().default(true),
   hingeCount: z.number().int().optional(),
+  hingeBottomOffsetMm: z.number().optional(),
+  hingeTopOffsetMm: z.number().optional(),
   isGlassFramed: z.boolean().optional(),
 });
 
@@ -289,6 +294,24 @@ export const WallDefinitionSchema = z.object({
   elements: z.array(ArchitecturalElementSchema).default([]),
 });
 
+export const FloorPlanPolylineSchema = z.object({
+  points: z.array(z.object({ x: z.number(), z: z.number() })),
+  layer: z.string().optional(),
+});
+
+export const FloorPlanUnderlaySchema = z.object({
+  fileName: z.string(),
+  fileType: z.enum(["dxf", "dwg", "pdf", "svg", "image"]),
+  scaleMmPerUnit: z.number().positive().default(1),
+  widthMm: z.number().positive(),
+  depthMm: z.number().positive(),
+  offsetXMm: z.number().default(0),
+  offsetZMm: z.number().default(0),
+  opacity: z.number().min(0.05).max(1).default(0.75),
+  dataUrl: z.string().optional(),
+  polylines: z.array(FloorPlanPolylineSchema).optional(),
+});
+
 export const SpaceDefinitionSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -305,12 +328,29 @@ export const SpaceDefinitionSchema = z.object({
   walls: z.array(WallDefinitionSchema).default([]),
   ceilingHeight: z.number().positive().default(2600),
   elements: z.array(ArchitecturalElementSchema).default([]),
+  floorPlanUnderlay: FloorPlanUnderlaySchema.optional(),
+});
+
+export const ProjectVerificationSnapshotSchema = z.object({
+  overallStatus: z.enum(["COMPATIBLE", "COMPATIBLE_WITH_CONDITIONS", "INCOMPATIBLE", "UNVERIFIED"]),
+  canApproveProduction: z.boolean(),
+  unverifiedCount: z.number().int().min(0),
+  evaluatedAt: z.string(),
 });
 
 export const DesignProjectSchema = z.object({
   id: z.string(),
   version: z.number().int().positive().default(1),
+  schemaVersion: z
+    .number()
+    .int()
+    .min(1, "Geçersiz şema sürümü")
+    .max(SUPPORTED_PROJECT_SCHEMA_VERSION, "Desteklenmeyen ileri şema sürümü (forward-version rejected)")
+    .optional(),
+  catalogVersion: z.string().optional(),
+  revisionId: z.string().optional(),
   libraryVersionId: z.string().optional(),
+  constructionProfileId: z.string().optional(),
   title: z.string().min(1),
   customerName: z.string().optional(),
   branchId: z.string().default("branch_main"),
@@ -319,6 +359,7 @@ export const DesignProjectSchema = z.object({
     .default("draft"),
   space: SpaceDefinitionSchema,
   modules: z.array(ModuleInstanceSchema).min(1, "Proje en az 1 modül içermelidir"),
+  verificationSnapshot: ProjectVerificationSnapshotSchema.optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

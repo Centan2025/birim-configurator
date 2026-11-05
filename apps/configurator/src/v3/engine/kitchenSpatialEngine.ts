@@ -1,10 +1,129 @@
+import React from "react";
 import {
+  calculateModulePlacement,
   DesignProject,
   ModuleInstance,
   ArchitecturalElement,
   WallDefinition,
   ValidationIssue,
 } from "@birim/core";
+
+let activeDraggedTemplateIdState: string | null = null;
+let transparentDragCanvas: HTMLCanvasElement | null = null;
+
+export function setActiveDraggedTemplateId(templateId: string | null): void {
+  activeDraggedTemplateIdState = templateId;
+}
+
+export function getActiveDraggedTemplateId(): string | null {
+  return activeDraggedTemplateIdState;
+}
+
+/**
+ * Initiates a clean silhouette drag operation:
+ * - Suppresses the browser's default rectangular HTML button screenshot via a 1x1 transparent canvas
+ * - Stores the active templateId so 3D and 2D viewports can render the real-scale Cabinet Silhouette
+ *   and magnetic snap target lines live during `onDragOver`.
+ */
+export function startModuleSilhouetteDrag(
+  e: React.DragEvent<HTMLElement>,
+  templateId: string
+): void {
+  setActiveDraggedTemplateId(templateId);
+  e.dataTransfer.setData("application/x-birim-template-id", templateId);
+  e.dataTransfer.effectAllowed = "copy";
+
+  if (typeof document !== "undefined") {
+    if (!transparentDragCanvas) {
+      transparentDragCanvas = document.createElement("canvas");
+      transparentDragCanvas.width = 110;
+      transparentDragCanvas.height = 96;
+      transparentDragCanvas.style.position = "fixed";
+      transparentDragCanvas.style.top = "-9999px";
+      transparentDragCanvas.style.left = "-9999px";
+      transparentDragCanvas.style.pointerEvents = "none";
+      document.body.appendChild(transparentDragCanvas);
+    }
+    const ctx = transparentDragCanvas.getContext("2d");
+    if (ctx) {
+      ctx.clearRect(0, 0, 110, 96);
+      const isWall = templateId.includes("_kw_") || templateId.includes("wall");
+      const w = 58;
+      const h = isWall ? 38 : 58;
+      const dx = 14;
+      const dy = 8;
+      const x0 = 20;
+      const y0 = isWall ? 24 : 18;
+
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+
+      // Isometric Top Face Silhouette
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(x0 + dx, y0 - dy);
+      ctx.lineTo(x0 + w + dx, y0 - dy);
+      ctx.lineTo(x0 + w, y0);
+      ctx.closePath();
+      ctx.fillStyle = "rgba(16, 185, 129, 0.34)";
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "#047857";
+      ctx.stroke();
+
+      // Isometric Right Side Face Silhouette
+      ctx.beginPath();
+      ctx.moveTo(x0 + w, y0);
+      ctx.lineTo(x0 + w + dx, y0 - dy);
+      ctx.lineTo(x0 + w + dx, y0 + h - dy);
+      ctx.lineTo(x0 + w, y0 + h);
+      ctx.closePath();
+      ctx.fillStyle = "rgba(5, 150, 105, 0.38)";
+      ctx.fill();
+      ctx.stroke();
+
+      // Isometric Front Carcass Silhouette + Internal Shelves/Bays
+      ctx.fillStyle = "rgba(16, 185, 129, 0.24)";
+      ctx.fillRect(x0, y0, w, h);
+      ctx.strokeRect(x0, y0, w, h);
+
+      // Center bay & shelf dashed silhouette lines
+      ctx.setLineDash([4, 3]);
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(x0 + w / 2, y0);
+      ctx.lineTo(x0 + w / 2, y0 + h);
+      ctx.moveTo(x0 + 4, y0 + h * 0.36);
+      ctx.lineTo(x0 + w - 4, y0 + h * 0.36);
+      ctx.moveTo(x0 + 4, y0 + h * 0.68);
+      ctx.lineTo(x0 + w - 4, y0 + h * 0.68);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    e.dataTransfer.setDragImage(transparentDragCanvas, 52, 48);
+  }
+}
+
+export interface SnapSlotCandidate {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  depth: number;
+  label: string;
+  isActive: boolean;
+}
+
+export interface RowSnapPreviewResult {
+  templateId: string;
+  previewModule: ModuleInstance;
+  snappedX: number;
+  snappedY: number;
+  snappedZ: number;
+  snapLabel: string;
+  isSnappedToSlot: boolean;
+  snapSlots: SnapSlotCandidate[];
+}
 
 export interface OrientedFootprint2D {
   moduleId: string;
@@ -95,15 +214,15 @@ export function getModuleOrientedFootprint(
   mod: ModuleInstance,
   idx: number
 ): OrientedFootprint2D {
-  const rotY = ((mod.rotation?.y || 0) % 360 + 360) % 360;
-  const isRotated90 = rotY === 90 || rotY === 270;
+  const rotY = (((mod.rotation?.y || 0) % 360) + 360) % 360;
 
   const rawW = mod.dimensions.width;
   const rawH = mod.dimensions.height;
   const rawD = mod.dimensions.depth;
 
-  const planWidth = isRotated90 ? rawD : rawW;
-  const planDepth = isRotated90 ? rawW : rawD;
+  const placement = calculateModulePlacement(mod);
+  const planWidth = placement.width;
+  const planDepth = placement.depth;
 
   return {
     moduleId: mod.id,

@@ -151,6 +151,17 @@ export interface FourSpaceDimensionsBreakdown {
     leafWeightKg: number;
     powerFactorLf: number;
     recommendedHingesPerLeaf: number;
+    effectiveHingeCount: number;
+    hingePositionsY: UnitLength[];
+    hingeBottomOffsetMm: UnitLength;
+    hingeTopOffsetMm: UnitLength;
+    overlayType: DoorOverlayType;
+    doorX0Mm: UnitLength;
+    doorY0Mm: UnitLength;
+    doorZ0Mm: UnitLength;
+    fullDoorSpanWidthMm: UnitLength;
+    baseDoorHeightMm: UnitLength;
+    centerRevealGapMm: UnitLength;
   }[];
 }
 
@@ -158,6 +169,79 @@ export interface FourSpaceDimensionsBreakdown {
  * Resolves the effective construction parameters by cascading:
  * International -> Manufacturer -> Birim Factory -> Module Override
  */
+/**
+ * Computes vertical Y coordinates (mm from bottom edge of door leaf) for concealed hinges.
+ * Supports automatic count by height/weight as well as user-overridden hingeCount and top/bottom offsets.
+ */
+/**
+ * Blum CLIP top BLUMOTION / Hettich Sensys / DIN 68856 (System 32) Hinge Distribution Standard:
+ * - H <= 1000mm (veya <= 9kg): 2 menteşe (Alt/Üst mutfak dolapları)
+ * - 1000 < H <= 1600mm (veya 9-13kg): 3 menteşe (Yüksek üst / yarım boy dolaplar)
+ * - 1600 < H <= 2200mm (veya 13-18kg): 4 menteşe (Standart gardırop ve boy kiler kapakları)
+ * - H > 2200mm (veya > 18kg): 5 menteşe (Tavana kadar tam boy gardırop kapakları)
+ * - Konumlandırma: Alt kenardan bottomOffsetMm (varsayılan 100mm), üst kenardan topOffsetMm (varsayılan 100mm),
+ *   ve aradaki tüm menteşeler (yEnd - yStart) açıklığında TAM EŞİT ARALIKLARLA dağıtılır.
+ * - Eğer kapak arkasında sabit raf (shelfElevationsMm) varsa ve menteşe merkezi rafa +-28mm yaklaşırsa,
+ *   menteşe otomatik olarak 48mm kaydırılarak raf-menteşe çakışması önlenir.
+ */
+export function calculateDoorHingePositionsY(
+  leafHeightMm: UnitLength,
+  options?: {
+    hingeCount?: number;
+    bottomOffsetMm?: UnitLength;
+    topOffsetMm?: UnitLength;
+    leafWeightKg?: number;
+    shelfElevationsMm?: UnitLength[];
+  }
+): UnitLength[] {
+  if (leafHeightMm <= 120) return [];
+  const bottomOff = Math.max(50, Math.min(400, Math.round(options?.bottomOffsetMm ?? 100)));
+  const topOff = Math.max(50, Math.min(400, Math.round(options?.topOffsetMm ?? 100)));
+  const weightKg = options?.leafWeightKg ?? 0;
+
+  const autoCount =
+    leafHeightMm > 2200 || weightKg > 18
+      ? 5
+      : leafHeightMm > 1600 || weightKg > 13
+      ? 4
+      : leafHeightMm > 1000 || weightKg > 9
+      ? 3
+      : 2;
+
+  // Normalize legacy total-door hinge counts (e.g. 4 on <=900mm base double door or 8 on wardrobe double door)
+  const rawOverride = options?.hingeCount;
+  const normalizedOverride =
+    rawOverride && leafHeightMm <= 900 && rawOverride >= 4
+      ? 2
+      : rawOverride && rawOverride >= 6
+      ? 4
+      : rawOverride;
+  const count = Math.max(2, Math.min(5, normalizedOverride || autoCount));
+  const yStart = Math.min(bottomOff, Math.floor(leafHeightMm * 0.35));
+  const yEnd = Math.max(
+    yStart + 80,
+    leafHeightMm - Math.min(topOff, Math.floor(leafHeightMm * 0.35))
+  );
+
+  if (count <= 2) return [yStart, yEnd];
+
+  const step = (yEnd - yStart) / (count - 1);
+  const shelves = options?.shelfElevationsMm || [];
+
+  return Array.from({ length: count }, (_, idx) => {
+    if (idx === 0) return yStart;
+    if (idx === count - 1) return yEnd;
+    let hy = Math.round(yStart + idx * step);
+    // Avoid colliding with internal shelf thickness zone (+-30mm)
+    for (const sy of shelves) {
+      if (Math.abs(hy - sy) < 30) {
+        hy = hy >= sy ? sy + 42 : Math.max(yStart + 64, sy - 42);
+      }
+    }
+    return hy;
+  });
+}
+
 export function resolveEffectiveConstructionProfile(module: ModuleInstance): ConstructionProfile {
   const baseProfile =
     CONSTRUCTION_PROFILES[module.carcass.constructionProfileId || "profile_birim_factory_std"] ||
@@ -228,8 +312,12 @@ export function calculateFourSpaceDimensions(module: ModuleInstance): FourSpaceD
     DEFAULT_MATERIALS.find((m) => m.id === module.carcass.doorMaterialId) || DEFAULT_MATERIALS[2];
   const densityKgM3 = doorMat.densityKgPerM3 || 750;
 
+  let currentBayStartX = T;
   const doorLeaves = module.bays.map((bay, bayIdx) => {
     const bayW = bayClearWidthsMm[bayIdx] || 0;
+    const bayStartX = currentBayStartX;
+    currentBayStartX += bayW + T;
+
     const dType = bay.door.type;
     const dSys = bay.door.doorSystemId || inferDoorSystemIdFromType(dType);
     const overlayType: DoorOverlayType =
@@ -239,27 +327,6 @@ export function calculateFourSpaceDimensions(module: ModuleInstance): FourSpaceD
         : dSys === "hinged_overlay_variant" || dType.startsWith("half_overlay")
         ? "half_overlay"
         : "full_overlay");
-
-    if (module.isOpenFront || dType === "open" || dSys === "open") {
-      return {
-        bayIndex: bayIdx,
-        leafCount: 0,
-        leafWidthMm: 0,
-        leafHeightMm: 0,
-        leafThicknessMm: T_door,
-        leafWeightKg: 0,
-        powerFactorLf: 0,
-        recommendedHingesPerLeaf: 0,
-      };
-    }
-
-    const isDouble =
-      dType === "double" ||
-      dType === "inset_double" ||
-      dSys === "hinged_double" ||
-      dSys === "folding_side";
-    const isBiFoldLift = dType === "lift_bi_fold" || dSys === "lift_bi_fold";
-    const leafCount = isDouble || isBiFoldLift ? 2 : 1;
 
     const leftOverlay =
       overlayType === "inset"
@@ -278,16 +345,95 @@ export function calculateFourSpaceDimensions(module: ModuleInstance): FourSpaceD
         ? T - gap
         : T / 2 - gap / 2;
 
-    const totalDoorSpanW = Math.max(0, bayW + leftOverlay + rightOverlay);
-    const leafWidthMm = isDouble
-      ? Math.max(0, Math.round((totalDoorSpanW - profile.centerRevealGapMm) / 2))
-      : Math.round(totalDoorSpanW);
+    const tplId = (module.templateId || "").toLowerCase();
+    const extDrawers = bay.drawers.filter((d) => !d.isInternal);
+    const bottomExtDrawers = extDrawers.filter((d) => d.elevationY < netInnerHeightMm * 0.55);
+    const topExtDrawers = extDrawers.filter((d) => d.elevationY >= netInnerHeightMm * 0.55);
+
+    const bottomDrawersSpan =
+      bottomExtDrawers.length > 0
+        ? Math.max(...bottomExtDrawers.map((d) => d.elevationY + d.height)) + T
+        : 0;
+
+    let openCavityBottomCut = bottomDrawersSpan;
+    if (tplId.includes("oven_microwave_tower")) {
+      openCavityBottomCut = Math.max(bottomDrawersSpan, 380) + 600 + 380 + 2 * T;
+    } else if (tplId.includes("oven_tower")) {
+      openCavityBottomCut = Math.max(bottomDrawersSpan, 380) + 600 + T;
+    } else if (tplId.includes("niche_tall")) {
+      openCavityBottomCut = Math.max(bottomDrawersSpan, 400) + 550 + T;
+    } else if (tplId.includes("microwave_wall")) {
+      openCavityBottomCut = Math.max(bottomDrawersSpan, 360);
+    } else if (tplId.includes("fridge_surround")) {
+      openCavityBottomCut = Math.max(bottomDrawersSpan, 1720);
+    }
+
+    const applyPartialDoorCut =
+      !dSys.startsWith("sliding") && dSys !== "pocket_retractable" && dSys !== "tambour_roller";
+    const bottomCutMm = applyPartialDoorCut ? openCavityBottomCut : 0;
+    const topCutMm =
+      applyPartialDoorCut && topExtDrawers.length > 0
+        ? Math.max(0, netInnerHeightMm - Math.min(...topExtDrawers.map((d) => d.elevationY)) + T)
+        : 0;
+
+    const rawDoorY0Mm = overlayType === "inset" ? plinth + T + gap : plinth + gap;
+    const doorX0Mm = overlayType === "inset" ? bayStartX + gap : bayStartX - leftOverlay;
+    const doorY0Mm = rawDoorY0Mm + bottomCutMm;
+    const doorZ0Mm = overlayType === "inset" ? depth - T : depth;
+    const totalDoorSpanW = Math.max(80, bayW + leftOverlay + rightOverlay);
+
+    if (module.isOpenFront || dType === "open" || dSys === "open") {
+      return {
+        bayIndex: bayIdx,
+        leafCount: 0,
+        leafWidthMm: 0,
+        leafHeightMm: 0,
+        leafThicknessMm: T_door,
+        leafWeightKg: 0,
+        powerFactorLf: 0,
+        recommendedHingesPerLeaf: 0,
+        effectiveHingeCount: 0,
+        hingePositionsY: [],
+        hingeBottomOffsetMm: bay.door.hingeBottomOffsetMm ?? 100,
+        hingeTopOffsetMm: bay.door.hingeTopOffsetMm ?? 100,
+        overlayType,
+        doorX0Mm,
+        doorY0Mm,
+        doorZ0Mm,
+        fullDoorSpanWidthMm: totalDoorSpanW,
+        baseDoorHeightMm: 0,
+        centerRevealGapMm: profile.centerRevealGapMm,
+      };
+    }
+
+    const isHingedOrFold =
+      !dSys.startsWith("sliding") &&
+      !dSys.startsWith("lift_") &&
+      dSys !== "pocket_retractable" &&
+      dSys !== "tambour_roller";
+    const isDouble =
+      dType === "double" ||
+      dType === "inset_double" ||
+      dSys === "hinged_double" ||
+      dSys === "folding_side" ||
+      (isHingedOrFold && totalDoorSpanW > 600);
+    const isBiFoldLift = dType === "lift_bi_fold" || dSys === "lift_bi_fold";
+    const leafCount = isDouble || isBiFoldLift ? 2 : 1;
+
+    const rawLeafWidthMm =
+      dSys === "folding_side" || dType === "folding"
+        ? Math.max(0, Math.round((totalDoorSpanW - gap) / 2))
+        : isDouble
+        ? Math.max(0, Math.round((totalDoorSpanW - profile.centerRevealGapMm) / 2))
+        : Math.round(totalDoorSpanW);
+    const leafWidthMm = isHingedOrFold ? Math.min(600, rawLeafWidthMm) : rawLeafWidthMm;
 
     const golaDeduction = bay.door.handleCategory === "gola_profile" ? 30 : 0;
-    const baseDoorHeight =
+    const rawBaseDoorHeight =
       overlayType === "inset"
-        ? Math.max(0, netInnerHeightMm - 2 * gap - golaDeduction)
-        : Math.max(0, sidePanelHeightMm - 2 * gap - golaDeduction);
+        ? Math.max(80, netInnerHeightMm - 2 * gap - golaDeduction)
+        : Math.max(80, sidePanelHeightMm - 2 * gap - golaDeduction);
+    const baseDoorHeight = Math.max(80, rawBaseDoorHeight - bottomCutMm - topCutMm);
 
     const leafHeightMm = isBiFoldLift
       ? Math.round((baseDoorHeight - gap) / 2)
@@ -303,16 +449,30 @@ export function calculateFourSpaceDimensions(module: ModuleInstance): FourSpaceD
 
     const powerFactorLf = Math.round(sidePanelHeightMm * (totalFrontWeightKg + 2 * handleWeightKg));
 
-    const recommendedHingesPerLeaf =
-      dSys.startsWith("sliding") || dSys.startsWith("lift") || dSys === "tambour_roller"
-        ? 0
-        : leafHeightMm > 2000 || leafWeightKg > 20
-        ? 5
-        : leafHeightMm > 1600 || leafWeightKg > 15
-        ? 4
-        : leafHeightMm > 900 || leafWeightKg > 9
-        ? 3
-        : 2;
+    const isNonHinged =
+      dSys.startsWith("sliding") || dSys.startsWith("lift") || dSys === "tambour_roller";
+    const recommendedHingesPerLeaf = isNonHinged
+      ? 0
+      : leafHeightMm > 2200 || leafWeightKg > 18
+      ? 5
+      : leafHeightMm > 1600 || leafWeightKg > 13
+      ? 4
+      : leafHeightMm > 1000 || leafWeightKg > 9
+      ? 3
+      : 2;
+    const hingeBottomOffsetMm = bay.door.hingeBottomOffsetMm ?? 100;
+    const hingeTopOffsetMm = bay.door.hingeTopOffsetMm ?? 100;
+    const shelfRelativeY = bay.shelves.map((s) => Math.max(0, s.elevationY + T - bottomCutMm));
+    const hingePositionsY = isNonHinged
+      ? []
+      : calculateDoorHingePositionsY(leafHeightMm, {
+          hingeCount: bay.door.hingeCount,
+          bottomOffsetMm: hingeBottomOffsetMm,
+          topOffsetMm: hingeTopOffsetMm,
+          leafWeightKg,
+          shelfElevationsMm: shelfRelativeY,
+        });
+    const effectiveHingeCount = hingePositionsY.length;
 
     return {
       bayIndex: bayIdx,
@@ -323,6 +483,17 @@ export function calculateFourSpaceDimensions(module: ModuleInstance): FourSpaceD
       leafWeightKg,
       powerFactorLf,
       recommendedHingesPerLeaf,
+      effectiveHingeCount,
+      hingePositionsY,
+      hingeBottomOffsetMm,
+      hingeTopOffsetMm,
+      overlayType,
+      doorX0Mm,
+      doorY0Mm,
+      doorZ0Mm,
+      fullDoorSpanWidthMm: totalDoorSpanW,
+      baseDoorHeightMm: baseDoorHeight,
+      centerRevealGapMm: profile.centerRevealGapMm,
     };
   });
 
@@ -393,9 +564,13 @@ export function inferDoorSystemIdFromType(type: string): DoorSystemId {
  * populating canonical V4 doorSystemId, overlayType, handleCategory, openingTechnology, and moduleFamilyId.
  */
 export function migrateV3ProjectToV4(project: DesignProject): DesignProject {
+  const catalogVersion = project.catalogVersion || project.libraryVersionId || "lib_v4_0_0";
   return {
     ...project,
-    libraryVersionId: project.libraryVersionId || "lib_v4_0_0",
+    schemaVersion: 4,
+    catalogVersion,
+    libraryVersionId: project.libraryVersionId || catalogVersion,
+    revisionId: project.revisionId || `rev_v${project.version || 1}`,
     constructionProfileId: project.constructionProfileId || "profile_birim_factory_std",
     modules: project.modules.map((mod) => {
       const moduleFamilyId =

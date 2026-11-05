@@ -494,35 +494,68 @@ export function applyWardrobeInteriorWizard(
  * Automatically creates continuous Countertop (Tezgâh), Backsplash (Tezgâh Arası),
  * Wall Filler (Kör Parça), End Panel (Yan Bitiş Paneli), and Top Infill for a kitchen project.
  */
-export function generateKitchenComplementaryModules(existingModules: ModuleInstance[]): ModuleInstance[] {
+export function generateKitchenComplementaryModules(
+  existingModules: ModuleInstance[],
+  wallLengthMm = 3600
+): ModuleInstance[] {
   const nonComp = existingModules.filter((m) => m.category !== "complementary");
-  const baseCabinets = nonComp.filter(
-    (m) => m.category === "kitchen_base" && (m.rotation?.y || 0) === 0
-  );
-  if (baseCabinets.length === 0) return existingModules;
+  const allMainWall = nonComp.filter((m) => (m.rotation?.y || 0) === 0);
+  if (allMainWall.length === 0) return existingModules;
 
-  const minX = Math.min(...baseCabinets.map((m) => m.position.x));
-  const maxX = Math.max(...baseCabinets.map((m) => m.position.x + m.dimensions.width));
-  const spanW = Math.max(600, maxX - minX);
-  const topOfBaseY = baseCabinets[0].dimensions.height; // 720mm
+  const generated: ModuleInstance[] = [];
+  const baseCabinets = allMainWall.filter((m) => m.category === "kitchen_base");
+  const minAllX = Math.min(...allMainWall.map((m) => m.position.x));
+  const maxAllX = Math.max(...allMainWall.map((m) => m.position.x + m.dimensions.width));
+  const maxH = Math.max(...allMainWall.map((m) => m.position.y + m.dimensions.height));
 
-  const tplCountertop = getV4TemplateById("tpl_cm_09_countertop")!;
-  const countertop = tplCountertop.createInstance("comp_auto_countertop", `Otomatik Kuvars Tezgâh (${spanW}mm)`);
-  countertop.position = { x: minX, y: topOfBaseY, z: 0 };
-  countertop.dimensions = { width: spanW, height: 40, depth: 600 };
+  if (baseCabinets.length > 0) {
+    const minX = Math.min(...baseCabinets.map((m) => m.position.x));
+    const maxX = Math.max(...baseCabinets.map((m) => m.position.x + m.dimensions.width));
+    const spanW = Math.max(600, maxX - minX);
+    const topOfBaseY = baseCabinets[0].dimensions.height; // 720mm
 
-  const tplBacksplash = getV4TemplateById("tpl_cm_11_backsplash")!;
-  const backsplash = tplBacksplash.createInstance("comp_auto_backsplash", `Otomatik Tezgâh Arası Panel (${spanW}mm)`);
-  backsplash.position = { x: minX, y: topOfBaseY + 40, z: 0 };
-  backsplash.dimensions = { width: spanW, height: 600, depth: 18 };
+    const tplCountertop = getV4TemplateById("tpl_cm_09_countertop")!;
+    const countertop = tplCountertop.createInstance("comp_auto_countertop", `Otomatik Çimstone/Belenco Kuvars Tezgâh (${spanW}mm)`);
+    countertop.position = { x: minX, y: topOfBaseY, z: 0 };
+    countertop.dimensions = { width: spanW, height: 40, depth: 600 };
+    generated.push(countertop);
+
+    const tplBacksplash = getV4TemplateById("tpl_cm_11_backsplash")!;
+    const backsplash = tplBacksplash.createInstance("comp_auto_backsplash", `Otomatik Tezgâh Arası Panel (${spanW}mm)`);
+    backsplash.position = { x: minX, y: topOfBaseY + 40, z: 0 };
+    backsplash.dimensions = { width: spanW, height: 600, depth: 18 };
+    generated.push(backsplash);
+  }
 
   const tplEndPanel = getV4TemplateById("tpl_cm_05_end_panel")!;
-  const allMainWall = nonComp.filter((m) => (m.rotation?.y || 0) === 0);
-  const rightmostX = Math.max(...allMainWall.map((m) => m.position.x + m.dimensions.width));
-  const maxH = Math.max(...allMainWall.map((m) => m.position.y + m.dimensions.height));
   const endPanel = tplEndPanel.createInstance("comp_auto_end_panel", "Otomatik Yan Bitiş Paneli");
-  endPanel.position = { x: rightmostX, y: 0, z: 0 };
+  endPanel.position = { x: maxAllX, y: 0, z: 0 };
   endPanel.dimensions = { width: 18, height: maxH, depth: 600 };
+  generated.push(endPanel);
 
-  return [...nonComp, countertop, backsplash, endPanel];
+  // Automatic Left/Right Wall Filler Panels (Kör Kapama) when wall gap is 20..350mm
+  const tplFiller = getV4TemplateById("tpl_cm_04_wall_filler") || tplEndPanel;
+  if (minAllX >= 20 && minAllX <= 350) {
+    const leftFiller = tplFiller.createInstance(
+      "comp_auto_wall_filler_left",
+      `Otomatik Sol Duvar Kör Kapama (${minAllX}mm)`
+    );
+    leftFiller.complementaryRole = "wall_filler";
+    leftFiller.position = { x: 0, y: 0, z: 580 };
+    leftFiller.dimensions = { width: minAllX, height: maxH, depth: 18 };
+    generated.push(leftFiller);
+  }
+  const rightGap = wallLengthMm - (maxAllX + 18);
+  if (rightGap >= 20 && rightGap <= 450) {
+    const rightFiller = tplFiller.createInstance(
+      "comp_auto_wall_filler_right",
+      `Otomatik Sağ Duvar Kör Kapama (${rightGap}mm)`
+    );
+    rightFiller.complementaryRole = "wall_filler";
+    rightFiller.position = { x: maxAllX + 18, y: 0, z: 580 };
+    rightFiller.dimensions = { width: rightGap, height: maxH, depth: 18 };
+    generated.push(rightFiller);
+  }
+
+  return [...nonComp, ...generated];
 }

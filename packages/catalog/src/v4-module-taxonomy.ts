@@ -103,6 +103,13 @@ interface TemplateSeed {
   maxD?: number;
   plinth?: number;
   baysCount?: number;
+  bayCustomWidths?: (number | undefined)[];
+  bayDoorSystems?: DoorSystemId[];
+  bayDoorTypes?: ModuleInstance["bays"][0]["door"]["type"][];
+  bayShelvesCount?: number[];
+  bayHangingRailsCount?: number[];
+  bayDrawersIndices?: number[];
+  topDrawerCombo?: boolean;
   doorType?: ModuleInstance["bays"][0]["door"]["type"];
   doorSystemId: DoorSystemId;
   overlayType?: DoorOverlayType;
@@ -157,9 +164,9 @@ function buildTemplateFromSeed(seed: TemplateSeed): V4ModuleTemplateDefinition {
     dimensionLimits: {
       minW: seed.minW,
       maxW: seed.maxW,
-      minH: seed.minH ?? 150,
+      minH: seed.minH ?? Math.min(seed.h, 150),
       maxH: seed.maxH ?? 2800,
-      minD: seed.minD ?? 150,
+      minD: seed.minD ?? Math.min(seed.d, 150),
       maxD: seed.maxD ?? 1000,
     },
     defaultDoorSystemId: seed.doorSystemId,
@@ -183,25 +190,28 @@ function buildTemplateFromSeed(seed: TemplateSeed): V4ModuleTemplateDefinition {
       const innerH = Math.max(100, seed.h - plinthHeight - 36);
 
       const bays: ModuleInstance["bays"] = Array.from({ length: baysCount }, (_, bayIdx) => {
-        const shelvesCount = seed.shelvesPerBay ?? (seed.drawersHeights && !seed.isInternalDrawers ? 0 : 1);
+        const bayDoorSys = seed.bayDoorSystems?.[bayIdx] || seed.doorSystemId;
+        const hasDrawersInBay = !seed.bayDrawersIndices || seed.bayDrawersIndices.includes(bayIdx);
+        const rawDrawerHeights = hasDrawersInBay ? seed.drawersHeights || [] : [];
+        const shelvesCount = seed.bayShelvesCount?.[bayIdx] ?? seed.shelvesPerBay ?? (rawDrawerHeights.length && !seed.isInternalDrawers ? 0 : 1);
         const shelves = Array.from({ length: shelvesCount }, (__, sIdx) => ({
           id: `shelf_${id}_${bayIdx}_${sIdx}`,
           bayIndex: bayIdx,
-          elevationY: Math.round(((sIdx + 1) * innerH) / (shelvesCount + 1)),
+          elevationY: !seed.topDrawerCombo && rawDrawerHeights.length > 0 && rawDrawerHeights.reduce((s, h) => s + h + 5, -5) + 120 < innerH ? (sIdx === 0 ? rawDrawerHeights.reduce((s, h) => s + h + 5, -5) : Math.round(rawDrawerHeights.reduce((s, h) => s + h + 5, -5) + (sIdx * (innerH - rawDrawerHeights.reduce((s, h) => s + h + 5, -5))) / shelvesCount)) : Math.round(((sIdx + 1) * innerH) / (shelvesCount + 1)),
           isAdjustable: true,
         }));
 
-        const drawers = (seed.drawersHeights || []).map((dh, dIdx) => ({
+        const drawers = rawDrawerHeights.map((dh, dIdx) => ({
           id: `drw_${id}_${bayIdx}_${dIdx}`,
           bayIndex: bayIdx,
-          elevationY: dIdx * (dh + 5),
+          elevationY: seed.topDrawerCombo ? Math.max(0, innerH - dh) : rawDrawerHeights.slice(0, dIdx).reduce((sum, h) => sum + h + 5, 0),
           height: dh,
           slideType: "soft_close" as const,
           isInternal: seed.isInternalDrawers,
           hardwareProductId: dh >= 220 ? "hw_blum_legrabox_c70" : "hw_blum_legrabox_m40",
         }));
 
-        const hangingRails = Array.from({ length: seed.hangingRailsPerBay || 0 }, (__, rIdx) => ({
+        const hangingRails = Array.from({ length: seed.bayHangingRailsCount?.[bayIdx] ?? (seed.hangingRailsPerBay || 0) }, (__, rIdx) => ({
           id: `rail_${id}_${bayIdx}_${rIdx}`,
           bayIndex: bayIdx,
           elevationY: rIdx === 0 ? Math.max(400, innerH - 120) : Math.round(innerH * 0.48),
@@ -221,8 +231,30 @@ function buildTemplateFromSeed(seed: TemplateSeed): V4ModuleTemplateDefinition {
           : [];
 
         const defaultType =
+          seed.bayDoorTypes?.[bayIdx] ||
           seed.doorType ||
-          (seed.doorSystemId === "hinged_double"
+          (bayDoorSys === "hinged_double"
+            ? "double"
+            : bayDoorSys === "hinged_inset"
+            ? "inset_left"
+            : bayDoorSys === "sliding_top_hung"
+            ? "sliding"
+            : bayDoorSys === "sliding_bottom_rolling"
+            ? "sliding_bottom"
+            : bayDoorSys === "lift_parallel"
+            ? "lift_parallel"
+            : bayDoorSys === "lift_bi_fold"
+            ? "lift_bi_fold"
+            : bayDoorSys === "lift_up_stay"
+            ? "lift_up_stay"
+            : bayDoorSys === "folding_side"
+            ? "folding"
+            : bayDoorSys === "pocket_retractable"
+            ? "pocket"
+            : bayDoorSys === "open"
+            ? "open"
+            : "single_left");
+          void (seed.doorSystemId === "hinged_double"
             ? "double"
             : seed.doorSystemId === "hinged_inset"
             ? "inset_left"
@@ -246,6 +278,7 @@ function buildTemplateFromSeed(seed: TemplateSeed): V4ModuleTemplateDefinition {
 
         return {
           index: bayIdx,
+          customWidth: seed.bayCustomWidths?.[bayIdx],
           shelves,
           hangingRails,
           drawers,
@@ -254,13 +287,13 @@ function buildTemplateFromSeed(seed: TemplateSeed): V4ModuleTemplateDefinition {
             id: `door_${id}_${bayIdx}`,
             bayIndex: bayIdx,
             type: defaultType,
-            doorSystemId: seed.doorSystemId,
+            doorSystemId: bayDoorSys,
             overlayType: seed.overlayType || "full_overlay",
             openingTechnology: seed.doorSystemId === "pocket_retractable" ? "pocket_assisted" : "soft_close",
             handleCategory:
               seed.doorSystemId.startsWith("sliding")
                 ? "recessed_grip"
-                : seed.doorSystemId === "open"
+                : seed.doorSystemId === "open" && !(seed.drawersHeights?.length && !seed.isInternalDrawers)
                 ? "handleless_plain"
                 : "bar_handle",
             hardwareProductId:
@@ -328,7 +361,7 @@ const TEMPLATE_SEEDS: TemplateSeed[] = [
   { templateId: "tpl_kb_02_double_door", familyId: "fam_kitchen_base", category: "kitchen_base", name: "Çift Kapaklı Alt Dolap", description: "800mm çift kapaklı alt modül", w: 800, h: 720, d: 580, minW: 600, maxW: 1200, doorSystemId: "hinged_double", shelvesPerBay: 1 },
   { templateId: "tpl_kb_03_single_drawer", familyId: "fam_kitchen_base", category: "kitchen_base", name: "Tek Derin Çekmeceli Alt Dolap", description: "600mm 70kg ağır hizmet tek çekmeceli alt dolap", w: 600, h: 720, d: 580, minW: 400, maxW: 1000, doorSystemId: "open", drawersHeights: [560] },
   { templateId: "tpl_kb_04_two_drawers", familyId: "fam_kitchen_base", category: "kitchen_base", name: "İki Çekmeceli Alt Dolap (2 Derin)", description: "800mm 2 eşit derin tencere çekmeceli modül", w: 800, h: 720, d: 580, minW: 450, maxW: 1200, doorSystemId: "open", drawersHeights: [285, 285] },
-  { templateId: "tpl_kb_05_three_drawers", familyId: "fam_kitchen_base", category: "kitchen_base", name: "Üç Çekmeceli Alt Dolap (1+2)", description: "1 çatal-kaşık + 2 derin tencere çekmeceli modül", w: 800, h: 720, d: 580, minW: 450, maxW: 1200, doorSystemId: "open", drawersHeights: [140, 215, 215] },
+  { templateId: "tpl_kb_05_three_drawers", familyId: "fam_kitchen_base", category: "kitchen_base", name: "Üç Çekmeceli Alt Dolap (1+2)", description: "1 çatal-kaşık + 2 derin tencere çekmeceli modül", w: 800, h: 720, d: 580, minW: 450, maxW: 1200, doorSystemId: "open", drawersHeights: [215, 215, 140] },
   { templateId: "tpl_kb_06_four_drawers", familyId: "fam_kitchen_base", category: "kitchen_base", name: "Dört Çekmeceli Alt Dolap", description: "600mm 4 eşit çekmeceli bıçak/baharat/servis modülü", w: 600, h: 720, d: 580, minW: 400, maxW: 900, doorSystemId: "open", drawersHeights: [140, 140, 140, 140] },
   { templateId: "tpl_kb_07_door_internal_drawer", familyId: "fam_kitchen_base", category: "kitchen_base", name: "Kapak + İç Çekmeceli Alt Dolap", description: "155° sıfır çıkıntılı menteşeli kapak + 2 iç çekmece", w: 600, h: 720, d: 580, minW: 450, maxW: 900, doorSystemId: "hinged_single", hardwareProductId: "hw_blum_71b7550", drawersHeights: [160, 160], isInternalDrawers: true, shelvesPerBay: 1 },
   { templateId: "tpl_kb_08_sink_base", familyId: "fam_kitchen_base", category: "kitchen_base", name: "Evye Alt Dolabı", description: "800mm tesisat geçişli çift kapaklı evye dolabı", w: 800, h: 720, d: 580, minW: 600, maxW: 1200, doorSystemId: "hinged_double", shelvesPerBay: 0 },
@@ -341,8 +374,8 @@ const TEMPLATE_SEEDS: TemplateSeed[] = [
   { templateId: "tpl_kb_15_diagonal_corner", familyId: "fam_kitchen_base", category: "kitchen_corner", name: "Diyagonal (45°) Köşe Alt Dolabı", description: "900mm +45° açılı menteşeli köşe alt dolap", w: 900, h: 720, d: 900, minW: 850, maxW: 1050, doorSystemId: "hinged_single", hardwareProductId: "hw_blum_79b9458", isCorner: true },
   { templateId: "tpl_kb_16_open_shelf", familyId: "fam_kitchen_base", category: "kitchen_base", name: "Açık Raflı Alt Modül", description: "450mm kapaksız dekoratif açık raflı alt dolap", w: 450, h: 720, d: 580, minW: 200, maxW: 900, doorSystemId: "open", isOpenFront: true, shelvesPerBay: 2 },
   { templateId: "tpl_kb_17_bottle_rack", familyId: "fam_kitchen_base", category: "kitchen_base", name: "Şaraplık / Şişelik Modülü", description: "300mm bölmeli şişelik alt modülü", w: 300, h: 720, d: 580, minW: 150, maxW: 450, doorSystemId: "open", isOpenFront: true, shelvesPerBay: 4 },
-  { templateId: "tpl_kb_18_cooktop_base", familyId: "fam_kitchen_base", category: "kitchen_base", name: "Ocak Altı Modülü", description: "900mm indüksiyon ocağı ısı boşluklu 3 çekmeceli modül", w: 900, h: 720, d: 580, minW: 600, maxW: 1200, doorSystemId: "open", drawersHeights: [120, 220, 220] },
-  { templateId: "tpl_kb_19_drawer_door_combo", familyId: "fam_kitchen_base", category: "kitchen_base", name: "Çekmece + Kapak Kombinasyonu", description: "Üstte 1 çatal-kaşık çekmecesi + altta kapaklı bölme", w: 600, h: 720, d: 580, minW: 400, maxW: 1000, doorSystemId: "hinged_single", drawersHeights: [140], shelvesPerBay: 1 },
+  { templateId: "tpl_kb_18_cooktop_base", familyId: "fam_kitchen_base", category: "kitchen_base", name: "Ocak Altı Modülü", description: "900mm indüksiyon ocağı ısı boşluklu 3 çekmeceli modül", w: 900, h: 720, d: 580, minW: 600, maxW: 1200, doorSystemId: "open", drawersHeights: [220, 220, 120] },
+  { templateId: "tpl_kb_19_drawer_door_combo", familyId: "fam_kitchen_base", category: "kitchen_base", name: "Çekmece + Kapak Kombinasyonu", description: "Üstte 1 çatal-kaşık çekmecesi + altta kapaklı bölme", w: 600, h: 720, d: 580, minW: 400, maxW: 1000, doorSystemId: "hinged_single", drawersHeights: [140], topDrawerCombo: true, shelvesPerBay: 1 },
   { templateId: "tpl_kb_20_custom_base", familyId: "fam_kitchen_base", category: "kitchen_base", name: "Özel Ölçü Alt Modül", description: "Serbest parametrik tezgâh altı modül", w: 600, h: 720, d: 580, minW: 150, maxW: 1200, doorSystemId: "hinged_single", shelvesPerBay: 1 },
 
   // ============================================================================
@@ -376,7 +409,7 @@ const TEMPLATE_SEEDS: TemplateSeed[] = [
   { templateId: "tpl_kt_07_fridge_surround", familyId: "fam_kitchen_tall", category: "kitchen_tall", name: "Solo Buzdolabı Çevresi Ünitesi", description: "950x2150x650mm solo buzdolabı üstü ve yan kapama modülü", w: 950, h: 2150, d: 650, minW: 850, maxW: 1200, doorSystemId: "lift_up_stay", shelvesPerBay: 1 },
   { templateId: "tpl_kt_08_utility_cleaning", familyId: "fam_kitchen_tall", category: "kitchen_tall", name: "Temizlik Dolabı", description: "600x2150mm ütü masası ve temizlik malzemesi boy dolabı", w: 600, h: 2150, d: 600, minW: 450, maxW: 800, doorSystemId: "hinged_single", shelvesPerBay: 3 },
   { templateId: "tpl_kt_09_broom_vacuum", familyId: "fam_kitchen_tall", category: "kitchen_tall", name: "Süpürge & Şarj İstasyonu Dolabı", description: "500x2150mm dikey şarjlı süpürge dolabı", w: 500, h: 2150, d: 580, minW: 400, maxW: 600, doorSystemId: "hinged_single", shelvesPerBay: 2 },
-  { templateId: "tpl_kt_10_open_niche_tall", familyId: "fam_kitchen_tall", category: "kitchen_tall", name: "Açık Kahve Nişli Boy Dolap", description: "800x2150mm LED aydınlatmalı kahve nişli boy modül", w: 800, h: 2150, d: 580, minW: 600, maxW: 1200, doorSystemId: "open", drawersHeights: [200, 200], shelvesPerBay: 2, specialFitting: "led_profile" },
+  { templateId: "tpl_kt_10_open_niche_tall", familyId: "fam_kitchen_tall", category: "kitchen_tall", name: "Açık Kahve Nişli Boy Dolap", description: "800x2150mm LED aydınlatmalı kahve nişli boy modül", w: 800, h: 2150, d: 580, minW: 600, maxW: 1200, doorSystemId: "hinged_double", drawersHeights: [200, 200], shelvesPerBay: 2, specialFitting: "led_profile" },
   { templateId: "tpl_kt_11_pocket_appliance", familyId: "fam_kitchen_tall", category: "kitchen_tall", name: "Pocket Kapaklı Cihaz Dolabı (REVEGO)", description: "1300x2200x650mm Blum REVEGO / Hawa Concepta III gizlenen kapaklı kahvaltı/cihaz dolabı", w: 1300, h: 2200, d: 650, minW: 750, maxW: 1500, minD: 573, baysCount: 2, doorSystemId: "pocket_retractable", hardwareProductId: "hw_blum_revego_uno", drawersHeights: [180, 180], isInternalDrawers: true, shelvesPerBay: 2 },
   { templateId: "tpl_kt_12_custom_tall", familyId: "fam_kitchen_tall", category: "kitchen_tall", name: "Özel Ölçü Boy Dolap", description: "Serbest parametrik boy dolap", w: 600, h: 2150, d: 580, minW: 300, maxW: 1200, doorSystemId: "hinged_single", shelvesPerBay: 4 },
 
@@ -385,7 +418,7 @@ const TEMPLATE_SEEDS: TemplateSeed[] = [
   // ============================================================================
   { templateId: "tpl_wd_01_single_door", familyId: "fam_wardrobe", category: "wardrobe", name: "Tek Kapaklı Gardırop", description: "500x2200x600mm tek kapaklı askı ve raflı gardırop", w: 500, h: 2200, d: 600, minW: 400, maxW: 600, doorSystemId: "hinged_single", shelvesPerBay: 2, hangingRailsPerBay: 1 },
   { templateId: "tpl_wd_02_two_door", familyId: "fam_wardrobe", category: "wardrobe", name: "Çift Kapaklı Gardırop", description: "1000x2200x600mm çift kapaklı standart gardırop", w: 1000, h: 2200, d: 600, minW: 800, maxW: 1200, doorSystemId: "hinged_double", shelvesPerBay: 2, hangingRailsPerBay: 1 },
-  { templateId: "tpl_wd_03_three_door", familyId: "fam_wardrobe", category: "wardrobe", name: "Üç Kapaklı Gardırop", description: "1500x2200x600mm 2 bölmeli, 3 kapaklı master gardırop", w: 1500, h: 2200, d: 600, minW: 1200, maxW: 1800, baysCount: 2, doorSystemId: "hinged_double", shelvesPerBay: 2, hangingRailsPerBay: 1, drawersHeights: [180, 180], isInternalDrawers: true },
+  { templateId: "tpl_wd_03_three_door", familyId: "fam_wardrobe", category: "wardrobe", name: "Üç Kapaklı Gardırop", description: "1500x2200x600mm 2 bölmeli, 3 kapaklı master gardırop", w: 1500, h: 2200, d: 600, minW: 1200, maxW: 1800, baysCount: 2, bayCustomWidths: [475, undefined], bayDoorSystems: ["hinged_single", "hinged_double"], bayDoorTypes: ["single_left", "double"], bayShelvesCount: [4, 2], bayHangingRailsCount: [0, 1], bayDrawersIndices: [1], doorSystemId: "hinged_double", shelvesPerBay: 2, hangingRailsPerBay: 1, drawersHeights: [180, 180], isInternalDrawers: false },
   { templateId: "tpl_wd_04_four_door", familyId: "fam_wardrobe", category: "wardrobe", name: "Dört Kapaklı Gardırop", description: "2000x2200x600mm 2 eşit bölmeli, 4 kapaklı geniş gardırop", w: 2000, h: 2200, d: 600, minW: 1600, maxW: 2400, baysCount: 2, doorSystemId: "hinged_double", shelvesPerBay: 2, hangingRailsPerBay: 1 },
   { templateId: "tpl_wd_05_sliding_2door", familyId: "fam_wardrobe", category: "wardrobe", name: "Sürgülü İki Kapaklı Gardırop", description: "1800x2200x650mm Hettich TopLine L 2 kapaklı sürgülü gardırop", w: 1800, h: 2200, d: 650, minW: 1400, maxW: 2400, minD: 580, baysCount: 2, doorSystemId: "sliding_top_hung", hardwareProductId: "hw_hettich_topline_l", shelvesPerBay: 2, hangingRailsPerBay: 1 },
   { templateId: "tpl_wd_06_sliding_3door", familyId: "fam_wardrobe", category: "wardrobe", name: "Sürgülü Üç Kapaklı Gardırop", description: "2700x2200x650mm 3 bölmeli sürgülü gardırop", w: 2700, h: 2200, d: 650, minW: 2100, maxW: 3600, minD: 580, baysCount: 3, doorSystemId: "sliding_top_hung", hardwareProductId: "hw_hettich_topline_l", shelvesPerBay: 2, hangingRailsPerBay: 1 },
@@ -393,12 +426,12 @@ const TEMPLATE_SEEDS: TemplateSeed[] = [
   { templateId: "tpl_wd_08_open_walkin", familyId: "fam_wardrobe", category: "wardrobe_walkin", name: "Açık Gövde Giyinme Modülü", description: "1000x2300x550mm kapaksız modern walk-in giyinme modülü", w: 1000, h: 2300, d: 550, minW: 500, maxW: 1200, doorSystemId: "open", isOpenFront: true, shelvesPerBay: 2, hangingRailsPerBay: 2, drawersHeights: [160, 160] },
   { templateId: "tpl_wd_09_hanging_heavy", familyId: "fam_wardrobe", category: "wardrobe", name: "Askılık Ağırlıklı Gardırop (Asansörlü)", description: "1000x2300x600mm üstte asansör askılık + altta sabit askı", w: 1000, h: 2300, d: 600, minW: 800, maxW: 1200, doorSystemId: "hinged_double", shelvesPerBay: 1, hangingRailsPerBay: 2, specialFitting: "wardrobe_lift" },
   { templateId: "tpl_wd_10_shelf_heavy", familyId: "fam_wardrobe", category: "wardrobe", name: "Raf Ağırlıklı Gardırop", description: "800x2200x600mm 5 hareketli raflı katlı kıyafet dolabı", w: 800, h: 2200, d: 600, minW: 400, maxW: 1000, doorSystemId: "hinged_double", shelvesPerBay: 5 },
-  { templateId: "tpl_wd_11_drawer_heavy", familyId: "fam_wardrobe", category: "wardrobe", name: "Çekmece Ağırlıklı Gardırop", description: "900x2200x600mm 4 dış çekmeceli + üst raflı gardırop", w: 900, h: 2200, d: 600, minW: 600, maxW: 1200, doorSystemId: "open", drawersHeights: [180, 180, 180, 180], shelvesPerBay: 3 },
-  { templateId: "tpl_wd_12_mixed_organizer", familyId: "fam_wardrobe", category: "wardrobe", name: "Karma İç Düzenli Gardırop", description: "1200x2300x600mm askı, raf ve iç çekmece kombinasyonu", w: 1200, h: 2300, d: 600, minW: 900, maxW: 1600, baysCount: 2, doorSystemId: "hinged_double", shelvesPerBay: 2, hangingRailsPerBay: 1, drawersHeights: [180, 180], isInternalDrawers: true },
+  { templateId: "tpl_wd_11_drawer_heavy", familyId: "fam_wardrobe", category: "wardrobe", name: "Çekmece Ağırlıklı Gardırop", description: "900x2200x600mm 4 dış çekmeceli + üst raflı gardırop", w: 900, h: 2200, d: 600, minW: 600, maxW: 1200, doorSystemId: "hinged_double", drawersHeights: [180, 180, 180, 180], shelvesPerBay: 3 },
+  { templateId: "tpl_wd_12_mixed_organizer", familyId: "fam_wardrobe", category: "wardrobe", name: "Karma İç Düzenli Gardırop", description: "1200x2300x600mm askı, raf ve iç çekmece kombinasyonu", w: 1200, h: 2300, d: 600, minW: 900, maxW: 1600, baysCount: 2, bayDoorSystems: ["hinged_single", "hinged_single"], bayDoorTypes: ["single_left", "single_right"], bayShelvesCount: [4, 2], bayHangingRailsCount: [0, 1], bayDrawersIndices: [1], doorSystemId: "hinged_single", shelvesPerBay: 2, hangingRailsPerBay: 1, drawersHeights: [180, 180], isInternalDrawers: true },
   { templateId: "tpl_wd_13_corner_wardrobe", familyId: "fam_wardrobe", category: "wardrobe_corner", name: "Köşe Gardırop Modülü", description: "1050x2200x1050mm katlanır kapaklı L köşe gardırop", w: 1050, h: 2200, d: 1050, minW: 950, maxW: 1200, doorSystemId: "folding_side", isCorner: true, shelvesPerBay: 2, hangingRailsPerBay: 1 },
   { templateId: "tpl_wd_14_walkin_l_unit", familyId: "fam_wardrobe", category: "wardrobe_walkin", name: "L Giyinme Odası Modülü", description: "1000x2300x550mm L dönüşlü açık giyinme odası ünitesi", w: 1000, h: 2300, d: 550, minW: 800, maxW: 1200, doorSystemId: "open", isOpenFront: true, isCorner: true, shelvesPerBay: 3, hangingRailsPerBay: 1 },
-  { templateId: "tpl_wd_15_walkin_u_unit", familyId: "fam_wardrobe", category: "wardrobe_walkin", name: "U Giyinme Odası Merkez Modülü", description: "1200x2300x550mm LED aydınlatmalı ve takı çekmeceli U giyinme modülü", w: 1200, h: 2300, d: 550, minW: 800, maxW: 1600, doorSystemId: "open", isOpenFront: true, shelvesPerBay: 2, hangingRailsPerBay: 1, drawersHeights: [120, 180], specialFitting: "jewelry_tray" },
-  { templateId: "tpl_wd_16_island_dresser", familyId: "fam_wardrobe", category: "wardrobe_walkin", name: "Ada Çekmece & Takı Ünitesi", description: "1200x900x800mm giyinme odası orta ada şifonyer ünitesi", w: 1200, h: 900, d: 800, minW: 800, maxW: 1800, maxH: 1050, baysCount: 2, doorSystemId: "open", drawersHeights: [140, 200, 200], specialFitting: "jewelry_tray" },
+  { templateId: "tpl_wd_15_walkin_u_unit", familyId: "fam_wardrobe", category: "wardrobe_walkin", name: "U Giyinme Odası Merkez Modülü", description: "1200x2300x550mm LED aydınlatmalı ve takı çekmeceli U giyinme modülü", w: 1200, h: 2300, d: 550, minW: 800, maxW: 1600, doorSystemId: "open", isOpenFront: true, shelvesPerBay: 2, hangingRailsPerBay: 1, drawersHeights: [180, 120], specialFitting: "jewelry_tray" },
+  { templateId: "tpl_wd_16_island_dresser", familyId: "fam_wardrobe", category: "wardrobe_walkin", name: "Ada Çekmece & Takı Ünitesi", description: "1200x900x800mm giyinme odası orta ada şifonyer ünitesi", w: 1200, h: 900, d: 800, minW: 800, maxW: 1800, maxH: 1050, baysCount: 2, doorSystemId: "open", drawersHeights: [200, 200, 140], specialFitting: "jewelry_tray" },
   { templateId: "tpl_wd_17_trouser_unit", familyId: "fam_wardrobe", category: "wardrobe", name: "Pantolonluk Ünitesi", description: "900x2200x600mm teleskopik pantolonluk ve gömlek askılı modül", w: 900, h: 2200, d: 600, minW: 600, maxW: 1000, doorSystemId: "hinged_double", shelvesPerBay: 1, hangingRailsPerBay: 1, specialFitting: "trouser_rack" },
   { templateId: "tpl_wd_18_shoe_tower", familyId: "fam_wardrobe", category: "wardrobe", name: "Ayakkabılık Ünitesi", description: "800x2200x450mm raylı eğimli ayakkabılık kulesi", w: 800, h: 2200, d: 450, minW: 600, maxW: 1000, doorSystemId: "hinged_double", shelvesPerBay: 4, specialFitting: "shoe_rack" },
   { templateId: "tpl_wd_19_glass_showcase", familyId: "fam_wardrobe", category: "wardrobe", name: "Cam Kapaklı Vitrin Gardırop", description: "1000x2300x600mm füme cam kapaklı ve boydan LED aydınlatmalı vitrin", w: 1000, h: 2300, d: 600, minW: 800, maxW: 1200, doorSystemId: "hinged_double", doorMaterialId: "mat_smoked_glass", shelvesPerBay: 3, specialFitting: "led_profile" },
@@ -412,7 +445,7 @@ const TEMPLATE_SEEDS: TemplateSeed[] = [
   { templateId: "tpl_sc_03_blind_corner_tall", familyId: "fam_special_corner", category: "special_corner", name: "Kör Köşe Boy Modül", description: "1100x2200x600mm kör bölmeli boy köşe dolabı", w: 1100, h: 2200, d: 600, minW: 950, maxW: 1300, doorSystemId: "hinged_single", isCorner: true, shelvesPerBay: 3 },
   { templateId: "tpl_sc_04_diagonal_tall", familyId: "fam_special_corner", category: "special_corner", name: "Diyagonal (45°) Köşe Dolabı", description: "1000x2200x1000mm +45° açılı kapaklı köşe gardırop", w: 1000, h: 2200, d: 1000, minW: 900, maxW: 1200, doorSystemId: "hinged_single", hardwareProductId: "hw_blum_79b9458", isCorner: true, shelvesPerBay: 2, hangingRailsPerBay: 1 },
   { templateId: "tpl_sc_05_sloped_ceiling", familyId: "fam_special_corner", category: "special_corner", name: "Eğimli Tavan (Çatı Arası) Modülü", description: "Çatı eğimine göre açılı kesim gerektiren özel modül", w: 900, h: 2100, d: 600, minW: 450, maxW: 1200, doorSystemId: "hinged_double", shelvesPerBay: 3, requiresFactoryValidation: true },
-  { templateId: "tpl_sc_06_under_stairs", familyId: "fam_special_corner", category: "special_corner", name: "Merdiven Altı Kademeli Modül", description: "1200x1800x600mm merdiven altı kademeli depolama modülü", w: 1200, h: 1800, d: 600, minW: 600, maxW: 1800, baysCount: 2, doorSystemId: "hinged_double", shelvesPerBay: 2, requiresFactoryValidation: true },
+  { templateId: "tpl_sc_06_under_stairs", familyId: "fam_special_corner", category: "special_corner", name: "Merdiven Altı Kademeli Modül", description: "1200x1800x600mm merdiven altı kademeli depolama modülü", w: 1200, h: 1800, d: 600, minW: 600, maxW: 1800, baysCount: 2, bayDoorSystems: ["hinged_single", "hinged_single"], bayDoorTypes: ["single_left", "single_right"], doorSystemId: "hinged_single", shelvesPerBay: 2, requiresFactoryValidation: true },
   { templateId: "tpl_sc_07_narrow_niche", familyId: "fam_special_corner", category: "special_corner", name: "Dar Niş Dolabı (250mm)", description: "250x2150x580mm kolon yanı dar niş değerlendirme modülü", w: 250, h: 2150, d: 580, minW: 150, maxW: 350, doorSystemId: "hinged_single", shelvesPerBay: 5 },
   { templateId: "tpl_sc_08_stepped_depth", familyId: "fam_special_corner", category: "special_corner", name: "Kademeli Derinlik Geçiş Modülü", description: "600x2200x450mm derinlik farkı dengeleme dolabı", w: 600, h: 2200, d: 450, minW: 400, maxW: 900, doorSystemId: "hinged_single", shelvesPerBay: 4 },
   { templateId: "tpl_sc_09_terminal_end", familyId: "fam_special_corner", category: "special_corner", name: "Serbest Biçimli Açık Bitiş Modülü", description: "350x2200x600mm dolap dizisi yan bitiş açık vitrin modülü", w: 350, h: 2200, d: 600, minW: 250, maxW: 500, doorSystemId: "open", isOpenFront: true, shelvesPerBay: 5 },

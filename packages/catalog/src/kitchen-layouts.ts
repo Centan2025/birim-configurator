@@ -19,6 +19,9 @@ export function createKitchenLinearProject(): DesignProject {
 
   const wall2 = KITCHEN_TEMPLATES.find((t) => t.templateId === "tpl_kitchen_wall_standard")!.createInstance("k_wall_2", "Üst Dolap Sağ 600");
   wall2.position = { x: 1400, y: 1450, z: 0 };
+  if (wall2.bays[0]?.door) {
+    wall2.bays[0].door.type = "single_right";
+  }
 
   return {
     id: "proj_kitchen_linear",
@@ -63,8 +66,13 @@ export function createKitchenLProject(): DesignProject {
   const baseArm = KITCHEN_TEMPLATES.find((t) => t.templateId === "tpl_kitchen_base_standard")!.createInstance("l_arm", "Köşe Dönüş Dolabı 600");
   baseArm.position = { x: 0, y: 0, z: 600 };
 
-  const wall1 = KITCHEN_TEMPLATES.find((t) => t.templateId === "tpl_kitchen_wall_standard")!.createInstance("l_wall_1", "Üst Dolap 600");
+  const wall1 = KITCHEN_TEMPLATES.find((t) => t.templateId === "tpl_kitchen_wall_standard")!.createInstance("l_wall_1", "Üst Dolap 800 (Çift Kapak)");
   wall1.position = { x: 1400, y: 1450, z: 0 };
+  wall1.dimensions.width = 800;
+  if (wall1.bays[0]?.door) {
+    wall1.bays[0].door.type = "double";
+    wall1.bays[0].door.doorSystemId = "hinged_double";
+  }
 
   return {
     id: "proj_kitchen_l",

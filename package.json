@@ -10,9 +10,10 @@
     "dev": "npm --workspace=apps/configurator run dev",
     "build": "npm --workspace=apps/configurator run build",
     "start": "npm --workspace=apps/configurator run start",
-    "lint": "npm --workspace=apps/configurator run lint",
+    "lint": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:e2e:v41": "playwright test --config=playwright.v41.config.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.1",

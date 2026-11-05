@@ -68,8 +68,8 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     return {};
   }
 
-  // 1. WOOD VENEERS (Natural Oak & American Walnut)
-  if (matDef.category === "wood") {
+  // 1. WOOD VENEERS & GRAINED LAMINATES (Kastamonu Freze/Safir Meşe, Çamsan İskandinav Meşe, Yıldız Barok Ceviz)
+  if (matDef.category === "wood" || (matDef.category === "laminate" && matDef.hasGrain)) {
     const W = 512;
     const H = 512;
     const colorCanvas = document.createElement("canvas");
@@ -86,10 +86,18 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     const bImg = bCtx.createImageData(W, H);
 
     const isWalnut = matDef.id.includes("walnut");
-    // Authentic calibrated RGB palettes for European Natural Oak & American Black Walnut
-    const baseRgb: [number, number, number] = isWalnut ? [98, 66, 48] : [194, 154, 104];
-    const darkGrainRgb: [number, number, number] = isWalnut ? [54, 34, 23] : [148, 108, 64];
-    const highlightRgb: [number, number, number] = isWalnut ? [124, 86, 62] : [214, 178, 128];
+    const [hr, hg, hb] = hexToRgb(matDef.colorHex || (isWalnut ? "#624230" : "#c29a68"));
+    const baseRgb: [number, number, number] = [hr, hg, hb];
+    const darkGrainRgb: [number, number, number] = [
+      Math.max(12, Math.round(hr * 0.62)),
+      Math.max(10, Math.round(hg * 0.6)),
+      Math.max(8, Math.round(hb * 0.56)),
+    ];
+    const highlightRgb: [number, number, number] = [
+      Math.min(250, Math.round(hr * 1.14)),
+      Math.min(248, Math.round(hg * 1.14)),
+      Math.min(242, Math.round(hb * 1.12)),
+    ];
 
     for (let y = 0; y < H; y++) {
       for (let x = 0; x < W; x++) {
@@ -199,7 +207,97 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     return set;
   }
 
+  // 3. CALACATTA MARBLE & QUARTZ COUNTERTOP VEINING (Çimstone / Belenco)
+  if (matDef.category === "stone") {
+    const W = 512;
+    const H = 512;
+    const colorCanvas = document.createElement("canvas");
+    colorCanvas.width = W;
+    colorCanvas.height = H;
+    const cCtx = colorCanvas.getContext("2d")!;
+    const cImg = cCtx.createImageData(W, H);
+    const [br, bg, bb] = hexToRgb(matDef.colorHex || "#f4f3ef");
+
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const nx = x / W;
+        const ny = y / H;
+        const warp = fbm(nx * 4.5, ny * 4.5);
+        const vein1 = Math.pow(Math.max(0, 1 - Math.abs(Math.sin((nx * 3.2 + ny * 2.1 + warp * 1.6) * Math.PI)) * 4.8), 2.4);
+        const vein2 = Math.pow(Math.max(0, 1 - Math.abs(Math.sin((nx * 7.0 - ny * 4.5 + warp * 2.2) * Math.PI)) * 6.5), 3.0) * 0.55;
+        const vFactor = Math.min(1, vein1 + vein2);
+        const idx = (y * W + x) * 4;
+        cImg.data[idx] = Math.round(br * (1 - vFactor * 0.28) + 145 * vFactor * 0.28);
+        cImg.data[idx + 1] = Math.round(bg * (1 - vFactor * 0.28) + 140 * vFactor * 0.28);
+        cImg.data[idx + 2] = Math.round(bb * (1 - vFactor * 0.26) + 132 * vFactor * 0.26);
+        cImg.data[idx + 3] = 255;
+      }
+    }
+    cCtx.putImageData(cImg, 0, 0);
+    const colorMap = new THREE.CanvasTexture(colorCanvas);
+    colorMap.wrapS = THREE.RepeatWrapping;
+    colorMap.wrapT = THREE.RepeatWrapping;
+    colorMap.colorSpace = THREE.SRGBColorSpace;
+    colorMap.needsUpdate = true;
+    const set: CachedTextureSet = { colorMap };
+    textureCache.set(matDef.id, set);
+    return set;
+  }
+
   return {};
+}
+
+const floorTextureCache = new Map<string, THREE.CanvasTexture>();
+
+export function getArchitecturalFloorTexture(style: "oak_parquet" | "travertine" | "studio"): THREE.CanvasTexture | null {
+  if (typeof document === "undefined" || style === "studio") return null;
+  const cached = floorTextureCache.get(style);
+  if (cached) return cached;
+
+  const S = 512;
+  const canvas = document.createElement("canvas");
+  canvas.width = S;
+  canvas.height = S;
+  const ctx = canvas.getContext("2d")!;
+  const img = ctx.createImageData(S, S);
+
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const idx = (y * S + x) * 4;
+      if (style === "oak_parquet") {
+        const plankRow = Math.floor(y / 64);
+        const plankX = (x + (plankRow % 2) * 128) % 256;
+        const plankY = y % 64;
+        const isGap = plankX < 2 || plankY < 2;
+        const plankSeed = hash2D(plankRow, Math.floor((x + (plankRow % 2) * 128) / 256));
+        const grain = smoothNoise((x / S) * 16, (y / S) * 64) * 18 + (plankSeed - 0.5) * 16;
+        img.data[idx] = isGap ? 115 : Math.min(245, Math.max(140, Math.round(198 + grain)));
+        img.data[idx + 1] = isGap ? 92 : Math.min(225, Math.max(115, Math.round(166 + grain * 0.85)));
+        img.data[idx + 2] = isGap ? 68 : Math.min(195, Math.max(85, Math.round(126 + grain * 0.65)));
+        img.data[idx + 3] = 255;
+      } else {
+        // Italian Travertine / Warm Stone Tiles
+        const tileX = x % 256;
+        const tileY = y % 256;
+        const isGrout = tileX < 3 || tileY < 3;
+        const n = fbm((x / S) * 8, (y / S) * 4) * 18;
+        img.data[idx] = isGrout ? 185 : Math.round(226 + n);
+        img.data[idx + 1] = isGrout ? 180 : Math.round(220 + n);
+        img.data[idx + 2] = isGrout ? 172 : Math.round(208 + n);
+        img.data[idx + 3] = 255;
+      }
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(8, 8);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  tex.needsUpdate = true;
+  floorTextureCache.set(style, tex);
+  return tex;
 }
 
 /**
@@ -264,8 +362,22 @@ export function getV3PbrMaterial(
   const existing = pbrMaterialCache.get(key);
   if (existing) return existing;
 
-  const emissive = isSelected ? new THREE.Color(0xb86b2b) : new THREE.Color(0x000000);
-  const emissiveIntensity = isSelected ? 0.18 : 0.0;
+  const emissive = isSelected ? new THREE.Color(0xd97706) : new THREE.Color(0x000000);
+  const emissiveIntensity = isSelected ? 0.44 : 0.0;
+
+  // 0. Warm 3000K Recessed LED Channel Emissive Material
+  if (matDef.id === "mat_led_warm_3000k") {
+    const ledMat = new THREE.MeshPhysicalMaterial({
+      color: new THREE.Color("#fff7d6"),
+      emissive: new THREE.Color("#ffb300"),
+      emissiveIntensity: isSelected ? 2.2 : 1.65,
+      roughness: 0.12,
+      metalness: 0.1,
+      clearcoat: 0.8,
+    });
+    pbrMaterialCache.set(key, ledMat);
+    return ledMat;
+  }
 
   // 1. Brushed Anodized Champagne/Chrome Hardware (Hanging rails, fittings)
   if (isRailOrMetalFitting || matDef.category === "metal") {
@@ -286,12 +398,13 @@ export function getV3PbrMaterial(
   // 2. Smoked Glass with Aluminum Frame sheen
   if (matDef.category === "glass" || matDef.id.includes("glass")) {
     const mat = new THREE.MeshPhysicalMaterial({
-      color: new THREE.Color("#262b30"),
+      color: new THREE.Color(matDef.colorHex),
       metalness: 0.15,
       roughness: 0.08,
       transmission: 0.58,
       transparent: true,
       opacity: 0.82,
+      depthWrite: false,
       ior: 1.52,
       reflectivity: 0.95,
       clearcoat: 1.0,
@@ -306,7 +419,7 @@ export function getV3PbrMaterial(
   const maps = getOrCreateProceduralMaps(matDef);
 
   // 3. Natural Wood Veneers (Oak & American Walnut) with Satin Clearcoat
-  if (matDef.category === "wood") {
+  if (matDef.category === "wood" || (matDef.category === "laminate" && matDef.hasGrain)) {
     const mat = new THREE.MeshPhysicalMaterial({
       color: new THREE.Color("#ffffff"), // Pure white multiplier so procedural wood map colors shine accurately
       map: maps.colorMap || null,
@@ -325,17 +438,17 @@ export function getV3PbrMaterial(
     return mat;
   }
 
-  // 4. Silk Matte Lacquer (Cream & Sage Green) — Soft velvety sheen
-  if (matDef.category === "lacquer") {
-    const [r, g, b] = hexToRgb(matDef.colorHex);
+  // 3b. Polished Calacatta Marble & Quartz Countertop (Çimstone / Belenco)
+  if (matDef.category === "stone" || matDef.id.includes("stone") || matDef.id.includes("calacatta")) {
     const mat = new THREE.MeshPhysicalMaterial({
-      color: new THREE.Color(`rgb(${r}, ${g}, ${b})`),
-      roughnessMap: maps.roughnessMap || null,
-      roughness: 0.32,
-      metalness: 0.02,
-      clearcoat: 0.42, // Silk matte polyurethane topcoat
-      clearcoatRoughness: 0.36,
-      reflectivity: 0.52,
+      color: new THREE.Color("#ffffff"),
+      map: maps.colorMap || null,
+      roughness: 0.16,
+      metalness: 0.04,
+      clearcoat: 0.88,
+      clearcoatRoughness: 0.1,
+      reflectivity: 0.92,
+      envMapIntensity: 1.35,
       emissive,
       emissiveIntensity,
     });
@@ -343,14 +456,35 @@ export function getV3PbrMaterial(
     return mat;
   }
 
-  // 5. Calibrated Melamine (White / Anthracite)
+  // 4. Silk Matte Lacquer (Cream, Sage Green, Anthracite Supramat) — Soft velvety architectural sheen
+  if (matDef.category === "lacquer") {
+    const [r, g, b] = hexToRgb(matDef.colorHex);
+    const mat = new THREE.MeshPhysicalMaterial({
+      color: new THREE.Color(`rgb(${r}, ${g}, ${b})`),
+      roughnessMap: maps.roughnessMap || null,
+      roughness: 0.26,
+      metalness: 0.03,
+      clearcoat: 0.55,
+      clearcoatRoughness: 0.24,
+      reflectivity: 0.68,
+      envMapIntensity: 1.25,
+      emissive,
+      emissiveIntensity,
+    });
+    pbrMaterialCache.set(key, mat);
+    return mat;
+  }
+
+  // 5. Calibrated Melamine / MDF-Lam (Kastamonu / Yıldız / AGT / Çamsan)
   const mat = new THREE.MeshPhysicalMaterial({
     color: new THREE.Color(matDef.colorHex),
     roughnessMap: maps.roughnessMap || null,
-    roughness: 0.46,
-    metalness: 0.03,
-    clearcoat: 0.12,
-    clearcoatRoughness: 0.5,
+    roughness: 0.36,
+    metalness: 0.04,
+    clearcoat: 0.28,
+    clearcoatRoughness: 0.34,
+    reflectivity: 0.58,
+    envMapIntensity: 1.18,
     emissive,
     emissiveIntensity,
   });
@@ -363,4 +497,21 @@ export function getPbrCacheStats(): { texturesCount: number; materialsCount: num
     texturesCount: textureCache.size,
     materialsCount: pbrMaterialCache.size,
   };
+}
+
+
+/**
+ * WP-10: Computes physical millimeter-based UV repeat factors and rotation
+ * for panel dimensions (in mm) and wood grain direction.
+ */
+export function computePhysicalUvScale(
+  widthMm: number,
+  heightMm: number,
+  grain: "lengthwise" | "crosswise" | "none" = "lengthwise"
+): { repeatX: number; repeatY: number; rotationRad: number } {
+  const referenceTileMm = 600;
+  const repeatX = Math.max(0.1, Number((widthMm / referenceTileMm).toFixed(3)));
+  const repeatY = Math.max(0.1, Number((heightMm / referenceTileMm).toFixed(3)));
+  const rotationRad = grain === "crosswise" ? Math.PI / 2 : 0;
+  return { repeatX, repeatY, rotationRad };
 }

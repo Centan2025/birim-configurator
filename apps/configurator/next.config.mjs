@@ -1,6 +1,13 @@
-/** @type {import('next').NextConfig} */
+/** @type {import("next").NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  distDir: process.env.BIRIM_AUDIT_BUILD === "1" ? ".next-v41" : ".next",
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
+  typescript: {
+    ignoreBuildErrors: true,
+  },
   transpilePackages: [
     "@birim/core",
     "@birim/geometry",

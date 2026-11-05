@@ -111,6 +111,9 @@ export interface Rotation3D {
 export interface MaterialDefinition {
   id: string;
   name: string;
+  brand?: string;
+  decorCode?: string;
+  surfaceFinish?: string;
   category: "wood" | "lacquer" | "laminate" | "glass" | "stone" | "metal" | "mirror" | "compact";
   thickness: UnitLength; // standard: 18mm, 8mm, etc.
   densityKgPerM3?: number; // default: 650 laminate, 750 lacquer/MDF, 920 glass
@@ -161,6 +164,7 @@ export interface ParametricPart {
   hardwareRefId?: string;
   handleSpacingMm?: UnitLength;
   isInsetDoor?: boolean;
+  hingePositionsY?: UnitLength[];
 }
 
 export interface ShelfConfig {
@@ -200,6 +204,8 @@ export interface SpecialFittingConfig {
     | "wire_basket"
     | "tie_rack"
     | "led_profile"
+    | "led_vertical_strip"
+    | "led_rod_strip"
     | "wardrobe_lift"
     | "jewelry_tray"
     | "corner_lemans"
@@ -243,6 +249,8 @@ export interface DoorConfig {
   handleType?: "standard" | "integrated_profile" | "push_to_open" | "none";
   softClose: boolean;
   hingeCount?: number;
+  hingeBottomOffsetMm?: UnitLength;
+  hingeTopOffsetMm?: UnitLength;
   isGlassFramed?: boolean;
 }
 
@@ -321,6 +329,8 @@ export interface ArchitecturalElement {
   name: string;
   position: Position3D;
   dimensions: Dimensions3D;
+  rotationY?: number; // 0, 90, 180, 270 degrees
+  doorSwing?: "left" | "right";
   metadata?: Record<string, string | number>;
 }
 
@@ -333,6 +343,24 @@ export interface WallDefinition {
   position: Position3D;
   rotationY: number; // degrees
   elements: ArchitecturalElement[];
+}
+
+export interface FloorPlanPolyline {
+  points: { x: UnitLength; z: UnitLength }[];
+  layer?: string;
+}
+
+export interface FloorPlanUnderlay {
+  fileName: string;
+  fileType: "dxf" | "dwg" | "pdf" | "svg" | "image";
+  scaleMmPerUnit: number;
+  widthMm: UnitLength;
+  depthMm: UnitLength;
+  offsetXMm: UnitLength;
+  offsetZMm: UnitLength;
+  opacity: number;
+  dataUrl?: string;
+  polylines?: FloorPlanPolyline[];
 }
 
 export interface SpaceDefinition {
@@ -350,11 +378,24 @@ export interface SpaceDefinition {
   walls: WallDefinition[];
   ceilingHeight: UnitLength;
   elements: ArchitecturalElement[];
+  floorPlanUnderlay?: FloorPlanUnderlay;
+}
+
+export const SUPPORTED_PROJECT_SCHEMA_VERSION = 4;
+
+export interface ProjectVerificationSnapshot {
+  overallStatus: CompatibilityStatus;
+  canApproveProduction: boolean;
+  unverifiedCount: number;
+  evaluatedAt: string;
 }
 
 export interface DesignProject {
   id: string;
   version: number;
+  schemaVersion?: number;
+  catalogVersion?: string;
+  revisionId?: string;
   libraryVersionId?: string;
   constructionProfileId?: string;
   title: string;
@@ -363,6 +404,7 @@ export interface DesignProject {
   status: "draft" | "technically_validated" | "quoted" | "production_approved" | "exported_to_erp";
   space: SpaceDefinition;
   modules: ModuleInstance[];
+  verificationSnapshot?: ProjectVerificationSnapshot;
   createdAt: string;
   updatedAt: string;
 }

@@ -1,0 +1,26 @@
+[
+  {
+    "count": 20,
+    "components": 220,
+    "cutPieces": 160,
+    "geometryMs": 0.2783999999999196,
+    "bomIncludingNestingMs": 4.283099999999877,
+    "pricingMs": 0.12409999999999854,
+    "pipelineMs": 4.685599999999795,
+    "mutationP50Ms": 4.3607999999999265,
+    "mutationP95Ms": 6.6378000000001975,
+    "processHeapUsedBytes": 36025296
+  },
+  {
+    "count": 50,
+    "components": 550,
+    "cutPieces": 400,
+    "geometryMs": 0.3929000000000542,
+    "bomIncludingNestingMs": 14.194099999999935,
+    "pricingMs": 0.2137000000000171,
+    "pipelineMs": 14.800700000000006,
+    "mutationP50Ms": 7.715800000000172,
+    "mutationP95Ms": 14.413700000000063,
+    "processHeapUsedBytes": 57713048
+  }
+]

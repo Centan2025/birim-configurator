@@ -1,5 +1,6 @@
+import { componentBounds } from "./component-transform";
 import { UnitLength } from "@birim/core";
-import { ModuleGeometryBreakdown, ComponentGeometry } from "./types";
+import { ModuleGeometryBreakdown } from "./types";
 
 export interface Rect2D {
   id: string;
@@ -32,6 +33,30 @@ export interface Elevation2DData {
   bayLines: { x: number; y1: number; y2: number; label: string }[];
 }
 
+function computeExpandedViewBox(
+  baseWidth: number,
+  baseHeight: number,
+  elements: Rect2D[],
+  padding: number
+): { x: number; y: number; width: number; height: number } {
+  let minX = 0;
+  let minY = 0;
+  let maxX = baseWidth;
+  let maxY = baseHeight;
+  for (const el of elements) {
+    if (el.x < minX) minX = el.x;
+    if (el.y < minY) minY = el.y;
+    if (el.x + el.width > maxX) maxX = el.x + el.width;
+    if (el.y + el.height > maxY) maxY = el.y + el.height;
+  }
+  return {
+    x: minX - padding,
+    y: minY - padding,
+    width: maxX - minX + padding * 2,
+    height: maxY - minY + padding * 2,
+  };
+}
+
 export function generateElevation2D(
   breakdown: ModuleGeometryBreakdown,
   selectedComponentId?: string
@@ -40,17 +65,20 @@ export function generateElevation2D(
   const padding = 150;
 
   const elements: Rect2D[] = components
-    .filter((c) => c.role !== "carcass_back" && c.role !== "hanging_rail")
-    .map((c) => ({
-      id: c.id,
-      label: c.label,
-      x: c.position.x,
-      y: overall.height - (c.position.y + c.dimensions.height),
-      width: c.dimensions.width,
-      height: c.dimensions.height,
-      role: c.role,
-      isSelected: c.id === selectedComponentId,
-    }));
+    .filter((c) => c.role !== "carcass_back" && c.role !== "hanging_rail" && !c.id.includes("_sub_"))
+    .map((c) => {
+      const bounds = componentBounds(c);
+      return {
+        id: c.id,
+        label: c.label,
+        x: bounds.min.x,
+        y: overall.height - bounds.max.y,
+        width: bounds.max.x - bounds.min.x,
+        height: bounds.max.y - bounds.min.y,
+        role: c.role,
+        isSelected: c.id === selectedComponentId,
+      };
+    });
 
   const dimensionLines: DimensionLine2D[] = [
     {
@@ -77,7 +105,8 @@ export function generateElevation2D(
     },
   ];
 
-  let currentX = 18;
+  const panelThickness = components.find((c) => c.role === "carcass_side_left")?.dimensions.width ?? 0;
+  let currentX = panelThickness;
   bayWidths.forEach((bw, i) => {
     dimensionLines.push({
       id: `dim_bay_${i}`,
@@ -90,16 +119,11 @@ export function generateElevation2D(
       orientation: "horizontal",
       offset: 40,
     });
-    currentX += bw + 18;
+    currentX += bw + panelThickness;
   });
 
   return {
-    viewBox: {
-      x: -padding,
-      y: -padding,
-      width: overall.width + padding * 2,
-      height: overall.height + padding * 2,
-    },
+    viewBox: computeExpandedViewBox(overall.width, overall.height, elements, padding),
     elements,
     dimensionLines,
     bayLines: [],
@@ -111,53 +135,51 @@ export function generateTopPlan2D(
   selectedComponentId?: string
 ): Elevation2DData {
   const { overall, components } = breakdown;
-  const padding = 120;
+  const padding = 160;
 
   const elements: Rect2D[] = components
-    .filter((c) => c.role.startsWith("carcass") || c.role.startsWith("door"))
-    .map((c) => ({
-      id: c.id,
-      label: c.label,
-      x: c.position.x,
-      y: c.position.z,
-      width: c.dimensions.width,
-      height: c.dimensions.depth,
-      role: c.role,
-      isSelected: c.id === selectedComponentId,
-    }));
+    .filter((c) => c.role.startsWith("carcass") || c.role.startsWith("door") || c.role === "drawer_front")
+    .map((c) => {
+      const bounds = componentBounds(c);
+      return {
+        id: c.id,
+        label: c.label,
+        x: bounds.min.x,
+        y: bounds.min.z,
+        width: bounds.max.x - bounds.min.x,
+        height: bounds.max.z - bounds.min.z,
+        role: c.role,
+        isSelected: c.id === selectedComponentId,
+      };
+    });
 
   const dimensionLines: DimensionLine2D[] = [
     {
       id: "dim_plan_width",
       x1: 0,
-      y1: -30,
+      y1: -45,
       x2: overall.width,
-      y2: -30,
+      y2: -45,
       value: overall.width,
       label: `Genişlik: ${overall.width} mm`,
       orientation: "horizontal",
-      offset: -30,
+      offset: -45,
     },
     {
       id: "dim_plan_depth",
-      x1: -40,
+      x1: -55,
       y1: 0,
-      x2: -40,
+      x2: -55,
       y2: overall.depth,
       value: overall.depth,
       label: `Derinlik: ${overall.depth} mm`,
       orientation: "vertical",
-      offset: -40,
+      offset: -55,
     },
   ];
 
   return {
-    viewBox: {
-      x: -padding,
-      y: -padding,
-      width: overall.width + padding * 2,
-      height: overall.depth + padding * 2,
-    },
+    viewBox: computeExpandedViewBox(overall.width, overall.depth, elements, padding),
     elements,
     dimensionLines,
     bayLines: [],
@@ -174,7 +196,7 @@ export function generateCrossSection2D(
   const { overall, components } = breakdown;
   const padding = 120;
 
-  // Filter components visible in depth cross-section (bottom, top, plinth, shelves, drawer boxes)
+  // Filter components visible in depth cross-section (bottom, top, plinth, shelves, drawer boxes, doors)
   const elements: Rect2D[] = components
     .filter(
       (c) =>
@@ -183,18 +205,28 @@ export function generateCrossSection2D(
         c.role === "plinth" ||
         c.role === "shelf" ||
         c.role === "drawer_box" ||
+        c.role === "drawer_side_left" ||
+        c.role === "drawer_bottom" ||
+        c.role === "drawer_front" ||
+        c.role === "door_left" ||
+        c.role === "door_right" ||
+        c.role === "door_hinge" ||
+        c.role === "special_fitting" ||
         c.role === "carcass_back"
     )
-    .map((c) => ({
-      id: c.id,
-      label: c.label,
-      x: c.position.z,
-      y: overall.height - (c.position.y + c.dimensions.height),
-      width: c.dimensions.depth,
-      height: c.dimensions.height,
-      role: c.role,
-      isSelected: c.id === selectedComponentId,
-    }));
+    .map((c) => {
+      const bounds = componentBounds(c);
+      return {
+        id: c.id,
+        label: c.label,
+        x: bounds.min.z,
+        y: overall.height - bounds.max.y,
+        width: bounds.max.z - bounds.min.z,
+        height: bounds.max.y - bounds.min.y,
+        role: c.role,
+        isSelected: c.id === selectedComponentId,
+      };
+    });
 
   const dimensionLines: DimensionLine2D[] = [
     {
@@ -222,12 +254,7 @@ export function generateCrossSection2D(
   ];
 
   return {
-    viewBox: {
-      x: -padding,
-      y: -padding,
-      width: overall.depth + padding * 2,
-      height: overall.height + padding * 2,
-    },
+    viewBox: computeExpandedViewBox(overall.depth, overall.height, elements, padding),
     elements,
     dimensionLines,
     bayLines: [],

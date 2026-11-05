@@ -19,8 +19,13 @@ export interface CutPiece {
   componentRole: string;
   materialId: string;
   materialName: string;
-  lengthMm: UnitLength; // Net length (Boy)
-  widthMm: UnitLength; // Net width (En)
+  lengthMm: UnitLength; // Nominal finished length (Boy)
+  widthMm: UnitLength; // Nominal finished width (En)
+  nominalLengthMm?: UnitLength; // Bitmiş / Anma Boy (mm)
+  nominalWidthMm?: UnitLength; // Bitmiş / Anma En (mm)
+  netCutLengthMm?: UnitLength; // Testere Net Kesim Boyu (Bant kalınlığı düşülmüş, mm)
+  netCutWidthMm?: UnitLength; // Testere Net Kesim Eni (Bant kalınlığı düşülmüş, mm)
+  edgeBandCode?: string; // Fabrika kenar bant kodu (ör. "1B 1mm", "4K 1mm", "Bantsız")
   thicknessMm: UnitLength; // Thickness (Kalınlık)
   quantity: number;
   edgeBanding: EdgeBandingConfig;
@@ -39,6 +44,29 @@ export interface HardwareBOMItem {
   unit: "adet" | "takım" | "metre";
   unitPrice: number;
   totalPrice: number;
+}
+
+export interface ShelfDeflectionBOMEntry {
+  moduleId: string;
+  moduleName: string;
+  bayIndex: number;
+  spanMm: number;
+  depthMm: number;
+  thicknessMm: number;
+  deflectionMm: number;
+  maxAllowedMm: number;
+  passed: boolean;
+  recommendation?: string;
+}
+
+export interface ProductionGateSummary {
+  isReadyForErp: boolean;
+  checks: {
+    id: string;
+    label: string;
+    passed: boolean;
+    detail: string;
+  }[];
 }
 
 export interface ManufacturingBOM {
@@ -64,4 +92,6 @@ export interface ManufacturingBOM {
   }[];
   nestingResults: NestingOptimizationResult[]; // Real 2D Guillotine Bin Packing Results
   validationWarnings: string[];
+  shelfDeflectionAnalyses?: ShelfDeflectionBOMEntry[];
+  productionGate?: ProductionGateSummary;
 }
