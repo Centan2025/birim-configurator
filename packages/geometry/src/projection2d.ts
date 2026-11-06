@@ -138,7 +138,7 @@ export function generateTopPlan2D(
   const padding = 160;
 
   const elements: Rect2D[] = components
-    .filter((c) => c.role.startsWith("carcass") || c.role.startsWith("door") || c.role === "drawer_front")
+    .filter((c) => c.role.startsWith("carcass") || c.role.startsWith("door") || c.role === "drawer_front" || c.role === "shelf" || c.role === "hanging_rail" || c.role === "special_fitting")
     .map((c) => {
       const bounds = componentBounds(c);
       return {

@@ -125,6 +125,13 @@ export interface RowSnapPreviewResult {
   snapSlots: SnapSlotCandidate[];
 }
 
+export type CornerFootprintType =
+  | "l_corner"
+  | "diagonal_corner"
+  | "blind_corner"
+  | "outer_corner"
+  | "none";
+
 export interface OrientedFootprint2D {
   moduleId: string;
   moduleIndex: number;
@@ -140,6 +147,10 @@ export interface OrientedFootprint2D {
   rawWidth: number;
   rawHeight: number;
   rawDepth: number;
+  isCorner: boolean;
+  isOpenFront: boolean;
+  cornerType: CornerFootprintType;
+  wingDepthMm: number;
 }
 
 export interface KitchenRuleStatus {
@@ -210,6 +221,70 @@ export const KITCHEN_ENGINEERING_RULE_REGISTRY: KitchenRuleStatus[] = [
  * Computes the oriented 2D/3D Axis-Aligned Bounding Box (AABB) of a module,
  * properly respecting 90-degree L/U corner rotations (`rotation.y`).
  */
+export function classifyModuleCornerFootprint(mod: ModuleInstance): {
+  isCorner: boolean;
+  cornerType: CornerFootprintType;
+  wingDepthMm: number;
+} {
+  const tplLower = (mod.templateId || "").toLowerCase();
+  const nameLower = (mod.name || "").toLowerCase();
+  const rawW = mod.dimensions.width;
+  const rawH = mod.dimensions.height;
+  const rawD = mod.dimensions.depth;
+
+  const isWallL =
+    mod.category === "kitchen_wall" || mod.moduleFamilyId === "fam_kitchen_wall";
+  const isWardrobe =
+    !mod.category ||
+    mod.category.startsWith("wardrobe") ||
+    mod.category === "special_corner" ||
+    mod.moduleFamilyId === "fam_wardrobe" ||
+    mod.moduleFamilyId === "fam_special_corner" ||
+    Boolean(mod.templateId?.startsWith("tpl_wd_")) ||
+    Boolean(mod.templateId?.startsWith("tpl_wardrobe")) ||
+    Boolean(mod.templateId?.startsWith("tpl_sc_")) ||
+    (Boolean(mod.isCorner) && rawH >= 1400);
+
+  const minArm = Math.min(rawW, rawD);
+  const wingDepthMm = isWallL
+    ? Math.min(350, Math.round(minArm * 0.56))
+    : isWardrobe
+    ? Math.min(600, Math.round(minArm * 0.58))
+    : Math.min(580, Math.round(minArm * 0.64));
+
+  const isBlind =
+    tplLower.includes("blind") || nameLower.includes("kör köşe") || nameLower.includes("lemans");
+  const isDiagonal =
+    tplLower.includes("diagonal") || nameLower.includes("diyagonal") || nameLower.includes("45°");
+  const isOuter =
+    tplLower.includes("outer_corner") || nameLower.includes("dış köşe");
+  const isExplicitL =
+    tplLower.includes("l_corner") ||
+    tplLower.includes("corner_wall") ||
+    tplLower.includes("corner_wardrobe") ||
+    tplLower.includes("walkin_l") ||
+    tplLower.includes("inner_corner") ||
+    nameLower.includes("l köşe") ||
+    nameLower.includes("köşe gardırop") ||
+    nameLower.includes("köşe üst") ||
+    nameLower.includes("iç köşe") ||
+    nameLower.includes("l giyinme");
+
+  if (isBlind) {
+    return { isCorner: true, cornerType: "blind_corner", wingDepthMm: rawD };
+  }
+  if (isDiagonal) {
+    return { isCorner: true, cornerType: "diagonal_corner", wingDepthMm };
+  }
+  if (isOuter) {
+    return { isCorner: true, cornerType: "outer_corner", wingDepthMm };
+  }
+  if (isExplicitL || (Boolean(mod.isCorner) && rawW >= 620 && rawD >= 620)) {
+    return { isCorner: true, cornerType: "l_corner", wingDepthMm };
+  }
+  return { isCorner: Boolean(mod.isCorner), cornerType: "none", wingDepthMm: rawD };
+}
+
 export function getModuleOrientedFootprint(
   mod: ModuleInstance,
   idx: number
@@ -223,6 +298,7 @@ export function getModuleOrientedFootprint(
   const placement = calculateModulePlacement(mod);
   const planWidth = placement.width;
   const planDepth = placement.depth;
+  const cornerMeta = classifyModuleCornerFootprint(mod);
 
   return {
     moduleId: mod.id,
@@ -239,6 +315,10 @@ export function getModuleOrientedFootprint(
     rawWidth: rawW,
     rawHeight: rawH,
     rawDepth: rawD,
+    isCorner: cornerMeta.isCorner,
+    isOpenFront: Boolean(mod.isOpenFront || mod.bays[0]?.door?.type === "open" || mod.bays[0]?.door?.doorSystemId === "open"),
+    cornerType: cornerMeta.cornerType,
+    wingDepthMm: cornerMeta.wingDepthMm,
   };
 }
 
@@ -350,23 +430,62 @@ export function validateSpatialAndKitchenEngineering(
   const obstacles = getEffectiveSpaceObstacles(project);
   const mainWallLength = project.space.walls[0]?.length || 3600;
 
+  // Helper: decompose an L-corner footprint into its two actual physical arm rectangles in 2D Plan
+  const getFootprintSubRects = (fp: OrientedFootprint2D) => {
+    if (fp.cornerType !== "l_corner") {
+      return [{ x1: fp.x, z1: fp.z, x2: fp.x + fp.planWidth, z2: fp.z + fp.planDepth }];
+    }
+    const wd = Math.min(fp.wingDepthMm, fp.planWidth, fp.planDepth);
+    if (fp.rotationY === 90) {
+      return [
+        { x1: fp.x, z1: fp.z, x2: fp.x + fp.planWidth, z2: fp.z + wd },
+        { x1: fp.x + fp.planWidth - wd, z1: fp.z, x2: fp.x + fp.planWidth, z2: fp.z + fp.planDepth },
+      ];
+    }
+    if (fp.rotationY === 180) {
+      return [
+        { x1: fp.x, z1: fp.z + fp.planDepth - wd, x2: fp.x + fp.planWidth, z2: fp.z + fp.planDepth },
+        { x1: fp.x + fp.planWidth - wd, z1: fp.z, x2: fp.x + fp.planWidth, z2: fp.z + fp.planDepth },
+      ];
+    }
+    if (fp.rotationY === 270) {
+      return [
+        { x1: fp.x, z1: fp.z + fp.planDepth - wd, x2: fp.x + fp.planWidth, z2: fp.z + fp.planDepth },
+        { x1: fp.x, z1: fp.z, x2: fp.x + wd, z2: fp.z + fp.planDepth },
+      ];
+    }
+    return [
+      { x1: fp.x, z1: fp.z, x2: fp.x + fp.planWidth, z2: fp.z + wd },
+      { x1: fp.x, z1: fp.z, x2: fp.x + wd, z2: fp.z + fp.planDepth },
+    ];
+  };
+
   // 1. Oriented Module-to-Module Overlap & Corner Clearance Check
   for (let i = 0; i < footprints.length; i++) {
     for (let j = i + 1; j < footprints.length; j++) {
       const a = footprints[i];
       const b = footprints[j];
-
-      const xOverlap = a.x < b.x + b.planWidth && a.x + a.planWidth > b.x;
-      const zOverlap = a.z < b.z + b.planDepth && a.z + a.planDepth > b.z;
       const yOverlap = a.yBottom < b.yTop && a.yTop > b.yBottom;
+      if (!yOverlap) continue;
 
-      if (xOverlap && zOverlap && yOverlap) {
+      const rectsA = getFootprintSubRects(a);
+      const rectsB = getFootprintSubRects(b);
+      let overlapMm = 0;
+      for (const ra of rectsA) {
+        for (const rb of rectsB) {
+          const xo = Math.min(ra.x2, rb.x2) - Math.max(ra.x1, rb.x1);
+          const zo = Math.min(ra.z2, rb.z2) - Math.max(ra.z1, rb.z1);
+          if (xo > 2 && zo > 2) {
+            overlapMm = Math.max(overlapMm, Math.min(xo, zo));
+          }
+        }
+      }
+
+      if (overlapMm > 2) {
         issues.push({
           severity: "error",
           code: "ERR_SPATIAL_MODULE_OVERLAP",
-          message: `"${a.name}" ile "${b.name}" planda çakışıyor (${Math.round(
-            Math.min(a.x + a.planWidth, b.x + b.planWidth) - Math.max(a.x, b.x)
-          )}mm girişim).`,
+          message: `"${a.name}" ile "${b.name}" planda çakışıyor (${Math.round(overlapMm)}mm girişim).`,
           targetId: a.moduleId,
           blockingProduction: true,
         });

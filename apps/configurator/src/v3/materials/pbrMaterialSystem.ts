@@ -499,9 +499,11 @@ export function getStudioEnvironmentTexture(): THREE.DataTexture {
 export function getV3PbrMaterial(
   matDef: MaterialDefinition,
   isSelected: boolean,
-  isRailOrMetalFitting: boolean
+  isRailOrMetalFitting: boolean,
+  grainDirection: "lengthwise" | "crosswise" | "custom" = "lengthwise",
+  surfaceFinishOverride?: "matte" | "satin" | "gloss"
 ): THREE.MeshPhysicalMaterial {
-  const key = `pbr_${matDef.id}_sel:${isSelected ? 1 : 0}_metal:${isRailOrMetalFitting ? 1 : 0}`;
+  const key = `pbr_${matDef.id}_sel:${isSelected ? 1 : 0}_metal:${isRailOrMetalFitting ? 1 : 0}_gr:${grainDirection}_fin:${surfaceFinishOverride || "def"}`;
   const existing = pbrMaterialCache.get(key);
   if (existing) return existing;
 
@@ -564,20 +566,45 @@ export function getV3PbrMaterial(
 
   const maps = getOrCreateProceduralMaps(matDef);
 
-  // 3. Natural Wood Veneers (Oak & American Walnut) with Two-Component Satin Polyurethane Clearcoat
+  // 3. Natural Wood Veneers (Oak & American Walnut) with Two-Component Satin Polyurethane Clearcoat & Grain Direction UV Rotation
   if (matDef.category === "wood" || (matDef.category === "laminate" && matDef.hasGrain)) {
+    let colorTex = maps.colorMap || null;
+    let bumpTex = maps.bumpMap || null;
+    if (colorTex && grainDirection !== "lengthwise") {
+      const rotRad = grainDirection === "crosswise" ? Math.PI / 2 : Math.PI / 4;
+      colorTex = colorTex.clone();
+      colorTex.center.set(0.5, 0.5);
+      colorTex.rotation = rotRad;
+      colorTex.needsUpdate = true;
+      if (bumpTex) {
+        bumpTex = bumpTex.clone();
+        bumpTex.center.set(0.5, 0.5);
+        bumpTex.rotation = rotRad;
+        bumpTex.needsUpdate = true;
+      }
+    }
+    const roughVal =
+      surfaceFinishOverride === "gloss"
+        ? 0.14
+        : surfaceFinishOverride === "satin"
+        ? 0.32
+        : surfaceFinishOverride === "matte"
+        ? 0.56
+        : 0.44;
+    const clearcoatVal =
+      surfaceFinishOverride === "gloss" ? 0.88 : surfaceFinishOverride === "matte" ? 0.18 : 0.42;
     const mat = new THREE.MeshPhysicalMaterial({
       color: new THREE.Color("#ffffff"),
-      map: maps.colorMap || null,
-      bumpMap: maps.bumpMap || null,
+      map: colorTex,
+      bumpMap: bumpTex,
       bumpScale: 0.0032,
-      roughnessMap: maps.roughnessMap || null,
-      roughness: 0.44,
+      roughnessMap: bumpTex,
+      roughness: roughVal,
       metalness: 0.02,
       ior: 1.49,
       specularIntensity: 0.85,
-      clearcoat: 0.42,
-      clearcoatRoughness: 0.28,
+      clearcoat: clearcoatVal,
+      clearcoatRoughness: surfaceFinishOverride === "gloss" ? 0.08 : 0.28,
       reflectivity: 0.62,
       envMapIntensity: 1.35,
       emissive,

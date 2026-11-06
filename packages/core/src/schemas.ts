@@ -162,6 +162,7 @@ export const SpecialFittingConfigSchema = z.object({
     "shoe_rack",
     "wire_basket",
     "tie_rack",
+    "belt_rack",
     "led_profile",
     "led_vertical_strip",
     "led_rod_strip",
@@ -276,7 +277,9 @@ export const ModuleInstanceSchema = z.object({
 
 export const ArchitecturalElementSchema = z.object({
   id: z.string(),
-  type: z.enum(["door", "window", "column", "beam", "plumbing", "electrical", "ventilation"]),
+  type: z.enum(["door", "window", "column", "beam", "plumbing", "electrical", "ventilation", "niche", "protrusion", "partition"]),
+  rotationY: z.number().optional(),
+  doorSwing: z.enum(["left", "right"]).optional(),
   name: z.string(),
   position: Position3DSchema,
   dimensions: Dimensions3DSchema,
@@ -291,6 +294,7 @@ export const WallDefinitionSchema = z.object({
   thickness: z.number().positive(),
   position: Position3DSchema,
   rotationY: z.number().default(0),
+  wallType: z.enum(["standard", "concrete", "drywall", "niche_wall"]).optional(),
   elements: z.array(ArchitecturalElementSchema).default([]),
 });
 

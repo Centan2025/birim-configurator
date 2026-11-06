@@ -131,6 +131,24 @@ export function generateBOMForProject(
         allDimensionChainsClosed = false;
       }
 
+      // Add CNC Door Cross-Section Milling Cost when non-flat profile is selected
+      module.bays.forEach((bay) => {
+        const prof = bay.door?.crossSectionProfile || module.carcass.crossSectionProfile || "flat_slab";
+        if (prof !== "flat_slab" && bay.door?.type !== "open" && bay.door?.doorSystemId !== "open") {
+          const doorAreaM2 = Number(((module.dimensions.width * module.dimensions.height) / (module.bays.length * 1_000_000)).toFixed(2));
+          const rateMap = {
+            shaker_frame: { sku: "HW_CNC_DOOR_PROFILE_SHAKER", name: "5 Eksen CNC Çerçeve (Shaker) Kapak Göbek İşleme", price: 18.0 },
+            fluted_ribbed: { sku: "HW_CNC_DOOR_PROFILE_FLUTED", name: "CNC Dikey Mikro-Derz (Fitilli / Fluted) Yüzey İşleme", price: 22.0 },
+            bevel_45: { sku: "HW_CNC_DOOR_PROFILE_BEVEL45", name: "CNC 45° Pahlı Kapak Kenar Kesit İşleme", price: 14.0 },
+            custom_cad_profile: { sku: "HW_CNC_DOOR_PROFILE_CUSTOM", name: "Özel CAD (DXF/SVG) Kapak Kesit Profili İşleme", price: 25.0 },
+          };
+          const spec = rateMap[prof];
+          if (spec && doorAreaM2 > 0) {
+            addHardware(spec.sku, spec.name, "special", Math.max(0.5, doorAreaM2), "metre", spec.price);
+          }
+        }
+      });
+
       // Compute Euler-Bernoulli deflection analysis per bay with shelves
       module.bays.forEach((bay, bIdx) => {
         if (bay.shelves.length > 0) {
@@ -265,8 +283,15 @@ export function generateBOMForProject(
         return;
       }
 
-      let mat = bodyMat;
-      let grain: CutPiece["grain"] = mat.hasGrain ? "lengthwise" : "none";
+      let mat = materialsMap.get(comp.materialId) || bodyMat;
+      const customGrain =
+        module.componentGrainOverrides?.[comp.id] ||
+        module.componentGrainOverrides?.__all__;
+      let grain: CutPiece["grain"] = mat.hasGrain
+        ? customGrain === "crosswise"
+          ? "crosswise"
+          : "lengthwise"
+        : "none";
       let edgeBanding: EdgeBandingConfig = {
         top: false,
         bottom: false,
@@ -316,7 +341,11 @@ export function generateBOMForProject(
         edgeBanding = { top: true, bottom: true, left: true, right: true, thickness: 2 };
       } else if (comp.role.includes("door")) {
         mat = materialsMap.get(comp.materialId) || doorMat;
-        grain = mat.hasGrain ? "lengthwise" : "none";
+        const doorGrain =
+          module.componentGrainOverrides?.[comp.id] ||
+          module.componentGrainOverrides?.__doors__ ||
+          module.componentGrainOverrides?.__all__;
+        grain = mat.hasGrain ? (doorGrain === "crosswise" ? "crosswise" : "lengthwise") : "none";
         length = comp.dimensions.height;
         width = comp.dimensions.width;
         edgeBanding = { top: true, bottom: true, left: true, right: true, thickness: 1 };
@@ -400,7 +429,12 @@ export function generateBOMForProject(
         }
       } else if (comp.role === "drawer_front") {
         mat = materialsMap.get(comp.materialId) || doorMat;
-        grain = mat.hasGrain ? "lengthwise" : "none";
+        const drwGrain =
+          module.componentGrainOverrides?.[comp.id] ||
+          module.componentGrainOverrides?.__drawers__ ||
+          module.componentGrainOverrides?.__doors__ ||
+          module.componentGrainOverrides?.__all__;
+        grain = mat.hasGrain ? (drwGrain === "crosswise" ? "crosswise" : "lengthwise") : "none";
         length = comp.dimensions.width;
         width = comp.dimensions.height;
         edgeBanding = { top: true, bottom: true, left: true, right: true, thickness: 1 };
@@ -555,11 +589,20 @@ export function generateBOMForProject(
         } else if (fit.type === "tie_rack") {
           addHardware(
             "HW_FITTING_TIE",
-            "Yandan Çıkışlı Kravatlık & Kemerlik",
+            "Häfele Yandan Çıkışlı Teleskopik Kravatlık",
             "special",
             1,
             "adet",
             19.5
+          );
+        } else if (fit.type === "belt_rack") {
+          addHardware(
+            "HW_FITTING_BELT",
+            "Häfele Teleskopik Kemerlik Mekanizması",
+            "special",
+            1,
+            "adet",
+            21.5
           );
         } else if (
           fit.type === "led_profile" ||
@@ -581,9 +624,10 @@ export function generateBOMForProject(
               : reqWatts > 36
               ? { sku: "833.95.002", name: "Häfele Loox5 24V / 60W LED Sürücü Trafo", price: 34.0 }
               : { sku: "833.95.001", name: "Häfele Loox5 24V / 36W LED Sürücü Trafo", price: 24.0 };
+          const ledKelvin = module.carcass.ledColorTempK || 3000;
           addHardware(
             "833.74.700",
-            "Häfele Loox5 Alüminyum Gömme LED Profil + 3000K Şerit LED",
+            `Häfele Loox5 Alüminyum Gömme LED Profil + ${ledKelvin}K Şerit LED`,
             "special",
             Math.max(1, ledMeters),
             "metre",
@@ -670,10 +714,15 @@ export function generateBOMForProject(
   const matUsageMap = new Map<string, { materialName: string; netAreaM2: number }>();
   let totalPanelAreaM2 = 0;
   let totalEdgeBandMeters = 0;
+  let totalPhysicalWeightKg = 0;
 
   cutList.forEach((piece) => {
     totalPanelAreaM2 += piece.areaM2;
     totalEdgeBandMeters += piece.edgeBandMeters;
+    const pieceMat = materialsMap.get(piece.materialId);
+    const density = pieceMat?.densityKgPerM3 || 680;
+    const thickM = (piece.thicknessMm || 18) / 1000;
+    totalPhysicalWeightKg += piece.areaM2 * thickM * density;
 
     const cur = matUsageMap.get(piece.materialId) || {
       materialName: piece.materialName,
@@ -766,6 +815,7 @@ export function generateBOMForProject(
       totalEdgeBandMeters: Number(totalEdgeBandMeters.toFixed(2)),
       totalHardwareCount,
       totalDrillingHolesCount,
+      totalWeightKg: Math.max(12, Math.round(totalPhysicalWeightKg + totalHardwareCount * 0.22)),
     },
     cutList,
     hardwareList,

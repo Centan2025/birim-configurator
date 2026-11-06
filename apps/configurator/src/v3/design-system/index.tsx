@@ -10,18 +10,18 @@ import { Check, ChevronDown, AlertCircle, Info, Sparkles } from "lucide-react";
 // ---------------------------------------------------------------------------
 export const V3_TOKENS = {
   colors: {
-    canvasWarm: "#F5F3EE",
+    canvasWarm: "#F8FAFC",
     surfacePrimary: "#FFFFFF",
-    surfaceSecondary: "#FAF9F6",
-    surfaceMuted: "#F2EFE9",
-    borderSubtle: "#E5E0D5",
+    surfaceSecondary: "#FFFFFF",
+    surfaceMuted: "#F1F5F9",
+    borderSubtle: "#E2E8F0",
     borderFocus: "#2C2A29",
     textPrimary: "#1C1917",
     textSecondary: "#44403C",
     textMuted: "#78716C",
     accentPrimary: "#2C2A29",
     accentHover: "#1C1917",
-    accentSoft: "#F5F2EB",
+    accentSoft: "#F8FAFC",
     statusSuccess: "#2E6F40",
     statusWarning: "#8C5A2B",
     statusError: "#9E2A2B",
@@ -83,7 +83,7 @@ export const V3BrandBadge: React.FC<{ subtitle?: string; dark?: boolean }> = ({
         className={`text-[10px] px-2 py-0.5 rounded-md font-mono font-bold border ${
           dark
             ? "bg-stone-800 text-stone-200 border-stone-700"
-            : "bg-[#F2EFE9] text-[#44403C] border-[#DED8CC]"
+            : "bg-[#F1F5F9] text-[#44403C] border-[#CBD5E1]"
         }`}
       >
         {subtitle}
@@ -109,7 +109,7 @@ export const V3PrototypeSwitcher: React.FC<{ dark?: boolean }> = ({ dark = false
       className={`inline-flex items-center p-1 rounded-xl border text-xs ${
         dark
           ? "bg-stone-900/80 border-stone-700/80 text-stone-300 backdrop-blur-md"
-          : "bg-[#F2EFE9] border-[#E5E0D5] text-[#44403C]"
+          : "bg-[#F1F5F9] border-[#E2E8F0] text-[#44403C]"
       }`}
     >
       {routes.map((r) => {
@@ -120,7 +120,7 @@ export const V3PrototypeSwitcher: React.FC<{ dark?: boolean }> = ({ dark = false
             href={r.href}
             className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 ${
               active
-                ? "bg-[#E8E2D5] text-[#1C1917] border border-[#BFB5A2] shadow-xs"
+                ? "bg-[#EEF3F8] text-[#1C1917] border border-[#CBD5E1] shadow-xs"
                 : dark
                 ? "text-stone-300 hover:text-white"
                 : "text-[#57534E] hover:text-[#1C1917]"
@@ -159,16 +159,16 @@ export const V3Button: React.FC<V3ButtonProps> = ({
       : "min-h-[36px] px-3.5 py-1.5 text-xs font-bold rounded-xl";
 
   const variantCls = active
-    ? "bg-[#E8E2D5] text-[#1C1917] border border-[#BFB5A2] shadow-xs"
+    ? "bg-[#EEF3F8] text-[#1C1917] border border-[#CBD5E1] shadow-xs"
     : variant === "primary"
-    ? "bg-[#E8E2D5] hover:bg-[#DDD5C5] text-[#1C1917] border border-[#BFB5A2] shadow-xs"
+    ? "bg-[#EEF3F8] hover:bg-[#E4ECF4] text-[#1C1917] border border-[#CBD5E1] shadow-xs"
     : variant === "outline"
-    ? "bg-white hover:bg-[#F5F2EB] text-[#1C1917] border border-[#DED8CC] shadow-2xs"
+    ? "bg-white hover:bg-[#F8FAFC] text-[#1C1917] border border-[#CBD5E1] shadow-2xs"
     : variant === "danger"
     ? "bg-[#FDF2F2] hover:bg-[#FCE4E4] text-[#9E2A2B] border border-[#F2C6C6]"
     : variant === "ghost"
     ? "bg-transparent hover:bg-[#EBE6DC] text-[#44403C]"
-    : "bg-[#F2EFE9] hover:bg-[#E8E3D9] text-[#1C1917] border border-[#DED8CC]";
+    : "bg-[#F1F5F9] hover:bg-[#E8E3D9] text-[#1C1917] border border-[#CBD5E1]";
 
   return (
     <button
@@ -209,7 +209,7 @@ export const V3DimensionControl: React.FC<V3DimensionControlProps> = ({
   const clamp = (v: number) => Math.min(max, Math.max(min, v));
 
   return (
-    <div className="p-2.5 rounded-xl bg-[#FAF9F6] border border-[#E5E0D5] space-y-2">
+    <div className="p-2.5 rounded-xl bg-[#FFFFFF] border border-[#E2E8F0] space-y-2">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <span className="w-6 h-6 rounded-lg bg-[#EBE6DC] border border-[#D6CFC2] text-[#2C2A29] font-mono text-xs font-extrabold flex items-center justify-center">
@@ -223,7 +223,7 @@ export const V3DimensionControl: React.FC<V3DimensionControlProps> = ({
             type="button"
             data-testid={`${testIdPrefix}-minus`}
             onClick={() => onChange(clamp(value - step))}
-            className="w-7 h-7 rounded-lg bg-white hover:bg-[#F2EFE9] border border-[#DED8CC] text-[#1C1917] font-extrabold text-sm flex items-center justify-center transition cursor-pointer"
+            className="w-7 h-7 rounded-lg bg-white hover:bg-[#F1F5F9] border border-[#CBD5E1] text-[#1C1917] font-extrabold text-sm flex items-center justify-center transition cursor-pointer"
             title={`-${step} mm`}
           >
             −
@@ -241,13 +241,13 @@ export const V3DimensionControl: React.FC<V3DimensionControlProps> = ({
                 onChange(clamp(parsed));
               }
             }}
-            className="w-18 h-7 px-1.5 bg-white border border-[#DED8CC] rounded-lg text-center font-mono text-xs font-extrabold text-[#1C1917] focus:outline-none focus:border-[#2C2A29]"
+            className="w-18 h-7 px-1.5 bg-white border border-[#CBD5E1] rounded-lg text-center font-mono text-xs font-extrabold text-[#1C1917] focus:outline-none focus:border-[#2C2A29]"
           />
           <button
             type="button"
             data-testid={`${testIdPrefix}-plus`}
             onClick={() => onChange(clamp(value + step))}
-            className="w-7 h-7 rounded-lg bg-white hover:bg-[#F2EFE9] border border-[#DED8CC] text-[#1C1917] font-extrabold text-sm flex items-center justify-center transition cursor-pointer"
+            className="w-7 h-7 rounded-lg bg-white hover:bg-[#F1F5F9] border border-[#CBD5E1] text-[#1C1917] font-extrabold text-sm flex items-center justify-center transition cursor-pointer"
             title={`+${step} mm`}
           >
             +
@@ -267,8 +267,8 @@ export const V3DimensionControl: React.FC<V3DimensionControlProps> = ({
               onClick={() => onChange(p)}
               className={`flex-1 min-w-[44px] py-1 px-1.5 rounded-lg font-mono text-[10px] font-bold transition cursor-pointer ${
                 isSelected
-                  ? "bg-[#E8E2D5] text-[#1C1917] border border-[#BFB5A2]"
-                  : "bg-white hover:bg-[#F2EFE9] text-[#57534E] border border-[#E5E0D5]"
+                  ? "bg-[#EEF3F8] text-[#1C1917] border border-[#CBD5E1]"
+                  : "bg-white hover:bg-[#F1F5F9] text-[#57534E] border border-[#E2E8F0]"
               }`}
             >
               {p}
@@ -285,7 +285,7 @@ export const V3DimensionControl: React.FC<V3DimensionControlProps> = ({
         step={50}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full accent-[#8C7A6B] h-1.5 bg-[#E5E0D5] rounded-lg cursor-pointer"
+        className="w-full accent-[#8C7A6B] h-1.5 bg-[#E2E8F0] rounded-lg cursor-pointer"
       />
     </div>
   );
@@ -324,8 +324,8 @@ export const V3MaterialSwatch: React.FC<V3MaterialSwatchProps> = ({
         onClick={onSelect}
         className={`flex items-center gap-2 p-2 rounded-xl border text-left transition cursor-pointer ${
           selected
-            ? "bg-[#F5F2EB] border-[#2C2A29] text-[#1C1917] ring-1 ring-[#2C2A29]"
-            : "bg-white hover:bg-[#FAF9F6] border-[#E5E0D5] text-[#44403C]"
+            ? "bg-[#F8FAFC] border-[#2C2A29] text-[#1C1917] ring-1 ring-[#2C2A29]"
+            : "bg-white hover:bg-[#FFFFFF] border-[#E2E8F0] text-[#44403C]"
         }`}
       >
         <span
@@ -343,7 +343,7 @@ export const V3MaterialSwatch: React.FC<V3MaterialSwatchProps> = ({
           )}
         </span>
         <div className="min-w-0 flex-1">
-          <div className="text-xs font-bold text-[#1C1917] truncate">{name}</div>
+          <div className="text-[13px] font-bold text-[#111827] truncate">{name}</div>
           <div className="text-[10px] font-mono text-[#78716C]">€{costPerM2}/m²</div>
         </div>
       </button>
@@ -357,8 +357,8 @@ export const V3MaterialSwatch: React.FC<V3MaterialSwatchProps> = ({
       onClick={onSelect}
       className={`w-full flex items-center justify-between p-2 rounded-xl border text-left transition cursor-pointer ${
         selected
-          ? "bg-[#F5F2EB] border-[#2C2A29] text-[#1C1917] ring-1 ring-[#2C2A29] shadow-2xs"
-          : "bg-white hover:bg-[#FAF9F6] border-[#E5E0D5] text-[#44403C]"
+          ? "bg-[#F8FAFC] border-[#2C2A29] text-[#1C1917] ring-1 ring-[#2C2A29] shadow-2xs"
+          : "bg-white hover:bg-[#FFFFFF] border-[#E2E8F0] text-[#44403C]"
       }`}
     >
       <div className="flex items-center gap-2.5 min-w-0">
@@ -377,8 +377,8 @@ export const V3MaterialSwatch: React.FC<V3MaterialSwatchProps> = ({
           )}
         </span>
         <div className="truncate">
-          <div className="text-xs font-bold text-[#1C1917] truncate">{name}</div>
-          <div className="text-[10px] text-[#78716C] truncate">
+          <div className="text-[13px] font-bold text-[#111827] truncate">{name}</div>
+          <div className="text-xs text-[#475569] truncate">
             {category || "18mm Kalibrasyonlu Plaka"}
           </div>
         </div>
@@ -408,18 +408,18 @@ export const V3CollapsibleSection: React.FC<V3SectionProps> = ({
 }) => {
   const [open, setOpen] = React.useState(defaultOpen);
   return (
-    <div className="border border-[#E5E0D5] rounded-2xl bg-white overflow-hidden shadow-2xs transition-all">
+    <div className="border border-[#E2E8F0] rounded-2xl bg-white overflow-hidden shadow-2xs transition-all">
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="w-full px-3.5 py-2.5 flex items-center justify-between bg-[#F7F5F0] hover:bg-[#EFECE4] transition cursor-pointer"
+        className="w-full px-3.5 py-2.5 flex items-center justify-between bg-[#F8FAFC] hover:bg-[#EFECE4] transition cursor-pointer"
       >
-        <span className="text-xs font-extrabold tracking-tight text-[#1C1917]">
+        <span className="text-sm font-bold tracking-tight text-[#111827]">
           {title}
         </span>
         <div className="flex items-center gap-2">
           {badge && (
-            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-white text-[#44403C] border border-[#DED8CC]">
+            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-white text-[#44403C] border border-[#CBD5E1]">
               {badge}
             </span>
           )}
@@ -436,7 +436,7 @@ export const V3CollapsibleSection: React.FC<V3SectionProps> = ({
         }`}
       >
         <div className="overflow-hidden">
-          <div className="p-3 space-y-2.5 border-t border-[#E5E0D5]">{children}</div>
+          <div className="p-3 space-y-2.5 border-t border-[#E2E8F0]">{children}</div>
         </div>
       </div>
     </div>
@@ -467,7 +467,7 @@ export const V3PremiumDropdown: React.FC<{
   return (
     <div
       data-testid={testId ? `${testId}-wrapper` : undefined}
-      className="rounded-xl border border-[#DED8CC] bg-white overflow-hidden shadow-2xs transition-all"
+      className="rounded-xl border border-[#CBD5E1] bg-white overflow-hidden shadow-2xs transition-all"
     >
       {/* Hidden native select for automated test compatibility */}
       {testId && (
@@ -478,8 +478,8 @@ export const V3PremiumDropdown: React.FC<{
           onChange={(e) => onChange(e.target.value)}
           className="sr-only"
         >
-          {options.map((o) => (
-            <option key={o.value} value={o.value}>
+          {options.map((o, oIdx) => (
+            <option key={`${o.value}_${oIdx}`} value={o.value}>
               {o.label}
             </option>
           ))}
@@ -488,7 +488,7 @@ export const V3PremiumDropdown: React.FC<{
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}
-        className="w-full px-3 py-2 flex items-center justify-between gap-2 bg-[#FAF9F6] hover:bg-[#F2EFE9] text-left transition cursor-pointer"
+        className="w-full px-3 py-2 flex items-center justify-between gap-2 bg-[#FFFFFF] hover:bg-[#F1F5F9] text-left transition cursor-pointer"
       >
         <div className="flex items-center gap-2 min-w-0">
           {selectedOpt?.icon && (
@@ -496,7 +496,7 @@ export const V3PremiumDropdown: React.FC<{
           )}
           <div className="min-w-0">
             {label && (
-              <span className="text-[9px] font-bold uppercase tracking-wider text-[#78716C] block leading-none mb-0.5">
+              <span className="text-xs font-semibold text-[#475569] block leading-tight mb-0.5">
                 {label}
               </span>
             )}
@@ -526,12 +526,12 @@ export const V3PremiumDropdown: React.FC<{
         }`}
       >
         <div className="overflow-hidden">
-          <div className="p-1.5 space-y-1 border-t border-[#E5E0D5] bg-white max-h-60 overflow-y-auto">
-            {options.map((opt) => {
+          <div className="p-1.5 space-y-1 border-t border-[#E2E8F0] bg-white max-h-60 overflow-y-auto">
+            {options.map((opt, optIdx) => {
               const isSel = opt.value === value;
               return (
                 <button
-                  key={opt.value}
+                  key={`${opt.value}_${optIdx}`}
                   type="button"
                   onClick={() => {
                     onChange(opt.value);
@@ -539,8 +539,8 @@ export const V3PremiumDropdown: React.FC<{
                   }}
                   className={`w-full px-2.5 py-1.5 rounded-lg text-left flex items-center justify-between gap-2 transition cursor-pointer ${
                     isSel
-                      ? "bg-[#E8E2D5] text-[#1C1917] border border-[#BFB5A2]"
-                      : "hover:bg-[#F5F2EB] text-[#1C1917]"
+                      ? "bg-[#EEF3F8] text-[#1C1917] border border-[#CBD5E1]"
+                      : "hover:bg-[#F8FAFC] text-[#1C1917]"
                   }`}
                 >
                   <div className="flex items-center gap-2 min-w-0">
@@ -564,7 +564,7 @@ export const V3PremiumDropdown: React.FC<{
                         className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
                           isSel
                             ? "bg-white/20 text-white"
-                            : "bg-[#F2EFE9] text-[#57534E]"
+                            : "bg-[#F1F5F9] text-[#57534E]"
                         }`}
                       >
                         {opt.badge}
@@ -597,7 +597,7 @@ export const V3AlertBanner: React.FC<{
       ? "bg-[#FAF6F0] border-[#E5D5C0] text-[#5C3A1E]"
       : type === "success"
       ? "bg-[#F2F7F4] border-[#C5DDD0] text-[#1E462E]"
-      : "bg-[#F5F3EE] border-[#DED8CC] text-[#2C2A29]";
+      : "bg-[#F8FAFC] border-[#CBD5E1] text-[#2C2A29]";
 
   return (
     <div className={`p-3 rounded-xl border text-xs space-y-2 ${styles}`}>
@@ -618,7 +618,7 @@ export const V3AlertBanner: React.FC<{
         <button
           type="button"
           onClick={onAction}
-          className="w-full py-1.5 px-3 rounded-lg bg-[#E8E2D5] hover:bg-[#DDD5C5] text-[#1C1917] border border-[#BFB5A2] font-bold text-xs transition cursor-pointer"
+          className="w-full py-1.5 px-3 rounded-lg bg-[#EEF3F8] hover:bg-[#E4ECF4] text-[#1C1917] border border-[#CBD5E1] font-bold text-xs transition cursor-pointer"
         >
           {actionLabel}
         </button>

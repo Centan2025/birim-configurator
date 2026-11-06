@@ -80,6 +80,7 @@ export interface ManufacturingBOM {
     totalEdgeBandMeters: number;
     totalHardwareCount: number;
     totalDrillingHolesCount: number;
+    totalWeightKg?: number;
   };
   cutList: CutPiece[];
   hardwareList: HardwareBOMItem[];

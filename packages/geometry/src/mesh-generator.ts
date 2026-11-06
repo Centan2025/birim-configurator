@@ -105,16 +105,23 @@ export function generateModuleGeometry(
     Boolean(module.templateId?.startsWith("tpl_sc_")) ||
     (Boolean(module.isCorner) && height >= 1400);
 
+  const isDiagonalCorner =
+    Boolean(module.isCorner) &&
+    (tplLowerCheck.includes("diagonal") ||
+      nameLowerCheck.includes("diyagonal") ||
+      nameLowerCheck.includes("45°")) &&
+    width >= 620 &&
+    depth >= 620;
+
   const isTrueLCorner =
     Boolean(module.isCorner) &&
+    !isDiagonalCorner &&
     !tplLowerCheck.includes("blind") &&
-    !tplLowerCheck.includes("diagonal") &&
     !tplLowerCheck.includes("outer_corner") &&
     !nameLowerCheck.includes("kör") &&
-    !nameLowerCheck.includes("diyagonal") &&
     !nameLowerCheck.includes("dış köşe") &&
-    width >= 550 &&
-    depth >= 550;
+    width >= 620 &&
+    depth >= 620;
 
   if (isTrueLCorner) {
     const isWallL = module.category === "kitchen_wall" || module.moduleFamilyId === "fam_kitchen_wall";
@@ -407,27 +414,28 @@ export function generateModuleGeometry(
       };
       components.push(leaf1);
 
-      // Second 90° meeting leaf along Z return wall (at x = wingD, spanning z = wingD + T .. depth - T)
-      const openShiftZ = Math.round(Math.sin(rad * 0.85) * leaf2W * 0.45);
-      const openShiftX = Math.round(Math.sin(rad * 0.85) * leaf2W * 0.75);
-      components.push({
+      // Second 90° meeting leaf along Z return wall (hinged at front return upright z = wingD + T + gap + leaf2W)
+      const returnPivotX = wingD + T;
+      const returnPivotZ = wingD + T + doorPerimeterGap + leaf2W;
+      const leaf2: ComponentGeometry = {
         id: `${firstBay.door.id}_lcorner_return`,
-        role: "door_left",
+        role: "door_right",
         label: "90° L-Köşe Dönüş Kanadı (Z Açılım)",
         bayIndex: 0,
-        dimensions: { width: T, height: doorH, depth: leaf2W },
+        dimensions: { width: leaf2W, height: doorH, depth: T },
         position: {
-          x: wingD + openShiftX,
+          x: returnPivotX,
           y: doorY,
-          z: wingD + T + doorPerimeterGap - openShiftZ,
+          z: returnPivotZ - T,
         },
-        rotation: [0, -rad * 0.85, 0],
-        pivot: { x: wingD + T, y: doorY, z: wingD + T + doorPerimeterGap + leaf2W },
+        rotation: [0, Math.PI / 2 - rad * 0.92, 0],
+        pivot: { x: returnPivotX, y: doorY, z: returnPivotZ },
         materialId: doorMatId,
         isFrontFacing: true,
         isManufacturablePanel: true,
-        thicknessAxis: "x",
-      });
+        thicknessAxis: "z",
+      };
+      components.push(leaf2);
 
       const hCat = firstBay.door.handleCategory || "bar_handle";
       components.push(
@@ -435,6 +443,23 @@ export function generateModuleGeometry(
           moduleCategory: module.category,
           moduleElevationY: module.position.y,
           moduleHeight: module.dimensions.height,
+          handleOrientation: firstBay.door.handleOrientation,
+          handleOffsetY: firstBay.door.handleOffsetY,
+          handleEdgeInsetX: firstBay.door.handleEdgeInsetX,
+          handleLengthMm: firstBay.door.handleLengthMm,
+          handleMaterialId: firstBay.door.handleMaterialId,
+          handleProfileId: firstBay.door.handleProfileId,
+        }),
+        ...generateHandleGeometry(leaf2, hCat, {
+          moduleCategory: module.category,
+          moduleElevationY: module.position.y,
+          moduleHeight: module.dimensions.height,
+          handleOrientation: firstBay.door.handleOrientation,
+          handleOffsetY: firstBay.door.handleOffsetY,
+          handleEdgeInsetX: firstBay.door.handleEdgeInsetX,
+          handleLengthMm: firstBay.door.handleLengthMm,
+          handleMaterialId: firstBay.door.handleMaterialId,
+          handleProfileId: firstBay.door.handleProfileId,
         })
       );
     }
@@ -457,9 +482,238 @@ export function generateModuleGeometry(
     return lResult;
   }
 
+  if (isDiagonalCorner) {
+    const wingD = isWardrobe
+      ? Math.min(600, Math.round(Math.min(width, depth) * 0.58))
+      : Math.min(580, Math.round(Math.min(width, depth) * 0.64));
+    const returnSpanZ = Math.max(180, depth - wingD);
+    const sideY = isWardrobe ? 0 : plinthHeight;
+    const sideH = isWardrobe ? height : height - plinthHeight;
+    const netH = Math.max(120, height - plinthHeight - 2 * T);
+    const diagDx = Math.max(120, width - wingD);
+    const diagDz = Math.max(120, depth - wingD);
+    const diagLen = Math.round(Math.hypot(diagDx, diagDz));
+    const diagAngle = Math.atan2(diagDz, diagDx);
+
+    if (plinthHeight > 0) {
+      components.push({
+        id: `${module.id}_diag_plinth`,
+        role: "plinth",
+        label: "45° Diyagonal Köşe Ön Baza",
+        dimensions: { width: Math.max(120, diagLen - 24), height: plinthHeight, depth: T },
+        position: { x: wingD + 12, y: 0, z: depth - 24 },
+        rotation: [0, diagAngle, 0],
+        pivot: { x: wingD + 12, y: 0, z: depth - 24 },
+        materialId: doorMaterialId || bodyMaterialId,
+        isManufacturablePanel: true,
+        thicknessAxis: "z",
+      });
+    }
+
+    components.push(
+      {
+        id: `${module.id}_diag_side_left_back`,
+        role: "carcass_side_left",
+        label: "Diyagonal Köşe Sol Arka Dikme",
+        dimensions: { width: T, height: sideH, depth },
+        position: { x: 0, y: sideY, z: 0 },
+        materialId: bodyMaterialId,
+        isManufacturablePanel: true,
+        thicknessAxis: "x",
+      },
+      {
+        id: `${module.id}_diag_side_right`,
+        role: "carcass_side_right",
+        label: "Diyagonal Köşe Sağ Yan Dikme",
+        dimensions: { width: T, height: sideH, depth: wingD },
+        position: { x: width - T, y: sideY, z: 0 },
+        materialId: bodyMaterialId,
+        isManufacturablePanel: true,
+        thicknessAxis: "x",
+      },
+      {
+        id: `${module.id}_diag_side_front_return`,
+        role: "carcass_side_right",
+        label: "Diyagonal Köşe Ön Dönüş Dikmesi",
+        dimensions: { width: wingD - T, height: sideH, depth: T },
+        position: { x: T, y: sideY, z: depth - T },
+        materialId: bodyMaterialId,
+        isManufacturablePanel: true,
+        thicknessAxis: "z",
+      },
+      {
+        id: `${module.id}_diag_bottom_main`,
+        role: "carcass_bottom",
+        label: "Diyagonal Köşe Alt Tabla (Ana)",
+        dimensions: { width: width - 2 * T, height: T, depth: wingD },
+        position: { x: T, y: plinthHeight, z: 0 },
+        materialId: bodyMaterialId,
+        isManufacturablePanel: true,
+        thicknessAxis: "y",
+      },
+      {
+        id: `${module.id}_diag_bottom_return`,
+        role: "carcass_bottom",
+        label: "Diyagonal Köşe Alt Tabla (Dönüş)",
+        dimensions: { width: wingD - T, height: T, depth: returnSpanZ - T },
+        position: { x: T, y: plinthHeight, z: wingD },
+        materialId: bodyMaterialId,
+        isManufacturablePanel: true,
+        thicknessAxis: "y",
+      },
+      {
+        id: `${module.id}_diag_top_main`,
+        role: "carcass_top",
+        label: "Diyagonal Köşe Üst Tabla (Ana)",
+        dimensions: { width: width - 2 * T, height: T, depth: wingD },
+        position: { x: T, y: height - T, z: 0 },
+        materialId: bodyMaterialId,
+        isManufacturablePanel: true,
+        thicknessAxis: "y",
+      },
+      {
+        id: `${module.id}_diag_top_return`,
+        role: "carcass_top",
+        label: "Diyagonal Köşe Üst Tabla (Dönüş)",
+        dimensions: { width: wingD - T, height: T, depth: returnSpanZ - T },
+        position: { x: T, y: height - T, z: wingD },
+        materialId: bodyMaterialId,
+        isManufacturablePanel: true,
+        thicknessAxis: "y",
+      },
+      {
+        id: `${module.id}_diag_back_main`,
+        role: "carcass_back",
+        label: "Diyagonal Köşe Arkalık",
+        dimensions: { width: width - 2 * T, height: netH, depth: T_back },
+        position: { x: T, y: plinthHeight + T, z: 8 },
+        materialId: bodyMaterialId,
+        isManufacturablePanel: true,
+        thicknessAxis: "z",
+      }
+    );
+
+    const firstBay = module.bays[0];
+    if (firstBay) {
+      firstBay.shelves.forEach((sh, sIdx) => {
+        const sy = plinthHeight + T + sh.elevationY;
+        components.push(
+          {
+            id: sh.id || `${module.id}_diag_shelf_main_${sIdx}`,
+            role: "shelf",
+            label: `45° Köşe Raf #${sIdx + 1} (Ana)`,
+            bayIndex: 0,
+            dimensions: { width: width - 2 * T - 4, height: T, depth: wingD - 20 },
+            position: { x: T + 2, y: sy, z: 18 },
+            materialId: bodyMaterialId,
+            isManufacturablePanel: true,
+            thicknessAxis: "y",
+          },
+          {
+            id: `${sh.id || module.id}_diag_shelf_ret_${sIdx}`,
+            role: "shelf",
+            label: `45° Köşe Raf #${sIdx + 1} (Dönüş)`,
+            bayIndex: 0,
+            dimensions: { width: wingD - T - 20, height: T, depth: returnSpanZ - T - 4 },
+            position: { x: T + 18, y: sy, z: wingD - 2 },
+            materialId: bodyMaterialId,
+            isManufacturablePanel: true,
+            thicknessAxis: "y",
+          }
+        );
+      });
+    }
+
+    if (!isWardrobe) {
+      components.push(
+        {
+          id: `${module.id}_diag_countertop_main`,
+          role: "countertop",
+          label: "Diyagonal Köşe Kuvars Tezgâh (Ana Kol 38mm)",
+          dimensions: { width, height: 38, depth: wingD + 20 },
+          position: { x: 0, y: height, z: 0 },
+          materialId: module.carcass.countertopMaterialId || "mat_neolith_calacatta_luxe",
+          isFrontFacing: true,
+          isManufacturablePanel: false,
+        },
+        {
+          id: `${module.id}_diag_countertop_return`,
+          role: "countertop",
+          label: "Diyagonal Köşe Kuvars Tezgâh (Dönüş Kolu 38mm)",
+          dimensions: { width: wingD + 20, height: 38, depth: returnSpanZ },
+          position: { x: 0, y: height, z: wingD },
+          materialId: module.carcass.countertopMaterialId || "mat_neolith_calacatta_luxe",
+          isFrontFacing: true,
+          isManufacturablePanel: false,
+        }
+      );
+    }
+
+    if (!module.isOpenFront && firstBay?.door && firstBay.door.type !== "open" && firstBay.door.doorSystemId !== "open") {
+      const doorY = plinthHeight + doorPerimeterGap;
+      const doorH = Math.max(120, height - plinthHeight - 2 * doorPerimeterGap);
+      const leafW = Math.max(180, diagLen - doorPerimeterGap * 2);
+      const rad = (doorOpenAngleDeg * Math.PI) / 180;
+      const doorMatId = firstBay.door.doorMaterialId || doorMaterialId;
+      const diagDoor: ComponentGeometry = {
+        id: `${firstBay.door.id}_diag45_door`,
+        role: "door_left",
+        label: "45° Diyagonal Köşe Kapak (+45° Blum Açılı Menteşeli)",
+        bayIndex: 0,
+        dimensions: { width: leafW, height: doorH, depth: T },
+        position: { x: wingD, y: doorY, z: depth - T },
+        rotation: [0, diagAngle - rad, 0],
+        pivot: { x: wingD, y: doorY, z: depth },
+        materialId: doorMatId,
+        isFrontFacing: true,
+        isManufacturablePanel: true,
+        thicknessAxis: "z",
+      };
+      components.push(diagDoor);
+    }
+
+    if (module.componentMaterialOverrides) {
+      components.forEach((c) => {
+        const ov = module.componentMaterialOverrides?.[c.id];
+        if (ov) c.materialId = ov;
+      });
+    }
+    const diagResult: ModuleGeometryBreakdown = {
+      moduleId: module.id,
+      overall: module.dimensions,
+      components,
+      bayWidths: [width - 2 * T],
+      netInnerHeight: netH,
+      netInnerDepth: wingD - 20,
+    };
+    moduleGeometryCache.set(cacheKey, diagResult);
+    return diagResult;
+  }
+
   // 1. Plinth (Baza) & Visible Adjustable Plastic Kitchen Legs
+  const showLegs = module.carcass.hasAdjustableLegs !== false;
   if (plinthHeight > 0) {
     if (isWardrobe) {
+      if (showLegs) {
+        const legXs = [T + 36, width - T - 36];
+        if (width > 1100) legXs.push(Math.round(width / 2));
+        const legZs = [54, Math.max(90, depth - 82)];
+        let wLegIdx = 1;
+        for (const lx of legXs) {
+          for (const lz of legZs) {
+            components.push({
+              id: `${module.id}_plastic_leg_${wLegIdx}`,
+              role: "special_fitting",
+              label: `Ayarlı Dolap Baza Ayağı #${wLegIdx} (H:${plinthHeight}mm)`,
+              dimensions: { width: 48, height: plinthHeight, depth: 48 },
+              position: { x: lx - 24, y: explodeY > 0 ? -explodeY : 0, z: lz - 24 },
+              materialId: "mat_anodized_metal",
+              isManufacturablePanel: false,
+            });
+            wLegIdx++;
+          }
+        }
+      }
       // In wardrobes, side panels extend to floor so plinth fits between side panels (x = T, width = innerSpanW)
       components.push({
         id: `${module.id}_plinth_front`,
@@ -475,7 +729,7 @@ export function generateModuleGeometry(
           y: explodeY > 0 ? -explodeY : 0,
           z: depth - T - 20,
         },
-        materialId: bodyMaterialId,
+        materialId: module.carcass.plinthMaterialId || bodyMaterialId,
         isManufacturablePanel: true,
         thicknessAxis: "z",
       });
@@ -488,7 +742,7 @@ export function generateModuleGeometry(
       // 1. Adjustable Black ABS Plastic Legs sit at z = depth - 82mm (strictly BEHIND the front plinth board!)
       const legZs = [54, Math.max(90, depth - 82)];
       let legCounter = 1;
-      for (const lx of legXs) {
+      for (const lx of (showLegs ? legXs : [])) {
         for (const lz of legZs) {
           components.push({
             id: `${module.id}_plastic_leg_${legCounter}`,
@@ -852,6 +1106,7 @@ export function generateModuleGeometry(
 
     // Shelves
     bay.shelves.forEach((shelf, sIdx) => {
+      if (shelf.isHidden) return;
       const shelfT = shelf.thickness || T;
       components.push({
         id: shelf.id || `${module.id}_bay_${bayIdx}_shelf_${sIdx}`,
@@ -890,13 +1145,14 @@ export function generateModuleGeometry(
 
     // Hanging Rails
     bay.hangingRails.forEach((rail, rIdx) => {
+      if (rail.isHidden) return;
       components.push({
         id: rail.id || `${module.id}_bay_${bayIdx}_rail_${rIdx}`,
         role: "hanging_rail",
         label: `Askı Borusu B${bayIdx + 1}-${rIdx + 1}`,
         bayIndex: bayIdx,
-        dimensions: { width: bayW, height: 25, depth: 15 },
-        position: { x: bayStartX, y: plinthHeight + T + rail.elevationY, z: depth / 2 },
+        dimensions: { width: bayW, height: 25, depth: 25 },
+        position: { x: bayStartX, y: plinthHeight + T + rail.elevationY, z: depth / 2 - 12 },
         materialId: "mat_metal_chrome",
         isManufacturablePanel: false,
       });
@@ -914,19 +1170,21 @@ export function generateModuleGeometry(
       waste_bin: "Häfele Raylı Çöp Sistemi [502.70.252]",
       spice_pullout: "Kesseböhmer Teleskopik Şişelik [545.61.211]",
       cutlery_tray: "Blum AMBIA-LINE Çatal-Kaşık [556.86.322]",
-      tie_rack: "Häfele Yandan Çıkışlı Kravatlık",
+      tie_rack: "Häfele Yandan Çıkışlı Kravatlık [807.95.410]",
+      belt_rack: "Häfele Teleskopik Kemerlik [807.95.420]",
       led_profile: "Häfele Loox5 Raf/Üst Gömme LED Kanal 3000K [833.74.700]",
       led_vertical_strip: "Häfele Loox5 Yan Dikme Boy LED Kanal 3000K [833.74.710]",
       led_rod_strip: "Häfele Loox5 Sensörlü LED Askı Borusu 3000K [833.72.810]",
     };
     bay.specialFittings?.forEach((fit, fIdx) => {
+      if (fit.isHidden) return;
       const baseId = fit.id || `${module.id}_bay_${bayIdx}_fit_${fIdx}`;
       const brandLabel = fittingBrandLabels[fit.type] || `Özel Donanım (${fit.type})`;
-      const fitW = Math.max(80, bayW - 20);
-      const fitD = Math.max(120, netInnerD - 40);
-      const fitX = bayStartX + 10;
+      const fitW = Math.max(80, bayW - 4);
+      const fitD = Math.max(120, netInnerD - 28);
+      const fitX = bayStartX + 2;
       const fitY = plinthHeight + T + fit.elevationY;
-      const fitZ = 30;
+      const fitZ = 24;
 
       const isLedFitting =
         fit.type === "led_profile" ||
@@ -942,17 +1200,19 @@ export function generateModuleGeometry(
           ? Math.max(20, Math.min(depth - 40, fit.depth || 75))
           : Math.max(8, Math.min(60, fit.depth || 18));
 
-      // Primary interactive component (for LED fittings, use a flush RECESSED 3000K warm emissive LED channel milled into the panel!)
+      // IMPORTANT: Only LED fittings use _recessed_led_main; non-LED accessories use _fitting_<type> so componentMesh renders their real 3D hardware!
       components.push({
-        id: `${baseId}_recessed_led_main`,
+        id: isLedFitting ? `${baseId}_recessed_led_main` : `${baseId}_fitting_${fit.type}`,
         role: "special_fitting",
-        label: `${brandLabel} B${bayIdx + 1} (${ledChanW}×${ledChanD}mm)`,
+        label: isLedFitting
+          ? `${brandLabel} B${bayIdx + 1} (${ledChanW}×${ledChanD}mm)`
+          : `${brandLabel} B${bayIdx + 1}`,
         bayIndex: bayIdx,
         dimensions: isLedFitting
           ? fit.type === "led_vertical_strip"
             ? { width: 4, height: Math.max(160, netInnerH - 24), depth: ledChanW }
             : { width: ledChanW, height: 4, depth: ledChanD }
-          : { width: fitW, height: fit.height, depth: fitD },
+          : { width: fitW, height: Math.max(65, fit.height || 85), depth: fitD },
         position: isLedFitting
           ? fit.type === "led_vertical_strip"
             ? { x: bayStartX - 1.5, y: plinthHeight + T + 12, z: Math.max(24, depth - ledChanD) }
@@ -1347,17 +1607,23 @@ export function generateModuleGeometry(
       const isInset = leafSpec.overlayType === "inset";
       const isHalfOverlay = leafSpec.overlayType === "half_overlay";
 
+      const isBlindCornerCab =
+        (module.templateId?.includes("blind") || lowerName.includes("kör köşe")) &&
+        module.bays.length === 1;
+      const blindPanelSpanW = isBlindCornerCab ? Math.max(120, Math.round(innerSpanW * 0.45)) : 0;
       const doorH = leafSpec.baseDoorHeightMm;
       const doorY = leafSpec.doorY0Mm;
       const doorZ = leafSpec.doorZ0Mm + explodeZ;
-      const fullDoorW = leafSpec.fullDoorSpanWidthMm;
-      const doorX0 = leafSpec.doorX0Mm;
+      const doorX0 = isBlindCornerCab ? T + blindPanelSpanW + 2 : leafSpec.doorX0Mm;
+      const fullDoorW = isBlindCornerCab
+        ? Math.max(140, width - doorX0 - 2)
+        : leafSpec.fullDoorSpanWidthMm;
       const T_door = leafSpec.leafThicknessMm;
       const rad = (doorOpenAngleDeg * Math.PI) / 180;
       const openRatio = Math.min(1, Math.max(0, doorOpenAngleDeg / 90));
       const doorMatId = bay.door.doorMaterialId || doorMaterialId;
 
-      const isHingedDoubleSplit =
+      const isHingedDoubleSplit = !isBlindCornerCab && (
         dSys === "hinged_double" ||
         dType === "double" ||
         dType === "inset_double" ||
@@ -1369,7 +1635,7 @@ export function generateModuleGeometry(
           dType !== "pocket" &&
           dSys !== "tambour_roller" &&
           dType !== "tambour" &&
-          leafSpec.leafCount === 2);
+          leafSpec.leafCount === 2));
 
       if (isHingedDoubleSplit) {
         const leafW = leafSpec.leafWidthMm;
@@ -1399,10 +1665,14 @@ export function generateModuleGeometry(
           isManufacturablePanel: true,
           thicknessAxis: "z",
         });
-      } else if (dSys === "sliding_top_hung" || dSys === "sliding_bottom_rolling" || dType === "sliding") {
-        const slideOffset = openRatio * (bayW * 0.75);
+      } else if (dSys === "sliding_top_hung" || dSys === "sliding_bottom_rolling" || dSys === "sliding_coplanar" || dType === "sliding" || dType === "sliding_bottom") {
         const doorW = leafSpec.leafWidthMm;
-        const trackZOffset = dSys === "sliding_bottom_rolling" ? -18 : bayIdx % 2 === 0 ? 0 : 25;
+        const isFrontTrack = bayIdx % 2 === 1 || module.bays.length === 1;
+        const slideDir = bayIdx >= module.bays.length - 1 ? -1 : 1;
+        const rawSlideOffset = isFrontTrack ? openRatio * (bayW * 0.78) * slideDir : 0;
+        const closedX = Math.max(0, Math.min(width - doorW, doorX0));
+        const clampedSlideX = Math.max(0, Math.min(width - doorW, closedX + rawSlideOffset));
+        const trackZOffset = dSys === "sliding_bottom_rolling" ? -18 : bayIdx % 2 === 0 ? 0 : 24;
         components.push({
           id: `${bay.door.id}_sliding`,
           role: "door_left",
@@ -1410,7 +1680,7 @@ export function generateModuleGeometry(
           bayIndex: bayIdx,
           dimensions: { width: doorW, height: doorH, depth: T_door },
           position: {
-            x: bayStartX - (bayIdx === 0 ? T : 0) + slideOffset,
+            x: clampedSlideX,
             y: doorY,
             z: doorZ + trackZOffset,
           },
@@ -1723,6 +1993,12 @@ export function generateModuleGeometry(
         moduleCategory: module.category,
         moduleElevationY: module.position.y,
         moduleHeight: module.dimensions.height,
+        handleOrientation: bay.door.handleOrientation,
+        handleOffsetY: bay.door.handleOffsetY,
+        handleEdgeInsetX: bay.door.handleEdgeInsetX,
+        handleLengthMm: bay.door.handleLengthMm,
+        handleMaterialId: bay.door.handleMaterialId,
+        handleProfileId: bay.door.handleProfileId,
       })
     );
 
@@ -1767,15 +2043,24 @@ export function generateModuleGeometry(
     }
   }
 
-  if (module.componentMaterialOverrides) {
-    components.forEach((c) => {
-      if (c.role === "plinth" && module.componentMaterialOverrides?.__plinth__) {
-        c.materialId = module.componentMaterialOverrides.__plinth__;
-      }
-      const ov = module.componentMaterialOverrides?.[c.id];
-      if (ov) c.materialId = ov;
-    });
-  }
+  components.forEach((c) => {
+    if (c.role === "plinth") {
+      const plMat =
+        module.carcass.plinthMaterialId || module.componentMaterialOverrides?.__plinth__;
+      if (plMat) c.materialId = plMat;
+    }
+    if (c.role === "door_left" || c.role === "door_right" || c.role === "drawer_front") {
+      const bayObj = typeof c.bayIndex === "number" ? module.bays[c.bayIndex] : module.bays[0];
+      const prof =
+        bayObj?.door?.crossSectionProfile || module.carcass.crossSectionProfile;
+      const poly =
+        bayObj?.door?.customCadPolygon || module.carcass.customCadPolygon;
+      if (prof) c.crossSectionProfile = prof;
+      if (poly) c.customCadPolygon = poly;
+    }
+    const ov = module.componentMaterialOverrides?.[c.id];
+    if (ov) c.materialId = ov;
+  });
   const result: ModuleGeometryBreakdown = {
     moduleId: module.id,
     overall: module.dimensions,

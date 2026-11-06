@@ -141,6 +141,7 @@ interface ConfiguratorState {
     thickness?: number;
     position: { x: number; y: number; z: number };
     rotationY: number;
+    wallType?: WallDefinition["wallType"];
   }) => string;
   updateWallSegment: (
     wallId: string,
@@ -151,6 +152,7 @@ interface ConfiguratorState {
       thickness?: number;
       position?: Partial<WallDefinition["position"]>;
       rotationY?: number;
+      wallType?: WallDefinition["wallType"];
     }
   ) => void;
   removeWallSegment: (wallId: string) => void;
@@ -877,7 +879,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
 
   removeActiveModule: () => {
     const { project, history, activeModuleIndex, batchStartProject } = get();
-    if (project.modules.length <= 1) return;
+    if (project.modules.length === 0) return;
     const updated = cloneProject(project);
     updated.modules.splice(activeModuleIndex, 1);
     const nextIdx = Math.min(activeModuleIndex, Math.max(0, updated.modules.length - 1));
@@ -1055,7 +1057,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     if (!v4Compat.canApproveProduction) {
       return {
         success: false,
-        message: `Üretim onayı verilemez (${v4Compat.overallStatus}): Doğrulanmamış veya uyumsuz kapak/donanım kuralı mevcut.`,
+        message: `Üretim kontrolü tamamlanmadı (${v4Compat.overallStatus === "UNVERIFIED" ? "Saha/Fabrika Onayı Bekliyor" : v4Compat.overallStatus}): Doğrulanmamış kuralları ve üretime etkisini görmek için Üretim Kontrolü panelini açın.`,
       };
     }
 
@@ -1362,13 +1364,10 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
 
   batchRemoveSelectedModules: () => {
     const { project, selectedModuleIds, history, batchStartProject } = get();
-    if (project.modules.length <= 1 || selectedModuleIds.length === 0) return;
+    if (project.modules.length === 0 || selectedModuleIds.length === 0) return;
     const targetIds = new Set(selectedModuleIds);
     const updated = cloneProject(project);
     const remaining = updated.modules.filter((m) => !targetIds.has(m.id));
-    if (remaining.length === 0) {
-      remaining.push(updated.modules[0]);
-    }
     updated.modules = remaining;
     const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
     set({
@@ -1376,7 +1375,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       future: [],
       project: updated,
       activeModuleIndex: 0,
-      selectedModuleIds: [remaining[0].id],
+      selectedModuleIds: remaining[0] ? [remaining[0].id] : [],
       autoSaveStatus: "unsaved",
       validationIssues,
       bom,
@@ -1440,6 +1439,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
         z: Math.round(wallInput.position.z),
       },
       rotationY: Math.round(wallInput.rotationY),
+      wallType: wallInput.wallType || "standard",
       elements: [],
     };
     updated.space.walls.push(newWall);
@@ -1497,6 +1497,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
         patch.rotationY !== undefined
           ? ((Math.round(patch.rotationY) % 360) + 360) % 360
           : current.rotationY,
+      wallType: patch.wallType ?? current.wallType,
     };
 
     const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);

@@ -41,6 +41,8 @@ export interface ComponentGeometry {
   primitive?: "box" | "sphere" | "cylinder";
   parentComponentId?: string;
   handleCategory?: import("@birim/core").HandleCategory;
+  crossSectionProfile?: import("@birim/core").DoorCrossSectionProfile;
+  customCadPolygon?: { x: number; y: number }[];
   materialId: string;
   isFrontFacing?: boolean;
   /** True only if this component represents a cuttable sheet/panel piece in BOM (false for UI hardware/handles/profiles) */

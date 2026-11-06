@@ -74,7 +74,7 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
           <polygon points="18,24 28,16 50,16 40,24" fill="#f5f5f4" stroke="#292524" strokeWidth="1.2" />
           <rect x="18" y="24" width="22" height="82" fill="#9caf88" stroke="#292524" strokeWidth="1.3" />
           {/* Built-in Oven & Microwave in Tower */}
-          <rect x="20.5" y="42" width="17" height="11" rx="1" fill="#1e293b" stroke="#475569" strokeWidth="1" />
+          <rect x="20.5" y="42" width="17" height="11" rx="1" fill="#111827" stroke="#475569" strokeWidth="1" />
           <rect x="20.5" y="55" width="17" height="18" rx="1" fill="#0f172a" stroke="#475569" strokeWidth="1" />
           <line x1="23" y1="58" x2="35" y2="58" stroke="#f59e0b" strokeWidth="1.2" />
 
@@ -233,6 +233,241 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
               <polygon points="116,64 138,44 138,60 116,80" fill="#d6d3d1" stroke="#292524" strokeWidth="1.5" />
             </g>
           )}
+        </svg>
+      );
+    }
+
+    // 3B. DEDICATED 3D ISOMETRIC CORNER CABINET ILLUSTRATION (90° L-Corner & Blind Corner)
+    const nameLower = (resolvedModule?.name || template?.name || "").toLowerCase();
+    if (isCorner || familyId === "fam_special_corner" || tplId.includes("corner") || nameLower.includes("köşe")) {
+      const isBlind = tplId.includes("blind") || nameLower.includes("kör");
+      const isUpperCorner =
+        resolvedModule?.category === "kitchen_wall" ||
+        tplId.includes("wall") ||
+        nameLower.includes("üst");
+      const topY = isUpperCorner ? 22 : 14;
+      const botY = isUpperCorner ? 76 : 104;
+      const hSpan = botY - topY;
+
+      if (isBlind) {
+        // Blind Corner (Kör Köşe): Left fixed blind panel + kidney LeMans tray preview + Right hinged access door
+        return (
+          <svg
+            viewBox="0 0 160 128"
+            data-testid={testId}
+            className={`${dimClass} shrink-0 overflow-visible`}
+            aria-hidden="true"
+          >
+            <polygon points="22,108 142,108 150,96 32,96" fill="#0f172a" opacity="0.07" />
+            {/* Top Countertop / Roof Slab */}
+            <polygon
+              points="24,28 38,16 138,16 124,28"
+              fill="#f8fafc"
+              stroke="#334155"
+              strokeWidth="1.4"
+              strokeLinejoin="round"
+            />
+            {/* Right Side 3D Face */}
+            <polygon
+              points="124,28 138,16 138,92 124,104"
+              fill="#cbd5e1"
+              stroke="#334155"
+              strokeWidth="1.4"
+              strokeLinejoin="round"
+            />
+            {/* Left Fixed Blind Panel (Shaded with dashed inner corner & LeMans kidney curve) */}
+            <rect
+              x="24"
+              y="28"
+              width="48"
+              height="70"
+              fill="#e2e8f0"
+              stroke="#334155"
+              strokeWidth="1.4"
+            />
+            <line
+              x1="28"
+              y1="32"
+              x2="68"
+              y2="94"
+              stroke="#64748b"
+              strokeWidth="1.1"
+              strokeDasharray="3 2"
+            />
+            <path
+              d="M 34 54 C 46 46, 64 48, 66 58 C 68 66, 50 68, 36 62 Z"
+              fill="#EEF3F8"
+              stroke="#475569"
+              strokeWidth="1.1"
+            />
+            <path
+              d="M 34 76 C 46 68, 64 70, 66 80 C 68 88, 50 90, 36 84 Z"
+              fill="#EEF3F8"
+              stroke="#475569"
+              strokeWidth="1.1"
+            />
+            {/* Center Corner Filler Stile (Kör Köşe Dönüş Çıtası) */}
+            <rect
+              x="72"
+              y="28"
+              width="6"
+              height="70"
+              fill={frontColor}
+              stroke="#334155"
+              strokeWidth="1.2"
+            />
+            {/* Right Hinged Access Door */}
+            <rect
+              x="78"
+              y="28"
+              width="46"
+              height="70"
+              fill={frontColor}
+              stroke="#334155"
+              strokeWidth="1.4"
+            />
+            {/* Handle on Left Edge of Right Access Door */}
+            <line
+              x1="84"
+              y1="54"
+              x2="84"
+              y2="70"
+              stroke="#111827"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+            />
+            {/* Plinth */}
+            <rect
+              x="26"
+              y="98"
+              width="96"
+              height="6"
+              fill="#64748b"
+              stroke="#334155"
+              strokeWidth="1.1"
+            />
+          </svg>
+        );
+      }
+
+      // True 90° L-Corner Cabinet (L-Köşe Dolabı): Unmistakable 3D L-Shaped Top + Left Forward Return Wing + Right Main Wing + Inner 90° Bi-Fold Doors
+      return (
+        <svg
+          viewBox="0 0 160 128"
+          data-testid={testId}
+          className={`${dimClass} shrink-0 overflow-visible`}
+          aria-hidden="true"
+        >
+          {/* L-Shaped Floor Shadow */}
+          <polygon
+            points={`22,${botY + 12} 68,${botY + 12} 68,${botY + 2} 134,${botY + 2} 144,${botY - 8} 44,${botY - 8}`}
+            fill="#0f172a"
+            opacity="0.08"
+          />
+
+          {/* Right Main Wing Front Door (Back-Right Arm of the L) */}
+          <rect
+            x="72"
+            y={topY + 14}
+            width="54"
+            height={hSpan - 12}
+            fill={frontColor}
+            stroke="#334155"
+            strokeWidth="1.4"
+          />
+          {/* Right Wing 3D Side Face */}
+          <polygon
+            points={`126,${topY + 14} 140,${topY + 2} 140,${botY - 10} 126,${botY + 2}`}
+            fill="#cbd5e1"
+            stroke="#334155"
+            strokeWidth="1.35"
+            strokeLinejoin="round"
+          />
+          {/* Right Wing Plinth */}
+          {!isUpperCorner && (
+            <rect
+              x="72"
+              y={botY - 4}
+              width="54"
+              height="6"
+              fill="#64748b"
+              stroke="#334155"
+              strokeWidth="1.1"
+            />
+          )}
+
+          {/* Left Forward 90° Return Wing — Inner Z-Return Door Face (Angled toward inner corner) */}
+          <polygon
+            points={`54,${topY + 30} 72,${topY + 14} 72,${botY + 2} 54,${botY + 16}`}
+            fill={frontColor}
+            stroke="#334155"
+            strokeWidth="1.4"
+            strokeLinejoin="round"
+          />
+          <polygon
+            points={`54,${topY + 30} 72,${topY + 14} 72,${botY + 2} 54,${botY + 16}`}
+            fill="#0f172a"
+            opacity="0.1"
+          />
+
+          {/* Left Forward 90° Return Wing — Front End Panel (Gable Face at Z-max) */}
+          <rect
+            x="24"
+            y={topY + 30}
+            width="30"
+            height={hSpan - 12}
+            fill="#e2e8f0"
+            stroke="#334155"
+            strokeWidth="1.4"
+          />
+          {!isUpperCorner && (
+            <rect
+              x="24"
+              y={botY + 10}
+              width="30"
+              height="6"
+              fill="#64748b"
+              stroke="#334155"
+              strokeWidth="1.1"
+            />
+          )}
+
+          {/* Unmistakable 3D L-Shaped Top Roof / Countertop Polygon */}
+          <polygon
+            points={`24,${topY + 30} 54,${topY + 2} 140,${topY + 2} 126,${topY + 14} 72,${topY + 14} 54,${topY + 30}`}
+            fill="#f8fafc"
+            stroke="#334155"
+            strokeWidth="1.5"
+            strokeLinejoin="round"
+          />
+
+          {/* 90° Inner-Corner Bi-Fold Meeting Seam & Dual Handles */}
+          <line
+            x1="72"
+            y1={topY + 14}
+            x2="72"
+            y2={botY - 4}
+            stroke="#111827"
+            strokeWidth="1.8"
+          />
+          <line
+            x1="78"
+            y1={topY + Math.round(hSpan * 0.44)}
+            x2="78"
+            y2={topY + Math.round(hSpan * 0.64)}
+            stroke="#111827"
+            strokeWidth="2.1"
+            strokeLinecap="round"
+          />
+          <line
+            x1="66"
+            y1={topY + Math.round(hSpan * 0.48)}
+            x2="66"
+            y2={topY + Math.round(hSpan * 0.68)}
+            stroke="#111827"
+            strokeWidth="2.1"
+            strokeLinecap="round"
+          />
         </svg>
       );
     }

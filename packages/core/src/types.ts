@@ -173,6 +173,7 @@ export interface ShelfConfig {
   elevationY: UnitLength; // offset from inner bottom panel
   isAdjustable: boolean;
   thickness?: UnitLength;
+  isHidden?: boolean;
 }
 
 export interface HangingRailConfig {
@@ -180,6 +181,7 @@ export interface HangingRailConfig {
   bayIndex: number;
   elevationY: UnitLength;
   isLiftMechanism?: boolean; // Pull-down wardrobe lift
+  isHidden?: boolean;
 }
 
 export interface DrawerConfig {
@@ -192,6 +194,7 @@ export interface DrawerConfig {
   frontMaterialId?: string;
   hardwareProductId?: string;
   nominalLengthMm?: UnitLength;
+  isHidden?: boolean;
 }
 
 export interface SpecialFittingConfig {
@@ -203,6 +206,7 @@ export interface SpecialFittingConfig {
     | "shoe_rack"
     | "wire_basket"
     | "tie_rack"
+    | "belt_rack"
     | "led_profile"
     | "led_vertical_strip"
     | "led_rod_strip"
@@ -217,7 +221,17 @@ export interface SpecialFittingConfig {
   width?: UnitLength;
   depth?: UnitLength;
   hardwareProductId?: string;
+  isHidden?: boolean;
 }
+
+export type DoorCrossSectionProfile =
+  | "flat_slab"
+  | "shaker_frame"
+  | "fluted_ribbed"
+  | "glass_frame"
+  | "mirror_door"
+  | "bevel_45"
+  | "custom_cad_profile";
 
 export interface DoorConfig {
   id: string;
@@ -254,6 +268,15 @@ export interface DoorConfig {
   hingeBottomOffsetMm?: UnitLength;
   hingeTopOffsetMm?: UnitLength;
   isGlassFramed?: boolean;
+  crossSectionProfile?: DoorCrossSectionProfile;
+  customCadProfileName?: string;
+  customCadPolygon?: { x: number; y: number }[];
+  handleOrientation?: "auto" | "vertical" | "horizontal";
+  handleOffsetY?: UnitLength;
+  handleEdgeInsetX?: UnitLength;
+  handleLengthMm?: UnitLength;
+  handleMaterialId?: string;
+  doorEdgeBandThicknessMm?: UnitLength;
 }
 
 export interface BayConfig {
@@ -285,11 +308,21 @@ export interface CarcassConfig {
   bodyMaterialId: string;
   doorMaterialId: string;
   countertopMaterialId?: string;
+  plinthMaterialId?: string;
+  hasAdjustableLegs?: boolean;
+  crossSectionProfile?: DoorCrossSectionProfile;
+  customCadProfileName?: string;
+  customCadPolygon?: { x: number; y: number }[];
   jointType: JointType;
   doorThickness?: UnitLength; // default 18
   overlayDistance?: UnitLength;
   system32FrontSetback?: UnitLength; // default 37
   constructionProfileId?: string;
+  hingeDrillingTemplateId?: string;
+  drawerDrillingSetId?: string;
+  cncProductionNote?: string;
+  ledColorTempK?: 3000 | 4000;
+  ledSensorType?: "ir_door" | "pir_motion" | "manual_switch";
 }
 
 export interface ModuleInstance {
@@ -325,11 +358,14 @@ export interface ModuleInstance {
     | "service_spacer";
   requiresFactoryValidation?: boolean;
   componentMaterialOverrides?: Record<string, string>;
+  componentGrainOverrides?: Record<string, "lengthwise" | "crosswise" | "custom">;
+  surfaceFinishOverride?: "matte" | "satin" | "gloss";
+  edgeBandMaterialId?: string;
 }
 
 export interface ArchitecturalElement {
   id: string;
-  type: "door" | "window" | "column" | "beam" | "plumbing" | "electrical" | "ventilation";
+  type: "door" | "window" | "column" | "beam" | "plumbing" | "electrical" | "ventilation" | "niche" | "protrusion" | "partition";
   name: string;
   position: Position3D;
   dimensions: Dimensions3D;
@@ -346,6 +382,7 @@ export interface WallDefinition {
   thickness: UnitLength;
   position: Position3D;
   rotationY: number; // degrees
+  wallType?: "standard" | "concrete" | "drywall" | "niche_wall";
   elements: ArchitecturalElement[];
 }
 

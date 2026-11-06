@@ -137,6 +137,14 @@ function tagSubMesh(
  * - Gola Extruded L/C Channels, J-Pull Milled Door Cutouts, Recessed Finger Pockets & Edge Profiles
  * - Stainless Steel Undermount Sink + Swan-Neck Faucet & 4-Zone Induction Cooktop
  */
+function disableLineRaycast(obj: THREE.Object3D) {
+  obj.traverse((child) => {
+    if (child instanceof THREE.Line || child instanceof THREE.LineSegments) {
+      child.raycast = () => {};
+    }
+  });
+}
+
 export function createComponentMesh(
   comp: ComponentGeometry,
   material: THREE.Material,
@@ -297,6 +305,298 @@ export function createComponentMesh(
     diffuser.position.set(cx, cy, cz + 0.5);
     tagSubMesh(diffuser, userData, comp);
     group.add(diffuser);
+
+    return group;
+  }
+
+  // Skip legacy duplicate sub-boxes for trouser_rack / wardrobe_lift because our realistic 3D assembly builds them below
+  if (
+    comp.id.includes("_sub_rod_") ||
+    comp.id.includes("_sub_damper_") ||
+    comp.id.includes("_sub_pull_wand")
+  ) {
+    return group;
+  }
+
+  // 1D. REALISTIC 3D WARDROBE HANGING RAIL (Ø25mm Oval/Round Chrome Bar + Side Rosette Flanges + Anti-Slip Strip + Coat Hangers)
+  if (comp.role === "hanging_rail") {
+    const w = comp.dimensions.width;
+    // Left & Right Side-Panel Mounting Flanges (Askı Borusu Flanjları)
+    [-w / 2 + 4, w / 2 - 4].forEach((fx) => {
+      const flange = new THREE.Mesh(cylinderY, chromeHardwareMat);
+      flange.rotation.z = Math.PI / 2;
+      flange.scale.set(34, 8, 22);
+      flange.position.set(cx + fx, cy, cz);
+      tagSubMesh(flange, userData, comp);
+      group.add(flange);
+    });
+
+    // Main Oval Chrome Hanging Rod (15×25mm oval profile)
+    const rod = new THREE.Mesh(cylinderY, chromeHardwareMat);
+    rod.rotation.z = Math.PI / 2;
+    rod.scale.set(25, Math.max(40, w - 6), 16);
+    rod.position.set(cx, cy, cz);
+    tagSubMesh(rod, userData, comp);
+    group.add(rod);
+
+    // Top Dark Anti-Slip Rubber Insert Strip
+    const rubberStrip = new THREE.Mesh(box, darkDamperMat);
+    rubberStrip.scale.set(Math.max(40, w - 12), 3, 6);
+    rubberStrip.position.set(cx, cy + 12.5, cz);
+    tagSubMesh(rubberStrip, userData, comp);
+    group.add(rubberStrip);
+
+    // Subtle Realistic Coat Hanger Hooks & Shoulder Bars along the rail
+    const hangerCount = Math.min(5, Math.max(2, Math.floor((w - 120) / 110)));
+    const hStep = (w - 160) / Math.max(1, hangerCount - 1);
+    for (let i = 0; i < hangerCount; i++) {
+      const hx = cx - (w - 160) / 2 + i * hStep;
+      const hook = new THREE.Mesh(cylinderY, chromeHardwareMat);
+      hook.scale.set(3.5, 36, 3.5);
+      hook.position.set(hx, cy - 18, cz);
+      tagSubMesh(hook, userData, comp);
+      group.add(hook);
+
+      const shoulder = new THREE.Mesh(box, screwHeadMat);
+      shoulder.scale.set(14, 18, Math.min(340, comp.position.z * 1.45));
+      shoulder.position.set(hx, cy - 42, cz);
+      tagSubMesh(shoulder, userData, comp);
+      group.add(shoulder);
+    }
+
+    return group;
+  }
+
+  // 1E. REALISTIC 3D HÄFELE TELESCOPIC TROUSER RACK (Pantolonluk — Pull-Out Frame + Non-Slip Rods)
+  if (comp.id.includes("_fitting_trouser_rack")) {
+    const w = comp.dimensions.width;
+    const h = comp.dimensions.height;
+    const d = comp.dimensions.depth;
+    const frameY = cy + h * 0.22;
+
+    // Left & Right Ball-Bearing Side Slide Channels + Front & Back Frame Crossbars
+    [-w / 2 + 10, w / 2 - 10].forEach((sx) => {
+      const sideRail = new THREE.Mesh(box, darkDamperMat);
+      sideRail.scale.set(18, 28, d);
+      sideRail.position.set(cx + sx, frameY, cz);
+      sideRail.add(new THREE.LineSegments(edges, revealShadowMat));
+      tagSubMesh(sideRail, userData, comp);
+      group.add(sideRail);
+    });
+
+    [-d / 2 + 12, d / 2 - 12].forEach((sz) => {
+      const crossBar = new THREE.Mesh(box, chromeHardwareMat);
+      crossBar.scale.set(Math.max(60, w - 20), 22, 18);
+      crossBar.position.set(cx, frameY, cz + sz);
+      crossBar.add(new THREE.LineSegments(edges, revealShadowMat));
+      tagSubMesh(crossBar, userData, comp);
+      group.add(crossBar);
+    });
+
+    // 8 Non-Slip Flocked Cylindrical Trouser Hanger Rods spanning back-to-front
+    const rodCount = Math.max(5, Math.min(10, Math.floor((w - 56) / 62)));
+    const stepX = (w - 64) / Math.max(1, rodCount - 1);
+    for (let r = 0; r < rodCount; r++) {
+      const rx = cx - (w - 64) / 2 + r * stepX;
+      const rodMesh = new THREE.Mesh(cylinder, chromeHardwareMat);
+      rodMesh.scale.set(11, 11, Math.max(80, d - 32));
+      rodMesh.position.set(rx, frameY + 4, cz);
+      tagSubMesh(rodMesh, userData, comp);
+      group.add(rodMesh);
+
+      // Anti-slip rubber grip rings on each trouser bar
+      [-d * 0.22, d * 0.18].forEach((rz) => {
+        const gripRing = new THREE.Mesh(cylinder, darkCavityMat);
+        gripRing.scale.set(13.5, 13.5, 24);
+        gripRing.position.set(rx, frameY + 4, cz + rz);
+        tagSubMesh(gripRing, userData, comp);
+        group.add(gripRing);
+      });
+    }
+    return group;
+  }
+
+  // 1F. REALISTIC 3D HÄFELE INCLINED PULL-OUT SHOE RACK (Ayakkabılık — 15° Inclined Slatted Shelf + Front Heel Guard)
+  if (comp.id.includes("_fitting_shoe_rack")) {
+    const w = comp.dimensions.width;
+    const d = comp.dimensions.depth;
+
+    // Left & Right Side Telescopic Slides
+    [-w / 2 + 8, w / 2 - 8].forEach((sx) => {
+      const slide = new THREE.Mesh(box, darkDamperMat);
+      slide.scale.set(14, 24, d);
+      slide.position.set(cx + sx, cy, cz);
+      tagSubMesh(slide, userData, comp);
+      group.add(slide);
+    });
+
+    // 15°-Inclined Slatted Shoe Platform Group
+    const inclinedGroup = new THREE.Group();
+    inclinedGroup.position.set(cx, cy + 6, cz);
+    inclinedGroup.rotation.x = 0.22; // ~13 deg forward tilt
+
+    const trayBase = new THREE.Mesh(box, screwHeadMat);
+    trayBase.scale.set(Math.max(60, w - 24), 8, Math.max(80, d - 24));
+    trayBase.add(new THREE.LineSegments(edges, revealShadowMat));
+    tagSubMesh(trayBase, userData, comp);
+    inclinedGroup.add(trayBase);
+
+    // 4 Chrome橫 Gripping Bars across the inclined shoe shelf
+    [-d * 0.34, -d * 0.12, d * 0.12, d * 0.36].forEach((bz, bIdx) => {
+      const bar = new THREE.Mesh(box, chromeHardwareMat);
+      bar.scale.set(Math.max(60, w - 28), bIdx === 3 ? 22 : 10, 8);
+      bar.position.set(0, bIdx === 3 ? 12 : 6, bz);
+      tagSubMesh(bar, userData, comp);
+      inclinedGroup.add(bar);
+    });
+
+    group.add(inclinedGroup);
+    return group;
+  }
+
+  // 1G. REALISTIC 3D HÄFELE PULL-OUT TIE RACK & BELT RACK (Kravatlık & Kemerlik)
+  if (comp.id.includes("_fitting_tie_rack") || comp.id.includes("_fitting_belt_rack")) {
+    const isBelt = comp.id.includes("_fitting_belt_rack");
+    const w = comp.dimensions.width;
+    const d = comp.dimensions.depth;
+
+    // Side-Mounted Telescopic Runner Channel + Pull-Out Carrier Bar along Left & Right Side Walls
+    [-w / 2 + 14, w / 2 - 14].forEach((sx) => {
+      const railBody = new THREE.Mesh(box, darkDamperMat);
+      railBody.scale.set(22, 34, Math.max(100, d - 20));
+      railBody.position.set(cx + sx, cy, cz);
+      railBody.add(new THREE.LineSegments(edges, revealShadowMat));
+      tagSubMesh(railBody, userData, comp);
+      group.add(railBody);
+    });
+
+    // Cross Organizer Frame with Chrome Tie Pegs or Belt Compartments
+    const mainBar = new THREE.Mesh(box, chromeHardwareMat);
+    mainBar.scale.set(Math.max(60, w - 20), 26, 28);
+    mainBar.position.set(cx, cy + 6, cz + d * 0.28);
+    mainBar.add(new THREE.LineSegments(edges, revealShadowMat));
+    tagSubMesh(mainBar, userData, comp);
+    group.add(mainBar);
+
+    const hookCount = isBelt ? 7 : 10;
+    const stepX = (w - 64) / Math.max(1, hookCount - 1);
+    for (let k = 0; k < hookCount; k++) {
+      const kx = cx - (w - 64) / 2 + k * stepX;
+      const peg = new THREE.Mesh(isBelt ? box : cylinder, isBelt ? handleAccentMat : chromeHardwareMat);
+      peg.scale.set(isBelt ? 8 : 7, isBelt ? 24 : 7, isBelt ? Math.max(80, d * 0.65) : Math.max(70, d * 0.55));
+      peg.position.set(kx, cy + 4, cz);
+      tagSubMesh(peg, userData, comp);
+      group.add(peg);
+    }
+    return group;
+  }
+
+  // 1H. REALISTIC 3D VELVET JEWELRY & WATCH ORGANIZER TRAY (Kadife Takı / Saat / Kemer Çekmecesi)
+  if (comp.id.includes("_fitting_jewelry_tray")) {
+    const w = comp.dimensions.width;
+    const h = Math.min(72, comp.dimensions.height);
+    const d = comp.dimensions.depth;
+
+    // Outer Frame Box
+    const outerTray = new THREE.Mesh(box, darkDamperMat);
+    outerTray.scale.set(w, h, d);
+    outerTray.position.set(cx, cy, cz);
+    outerTray.add(new THREE.LineSegments(edges, revealShadowMat));
+    tagSubMesh(outerTray, userData, comp);
+    group.add(outerTray);
+
+    // 4x3 Divided Velvet Grid Cells inside the Tray
+    const cols = 4;
+    const rows = 3;
+    for (let c = 1; c < cols; c++) {
+      const divX = new THREE.Mesh(box, screwHeadMat);
+      divX.scale.set(6, h - 6, d - 16);
+      divX.position.set(cx - w / 2 + (c * w) / cols, cy + 3, cz);
+      tagSubMesh(divX, userData, comp);
+      group.add(divX);
+    }
+    for (let r = 1; r < rows; r++) {
+      const divZ = new THREE.Mesh(box, screwHeadMat);
+      divZ.scale.set(w - 16, h - 6, 6);
+      divZ.position.set(cx, cy + 3, cz - d / 2 + (r * d) / rows);
+      tagSubMesh(divZ, userData, comp);
+      group.add(divZ);
+    }
+    return group;
+  }
+
+  // 1I. REALISTIC 3D WIRE MESH BASKET (Häfele Tel Sepet)
+  if (comp.id.includes("_fitting_wire_basket")) {
+    const w = comp.dimensions.width;
+    const h = Math.min(160, comp.dimensions.height);
+    const d = comp.dimensions.depth;
+
+    // Top Rim & Bottom Wire Frame
+    [cy + h * 0.38, cy - h * 0.38].forEach((ry, idx) => {
+      const rim = new THREE.Mesh(box, chromeHardwareMat);
+      rim.scale.set(idx === 0 ? w : w * 0.88, 10, idx === 0 ? d : d * 0.88);
+      rim.position.set(cx, ry, cz);
+      rim.add(new THREE.LineSegments(edges, revealShadowMat));
+      tagSubMesh(rim, userData, comp);
+      group.add(rim);
+    });
+
+    // Vertical & Bottom Chrome Wire Ribs
+    const ribCount = 7;
+    const stepX = (w - 48) / (ribCount - 1);
+    for (let i = 0; i < ribCount; i++) {
+      const rx = cx - (w - 48) / 2 + i * stepX;
+      const wire = new THREE.Mesh(box, chromeHardwareMat);
+      wire.scale.set(4, h * 0.76, d * 0.9);
+      wire.position.set(rx, cy, cz);
+      wire.add(new THREE.LineSegments(edges, revealShadowMat));
+      tagSubMesh(wire, userData, comp);
+      group.add(wire);
+    }
+    return group;
+  }
+
+  // 1J. REALISTIC 3D SERVETTO PULL-DOWN WARDROBE LIFT (Gardırop Asansörü 10kg)
+  if (comp.id.includes("_fitting_wardrobe_lift")) {
+    const w = comp.dimensions.width;
+    const h = comp.dimensions.height;
+
+    // Left & Right Hydraulic Side Housing Boxes + Pivoting Chrome Lift Arms
+    [-w / 2 + 12, w / 2 - 12].forEach((sx) => {
+      const boxHousing = new THREE.Mesh(box, darkDamperMat);
+      boxHousing.scale.set(24, 130, 88);
+      boxHousing.position.set(cx + sx, cy - h * 0.25, cz);
+      boxHousing.add(new THREE.LineSegments(edges, revealShadowMat));
+      tagSubMesh(boxHousing, userData, comp);
+      group.add(boxHousing);
+
+      const arm = new THREE.Mesh(box, chromeHardwareMat);
+      arm.scale.set(10, Math.max(180, h * 0.75), 18);
+      arm.position.set(cx + sx * 0.94, cy + h * 0.08, cz);
+      tagSubMesh(arm, userData, comp);
+      group.add(arm);
+    });
+
+    // Top Horizontal Chrome Hanging Bar
+    const topBar = new THREE.Mesh(cylinderY, chromeHardwareMat);
+    topBar.rotation.z = Math.PI / 2;
+    topBar.scale.set(24, Math.max(60, w - 36), 24);
+    topBar.position.set(cx, cy + h * 0.38, cz);
+    tagSubMesh(topBar, userData, comp);
+    group.add(topBar);
+
+    // Central Vertical Pull-Down Wand with Ergonomic Grip Handle
+    const wand = new THREE.Mesh(cylinderY, chromeHardwareMat);
+    wand.scale.set(12, Math.max(240, h * 0.85), 12);
+    wand.position.set(cx, cy - h * 0.05, cz + 14);
+    tagSubMesh(wand, userData, comp);
+    group.add(wand);
+
+    const grip = new THREE.Mesh(cylinderY, darkCavityMat);
+    grip.scale.set(22, 110, 22);
+    grip.position.set(cx, cy - h * 0.42, cz + 14);
+    tagSubMesh(grip, userData, comp);
+    group.add(grip);
 
     return group;
   }
@@ -601,54 +901,59 @@ export function createComponentMesh(
     return group;
   }
 
-  // 5E. REALISTIC 3D BAR / KNOB / LONG PROFILE HANDLES WITH STANDOFF LEGS
+  // 5E. REALISTIC 3D BAR / KNOB / LONG PROFILE HANDLES FLUSH-MOUNTED ON DOOR FACE (ZERO AIR GAP!)
   if (comp.role === "door_handle" || comp.role === "drawer_handle") {
     const w = comp.dimensions.width;
     const h = comp.dimensions.height;
     const d = comp.dimensions.depth;
+    // Note: comp.position.z = front.position.z + front.dimensions.depth, so the exact outer face of the door leaf is at z_local = cz - d * 0.5!
+    const doorFaceZ = cz - d * 0.5;
 
     if (comp.handleCategory === "knob") {
-      const stem = new THREE.Mesh(cylinder, screwHeadMat);
-      stem.scale.set(Math.min(14, w * 0.5), Math.min(14, h * 0.5), d * 0.6);
-      stem.position.set(cx, cy, cz - d * 0.15);
+      // Stem embeds 2mm into the door panel and extends 12mm outward to the knob cap
+      const stemLen = 14;
+      const stem = new THREE.Mesh(cylinder, material);
+      stem.scale.set(11, 11, stemLen);
+      stem.position.set(cx, cy, doorFaceZ + stemLen / 2 - 2);
       tagSubMesh(stem, userData, comp);
       group.add(stem);
 
+      const capDepth = 10;
       const cap = new THREE.Mesh(cylinder, material);
-      cap.scale.set(Math.max(24, w * 1.15), Math.max(24, h * 1.15), Math.max(12, d * 0.55));
-      cap.position.set(cx, cy, cz + d * 0.28);
+      cap.scale.set(Math.max(24, w), Math.max(24, h), capDepth);
+      cap.position.set(cx, cy, doorFaceZ + stemLen - 2 + capDepth / 2 - 1);
       tagSubMesh(cap, userData, comp);
       group.add(cap);
       return group;
     }
 
-    // Bar handle (vertical or horizontal) with 2 cylindrical standoff posts + high-visibility edge ring
+    // Bar handle (vertical or horizontal) with 2 standoff legs directly embedded into the door face (doorFaceZ - 2mm) and bridged by the grip bar
     const isVertical = h > w * 1.5;
-    const barW = isVertical ? Math.max(13, w * 1.15) : Math.max(96, w);
-    const barH = isVertical ? Math.max(128, h) : Math.max(13, h * 1.15);
-    const barD = Math.max(13, d * 0.45);
+    const barW = isVertical ? Math.max(11, w) : Math.max(96, w);
+    const barH = isVertical ? Math.max(128, h) : Math.max(11, h);
+    const barD = 10;
+    const postLen = 16; // Standoff projection from door surface
 
-    const barMesh = new THREE.Mesh(isVertical ? cylinderY : box, material);
-    barMesh.scale.set(barW, barH, barD);
-    barMesh.position.set(cx, cy, cz + d * 0.34);
-    tagSubMesh(barMesh, userData, comp);
-    if (!isVertical) {
-      barMesh.add(new THREE.LineSegments(edges, revealShadowMat));
-    }
-    group.add(barMesh);
-
-    const span = isVertical ? Math.max(36, barH * 0.72) : Math.max(36, barW * 0.72);
+    const span = isVertical ? Math.max(36, barH * 0.78) : Math.max(36, barW * 0.78);
     [-span / 2, span / 2].forEach((offset) => {
-      const post = new THREE.Mesh(cylinder, handleAccentMat);
-      post.scale.set(11, 11, d * 0.78);
+      const post = new THREE.Mesh(cylinder, material);
+      post.scale.set(10, 10, postLen);
       post.position.set(
         cx + (isVertical ? 0 : offset),
         cy + (isVertical ? offset : 0),
-        cz - d * 0.05
+        doorFaceZ + postLen / 2 - 2
       );
       tagSubMesh(post, userData, comp);
       group.add(post);
     });
+
+    const barMesh = new THREE.Mesh(box, material);
+    barMesh.scale.set(barW, barH, barD);
+    // Sits directly on the outer tips of the two standoff posts with 2mm overlap — zero gap!
+    barMesh.position.set(cx, cy, doorFaceZ + postLen - 3 + barD / 2);
+    tagSubMesh(barMesh, userData, comp);
+    barMesh.add(new THREE.LineSegments(edges, revealShadowMat));
+    group.add(barMesh);
     return group;
   }
 
@@ -714,12 +1019,12 @@ export function createComponentMesh(
   group.add(mesh);
 
   // 6B. 3D CNC DOOR CROSS-SECTION PROFILE RENDERING (Shaker Frame / Fluted Ribbed / 45° Bevel / Custom DXF-SVG CAD Profile)
-  if (
-    (comp.role === "door_left" || comp.role === "door_right" || comp.role === "drawer_front") &&
-    typeof window !== "undefined"
-  ) {
+  if (comp.role === "door_left" || comp.role === "door_right" || comp.role === "drawer_front") {
     const activeProfile =
-      (window as unknown as { __birimDoorCrossSection?: string }).__birimDoorCrossSection ||
+      comp.crossSectionProfile ||
+      (typeof window !== "undefined"
+        ? (window as unknown as { __birimDoorCrossSection?: string }).__birimDoorCrossSection
+        : undefined) ||
       (comp.handleCategory === "decorative_bespoke" ? "shaker_frame" : "flat_slab");
     const w = comp.dimensions.width;
     const h = comp.dimensions.height;
@@ -787,8 +1092,10 @@ export function createComponentMesh(
       tagSubMesh(frustumMesh, userData, comp);
       group.add(frustumMesh);
     } else if (activeProfile === "custom_cad_profile" && w > 140 && h > 140) {
-      // Custom CAD Profile: Outer 45° Bevel + Recessed Inner Groove + Raised Center Field (matches the 2D custom CAD diagram!)
-      const frustumGeo = createBevel45FrustumGeometry(w, h, 8, 22);
+      const poly = comp.customCadPolygon;
+      const firstPtY = poly && poly.length >= 3 ? poly[1]?.y ?? 0.65 : 0.65;
+      const bevelSlopeMm = Math.max(14, Math.min(44, Math.round(firstPtY * 34)));
+      const frustumGeo = createBevel45FrustumGeometry(w, h, 8, bevelSlopeMm);
       const outerBevel = new THREE.Mesh(frustumGeo, material);
       outerBevel.position.set(cx, cy, cz + d * 0.5 + 3);
       outerBevel.add(new THREE.LineSegments(new THREE.EdgesGeometry(frustumGeo, 12), revealShadowMat));
@@ -796,22 +1103,83 @@ export function createComponentMesh(
       group.add(outerBevel);
 
       if (w > 200 && h > 200) {
+        const grooveInset = Math.max(42, bevelSlopeMm * 2 + 12);
         const grooveWell = new THREE.Mesh(box, darkCavityMat);
-        grooveWell.scale.set(w - 56, h - 56, 3);
+        grooveWell.scale.set(w - grooveInset, h - grooveInset, 3);
         grooveWell.position.set(cx, cy, cz + d * 0.5 + 6.2);
         tagSubMesh(grooveWell, userData, comp);
         group.add(grooveWell);
 
         const innerField = new THREE.Mesh(box, material);
-        innerField.scale.set(w - 84, h - 84, 4);
+        innerField.scale.set(w - grooveInset - 26, h - grooveInset - 26, 4.2);
         innerField.position.set(cx, cy, cz + d * 0.5 + 7.8);
         innerField.add(new THREE.LineSegments(edges, revealShadowMat));
         tagSubMesh(innerField, userData, comp);
         group.add(innerField);
       }
+    } else if (
+      (activeProfile === "glass_frame" || comp.materialId === "mat_smoked_glass") &&
+      w > 140 &&
+      h > 140
+    ) {
+      // Framed Showcase Glass Door (Cam Kapak): Hide solid slab, build 4 outer frame stiles/rails + translucent smoked glass center pane!
+      mesh.visible = false;
+      const frameW = Math.min(54, Math.max(32, Math.round(w * 0.11)));
+      const innerW = Math.max(40, w - 2 * frameW);
+      const innerH = Math.max(40, h - 2 * frameW);
+      const frameBars = [
+        { sx: frameW, sy: h, px: cx - w / 2 + frameW / 2, py: cy },
+        { sx: frameW, sy: h, px: cx + w / 2 - frameW / 2, py: cy },
+        { sx: innerW, sy: frameW, px: cx, py: cy + h / 2 - frameW / 2 },
+        { sx: innerW, sy: frameW, px: cx, py: cy - h / 2 + frameW / 2 },
+      ];
+      frameBars.forEach((fb) => {
+        const bar = new THREE.Mesh(box, material);
+        bar.scale.set(fb.sx, fb.sy, d);
+        bar.position.set(fb.px, fb.py, cz);
+        bar.add(new THREE.LineSegments(edges, revealShadowMat));
+        tagSubMesh(bar, userData, comp);
+        group.add(bar);
+      });
+      const glassMat = new THREE.MeshPhysicalMaterial({
+        color: 0x334155,
+        roughness: 0.08,
+        metalness: 0.15,
+        transparent: true,
+        opacity: 0.36,
+      });
+      customAccentMaterials.add(glassMat);
+      const glassPane = new THREE.Mesh(box, glassMat);
+      glassPane.scale.set(innerW, innerH, Math.max(6, d * 0.35));
+      glassPane.position.set(cx, cy, cz);
+      glassPane.add(new THREE.LineSegments(edges, revealShadowMat));
+      tagSubMesh(glassPane, userData, comp);
+      group.add(glassPane);
+    } else if (
+      (activeProfile === "mirror_door" || comp.materialId === "mat_bronze_mirror") &&
+      w > 140 &&
+      h > 140
+    ) {
+      // Full-Length Mirror Door (Aynalı Kapak): Outer slim border + high-gloss reflective mirror surface!
+      const rimW = 24;
+      const mirrorW = Math.max(40, w - 2 * rimW);
+      const mirrorH = Math.max(40, h - 2 * rimW);
+      const mirrorMat = new THREE.MeshStandardMaterial({
+        color: comp.materialId === "mat_bronze_mirror" ? 0xc2b29f : 0xe2e8f0,
+        roughness: 0.03,
+        metalness: 0.95,
+      });
+      customAccentMaterials.add(mirrorMat);
+      const mirrorPane = new THREE.Mesh(box, mirrorMat);
+      mirrorPane.scale.set(mirrorW, mirrorH, 3.5);
+      mirrorPane.position.set(cx, cy, cz + d * 0.5 + 1.5);
+      mirrorPane.add(new THREE.LineSegments(edges, revealShadowMat));
+      tagSubMesh(mirrorPane, userData, comp);
+      group.add(mirrorPane);
     }
   }
 
+  disableLineRaycast(group);
   return group;
 }
 

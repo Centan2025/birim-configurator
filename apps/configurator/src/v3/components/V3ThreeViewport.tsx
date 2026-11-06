@@ -103,22 +103,49 @@ function getCachedEdgeMaterial(
   let m = v3EdgeCache.get(key);
   if (!m) {
     m = new THREE.LineBasicMaterial({
-      color: isSelected ? 0xb86b2b : isActiveMod ? 0x1c1917 : isLightTheme ? 0x292524 : 0x64748b,
+      color: isSelected ? 0x2563eb : isActiveMod ? 0x0f172a : isLightTheme ? 0x334155 : 0x94a3b8,
       linewidth: 1,
       opacity: isSelected
-        ? 0.95
+        ? 1.0
         : isPhotoreal
         ? isActiveMod
-          ? 0.18
-          : 0.11
+          ? 0.68
+          : 0.44
         : isActiveMod
-        ? 0.85
-        : 0.62,
+        ? 0.92
+        : 0.72,
       transparent: true,
     });
     v3EdgeCache.set(key, m);
   }
   return m;
+}
+
+/**
+ * Collects ONLY solid clickable THREE.Mesh instances that belong to a cabinet component,
+ * excluding LineSegments, AO shadow planes, and bounding boxes so 3D raycasting is 100% accurate.
+ */
+function collectSolidCabinetMeshes(
+  rootGroup: THREE.Object3D,
+  includeBayVolumes: boolean
+): THREE.Mesh[] {
+  const solidMeshes: THREE.Mesh[] = [];
+  const bayMeshes: THREE.Mesh[] = [];
+  rootGroup.traverse((obj) => {
+    if (
+      obj instanceof THREE.Mesh &&
+      obj.visible &&
+      obj.userData &&
+      typeof obj.userData.componentId === "string"
+    ) {
+      if (obj.userData.role === "bay_compartment") {
+        if (includeBayVolumes) bayMeshes.push(obj);
+      } else {
+        solidMeshes.push(obj);
+      }
+    }
+  });
+  return [...solidMeshes, ...bayMeshes];
 }
 
 interface DimensionAnchor {
@@ -253,26 +280,43 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       activeBay,
       activeBayIndex,
       doorOpenAngleDeg,
+      setDoorOpenAngleDeg,
+      toggleDoorOpen,
       drawerOpenMm,
+      setDrawerOpenMm,
       explodedFactor,
       isOrthographic,
       cameraPreset,
       selectedComponentId,
       setSelectedComponentId,
+      v4ModuleTemplates,
+      hardwareCatalog,
       spaceObstacles,
       spaceWalls,
       setActiveModuleIndex,
       setActiveBayIndex,
       setDimensions,
+      setPlinthHeight,
+      setBayDoorType,
+      setBayV4DoorConfig,
+      copyDoorConfigToAllBays,
+      setSelectedComponentMaterial,
+      applyMaterialByTargetScope,
+      resetModuleMaterialOverrides,
+      setDoorCrossSectionProfile,
       setShelfElevation,
       setDrawerPlacement,
       setHangingRailElevation,
       setBayCustomWidth,
       setSubDividerPlacement,
+      setBayCount,
       addShelf,
       addDrawer,
+      addHangingRail,
       addSpecialFitting,
       addSubDivider,
+      applyBayInteriorPreset,
+      removeBayAt,
       addAdjacentModule,
       rotateActiveModule90,
       flipActiveDoorDirection,
@@ -285,12 +329,31 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       dropV4TemplateWithSnap,
     } = useV3Adapter();
 
-    const [editingBadge, setEditingBadge] = useState<null | "W" | "H" | "D">(null);
+    const [editingBadge, setEditingBadge] = useState<null | "W" | "H" | "D" | "SOKET">(null);
     const [badgeDraftValue, setBadgeDraftValue] = useState<string>("");
+    const [doorsHiddenIn3D, setDoorsHiddenIn3D] = useState<boolean>(false);
+    const [cutawayActiveBay, setCutawayActiveBay] = useState<boolean>(false);
+    const bayPopoverDomRef = useRef<HTMLDivElement | null>(null);
+    const activeBayWorldAnchorRef = useRef<THREE.Vector3 | null>(null);
+    const doorPopoverDomRef = useRef<HTMLDivElement | null>(null);
+    const activeDoorWorldAnchorRef = useRef<THREE.Vector3 | null>(null);
+    const [doorMenuSubSection, setDoorMenuSubSection] = useState<
+      null | "type" | "direction" | "handle" | "material"
+    >(null);
+    const [bayMenuSubSection, setBayMenuSubSection] = useState<
+      null | "accessories" | "templates"
+    >(null);
+    const [clicked3DContext, setClicked3DContext] = useState<null | {
+      kind: "door" | "bay";
+      bayIndex: number;
+      role: string;
+      componentId?: string;
+      label: string;
+    }>(null);
     const [localShowDimensions, setLocalShowDimensions] = useState<boolean>(true);
     const [showRoomArchitecture3D, setShowRoomArchitecture3D] = useState<boolean>(true);
     const [lightingPreset, setLightingPreset] = useState<"daylight" | "showroom_warm" | "night_led">(
-      "showroom_warm"
+      "daylight"
     );
     const [floorStyle, setFloorStyle] = useState<ArchitecturalFloorStyle>("oak_parquet");
     const [activeCamPill, setActiveCamPill] = useState<"3d" | "2d" | "front" | "side" | "top" | "interior">("3d");
@@ -300,9 +363,69 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         const customEv = ev as CustomEvent<ArchitecturalFloorStyle>;
         if (customEv.detail) setFloorStyle(customEv.detail);
       };
+      const onDoorsHiddenChange = (ev: Event) => {
+        const customEv = ev as CustomEvent<boolean | "toggle">;
+        if (customEv.detail === "toggle") {
+          setDoorsHiddenIn3D((prev) => !prev);
+        } else if (typeof customEv.detail === "boolean") {
+          setDoorsHiddenIn3D(customEv.detail);
+        }
+      };
+      const onHwViewModeChange = (ev: Event) => {
+        const customEv = ev as CustomEvent<"normal" | "hardware" | "technical">;
+        if (customEv.detail) {
+          setHardwareViewMode(customEv.detail);
+          if (customEv.detail === "technical") {
+            setRenderEdgeMode("cad");
+          } else if (customEv.detail === "normal") {
+            setRenderEdgeMode("photoreal");
+          }
+        }
+      };
+      const onMatModeChange = (ev: Event) => {
+        const customEv = ev as CustomEvent<{ active: boolean; brushMaterialId?: string }>;
+        if (customEv.detail) {
+          setMaterialModeActive(Boolean(customEv.detail.active));
+          if (customEv.detail.brushMaterialId) {
+            setActiveBrushMaterialId(customEv.detail.brushMaterialId);
+          }
+        }
+      };
+      const onBrushMatChange = (ev: Event) => {
+        const customEv = ev as CustomEvent<string>;
+        if (customEv.detail) {
+          setActiveBrushMaterialId(customEv.detail);
+        }
+      };
       window.addEventListener("birim:set-floor-style", onFloorChange);
-      return () => window.removeEventListener("birim:set-floor-style", onFloorChange);
+      window.addEventListener("birim:set-doors-hidden", onDoorsHiddenChange);
+      window.addEventListener("birim:set-hardware-view-mode", onHwViewModeChange);
+      window.addEventListener("birim:set-material-mode", onMatModeChange);
+      window.addEventListener("birim:set-brush-material", onBrushMatChange);
+      return () => {
+        window.removeEventListener("birim:set-floor-style", onFloorChange);
+        window.removeEventListener("birim:set-doors-hidden", onDoorsHiddenChange);
+        window.removeEventListener("birim:set-hardware-view-mode", onHwViewModeChange);
+        window.removeEventListener("birim:set-material-mode", onMatModeChange);
+        window.removeEventListener("birim:set-brush-material", onBrushMatChange);
+      };
     }, []);
+    const [materialModeActive, setMaterialModeActive] = useState<boolean>(false);
+    const [materialPaintTool, setMaterialPaintTool] = useState<
+      "select" | "paint" | "group" | "same_material"
+    >("select");
+    const [activeBrushMaterialId, setActiveBrushMaterialId] = useState<string>("mat_veneer_oak");
+    const matWorldAnchorsRef = useRef<
+      { id: string; worldPos: THREE.Vector3; offsetPx: [number, number] }[]
+    >([]);
+    const matCalloutDomMapRef = useRef<Map<string, HTMLDivElement>>(new Map());
+    const [hardwareViewMode, setHardwareViewMode] = useState<"normal" | "hardware" | "technical">("normal");
+    const [hardwareViewMenuOpen, setHardwareViewMenuOpen] = useState<boolean>(false);
+    const [selectedHwCalloutId, setSelectedHwCalloutId] = useState<string | null>(null);
+    const hwWorldAnchorsRef = useRef<
+      { id: string; worldPos: THREE.Vector3; offsetPx: [number, number] }[]
+    >([]);
+    const hwCalloutDomMapRef = useRef<Map<string, HTMLDivElement>>(new Map());
     const [renderEdgeMode, setRenderEdgeMode] = useState<"photoreal" | "cad">("photoreal");
     const [moveObjectMode3D, setMoveObjectMode3D] = useState<boolean>(true);
     const [invertCameraMouse, setInvertCameraMouse] = useState<boolean>(true);
@@ -317,6 +440,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       project,
       activeModuleIndex,
       doorOpenAngleDeg,
+      doorsHiddenIn3D,
       moveObjectMode3D,
       spaceObstacles,
       setActiveModuleIndex,
@@ -338,6 +462,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         project,
         activeModuleIndex,
         doorOpenAngleDeg,
+        doorsHiddenIn3D,
         moveObjectMode3D,
         spaceObstacles,
         setActiveModuleIndex,
@@ -358,6 +483,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       project,
       activeModuleIndex,
       doorOpenAngleDeg,
+      doorsHiddenIn3D,
       moveObjectMode3D,
       spaceObstacles,
       setActiveModuleIndex,
@@ -402,7 +528,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           id: "dim_W",
           tag: "Genişlik",
           valueText: `${W} mm`,
-          borderColor: "#E2DDD3",
+          borderColor: "#CBD5E1",
           badgeBg: "#2B2927",
           localMidpoint: new THREE.Vector3(W * 0.5, H + 105, D * 0.65),
         },
@@ -426,11 +552,30 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           id: "dim_SOKET",
           tag: "Soket",
           valueText: `${soketW} mm`,
-          borderColor: "#E2DDD3",
+          borderColor: "#CBD5E1",
           badgeBg: "#2B2927",
           localMidpoint: new THREE.Vector3(W * 0.5, 8, D + 115),
         },
       ];
+
+      if (mod.category !== "complementary" && mod.bays.length >= 1) {
+        const fs = calculateFourSpaceDimensions(mod);
+        const bayWidths = fs.usableInternal.bayClearWidthsMm;
+        let curX = T;
+        mod.bays.forEach((b, bIdx) => {
+          const bw = bayWidths[bIdx] || Math.round((W - (mod.bays.length + 1) * T) / mod.bays.length);
+          const midX = curX + bw * 0.5;
+          list.push({
+            id: `dim_BAY_${bIdx}`,
+            tag: `Bölme ${bIdx + 1}`,
+            valueText: `${bw} mm`,
+            borderColor: "#93C5FD",
+            badgeBg: "#2563EB",
+            localMidpoint: new THREE.Vector3(midX, H + 28, D * 0.92),
+          });
+          curX += bw + T;
+        });
+      }
 
       const mainMods = project.modules.filter((m) => m.category !== "complementary");
       if (mainMods.length > 1) {
@@ -441,7 +586,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           id: "dim_TOTAL_SPAN",
           tag: "Toplam Genişlik",
           valueText: `${Math.round(maxX - minX)} mm`,
-          borderColor: "#E2DDD3",
+          borderColor: "#CBD5E1",
           badgeBg: "#2B2927",
           localMidpoint: new THREE.Vector3((minX + maxX) * 0.5, maxH + 260, 300),
         });
@@ -449,6 +594,241 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
 
       return list;
     }, [project, activeModuleIndex, effectiveShowDimensions]);
+
+    const hwCallouts = useMemo(() => {
+      const mod = project.modules[activeModuleIndex] || project.modules[0];
+      if (!mod || mod.category === "complementary") return [];
+      const { width: W, height: H, depth: D } = mod.dimensions;
+      const T = mod.carcass.panelThickness || 18;
+      const plinthH = mod.carcass.plinthHeight ?? 100;
+      const fs = calculateFourSpaceDimensions(mod);
+      const bayWidths = fs.usableInternal.bayClearWidthsMm;
+
+      const bayStartXs: number[] = [];
+      let accX = T;
+      mod.bays.forEach((_, idx) => {
+        bayStartXs.push(accX);
+        accX += (bayWidths[idx] || 550) + T;
+      });
+
+      const targetBayIdx = Math.min(activeBayIndex, Math.max(0, mod.bays.length - 1));
+      const targetBay = mod.bays[targetBayIdx] || mod.bays[0];
+      const dSys = targetBay?.door?.doorSystemId || "hinged_single";
+      const doorHwId = targetBay?.door?.hardwareProductId || "hw_blum_71b3550";
+      const doorHw = hardwareCatalog.find((h) => h.id === doorHwId);
+
+      // 1. Hinge / Door Mechanism Callout
+      const hingeLeaveSpec = fs.doorLeaves[0] || fs.doorLeaves[targetBayIdx];
+      const topHingeY =
+        hingeLeaveSpec?.hingePositionsY?.[hingeLeaveSpec.hingePositionsY.length - 1] ||
+        Math.round((H - plinthH - 2 * T) * 0.76);
+      const hingeTitle = dSys.startsWith("hinged") ? "Menteşe" : "Açılma Sistemi";
+      const hingeSub = doorHw
+        ? doorHw.id === "hw_blum_71b3550"
+          ? "Blum Clip-Top 110°"
+          : doorHw.id === "hw_blum_71b7550"
+          ? "Blum Clip-Top 155°"
+          : doorHw.id === "hw_hettich_9071205"
+          ? "Hettich Sensys 110°"
+          : doorHw.id === "hw_salice_c7p6ae9"
+          ? "Salice Silentia+ 110°"
+          : `${doorHw.manufacturerName.split(" ")[0]} • ${doorHw.sku}`
+        : "Blum Clip-Top 110°";
+
+      // 2. LED Lighting Callout
+      const hasLed = mod.bays.some((b) =>
+        (b.specialFittings || []).some((f) => f.type.startsWith("led_"))
+      );
+      const ledKelvin = mod.carcass.ledColorTempK || 3000;
+      const midBayIdx = Math.min(Math.floor(mod.bays.length / 2), mod.bays.length - 1);
+      const midBayCenterX =
+        (bayStartXs[midBayIdx] || T) + (bayWidths[midBayIdx] || 550) * 0.5;
+
+      // 3. Hanging Rail / Interior Mechanism Callout
+      const railBayIdx =
+        mod.bays.findIndex((b) => b.hangingRails.length > 0) >= 0
+          ? mod.bays.findIndex((b) => b.hangingRails.length > 0)
+          : targetBayIdx;
+      const railObj = mod.bays[railBayIdx]?.hangingRails?.[0];
+      const hasWardrobeLift = mod.bays.some((b) =>
+        (b.specialFittings || []).some((f) => f.type === "wardrobe_lift")
+      );
+      const railElevY = railObj?.elevationY || Math.round((H - plinthH - 2 * T) * 0.78);
+      const railCenterX =
+        (bayStartXs[railBayIdx] || T) + (bayWidths[railBayIdx] || 550) * 0.58;
+
+      // 4. Drawer Runner Callout
+      const drwBayIdx =
+        mod.bays.findIndex((b) => b.drawers.length > 0) >= 0
+          ? mod.bays.findIndex((b) => b.drawers.length > 0)
+          : mod.bays.length - 1;
+      const firstDrw = mod.bays[drwBayIdx]?.drawers?.[0];
+      const drwHwId = firstDrw?.hardwareProductId || "hw_blum_tandembox_m30";
+      const drwHw = hardwareCatalog.find((h) => h.id === drwHwId);
+      const drwNl =
+        firstDrw?.nominalLengthMm ||
+        Math.min(550, Math.max(350, Math.floor((fs.usableInternal.netInnerDepthMm - 10) / 50) * 50));
+      const runnerSub = drwHw
+        ? drwHw.id.includes("tandembox")
+          ? `Blum Tandem ${drwNl} mm`
+          : drwHw.id.includes("movento")
+          ? `Blum Movento ${drwNl} mm`
+          : drwHw.id.includes("hettich")
+          ? `Hettich AvanTech ${drwNl} mm`
+          : `Blum LEGRABOX ${drwNl} mm`
+        : `Blum Tandem ${drwNl} mm`;
+      const drwElevY = firstDrw ? firstDrw.elevationY + firstDrw.height * 0.5 : 180;
+      const drwPinX = (bayStartXs[drwBayIdx] || T) + 24;
+
+      return [
+        {
+          id: "hw_pin_hinge",
+          group: "hinge" as const,
+          bayIndex: targetBayIdx,
+          title: hingeTitle,
+          subtitle: hingeSub,
+          sku: doorHw?.sku || "71B3550",
+          localPos: new THREE.Vector3(T + 12, plinthH + T + topHingeY, D + 14),
+          offsetPx: [-24, -44] as [number, number],
+        },
+        {
+          id: "hw_pin_led",
+          group: "lighting" as const,
+          bayIndex: midBayIdx,
+          title: "LED Aydınlatma",
+          subtitle: hasLed ? `Profil – ${ledKelvin}K` : `Profil – ${ledKelvin}K (Hazır)`,
+          sku: "833.74.700",
+          localPos: new THREE.Vector3(midBayCenterX, H - T - 14, D * 0.82),
+          offsetPx: [42, -38] as [number, number],
+        },
+        {
+          id: "hw_pin_rail",
+          group: "accessories" as const,
+          bayIndex: railBayIdx,
+          title: "Askılık",
+          subtitle: hasWardrobeLift ? "Servetto Asansör 10kg" : "Oval – Krom",
+          sku: hasWardrobeLift ? "805.20.232" : "HW_HANGING_RAIL",
+          localPos: new THREE.Vector3(railCenterX, plinthH + T + railElevY, D * 0.62),
+          offsetPx: [52, 22] as [number, number],
+        },
+        {
+          id: "hw_pin_runner",
+          group: "runner" as const,
+          bayIndex: drwBayIdx,
+          title: "Çekmece Rayı",
+          subtitle: runnerSub,
+          sku: drwHw?.sku || "578.5001M",
+          localPos: new THREE.Vector3(drwPinX, plinthH + T + drwElevY, D * 0.88),
+          offsetPx: [48, -32] as [number, number],
+        },
+      ];
+    }, [project, activeModuleIndex, activeBayIndex, hardwareCatalog]);
+
+    const matCallouts = useMemo(() => {
+      const mod = project.modules[activeModuleIndex] || project.modules[0];
+      if (!mod || mod.category === "complementary") return [];
+      const { width: W, height: H, depth: D } = mod.dimensions;
+      const T = mod.carcass.panelThickness || 18;
+      const plinthH = mod.carcass.plinthHeight ?? 100;
+      const overrides = mod.componentMaterialOverrides || {};
+
+      const formatShortMat = (matId?: string) => {
+        const m = DEFAULT_MATERIALS.find((it) => it.id === matId) || DEFAULT_MATERIALS[0];
+        const shortName = m.name
+          .replace(/^Kastamonu Entegre\s+/i, "")
+          .replace(/^Yıldız Entegre\s+/i, "")
+          .replace(/^Çamsan Entegre\s+/i, "")
+          .replace(/^AGT\s+/i, "")
+          .split(" (")[0];
+        return {
+          label: shortName,
+          colorHex: m.colorHex,
+          matId: m.id,
+        };
+      };
+
+      const topCompId = `${mod.id}_top`;
+      const topMat = formatShortMat(overrides[topCompId] || mod.carcass.bodyMaterialId);
+
+      const firstBay = mod.bays[0];
+      const doorCompId = `${firstBay?.door?.id || `${mod.id}_door_0`}_${
+        firstBay?.door?.type === "double" ? "leaf_left" : "left"
+      }`;
+      const doorMat = formatShortMat(
+        overrides[doorCompId] || firstBay?.door?.doorMaterialId || mod.carcass.doorMaterialId
+      );
+
+      const rightSideCompId = `${mod.id}_side_right`;
+      const rightSideMat = formatShortMat(overrides[rightSideCompId] || mod.carcass.bodyMaterialId);
+
+      const drwBay = mod.bays.find((b) => b.drawers.length > 0) || firstBay;
+      const firstDrw = drwBay?.drawers?.[0];
+      const drwFrontId = firstDrw ? `${firstDrw.id}_front` : `${mod.id}_drw_0_front`;
+      const drwMat = formatShortMat(
+        overrides[drwFrontId] || firstDrw?.frontMaterialId || mod.carcass.doorMaterialId
+      );
+
+      const plinthCompId = `${mod.id}_plinth`;
+      const plinthMat = formatShortMat(
+        overrides[plinthCompId] ||
+          overrides.__plinth__ ||
+          mod.carcass.plinthMaterialId ||
+          mod.carcass.bodyMaterialId
+      );
+
+      return [
+        {
+          id: "mat_pin_top",
+          scope: "carcass" as const,
+          componentId: topCompId,
+          title: "Üst Tabla",
+          subtitle: topMat.label,
+          colorHex: topMat.colorHex,
+          localPos: new THREE.Vector3(W * 0.45, H - T * 0.5, D * 0.85),
+          offsetPx: [-10, -48] as [number, number],
+        },
+        {
+          id: "mat_pin_door",
+          scope: "doors" as const,
+          componentId: doorCompId,
+          title: "Kapak",
+          subtitle: doorMat.label,
+          colorHex: doorMat.colorHex,
+          localPos: new THREE.Vector3(W * 0.24, H * 0.65, D + 18),
+          offsetPx: [-24, -46] as [number, number],
+        },
+        {
+          id: "mat_pin_side_right",
+          scope: "selected_part" as const,
+          componentId: rightSideCompId,
+          title: "Sağ Yan Panel",
+          subtitle: rightSideMat.label,
+          colorHex: rightSideMat.colorHex,
+          localPos: new THREE.Vector3(W, H * 0.45, D * 0.55),
+          offsetPx: [18, -36] as [number, number],
+        },
+        {
+          id: "mat_pin_drawer",
+          scope: "drawers" as const,
+          componentId: drwFrontId,
+          title: "Çekmece Önü",
+          subtitle: drwMat.label,
+          colorHex: drwMat.colorHex,
+          localPos: new THREE.Vector3(W * 0.42, plinthH + 140, D + 18),
+          offsetPx: [-85, -42] as [number, number],
+        },
+        {
+          id: "mat_pin_plinth",
+          scope: "plinth" as const,
+          componentId: plinthCompId,
+          title: "Soket",
+          subtitle: plinthMat.label,
+          colorHex: plinthMat.colorHex,
+          localPos: new THREE.Vector3(W * 0.36, Math.max(20, plinthH * 0.5), D - 10),
+          offsetPx: [-12, 16] as [number, number],
+        },
+      ];
+    }, [project, activeModuleIndex]);
 
     const sceneRef = useRef<THREE.Scene | null>(null);
     const perspCamRef = useRef<THREE.PerspectiveCamera | null>(null);
@@ -505,6 +885,55 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         } else {
           el.style.opacity = "1";
           el.style.transform = `translate3d(${Math.round(p.x)}px, ${Math.round(p.y)}px, 0) translate(-50%, -50%)`;
+        }
+      }
+
+      if (bayPopoverDomRef.current && activeBayWorldAnchorRef.current) {
+        const ndc = activeBayWorldAnchorRef.current.clone().project(cam);
+        if (ndc.z > 1) {
+          bayPopoverDomRef.current.style.opacity = "0";
+        } else {
+          const px = Math.max(120, Math.min(w - 150, (ndc.x + 1) * 0.5 * w + 54));
+          const py = Math.max(120, Math.min(h - 140, (-ndc.y + 1) * 0.5 * h));
+          bayPopoverDomRef.current.style.opacity = "1";
+          bayPopoverDomRef.current.style.transform = `translate3d(${Math.round(px)}px, ${Math.round(py)}px, 0) translate(0%, -50%)`;
+        }
+      }
+      if (doorPopoverDomRef.current && activeDoorWorldAnchorRef.current) {
+        const ndc = activeDoorWorldAnchorRef.current.clone().project(cam);
+        if (ndc.z > 1) {
+          doorPopoverDomRef.current.style.opacity = "0";
+        } else {
+          const px = Math.max(140, Math.min(w - 230, (ndc.x + 1) * 0.5 * w + 18));
+          const py = Math.max(140, Math.min(h - 190, (-ndc.y + 1) * 0.5 * h));
+          doorPopoverDomRef.current.style.opacity = "1";
+          doorPopoverDomRef.current.style.transform = `translate3d(${Math.round(px)}px, ${Math.round(py)}px, 0) translate(0%, -50%)`;
+        }
+      }
+      for (const hwAnchor of hwWorldAnchorsRef.current) {
+        const el = hwCalloutDomMapRef.current.get(hwAnchor.id);
+        if (!el) continue;
+        const ndc = hwAnchor.worldPos.clone().project(cam);
+        if (ndc.z > 1) {
+          el.style.opacity = "0";
+        } else {
+          const px = Math.max(85, Math.min(w - 140, (ndc.x + 1) * 0.5 * w));
+          const py = Math.max(75, Math.min(h - 85, (-ndc.y + 1) * 0.5 * h));
+          el.style.opacity = "1";
+          el.style.transform = `translate3d(${Math.round(px)}px, ${Math.round(py)}px, 0)`;
+        }
+      }
+      for (const matAnchor of matWorldAnchorsRef.current) {
+        const el = matCalloutDomMapRef.current.get(matAnchor.id);
+        if (!el) continue;
+        const ndc = matAnchor.worldPos.clone().project(cam);
+        if (ndc.z > 1) {
+          el.style.opacity = "0";
+        } else {
+          const px = Math.max(85, Math.min(w - 140, (ndc.x + 1) * 0.5 * w));
+          const py = Math.max(75, Math.min(h - 85, (-ndc.y + 1) * 0.5 * h));
+          el.style.opacity = "1";
+          el.style.transform = `translate3d(${Math.round(px)}px, ${Math.round(py)}px, 0)`;
         }
       }
     }, []);
@@ -584,11 +1013,11 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       scene.environment = getStudioPmremEnvironment(renderer);
 
       // Calibrated Architectural Daylight + Warm Softbox Lighting with full-room 2048x2048 shadow frustum
-      const hemiLight = new THREE.HemisphereLight(0xfffdf8, 0xd8d2c5, 0.92);
+      const hemiLight = new THREE.HemisphereLight(0xffffff, 0xe2e8f0, 0.96);
       scene.add(hemiLight);
       hemiLightRef.current = hemiLight;
 
-      const keyLight = new THREE.DirectionalLight(0xfff5e4, 1.45);
+      const keyLight = new THREE.DirectionalLight(0xffffff, 1.42);
       keyLight.position.set(2600, 4200, 3400);
       keyLight.castShadow = true;
       keyLight.shadow.mapSize.width = 2048;
@@ -610,12 +1039,12 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       scene.add(rimLight);
       rimLightRef.current = rimLight;
 
-      const frontFillLight = new THREE.DirectionalLight(0xfff8ed, 0.58);
+      const frontFillLight = new THREE.DirectionalLight(0xf8fafc, 0.62);
       frontFillLight.position.set(-1800, 1900, 3200);
       scene.add(frontFillLight);
 
       // Upward warm floor bounce light (illuminates underside of upper cabinets, countertops, and Gola channels)
-      const floorBounceLight = new THREE.DirectionalLight(0xf7ead9, 0.36);
+      const floorBounceLight = new THREE.DirectionalLight(0xf1f5f9, 0.38);
       floorBounceLight.position.set(600, -1400, 2200);
       scene.add(floorBounceLight);
 
@@ -702,10 +1131,25 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         raycaster.setFromCamera(pointer, curCam);
         const state = latestStateRef.current;
 
-        // 1. Check if an Architectural Obstacle (Window, Door, Plumbing, Column) was grabbed in 3D
+        // 1. Raycast solid cabinet meshes FIRST so upper & base cabinets always take priority over wall obstacles behind them!
+        const anyDoorsOpen =
+          state.doorsHiddenIn3D ||
+          state.doorOpenAngleDeg > 5 ||
+          state.project.modules.some(
+            (m) =>
+              Boolean(m.isOpenFront) ||
+              m.bays.some((b) => b.door.type === "open" || b.door.doorSystemId === "open")
+          );
+        const solidMeshes = collectSolidCabinetMeshes(curGroup, anyDoorsOpen);
+        const hits = raycaster.intersectObjects(solidMeshes, false);
+        const closestCabinetDist = hits.length > 0 ? hits[0].distance : Infinity;
+
+        // 2. Only grab an Architectural Obstacle (Window, Door, Plumbing, Column) if NO cabinet is in front of it!
         if (curRoomGroup && (state.moveObjectMode3D || e.shiftKey)) {
           const roomHits = raycaster.intersectObjects(curRoomGroup.children, true);
           for (const rh of roomHits) {
+            if (rh.object instanceof THREE.Line || rh.object instanceof THREE.LineSegments) continue;
+            if (rh.distance >= closestCabinetDist - 2) break;
             let rCand: THREE.Object3D | null = rh.object;
             while (rCand && !rCand.userData?.obstacleId) {
               rCand = rCand.parent;
@@ -726,9 +1170,6 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                 const mmPerPx = visibleHeightMm / Math.max(200, rect.height);
                 const obsRot = (((obsObj.rotationY || 0) % 360) + 360) % 360;
                 const isSideObs = obsRot === 90 || obsRot === 270;
-                // Build the exact 3D vertical plane of the wall this window/obstacle sits on:
-                // - Side wall (90°/270°): vertical plane with normal (1, 0, 0) passing through rh.point
-                // - Back wall (0°/180°): vertical plane with normal (0, 0, 1) passing through rh.point
                 const planeNormal = isSideObs
                   ? new THREE.Vector3(1, 0, 0)
                   : new THREE.Vector3(0, 0, 1);
@@ -761,8 +1202,6 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             }
           }
         }
-
-        const hits = raycaster.intersectObjects(curGroup.children, true);
         if (hits.length === 0) return;
 
         let hitObj: THREE.Object3D | null = null;
@@ -771,10 +1210,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         let mod = state.project.modules[modIdx];
 
         for (const h of hits) {
-          let cand: THREE.Object3D | null = h.object;
-          while (cand && (!cand.userData || !cand.userData.componentId)) {
-            cand = cand.parent;
-          }
+          const cand = h.object;
           if (!cand?.userData?.componentId) continue;
           const cModIdx =
             typeof cand.userData.moduleIndex === "number"
@@ -782,19 +1218,26 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               : state.activeModuleIndex;
           const cMod = state.project.modules[cModIdx];
           if (!cMod) continue;
+
+          // First hit is guaranteed to be the closest solid 3D mesh under the cursor!
           if (!hitObj) {
             hitObj = cand;
             modIdx = cModIdx;
             mod = cMod;
           }
-          // Only allow grabbing internal shelves/rails/dividers if doors are open OR module/bay is open-front OR it is an external drawer front
+
+          // Do not look behind the first hit module into a DIFFERENT module!
+          if (cModIdx !== modIdx) {
+            break;
+          }
+
           const isExternalDrawerFront = String(cand.userData.role) === "drawer_front";
           const doorsAreOpen =
+            state.doorsHiddenIn3D ||
             state.doorOpenAngleDeg > 5 ||
             Boolean(cMod.isOpenFront) ||
             cMod.bays.some((b) => b.door.type === "open" || b.door.doorSystemId === "open");
 
-          // When moveObjectMode3D is active, left-clicking a cabinet moves the WHOLE cabinet unless Ctrl is held to move an internal shelf/drawer
           const wantInteriorDrag = !state.moveObjectMode3D ? !e.shiftKey : e.ctrlKey || e.metaKey;
           if (wantInteriorDrag && (doorsAreOpen || isExternalDrawerFront)) {
             const fs = calculateFourSpaceDimensions(cMod);
@@ -811,12 +1254,21 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               break;
             }
           }
-          // Stop at the first solid front hit if doors are closed so we do not grab hidden shelves through closed doors!
           if (!doorsAreOpen && String(cand.userData.role || "").startsWith("door")) {
             break;
           }
         }
         if (!hitObj?.userData?.componentId || !mod) return;
+
+        // Immediately select the hit module, bay, and component on pointerdown so clicks NEVER fail!
+        state.setActiveModuleIndex(modIdx);
+        if (typeof hitObj.userData.bayIndex === "number") {
+          state.setActiveBayIndex(hitObj.userData.bayIndex);
+        }
+        (state.setSelectedComponentId as (id: string | null, mIdx?: number) => void)(
+          String(hitObj.userData.componentId),
+          modIdx
+        );
 
         // Calculate world-mm per screen-pixel at the hit point
         const hitDist = Math.max(300, hits[0].distance);
@@ -832,7 +1284,10 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         // If user is in 3D Move Mode (or holding Shift), grab and move the WHOLE MODULE along the wall!
         if ((state.moveObjectMode3D || e.shiftKey) && !dragMeta) {
           state.setActiveModuleIndex(modIdx);
-          state.setSelectedComponentId(String(hitObj.userData.componentId));
+          (state.setSelectedComponentId as (id: string | null, mIdx?: number) => void)(
+            String(hitObj.userData.componentId),
+            modIdx
+          );
           state.beginHistoryTransaction();
           const modDragPlane = new THREE.Plane().setFromNormalAndCoplanarPoint(
             new THREE.Vector3(0, 1, 0),
@@ -857,11 +1312,17 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           return;
         }
 
-        if (!dragMeta) return;
+        if (!dragMeta) {
+          curControls.enabled = false;
+          return;
+        }
 
         state.setActiveModuleIndex(modIdx);
         state.setActiveBayIndex(dragMeta.bayIdx);
-        state.setSelectedComponentId(String(hitObj.userData.componentId));
+        (state.setSelectedComponentId as (id: string | null, mIdx?: number) => void)(
+          String(hitObj.userData.componentId),
+          modIdx
+        );
 
         activeDrag3D = {
           modIdx,
@@ -1168,7 +1629,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           if (moved) return;
         }
 
-        if (Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y) > 6) return;
+        if (Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y) > 16) return;
         const curRenderer = rendererRef.current;
         const curGroup = meshGroupRef.current;
         if (!curRenderer || !curGroup) return;
@@ -1181,25 +1642,108 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         if (!curCam) return;
 
         raycaster.setFromCamera(pointer, curCam);
-        const hits = raycaster.intersectObjects(curGroup.children, true);
         const state = latestStateRef.current;
+        const anyDoorsOpen =
+          state.doorsHiddenIn3D ||
+          state.doorOpenAngleDeg > 5 ||
+          state.project.modules.some(
+            (m) =>
+              Boolean(m.isOpenFront) ||
+              m.bays.some((b) => b.door.type === "open" || b.door.doorSystemId === "open")
+          );
+        const solidMeshes = collectSolidCabinetMeshes(curGroup, anyDoorsOpen);
+        const hits = raycaster.intersectObjects(solidMeshes, false);
         for (const h of hits) {
-          let hitObj: THREE.Object3D | null = h.object;
-          while (hitObj && (!hitObj.userData || !hitObj.userData.componentId)) {
-            hitObj = hitObj.parent;
-          }
+          const hitObj = h.object;
           if (hitObj?.userData?.componentId) {
-            if (typeof hitObj.userData.moduleIndex === "number") {
-              state.setActiveModuleIndex(hitObj.userData.moduleIndex);
+            const hitModIdx =
+              typeof hitObj.userData.moduleIndex === "number"
+                ? hitObj.userData.moduleIndex
+                : state.activeModuleIndex;
+            state.setActiveModuleIndex(hitModIdx);
+            const hitMod = state.project.modules[hitModIdx];
+            const roleStr = String(hitObj.userData.role || "");
+
+            // Determine bayIndex either from mesh userData or by projecting 3D hit point along module X
+            let resolvedBayIdx =
+              typeof hitObj.userData.bayIndex === "number" ? hitObj.userData.bayIndex : -1;
+            if (resolvedBayIdx < 0 && hitMod && hitMod.bays.length > 0) {
+              const bd = generateModuleGeometry(hitMod, { doorOpenAngleDeg: 0 });
+              const T = hitMod.carcass.panelThickness || 18;
+              const localX = h.point.x - hitMod.position.x;
+              let accX = T;
+              for (let bIdx = 0; bIdx < hitMod.bays.length; bIdx++) {
+                const bw = bd.bayWidths[bIdx] || 500;
+                if (localX <= accX + bw + T * 0.5 || bIdx === hitMod.bays.length - 1) {
+                  resolvedBayIdx = bIdx;
+                  break;
+                }
+                accX += bw + T;
+              }
             }
-            if (typeof hitObj.userData.bayIndex === "number") {
-              state.setActiveBayIndex(hitObj.userData.bayIndex);
+            if (resolvedBayIdx >= 0) {
+              state.setActiveBayIndex(resolvedBayIdx);
             }
-            state.setSelectedComponentId(String(hitObj.userData.componentId));
+
+            const rawCompId = String(hitObj.userData.componentId);
+            const resolvedCompId =
+              roleStr === "door_handle" && hitObj.userData.parentComponentId
+                ? String(hitObj.userData.parentComponentId)
+                : rawCompId;
+
+            (state.setSelectedComponentId as (id: string | null, mIdx?: number) => void)(
+              resolvedCompId,
+              hitModIdx
+            );
+
+            const isDoorHit =
+              roleStr === "door" ||
+              roleStr.startsWith("door_") ||
+              rawCompId.includes("_door_") ||
+              resolvedCompId.includes("door_");
+            const safeBay = Math.max(0, resolvedBayIdx);
+
+            if (isDoorHit && !state.doorsHiddenIn3D) {
+              const leafSideLabel = resolvedCompId.includes("right") ? "Sağ Kapak" : "Sol Kapak";
+              setDoorMenuSubSection(null);
+              setClicked3DContext({
+                kind: "door",
+                bayIndex: safeBay,
+                role: roleStr,
+                componentId: resolvedCompId,
+                label: `Bölme ${safeBay + 1} • ${leafSideLabel}`,
+              });
+              if (typeof window !== "undefined") {
+                window.dispatchEvent(
+                  new CustomEvent("birim:select-door-3d", {
+                    detail: {
+                      bayIndex: safeBay,
+                      componentId: resolvedCompId,
+                      moduleIndex: hitModIdx,
+                    },
+                  })
+                );
+              }
+            } else {
+              setClicked3DContext({
+                kind: "bay",
+                bayIndex: safeBay,
+                role: roleStr,
+                label: `Bölme ${safeBay + 1}`,
+              });
+              if (typeof window !== "undefined") {
+                window.dispatchEvent(
+                  new CustomEvent("birim:select-bay-3d", {
+                    detail: { bayIndex: safeBay, role: roleStr, moduleIndex: hitModIdx },
+                  })
+                );
+              }
+            }
             return;
           }
         }
         state.setSelectedComponentId(null);
+        setClicked3DContext(null);
       };
 
       renderer.domElement.addEventListener("pointerdown", handlePointerDown, { capture: true });
@@ -1286,10 +1830,10 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       if (sceneRef.current) {
         const bgHex =
           lightingPreset === "night_led" || theme === "dark"
-            ? 0x18181b
+            ? 0x1e293b
             : lightingPreset === "showroom_warm"
-            ? 0xc8c0b3
-            : 0xd2ccc0;
+            ? 0xd6d0c4
+            : 0xdcd7cd;
         sceneRef.current.background = new THREE.Color(bgHex);
       }
       if (hemiLightRef.current && keyLightRef.current && rimLightRef.current && rendererRef.current) {
@@ -1301,21 +1845,21 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           rimLightRef.current.intensity = 0.24;
           rendererRef.current.toneMappingExposure = 0.92;
         } else if (lightingPreset === "showroom_warm") {
-          hemiLightRef.current.color.setHex(0xfff6e5);
-          hemiLightRef.current.groundColor.setHex(0x3b352e);
-          hemiLightRef.current.intensity = 0.48;
-          keyLightRef.current.color.setHex(0xffeacc);
+          hemiLightRef.current.color.setHex(0xffffff);
+          hemiLightRef.current.groundColor.setHex(0x64748b);
+          hemiLightRef.current.intensity = 0.56;
+          keyLightRef.current.color.setHex(0xf8fafc);
           keyLightRef.current.intensity = 1.18;
-          rimLightRef.current.intensity = 0.44;
-          rendererRef.current.toneMappingExposure = 0.96;
+          rimLightRef.current.intensity = 0.5;
+          rendererRef.current.toneMappingExposure = 0.98;
         } else {
-          hemiLightRef.current.color.setHex(0xfffdf9);
-          hemiLightRef.current.groundColor.setHex(0x44403c);
-          hemiLightRef.current.intensity = 0.52;
-          keyLightRef.current.color.setHex(0xfffaf0);
-          keyLightRef.current.intensity = 1.14;
-          rimLightRef.current.intensity = 0.48;
-          rendererRef.current.toneMappingExposure = 0.94;
+          hemiLightRef.current.color.setHex(0xffffff);
+          hemiLightRef.current.groundColor.setHex(0x64748b);
+          hemiLightRef.current.intensity = 0.6;
+          keyLightRef.current.color.setHex(0xffffff);
+          keyLightRef.current.intensity = 1.16;
+          rimLightRef.current.intensity = 0.52;
+          rendererRef.current.toneMappingExposure = 0.98;
         }
       }
       if (gridRef.current) {
@@ -1420,7 +1964,9 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             obj.userData.role?.includes("fit");
           if (!obj.userData.preserveCustomMaterial) {
             const matDef = obj.userData.matDef || DEFAULT_MATERIALS[0];
-            obj.material = getV3PbrMaterial(matDef, isSel, isRail);
+            const grainDir = obj.userData.grainDir || "lengthwise";
+            const surfFin = obj.userData.surfFin;
+            obj.material = getV3PbrMaterial(matDef, isSel, isRail, grainDir, surfFin);
           }
 
           if (obj.children.length > 0 && obj.children[0] instanceof THREE.LineSegments) {
@@ -1488,18 +2034,78 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               comp.role === "door_hinge" ||
               comp.role.includes("fit"));
 
-          const material = getV3PbrMaterial(matDef, isSelected, isRail);
+          const grainDir =
+            mod.componentGrainOverrides?.[comp.id] ||
+            (comp.role.includes("door") ? mod.componentGrainOverrides?.__doors__ : undefined) ||
+            (comp.role === "drawer_front" ? mod.componentGrainOverrides?.__drawers__ : undefined) ||
+            mod.componentGrainOverrides?.__all__ ||
+            "lengthwise";
+          const surfFin = mod.surfaceFinishOverride;
+          const material = getV3PbrMaterial(matDef, isSelected, isRail, grainDir, surfFin);
           const edgeMat = getCachedEdgeMaterial(isSelected, isActiveMod, isLight, renderEdgeMode === "photoreal");
 
-          modContainer.add(
-            createComponentMesh(comp, material, edgeMat, {
-              componentId: comp.id,
-              role: comp.role,
-              moduleIndex: modIdx,
-              bayIndex: comp.bayIndex,
-              matDef,
-            })
-          );
+          const isDoorPart =
+            comp.role === "door" ||
+            comp.role.startsWith("door_") ||
+            comp.role === "door_handle" ||
+            comp.role === "door_hinge";
+          const isCutawayBayDoor =
+            isActiveMod &&
+            cutawayActiveBay &&
+            isDoorPart &&
+            comp.bayIndex === activeBayIndex &&
+            !comp.id.includes("sliding");
+          if (isActiveMod && (doorsHiddenIn3D || isCutawayBayDoor) && isDoorPart) {
+            return;
+          }
+          const compGroup = createComponentMesh(comp, material, edgeMat, {
+            componentId: comp.id,
+            role: comp.role,
+            moduleIndex: modIdx,
+            bayIndex: comp.bayIndex,
+            matDef,
+            grainDir,
+            surfFin,
+          });
+          modContainer.add(compGroup);
+
+          // Unmistakable Blue 3D Selection Frame around ANY Selected Panel / Door / Drawer / Plinth (Matches image_e5c524.jpg & image_dad0ff.jpg)
+          if (
+            isActiveMod &&
+            comp.isManufacturablePanel !== false &&
+            (comp.id === selectedComponentId ||
+              (clicked3DContext?.kind === "door" && clicked3DContext.componentId === comp.id))
+          ) {
+            const dFrameGeo = new THREE.BoxGeometry(
+              comp.dimensions.width + 8,
+              comp.dimensions.height + 8,
+              comp.dimensions.depth + 8
+            );
+            const dFrameLines = new THREE.LineSegments(
+              new THREE.EdgesGeometry(dFrameGeo),
+              new THREE.LineBasicMaterial({
+                color: 0x2563eb,
+                transparent: true,
+                opacity: 1,
+              })
+            );
+            dFrameLines.raycast = () => {};
+            const pivot = comp.pivot ?? comp.position;
+            dFrameLines.position.set(
+              comp.position.x - pivot.x + comp.dimensions.width / 2,
+              comp.position.y - pivot.y + comp.dimensions.height / 2,
+              comp.position.z - pivot.z + comp.dimensions.depth / 2 + 2
+            );
+            compGroup.add(dFrameLines);
+
+            const doorLocalAnchor = new THREE.Vector3(
+              comp.position.x + comp.dimensions.width,
+              comp.position.y + comp.dimensions.height * 0.52,
+              comp.position.z + comp.dimensions.depth
+            );
+            modContainer.updateMatrixWorld(true);
+            activeDoorWorldAnchorRef.current = doorLocalAnchor.applyMatrix4(modContainer.matrixWorld);
+          }
           if (isLedStrip && activeSceneLedLights < 8) {
             activeSceneLedLights++;
             const ledLight = new THREE.PointLight(0xffcf6e, 1.35, 1600);
@@ -1514,25 +2120,48 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
 
         // Soft Contact Ambient Occlusion (AO) Floor & Back-Wall Shadow Pad for Photorealistic Grounding
         const aoTex = getContactAoShadowTexture();
-        if (aoTex && mod.position.y <= 80) {
-          const aoGeo = new THREE.PlaneGeometry(
-            mod.dimensions.width + 130,
-            mod.dimensions.depth + 130
+        if (aoTex) {
+          if (mod.position.y <= 80) {
+            const aoGeo = new THREE.PlaneGeometry(
+              mod.dimensions.width + 130,
+              mod.dimensions.depth + 130
+            );
+            const aoMat = new THREE.MeshBasicMaterial({
+              map: aoTex,
+              transparent: true,
+              opacity: isLight ? 0.68 : 0.82,
+              depthWrite: false,
+            });
+            const aoMesh = new THREE.Mesh(aoGeo, aoMat);
+            aoMesh.raycast = () => {};
+            aoMesh.rotation.x = -Math.PI / 2;
+            aoMesh.position.set(
+              mod.dimensions.width / 2,
+              -mod.position.y + 1.5,
+              mod.dimensions.depth / 2
+            );
+            modContainer.add(aoMesh);
+          }
+
+          // Back-Wall Contact Shadow Halo behind EVERY cabinet (both Floor & Upper Wall Cabinets!) so carcass never blends into the wall
+          const wallAoGeo = new THREE.PlaneGeometry(
+            mod.dimensions.width + 160,
+            mod.dimensions.height + 160
           );
-          const aoMat = new THREE.MeshBasicMaterial({
+          const wallAoMat = new THREE.MeshBasicMaterial({
             map: aoTex,
             transparent: true,
-            opacity: isLight ? 0.68 : 0.82,
+            opacity: isLight ? 0.58 : 0.75,
             depthWrite: false,
           });
-          const aoMesh = new THREE.Mesh(aoGeo, aoMat);
-          aoMesh.rotation.x = -Math.PI / 2;
-          aoMesh.position.set(
+          const wallAoMesh = new THREE.Mesh(wallAoGeo, wallAoMat);
+          wallAoMesh.raycast = () => {};
+          wallAoMesh.position.set(
             mod.dimensions.width / 2,
-            -mod.position.y + 1.5,
-            mod.dimensions.depth / 2
+            mod.dimensions.height / 2,
+            1.5
           );
-          modContainer.add(aoMesh);
+          modContainer.add(wallAoMesh);
         }
         // Subtle Interior Cavity Studio Bounce Light on Active Module when Doors are Open
         if (isActiveMod && (doorOpenAngleDeg > 10 || mod.isOpenFront)) {
@@ -1546,20 +2175,119 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         }
 
         
-        // Unmistakable 3D Selection Bounding Frame & Base Halo on the Active Module
+        // 3D Direct Compartment Hit Volumes & Active Compartment Highlight Frame (Step 2 & 3 of Wardrobe Workflow)
+        if (isActiveMod && mod.bays.length >= 1) {
+          const T = mod.carcass.panelThickness || 18;
+          const plinthH = mod.carcass.plinthHeight ?? 100;
+          const innerH =
+            breakdown.netInnerHeight || Math.max(300, mod.dimensions.height - plinthH - 2 * T);
+          let curBayX = T;
+          const showBayOverlay =
+            cutawayActiveBay ||
+            doorsHiddenIn3D ||
+            doorOpenAngleDeg > 5 ||
+            Boolean(mod.isOpenFront) ||
+            mod.bays.some((b) => b.door.type === "open" || b.door.doorSystemId === "open");
+
+          mod.bays.forEach((bayObj, bIdx) => {
+            const bw =
+              breakdown.bayWidths[bIdx] ||
+              Math.round((mod.dimensions.width - (mod.bays.length + 1) * T) / mod.bays.length);
+            if (showBayOverlay) {
+              // Raycastable compartment back-volume plane so clicking empty space in a bay selects that bay
+              const bayHitGeo = new THREE.PlaneGeometry(
+                Math.max(80, bw - 6),
+                Math.max(120, innerH - 6)
+              );
+              const isActBay = bIdx === activeBayIndex;
+              const bayHitMat = new THREE.MeshBasicMaterial({
+                color: isActBay ? 0x38bdf8 : 0x94a3b8,
+                transparent: true,
+                opacity: isActBay ? 0.1 : 0.015,
+                side: THREE.DoubleSide,
+                depthWrite: false,
+              });
+              const bayHitMesh = new THREE.Mesh(bayHitGeo, bayHitMat);
+              bayHitMesh.position.set(curBayX + bw / 2, plinthH + T + innerH / 2, T + 8);
+              bayHitMesh.userData = {
+                componentId: `${mod.id}_bay_compartment_${bIdx}`,
+                role: "bay_compartment",
+                moduleIndex: modIdx,
+                bayIndex: bIdx,
+              };
+              modContainer.add(bayHitMesh);
+
+              if (isActBay) {
+                const bayFrameGeo = new THREE.BoxGeometry(
+                  Math.max(80, bw - 4),
+                  Math.max(120, innerH - 4),
+                  Math.max(100, mod.dimensions.depth - T - 8)
+                );
+                const bayFrameLines = new THREE.LineSegments(
+                  new THREE.EdgesGeometry(bayFrameGeo),
+                  new THREE.LineBasicMaterial({
+                    color: 0x0284c7,
+                    transparent: true,
+                    opacity: 0.95,
+                  })
+                );
+                bayFrameLines.position.set(
+                  curBayX + bw / 2,
+                  plinthH + T + innerH / 2,
+                  T + (mod.dimensions.depth - T) / 2
+                );
+                modContainer.add(bayFrameLines);
+
+                // Double-thick front blue rectangle border around active compartment opening (Matches image_e719c6.jpg)
+                const frontRectGeo = new THREE.BoxGeometry(
+                  Math.max(80, bw + 6),
+                  Math.max(120, innerH + 6),
+                  12
+                );
+                const frontRectLines = new THREE.LineSegments(
+                  new THREE.EdgesGeometry(frontRectGeo),
+                  new THREE.LineBasicMaterial({
+                    color: 0x2563eb,
+                    transparent: true,
+                    opacity: 1,
+                  })
+                );
+                frontRectLines.position.set(
+                  curBayX + bw / 2,
+                  plinthH + T + innerH / 2,
+                  mod.dimensions.depth + 2
+                );
+                modContainer.add(frontRectLines);
+
+                // Compute world anchor for the floating "Bölme X" popover card
+                const localAnchor = new THREE.Vector3(
+                  curBayX + bw,
+                  plinthH + T + innerH * 0.48,
+                  mod.dimensions.depth
+                );
+                modContainer.updateMatrixWorld(true);
+                activeBayWorldAnchorRef.current = localAnchor.applyMatrix4(modContainer.matrixWorld);
+              }
+            }
+            curBayX += bw + T;
+          });
+        }
+
+        // Unmistakable 3D Selection Bounding Frame & Halo on the Active Module (Both Base & Upper Wall Cabinets)
         if (isActiveMod) {
-          const selW = mod.dimensions.width + 24;
-          const selH = mod.dimensions.height + 24;
-          const selD = mod.dimensions.depth + 24;
+          const selW = mod.dimensions.width + 16;
+          const selH = mod.dimensions.height + 16;
+          const selD = mod.dimensions.depth + 16;
           const selBoxGeo = new THREE.BoxGeometry(selW, selH, selD);
           const selEdges = new THREE.LineSegments(
             new THREE.EdgesGeometry(selBoxGeo),
             new THREE.LineBasicMaterial({
-              color: 0xd97706,
+              color: 0x2563eb,
               transparent: true,
-              opacity: 0.92,
+              opacity: 0.95,
             })
           );
+          selEdges.raycast = () => {};
           selEdges.position.set(
             mod.dimensions.width / 2,
             mod.dimensions.height / 2,
@@ -1567,17 +2295,17 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           );
           modContainer.add(selEdges);
 
-          // Glowing Base Platform Frame on floor/wall under the Selected Module
-          const baseRingGeo = new THREE.BoxGeometry(selW + 16, 8, selD + 16);
+          const baseRingGeo = new THREE.BoxGeometry(selW + 12, 8, selD + 12);
           const baseRingMesh = new THREE.Mesh(
             baseRingGeo,
             new THREE.MeshBasicMaterial({
-              color: 0xf59e0b,
+              color: 0x3b82f6,
               transparent: true,
               opacity: 0.28,
               depthWrite: false,
             })
           );
+          baseRingMesh.raycast = () => {};
           baseRingMesh.position.set(mod.dimensions.width / 2, 4, mod.dimensions.depth / 2);
           modContainer.add(baseRingMesh);
         }
@@ -1594,15 +2322,19 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
 
         // Architectural Back Wall + Any Side Return Walls (L/U Kitchen or Left/Right Window Wall) + Floor Surface
         const wallMat = new THREE.MeshStandardMaterial({
-          color: lightingPreset === "night_led" ? 0x27272a : 0xf5f3ee,
-          roughness: 0.88,
+          color:
+            lightingPreset === "night_led"
+              ? 0x27272a
+              : lightingPreset === "showroom_warm"
+              ? 0xc2bab0
+              : 0xbdb5a8,
+          roughness: 0.9,
           metalness: 0.02,
-          transparent: true,
-          opacity: 0.84,
+          transparent: false,
           side: THREE.DoubleSide,
         });
         const skirtMat = new THREE.MeshStandardMaterial({
-          color: 0xe7e5e4,
+          color: 0xf1f5f9,
           roughness: 0.45,
         });
 
@@ -2091,7 +2823,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             // Column, Beam, or Electrical
             const colGeo = new THREE.BoxGeometry(ow, oh, od);
             const colMat = new THREE.MeshBasicMaterial({
-              color: obs.type === "electrical" ? 0xf59e0b : 0xa8a29e,
+              color: obs.type === "electrical" ? 0xf59e0b : obs.type === "niche" ? 0xded8cc : obs.type === "partition" ? 0xcbd5e1 : 0xa8a29e,
               transparent: true,
               opacity: 0.6,
             });
@@ -2122,8 +2854,13 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       project,
       doorOpenAngleDeg,
       drawerOpenMm,
+      toggleDoorOpen,
+      setDrawerOpenMm,
       explodedFactor,
       activeModuleIndex,
+      activeBayIndex,
+      doorsHiddenIn3D,
+      cutawayActiveBay,
       selectedComponentId,
       theme,
       showRoomArchitecture3D,
@@ -2176,7 +2913,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         "Genişlik",
         `${W} mm`,
         0x2b2927,
-        "#E2DDD3",
+        "#CBD5E1",
         "#2B2927"
       );
 
@@ -2224,9 +2961,36 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         "Soket",
         `${soketW} mm`,
         0x2b2927,
-        "#E2DDD3",
+        "#CBD5E1",
         "#2B2927"
       );
+
+      // 5. Per-Bay Net Width Segments along top-front edge (Bölme 1 600 mm | Bölme 2 600 mm | Bölme 3 600 mm)
+      if (mod.category !== "complementary" && mod.bays.length >= 1) {
+        const bayWidths = fourSpaces.usableInternal.bayClearWidthsMm;
+        let curBayX = T;
+        mod.bays.forEach((b, bIdx) => {
+          const bw =
+            bayWidths[bIdx] ||
+            Math.round((W - (mod.bays.length + 1) * T) / Math.max(1, mod.bays.length));
+          const isSelBay = bIdx === activeBayIndex;
+          addDimensionSegment(
+            modDimContainer,
+            localAnchors,
+            `dim_BAY_${bIdx}`,
+            new THREE.Vector3(curBayX, H, D * 0.92),
+            new THREE.Vector3(curBayX + bw, H, D * 0.92),
+            new THREE.Vector3(0, 1, 0),
+            26,
+            `Bölme ${bIdx + 1}`,
+            `${bw} mm`,
+            isSelBay ? 0x2563eb : 0x64748b,
+            isSelBay ? "#2563EB" : "#CBD5E1",
+            isSelBay ? "#2563EB" : "#475569"
+          );
+          curBayX += bw + T;
+        });
+      }
 
             dimGroup.add(modDimContainer);
       modDimContainer.updateMatrixWorld(true);
@@ -2305,24 +3069,101 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
     }, [
       project,
       activeModuleIndex,
+      activeBayIndex,
       effectiveShowDimensions,
       updateProjectedDimensionLabels,
       requestRender,
     ]);
 
+    useEffect(() => {
+      const mod = project.modules[activeModuleIndex] || project.modules[0];
+      if (!mod) {
+        hwWorldAnchorsRef.current = [];
+        return;
+      }
+      const modContainer = createModuleGroup(mod);
+      modContainer.updateMatrixWorld(true);
+      hwWorldAnchorsRef.current = hwCallouts.map((hc) => ({
+        id: hc.id,
+        worldPos: hc.localPos.clone().applyMatrix4(modContainer.matrixWorld),
+        offsetPx: hc.offsetPx,
+      }));
+      matWorldAnchorsRef.current = matCallouts.map((mc) => ({
+        id: mc.id,
+        worldPos: mc.localPos.clone().applyMatrix4(modContainer.matrixWorld),
+        offsetPx: mc.offsetPx,
+      }));
+      updateProjectedDimensionLabels();
+      requestRender();
+    }, [project, activeModuleIndex, hwCallouts, matCallouts, hardwareViewMode, materialModeActive, updateProjectedDimensionLabels, requestRender]);
+
     if (!activeModule) return null;
     const { width, height, depth } = activeModule.dimensions;
 
-    const commitBadgeEdit = () => {
-      const val = Number(badgeDraftValue);
-      if (!Number.isNaN(val) && editingBadge) {
-        if (editingBadge === "W") {
-          setDimensions(val, height, depth);
-        } else if (editingBadge === "H") {
-          setDimensions(width, val, depth);
-        } else if (editingBadge === "D") {
-          setDimensions(width, height, val);
-        }
+    const activeTpl = activeModule.templateId
+      ? v4ModuleTemplates.find((t) => t.templateId === activeModule.templateId)
+      : undefined;
+    const dimBounds = {
+      W: {
+        min: activeTpl?.dimensionLimits?.minW ?? 200,
+        max: activeTpl?.dimensionLimits?.maxW ?? 3600,
+        step: 50,
+        presets: [450, 600, 800, 900, 1200, 1600, 1800, 2000, 2400],
+        current: width,
+        label: "Genişlik",
+        isFixed: Boolean(activeModule.isFixedWidth),
+      },
+      H: {
+        min: activeTpl?.dimensionLimits?.minH ?? 300,
+        max: activeTpl?.dimensionLimits?.maxH ?? 2800,
+        step: 50,
+        presets: [720, 900, 1400, 2000, 2100, 2200, 2400, 2600],
+        current: height,
+        label: "Yükseklik",
+        isFixed: false,
+      },
+      D: {
+        min: activeTpl?.dimensionLimits?.minD ?? 200,
+        max: activeTpl?.dimensionLimits?.maxD ?? 950,
+        step: 50,
+        presets: [320, 350, 450, 580, 600, 650, 700],
+        presetsLabel: "Derinlik",
+        current: depth,
+        label: "Derinlik",
+        isFixed: false,
+      },
+      SOKET: {
+        min: 0,
+        max: 200,
+        step: 10,
+        presets: [0, 60, 80, 100, 120, 150],
+        current: activeModule.carcass.plinthHeight ?? 100,
+        label: "Soket / Kaide Yüksekliği",
+        isFixed: false,
+      },
+    };
+
+    const commitBadgeEdit = (overrideVal?: number) => {
+      if (!editingBadge) return;
+      const bInfo = dimBounds[editingBadge];
+      if (bInfo.isFixed) {
+        setEditingBadge(null);
+        return;
+      }
+      const val = typeof overrideVal === "number" ? overrideVal : Number(badgeDraftValue);
+      if (Number.isNaN(val) || !Number.isFinite(val)) return;
+      if (val < bInfo.min || val > bInfo.max) {
+        // Block invalid dimension outside allowed parametric rules
+        return;
+      }
+      if (editingBadge === "W") {
+        setDimensions(Math.round(val), height, depth);
+      } else if (editingBadge === "H") {
+        setDimensions(width, Math.round(val), depth);
+      } else if (editingBadge === "D") {
+        setDimensions(width, height, Math.round(val));
+      } else if (editingBadge === "SOKET") {
+        setPlinthHeight(Math.round(val));
       }
       setEditingBadge(null);
     };
@@ -2430,7 +3271,7 @@ const clear3DGhostPreview = useCallback(() => {
 
         // B. Render Full-Scale 3D Ghost Cabinet Silhouette at (snappedX, snappedY, 0)
         const ghostBreakdown = generateModuleGeometry(preview.previewModule, {
-          doorOpenAngleDeg: 22,
+          doorOpenAngleDeg: 0,
           drawerOpenMm: 0,
           explodedFactor: 0,
         });
@@ -2490,7 +3331,7 @@ const clear3DGhostPreview = useCallback(() => {
         {dragDropSnapBanner && (
           <div
             data-testid="viewport-3d-dragdrop-snap-banner"
-            className="absolute top-14 left-1/2 -translate-x-1/2 z-30 pointer-events-none px-4 py-2 rounded-2xl bg-[#E8E2D5] text-[#1C1917] border border-[#BFB5A2] border-2 border-amber-200 shadow-xl font-mono text-xs font-extrabold flex items-center gap-2"
+            className="absolute top-14 left-1/2 -translate-x-1/2 z-30 pointer-events-none px-4 py-2 rounded-2xl bg-[#EEF3F8] text-[#1C1917] border border-[#CBD5E1] border-2 border-amber-200 shadow-xl font-mono text-xs font-extrabold flex items-center gap-2"
           >
             <span>{dragDropSnapBanner}</span>
           </div>
@@ -2501,36 +3342,1136 @@ const clear3DGhostPreview = useCallback(() => {
           className="w-full h-full cursor-grab active:cursor-grabbing"
         />
 
-        {/* CRISP PROJECTED 3D DIMENSION CALLOUT PILLS OVERLAY (Design Studio White Capsules) */}
+        {/* INTERACTIVE CLICK-TO-EDIT 3D DIMENSION CALLOUT PILLS & FLOATING POPOVER WINDOW */}
         {effectiveShowDimensions && dimLabels.length > 0 && (
           <div
             data-testid="viewport-3d-dim-labels"
-            className="absolute inset-0 pointer-events-none overflow-hidden z-[8]"
+            className="absolute inset-0 pointer-events-none overflow-hidden z-[16]"
           >
-            {dimLabels.map((item) => (
-              <div
-                key={item.id}
-                data-testid={`viewport-3d-dim-${item.id}`}
-                ref={(el) => {
-                  if (el) {
-                    dimLabelDomMapRef.current.set(item.id, el);
-                  } else {
-                    dimLabelDomMapRef.current.delete(item.id);
+            {dimLabels.map((item) => {
+              const badgeKey: null | "W" | "H" | "D" | "SOKET" =
+                item.id === "dim_W"
+                  ? "W"
+                  : item.id === "dim_H"
+                  ? "H"
+                  : item.id === "dim_D"
+                  ? "D"
+                  : item.id === "dim_SOKET"
+                  ? "SOKET"
+                  : null;
+              const isBayBadge = item.id.startsWith("dim_BAY_");
+              const bayBadgeIdx = isBayBadge ? Number(item.id.replace("dim_BAY_", "")) : -1;
+              const isActiveBayBadge = isBayBadge && bayBadgeIdx === activeBayIndex;
+              const isEditingThis = badgeKey !== null && editingBadge === badgeKey;
+
+              return (
+                <div
+                  key={item.id}
+                  data-testid={`viewport-3d-dim-${item.id}`}
+                  ref={(el) => {
+                    if (el) {
+                      dimLabelDomMapRef.current.set(item.id, el);
+                    } else {
+                      dimLabelDomMapRef.current.delete(item.id);
+                    }
+                  }}
+                  style={{
+                    transform: "translate3d(-9999px, -9999px, 0)",
+                  }}
+                  onClick={(e) => {
+                    if (isBayBadge && bayBadgeIdx >= 0) {
+                      e.stopPropagation();
+                      setActiveBayIndex(bayBadgeIdx);
+                      setCutawayActiveBay(true);
+                      if (typeof window !== "undefined") {
+                        window.dispatchEvent(
+                          new CustomEvent("birim:select-bay-3d", {
+                            detail: {
+                              bayIndex: bayBadgeIdx,
+                              role: "bay_compartment",
+                              moduleIndex: activeModuleIndex,
+                            },
+                          })
+                        );
+                      }
+                      return;
+                    }
+                    if (!badgeKey) return;
+                    e.stopPropagation();
+                    const curVal = dimBounds[badgeKey].current;
+                    setBadgeDraftValue(String(curVal));
+                    setEditingBadge(badgeKey);
+                  }}
+                  title={
+                    isBayBadge
+                      ? `${item.tag} (${item.valueText}) — Bölmeyi seçmek ve iç düzenini açmak için tıklayın`
+                      : badgeKey
+                      ? `${item.tag} ölçüsünü doğrudan 3D sahnede düzenlemek için tıklayın`
+                      : item.tag
                   }
-                }}
-                style={{
-                  transform: "translate3d(-9999px, -9999px, 0)",
-                }}
-                className="absolute top-0 left-0 inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-white/95 backdrop-blur-xs border border-[#E2DDD3] shadow-md whitespace-nowrap transition-opacity duration-75"
-              >
-                <span className="text-[12px] font-bold text-[#1C1917] leading-none">
-                  {item.tag}
+                  className={`absolute top-0 left-0 inline-flex items-center gap-1.5 px-3 py-1 rounded-full backdrop-blur-xs border shadow-md whitespace-nowrap transition-opacity duration-75 ${
+                    isActiveBayBadge
+                      ? "bg-[#2563EB] text-white border-[#1D4ED8] ring-2 ring-[#2563EB]/30 pointer-events-auto cursor-pointer"
+                      : isBayBadge
+                      ? "bg-white/95 hover:bg-[#EFF6FF] text-[#111827] border-[#CBD5E1] hover:border-[#2563EB] pointer-events-auto cursor-pointer"
+                      : isEditingThis
+                      ? "bg-[#EEF3F8] border-2 border-[#3B82F6] ring-2 ring-[#3B82F6]/30 pointer-events-auto cursor-pointer"
+                      : badgeKey
+                      ? "bg-white/95 hover:bg-[#EEF3F8] hover:border-[#3B82F6] border-[#CBD5E1] pointer-events-auto cursor-pointer group"
+                      : "bg-white/95 pointer-events-none border-[#CBD5E1]"
+                  }`}
+                >
+                  <span
+                    className={`text-[11px] font-bold leading-none ${
+                      isActiveBayBadge ? "text-white" : "text-[#111827]"
+                    }`}
+                  >
+                    {item.tag}
+                  </span>
+                  <span
+                    className={`text-[11px] font-semibold leading-none font-mono ${
+                      isActiveBayBadge ? "text-blue-100" : "text-[#111827]"
+                    }`}
+                  >
+                    {item.valueText}
+                  </span>
+                  {badgeKey && (
+                    <span className="text-[10px] text-[#475569] group-hover:text-[#111827] leading-none ml-0.5">
+                      ✎
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* FAZ 2: 3D HARDWARE SELECTION PINS & CONTEXTUAL CALLOUT CARDS (Matches Birim_Tasarim_5_Donanim_Mekanizmalar.png) */}
+        {showInCanvasHud &&
+          (hardwareViewMode === "hardware" || hardwareViewMode === "technical") &&
+          hwCallouts.length > 0 && (
+            <div
+              data-testid="viewport-3d-hardware-callouts"
+              className="absolute inset-0 pointer-events-none overflow-hidden z-[18]"
+            >
+              {hwCallouts.map((hc) => {
+                const isSelectedPin = selectedHwCalloutId === hc.id;
+                return (
+                  <div
+                    key={hc.id}
+                    data-testid={`viewport-3d-hw-${hc.id}`}
+                    ref={(el) => {
+                      if (el) {
+                        hwCalloutDomMapRef.current.set(hc.id, el);
+                      } else {
+                        hwCalloutDomMapRef.current.delete(hc.id);
+                      }
+                    }}
+                    style={{ transform: "translate3d(-9999px, -9999px, 0)" }}
+                    className="absolute top-0 left-0 transition-opacity duration-75"
+                  >
+                    {/* Blue 3D Hardware Pin Dot at exact 3D coordinate */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedHwCalloutId(hc.id);
+                        setActiveBayIndex(hc.bayIndex);
+                        if (typeof window !== "undefined") {
+                          window.dispatchEvent(
+                            new CustomEvent("birim:select-hardware-3d", {
+                              detail: {
+                                pinId: hc.id,
+                                group: hc.group,
+                                bayIndex: hc.bayIndex,
+                                sku: hc.sku,
+                              },
+                            })
+                          );
+                        }
+                      }}
+                      className={`-translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full border-2 border-white shadow-lg pointer-events-auto cursor-pointer transition-transform hover:scale-125 ${
+                        isSelectedPin
+                          ? "bg-[#1D4ED8] ring-4 ring-[#2563EB]/40 scale-115"
+                          : "bg-[#2563EB] ring-2 ring-[#2563EB]/25"
+                      }`}
+                      title={`${hc.title}: ${hc.subtitle} — Sağ panelde düzenlemek için tıklayın`}
+                    />
+
+                    {/* Leader Line + Contextual Hardware Callout Card */}
+                    <button
+                      type="button"
+                      data-testid={`viewport-3d-hw-card-${hc.group}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedHwCalloutId(hc.id);
+                        setActiveBayIndex(hc.bayIndex);
+                        if (typeof window !== "undefined") {
+                          window.dispatchEvent(
+                            new CustomEvent("birim:select-hardware-3d", {
+                              detail: {
+                                pinId: hc.id,
+                                group: hc.group,
+                                bayIndex: hc.bayIndex,
+                                sku: hc.sku,
+                              },
+                            })
+                          );
+                        }
+                      }}
+                      style={{
+                        transform: `translate(${hc.offsetPx[0]}px, ${hc.offsetPx[1]}px)`,
+                      }}
+                      className={`pointer-events-auto cursor-pointer px-3 py-1.5 rounded-2xl backdrop-blur-md border shadow-xl flex items-center gap-2 text-left whitespace-nowrap transition ${
+                        isSelectedPin
+                          ? "bg-[#EFF6FF]/98 border-2 border-[#2563EB] ring-2 ring-[#2563EB]/20"
+                          : "bg-white/95 hover:bg-[#EFF6FF] border-[#CBD5E1] hover:border-[#2563EB]"
+                      }`}
+                    >
+                      <span className="w-6 h-6 rounded-xl bg-[#F1F5F9] border border-[#E2E8F0] flex items-center justify-center text-[#111827] shrink-0">
+                        {hc.group === "hinge" ? (
+                          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                            <rect x="4" y="6" width="6" height="12" rx="1" />
+                            <circle cx="15" cy="12" r="3" />
+                            <path d="M10 10h2M10 14h2" />
+                          </svg>
+                        ) : hc.group === "lighting" ? (
+                          <svg className="w-3.5 h-3.5 text-amber-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                            <path d="M9 18h6M10 22h4M12 2a7 7 0 00-4 12.7V17h8v-2.3A7 7 0 0012 2z" />
+                          </svg>
+                        ) : hc.group === "accessories" ? (
+                          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                            <path d="M4 12h16M6 10v4M18 10v4" />
+                          </svg>
+                        ) : (
+                          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                            <rect x="3" y="7" width="18" height="10" rx="1.5" />
+                            <path d="M9 11h6" />
+                          </svg>
+                        )}
+                      </span>
+                      <span className="block">
+                        <span className="text-[11px] font-extrabold text-[#111827] block leading-tight">
+                          {hc.title}
+                        </span>
+                        <span className="text-[10px] font-medium text-[#475569] block leading-tight mt-0.5">
+                          {hc.subtitle}
+                        </span>
+                      </span>
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+        {/* FAZ 2 (SCREEN 6): 3D PART-LEVEL MATERIAL CALLOUT PINS & CARDS (Matches image_dad0ff.jpg: Üst Tabla, Kapak, Sağ Yan Panel, Çekmece Önü, Soket) */}
+        {showInCanvasHud && materialModeActive && matCallouts.length > 0 && (
+          <div
+            data-testid="viewport-3d-material-callouts"
+            className="absolute inset-0 pointer-events-none overflow-hidden z-[19]"
+          >
+            {matCallouts.map((mc) => {
+              const isSelectedPart = selectedComponentId === mc.componentId;
+              return (
+                <div
+                  key={mc.id}
+                  data-testid={`viewport-3d-mat-${mc.id}`}
+                  ref={(el) => {
+                    if (el) {
+                      matCalloutDomMapRef.current.set(mc.id, el);
+                    } else {
+                      matCalloutDomMapRef.current.delete(mc.id);
+                    }
+                  }}
+                  style={{ transform: "translate3d(-9999px, -9999px, 0)" }}
+                  className="absolute top-0 left-0 transition-opacity duration-75"
+                >
+                  {/* Blue 3D Part Selection Dot */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      (setSelectedComponentId as (id: string | null, mIdx?: number) => void)(
+                        mc.componentId,
+                        activeModuleIndex
+                      );
+                      if (materialPaintTool === "paint") {
+                        applyMaterialByTargetScope("selected_part", activeBrushMaterialId, mc.componentId);
+                      } else if (materialPaintTool === "group") {
+                        applyMaterialByTargetScope(mc.scope, activeBrushMaterialId, mc.componentId);
+                      } else if (materialPaintTool === "same_material") {
+                        applyMaterialByTargetScope(
+                          "same_material_parts",
+                          activeBrushMaterialId,
+                          mc.componentId
+                        );
+                      }
+                      if (typeof window !== "undefined") {
+                        window.dispatchEvent(
+                          new CustomEvent("birim:select-material-part-3d", {
+                            detail: {
+                              componentId: mc.componentId,
+                              scope: mc.scope,
+                              title: mc.title,
+                            },
+                          })
+                        );
+                      }
+                    }}
+                    className={`-translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full border-2 border-white shadow-lg pointer-events-auto cursor-pointer transition-transform hover:scale-125 ${
+                      isSelectedPart
+                        ? "bg-[#1D4ED8] ring-4 ring-[#2563EB]/40 scale-115"
+                        : "bg-[#2563EB] ring-2 ring-[#2563EB]/25"
+                    }`}
+                  />
+
+                  {/* Contextual Material Callout Card */}
+                  <button
+                    type="button"
+                    data-testid={`viewport-3d-mat-card-${mc.id}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      (setSelectedComponentId as (id: string | null, mIdx?: number) => void)(
+                        mc.componentId,
+                        activeModuleIndex
+                      );
+                      if (materialPaintTool === "paint") {
+                        applyMaterialByTargetScope("selected_part", activeBrushMaterialId, mc.componentId);
+                      } else if (materialPaintTool === "group") {
+                        applyMaterialByTargetScope(mc.scope, activeBrushMaterialId, mc.componentId);
+                      } else if (materialPaintTool === "same_material") {
+                        applyMaterialByTargetScope(
+                          "same_material_parts",
+                          activeBrushMaterialId,
+                          mc.componentId
+                        );
+                      }
+                      if (typeof window !== "undefined") {
+                        window.dispatchEvent(
+                          new CustomEvent("birim:select-material-part-3d", {
+                            detail: {
+                              componentId: mc.componentId,
+                              scope: mc.scope,
+                              title: mc.title,
+                            },
+                          })
+                        );
+                      }
+                    }}
+                    style={{
+                      transform: `translate(${mc.offsetPx[0]}px, ${mc.offsetPx[1]}px)`,
+                    }}
+                    className={`pointer-events-auto cursor-pointer px-3 py-1.5 rounded-2xl backdrop-blur-md border shadow-xl flex items-center gap-2 text-left whitespace-nowrap transition ${
+                      isSelectedPart
+                        ? "bg-[#EFF6FF]/98 border-2 border-[#2563EB] ring-2 ring-[#2563EB]/20"
+                        : "bg-white/95 hover:bg-[#EFF6FF] border-[#CBD5E1] hover:border-[#2563EB]"
+                    }`}
+                  >
+                    <span
+                      className="w-5 h-5 rounded-lg border border-stone-300 shadow-inner shrink-0"
+                      style={{ backgroundColor: mc.colorHex }}
+                    />
+                    <span className="block">
+                      <span className="text-xs font-extrabold text-[#111827] block leading-tight">
+                        {mc.title}
+                      </span>
+                      <span className="text-[11px] font-medium text-[#475569] block leading-tight mt-0.5">
+                        {mc.subtitle}
+                      </span>
+                    </span>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* 3D DIRECT DIMENSION EDITING POPOVER WINDOW (Mevcut değer, Sayısal giriş, Hazır ölçüler, Geçerlilik kontrolü, Enter/Esc) */}
+        {editingBadge && (() => {
+          const bInfo = dimBounds[editingBadge];
+          const draftNum = Number(badgeDraftValue);
+          const isNumeric = badgeDraftValue.trim() !== "" && !Number.isNaN(draftNum) && Number.isFinite(draftNum);
+          const isOutOfRange = !isNumeric || draftNum < bInfo.min || draftNum > bInfo.max;
+          const validPresets = bInfo.presets.filter((p) => p >= bInfo.min && p <= bInfo.max);
+
+          return (
+            <div
+              data-testid={`viewport-3d-dim-popover-${editingBadge}`}
+              onClick={(e) => e.stopPropagation()}
+              className="absolute top-20 left-1/2 -translate-x-1/2 z-30 w-80 bg-white/98 backdrop-blur-md rounded-2xl border-2 border-[#CBD5E1] shadow-2xl p-4 space-y-3 text-xs text-[#111827] pointer-events-auto"
+            >
+              <div className="flex items-start justify-between gap-2 border-b border-[#E2E8F0] pb-2">
+                <div>
+                  <div className="text-xs font-bold text-[#111827]">
+                    📐 {bInfo.label} Düzenle (3D Doğrudan Giriş)
+                  </div>
+                  <div className="text-[11px] text-[#475569] mt-0.5">
+                    Mevcut değer: <b className="font-mono text-[#111827]">{bInfo.current} mm</b> • İzin verilen: <span className="font-mono">{bInfo.min}–{bInfo.max} mm</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditingBadge(null)}
+                  className="px-1.5 py-0.5 rounded-lg text-[#64748B] hover:text-[#111827] hover:bg-[#F1F5F9] cursor-pointer"
+                  title="İptal (Esc)"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {bInfo.isFixed ? (
+                <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-[11px] font-medium">
+                  Bu modül sabit genişlikli bir şablondur ({bInfo.current} mm). Genişliği değiştirilemez.
+                </div>
+              ) : (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    commitBadgeEdit();
+                  }}
+                  className="space-y-3"
+                >
+                  {/* Numeric Input + Stepper */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = Math.max(bInfo.min, (isNumeric ? draftNum : bInfo.current) - bInfo.step);
+                        setBadgeDraftValue(String(next));
+                      }}
+                      className="h-9 px-2.5 rounded-xl bg-[#F1F5F9] hover:bg-[#E2E8F0] border border-[#CBD5E1] font-mono text-xs font-bold text-[#111827] cursor-pointer"
+                    >
+                      −{bInfo.step}
+                    </button>
+                    <div className="flex-1 flex items-center justify-between bg-[#F8FAFC] rounded-xl border border-[#94A3B8] px-3 py-1.5">
+                      <input
+                        type="number"
+                        data-testid={`viewport-3d-dim-input-${editingBadge}`}
+                        autoFocus
+                        min={bInfo.min}
+                        max={bInfo.max}
+                        step={bInfo.step}
+                        value={badgeDraftValue}
+                        onChange={(e) => setBadgeDraftValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape") {
+                            e.stopPropagation();
+                            setEditingBadge(null);
+                          } else if (e.key === "Enter") {
+                            e.preventDefault();
+                            commitBadgeEdit();
+                          }
+                        }}
+                        className="w-full font-mono text-sm font-bold text-[#111827] bg-transparent focus:outline-none text-center"
+                      />
+                      <span className="text-[11px] font-semibold text-[#475569] ml-1">mm</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = Math.min(bInfo.max, (isNumeric ? draftNum : bInfo.current) + bInfo.step);
+                        setBadgeDraftValue(String(next));
+                      }}
+                      className="h-9 px-2.5 rounded-xl bg-[#F1F5F9] hover:bg-[#E2E8F0] border border-[#CBD5E1] font-mono text-xs font-bold text-[#111827] cursor-pointer"
+                    >
+                      +{bInfo.step}
+                    </button>
+                  </div>
+
+                  {/* Live Validity Check Feedback */}
+                  {isOutOfRange ? (
+                    <div
+                      data-testid="viewport-3d-dim-validation-error"
+                      className="p-2 rounded-xl bg-red-50 border border-red-200 text-red-800 text-[11px] font-semibold flex items-center justify-between gap-2"
+                    >
+                      <span>
+                        ⚠️ Geçersiz ölçü! İzin verilen aralık: {bInfo.min} – {bInfo.max} mm.
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setBadgeDraftValue(
+                            String(Math.max(bInfo.min, Math.min(bInfo.max, draftNum || bInfo.min)))
+                          )
+                        }
+                        className="px-2 py-0.5 rounded bg-white border border-red-300 text-[10px] font-bold text-red-900 shrink-0 cursor-pointer"
+                      >
+                        Sınıra Çek
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="px-2.5 py-1.5 rounded-xl bg-[#EEF3F8] border border-[#CBD5E1] text-[10px] text-[#111827] flex items-center justify-between">
+                      <span>✓ Parametrik kurallara uygun</span>
+                      <span className="font-mono font-bold">
+                        Δ {draftNum - bInfo.current >= 0 ? `+${draftNum - bInfo.current}` : draftNum - bInfo.current} mm
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Supported Quick Preset Dimension Chips */}
+                  {validPresets.length > 0 && (
+                    <div className="space-y-1">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-[#64748B] block">
+                        Hazır Ölçü Seçenekleri (mm):
+                      </span>
+                      <div className="flex flex-wrap gap-1">
+                        {validPresets.map((presetVal) => {
+                          const isCurrent = draftNum === presetVal;
+                          return (
+                            <button
+                              key={presetVal}
+                              type="button"
+                              data-testid={`viewport-3d-dim-preset-${presetVal}`}
+                              onClick={() => {
+                                setBadgeDraftValue(String(presetVal));
+                                commitBadgeEdit(presetVal);
+                              }}
+                              className={`px-2.5 py-1 rounded-lg font-mono text-[11px] font-bold border transition cursor-pointer ${
+                                isCurrent
+                                  ? "bg-[#EEF3F8] text-[#111827] border-[#3B82F6] shadow-2xs"
+                                  : "bg-white hover:bg-[#F8FAFC] text-[#475569] border-[#E2E8F0]"
+                              }`}
+                            >
+                              {presetVal}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Confirm (Enter) & Cancel (Escape) Buttons */}
+                  <div className="flex items-center justify-end gap-1.5 pt-1 border-t border-[#E2E8F0]">
+                    <button
+                      type="button"
+                      data-testid="viewport-3d-dim-cancel-btn"
+                      onClick={() => setEditingBadge(null)}
+                      className="px-3 py-1.5 rounded-xl bg-[#F1F5F9] hover:bg-[#E2E8F0] text-[#475569] text-[11px] font-semibold cursor-pointer"
+                    >
+                      İptal (Esc)
+                    </button>
+                    <button
+                      type="submit"
+                      data-testid="viewport-3d-dim-confirm-btn"
+                      disabled={isOutOfRange}
+                      className="px-4 py-1.5 rounded-xl bg-[#EEF3F8] hover:bg-[#E4ECF4] disabled:opacity-40 text-[#111827] border border-[#94A3B8] text-[11px] font-bold cursor-pointer"
+                    >
+                      Onayla (Enter)
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* 3D DIRECT INTERACTION MINI CONTEXT MENU (Door Click -> Hide Doors / Compartment Selection Bar) */}
+        {showInCanvasHud && (clicked3DContext || doorsHiddenIn3D || doorOpenAngleDeg > 5) && (
+          <div
+            data-testid="viewport-3d-context-mini-menu"
+            className="absolute top-18 left-1/2 -translate-x-1/2 z-20 flex flex-wrap items-center justify-center gap-1.5 bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-[#CBD5E1] shadow-lg text-xs text-[#111827]"
+          >
+            {clicked3DContext?.kind === "door" && !doorsHiddenIn3D ? (
+              <>
+                <span className="px-2 py-0.5 rounded-lg bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1] font-bold text-[11px]">
+                  🚪 {clicked3DContext.label} Seçildi
                 </span>
-                <span className="text-[12px] font-medium text-[#57534E] leading-none">
-                  {item.valueText}
+                <button
+                  type="button"
+                  data-testid="mini-menu-hide-doors-btn"
+                  onClick={() => {
+                    setDoorsHiddenIn3D(true);
+                    setClicked3DContext({
+                      kind: "bay",
+                      bayIndex: clicked3DContext.bayIndex,
+                      role: "bay_compartment",
+                      label: `Bölme ${clicked3DContext.bayIndex + 1}`,
+                    });
+                    if (typeof window !== "undefined") {
+                      window.dispatchEvent(
+                        new CustomEvent("birim:select-bay-3d", {
+                          detail: {
+                            bayIndex: clicked3DContext.bayIndex,
+                            role: "bay_compartment",
+                            moduleIndex: activeModuleIndex,
+                          },
+                        })
+                      );
+                    }
+                  }}
+                  className="px-2.5 py-1 rounded-xl bg-[#EEF3F8] hover:bg-[#E4ECF4] text-[#111827] border border-[#94A3B8] font-bold flex items-center gap-1 cursor-pointer transition shadow-2xs"
+                >
+                  <span>👁️ Kapakları Gizle (İç Düzenle)</span>
+                </button>
+                <button
+                  type="button"
+                  data-testid="mini-menu-open-door-btn"
+                  onClick={() => toggleDoorOpen()}
+                  className="px-2.5 py-1 rounded-xl bg-white hover:bg-[#F1F5F9] text-[#111827] border border-[#CBD5E1] font-semibold cursor-pointer transition"
+                >
+                  {doorOpenAngleDeg > 0 ? "Kapağı Kapat (0°)" : "Kapağı Aç (85°)"}
+                </button>
+                <button
+                  type="button"
+                  data-testid="mini-menu-flip-door-btn"
+                  onClick={() => flipActiveDoorDirection(clicked3DContext.bayIndex)}
+                  className="px-2.5 py-1 rounded-xl bg-white hover:bg-[#F1F5F9] text-[#111827] border border-[#CBD5E1] font-semibold cursor-pointer transition"
+                >
+                  ⇄ Yön Çevir
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setClicked3DContext(null)}
+                  className="px-1.5 py-0.5 rounded-lg text-[#64748B] hover:text-[#111827] cursor-pointer"
+                  title="Mini menüyü kapat"
+                >
+                  ✕
+                </button>
+              </>
+            ) : (
+              <>
+                <span className="text-[11px] font-bold text-[#111827] mr-1">
+                  🎯 3D Bölme Seçimi:
+                </span>
+                {activeModule.bays.map((b, bIdx) => {
+                  const isSelBay = activeBayIndex === bIdx;
+                  return (
+                    <button
+                      key={b.index}
+                      type="button"
+                      data-testid={`viewport-3d-bay-pill-${bIdx}`}
+                      onClick={() => {
+                        setActiveBayIndex(bIdx);
+                        if (typeof window !== "undefined") {
+                          window.dispatchEvent(
+                            new CustomEvent("birim:select-bay-3d", {
+                              detail: {
+                                bayIndex: bIdx,
+                                role: "bay_compartment",
+                                moduleIndex: activeModuleIndex,
+                              },
+                            })
+                          );
+                        }
+                      }}
+                      className={`px-2.5 py-1 rounded-xl text-[11px] font-bold transition cursor-pointer ${
+                        isSelBay
+                          ? "bg-[#EEF3F8] text-[#111827] border border-[#94A3B8] shadow-2xs"
+                          : "bg-white hover:bg-[#F1F5F9] text-[#475569] border border-[#E2E8F0]"
+                      }`}
+                    >
+                      Bölme {bIdx + 1}
+                    </button>
+                  );
+                })}
+                {doorsHiddenIn3D && (
+                  <button
+                    type="button"
+                    data-testid="mini-menu-show-doors-btn"
+                    onClick={() => {
+                      setDoorsHiddenIn3D(false);
+                      setClicked3DContext(null);
+                    }}
+                    className="ml-1 px-2.5 py-1 rounded-xl bg-[#EEF3F8] hover:bg-[#E4ECF4] text-[#111827] border border-[#94A3B8] text-[11px] font-bold cursor-pointer transition"
+                  >
+                    🚪 Kapakları Göster
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* FLOATING 3D DOOR CONTEXTUAL MENU (Matches image_e5c524.jpg: "Kapak İşlemleri" -> Kapak Tipini Değiştir, Açılma Yönü, Kulp Değiştir, Kapak Malzemesi, Bu Kapağı Kopyala) */}
+        {showInCanvasHud &&
+          clicked3DContext?.kind === "door" &&
+          !doorsHiddenIn3D &&
+          (() => {
+            const targetBayIdx = Math.min(
+              clicked3DContext.bayIndex,
+              Math.max(0, activeModule.bays.length - 1)
+            );
+            const targetBay = activeModule.bays[targetBayIdx] || activeModule.bays[0];
+            const targetDoorCompId =
+              clicked3DContext.componentId || selectedComponentId || `${targetBay?.door?.id}_left`;
+            const curDoorProf =
+              targetBay?.door?.crossSectionProfile ||
+              activeModule.carcass.crossSectionProfile ||
+              "flat_slab";
+            const curHandleSku = targetBay?.door?.handleProfileId || "K019";
+
+            return (
+              <div
+                ref={doorPopoverDomRef}
+                data-testid="viewport-3d-floating-door-card"
+                onClick={(e) => e.stopPropagation()}
+                style={{ transform: "translate3d(-9999px, -9999px, 0)" }}
+                className="absolute top-0 left-0 z-[25] w-56 bg-white/98 backdrop-blur-md rounded-2xl border border-[#CBD5E1] shadow-2xl p-3 space-y-1.5 text-xs text-[#111827] pointer-events-auto transition-opacity duration-75"
+              >
+                <div className="flex items-center justify-between px-1 pb-1.5 border-b border-[#E2E8F0]">
+                  <div>
+                    <div className="font-bold text-xs text-[#111827]">Kapak İşlemleri</div>
+                    <div className="text-[10px] text-[#64748B] font-medium">
+                      {clicked3DContext.label}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setClicked3DContext(null);
+                      setDoorMenuSubSection(null);
+                    }}
+                    title="Menüyü kapat"
+                    className="text-xs text-[#64748B] hover:text-[#111827] px-1 cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* 1. Kapak Tipini Değiştir */}
+                <button
+                  type="button"
+                  data-testid="floating-door-change-type"
+                  onClick={() =>
+                    setDoorMenuSubSection((prev) => (prev === "type" ? null : "type"))
+                  }
+                  className="w-full px-2 py-1.5 rounded-xl hover:bg-[#EEF3F8] text-[#111827] font-semibold flex items-center justify-between gap-2 text-left transition cursor-pointer"
+                >
+                  <span className="flex items-center gap-2">
+                    <svg className="w-3.5 h-3.5 text-[#475569] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                      <rect x="4" y="3" width="16" height="18" rx="2" />
+                      <path d="M9 3v18" />
+                    </svg>
+                    <span>Kapak Tipini Değiştir</span>
+                  </span>
+                  <span className="text-[10px] text-[#64748B]">›</span>
+                </button>
+                {doorMenuSubSection === "type" && (
+                  <div className="grid grid-cols-5 gap-1 p-1.5 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0]">
+                    {[
+                      { id: "flat_slab", label: "Düz" },
+                      { id: "shaker_frame", label: "Çerçeve" },
+                      { id: "fluted_ribbed", label: "Fitilli" },
+                      { id: "glass_frame", label: "Cam" },
+                      { id: "mirror_door", label: "Ayna" },
+                    ].map((pt) => (
+                      <button
+                        key={pt.id}
+                        type="button"
+                        data-testid={`floating-door-type-${pt.id}`}
+                        onClick={() => {
+                          setBayV4DoorConfig(targetBayIdx, {
+                            crossSectionProfile: pt.id as import("@birim/core").DoorCrossSectionProfile,
+                            isGlassFramed: pt.id === "glass_frame",
+                          });
+                        }}
+                        className={`py-1 px-0.5 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+                          curDoorProf === pt.id
+                            ? "bg-[#2563EB] text-white"
+                            : "bg-white hover:bg-[#EEF3F8] text-[#111827] border border-[#E2E8F0]"
+                        }`}
+                      >
+                        {pt.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* 2. Açılma Yönü */}
+                <button
+                  type="button"
+                  data-testid="floating-door-change-direction"
+                  onClick={() =>
+                    setDoorMenuSubSection((prev) => (prev === "direction" ? null : "direction"))
+                  }
+                  className="w-full px-2 py-1.5 rounded-xl hover:bg-[#EEF3F8] text-[#111827] font-semibold flex items-center justify-between gap-2 text-left transition cursor-pointer"
+                >
+                  <span className="flex items-center gap-2">
+                    <svg className="w-3.5 h-3.5 text-[#475569] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                      <path d="M4 12h16M15 7l5 5-5 5" />
+                    </svg>
+                    <span>Açılma Yönü</span>
+                  </span>
+                  <span className="text-[10px] text-[#64748B]">›</span>
+                </button>
+                {doorMenuSubSection === "direction" && (
+                  <div className="grid grid-cols-3 gap-1 p-1.5 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0]">
+                    {[
+                      { id: "single_left", label: "Sol" },
+                      { id: "single_right", label: "Sağ" },
+                      { id: "double", label: "Çift" },
+                    ].map((dir) => (
+                      <button
+                        key={dir.id}
+                        type="button"
+                        data-testid={`floating-door-dir-${dir.id}`}
+                        onClick={() =>
+                          setBayDoorType(
+                            targetBayIdx,
+                            dir.id as "single_left" | "single_right" | "double"
+                          )
+                        }
+                        className={`py-1 px-1.5 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+                          targetBay?.door?.type === dir.id
+                            ? "bg-[#2563EB] text-white"
+                            : "bg-white hover:bg-[#EEF3F8] text-[#111827] border border-[#E2E8F0]"
+                        }`}
+                      >
+                        {dir.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* 3. Kulp Değiştir */}
+                <button
+                  type="button"
+                  data-testid="floating-door-change-handle"
+                  onClick={() =>
+                    setDoorMenuSubSection((prev) => (prev === "handle" ? null : "handle"))
+                  }
+                  className="w-full px-2 py-1.5 rounded-xl hover:bg-[#EEF3F8] text-[#111827] font-semibold flex items-center justify-between gap-2 text-left transition cursor-pointer"
+                >
+                  <span className="flex items-center gap-2">
+                    <svg className="w-3.5 h-3.5 text-[#475569] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                      <path d="M6 18L18 6M8 6h10v10" />
+                    </svg>
+                    <span>Kulp Değiştir</span>
+                  </span>
+                  <span className="text-[10px] text-[#64748B]">{curHandleSku}</span>
+                </button>
+                {doorMenuSubSection === "handle" && (
+                  <div className="grid grid-cols-2 gap-1 p-1.5 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0]">
+                    {[
+                      { sku: "K019", label: "K019 Mat Siyah", mat: "mat_handle_matte_black", cat: "bar_handle" as const },
+                      { sku: "K020", label: "K020 Inox", mat: "mat_handle_inox", cat: "bar_handle" as const },
+                      { sku: "K021", label: "K021 Pirinç", mat: "mat_handle_brass", cat: "bar_handle" as const },
+                      { sku: "K022", label: "K022 Antrasit", mat: "mat_handle_anthracite", cat: "bar_handle" as const },
+                    ].map((hk) => (
+                      <button
+                        key={hk.sku}
+                        type="button"
+                        data-testid={`floating-door-handle-${hk.sku}`}
+                        onClick={() =>
+                          setBayV4DoorConfig(targetBayIdx, {
+                            handleCategory: hk.cat,
+                            handleProfileId: hk.sku,
+                            handleMaterialId: hk.mat,
+                          })
+                        }
+                        className={`py-1 px-1.5 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+                          curHandleSku === hk.sku
+                            ? "bg-[#2563EB] text-white"
+                            : "bg-white hover:bg-[#EEF3F8] text-[#111827] border border-[#E2E8F0]"
+                        }`}
+                      >
+                        {hk.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* 4. Kapak Malzemesi (Applies ONLY to this selected door leaf unless copied!) */}
+                <button
+                  type="button"
+                  data-testid="floating-door-change-material"
+                  onClick={() =>
+                    setDoorMenuSubSection((prev) => (prev === "material" ? null : "material"))
+                  }
+                  className="w-full px-2 py-1.5 rounded-xl hover:bg-[#EEF3F8] text-[#111827] font-semibold flex items-center justify-between gap-2 text-left transition cursor-pointer"
+                >
+                  <span className="flex items-center gap-2">
+                    <svg className="w-3.5 h-3.5 text-[#475569] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                      <circle cx="12" cy="12" r="9" />
+                      <circle cx="12" cy="8" r="1.5" fill="currentColor" />
+                      <circle cx="8.5" cy="13" r="1.5" fill="currentColor" />
+                      <circle cx="15.5" cy="13" r="1.5" fill="currentColor" />
+                    </svg>
+                    <span>Kapak Malzemesi</span>
+                  </span>
+                  <span className="text-[10px] text-[#64748B]">›</span>
+                </button>
+                {doorMenuSubSection === "material" && (
+                  <div className="p-1.5 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] space-y-1">
+                    <div className="text-[9px] font-bold text-[#475569]">
+                      Sadece seçili kapağa renk/doku ata:
+                    </div>
+                    <div className="grid grid-cols-3 gap-1">
+                      {DEFAULT_MATERIALS.filter(
+                        (m) =>
+                          m.category === "wood" ||
+                          m.category === "lacquer" ||
+                          m.category === "laminate" ||
+                          m.category === "glass" ||
+                          m.category === "mirror"
+                      )
+                        .slice(0, 6)
+                        .map((m) => (
+                          <button
+                            key={m.id}
+                            type="button"
+                            data-testid={`floating-door-mat-${m.id}`}
+                            onClick={() => {
+                              setSelectedComponentMaterial(m.id, targetDoorCompId);
+                              setDragDropSnapBanner(
+                                `🎨 ${clicked3DContext.label}: "${m.name.split(" (")[0]}" atandı`
+                              );
+                              setTimeout(() => setDragDropSnapBanner(null), 2200);
+                            }}
+                            className="p-1 rounded-lg bg-white hover:bg-[#EEF3F8] border border-[#E2E8F0] flex items-center gap-1 text-[9px] font-bold text-[#111827] truncate cursor-pointer"
+                            title={m.name}
+                          >
+                            <span
+                              className="w-3 h-3 rounded-xs border border-stone-300 shrink-0"
+                              style={{ backgroundColor: m.colorHex }}
+                            />
+                            <span className="truncate">{m.name.split(" ")[2] || m.name.split(" ")[0]}</span>
+                          </button>
+                        ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 5. Bu Kapağı Kopyala (Tüm Kapaklara Uygula) */}
+                <button
+                  type="button"
+                  data-testid="floating-door-copy-to-all"
+                  onClick={() => {
+                    copyDoorConfigToAllBays(targetBayIdx);
+                    setDragDropSnapBanner(
+                      "✓ Seçili kapak tipi, kulp ve malzeme ayarları tüm uygun kapaklara kopyalandı"
+                    );
+                    setTimeout(() => setDragDropSnapBanner(null), 2600);
+                  }}
+                  className="w-full px-2 py-1.5 rounded-xl hover:bg-[#EEF3F8] text-[#111827] font-semibold flex items-center gap-2 text-left transition cursor-pointer"
+                >
+                  <svg className="w-3.5 h-3.5 text-[#475569] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                    <rect x="9" y="9" width="13" height="13" rx="2" />
+                    <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+                  </svg>
+                  <span>Bu Kapağı Kopyala</span>
+                </button>
+
+                {/* 6. Kapakları Gizle / Aç (İç Düzen Geçişi) */}
+                <div className="pt-1 border-t border-[#E2E8F0] flex items-center justify-between gap-1">
+                  <button
+                    type="button"
+                    onClick={() => toggleDoorOpen()}
+                    className="flex-1 py-1 px-2 rounded-lg bg-[#F8FAFC] hover:bg-[#EEF3F8] border border-[#E2E8F0] text-[10px] font-bold text-[#111827] cursor-pointer"
+                  >
+                    {doorOpenAngleDeg > 0 ? "Kapağı Kapat" : "Kapağı Aç"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDoorsHiddenIn3D(true);
+                      setClicked3DContext({
+                        kind: "bay",
+                        bayIndex: targetBayIdx,
+                        role: "bay_compartment",
+                        label: `Bölme ${targetBayIdx + 1}`,
+                      });
+                    }}
+                    className="flex-1 py-1 px-2 rounded-lg bg-[#F8FAFC] hover:bg-[#EEF3F8] border border-[#E2E8F0] text-[10px] font-bold text-[#475569] hover:text-[#111827] cursor-pointer"
+                  >
+                    İçini Göster
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+
+        {/* FLOATING 3D COMPARTMENT POPOVER CARD (Matches image_e548e6.jpg: Bölme X -> Raf Ekle, Askılık Ekle, Çekmece Ekle, Aksesuar Ekle, Bölme Ayarları, Şablon Uygula, Bölmeyi Sil) */}
+        {showInCanvasHud && (cutawayActiveBay || doorsHiddenIn3D || doorOpenAngleDeg > 5) && (
+          <div
+            ref={bayPopoverDomRef}
+            data-testid="viewport-3d-floating-bay-card"
+            onClick={(e) => e.stopPropagation()}
+            style={{ transform: "translate3d(-9999px, -9999px, 0)" }}
+            className="absolute top-0 left-0 z-[15] w-52 bg-white/98 backdrop-blur-md rounded-2xl border border-[#CBD5E1] shadow-2xl p-2.5 space-y-1 text-xs text-[#111827] pointer-events-auto transition-opacity duration-75"
+          >
+            <div className="flex items-center justify-between px-1.5 pb-1.5 border-b border-[#E2E8F0]">
+              <div className="flex items-center gap-1.5">
+                <span className="font-bold text-xs text-[#111827]">
+                  Bölme {activeBayIndex + 1}
+                </span>
+                <span className="px-1.5 py-0.5 rounded-md bg-[#EFF6FF] text-[#2563EB] font-mono text-[10px] font-bold">
+                  {calculateFourSpaceDimensions(activeModule).usableInternal.bayClearWidthsMm[activeBayIndex] || 600} mm
                 </span>
               </div>
-            ))}
+              <button
+                type="button"
+                onClick={() => {
+                  setCutawayActiveBay(false);
+                  setBayMenuSubSection(null);
+                }}
+                title="Bölme menüsünü kapat"
+                className="text-[10px] text-[#64748B] hover:text-[#111827] cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+            <button
+              type="button"
+              data-testid="floating-bay-add-shelf"
+              onClick={() => addShelf(activeBayIndex)}
+              className="w-full px-2 py-1.5 rounded-xl hover:bg-[#EEF3F8] text-[#111827] font-medium flex items-center gap-2 text-left transition cursor-pointer"
+            >
+              <Layers className="w-3.5 h-3.5 text-[#475569] shrink-0" />
+              <span>Raf Ekle</span>
+            </button>
+            <button
+              type="button"
+              data-testid="floating-bay-add-rail"
+              onClick={() => addHangingRail(activeBayIndex)}
+              className="w-full px-2 py-1.5 rounded-xl hover:bg-[#EEF3F8] text-[#111827] font-medium flex items-center gap-2 text-left transition cursor-pointer"
+            >
+              <svg className="w-3.5 h-3.5 text-[#475569] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <path d="M12 4a2 2 0 012 2c0 1.1-.9 2-2 2v2l8 5v2H4v-2l8-5V8" />
+              </svg>
+              <span>Askılık Ekle</span>
+            </button>
+            <button
+              type="button"
+              data-testid="floating-bay-add-drawer"
+              onClick={() => addDrawer(activeBayIndex)}
+              className="w-full px-2 py-1.5 rounded-xl hover:bg-[#EEF3F8] text-[#111827] font-medium flex items-center gap-2 text-left transition cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5 text-[#475569] shrink-0" />
+              <span>Çekmece Ekle</span>
+            </button>
+
+            {/* Aksesuar Ekle › */}
+            <button
+              type="button"
+              data-testid="floating-bay-add-accessory"
+              onClick={() =>
+                setBayMenuSubSection((prev) => (prev === "accessories" ? null : "accessories"))
+              }
+              className="w-full px-2 py-1.5 rounded-xl hover:bg-[#EEF3F8] text-[#111827] font-medium flex items-center justify-between gap-2 text-left transition cursor-pointer"
+            >
+              <span className="flex items-center gap-2">
+                <svg className="w-3.5 h-3.5 text-[#475569] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <rect x="3" y="6" width="18" height="12" rx="2" />
+                  <path d="M7 6v12M11 6v12M15 6v12M19 6v12" />
+                </svg>
+                <span>Aksesuar Ekle</span>
+              </span>
+              <span className="text-[10px] text-[#64748B]">›</span>
+            </button>
+            {bayMenuSubSection === "accessories" && (
+              <div className="grid grid-cols-2 gap-1 p-1.5 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0]">
+                {[
+                  { type: "trouser_rack" as const, label: "Pantolonluk" },
+                  { type: "shoe_rack" as const, label: "Ayakkabılık" },
+                  { type: "tie_rack" as const, label: "Kravatlık" },
+                  { type: "belt_rack" as const, label: "Kemerlik" },
+                  { type: "wardrobe_lift" as const, label: "Asansör" },
+                  { type: "wire_basket" as const, label: "Tel Sepet" },
+                ].map((acc) => (
+                  <button
+                    key={acc.type}
+                    type="button"
+                    data-testid={`floating-bay-acc-${acc.type}`}
+                    onClick={() => {
+                      addSpecialFitting(activeBayIndex, acc.type);
+                      setBayMenuSubSection(null);
+                    }}
+                    className="py-1 px-1.5 rounded-lg bg-white hover:bg-[#EFF6FF] text-[#111827] border border-[#E2E8F0] hover:border-[#2563EB] text-[10px] font-bold transition cursor-pointer text-left truncate"
+                  >
+                    + {acc.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Bölme Ayarları */}
+            <button
+              type="button"
+              data-testid="floating-bay-open-settings"
+              onClick={() => {
+                if (typeof window !== "undefined") {
+                  window.dispatchEvent(
+                    new CustomEvent("birim:select-bay-3d", {
+                      detail: {
+                        bayIndex: activeBayIndex,
+                        role: "bay_compartment",
+                        moduleIndex: activeModuleIndex,
+                      },
+                    })
+                  );
+                }
+              }}
+              className="w-full px-2 py-1.5 rounded-xl hover:bg-[#EEF3F8] text-[#111827] font-medium flex items-center gap-2 text-left transition cursor-pointer border-t border-[#F1F5F9] pt-1.5"
+            >
+              <svg className="w-3.5 h-3.5 text-[#475569] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
+              </svg>
+              <span>Bölme Ayarları</span>
+            </button>
+
+            {/* Şablon Uygula › */}
+            <button
+              type="button"
+              data-testid="floating-bay-apply-template"
+              onClick={() =>
+                setBayMenuSubSection((prev) => (prev === "templates" ? null : "templates"))
+              }
+              className="w-full px-2 py-1.5 rounded-xl hover:bg-[#EEF3F8] text-[#111827] font-medium flex items-center justify-between gap-2 text-left transition cursor-pointer"
+            >
+              <span className="flex items-center gap-2">
+                <svg className="w-3.5 h-3.5 text-[#475569] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                  <path d="M3 9h18M9 21V9" />
+                </svg>
+                <span>Şablon Uygula</span>
+              </span>
+              <span className="text-[10px] text-[#64748B]">›</span>
+            </button>
+            {bayMenuSubSection === "templates" && (
+              <div className="space-y-1 p-1.5 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0]">
+                {[
+                  { id: "shirt_shelf" as const, label: "Gömlek + Raf" },
+                  { id: "dress_drawer" as const, label: "Elbise + Çekmece" },
+                  { id: "mixed_combo" as const, label: "Karma Düzen" },
+                  { id: "shelves_5" as const, label: "5 Raflı İstif" },
+                ].map((tpl) => (
+                  <button
+                    key={tpl.id}
+                    type="button"
+                    data-testid={`floating-bay-tpl-${tpl.id}`}
+                    onClick={() => {
+                      applyBayInteriorPreset(activeBayIndex, tpl.id);
+                      setBayMenuSubSection(null);
+                    }}
+                    className="w-full py-1 px-2 rounded-lg bg-white hover:bg-[#EFF6FF] text-[#111827] border border-[#E2E8F0] hover:border-[#2563EB] text-[10px] font-bold transition cursor-pointer text-left"
+                  >
+                    ✓ {tpl.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Bölmeyi Sil */}
+            {activeModule.bays.length > 1 && (
+              <button
+                type="button"
+                data-testid="floating-bay-delete-bay"
+                onClick={() => {
+                  removeBayAt(activeBayIndex);
+                  setDragDropSnapBanner(`🗑️ Bölme ${activeBayIndex + 1} silindi ve komşu bölme ile birleştirildi`);
+                  setTimeout(() => setDragDropSnapBanner(null), 2200);
+                }}
+                className="w-full px-2 py-1.5 rounded-xl hover:bg-red-50 text-red-600 font-semibold flex items-center gap-2 text-left transition cursor-pointer border-t border-[#F1F5F9] pt-1.5"
+              >
+                <svg className="w-3.5 h-3.5 text-red-500 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+                </svg>
+                <span>Bölmeyi Sil</span>
+              </button>
+            )}
           </div>
         )}
 
@@ -2538,10 +4479,10 @@ const clear3DGhostPreview = useCallback(() => {
         {active3DSnap && (
           <div
             data-testid="in-canvas-snap-badge"
-            className="absolute top-16 left-1/2 -translate-x-1/2 z-20 pointer-events-none px-3.5 py-1.5 rounded-full bg-white/95 text-[#1C1917] border border-[#E2DDD3] shadow-lg text-xs font-bold flex items-center gap-2"
+            className="absolute top-16 left-1/2 -translate-x-1/2 z-20 pointer-events-none px-3.5 py-1.5 rounded-full bg-white/95 text-[#1C1917] border border-[#CBD5E1] shadow-lg text-xs font-bold flex items-center gap-2"
           >
             <span>🎯 Hizalandı: {active3DSnap.label}</span>
-            <span className="px-2 py-0.5 rounded-full bg-[#F4F2ED] text-[#1C1917] font-mono">
+            <span className="px-2 py-0.5 rounded-full bg-[#F1F5F9] text-[#1C1917] font-mono">
               Y: {active3DSnap.elevationY} mm
             </span>
           </div>
@@ -2550,7 +4491,7 @@ const clear3DGhostPreview = useCallback(() => {
         {/* LEFT VERTICAL VIEW & CAMERA PILL (Design Studio: 3D | 2D Plan | Ön | Yan | Üst | İç Görünüm | Fit) */}
         <div
           data-testid="viewport-3d-visual-quality-bar"
-          className="absolute left-4 top-4 z-20 flex flex-col items-center gap-1 bg-white/95 backdrop-blur-md p-1.5 rounded-2xl border border-[#E6E2D8] shadow-md text-[#2B2927] w-[58px]"
+          className="absolute left-4 top-4 z-20 flex flex-col items-center gap-1 bg-white/95 backdrop-blur-md p-1.5 rounded-2xl border border-[#E2E8F0] shadow-md text-[#2B2927] w-[58px]"
         >
           {[
             {
@@ -2729,15 +4670,26 @@ const clear3DGhostPreview = useCallback(() => {
               label: "İç Görünüm",
               icon: (
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                  <path d="M12 3L4 7.5v9L12 21l8-4.5v-9L12 3z" />
-                  <path d="M4 12l8 4.5 8-4.5" />
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                  <path d="M9 12l2 2 4-4" />
                 </svg>
               ),
               onClick: () => {
+                setCutawayActiveBay((v) => !v);
                 setActiveCamPill((prev) => (prev === "interior" ? "3d" : "interior"));
-                if (typeof window !== "undefined") {
-                  window.dispatchEvent(new CustomEvent("birim:toggle-interior-view"));
-                }
+              },
+            },
+            {
+              id: "hide-doors",
+              label: doorsHiddenIn3D ? "Kapak Göster" : "Kapakları Gizle",
+              icon: (
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24" />
+                  <line x1="1" y1="1" x2="23" y2="23" />
+                </svg>
+              ),
+              onClick: () => {
+                setDoorsHiddenIn3D((v) => !v);
               },
             },
           ].map((btn) => {
@@ -2753,8 +4705,8 @@ const clear3DGhostPreview = useCallback(() => {
                 onClick={btn.onClick}
                 className={`w-full py-2 px-1 rounded-xl flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
                   isActive
-                    ? "bg-[#2B2927] text-white shadow-xs"
-                    : "text-[#57534E] hover:bg-[#F4F2ED] hover:text-[#1C1917]"
+                    ? "bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1] shadow-xs"
+                    : "text-[#57534E] hover:bg-[#F1F5F9] hover:text-[#1C1917]"
                 }`}
               >
                 {btn.icon}
@@ -2765,7 +4717,7 @@ const clear3DGhostPreview = useCallback(() => {
             );
           })}
 
-          <div className="w-8 h-px bg-[#E6E2D8] my-0.5" />
+          <div className="w-8 h-px bg-[#E2E8F0] my-0.5" />
 
           <button
             type="button"
@@ -2798,7 +4750,7 @@ const clear3DGhostPreview = useCallback(() => {
               controls.update();
               requestRender();
             }}
-            className="w-full py-2 rounded-xl flex items-center justify-center text-[#57534E] hover:bg-[#F4F2ED] hover:text-[#1C1917] transition cursor-pointer"
+            className="w-full py-2 rounded-xl flex items-center justify-center text-[#57534E] hover:bg-[#F1F5F9] hover:text-[#1C1917] transition cursor-pointer"
           >
             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
               <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
@@ -2810,8 +4762,88 @@ const clear3DGhostPreview = useCallback(() => {
         {showInCanvasHud && (
           <div
             data-testid="in-canvas-direct-hud"
-            className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-[#E6E2D8] shadow-md text-[#2B2927]"
+            className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-[#E2E8F0] shadow-md text-[#2B2927]"
           >
+            {materialModeActive && (
+              <>
+                {[
+                  {
+                    id: "select" as const,
+                    label: "Seç",
+                    testId: "hud-mat-tool-select",
+                    icon: (
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M5 3l14 8-6.5 2L9 19.5 5 3z" />
+                      </svg>
+                    ),
+                  },
+                  {
+                    id: "paint" as const,
+                    label: "Boya",
+                    testId: "hud-mat-tool-paint",
+                    icon: (
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                        <path d="M19 11l-8-8-8.6 8.6a2 2 0 000 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11z" />
+                        <path d="M20 14c1.1 1.5 2 3.2 2 4.5a2 2 0 01-4 0c0-1.3.9-3 2-4.5z" />
+                      </svg>
+                    ),
+                  },
+                  {
+                    id: "group" as const,
+                    label: "Bölge",
+                    testId: "hud-mat-tool-group",
+                    icon: (
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                        <rect x="4" y="4" width="16" height="16" rx="2" strokeDasharray="3 3" />
+                      </svg>
+                    ),
+                  },
+                  {
+                    id: "same_material" as const,
+                    label: "Aynı Malzeme",
+                    testId: "hud-mat-tool-same-mat",
+                    icon: (
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                        <rect x="8" y="8" width="12" height="12" rx="2" />
+                        <path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2" />
+                      </svg>
+                    ),
+                  },
+                ].map((mTool) => (
+                  <button
+                    key={mTool.id}
+                    type="button"
+                    data-testid={mTool.testId}
+                    onClick={() => setMaterialPaintTool(mTool.id)}
+                    className={`px-3 py-1.5 rounded-xl flex flex-col items-center gap-0.5 transition cursor-pointer ${
+                      materialPaintTool === mTool.id
+                        ? "bg-[#EFF6FF] text-[#1D4ED8] border border-[#2563EB] font-bold"
+                        : "text-[#57534E] hover:bg-[#F8FAFC]"
+                    }`}
+                  >
+                    {mTool.icon}
+                    <span className="text-[10px]">{mTool.label}</span>
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  data-testid="hud-mat-tool-clear"
+                  onClick={() => {
+                    resetModuleMaterialOverrides();
+                    setDragDropSnapBanner("🧹 Özel parça malzeme atamaları temizlendi");
+                    setTimeout(() => setDragDropSnapBanner(null), 2000);
+                  }}
+                  className="px-3 py-1.5 rounded-xl flex flex-col items-center gap-0.5 text-red-600 hover:bg-red-50 transition cursor-pointer"
+                  title="Özel parça malzeme atamalarını sıfırla"
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                    <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+                  </svg>
+                  <span className="text-[10px] font-medium">Temizle</span>
+                </button>
+                <div className="h-6 w-px bg-[#E2E8F0] mx-0.5" />
+              </>
+            )}
             {/* 1. Seç */}
             <button
               type="button"
@@ -2819,7 +4851,7 @@ const clear3DGhostPreview = useCallback(() => {
               onClick={() => setMoveObjectMode3D(false)}
               className={`px-3 py-1.5 rounded-xl flex flex-col items-center gap-0.5 transition cursor-pointer ${
                 !moveObjectMode3D
-                  ? "bg-[#F4F2ED] text-[#1C1917] font-semibold"
+                  ? "bg-[#F1F5F9] text-[#1C1917] font-semibold"
                   : "text-[#57534E] hover:bg-[#F8F6F2]"
               }`}
               title="Seçim ve İnceleme Modu"
@@ -2837,7 +4869,7 @@ const clear3DGhostPreview = useCallback(() => {
               onClick={() => setMoveObjectMode3D((v) => !v)}
               className={`px-3 py-1.5 rounded-xl flex flex-col items-center gap-0.5 transition cursor-pointer ${
                 moveObjectMode3D
-                  ? "bg-[#2B2927] text-white font-semibold"
+                  ? "bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1] font-semibold"
                   : "text-[#57534E] hover:bg-[#F8F6F2]"
               }`}
               title="Modülü 3D Sahnede Tutup Taşı (Mıknatıslı Duvar Hizalama)"
@@ -2855,7 +4887,7 @@ const clear3DGhostPreview = useCallback(() => {
               onClick={handleToggleDimensions}
               className={`px-3 py-1.5 rounded-xl flex flex-col items-center gap-0.5 transition cursor-pointer ${
                 effectiveShowDimensions
-                  ? "bg-[#F4F2ED] text-[#1C1917] font-semibold"
+                  ? "bg-[#F1F5F9] text-[#1C1917] font-semibold"
                   : "text-[#57534E] hover:bg-[#F8F6F2]"
               }`}
               title="3D Ölçü Çizgilerini Göster / Gizle"
@@ -2864,6 +4896,43 @@ const clear3DGhostPreview = useCallback(() => {
                 <path d="M4 8v8M20 8v8M4 12h16" />
               </svg>
               <span className="text-[10px]">Ölçü</span>
+            </button>
+
+            {/* 3B. Böl (Bölme Ekle / Dikme At) */}
+            <button
+              type="button"
+              data-testid="hud-tool-split-bay"
+              onClick={() => {
+                const nextCount = Math.min(6, activeModule.bays.length + 1);
+                setBayCount(nextCount);
+                setActiveBayIndex(nextCount - 1);
+                setCutawayActiveBay(true);
+              }}
+              className="px-3 py-1.5 rounded-xl flex flex-col items-center gap-0.5 text-[#57534E] hover:bg-[#EEF3F8] hover:text-[#111827] transition cursor-pointer"
+              title="Modüle yeni dikey bölme (ara dikme) ekle"
+            >
+              <Columns className="w-4 h-4" />
+              <span className="text-[10px]">Böl</span>
+            </button>
+
+            {/* 3C. Birleştir (Ara Dikme Sil / Bölme Birleştir) */}
+            <button
+              type="button"
+              data-testid="hud-tool-merge-bay"
+              disabled={activeModule.bays.length <= 1}
+              onClick={() => {
+                if (activeModule.bays.length > 1) {
+                  removeBayAt(activeBayIndex);
+                }
+              }}
+              className="px-3 py-1.5 rounded-xl flex flex-col items-center gap-0.5 text-[#57534E] hover:bg-[#EEF3F8] hover:text-[#111827] disabled:opacity-40 transition cursor-pointer"
+              title="Seçili ara dikmeyi kaldır ve bölmeleri birleştir"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <rect x="3" y="4" width="18" height="16" rx="2" />
+                <path d="M9 12h6M8 9l-3 3 3 3M16 9l3 3-3 3" />
+              </svg>
+              <span className="text-[10px]">Birleştir</span>
             </button>
 
             {/* 4. Kopyala */}
@@ -2881,7 +4950,35 @@ const clear3DGhostPreview = useCallback(() => {
               <span className="text-[10px]">Kopyala</span>
             </button>
 
-            {/* 5. Aynala (Kapak Yönü / Modül Simetrisi) */}
+            {/* 4B. Kapak Aç / Kapat (İçini Göster) */}
+            <button
+              type="button"
+              data-testid="hud-tool-toggle-doors"
+              onClick={() => {
+                toggleDoorOpen();
+                setDragDropSnapBanner(
+                  doorOpenAngleDeg > 0
+                    ? "🚪 Kapaklar Kapatıldı"
+                    : "🚪 Kapaklar Açıldı (İç Donanım Görünümü)"
+                );
+                setTimeout(() => setDragDropSnapBanner(null), 2000);
+              }}
+              className={`px-3 py-1.5 rounded-xl flex flex-col items-center gap-0.5 transition cursor-pointer ${
+                doorOpenAngleDeg > 0
+                  ? "bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1] font-semibold shadow-xs"
+                  : "text-[#57534E] hover:bg-[#F8F6F2] hover:text-[#1C1917]"
+              }`}
+              title="Dolap kapaklarını aç / kapat (veya 3D sahnede kapağa çift tıklayın)"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <path d="M5 3h11a2 2 0 012 2v14a2 2 0 01-2 2H5V3z" />
+                <path d="M5 3l9 3v15l-9-3V3z" />
+                <circle cx="11.5" cy="12" r="1" fill="currentColor" />
+              </svg>
+              <span className="text-[10px]">{doorOpenAngleDeg > 0 ? "Kapağı Kapat" : "Kapak Aç"}</span>
+            </button>
+
+                        {/* 5. Aynala (Kapak Yönü / Modül Simetrisi) */}
             <button
               type="button"
               data-testid="in-canvas-flip-door-dir"
@@ -2899,7 +4996,7 @@ const clear3DGhostPreview = useCallback(() => {
               <span className="text-[10px]">Aynala</span>
             </button>
 
-            <div className="h-6 w-px bg-[#E6E2D8] mx-0.5" />
+            <div className="h-6 w-px bg-[#E2E8F0] mx-0.5" />
 
             {/* 6. Sil */}
             <button
@@ -2948,24 +5045,24 @@ const clear3DGhostPreview = useCallback(() => {
           data-testid="viewport-3d-bottom-nav-bar"
           className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3"
         >
-          <div className="bg-white/95 backdrop-blur-md px-2.5 py-1.5 rounded-2xl border border-[#E6E2D8] shadow-md flex items-center gap-1 text-[#2B2927]">
+          <div className="bg-white/95 backdrop-blur-md px-2.5 py-1.5 rounded-2xl border border-[#E2E8F0] shadow-md flex items-center gap-1 text-[#2B2927]">
             <button
               type="button"
               onClick={() => setMoveObjectMode3D(false)}
               className={`px-3 py-1 rounded-xl flex flex-col items-center gap-0.5 transition cursor-pointer ${
-                !moveObjectMode3D ? "bg-[#F4F2ED] text-[#1C1917] font-semibold" : "text-[#57534E] hover:bg-[#F8F6F2]"
+                !moveObjectMode3D ? "bg-[#F1F5F9] text-[#1C1917] font-semibold" : "text-[#57534E] hover:bg-[#F8F6F2]"
               }`}
               title="Sahneyi Döndür (Orbit)"
             >
               <RotateCw className="w-3.5 h-3.5" />
               <span className="text-[10px]">Orbit</span>
             </button>
-            <div className="h-5 w-px bg-[#E6E2D8]" />
+            <div className="h-5 w-px bg-[#E2E8F0]" />
             <button
               type="button"
               onClick={() => setMoveObjectMode3D(true)}
               className={`px-3 py-1 rounded-xl flex flex-col items-center gap-0.5 transition cursor-pointer ${
-                moveObjectMode3D ? "bg-[#F4F2ED] text-[#1C1917] font-semibold" : "text-[#57534E] hover:bg-[#F8F6F2]"
+                moveObjectMode3D ? "bg-[#F1F5F9] text-[#1C1917] font-semibold" : "text-[#57534E] hover:bg-[#F8F6F2]"
               }`}
               title="Kaydır / Taşı (Pan)"
             >
@@ -2975,7 +5072,7 @@ const clear3DGhostPreview = useCallback(() => {
               </svg>
               <span className="text-[10px]">Pan</span>
             </button>
-            <div className="h-5 w-px bg-[#E6E2D8]" />
+            <div className="h-5 w-px bg-[#E2E8F0]" />
             <button
               type="button"
               onClick={() => {
@@ -2999,7 +5096,7 @@ const clear3DGhostPreview = useCallback(() => {
               </svg>
               <span className="text-[10px]">Zoom</span>
             </button>
-            <div className="h-5 w-px bg-[#E6E2D8]" />
+            <div className="h-5 w-px bg-[#E2E8F0]" />
             <button
               type="button"
               onClick={() => {
@@ -3032,13 +5129,115 @@ const clear3DGhostPreview = useCallback(() => {
             </button>
           </div>
 
+          {/* Görüntü ⌄ Hardware View Mode Selector Pill (Normal Görünüm | Donanımları Göster | Teknik Görünüm — Matches Birim_Tasarim_5_Donanim_Mekanizmalar.png) */}
+          {showInCanvasHud && (
+            <div className="relative">
+              <button
+                type="button"
+                data-testid="viewport-3d-hardware-view-mode-btn"
+                onClick={() => setHardwareViewMenuOpen((v) => !v)}
+                className={`bg-white/95 backdrop-blur-md px-3.5 py-2 rounded-2xl border shadow-md flex items-center gap-2 text-xs font-semibold transition cursor-pointer ${
+                  hardwareViewMode !== "normal"
+                    ? "border-[#2563EB] text-[#1D4ED8] bg-[#EFF6FF]/95"
+                    : "border-[#E2E8F0] text-[#111827] hover:bg-white"
+                }`}
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <rect x="3" y="4" width="18" height="14" rx="2" />
+                  <circle cx="8.5" cy="10.5" r="2" />
+                  <path d="M14 9h4M14 13h4" />
+                </svg>
+                <span>
+                  {hardwareViewMode === "hardware"
+                    ? "Donanımları Göster"
+                    : hardwareViewMode === "technical"
+                    ? "Teknik Görünüm"
+                    : "Görüntü"}
+                </span>
+                <span className="text-[10px] text-[#64748B]">⌄</span>
+              </button>
+
+              {hardwareViewMenuOpen && (
+                <div
+                  data-testid="viewport-3d-hardware-view-menu"
+                  className="absolute bottom-full left-0 mb-2 w-56 bg-white rounded-2xl border border-[#CBD5E1] shadow-2xl p-2 space-y-1 z-30 text-xs"
+                >
+                  <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-[#64748B]">
+                    3D Donanım Görünüm Modu
+                  </div>
+                  {[
+                    {
+                      id: "normal" as const,
+                      label: "Normal Görünüm",
+                      sub: "Temiz mobilya ve sunum görünümü",
+                    },
+                    {
+                      id: "hardware" as const,
+                      label: "Donanımları Göster",
+                      sub: "Menteşe, ray, LED ve askılık etiketleri",
+                    },
+                    {
+                      id: "technical" as const,
+                      label: "Teknik Görünüm",
+                      sub: "CAD tel kafes + donanım ve CNC eksenleri",
+                    },
+                  ].map((vm) => (
+                    <button
+                      key={vm.id}
+                      type="button"
+                      data-testid={`viewport-3d-hw-mode-${vm.id}`}
+                      onClick={() => {
+                        setHardwareViewMode(vm.id);
+                        setHardwareViewMenuOpen(false);
+                        if (vm.id === "hardware" || vm.id === "technical") {
+                          if (doorOpenAngleDeg < 15 && !doorsHiddenIn3D) {
+                            setDoorOpenAngleDeg(65);
+                          }
+                        }
+                        if (vm.id === "technical") {
+                          setRenderEdgeMode("cad");
+                        } else {
+                          setRenderEdgeMode("photoreal");
+                        }
+                      }}
+                      className={`w-full px-2.5 py-1.5 rounded-xl text-left transition cursor-pointer ${
+                        hardwareViewMode === vm.id
+                          ? "bg-[#EFF6FF] border border-[#2563EB] text-[#111827] font-bold"
+                          : "hover:bg-[#F8FAFC] text-[#111827]"
+                      }`}
+                    >
+                      <div className="text-[11px] font-bold">{vm.label}</div>
+                      <div className="text-[9px] text-[#64748B]">{vm.sub}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Ölçüler Toggle Pill (Matches image_e719c6.jpg Bottom Bar) */}
+          <button
+            type="button"
+            onClick={handleToggleDimensions}
+            className="bg-white/95 backdrop-blur-md px-3.5 py-2 rounded-2xl border border-[#E2E8F0] shadow-md flex items-center gap-2 text-xs font-semibold text-[#111827] cursor-pointer"
+          >
+            <span>Ölçüler</span>
+            <span
+              className={`w-8 h-4.5 rounded-full p-0.5 flex items-center transition ${
+                effectiveShowDimensions ? "bg-[#3B82F6] justify-end" : "bg-[#CBD5E1] justify-start"
+              }`}
+            >
+              <span className="w-3.5 h-3.5 rounded-full bg-white shadow-2xs" />
+            </span>
+          </button>
+
           {/* Render Mode & Environment Selector Pill (Gerçekçi ⌄) */}
           <div className="relative">
             <button
               type="button"
               data-testid="viewport-3d-edge-mode-toggle"
               onClick={() => setRenderMenuOpen((v) => !v)}
-              className="bg-white/95 backdrop-blur-md px-3.5 py-2.5 rounded-2xl border border-[#E6E2D8] shadow-md flex items-center gap-2 text-xs font-semibold text-[#1C1917] hover:bg-[#FAF9F6] transition cursor-pointer"
+              className="bg-white/95 backdrop-blur-md px-3.5 py-2.5 rounded-2xl border border-[#E2E8F0] shadow-md flex items-center gap-2 text-xs font-semibold text-[#1C1917] hover:bg-[#FFFFFF] transition cursor-pointer"
             >
               <svg className="w-4 h-4 text-[#57534E]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                 <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -3050,7 +5249,7 @@ const clear3DGhostPreview = useCallback(() => {
             </button>
 
             {renderMenuOpen && (
-              <div className="absolute bottom-full right-0 mb-2 w-64 bg-white rounded-2xl border border-[#E6E2D8] shadow-xl p-3 space-y-3 z-30 text-xs">
+              <div className="absolute bottom-full right-0 mb-2 w-64 bg-white rounded-2xl border border-[#E2E8F0] shadow-xl p-3 space-y-3 z-30 text-xs">
                 <div>
                   <div className="text-[10px] font-bold uppercase tracking-wider text-[#57534E] mb-1.5">
                     Görünüm Modu
@@ -3064,8 +5263,8 @@ const clear3DGhostPreview = useCallback(() => {
                       }}
                       className={`py-1.5 px-2 rounded-lg font-semibold cursor-pointer ${
                         renderEdgeMode === "photoreal"
-                          ? "bg-[#2B2927] text-white"
-                          : "bg-[#F4F2ED] text-[#1C1917]"
+                          ? "bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1]"
+                          : "bg-[#F1F5F9] text-[#1C1917]"
                       }`}
                     >
                       Gerçekçi PBR
@@ -3078,8 +5277,8 @@ const clear3DGhostPreview = useCallback(() => {
                       }}
                       className={`py-1.5 px-2 rounded-lg font-semibold cursor-pointer ${
                         renderEdgeMode === "cad"
-                          ? "bg-[#2B2927] text-white"
-                          : "bg-[#F4F2ED] text-[#1C1917]"
+                          ? "bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1]"
+                          : "bg-[#F1F5F9] text-[#1C1917]"
                       }`}
                     >
                       Teknik Çizim
@@ -3106,8 +5305,8 @@ const clear3DGhostPreview = useCallback(() => {
                         }
                         className={`py-1 px-1.5 rounded-lg text-[10px] font-semibold cursor-pointer ${
                           lightingPreset === lp.id
-                            ? "bg-[#2B2927] text-white"
-                            : "bg-[#F4F2ED] text-[#1C1917]"
+                            ? "bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1]"
+                            : "bg-[#F1F5F9] text-[#1C1917]"
                         }`}
                       >
                         {lp.label}
@@ -3137,8 +5336,8 @@ const clear3DGhostPreview = useCallback(() => {
                         onClick={() => setFloorStyle(fl.id as ArchitecturalFloorStyle)}
                         className={`py-1 px-2 rounded-lg text-[10px] font-semibold text-left cursor-pointer ${
                           floorStyle === fl.id
-                            ? "bg-[#2B2927] text-white"
-                            : "bg-[#F4F2ED] text-[#1C1917]"
+                            ? "bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1]"
+                            : "bg-[#F1F5F9] text-[#1C1917]"
                         }`}
                       >
                         {fl.label}
@@ -3147,12 +5346,12 @@ const clear3DGhostPreview = useCallback(() => {
                   </div>
                 </div>
 
-                <div className="pt-1.5 border-t border-[#ECE8DF] flex items-center justify-between gap-2">
+                <div className="pt-1.5 border-t border-[#E2E8F0] flex items-center justify-between gap-2">
                   <button
                     type="button"
                     data-testid="viewport-3d-room-toggle"
                     onClick={() => setShowRoomArchitecture3D((prev) => !prev)}
-                    className="px-2.5 py-1 rounded-lg bg-[#F4F2ED] hover:bg-[#E8E2D5] text-[10px] font-semibold text-[#1C1917] cursor-pointer"
+                    className="px-2.5 py-1 rounded-lg bg-[#F1F5F9] hover:bg-[#EEF3F8] text-[10px] font-semibold text-[#1C1917] cursor-pointer"
                   >
                     {showRoomArchitecture3D ? "🏠 Duvarlar: Açık" : "🏠 Duvarlar: Gizli"}
                   </button>
@@ -3160,7 +5359,7 @@ const clear3DGhostPreview = useCallback(() => {
                     type="button"
                     data-testid="viewport-3d-rotate-mod-90"
                     onClick={() => rotateActiveModule90(90)}
-                    className="px-2.5 py-1 rounded-lg bg-[#F4F2ED] hover:bg-[#E8E2D5] text-[10px] font-semibold text-[#1C1917] cursor-pointer"
+                    className="px-2.5 py-1 rounded-lg bg-[#F1F5F9] hover:bg-[#EEF3F8] text-[10px] font-semibold text-[#1C1917] cursor-pointer"
                   >
                     🔄 90° Döndür
                   </button>

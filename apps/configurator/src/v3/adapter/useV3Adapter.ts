@@ -2,6 +2,7 @@ import { useMemo, useCallback } from "react";
 import { useConfiguratorStore } from "../../store/useConfiguratorStore";
 import {
   DEFAULT_MATERIALS,
+  createDefaultWardrobeModule,
   MaterialDefinition,
   ModuleInstance,
   ArchitecturalElement,
@@ -25,6 +26,10 @@ import {
   HANDLE_PROFILES,
   OPENING_MECHANISM_DEFINITIONS,
   V4_HARDWARE_CATALOG,
+  HARDWARE_DRILLING_TEMPLATES,
+  getHardwareProductById,
+  getDrillingTemplateForHardware,
+  selectOptimalRunnerLengthMm,
   WARDROBE_INTERIOR_WIZARDS,
   WardrobeInteriorWizardId,
   getV4TemplateById,
@@ -47,6 +52,7 @@ import {
   getEffectiveSpaceObstacles,
   getEffectiveSpaceWalls,
   getModuleOrientedFootprint,
+  classifyModuleCornerFootprint,
   KITCHEN_ENGINEERING_RULE_REGISTRY,
   setActiveDraggedTemplateId,
   getActiveDraggedTemplateId,
@@ -72,6 +78,7 @@ export {
   generateTopPlan2D,
   generateCrossSection2D,
   getModuleOrientedFootprint,
+  classifyModuleCornerFootprint,
   KITCHEN_ENGINEERING_RULE_REGISTRY,
 };
 
@@ -199,7 +206,7 @@ function commitAdapterState(patch: Partial<ReturnType<typeof useConfiguratorStor
   if (!patch.project) { useConfiguratorStore.setState(patch); return; }
   const project = { ...patch.project, status: "draft" as const, version: Math.max(state.project.version + 1, patch.project.version), updatedAt: new Date().toISOString() };
   const bom = generateBOMForProject(project);
-  const active = project.modules[patch.activeModuleIndex ?? state.activeModuleIndex] ?? project.modules[0];
+  const active = project.modules[patch.activeModuleIndex ?? state.activeModuleIndex] ?? project.modules[0] ?? createDefaultWardrobeModule("empty_fallback");
   useConfiguratorStore.setState({ ...patch, project, bom, pricing: calculateProjectPrice(bom), validationIssues: validateProject(project),
     smartAdvice: analyzeAndAdviseSpan(active.dimensions.width, active.dimensions.height), autoSaveStatus: "unsaved",
     history: patch.history ?? [...state.history.slice(-15), state.project], future: patch.future ?? [],
@@ -288,6 +295,114 @@ export function useV3Adapter() {
    * Change the Countertop / Backsplash / Waterfall material (Neolith, Dekton, Belenco, Çimstone, Natural Marble)
    * across all kitchen base/corner cabinets and attached worktop/backsplash/waterfall modules!
    */
+  const setDoorCrossSectionProfile = useCallback(
+    (
+      profile: import("@birim/core").DoorCrossSectionProfile,
+      customCadProfileName?: string | null,
+      customCadPolygon?: { x: number; y: number }[]
+    ) => {
+      const state = useConfiguratorStore.getState();
+      const curProj = state.project;
+      const mod = curProj.modules[state.activeModuleIndex];
+      if (!mod) return;
+      const nextModules = curProj.modules.map((m, idx) => {
+        if (idx !== state.activeModuleIndex) return m;
+        return {
+          ...m,
+          carcass: {
+            ...m.carcass,
+            crossSectionProfile: profile,
+            customCadProfileName: customCadProfileName ?? m.carcass.customCadProfileName,
+            customCadPolygon: customCadPolygon ?? m.carcass.customCadPolygon,
+          },
+          bays: m.bays.map((b) => ({
+            ...b,
+            door: {
+              ...b.door,
+              crossSectionProfile: profile,
+              customCadProfileName: customCadProfileName ?? b.door.customCadProfileName,
+              customCadPolygon: customCadPolygon ?? b.door.customCadPolygon,
+            },
+          })),
+        };
+      });
+      commitAdapterState({
+        history: [...state.history.slice(-15), curProj],
+        future: [],
+        project: {
+          ...curProj,
+          modules: nextModules,
+          updatedAt: new Date().toISOString(),
+        },
+      });
+    },
+    []
+  );
+
+
+  /**
+   * Updates supported CarcassConfig properties (panelThickness, backPanelThickness, backPanelType,
+   * edgeBandThickness, jointType, doorPerimeterGap, plinthHeight, hasAdjustableLegs, etc.)
+   * on the active module and triggers full parametric 3D geometry, BOM, pricing, and validation recomputation.
+   */
+  const updateCarcassConfig = useCallback(
+    (patch: Partial<import("@birim/core").CarcassConfig>) => {
+      const state = useConfiguratorStore.getState();
+      const curProj = state.project;
+      const mod = curProj.modules[state.activeModuleIndex];
+      if (!mod) return;
+      const nextModules = curProj.modules.map((m, idx) => {
+        if (idx !== state.activeModuleIndex) return m;
+        return {
+          ...m,
+          carcass: {
+            ...m.carcass,
+            ...patch,
+          },
+        };
+      });
+      commitAdapterState({
+        history: [...state.history.slice(-15), curProj],
+        future: [],
+        project: {
+          ...curProj,
+          modules: nextModules,
+          updatedAt: new Date().toISOString(),
+        },
+      });
+    },
+    []
+  );
+
+  const setAdjustableLegsEnabled = useCallback((enabled: boolean) => {
+    const state = useConfiguratorStore.getState();
+    const curProj = state.project;
+    const mod = curProj.modules[state.activeModuleIndex];
+    if (!mod) return;
+    const nextPlinthH = enabled && (mod.carcass.plinthHeight ?? 0) === 0 ? 100 : mod.carcass.plinthHeight;
+    const nextModules = curProj.modules.map((m, idx) =>
+      idx === state.activeModuleIndex
+        ? {
+            ...m,
+            carcass: {
+              ...m.carcass,
+              hasAdjustableLegs: enabled,
+              plinthHeight: nextPlinthH,
+            },
+          }
+        : m
+    );
+    commitAdapterState({
+      history: [...state.history.slice(-15), curProj],
+      future: [],
+      project: {
+        ...curProj,
+        modules: nextModules,
+        updatedAt: new Date().toISOString(),
+      },
+    });
+  }, []);
+
   const setPlinthMaterial = useCallback((materialId: string) => {
     const state = useConfiguratorStore.getState();
     const curProj = state.project;
@@ -295,7 +410,13 @@ export function useV3Adapter() {
     if (!mod) return;
     const nextOverrides = { ...(mod.componentMaterialOverrides || {}), __plinth__: materialId };
     const nextModules = curProj.modules.map((m, idx) =>
-      idx === state.activeModuleIndex ? { ...m, componentMaterialOverrides: nextOverrides } : m
+      idx === state.activeModuleIndex
+        ? {
+            ...m,
+            carcass: { ...m.carcass, plinthMaterialId: materialId },
+            componentMaterialOverrides: nextOverrides,
+          }
+        : m
     );
     commitAdapterState({
       history: [...state.history.slice(-15), curProj],
@@ -441,8 +562,12 @@ export function useV3Adapter() {
   const loadUKitchenBase = useConfiguratorStore((s) => s.loadUKitchen);
   const resetToDefault = useConfiguratorStore((s) => s.resetToDefault);
 
+  const emptyFallbackModule = useMemo(
+    () => createDefaultWardrobeModule("empty_scene_placeholder"),
+    []
+  );
   const activeModule: ModuleInstance =
-    project.modules[activeModuleIndex] || project.modules[0];
+    project.modules[activeModuleIndex] || project.modules[0] || emptyFallbackModule;
   const safeBayIndex = Math.min(
     activeBayIndex,
     Math.max(0, (activeModule?.bays.length || 1) - 1)
@@ -489,20 +614,53 @@ export function useV3Adapter() {
    * Fast component selection handler
    */
   const handleComponentSelect = useCallback(
-    (compId: string | null) => {
+    (compId: string | null, explicitModuleIndex?: number) => {
       setSelectedComponentId(compId);
       if (!compId) return;
 
       const curProj = useConfiguratorStore.getState().project;
       const curModIdx = useConfiguratorStore.getState().activeModuleIndex;
-      for (let mIdx = 0; mIdx < curProj.modules.length; mIdx++) {
-        const mod = curProj.modules[mIdx];
-        if (compId.startsWith(mod.id) || compId.includes(`_${mIdx}_`)) {
+
+      if (
+        typeof explicitModuleIndex === "number" &&
+        explicitModuleIndex >= 0 &&
+        explicitModuleIndex < curProj.modules.length
+      ) {
+        if (explicitModuleIndex !== curModIdx) {
+          setActiveModuleIndex(explicitModuleIndex);
+        }
+        const targetMod = curProj.modules[explicitModuleIndex];
+        if (targetMod) {
+          const breakdown = generateModuleGeometry(targetMod);
+          const foundComp = breakdown.components.find((c) => c.id === compId);
+          if (foundComp && typeof foundComp.bayIndex === "number") {
+            setActiveBayIndex(foundComp.bayIndex);
+          }
+        }
+        return;
+      }
+
+      // Match by longest module.id prefix first so "mod_10" never falsely matches "mod_1"
+      const indexedMods = curProj.modules
+        .map((mod, mIdx) => ({ mod, mIdx }))
+        .sort((a, b) => b.mod.id.length - a.mod.id.length);
+
+      for (const { mod, mIdx } of indexedMods) {
+        if (compId === mod.id || compId.startsWith(`${mod.id}_`)) {
           if (mIdx !== curModIdx) {
             setActiveModuleIndex(mIdx);
           }
+          const breakdown = generateModuleGeometry(mod);
+          const foundComp = breakdown.components.find((c) => c.id === compId);
+          if (foundComp && typeof foundComp.bayIndex === "number") {
+            setActiveBayIndex(foundComp.bayIndex);
+          }
           return;
         }
+      }
+
+      for (let mIdx = 0; mIdx < curProj.modules.length; mIdx++) {
+        const mod = curProj.modules[mIdx];
         const breakdown = generateModuleGeometry(mod);
         const foundComp = breakdown.components.find((c) => c.id === compId);
         if (foundComp) {
@@ -1080,9 +1238,8 @@ export function useV3Adapter() {
       if (m.id === "l_arm") {
         return {
           ...m,
-          isCorner: true,
-          cornerAngleDeg: 90,
-          position: { x: 0, y: 0, z: 650 },
+          isCorner: false,
+          position: { x: 0, y: 0, z: 900 },
           rotation: { x: 0, y: 90, z: 0 },
         };
       }
@@ -1110,18 +1267,16 @@ export function useV3Adapter() {
       if (m.id === "u_arm_left") {
         return {
           ...m,
-          isCorner: true,
-          cornerAngleDeg: 90,
-          position: { x: 0, y: 0, z: 650 },
+          isCorner: false,
+          position: { x: 0, y: 0, z: 900 },
           rotation: { x: 0, y: 90, z: 0 },
         };
       }
       if (m.id === "u_arm_right") {
         return {
           ...m,
-          isCorner: true,
-          cornerAngleDeg: 270,
-          position: { x: 1820, y: 0, z: 650 },
+          isCorner: false,
+          position: { x: 2220, y: 0, z: 900 },
           rotation: { x: 0, y: 270, z: 0 },
         };
       }
@@ -1288,18 +1443,41 @@ export function useV3Adapter() {
         doorSystemId?: DoorSystemId;
         overlayType?: DoorOverlayType;
         handleCategory?: HandleCategory;
+        handleProfileId?: string;
+        handleMaterialId?: string;
+        handleOrientation?: "auto" | "vertical" | "horizontal";
+        handleOffsetY?: number;
+        handleEdgeInsetX?: number;
+        handleLengthMm?: number;
         openingTechnology?: OpeningTechnology;
         hardwareProductId?: string;
         hingeCount?: number;
         hingeBottomOffsetMm?: number;
         hingeTopOffsetMm?: number;
+        crossSectionProfile?: import("@birim/core").DoorCrossSectionProfile;
+        doorMaterialId?: string;
+        doorThicknessMm?: number;
+        doorEdgeBandThicknessMm?: number;
+        softClose?: boolean;
+        isGlassFramed?: boolean;
       }
     ) => {
       commitActiveModuleUpdate((mod) => {
         const bay = mod.bays[bayIdx];
         if (!bay) return mod;
         const nextDoor = { ...bay.door, ...updates };
-        if (updates.handleCategory) nextDoor.handleProfileId = undefined;
+        if (updates.handleCategory && updates.handleProfileId === undefined) {
+          nextDoor.handleProfileId = bay.door.handleProfileId;
+        }
+        if (typeof updates.softClose === "boolean" && !updates.openingTechnology) {
+          nextDoor.openingTechnology = updates.softClose ? "soft_close" : "manual_standard";
+        }
+        if (updates.openingTechnology && updates.softClose === undefined) {
+          nextDoor.softClose =
+            updates.openingTechnology === "soft_close" ||
+            updates.openingTechnology === "push_to_open_soft_close" ||
+            updates.openingTechnology === "sliding_damped";
+        }
         if (updates.doorSystemId) {
           mod.isOpenFront = updates.doorSystemId === "open";
           const types: Partial<Record<DoorSystemId, typeof nextDoor.type>> = { open: "open", hinged_single: "single_left", hinged_double: "double", hinged_inset: "inset_left", hinged_overlay_variant: "half_overlay_left", sliding_top_hung: "sliding", sliding_bottom_rolling: "sliding_bottom", lift_up_stay: "lift_up_stay", lift_parallel: "lift_parallel", lift_bi_fold: "lift_bi_fold", folding_side: "folding", pocket_retractable: "pocket", tambour_roller: "tambour" };
@@ -1328,6 +1506,62 @@ export function useV3Adapter() {
           nextDoor.handleType = "standard";
         }
         bay.door = nextDoor;
+        return mod;
+      }, true);
+    },
+    [commitActiveModuleUpdate]
+  );
+
+  const copyDoorConfigToAllBays = useCallback(
+    (sourceBayIdx?: number) => {
+      commitActiveModuleUpdate((mod) => {
+        const srcIdx =
+          typeof sourceBayIdx === "number"
+            ? sourceBayIdx
+            : Math.min(useConfiguratorStore.getState().activeBayIndex, mod.bays.length - 1);
+        const srcBay = mod.bays[srcIdx];
+        if (!srcBay || !srcBay.door) return mod;
+        const srcDoor = srcBay.door;
+        mod.bays = mod.bays.map((b) => ({
+          ...b,
+          door: {
+            ...b.door,
+            crossSectionProfile: srcDoor.crossSectionProfile,
+            isGlassFramed: srcDoor.isGlassFramed,
+            handleCategory: srcDoor.handleCategory,
+            handleProfileId: srcDoor.handleProfileId,
+            handleMaterialId: srcDoor.handleMaterialId,
+            handleOrientation: srcDoor.handleOrientation,
+            handleOffsetY: srcDoor.handleOffsetY,
+            handleEdgeInsetX: srcDoor.handleEdgeInsetX,
+            handleLengthMm: srcDoor.handleLengthMm,
+            handleType: srcDoor.handleType,
+            doorMaterialId: srcDoor.doorMaterialId,
+            doorThicknessMm: srcDoor.doorThicknessMm,
+            doorEdgeBandThicknessMm: srcDoor.doorEdgeBandThicknessMm,
+            softClose: srcDoor.softClose,
+            openingTechnology: srcDoor.openingTechnology,
+            overlayType: srcDoor.overlayType,
+          },
+        }));
+        if (srcDoor.crossSectionProfile) {
+          mod.carcass.crossSectionProfile = srcDoor.crossSectionProfile;
+        }
+        if (srcDoor.doorMaterialId) {
+          mod.carcass.doorMaterialId = srcDoor.doorMaterialId;
+        }
+        if (srcDoor.doorThicknessMm) {
+          mod.carcass.doorThickness = srcDoor.doorThicknessMm;
+        }
+        if (mod.componentMaterialOverrides) {
+          const nextOv = { ...mod.componentMaterialOverrides };
+          Object.keys(nextOv).forEach((k) => {
+            if (k.includes("door")) {
+              delete nextOv[k];
+            }
+          });
+          mod.componentMaterialOverrides = nextOv;
+        }
         return mod;
       }, true);
     },
@@ -1517,8 +1751,30 @@ export function useV3Adapter() {
         }
       }
 
+      let shiftedExisting = curProj.modules;
+      if (
+        newMod.isCorner &&
+        (dropWorldXMm === undefined || dropWorldXMm <= 450) &&
+        !sameRowMods.some((m) => m.isCorner && m.position.x === 0)
+      ) {
+        chosen = { x: 0, label: "Oda Başlangıç Köşesi (X: 0mm, Z: 0mm)" };
+        if (overlapsAt(0)) {
+          const shiftBy = newMod.dimensions.width;
+          shiftedExisting = curProj.modules.map((m) => {
+            const mIsWall = m.category === "kitchen_wall" || m.moduleFamilyId === "fam_kitchen_wall";
+            if (mIsWall === isWallCab && (m.rotation?.y || 0) === 0) {
+              return {
+                ...m,
+                position: { ...m.position, x: m.position.x + shiftBy },
+              };
+            }
+            return m;
+          });
+        }
+      }
+
       newMod.position = { x: chosen.x, y: targetY, z: 0 };
-      const nextModules = [...curProj.modules, newMod];
+      const nextModules = [...shiftedExisting, newMod];
       const nextProj = {
         ...curProj,
         version: (curProj.version || 1) + 1,
@@ -1535,6 +1791,8 @@ export function useV3Adapter() {
         project: nextProj,
         activeModuleIndex: nextModules.length - 1,
         activeBayIndex: 0,
+        doorOpenAngleDeg: 0,
+        drawerOpenMm: 0,
         validationIssues: nextIssues,
         bom: nextBom,
         pricing: nextPricing,
@@ -1577,6 +1835,8 @@ export function useV3Adapter() {
       project: nextProj,
       activeModuleIndex: nextModules.length - 1,
       activeBayIndex: 0,
+      doorOpenAngleDeg: 0,
+      drawerOpenMm: 0,
       validationIssues: nextIssues,
       bom: nextBom,
       pricing: nextPricing,
@@ -2311,9 +2571,920 @@ export function useV3Adapter() {
   /**
    * Remove module at a specific index (keeps at least 1 module in the project)
    */
+
+  /**
+   * Apply an instant interior layout preset to ONLY the selected compartment (bayIdx)
+   * for the 3D Wardrobe Compartment Workflow (Shelves, Double Rail, Rail+Drawers, Trouser Rack, Shoe Tower).
+   */
+  const applyBayInteriorPreset = useCallback(
+    (
+      bayIdx: number,
+      presetId:
+        | "shelves_5"
+        | "rail_double"
+        | "rail_drawers_3"
+        | "rail_trouser"
+        | "shoe_tower"
+        | "shirt_shelf"
+        | "dress_drawer"
+        | "mixed_combo"
+    ) => {
+      commitActiveModuleUpdate((mod) => {
+        const bay = mod.bays[bayIdx];
+        if (!bay) return mod;
+        const netH = calculateNetInnerHeight(mod);
+        const bayWidths = calculateBayWidths(mod);
+        const bw = bayWidths[bayIdx] || 550;
+
+        bay.shelves = [];
+        bay.drawers = [];
+        bay.hangingRails = [];
+        bay.specialFittings = (bay.specialFittings || []).filter((f) => f.type.startsWith("led_"));
+
+        if (presetId === "shelves_5") {
+          const count = 5;
+          const step = Math.round(netH / (count + 1));
+          for (let i = 1; i <= count; i++) {
+            bay.shelves.push({
+              id: `${mod.id}_b${bayIdx}_sh_${i}_${Date.now()}`,
+              bayIndex: bayIdx,
+              elevationY: Math.min(netH - 80, Math.max(80, i * step)),
+              isFixed: i === 2,
+            });
+          }
+        } else if (presetId === "rail_double") {
+          const midShelfY = Math.round(netH * 0.5);
+          const topShelfY = Math.min(netH - 180, Math.round(netH * 0.86));
+          bay.shelves.push(
+            {
+              id: `${mod.id}_b${bayIdx}_sh_mid_${Date.now()}`,
+              bayIndex: bayIdx,
+              elevationY: midShelfY,
+              isFixed: true,
+            },
+            {
+              id: `${mod.id}_b${bayIdx}_sh_top_${Date.now()}`,
+              bayIndex: bayIdx,
+              elevationY: topShelfY,
+              isFixed: false,
+            }
+          );
+          bay.hangingRails.push(
+            {
+              id: `${mod.id}_b${bayIdx}_rail_low_${Date.now()}`,
+              bayIndex: bayIdx,
+              elevationY: Math.max(320, midShelfY - 70),
+            },
+            {
+              id: `${mod.id}_b${bayIdx}_rail_high_${Date.now()}`,
+              bayIndex: bayIdx,
+              elevationY: Math.max(400, topShelfY - 70),
+            }
+          );
+        } else if (presetId === "rail_drawers_3") {
+          const drwH = 180;
+          for (let i = 0; i < 3; i++) {
+            bay.drawers.push({
+              id: `${mod.id}_b${bayIdx}_drw_${i}_${Date.now()}`,
+              bayIndex: bayIdx,
+              elevationY: i * drwH,
+              height: drwH,
+              softClose: true,
+              hardwareProductId: "hw_blum_legrabox_m40",
+            });
+          }
+          const coverShelfY = 3 * drwH + 18;
+          const topShelfY = Math.min(netH - 180, Math.round(netH * 0.84));
+          bay.shelves.push(
+            {
+              id: `${mod.id}_b${bayIdx}_sh_cov_${Date.now()}`,
+              bayIndex: bayIdx,
+              elevationY: coverShelfY,
+              isFixed: true,
+            },
+            {
+              id: `${mod.id}_b${bayIdx}_sh_top_${Date.now()}`,
+              bayIndex: bayIdx,
+              elevationY: topShelfY,
+              isFixed: false,
+            }
+          );
+          bay.hangingRails.push({
+            id: `${mod.id}_b${bayIdx}_rail_main_${Date.now()}`,
+            bayIndex: bayIdx,
+            elevationY: Math.max(400, topShelfY - 70),
+          });
+        } else if (presetId === "rail_trouser") {
+          const midShelfY = Math.round(netH * 0.42);
+          const topShelfY = Math.min(netH - 180, Math.round(netH * 0.84));
+          bay.shelves.push(
+            {
+              id: `${mod.id}_b${bayIdx}_sh_mid_${Date.now()}`,
+              bayIndex: bayIdx,
+              elevationY: midShelfY,
+              isFixed: true,
+            },
+            {
+              id: `${mod.id}_b${bayIdx}_sh_top_${Date.now()}`,
+              bayIndex: bayIdx,
+              elevationY: topShelfY,
+              isFixed: false,
+            }
+          );
+          bay.hangingRails.push({
+            id: `${mod.id}_b${bayIdx}_rail_top_${Date.now()}`,
+            bayIndex: bayIdx,
+            elevationY: Math.max(400, topShelfY - 70),
+          });
+          bay.specialFittings.push({
+            id: `fit_trouser_rack_${mod.id}_${bayIdx}_${Date.now()}`,
+            bayIndex: bayIdx,
+            type: "trouser_rack",
+            elevationY: Math.max(120, midShelfY - 120),
+            height: 90,
+            width: Math.max(200, bw - 36),
+            depth: Math.max(300, mod.dimensions.depth - 80),
+          });
+        } else if (presetId === "shoe_tower") {
+          for (let i = 0; i < 3; i++) {
+            bay.specialFittings.push({
+              id: `fit_shoe_rack_${mod.id}_${bayIdx}_${i}_${Date.now()}`,
+              bayIndex: bayIdx,
+              type: "shoe_rack",
+              elevationY: 120 + i * 220,
+              height: 110,
+              width: Math.max(200, bw - 36),
+              depth: Math.max(300, mod.dimensions.depth - 80),
+            });
+          }
+          const startShelfY = 820;
+          const topCount = 3;
+          const step = Math.round((netH - startShelfY) / (topCount + 1));
+          for (let i = 1; i <= topCount; i++) {
+            bay.shelves.push({
+              id: `${mod.id}_b${bayIdx}_sh_shoe_${i}_${Date.now()}`,
+              bayIndex: bayIdx,
+              elevationY: Math.min(netH - 80, startShelfY + i * step),
+              isFixed: i === 1,
+            });
+          }
+        } else if (presetId === "shirt_shelf") {
+          // Gömlek + Raf: Üst askılık + 3 alt istif rafı
+          const topShelfY = Math.min(netH - 180, Math.round(netH * 0.85));
+          const midShelfY = Math.round(netH * 0.44);
+          bay.shelves.push(
+            {
+              id: `${mod.id}_b${bayIdx}_sh_shirt_1_${Date.now()}`,
+              bayIndex: bayIdx,
+              elevationY: Math.round(midShelfY * 0.35),
+              isFixed: false,
+            },
+            {
+              id: `${mod.id}_b${bayIdx}_sh_shirt_2_${Date.now()}`,
+              bayIndex: bayIdx,
+              elevationY: Math.round(midShelfY * 0.68),
+              isFixed: false,
+            },
+            {
+              id: `${mod.id}_b${bayIdx}_sh_shirt_3_${Date.now()}`,
+              bayIndex: bayIdx,
+              elevationY: midShelfY,
+              isFixed: true,
+            },
+            {
+              id: `${mod.id}_b${bayIdx}_sh_shirt_top_${Date.now()}`,
+              bayIndex: bayIdx,
+              elevationY: topShelfY,
+              isFixed: false,
+            }
+          );
+          bay.hangingRails.push({
+            id: `${mod.id}_b${bayIdx}_rail_shirt_${Date.now()}`,
+            bayIndex: bayIdx,
+            elevationY: Math.max(400, topShelfY - 65),
+          });
+        } else if (presetId === "dress_drawer") {
+          // Elbise + Çekmece: Uzun elbise askılığı + 2 alt çekmece + üst raf
+          const drwH = 200;
+          for (let i = 0; i < 2; i++) {
+            bay.drawers.push({
+              id: `${mod.id}_b${bayIdx}_drw_dress_${i}_${Date.now()}`,
+              bayIndex: bayIdx,
+              elevationY: i * drwH,
+              height: drwH,
+              softClose: true,
+              hardwareProductId: "hw_blum_legrabox_m40",
+            });
+          }
+          const coverShelfY = 2 * drwH + 18;
+          const topShelfY = Math.min(netH - 180, Math.round(netH * 0.85));
+          bay.shelves.push(
+            {
+              id: `${mod.id}_b${bayIdx}_sh_dress_cov_${Date.now()}`,
+              bayIndex: bayIdx,
+              elevationY: coverShelfY,
+              isFixed: true,
+            },
+            {
+              id: `${mod.id}_b${bayIdx}_sh_dress_top_${Date.now()}`,
+              bayIndex: bayIdx,
+              elevationY: topShelfY,
+              isFixed: false,
+            }
+          );
+          bay.hangingRails.push({
+            id: `${mod.id}_b${bayIdx}_rail_dress_${Date.now()}`,
+            bayIndex: bayIdx,
+            elevationY: Math.max(500, topShelfY - 65),
+          });
+        } else if (presetId === "mixed_combo") {
+          // Karma Düzen: Üst raf + Askılık + Pantolonluk + Alt çekmece
+          const drwH = 200;
+          bay.drawers.push({
+            id: `${mod.id}_b${bayIdx}_drw_mix_0_${Date.now()}`,
+            bayIndex: bayIdx,
+            elevationY: 0,
+            height: drwH,
+            softClose: true,
+            hardwareProductId: "hw_blum_legrabox_m40",
+          });
+          const coverShelfY = drwH + 18;
+          const midShelfY = Math.round(netH * 0.46);
+          const topShelfY = Math.min(netH - 180, Math.round(netH * 0.85));
+          bay.shelves.push(
+            {
+              id: `${mod.id}_b${bayIdx}_sh_mix_cov_${Date.now()}`,
+              bayIndex: bayIdx,
+              elevationY: coverShelfY,
+              isFixed: true,
+            },
+            {
+              id: `${mod.id}_b${bayIdx}_sh_mix_mid_${Date.now()}`,
+              bayIndex: bayIdx,
+              elevationY: midShelfY,
+              isFixed: true,
+            },
+            {
+              id: `${mod.id}_b${bayIdx}_sh_mix_top_${Date.now()}`,
+              bayIndex: bayIdx,
+              elevationY: topShelfY,
+              isFixed: false,
+            }
+          );
+          bay.hangingRails.push({
+            id: `${mod.id}_b${bayIdx}_rail_mix_${Date.now()}`,
+            bayIndex: bayIdx,
+            elevationY: Math.max(450, topShelfY - 65),
+          });
+          bay.specialFittings.push({
+            id: `fit_trouser_rack_${mod.id}_${bayIdx}_${Date.now()}`,
+            bayIndex: bayIdx,
+            type: "trouser_rack",
+            elevationY: Math.max(coverShelfY + 110, midShelfY - 110),
+            height: 90,
+            width: Math.max(200, bw - 36),
+            depth: Math.max(300, mod.dimensions.depth - 80),
+          });
+        }
+        return mod;
+      }, true);
+    },
+    [commitActiveModuleUpdate]
+  );
+
+  /**
+   * Toggle visibility (isHidden) of an individual interior component in 3D while preserving its data
+   */
+  const toggleInteriorItemHidden = useCallback(
+    (
+      bayIdx: number,
+      kind: "shelf" | "rail" | "drawer" | "fitting",
+      itemId: string
+    ) => {
+      commitActiveModuleUpdate((mod) => {
+        const bay = mod.bays[bayIdx];
+        if (!bay) return mod;
+        if (kind === "shelf") {
+          bay.shelves = bay.shelves.map((s) =>
+            s.id === itemId ? { ...s, isHidden: !s.isHidden } : s
+          );
+        } else if (kind === "rail") {
+          bay.hangingRails = bay.hangingRails.map((r) =>
+            r.id === itemId ? { ...r, isHidden: !r.isHidden } : r
+          );
+        } else if (kind === "drawer") {
+          bay.drawers = bay.drawers.map((d) =>
+            d.id === itemId ? { ...d, isHidden: !d.isHidden } : d
+          );
+        } else if (kind === "fitting") {
+          bay.specialFittings = (bay.specialFittings || []).map((f) =>
+            f.id === itemId ? { ...f, isHidden: !f.isHidden } : f
+          );
+        }
+        return mod;
+      }, true);
+    },
+    [commitActiveModuleUpdate]
+  );
+
+  /**
+   * Update thickness of a specific shelf or all shelves in the selected compartment (18 / 22 / 25 / 36 mm)
+   */
+  const setShelfThickness = useCallback(
+    (bayIdx: number, shelfId: string | "all", thicknessMm: number) => {
+      const clampedT = [18, 22, 25, 36].includes(thicknessMm) ? thicknessMm : 18;
+      commitActiveModuleUpdate((mod) => {
+        const bay = mod.bays[bayIdx];
+        if (!bay) return mod;
+        bay.shelves = bay.shelves.map((s) =>
+          shelfId === "all" || s.id === shelfId ? { ...s, thickness: clampedT } : s
+        );
+        return mod;
+      }, true);
+    },
+    [commitActiveModuleUpdate]
+  );
+
+  /**
+   * Equalize all bay widths AND distribute shelves evenly across the usable vertical span of the selected bay
+   */
+  const equalizeBaysAndShelves = useCallback(
+    (bayIdx?: number) => {
+      commitActiveModuleUpdate((mod) => {
+        const netH = calculateNetInnerHeight(mod);
+        const T_p = mod.carcass.panelThickness || 18;
+        mod.bays = mod.bays.map((b, idx) => {
+          const nextBay = { ...b, customWidth: undefined };
+          if ((typeof bayIdx !== "number" || idx === bayIdx) && nextBay.shelves.length > 0) {
+            const maxDrawerTop =
+              nextBay.drawers.length > 0
+                ? Math.max(...nextBay.drawers.map((d) => d.elevationY + d.height)) + T_p
+                : 0;
+            const usableH = Math.max(160, netH - maxDrawerTop);
+            const cnt = nextBay.shelves.length;
+            const stepY = usableH / (cnt + 1);
+            const sorted = [...nextBay.shelves].sort((a, z) => a.elevationY - z.elevationY);
+            sorted.forEach((s, sIdx) => {
+              s.elevationY = Math.max(
+                60,
+                Math.min(netH - 60, Math.round((maxDrawerTop + stepY * (sIdx + 1)) / 10) * 10)
+              );
+            });
+            nextBay.shelves = sorted;
+          }
+          return nextBay;
+        });
+        return mod;
+      }, true);
+    },
+    [commitActiveModuleUpdate]
+  );
+
+  /**
+   * Add an internal pull-out drawer (İç Çekmece — behind hinged/sliding doors) in the selected bay
+   */
+  const addInternalDrawer = useCallback(
+    (bayIdx: number, heightMm = 140) => {
+      commitActiveModuleUpdate((mod) => {
+        const bay = mod.bays[bayIdx];
+        if (!bay) return mod;
+        const netH = calculateNetInnerHeight(mod);
+        const T_p = mod.carcass.panelThickness || 18;
+        const clampedH = Math.max(80, Math.min(240, Math.round(heightMm)));
+        const maxTop =
+          bay.drawers.length > 0
+            ? Math.max(...bay.drawers.map((d) => d.elevationY + d.height))
+            : 0;
+        if (maxTop + clampedH > netH - 120) return mod;
+        bay.drawers.push({
+          id: `${mod.id}_b${bayIdx}_intdrw_${bay.drawers.length}_${Date.now()}`,
+          bayIndex: bayIdx,
+          elevationY: maxTop,
+          height: clampedH,
+          softClose: true,
+          isInternal: true,
+          hardwareProductId: "hw_blum_legrabox_m40",
+        });
+        const newCoverY = maxTop + clampedH + 4;
+        const hasCoverShelf = bay.shelves.some(
+          (s) => Math.abs(s.elevationY - newCoverY) <= 35
+        );
+        if (!hasCoverShelf && newCoverY < netH - 120) {
+          bay.shelves.push({
+            id: `${mod.id}_b${bayIdx}_intcov_${Date.now()}`,
+            bayIndex: bayIdx,
+            elevationY: newCoverY,
+            thickness: T_p,
+            isFixed: true,
+          });
+        }
+        return mod;
+      }, true);
+    },
+    [commitActiveModuleUpdate]
+  );
+
+  /**
+   * Remove a specific bay/compartment (merges divider and re-indexes remaining bays)
+   */
+  const removeBayAt = useCallback(
+    (bayIdx: number) => {
+      commitActiveModuleUpdate((mod) => {
+        if (mod.bays.length <= 1) return mod;
+        const targetIdx = Math.max(0, Math.min(mod.bays.length - 1, bayIdx));
+        mod.bays.splice(targetIdx, 1);
+        mod.bays = mod.bays.map((b, idx) => ({
+          ...b,
+          index: idx,
+          customWidth: undefined,
+          door: { ...b.door, bayIndex: idx, id: `${mod.id}_door_${idx}` },
+          shelves: (b.shelves || []).map((s) => ({ ...s, bayIndex: idx })),
+          hangingRails: (b.hangingRails || []).map((r) => ({ ...r, bayIndex: idx })),
+          drawers: (b.drawers || []).map((d) => ({ ...d, bayIndex: idx })),
+          specialFittings: (b.specialFittings || []).map((f) => ({ ...f, bayIndex: idx })),
+          subDividers: (b.subDividers || []).map((sd) => ({ ...sd, bayIndex: idx })),
+        }));
+        return mod;
+      }, true);
+      const st = useConfiguratorStore.getState();
+      const mod = st.project.modules[st.activeModuleIndex];
+      if (mod) {
+        setActiveBayIndex(Math.max(0, Math.min(bayIdx, mod.bays.length - 1)));
+      }
+    },
+    [commitActiveModuleUpdate, setActiveBayIndex]
+  );
+
+  /**
+   * Screen 5 (Donanım ve Mekanizmalar): Update Hinge Hardware SKU across active bay or all hinged bays,
+   * automatically syncing drilling template and door thickness compatibility.
+   */
+  const setModuleHingeHardware = useCallback(
+    (
+      hardwareProductId: string,
+      applyAllBays = true,
+      softCloseOverride?: boolean
+    ): { ok: boolean; error?: string } => {
+      const st = useConfiguratorStore.getState();
+      const mod = st.project.modules[st.activeModuleIndex] || st.project.modules[0];
+      if (!mod) return { ok: false, error: "Aktif modül bulunamadı." };
+
+      const hw = getHardwareProductById(hardwareProductId);
+      const T_door =
+        mod.bays[safeBayIndex]?.door.doorThicknessMm || mod.carcass.doorThickness || 18;
+      if (hw?.doorThicknessLimitsMm) {
+        const [minT, maxT] = hw.doorThicknessLimitsMm;
+        if (T_door < minT || T_door > maxT) {
+          return {
+            ok: false,
+            error: `"${hw.name}" menteşesi ${minT}–${maxT} mm kapak kalınlığını destekler (Mevcut kapak kalınlığı: ${T_door} mm). Lütfen kalın kapak menteşesi (95° / 165°) seçin veya kapak kalınlığını güncelleyin.`,
+          };
+        }
+      }
+
+      const drillTpl = getDrillingTemplateForHardware(hardwareProductId);
+      commitActiveModuleUpdate((nextMod) => {
+        nextMod.carcass.hingeDrillingTemplateId = drillTpl.id;
+        nextMod.bays = nextMod.bays.map((b, bIdx) => {
+          if (!applyAllBays && bIdx !== safeBayIndex) return b;
+          const dSys = b.door.doorSystemId || "hinged_single";
+          if (!dSys.startsWith("hinged")) return b;
+          const nextSoftClose =
+            typeof softCloseOverride === "boolean" ? softCloseOverride : b.door.softClose;
+          return {
+            ...b,
+            door: {
+              ...b.door,
+              hardwareProductId,
+              softClose: nextSoftClose,
+              openingTechnology: nextSoftClose ? "soft_close" : "manual_standard",
+            },
+          };
+        });
+        return nextMod;
+      }, true);
+      return { ok: true };
+    },
+    [commitActiveModuleUpdate, safeBayIndex]
+  );
+
+  /**
+   * Screen 5 (Donanım ve Mekanizmalar): Update Drawer Runner Hardware SKU and Nominal Length (NL)
+   * with strict inner depth clearance validation (NL <= usableInnerDepthMm - 10).
+   */
+  const setModuleDrawerRunnerHardware = useCallback(
+    (
+      hardwareProductId: string,
+      nominalLengthMm?: number,
+      applyAllBays = true,
+      slideTypeOverride?: import("@birim/core").DrawerConfig["slideType"]
+    ): { ok: boolean; error?: string; appliedNlMm?: number } => {
+      const st = useConfiguratorStore.getState();
+      const mod = st.project.modules[st.activeModuleIndex] || st.project.modules[0];
+      if (!mod) return { ok: false, error: "Aktif modül bulunamadı." };
+
+      const fourSpace = calculateFourSpaceDimensions(mod);
+      const netInnerDepth = fourSpace.usableInternal.netInnerDepthMm;
+      const maxAllowedNl = netInnerDepth - 10;
+      const targetNl =
+        typeof nominalLengthMm === "number"
+          ? nominalLengthMm
+          : selectOptimalRunnerLengthMm(netInnerDepth);
+
+      if (targetNl > maxAllowedNl) {
+        return {
+          ok: false,
+          error: `Seçilen ray uzunluğu (NL ${targetNl} mm), modül net iç derinliğine (${netInnerDepth} mm, maks. izin verilen NL ${maxAllowedNl} mm) sığmıyor! Lütfen ≤ ${selectOptimalRunnerLengthMm(netInnerDepth)} mm ray seçin veya dolap derinliğini artırın.`,
+        };
+      }
+
+      const drillingSetId = hardwareProductId.includes("hettich")
+        ? "hettich_avantech"
+        : hardwareProductId.includes("tandembox")
+        ? "blum_tandembox"
+        : hardwareProductId.includes("movento")
+        ? "blum_movento"
+        : "blum_legrabox";
+
+      commitActiveModuleUpdate((nextMod) => {
+        nextMod.carcass.drawerDrillingSetId = drillingSetId;
+        nextMod.bays = nextMod.bays.map((b, bIdx) => {
+          if (!applyAllBays && bIdx !== safeBayIndex) return b;
+          return {
+            ...b,
+            drawers: b.drawers.map((d) => ({
+              ...d,
+              hardwareProductId,
+              nominalLengthMm: targetNl,
+              slideType: slideTypeOverride || d.slideType || "soft_close",
+            })),
+          };
+        });
+        return nextMod;
+      }, true);
+      return { ok: true, appliedNlMm: targetNl };
+    },
+    [commitActiveModuleUpdate, safeBayIndex]
+  );
+
+  /**
+   * Screen 5 (Donanım ve Mekanizmalar): Toggle Cabinet LED Lighting on/off across the module
+   * and update LED profile type, color temperature (3000K / 4000K), or sensor type.
+   */
+  const toggleModuleLedLighting = useCallback(
+    (
+      enabled: boolean,
+      options?: {
+        ledType?: "led_profile" | "led_vertical_strip" | "led_rod_strip";
+        colorTempK?: 3000 | 4000;
+        sensorType?: "ir_door" | "pir_motion" | "manual_switch";
+      }
+    ) => {
+      commitActiveModuleUpdate((mod) => {
+        if (options?.colorTempK) {
+          mod.carcass.ledColorTempK = options.colorTempK;
+        }
+        if (options?.sensorType) {
+          mod.carcass.ledSensorType = options.sensorType;
+        }
+        const targetType = options?.ledType || "led_profile";
+        const netH = calculateNetInnerHeight(mod);
+        const bayWidths = calculateBayWidths(mod);
+
+        mod.bays.forEach((b, bIdx) => {
+          b.specialFittings = (b.specialFittings || []).filter(
+            (f) => !f.type.startsWith("led_")
+          );
+          if (enabled) {
+            const bw = bayWidths[bIdx] || 550;
+            b.specialFittings.push({
+              id: `fit_${targetType}_${mod.id}_${bIdx}_${Date.now()}`,
+              bayIndex: bIdx,
+              type: targetType,
+              elevationY:
+                targetType === "led_rod_strip"
+                  ? Math.max(300, netH - 120)
+                  : targetType === "led_profile"
+                  ? Math.max(200, netH - 20)
+                  : 20,
+              height: targetType === "led_vertical_strip" ? Math.max(160, netH - 24) : 16,
+              width: targetType === "led_vertical_strip" ? 14 : Math.max(60, bw - 12),
+              depth: targetType === "led_vertical_strip" ? 75 : 18,
+            });
+          }
+        });
+        return mod;
+      }, true);
+    },
+    [commitActiveModuleUpdate]
+  );
+
+  /**
+   * Restore a saved bays snapshot if the user cancels a live interior template preview
+   */
+  const restoreModuleBaysSnapshot = useCallback(
+    (baysSnapshot: import("@birim/core").BayConfig[]) => {
+      commitActiveModuleUpdate((mod) => {
+        mod.bays = JSON.parse(JSON.stringify(baysSnapshot));
+        return mod;
+      }, false);
+    },
+    [commitActiveModuleUpdate]
+  );
+
+  /**
+   * Screen 6 (Malzeme ve Yüzeyler): Assign a catalog material to a specific scope
+   * (all_module, carcass, doors, drawers, plinth, back, selected_part, or same_material_parts)
+   * with technical compatibility validation and affected part count calculation.
+   */
+  const applyMaterialByTargetScope = useCallback(
+    (
+      scope:
+        | "all_module"
+        | "carcass"
+        | "doors"
+        | "drawers"
+        | "plinth"
+        | "back"
+        | "countertop"
+        | "selected_part"
+        | "same_material_parts",
+      materialId: string,
+      targetCompId?: string,
+      pushHistory = true
+    ): { ok: boolean; affectedCount: number; error?: string } => {
+      const matDef = DEFAULT_MATERIALS.find((m) => m.id === materialId);
+      if (!matDef) {
+        return { ok: false, affectedCount: 0, error: "Geçersiz katalog malzemesi." };
+      }
+
+      const st = useConfiguratorStore.getState();
+      const mod = st.project.modules[st.activeModuleIndex] || st.project.modules[0];
+      if (!mod) return { ok: false, affectedCount: 0, error: "Aktif modül bulunamadı." };
+
+      const resolvedTargetId = targetCompId || st.selectedComponentId || undefined;
+      const geo = generateModuleGeometry(mod);
+      const targetComp = resolvedTargetId
+        ? geo.components.find((c) => c.id === resolvedTargetId)
+        : undefined;
+
+      // Technical Surface Compatibility Guard (FAZ 3):
+      // Heavy stone/marble slabs (2400 kg/m³) cannot be applied to hinged/sliding doors, drawers, or 8mm back panels!
+      const isDoorOrDrawerScope =
+        scope === "doors" ||
+        scope === "drawers" ||
+        scope === "back" ||
+        (scope === "selected_part" &&
+          targetComp &&
+          (targetComp.role.includes("door") ||
+            targetComp.role === "drawer_front" ||
+            targetComp.role === "carcass_back"));
+      if (matDef.category === "stone" && isDoorOrDrawerScope) {
+        return {
+          ok: false,
+          affectedCount: 0,
+          error: `"${matDef.name}" (${matDef.densityKgPerM3 || 2400} kg/m³ taş/kuvars levha) ağırlık ve menteşe sınırları nedeniyle kapak, çekmece veya arkalık panellerine atanamaz. Yalnızca tezgâh veya üst tabla yüzeylerinde kullanılabilir.`,
+        };
+      }
+      if (
+        (matDef.category === "glass" || matDef.category === "mirror") &&
+        (scope === "carcass" || scope === "plinth" || scope === "back")
+      ) {
+        return {
+          ok: false,
+          affectedCount: 0,
+          error: `"${matDef.name}" taşıyıcı gövde dikmesi, kaide veya arkalık olarak kullanılamaz; yalnızca kapak yüzeylerine atanabilir.`,
+        };
+      }
+
+      let affectedCount = 0;
+
+      commitActiveModuleUpdate((nextMod) => {
+        if (!nextMod.componentMaterialOverrides) {
+          nextMod.componentMaterialOverrides = {};
+        }
+        const overrides = { ...nextMod.componentMaterialOverrides };
+
+        if (scope === "all_module") {
+          const panelMatId =
+            matDef.category === "glass" || matDef.category === "mirror" || matDef.category === "stone"
+              ? nextMod.carcass.bodyMaterialId
+              : materialId;
+          nextMod.carcass.bodyMaterialId = panelMatId;
+          nextMod.carcass.doorMaterialId = materialId;
+          nextMod.carcass.plinthMaterialId = panelMatId;
+          nextMod.edgeBandMaterialId = panelMatId;
+          nextMod.bays = nextMod.bays.map((b) => ({
+            ...b,
+            door: { ...b.door, doorMaterialId: materialId },
+            drawers: b.drawers.map((d) => ({ ...d, frontMaterialId: materialId })),
+          }));
+          nextMod.componentMaterialOverrides = {};
+          affectedCount = geo.components.filter((c) => c.isManufacturablePanel !== false).length;
+        } else if (scope === "carcass") {
+          nextMod.carcass.bodyMaterialId = materialId;
+          geo.components.forEach((c) => {
+            if (
+              c.role === "carcass_side_left" ||
+              c.role === "carcass_side_right" ||
+              c.role === "carcass_top" ||
+              c.role === "carcass_bottom" ||
+              c.role === "carcass_divider" ||
+              c.role === "carcass_sub_divider" ||
+              c.role === "shelf"
+            ) {
+              delete overrides[c.id];
+              affectedCount++;
+            }
+          });
+          nextMod.componentMaterialOverrides = overrides;
+        } else if (scope === "doors") {
+          nextMod.carcass.doorMaterialId = materialId;
+          nextMod.bays = nextMod.bays.map((b) => ({
+            ...b,
+            door: { ...b.door, doorMaterialId: materialId },
+          }));
+          geo.components.forEach((c) => {
+            if (c.role === "door_left" || c.role === "door_right") {
+              delete overrides[c.id];
+              affectedCount++;
+            }
+          });
+          nextMod.componentMaterialOverrides = overrides;
+        } else if (scope === "drawers") {
+          nextMod.bays = nextMod.bays.map((b) => ({
+            ...b,
+            drawers: b.drawers.map((d) => {
+              overrides[`${d.id}_front`] = materialId;
+              affectedCount++;
+              return { ...d, frontMaterialId: materialId };
+            }),
+          }));
+          nextMod.componentMaterialOverrides = overrides;
+        } else if (scope === "plinth") {
+          nextMod.carcass.plinthMaterialId = materialId;
+          overrides.__plinth__ = materialId;
+          geo.components.forEach((c) => {
+            if (c.role === "plinth") {
+              overrides[c.id] = materialId;
+              affectedCount++;
+            }
+          });
+          if (affectedCount === 0) affectedCount = 1;
+          nextMod.componentMaterialOverrides = overrides;
+        } else if (scope === "back") {
+          geo.components.forEach((c) => {
+            if (c.role === "carcass_back") {
+              overrides[c.id] = materialId;
+              affectedCount++;
+            }
+          });
+          if (affectedCount === 0) {
+            overrides[`${nextMod.id}_back`] = materialId;
+            affectedCount = 1;
+          }
+          nextMod.componentMaterialOverrides = overrides;
+        } else if (scope === "countertop") {
+          nextMod.carcass.countertopMaterialId = materialId;
+          geo.components.forEach((c) => {
+            if (c.role === "countertop") {
+              overrides[c.id] = materialId;
+              affectedCount++;
+            }
+          });
+          if (affectedCount === 0) affectedCount = 1;
+          nextMod.componentMaterialOverrides = overrides;
+        } else if (scope === "selected_part" && resolvedTargetId) {
+          overrides[resolvedTargetId] = materialId;
+          if (resolvedTargetId.endsWith("_plinth")) {
+            nextMod.carcass.plinthMaterialId = materialId;
+            overrides.__plinth__ = materialId;
+          }
+          affectedCount = 1;
+          nextMod.componentMaterialOverrides = overrides;
+        } else if (scope === "same_material_parts") {
+          const refMatId =
+            (targetComp &&
+              (overrides[targetComp.id] || targetComp.materialId)) ||
+            nextMod.carcass.doorMaterialId;
+          geo.components.forEach((c) => {
+            if (c.isManufacturablePanel === false) return;
+            const curCompMat = overrides[c.id] || c.materialId;
+            if (curCompMat === refMatId) {
+              overrides[c.id] = materialId;
+              affectedCount++;
+            }
+          });
+          if (nextMod.carcass.bodyMaterialId === refMatId) {
+            nextMod.carcass.bodyMaterialId = materialId;
+          }
+          if (nextMod.carcass.doorMaterialId === refMatId) {
+            nextMod.carcass.doorMaterialId = materialId;
+          }
+          nextMod.componentMaterialOverrides = overrides;
+        }
+
+        return nextMod;
+      }, pushHistory);
+
+      return { ok: true, affectedCount };
+    },
+    [commitActiveModuleUpdate]
+  );
+
+  /**
+   * Screen 6 (FAZ 4): Update grain direction (Dikey / Yatay / Özel), surface finish (Mat / Yarı Mat / Parlak),
+   * edgeband material/thickness, and panel/door thickness on the active module.
+   */
+  const setModuleMaterialDetails = useCallback(
+    (updates: {
+      grainDirection?: "lengthwise" | "crosswise" | "custom";
+      grainTargetKey?: string;
+      surfaceFinishOverride?: "matte" | "satin" | "gloss";
+      edgeBandMaterialId?: string;
+      edgeBandThickness?: number;
+      doorThickness?: number;
+      panelThickness?: number;
+    }) => {
+      commitActiveModuleUpdate((mod) => {
+        if (updates.grainDirection) {
+          if (!mod.componentGrainOverrides) mod.componentGrainOverrides = {};
+          const key = updates.grainTargetKey || "__all__";
+          mod.componentGrainOverrides = {
+            ...mod.componentGrainOverrides,
+            [key]: updates.grainDirection,
+          };
+        }
+        if (updates.surfaceFinishOverride) {
+          mod.surfaceFinishOverride = updates.surfaceFinishOverride;
+        }
+        if (updates.edgeBandMaterialId) {
+          mod.edgeBandMaterialId = updates.edgeBandMaterialId;
+        }
+        if (typeof updates.edgeBandThickness === "number") {
+          mod.carcass.edgeBandThickness = updates.edgeBandThickness;
+        }
+        if (typeof updates.doorThickness === "number") {
+          mod.carcass.doorThickness = updates.doorThickness;
+          mod.bays = mod.bays.map((b) => ({
+            ...b,
+            door: { ...b.door, doorThicknessMm: updates.doorThickness },
+          }));
+        }
+        if (typeof updates.panelThickness === "number") {
+          mod.carcass.panelThickness = updates.panelThickness;
+        }
+        return mod;
+      }, true);
+    },
+    [commitActiveModuleUpdate]
+  );
+
+  /**
+   * Screen 6: Clear all individual component material & grain overrides on the active module
+   */
+  const resetModuleMaterialOverrides = useCallback(() => {
+    commitActiveModuleUpdate((mod) => {
+      mod.componentMaterialOverrides = {};
+      mod.componentGrainOverrides = {};
+      mod.surfaceFinishOverride = undefined;
+      return mod;
+    }, true);
+  }, [commitActiveModuleUpdate]);
+
+  /**
+   * Screen 6 (FAZ 5 & FAZ 6): Restore a saved material state snapshot when canceling a live material variation preview
+   * in either Studio or Showroom mode so unconfirmed previews never mutate the saved project/BOM!
+   */
+  const restoreModuleMaterialSnapshot = useCallback(
+    (snapshot: {
+      carcass: import("@birim/core").CarcassConfig;
+      bays: import("@birim/core").BayConfig[];
+      componentMaterialOverrides?: Record<string, string>;
+      componentGrainOverrides?: Record<string, "lengthwise" | "crosswise" | "custom">;
+      surfaceFinishOverride?: "matte" | "satin" | "gloss";
+      edgeBandMaterialId?: string;
+    }) => {
+      commitActiveModuleUpdate((mod) => {
+        mod.carcass = JSON.parse(JSON.stringify(snapshot.carcass));
+        mod.bays = JSON.parse(JSON.stringify(snapshot.bays));
+        mod.componentMaterialOverrides = snapshot.componentMaterialOverrides
+          ? { ...snapshot.componentMaterialOverrides }
+          : {};
+        mod.componentGrainOverrides = snapshot.componentGrainOverrides
+          ? { ...snapshot.componentGrainOverrides }
+          : {};
+        mod.surfaceFinishOverride = snapshot.surfaceFinishOverride;
+        mod.edgeBandMaterialId = snapshot.edgeBandMaterialId;
+        return mod;
+      }, false);
+    },
+    [commitActiveModuleUpdate]
+  );
+
   const removeModuleAt = useCallback((modIdx: number) => {
     const state = useConfiguratorStore.getState();
-    if (state.project.modules.length <= 1) return;
+    if (state.project.modules.length === 0) return;
     if (modIdx < 0 || modIdx >= state.project.modules.length) return;
     const updated = JSON.parse(JSON.stringify(state.project));
     updated.modules.splice(modIdx, 1);
@@ -2397,8 +3568,609 @@ export function useV3Adapter() {
     setSelectedComponentId,
   ]);
 
+
+  /**
+   * Screen 7 (FAZ 3, 5, 8, 11 & 12): Axis-aware spatial clearance & room metrics calculator.
+   * Never subtracts rotated/off-axis modules from the wrong wall!
+   */
+  const computeWallAndModuleClearances = useCallback(
+    (explicitModIdx?: number) => {
+      const curState = useConfiguratorStore.getState();
+      const curProj = curState.project;
+      const targetIdx =
+        typeof explicitModIdx === "number" ? explicitModIdx : curState.activeModuleIndex;
+      const walls = getEffectiveSpaceWalls(curProj);
+      const mainWall = walls[0] || {
+        id: "wall_main",
+        name: "Ana Duvar",
+        length: 3600,
+        height: curProj.space.ceilingHeight || 2700,
+        thickness: 200,
+        position: { x: 0, y: 0, z: 0 },
+        rotationY: 0,
+        wallType: "standard" as const,
+        elements: [],
+      };
+      const sideWalls = walls.filter((w) => w.rotationY === 90 || w.rotationY === 270);
+      const roomDepthMm =
+        sideWalls.length > 0
+          ? Math.max(...sideWalls.map((w) => w.length))
+          : 2700;
+      const roomWidthMm = mainWall.length || 3600;
+      const roomHeightMm = curProj.space.ceilingHeight || mainWall.height || 2700;
+      const roomAreaM2 = Number(((roomWidthMm * roomDepthMm) / 1_000_000).toFixed(2));
+
+      const allFootprints = curProj.modules.map((m, idx) =>
+        getModuleOrientedFootprint(m, idx)
+      );
+      const targetMod = curProj.modules[targetIdx] || curProj.modules[0];
+      const targetFp =
+        allFootprints[targetIdx] ||
+        allFootprints[0] || {
+          moduleId: "empty",
+          moduleIndex: 0,
+          name: "Modül Yok",
+          category: "wardrobe" as const,
+          x: 0,
+          z: 0,
+          planWidth: 0,
+          planDepth: 0,
+          yBottom: 0,
+          yTop: 2200,
+          rotationY: 0,
+          rawWidth: 0,
+          rawHeight: 2200,
+          rawDepth: 600,
+          isCorner: false,
+          isOpenFront: false,
+          cornerType: "none" as const,
+          wingDepthMm: 600,
+        };
+
+      const rotY = (((targetFp.rotationY || 0) % 360) + 360) % 360;
+      const isSideAxis = rotY === 90 || rotY === 270;
+
+      if (!isSideAxis) {
+        // Horizontal wall (X-axis)
+        const horizWalls = walls.filter((w) => w.rotationY === 0 || w.rotationY === 180);
+        const hostWall =
+          horizWalls.sort(
+            (a, b) => Math.abs(a.position.z - targetFp.z) - Math.abs(b.position.z - targetFp.z)
+          )[0] || mainWall;
+
+        const wallStart = hostWall.position.x;
+        const wallEnd = hostWall.position.x + hostWall.length;
+
+        // Check if any structural column on the same wall restricts the right or left usable bound
+        const obstacles = getEffectiveSpaceObstacles(curProj);
+        let effectiveLeftBound = wallStart;
+        let effectiveRightBound = wallEnd;
+        obstacles.forEach((obs) => {
+          if (obs.type === "column" || obs.type === "protrusion") {
+            const zDist = Math.abs(obs.position.z - hostWall.position.z);
+            if (zDist <= 350) {
+              const ox1 = obs.position.x;
+              const ox2 = obs.position.x + obs.dimensions.width;
+              if (ox2 <= targetFp.x + 5 && ox2 > effectiveLeftBound) {
+                effectiveLeftBound = ox2;
+              }
+              if (ox1 >= targetFp.x + targetFp.planWidth - 5 && ox1 < effectiveRightBound) {
+                effectiveRightBound = ox1;
+              }
+            }
+          }
+        });
+
+        const leftClearanceMm = Math.max(0, Math.round(targetFp.x - wallStart));
+        const rightClearanceMm = Math.max(
+          0,
+          Math.round(wallEnd - (targetFp.x + targetFp.planWidth))
+        );
+        const rightClearanceToObstacleMm = Math.max(
+          0,
+          Math.round(effectiveRightBound - (targetFp.x + targetFp.planWidth))
+        );
+        const backWallDistanceMm = Math.max(0, Math.round(targetFp.z - hostWall.position.z));
+
+        const sameWallFootprints = allFootprints.filter(
+          (f) =>
+            f.category !== "complementary" &&
+            (f.rotationY === 0 || f.rotationY === 180) &&
+            Math.abs(f.z - hostWall.position.z) <= 650
+        );
+        const totalModuleLengthOnWallMm = sameWallFootprints.reduce(
+          (sum, f) => sum + f.planWidth,
+          0
+        );
+        const remainingWallClearanceMm = Math.max(
+          0,
+          Math.round(hostWall.length - totalModuleLengthOnWallMm)
+        );
+
+        const alignmentMode: "left" | "center" | "right" | "custom" =
+          leftClearanceMm <= 5
+            ? "left"
+            : rightClearanceMm <= 5
+            ? "right"
+            : Math.abs(leftClearanceMm - rightClearanceMm) <= 20
+            ? "center"
+            : "custom";
+
+        return {
+          hostWallId: hostWall.id,
+          hostWallName: hostWall.name || "Ana Duvar",
+          hostWallNetLengthMm: hostWall.length,
+          hostWallThicknessMm: hostWall.thickness || 200,
+          hostWallHeightMm: hostWall.height || roomHeightMm,
+          hostWallType: hostWall.wallType || "standard",
+          axis: "X" as const,
+          isRotatedSideWall: false,
+          moduleSpanMm: targetFp.planWidth,
+          moduleDepthMm: targetFp.planDepth,
+          moduleHeightMm: targetFp.rawHeight,
+          leftClearanceMm,
+          rightClearanceMm,
+          rightClearanceToObstacleMm,
+          backWallDistanceMm,
+          totalModuleLengthOnWallMm,
+          remainingWallClearanceMm,
+          alignmentMode,
+          roomWidthMm,
+          roomDepthMm,
+          roomHeightMm,
+          roomAreaM2,
+          plinthHeightMm: targetMod?.carcass?.plinthHeight ?? 60,
+        };
+      } else {
+        // Rotated 90° / 270° module on a vertical Side Wall (Z-axis)
+        const isRightSide = targetFp.x > roomWidthMm * 0.5;
+        const matchedSideWall =
+          sideWalls.sort(
+            (a, b) => Math.abs(a.position.x - targetFp.x) - Math.abs(b.position.x - targetFp.x)
+          )[0] || {
+            id: isRightSide ? "wall_side_right" : "wall_side_left",
+            name: isRightSide ? "Sağ Yan Duvar" : "Sol Yan Duvar",
+            length: roomDepthMm,
+            height: roomHeightMm,
+            thickness: mainWall.thickness || 200,
+            position: { x: isRightSide ? roomWidthMm : 0, y: 0, z: 0 },
+            rotationY: 90,
+            wallType: "standard" as const,
+            elements: [],
+          };
+
+        const wallStartZ = matchedSideWall.position.z;
+        const wallEndZ = matchedSideWall.position.z + matchedSideWall.length;
+        const leftClearanceMm = Math.max(0, Math.round(targetFp.z - wallStartZ));
+        const rightClearanceMm = Math.max(
+          0,
+          Math.round(wallEndZ - (targetFp.z + targetFp.planDepth))
+        );
+        const backWallDistanceMm = isRightSide
+          ? Math.max(0, Math.round(roomWidthMm - (targetFp.x + targetFp.planWidth)))
+          : Math.max(0, Math.round(targetFp.x - matchedSideWall.position.x));
+
+        const sameSideFootprints = allFootprints.filter(
+          (f) =>
+            f.category !== "complementary" &&
+            (f.rotationY === 90 || f.rotationY === 270) &&
+            Math.abs(f.x - targetFp.x) <= 650
+        );
+        const totalModuleLengthOnWallMm = sameSideFootprints.reduce(
+          (sum, f) => sum + f.planDepth,
+          0
+        );
+        const remainingWallClearanceMm = Math.max(
+          0,
+          Math.round(matchedSideWall.length - totalModuleLengthOnWallMm)
+        );
+
+        const alignmentMode: "left" | "center" | "right" | "custom" =
+          leftClearanceMm <= 5
+            ? "left"
+            : rightClearanceMm <= 5
+            ? "right"
+            : Math.abs(leftClearanceMm - rightClearanceMm) <= 20
+            ? "center"
+            : "custom";
+
+        return {
+          hostWallId: matchedSideWall.id,
+          hostWallName: matchedSideWall.name || (isRightSide ? "Sağ Yan Duvar" : "Sol Yan Duvar"),
+          hostWallNetLengthMm: matchedSideWall.length,
+          hostWallThicknessMm: matchedSideWall.thickness || 200,
+          hostWallHeightMm: matchedSideWall.height || roomHeightMm,
+          hostWallType: matchedSideWall.wallType || "standard",
+          axis: "Z" as const,
+          isRotatedSideWall: true,
+          moduleSpanMm: targetFp.planDepth,
+          moduleDepthMm: targetFp.planWidth,
+          moduleHeightMm: targetFp.rawHeight,
+          leftClearanceMm,
+          rightClearanceMm,
+          rightClearanceToObstacleMm: rightClearanceMm,
+          backWallDistanceMm,
+          totalModuleLengthOnWallMm,
+          remainingWallClearanceMm,
+          alignmentMode,
+          roomWidthMm,
+          roomDepthMm,
+          roomHeightMm,
+          roomAreaM2,
+          plinthHeightMm: targetMod?.carcass?.plinthHeight ?? 60,
+        };
+      }
+    },
+    []
+  );
+
+  const activeSpatialMetrics = useMemo(
+    () => computeWallAndModuleClearances(activeModuleIndex),
+    [computeWallAndModuleClearances, activeModuleIndex, project]
+  );
+
+  /**
+   * Screen 7 (FAZ 2, 4 & 8): Align active module along its host wall
+   * ("left" | "center" | "right" | "flush_back" | "custom_left" | "custom_right")
+   */
+  const alignActiveModuleOnWall = useCallback(
+    (
+      alignment: "left" | "center" | "right" | "flush_back" | "custom_left" | "custom_right",
+      customGapMm = 0
+    ) => {
+      const curState = useConfiguratorStore.getState();
+      const curProj = curState.project;
+      const modIdx = curState.activeModuleIndex;
+      const target = curProj.modules[modIdx];
+      if (!target) return;
+
+      const metrics = computeWallAndModuleClearances(modIdx);
+      const fp = getModuleOrientedFootprint(target, modIdx);
+      const safeGap = Math.max(0, Math.round(customGapMm));
+
+      let nextX = target.position.x;
+      let nextZ = target.position.z;
+
+      if (!metrics.isRotatedSideWall) {
+        const wallLen = metrics.hostWallNetLengthMm;
+        if (alignment === "left") {
+          nextX = 0;
+        } else if (alignment === "center") {
+          nextX = Math.max(0, Math.round((wallLen - fp.planWidth) / 2));
+        } else if (alignment === "right") {
+          nextX = Math.max(0, Math.round(wallLen - fp.planWidth));
+        } else if (alignment === "flush_back") {
+          nextZ = 0;
+        } else if (alignment === "custom_left") {
+          nextX = Math.max(0, Math.min(wallLen - fp.planWidth, safeGap));
+        } else if (alignment === "custom_right") {
+          nextX = Math.max(0, wallLen - fp.planWidth - safeGap);
+        }
+      } else {
+        const wallLenZ = metrics.hostWallNetLengthMm;
+        if (alignment === "left") {
+          nextZ = 0;
+        } else if (alignment === "center") {
+          nextZ = Math.max(0, Math.round((wallLenZ - fp.planDepth) / 2));
+        } else if (alignment === "right") {
+          nextZ = Math.max(0, Math.round(wallLenZ - fp.planDepth));
+        } else if (alignment === "flush_back") {
+          nextX = fp.x > metrics.roomWidthMm * 0.5 ? Math.max(0, metrics.roomWidthMm - fp.planWidth) : 0;
+        } else if (alignment === "custom_left") {
+          nextZ = Math.max(0, Math.min(wallLenZ - fp.planDepth, safeGap));
+        } else if (alignment === "custom_right") {
+          nextZ = Math.max(0, wallLenZ - fp.planDepth - safeGap);
+        }
+      }
+
+      setModulePosition(modIdx, nextX, nextZ, 1);
+    },
+    [computeWallAndModuleClearances, setModulePosition]
+  );
+
+  /**
+   * Screen 7 (FAZ 4): Distribute modules along the main wall with an explicit gap (mm) or equal spacing
+   */
+  const distributeModulesWithGap = useCallback((gapMm?: number) => {
+    const curState = useConfiguratorStore.getState();
+    const curProj = curState.project;
+    const wallLen = curProj.space.walls[0]?.length || 3600;
+    const nextMods = JSON.parse(JSON.stringify(curProj.modules)) as ModuleInstance[];
+    const mainRowIndices = nextMods
+      .map((m, i) => ({ m, i }))
+      .filter(
+        ({ m }) =>
+          m.category !== "complementary" &&
+          m.category !== "kitchen_wall" &&
+          (m.rotation?.y || 0) === 0
+      )
+      .sort((a, b) => a.m.position.x - b.m.position.x);
+
+    if (mainRowIndices.length === 0) return;
+
+    if (typeof gapMm === "number" && gapMm >= 0) {
+      let curX = 0;
+      mainRowIndices.forEach(({ i }) => {
+        nextMods[i].position.x = curX;
+        curX += nextMods[i].dimensions.width + Math.round(gapMm);
+      });
+    } else {
+      const totalModW = mainRowIndices.reduce(
+        (sum, { m }) => sum + m.dimensions.width,
+        0
+      );
+      const freeSpace = Math.max(0, wallLen - totalModW);
+      const stepGap =
+        mainRowIndices.length > 1
+          ? Math.round(freeSpace / (mainRowIndices.length + 1))
+          : Math.round(freeSpace / 2);
+      let curX = stepGap;
+      mainRowIndices.forEach(({ i }) => {
+        nextMods[i].position.x = curX;
+        curX += nextMods[i].dimensions.width + stepGap;
+      });
+    }
+
+    commitAdapterState({
+      history: [...curState.history.slice(-15), curProj],
+      future: [],
+      project: { ...curProj, modules: nextMods, updatedAt: new Date().toISOString() },
+    });
+  }, []);
+
+  /**
+   * Screen 7 (FAZ 3): Apply Ready Room Shape Presets ("rectangular" | "l_shape" | "u_shape")
+   * while preserving existing furniture modules and updating 2D + 3D room walls.
+   */
+  const applyRoomShapePreset = useCallback(
+    (
+      shape: "rectangular" | "l_shape" | "u_shape",
+      options?: {
+        mainLengthMm?: number;
+        sideLengthMm?: number;
+        ceilingHeightMm?: number;
+        thicknessMm?: number;
+        wallType?: import("@birim/core").WallDefinition["wallType"];
+      }
+    ) => {
+      const curState = useConfiguratorStore.getState();
+      const curProj = curState.project;
+      const existingMain = curProj.space.walls[0];
+      const mainLen = options?.mainLengthMm || existingMain?.length || 3600;
+      const sideLen = options?.sideLengthMm || 2700;
+      const ceilH = options?.ceilingHeightMm || curProj.space.ceilingHeight || 2700;
+      const thick = options?.thicknessMm || existingMain?.thickness || 200;
+      const wType = options?.wallType || existingMain?.wallType || "standard";
+
+      let nextWalls: import("@birim/core").WallDefinition[] = [];
+      if (shape === "rectangular") {
+        nextWalls = [
+          {
+            id: "wall_main",
+            name: "Ana Duvar",
+            length: mainLen,
+            height: ceilH,
+            thickness: thick,
+            position: { x: 0, y: 0, z: 0 },
+            rotationY: 0,
+            wallType: wType,
+            elements: [],
+          },
+          {
+            id: "wall_side_left",
+            name: "Sol Yan Duvar",
+            length: sideLen,
+            height: ceilH,
+            thickness: thick,
+            position: { x: 0, y: 0, z: 0 },
+            rotationY: 90,
+            wallType: wType,
+            elements: [],
+          },
+          {
+            id: "wall_side_right",
+            name: "Sağ Yan Duvar",
+            length: sideLen,
+            height: ceilH,
+            thickness: thick,
+            position: { x: mainLen, y: 0, z: 0 },
+            rotationY: 90,
+            wallType: wType,
+            elements: [],
+          },
+        ];
+      } else if (shape === "l_shape") {
+        nextWalls = [
+          {
+            id: "wall_main",
+            name: "Ana Duvar",
+            length: mainLen,
+            height: ceilH,
+            thickness: thick,
+            position: { x: 0, y: 0, z: 0 },
+            rotationY: 0,
+            wallType: wType,
+            elements: [],
+          },
+          {
+            id: "wall_side_left",
+            name: "Sol Yan Duvar (L Kolu)",
+            length: sideLen,
+            height: ceilH,
+            thickness: thick,
+            position: { x: 0, y: 0, z: 0 },
+            rotationY: 90,
+            wallType: wType,
+            elements: [],
+          },
+          {
+            id: "wall_l_inner_step",
+            name: "L İç Dönüş Duvarı",
+            length: Math.round(mainLen * 0.5),
+            height: ceilH,
+            thickness: thick,
+            position: { x: Math.round(mainLen * 0.5), y: 0, z: Math.round(sideLen * 0.55) },
+            rotationY: 0,
+            wallType: wType,
+            elements: [],
+          },
+          {
+            id: "wall_side_right",
+            name: "Sağ Kısa Duvar",
+            length: Math.round(sideLen * 0.55),
+            height: ceilH,
+            thickness: thick,
+            position: { x: mainLen, y: 0, z: 0 },
+            rotationY: 90,
+            wallType: wType,
+            elements: [],
+          },
+        ];
+      } else {
+        // u_shape
+        nextWalls = [
+          {
+            id: "wall_main",
+            name: "Ana Duvar",
+            length: mainLen,
+            height: ceilH,
+            thickness: thick,
+            position: { x: 0, y: 0, z: 0 },
+            rotationY: 0,
+            wallType: wType,
+            elements: [],
+          },
+          {
+            id: "wall_side_left",
+            name: "Sol Dönüş Duvarı",
+            length: sideLen,
+            height: ceilH,
+            thickness: thick,
+            position: { x: 0, y: 0, z: 0 },
+            rotationY: 90,
+            wallType: wType,
+            elements: [],
+          },
+          {
+            id: "wall_side_right",
+            name: "Sağ Dönüş Duvarı",
+            length: sideLen,
+            height: ceilH,
+            thickness: thick,
+            position: { x: mainLen, y: 0, z: 0 },
+            rotationY: 90,
+            wallType: wType,
+            elements: [],
+          },
+          {
+            id: "wall_u_front_left",
+            name: "Ön Sol Kapanış",
+            length: Math.round(mainLen * 0.3),
+            height: ceilH,
+            thickness: thick,
+            position: { x: 0, y: 0, z: sideLen },
+            rotationY: 0,
+            wallType: wType,
+            elements: [],
+          },
+          {
+            id: "wall_u_front_right",
+            name: "Ön Sağ Kapanış",
+            length: Math.round(mainLen * 0.3),
+            height: ceilH,
+            thickness: thick,
+            position: { x: Math.round(mainLen * 0.7), y: 0, z: sideLen },
+            rotationY: 0,
+            wallType: wType,
+            elements: [],
+          },
+        ];
+      }
+
+      const nextProj: import("@birim/core").DesignProject = {
+        ...curProj,
+        space: {
+          ...curProj.space,
+          ceilingHeight: ceilH,
+          walls: nextWalls,
+        },
+        updatedAt: new Date().toISOString(),
+      };
+
+      commitAdapterState({
+        history: [...curState.history.slice(-15), curProj],
+        future: [],
+        project: nextProj,
+        validationIssues: validateProject(nextProj),
+      });
+    },
+    []
+  );
+
+  /**
+   * Screen 7 (FAZ 3): Update wall settings (thickness, height, wallType) across room walls
+   */
+  const setAllWallsSettings = useCallback(
+    (patch: {
+      thickness?: number;
+      height?: number;
+      wallType?: import("@birim/core").WallDefinition["wallType"];
+      targetWallId?: string;
+    }) => {
+      const curState = useConfiguratorStore.getState();
+      const curProj = curState.project;
+      const baseWalls =
+        curProj.space.walls.length > 0
+          ? curProj.space.walls
+          : getEffectiveSpaceWalls(curProj);
+      const nextCeilH =
+        typeof patch.height === "number"
+          ? Math.max(1800, Math.min(6000, Math.round(patch.height)))
+          : curProj.space.ceilingHeight || 2700;
+
+      const nextWalls = baseWalls.map((w) => {
+        if (patch.targetWallId && w.id !== patch.targetWallId) {
+          return typeof patch.height === "number" ? { ...w, height: nextCeilH } : w;
+        }
+        return {
+          ...w,
+          thickness:
+            typeof patch.thickness === "number"
+              ? Math.max(50, Math.min(600, Math.round(patch.thickness)))
+              : w.thickness,
+          height: nextCeilH,
+          wallType: patch.wallType ?? w.wallType ?? "standard",
+        };
+      });
+
+      const nextProj: import("@birim/core").DesignProject = {
+        ...curProj,
+        space: {
+          ...curProj.space,
+          ceilingHeight: nextCeilH,
+          walls: nextWalls,
+        },
+        updatedAt: new Date().toISOString(),
+      };
+
+      commitAdapterState({
+        history: [...curState.history.slice(-15), curProj],
+        future: [],
+        project: nextProj,
+        validationIssues: validateProject(nextProj),
+      });
+    },
+    []
+  );
+
   return {
     project,
+    activeSpatialMetrics,
+    computeWallAndModuleClearances,
+    alignActiveModuleOnWall,
+    distributeModulesWithGap,
+    applyRoomShapePreset,
+    setAllWallsSettings,
     activeModule,
     activeModuleIndex,
     activeBay,
@@ -2432,6 +4204,7 @@ export function useV3Adapter() {
     handleProfiles: HANDLE_PROFILES,
     openingMechanisms: OPENING_MECHANISM_DEFINITIONS,
     hardwareCatalog: V4_HARDWARE_CATALOG,
+    drillingTemplates: HARDWARE_DRILLING_TEMPLATES,
     wardrobeWizards: WARDROBE_INTERIOR_WIZARDS,
     libraryAdminStore: defaultLibraryAdminStore,
 
@@ -2456,6 +4229,9 @@ export function useV3Adapter() {
     setSelectedComponentMaterial,
     setCountertopMaterial,
     setPlinthMaterial,
+    setDoorCrossSectionProfile,
+    setAdjustableLegsEnabled,
+    updateCarcassConfig,
     setBayCount,
     setBayDoorType,
     flipActiveDoorDirection,
@@ -2463,6 +4239,20 @@ export function useV3Adapter() {
     applyV4Template,
     dropV4TemplateWithSnap,
     applyWardrobeWizard,
+    applyBayInteriorPreset,
+    restoreModuleBaysSnapshot,
+    applyMaterialByTargetScope,
+    setModuleMaterialDetails,
+    resetModuleMaterialOverrides,
+    restoreModuleMaterialSnapshot,
+    toggleInteriorItemHidden,
+    setShelfThickness,
+    equalizeBaysAndShelves,
+    addInternalDrawer,
+    removeBayAt,
+    setModuleHingeHardware,
+    setModuleDrawerRunnerHardware,
+    toggleModuleLedLighting,
     applySmartWallProposal,
     distributeAlongWall,
     autoGenerateKitchenComplementary,
