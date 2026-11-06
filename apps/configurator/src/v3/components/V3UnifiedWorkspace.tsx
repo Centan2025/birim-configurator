@@ -955,7 +955,7 @@ export const V3UnifiedWorkspace: React.FC<{
   const [newDraftHeight, setNewDraftHeight] = useState<number>(720);
   const [newDraftDepth, setNewDraftDepth] = useState<number>(580);
   const [newDraftDoorSys, setNewDraftDoorSys] = useState<DoorSystemId>("hinged_double");
-  const [studioLeftWidthPx, setStudioLeftWidthPx] = useState<number>(384);
+  const [studioLeftWidthPx, setStudioLeftWidthPx] = useState<number>(440);
   const [isVisualCatalogOpen, setIsVisualCatalogOpen] = useState<boolean>(false);
   const [catalogSearchQuery, setCatalogSearchQuery] = useState<string>("");
   const [catalogWidthFilter, setCatalogWidthFilter] = useState<"all" | "narrow" | "medium" | "wide">("all");
@@ -2745,7 +2745,7 @@ export const V3UnifiedWorkspace: React.FC<{
                           </div>
 
                           {/* Category Pills: Tümü | Suntalam | MDF | Lake | Ahşap Kaplama | Cam & Ayna | Mermer & Taş */}
-                          <div className="px-3.5 pb-2 flex items-center gap-1 overflow-x-auto no-scrollbar border-b border-[#E2E8F0]">
+                          <div className="px-3.5 pb-2 flex items-center gap-1 flex-wrap border-b border-[#E2E8F0]">
                             {[
                               { id: "all" as const, label: "Tümü" },
                               { id: "suntalam" as const, label: "Suntalam" },
