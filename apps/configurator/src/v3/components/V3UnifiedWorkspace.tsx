@@ -2745,7 +2745,7 @@ export const V3UnifiedWorkspace: React.FC<{
                           </div>
 
                           {/* Category Pills: Tümü | Suntalam | MDF | Lake | Ahşap Kaplama | Cam & Ayna | Mermer & Taş */}
-                          <div className="px-3.5 pb-2 flex items-center gap-1 overflow-x-auto no-scrollbar border-b border-[#E2E8F0]">
+                          <div className="px-3.5 pb-2 flex items-center gap-1 flex-wrap border-b border-[#E2E8F0]">
                             {[
                               { id: "all" as const, label: "Tümü" },
                               { id: "suntalam" as const, label: "Suntalam" },
@@ -3326,7 +3326,7 @@ export const V3UnifiedWorkspace: React.FC<{
                           </div>
 
                           {/* Category Pills: Tümü | Menteşe | Ray | Açılma Sistemi | Aydınlatma | Kulp | İç Donanım */}
-                          <div className="px-3.5 pb-2 flex items-center gap-1 overflow-x-auto no-scrollbar border-b border-[#E2E8F0]">
+                          <div className="px-3.5 pb-2 flex items-center gap-1 flex-wrap border-b border-[#E2E8F0]">
                             {[
                               { id: "all" as const, label: "Tümü" },
                               { id: "hinge" as const, label: "Menteşe" },
@@ -3602,7 +3602,7 @@ export const V3UnifiedWorkspace: React.FC<{
                           </div>
 
                           {/* Category Pills: Tümü | Raf | Askılık | Çekmece | Pantolonluk | Ayakkabılık | Kravatlık | Kemerlik */}
-                          <div className="px-3.5 pb-2 flex items-center gap-1 overflow-x-auto no-scrollbar border-b border-[#E2E8F0]">
+                          <div className="px-3.5 pb-2 flex items-center gap-1 flex-wrap border-b border-[#E2E8F0]">
                             {[
                               { id: "all" as const, label: "Tümü" },
                               { id: "raf" as const, label: "Raf" },
