@@ -247,6 +247,98 @@ export function useV3Adapter() {
   const setDimensionsRaw = useConfiguratorStore((s) => s.setDimensions);
   const setPlinthHeight = useConfiguratorStore((s) => s.setPlinthHeight);
   const setMaterials = useConfiguratorStore((s) => s.setMaterials);
+
+  /**
+   * Override the material of a single selected component (e.g. 1 door leaf, 1 shelf, 1 side panel, 1 drawer front)
+   * without changing the rest of the cabinet! Pass null to reset back to the cabinet default.
+   */
+  const setSelectedComponentMaterial = useCallback(
+    (materialId: string | null, explicitComponentId?: string) => {
+      const state = useConfiguratorStore.getState();
+      const compId = explicitComponentId || state.selectedComponentId;
+      if (!compId) return;
+      const curProj = state.project;
+      const nextModules = curProj.modules.map((m, idx) => {
+        if (idx !== state.activeModuleIndex && !compId.startsWith(m.id)) return m;
+        const nextOverrides = { ...(m.componentMaterialOverrides || {}) };
+        if (materialId === null) {
+          delete nextOverrides[compId];
+        } else {
+          nextOverrides[compId] = materialId;
+        }
+        return {
+          ...m,
+          componentMaterialOverrides: nextOverrides,
+        };
+      });
+      commitAdapterState({
+        history: [...state.history.slice(-15), curProj],
+        future: [],
+        project: {
+          ...curProj,
+          modules: nextModules,
+          updatedAt: new Date().toISOString(),
+        },
+      });
+    },
+    []
+  );
+
+  /**
+   * Change the Countertop / Backsplash / Waterfall material (Neolith, Dekton, Belenco, Çimstone, Natural Marble)
+   * across all kitchen base/corner cabinets and attached worktop/backsplash/waterfall modules!
+   */
+  const setPlinthMaterial = useCallback((materialId: string) => {
+    const state = useConfiguratorStore.getState();
+    const curProj = state.project;
+    const mod = curProj.modules[state.activeModuleIndex];
+    if (!mod) return;
+    const nextOverrides = { ...(mod.componentMaterialOverrides || {}), __plinth__: materialId };
+    const nextModules = curProj.modules.map((m, idx) =>
+      idx === state.activeModuleIndex ? { ...m, componentMaterialOverrides: nextOverrides } : m
+    );
+    commitAdapterState({
+      history: [...state.history.slice(-15), curProj],
+      future: [],
+      project: {
+        ...curProj,
+        modules: nextModules,
+        updatedAt: new Date().toISOString(),
+      },
+    });
+  }, []);
+
+  const setCountertopMaterial = useCallback((materialId: string) => {
+    const state = useConfiguratorStore.getState();
+    const curProj = state.project;
+    const nextModules = curProj.modules.map((m) => {
+      const isWorktopComp =
+        m.category === "complementary" &&
+        (m.complementaryRole === "countertop" ||
+          m.complementaryRole === "backsplash" ||
+          m.complementaryRole === "waterfall_edge" ||
+          m.id.includes("__worktop") ||
+          m.id.includes("__backsplash") ||
+          m.id.includes("__waterfall"));
+      return {
+        ...m,
+        carcass: {
+          ...m.carcass,
+          countertopMaterialId: materialId,
+          ...(isWorktopComp ? { bodyMaterialId: materialId, doorMaterialId: materialId } : {}),
+        },
+      };
+    });
+    commitAdapterState({
+      history: [...state.history.slice(-15), curProj],
+      future: [],
+      project: {
+        ...curProj,
+        modules: nextModules,
+        updatedAt: new Date().toISOString(),
+      },
+    });
+  }, []);
   const setBayCount = useConfiguratorStore((s) => s.setBayCount);
   const setBayDoorType = useConfiguratorStore((s) => s.setBayDoorType);
 
@@ -256,7 +348,7 @@ export function useV3Adapter() {
   const removeHangingRail = useConfiguratorStore((s) => s.removeHangingRail);
   const addDrawer = useConfiguratorStore((s) => s.addDrawer);
   const removeDrawer = useConfiguratorStore((s) => s.removeDrawer);
-  const addSpecialFitting = useConfiguratorStore((s) => s.addSpecialFitting);
+  const addSpecialFittingStore = useConfiguratorStore((s) => s.addSpecialFitting);
   const removeSpecialFitting = useConfiguratorStore((s) => s.removeSpecialFitting);
 
   const addAdjacentModule = useConfiguratorStore((s) => s.addAdjacentModule);
@@ -467,13 +559,18 @@ export function useV3Adapter() {
       const target = curProj.modules[modIdx];
       if (!target) return;
 
-      const clampedX = Math.max(0, snappedX);
+      const attachedPrefix = `comp_att_${target.id}__`;
+      const leftAttWidth = curProj.modules
+        .filter(
+          (m) =>
+            m.id === `${attachedPrefix}panel_left` || m.id === `${attachedPrefix}filler_left`
+        )
+        .reduce((maxW, m) => Math.max(maxW, m.dimensions.width), 0);
+      const clampedX = Math.max(leftAttWidth, snappedX);
       const clampedZ = Math.max(0, snappedZ);
       const dx = clampedX - target.position.x;
       const dz = clampedZ - target.position.z;
       if (dx === 0 && dz === 0) return;
-
-      const attachedPrefix = `comp_att_${target.id}__`;
       const nextMods = curProj.modules.map((m, idx) => {
         if (idx === modIdx) {
           return { ...m, position: { ...m.position, x: clampedX, z: clampedZ } };
@@ -533,10 +630,17 @@ export function useV3Adapter() {
         typeof newHeightMm === "number"
           ? Math.max(350, Math.min(2800, Math.round(newHeightMm / 10) * 10))
           : target.dimensions.height;
+      const leftAttW = curProj.modules
+        .filter(
+          (m) =>
+            m.id === `comp_att_${target.id}__panel_left` ||
+            m.id === `comp_att_${target.id}__filler_left`
+        )
+        .reduce((maxW, m) => Math.max(maxW, m.dimensions.width), 0);
       const clampedX =
         typeof newPositionX === "number"
-          ? Math.max(0, Math.round(newPositionX / 10) * 10)
-          : target.position.x;
+          ? Math.max(leftAttW, Math.round(newPositionX / 10) * 10)
+          : Math.max(leftAttW, target.position.x);
       const clampedZ =
         typeof newPositionZ === "number"
           ? Math.max(0, Math.round(newPositionZ / 10) * 10)
@@ -807,7 +911,7 @@ export function useV3Adapter() {
           } else if (suffix.startsWith("plinth_front")) {
             upd.position.x = clampedX;
             upd.position.y = clampedY;
-            upd.position.z = clampedZ + Math.max(0, clampedD - 45);
+            upd.position.z = clampedZ + Math.max(0, clampedD - 32);
             upd.dimensions.width = clampedW;
           } else if (suffix.startsWith("waterfall_right")) {
             upd.position.x = clampedX + clampedW;
@@ -1141,6 +1245,42 @@ export function useV3Adapter() {
   /**
    * V4: Update Door System, Overlay, Handle Category, Opening Technology, or Hardware Product SKU on a bay
    */
+  /**
+   * 1-Click Door Opening Direction Flip (Sol Açılır <-> Sağ Açılır <-> Çift Kapak)
+   */
+  const flipActiveDoorDirection = useCallback(
+    (bayIdx?: number) => {
+      commitActiveModuleUpdate((mod) => {
+        const targetBayIdx =
+          typeof bayIdx === "number"
+            ? bayIdx
+            : Math.min(useConfiguratorStore.getState().activeBayIndex, mod.bays.length - 1);
+        const bay = mod.bays[targetBayIdx];
+        if (!bay || !bay.door) return mod;
+        const curType = bay.door.type;
+        if (curType === "single_left") {
+          bay.door = { ...bay.door, type: "single_right", doorSystemId: "hinged_single" };
+        } else if (curType === "single_right") {
+          bay.door = { ...bay.door, type: "single_left", doorSystemId: "hinged_single" };
+        } else if (curType === "inset_left") {
+          bay.door = { ...bay.door, type: "inset_right", doorSystemId: "hinged_inset" };
+        } else if (curType === "inset_right") {
+          bay.door = { ...bay.door, type: "inset_left", doorSystemId: "hinged_inset" };
+        } else if (curType === "half_overlay_left") {
+          bay.door = { ...bay.door, type: "half_overlay_right", doorSystemId: "hinged_overlay_variant" };
+        } else if (curType === "half_overlay_right") {
+          bay.door = { ...bay.door, type: "half_overlay_left", doorSystemId: "hinged_overlay_variant" };
+        } else {
+          // If currently double or other, switch to single_right so user immediately sees single-right opening, then next click flips to single_left
+          bay.door = { ...bay.door, type: "single_right", doorSystemId: "hinged_single" };
+          mod.isOpenFront = false;
+        }
+        return mod;
+      }, true);
+    },
+    [commitActiveModuleUpdate]
+  );
+
   const setBayV4DoorConfig = useCallback(
     (
       bayIdx: number,
@@ -1233,11 +1373,11 @@ export function useV3Adapter() {
 
         if (codeUpper.includes("PNL") || nameLower.includes("bitiş paneli") || nameLower.includes("yan panel")) {
           const hasLeft = curProj.modules.some((m) => m.id === `comp_att_${parentMod.id}__panel_left`);
-          if (!hasLeft) {
+          if (!hasLeft && pX >= 18) {
             attachKey = "panel_left";
             newMod.name = `${parentMod.name} — Sol Yan Bitiş Paneli`;
             newMod.dimensions = { width: 18, height: pH, depth: pD + 20 };
-            newMod.position = { x: Math.max(0, pX - 18), y: pY, z: pZ };
+            newMod.position = { x: pX - 18, y: pY, z: pZ };
             snapDesc = `${parentMod.name} Sol Yanına Sıfır Entegre Edildi`;
           } else {
             attachKey = "panel_right";
@@ -1288,11 +1428,13 @@ export function useV3Adapter() {
 
         newMod.id = `comp_att_${parentMod.id}__${attachKey}`;
         newMod.rotation = { x: 0, y: rotY, z: 0 };
-        newMod.materials = {
-          ...newMod.materials,
-          bodyMaterialId: parentMod.materials.doorMaterialId || parentMod.materials.bodyMaterialId,
-          doorMaterialId: parentMod.materials.doorMaterialId || parentMod.materials.bodyMaterialId,
+        if (compType !== "worktop" && compType !== "backsplash" && compType !== "waterfall_right") {
+        newMod.carcass = {
+          ...newMod.carcass,
+          bodyMaterialId: parentMod.carcass.doorMaterialId || parentMod.carcass.bodyMaterialId,
+          doorMaterialId: parentMod.carcass.doorMaterialId || parentMod.carcass.bodyMaterialId,
         };
+      }
 
         const filteredMods = curProj.modules.filter((m) => m.id !== newMod.id);
         const nextModules = [...filteredMods, newMod];
@@ -1472,8 +1614,26 @@ export function useV3Adapter() {
       const targetId = `comp_att_${parentMod.id}__${compType}`;
       const existingIdx = curProj.modules.findIndex((m) => m.id === targetId);
       if (existingIdx >= 0) {
-        // Toggle off if already attached
-        const nextModules = curProj.modules.filter((m) => m.id !== targetId);
+        const removedComp = curProj.modules[existingIdx];
+        const isLeftPiece = compType === "panel_left" || compType === "filler_left";
+        const shiftBackLeft =
+          isLeftPiece &&
+          removedComp.position.x === 0 &&
+          Math.abs(parentMod.position.x - removedComp.dimensions.width) <= 2
+            ? removedComp.dimensions.width
+            : 0;
+
+        const nextModules = curProj.modules
+          .filter((m) => m.id !== targetId)
+          .map((m) => {
+            if (shiftBackLeft > 0 && m.position.x >= parentMod.position.x) {
+              return {
+                ...m,
+                position: { ...m.position, x: Math.max(0, m.position.x - shiftBackLeft) },
+              };
+            }
+            return m;
+          });
         const nextProj = {
           ...curProj,
           version: (curProj.version || 1) + 1,
@@ -1492,20 +1652,60 @@ export function useV3Adapter() {
       }
 
       const tplMap: Record<string, string> = {
-        panel_left: "v4_fam_complementary_01",
-        panel_right: "v4_fam_complementary_01",
-        filler_left: "v4_fam_complementary_04",
-        crown_top: "v4_fam_complementary_06",
-        worktop: "v4_fam_complementary_10",
-        backsplash: "v4_fam_complementary_12",
-        waterfall_right: "v4_fam_complementary_13",
-        plinth_front: "v4_fam_complementary_08",
+        panel_left: "tpl_cm_05_end_panel",
+        panel_right: "tpl_cm_05_end_panel",
+        filler_left: "tpl_cm_04_wall_filler",
+        crown_top: "tpl_cm_12_crown_molding",
+        worktop: "tpl_cm_09_countertop",
+        backsplash: "tpl_cm_11_backsplash",
+        waterfall_right: "tpl_cm_10_waterfall_edge",
+        plinth_front: "tpl_cm_01_plinth_strip",
       };
-      const tpl = getV4TemplateById(tplMap[compType] || "v4_fam_complementary_01");
+      const tpl = getV4TemplateById(tplMap[compType] || "tpl_cm_05_end_panel");
       if (!tpl) return;
 
       const newMod = tpl.createInstance(targetId);
-      const pX = parentMod.position.x;
+      const isLeftAttach = compType === "panel_left" || compType === "filler_left";
+      const leftAttachW = compType === "panel_left" ? 18 : compType === "filler_left" ? 50 : 0;
+
+      // If parentMod is snapped to the left wall (pX < leftAttachW) or flush against a left cabinet,
+      // shift parentMod (and same-row right modules + their attached parts) right by shiftRightMm so the left panel sits OUTSIDE the cabinet!
+      let shiftRightMm = 0;
+      if (isLeftAttach) {
+        const hasLeftCollision = curProj.modules.some(
+          (other) =>
+            other.id !== parentMod.id &&
+            other.category !== "complementary" &&
+            Math.abs(other.position.y - parentMod.position.y) < 300 &&
+            parentMod.position.x - leftAttachW < other.position.x + other.dimensions.width - 1 &&
+            parentMod.position.x > other.position.x
+        );
+        if (parentMod.position.x < leftAttachW) {
+          shiftRightMm = leftAttachW - parentMod.position.x;
+        } else if (hasLeftCollision) {
+          shiftRightMm = leftAttachW;
+        }
+      }
+
+      const updatedBaseModules =
+        shiftRightMm > 0
+          ? curProj.modules.map((m) => {
+              if (
+                m.id === parentMod.id ||
+                m.id.startsWith(`comp_att_${parentMod.id}__`) ||
+                (m.position.x >= parentMod.position.x &&
+                  Math.abs(m.position.y - parentMod.position.y) < 400)
+              ) {
+                return {
+                  ...m,
+                  position: { ...m.position, x: m.position.x + shiftRightMm },
+                };
+              }
+              return m;
+            })
+          : curProj.modules;
+
+      const pX = parentMod.position.x + shiftRightMm;
       const pY = parentMod.position.y;
       const pZ = parentMod.position.z;
       const pW = parentMod.dimensions.width;
@@ -1515,7 +1715,7 @@ export function useV3Adapter() {
       if (compType === "panel_left") {
         newMod.name = `${parentMod.name} — Sol Yan Bitiş Paneli`;
         newMod.dimensions = { width: 18, height: pH, depth: pD + 20 };
-        newMod.position = { x: Math.max(0, pX - 18), y: pY, z: pZ };
+        newMod.position = { x: pX - 18, y: pY, z: pZ };
       } else if (compType === "panel_right") {
         newMod.name = `${parentMod.name} — Sağ Yan Bitiş Paneli`;
         newMod.dimensions = { width: 18, height: pH, depth: pD + 20 };
@@ -1523,7 +1723,7 @@ export function useV3Adapter() {
       } else if (compType === "filler_left") {
         newMod.name = `${parentMod.name} — Duvar Kör Dolgu Çıtası (50mm)`;
         newMod.dimensions = { width: 50, height: pH, depth: 18 };
-        newMod.position = { x: Math.max(0, pX - 50), y: pY, z: pZ + Math.max(0, pD - 18) };
+        newMod.position = { x: pX - 50, y: pY, z: pZ + Math.max(0, pD - 18) };
       } else if (compType === "crown_top") {
         newMod.name = `${parentMod.name} — Üst Taç / Alın Çıtası`;
         newMod.dimensions = { width: pW, height: 60, depth: 40 };
@@ -1543,17 +1743,19 @@ export function useV3Adapter() {
       } else if (compType === "plinth_front") {
         newMod.name = `${parentMod.name} — Baza Ön Bandı`;
         newMod.dimensions = { width: pW, height: parentMod.carcass.plinthHeight || 100, depth: 18 };
-        newMod.position = { x: pX, y: pY, z: pZ + Math.max(0, pD - 45) };
+        newMod.position = { x: pX, y: pY, z: pZ + Math.max(0, pD - 32) };
       }
 
       newMod.rotation = { x: 0, y: parentMod.rotation?.y || 0, z: 0 };
-      newMod.materials = {
-        ...newMod.materials,
-        bodyMaterialId: parentMod.materials.doorMaterialId || parentMod.materials.bodyMaterialId,
-        doorMaterialId: parentMod.materials.doorMaterialId || parentMod.materials.bodyMaterialId,
-      };
+      if (compType !== "worktop" && compType !== "backsplash" && compType !== "waterfall_right") {
+        newMod.carcass = {
+          ...newMod.carcass,
+          bodyMaterialId: parentMod.carcass.doorMaterialId || parentMod.carcass.bodyMaterialId,
+          doorMaterialId: parentMod.carcass.doorMaterialId || parentMod.carcass.bodyMaterialId,
+        };
+      }
 
-      const nextModules = [...curProj.modules, newMod];
+      const nextModules = [...updatedBaseModules, newMod];
       const nextProj = {
         ...curProj,
         version: (curProj.version || 1) + 1,
@@ -1824,28 +2026,82 @@ export function useV3Adapter() {
     [commitActiveModuleUpdate]
   );
 
+  const addSpecialFitting = useCallback(
+    (
+      bayIdx: number,
+      fittingType: import("@birim/core").SpecialFittingConfig["type"]
+    ) => {
+      if (fittingType.startsWith("led_")) {
+        // Multi-door / multi-bay cabinets: add recessed LED across ALL bays of the module!
+        commitActiveModuleUpdate((mod) => {
+          const netH = calculateNetInnerHeight(mod);
+          const bayWidths = calculateBayWidths(mod);
+          mod.bays.forEach((b, bIdx) => {
+            b.specialFittings = b.specialFittings || [];
+            if (!b.specialFittings.some((f) => f.type === fittingType)) {
+              const bw = bayWidths[bIdx] || 500;
+              b.specialFittings.push({
+                id: `fit_${fittingType}_${mod.id}_${bIdx}_${Date.now()}`,
+                bayIndex: bIdx,
+                elevationY:
+                  fittingType === "led_rod_strip"
+                    ? Math.max(300, netH - 120)
+                    : fittingType === "led_profile"
+                    ? Math.max(200, netH - 20)
+                    : 20,
+                type: fittingType,
+                height: fittingType === "led_vertical_strip" ? Math.max(160, netH - 24) : 16,
+                width: fittingType === "led_vertical_strip" ? 14 : Math.max(60, bw - 12),
+                depth: fittingType === "led_vertical_strip" ? 75 : 18,
+              });
+            }
+          });
+          return mod;
+        }, true);
+        return;
+      }
+      addSpecialFittingStore(bayIdx, fittingType);
+    },
+    [commitActiveModuleUpdate, addSpecialFittingStore]
+  );
+
   const setSpecialFittingPlacement = useCallback(
     (
       bayIdx: number,
       fittingId: string,
-      updates: { elevationY?: number; height?: number },
+      updates: { elevationY?: number; height?: number; width?: number; depth?: number },
       pushHistory = true
     ) => {
       commitActiveModuleUpdate((mod) => {
         const netH = calculateNetInnerHeight(mod);
         const bay = mod.bays[bayIdx];
         if (!bay || !bay.specialFittings) return mod;
-        bay.specialFittings = bay.specialFittings.map((f) => {
-          if (f.id !== fittingId) return f;
-          const nextH =
-            typeof updates.height === "number"
-              ? Math.max(40, Math.min(netH, Math.round(updates.height)))
-              : f.height;
-          const nextY =
-            typeof updates.elevationY === "number"
-              ? Math.max(0, Math.min(Math.max(0, netH - nextH), Math.round(updates.elevationY)))
-              : f.elevationY;
-          return { ...f, elevationY: nextY, height: nextH };
+        const targetFit = bay.specialFittings.find((f) => f.id === fittingId);
+        const isLed = targetFit?.type.startsWith("led_");
+        mod.bays.forEach((b, bIdx) => {
+          if (!b.specialFittings) return;
+          b.specialFittings = b.specialFittings.map((f) => {
+            if (bIdx === bayIdx ? f.id !== fittingId : !(isLed && f.type === targetFit?.type)) {
+              return f;
+            }
+            const nextH =
+              typeof updates.height === "number"
+                ? Math.max(4, Math.min(netH, Math.round(updates.height)))
+                : f.height;
+            const nextY =
+              typeof updates.elevationY === "number"
+                ? Math.max(0, Math.min(Math.max(0, netH - nextH), Math.round(updates.elevationY)))
+                : f.elevationY;
+            const nextW =
+              typeof updates.width === "number"
+                ? Math.max(6, Math.min(2400, Math.round(updates.width)))
+                : f.width;
+            const nextD =
+              typeof updates.depth === "number"
+                ? Math.max(6, Math.min(850, Math.round(updates.depth)))
+                : f.depth;
+            return { ...f, elevationY: nextY, height: nextH, width: nextW, depth: nextD };
+          });
         });
         return mod;
       }, pushHistory);
@@ -2197,8 +2453,12 @@ export function useV3Adapter() {
     },
     setPlinthHeight,
     setMaterials,
+    setSelectedComponentMaterial,
+    setCountertopMaterial,
+    setPlinthMaterial,
     setBayCount,
     setBayDoorType,
+    flipActiveDoorDirection,
     setBayV4DoorConfig,
     applyV4Template,
     dropV4TemplateWithSnap,

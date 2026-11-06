@@ -214,6 +214,8 @@ export interface SpecialFittingConfig {
     | "spice_pullout"
     | "cutlery_tray";
   height: UnitLength;
+  width?: UnitLength;
+  depth?: UnitLength;
   hardwareProductId?: string;
 }
 
@@ -282,6 +284,7 @@ export interface CarcassConfig {
   edgeBandThickness: UnitLength; // default 1
   bodyMaterialId: string;
   doorMaterialId: string;
+  countertopMaterialId?: string;
   jointType: JointType;
   doorThickness?: UnitLength; // default 18
   overlayDistance?: UnitLength;
@@ -321,6 +324,7 @@ export interface ModuleInstance {
     | "wall_bracket"
     | "service_spacer";
   requiresFactoryValidation?: boolean;
+  componentMaterialOverrides?: Record<string, string>;
 }
 
 export interface ArchitecturalElement {

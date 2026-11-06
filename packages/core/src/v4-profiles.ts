@@ -426,7 +426,8 @@ export function calculateFourSpaceDimensions(module: ModuleInstance): FourSpaceD
         : isDouble
         ? Math.max(0, Math.round((totalDoorSpanW - profile.centerRevealGapMm) / 2))
         : Math.round(totalDoorSpanW);
-    const leafWidthMm = isHingedOrFold ? Math.min(600, rawLeafWidthMm) : rawLeafWidthMm;
+    const isFoldDoor = dSys === "folding_side" || dType === "folding";
+    const leafWidthMm = isHingedOrFold && !isFoldDoor ? Math.min(600, rawLeafWidthMm) : rawLeafWidthMm;
 
     const golaDeduction = bay.door.handleCategory === "gola_profile" ? 30 : 0;
     const rawBaseDoorHeight =

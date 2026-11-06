@@ -207,7 +207,7 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     return set;
   }
 
-  // 3. CALACATTA MARBLE & QUARTZ COUNTERTOP VEINING (Çimstone / Belenco)
+  // 3. NEOLITH SINTERED STONE, DEKTON, BELENCO, ÇİMSTONE & NATURAL MARBLE VEINING
   if (matDef.category === "stone") {
     const W = 512;
     const H = 512;
@@ -218,18 +218,41 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     const cImg = cCtx.createImageData(W, H);
     const [br, bg, bb] = hexToRgb(matDef.colorHex || "#f4f3ef");
 
+    const idLower = matDef.id.toLowerCase();
+    const isGoldVeined =
+      idLower.includes("luxe") || idLower.includes("abu_dhabi") || idLower.includes("entzo");
+    const isDarkStone = idLower.includes("basalt") || idLower.includes("piombo");
+    const isEmperador = idLower.includes("emperador");
+
+    // Vein target RGB based on specific Neolith / Dekton / Marble decor
+    const veinRgb: [number, number, number] = isGoldVeined
+      ? [184, 146, 92] // Warm gold/ochre Calacatta Luxe & Dekton Entzo veins
+      : isDarkStone
+      ? [215, 212, 206] // Fine crisp mineral white veins on Basalt Black / Pietra di Piombo
+      : isEmperador
+      ? [238, 228, 212] // Cream spiderweb veins on Light Emperador
+      : [138, 142, 148]; // Classic Carrara / Estatuario cool-warm grey veins
+
     for (let y = 0; y < H; y++) {
       for (let x = 0; x < W; x++) {
         const nx = x / W;
         const ny = y / H;
         const warp = fbm(nx * 4.5, ny * 4.5);
-        const vein1 = Math.pow(Math.max(0, 1 - Math.abs(Math.sin((nx * 3.2 + ny * 2.1 + warp * 1.6) * Math.PI)) * 4.8), 2.4);
-        const vein2 = Math.pow(Math.max(0, 1 - Math.abs(Math.sin((nx * 7.0 - ny * 4.5 + warp * 2.2) * Math.PI)) * 6.5), 3.0) * 0.55;
+        const vein1 = Math.pow(
+          Math.max(0, 1 - Math.abs(Math.sin((nx * 3.1 + ny * 2.2 + warp * 1.7) * Math.PI)) * 4.5),
+          2.3
+        );
+        const vein2 =
+          Math.pow(
+            Math.max(0, 1 - Math.abs(Math.sin((nx * 6.8 - ny * 4.2 + warp * 2.3) * Math.PI)) * 6.2),
+            2.8
+          ) * 0.65;
         const vFactor = Math.min(1, vein1 + vein2);
+        const strength = isDarkStone ? 0.24 : 0.36;
         const idx = (y * W + x) * 4;
-        cImg.data[idx] = Math.round(br * (1 - vFactor * 0.28) + 145 * vFactor * 0.28);
-        cImg.data[idx + 1] = Math.round(bg * (1 - vFactor * 0.28) + 140 * vFactor * 0.28);
-        cImg.data[idx + 2] = Math.round(bb * (1 - vFactor * 0.26) + 132 * vFactor * 0.26);
+        cImg.data[idx] = Math.round(br * (1 - vFactor * strength) + veinRgb[0] * vFactor * strength);
+        cImg.data[idx + 1] = Math.round(bg * (1 - vFactor * strength) + veinRgb[1] * vFactor * strength);
+        cImg.data[idx + 2] = Math.round(bb * (1 - vFactor * strength) + veinRgb[2] * vFactor * strength);
         cImg.data[idx + 3] = 255;
       }
     }
@@ -249,7 +272,18 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
 
 const floorTextureCache = new Map<string, THREE.CanvasTexture>();
 
-export function getArchitecturalFloorTexture(style: "oak_parquet" | "travertine" | "studio"): THREE.CanvasTexture | null {
+export type ArchitecturalFloorStyle =
+  | "oak_parquet"
+  | "herringbone_oak"
+  | "walnut_parquet"
+  | "travertine"
+  | "neolith_calacatta"
+  | "microcement"
+  | "studio";
+
+export function getArchitecturalFloorTexture(
+  style: ArchitecturalFloorStyle
+): THREE.CanvasTexture | null {
   if (typeof document === "undefined" || style === "studio") return null;
   const cached = floorTextureCache.get(style);
   if (cached) return cached;
@@ -264,16 +298,51 @@ export function getArchitecturalFloorTexture(style: "oak_parquet" | "travertine"
   for (let y = 0; y < S; y++) {
     for (let x = 0; x < S; x++) {
       const idx = (y * S + x) * 4;
-      if (style === "oak_parquet") {
+      if (style === "oak_parquet" || style === "walnut_parquet") {
+        const isWalnut = style === "walnut_parquet";
         const plankRow = Math.floor(y / 64);
         const plankX = (x + (plankRow % 2) * 128) % 256;
         const plankY = y % 64;
         const isGap = plankX < 2 || plankY < 2;
         const plankSeed = hash2D(plankRow, Math.floor((x + (plankRow % 2) * 128) / 256));
         const grain = smoothNoise((x / S) * 16, (y / S) * 64) * 18 + (plankSeed - 0.5) * 16;
-        img.data[idx] = isGap ? 115 : Math.min(245, Math.max(140, Math.round(198 + grain)));
-        img.data[idx + 1] = isGap ? 92 : Math.min(225, Math.max(115, Math.round(166 + grain * 0.85)));
-        img.data[idx + 2] = isGap ? 68 : Math.min(195, Math.max(85, Math.round(126 + grain * 0.65)));
+        const baseR = isWalnut ? 132 : 206;
+        const baseG = isWalnut ? 98 : 176;
+        const baseB = isWalnut ? 74 : 138;
+        img.data[idx] = isGap ? 88 : Math.min(248, Math.max(60, Math.round(baseR + grain)));
+        img.data[idx + 1] = isGap ? 70 : Math.min(232, Math.max(48, Math.round(baseG + grain * 0.85)));
+        img.data[idx + 2] = isGap ? 54 : Math.min(205, Math.max(36, Math.round(baseB + grain * 0.65)));
+        img.data[idx + 3] = 255;
+      } else if (style === "herringbone_oak") {
+        // Chevron / Herringbone Nordic Oak Parquet
+        const col = Math.floor(x / 64);
+        const diag = col % 2 === 0 ? (x + y) % 64 : (x - y + 512) % 64;
+        const isSeam = x % 64 < 2 || diag < 2;
+        const grain = smoothNoise((x / S) * 24, (y / S) * 24) * 14;
+        img.data[idx] = isSeam ? 150 : Math.round(218 + grain);
+        img.data[idx + 1] = isSeam ? 130 : Math.round(196 + grain * 0.9);
+        img.data[idx + 2] = isSeam ? 105 : Math.round(164 + grain * 0.75);
+        img.data[idx + 3] = 255;
+      } else if (style === "neolith_calacatta") {
+        // Large-Format Neolith Calacatta Porcelain Floor Slab (60x120)
+        const tileX = x % 256;
+        const tileY = y % 256;
+        const isGrout = tileX < 2 || tileY < 2;
+        const warp = fbm((x / S) * 4, (y / S) * 4);
+        const vein = Math.pow(
+          Math.max(0, 1 - Math.abs(Math.sin(((x / S) * 3 + (y / S) * 2 + warp * 1.5) * Math.PI)) * 5.0),
+          2.4
+        );
+        img.data[idx] = isGrout ? 205 : Math.round(244 - vein * 42);
+        img.data[idx + 1] = isGrout ? 202 : Math.round(241 - vein * 46);
+        img.data[idx + 2] = isGrout ? 196 : Math.round(235 - vein * 52);
+        img.data[idx + 3] = 255;
+      } else if (style === "microcement") {
+        // Warm Cashmere Seamless Microcement
+        const n = fbm((x / S) * 6, (y / S) * 6) * 14;
+        img.data[idx] = Math.round(228 + n);
+        img.data[idx + 1] = Math.round(224 + n);
+        img.data[idx + 2] = Math.round(216 + n);
         img.data[idx + 3] = 255;
       } else {
         // Italian Travertine / Warm Stone Tiles
@@ -305,31 +374,105 @@ export function getArchitecturalFloorTexture(style: "oak_parquet" | "travertine"
  * so glass, anodized metal, silk lacquer, and wood clearcoat reflect realistic architectural softboxes.
  */
 let cachedStudioEnvTexture: THREE.DataTexture | null = null;
+let cachedPmremEnvTexture: THREE.Texture | null = null;
+
+/**
+ * Generates a prefiltered, mipmapped GGX radiance environment map (PMREM) from a virtual
+ * architectural studio scene with high-dynamic-range softbox lightformers and window panels.
+ * Computed once on GPU (< 4ms) for zero per-frame overhead and photorealistic reflections.
+ */
+export function getStudioPmremEnvironment(renderer: THREE.WebGLRenderer): THREE.Texture {
+  if (cachedPmremEnvTexture) return cachedPmremEnvTexture;
+  try {
+    const pmremGenerator = new THREE.PMREMGenerator(renderer);
+    pmremGenerator.compileCubemapShader();
+
+    const envScene = new THREE.Scene();
+
+    // Enclosing soft warm architectural studio room shell
+    const roomBox = new THREE.Mesh(
+      new THREE.BoxGeometry(36, 24, 36),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(0.76, 0.75, 0.72), side: THREE.BackSide })
+    );
+    envScene.add(roomBox);
+
+    // Warm oak floor bounce card
+    const floorBounce = new THREE.Mesh(
+      new THREE.PlaneGeometry(32, 32),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(0.95, 0.88, 0.78), side: THREE.DoubleSide })
+    );
+    floorBounce.rotation.x = -Math.PI / 2;
+    floorBounce.position.set(0, -11.5, 0);
+    envScene.add(floorBounce);
+
+    // Helper to add HDR emissive studio lightformer panels (RGB > 1.0 for crisp specular reflections)
+    const addLightformer = (
+      w: number,
+      h: number,
+      pos: [number, number, number],
+      rot: [number, number, number],
+      rgb: [number, number, number]
+    ) => {
+      const m = new THREE.Mesh(
+        new THREE.PlaneGeometry(w, h),
+        new THREE.MeshBasicMaterial({
+          color: new THREE.Color(rgb[0], rgb[1], rgb[2]),
+          side: THREE.DoubleSide,
+          toneMapped: false,
+        })
+      );
+      m.position.set(pos[0], pos[1], pos[2]);
+      m.rotation.set(rot[0], rot[1], rot[2]);
+      envScene.add(m);
+    };
+
+    // 1. Overhead large diffused skylight softbox
+    addLightformer(22, 16, [0, 11.8, 2], [Math.PI / 2, 0, 0], [4.2, 4.15, 4.0]);
+    // 2. Left tall architectural window lightformer (creates natural vertical reflections on cabinet doors)
+    addLightformer(14, 18, [-17.5, 2.5, 6], [0, Math.PI / 2, 0], [5.8, 5.6, 5.2]);
+    // 3. Right warm fill softbox
+    addLightformer(12, 15, [17.5, 3.0, 5], [0, -Math.PI / 2, 0], [3.6, 3.3, 2.9]);
+    // 4. Front-top grazing highlight strip (accentuates Gola channels, handles, and countertop bevels)
+    addLightformer(20, 5, [0, 7.5, 17.5], [0, Math.PI, 0], [3.9, 3.85, 3.75]);
+
+    const renderTarget = pmremGenerator.fromScene(envScene, 0.035);
+    cachedPmremEnvTexture = renderTarget.texture;
+    roomBox.geometry.dispose();
+    (roomBox.material as THREE.Material).dispose();
+    floorBounce.geometry.dispose();
+    (floorBounce.material as THREE.Material).dispose();
+    pmremGenerator.dispose();
+    return cachedPmremEnvTexture;
+  } catch {
+    return getStudioEnvironmentTexture();
+  }
+}
 
 export function getStudioEnvironmentTexture(): THREE.DataTexture {
   if (cachedStudioEnvTexture) return cachedStudioEnvTexture;
 
-  const width = 128;
-  const height = 64;
+  const width = 256;
+  const height = 128;
   const data = new Uint8Array(width * height * 4);
 
   for (let y = 0; y < height; y++) {
     const v = y / (height - 1); // 0 = bottom, 1 = top
     for (let x = 0; x < width; x++) {
       const u = x / (width - 1);
-      // Warm skylight top, soft neutral horizon with studio softbox highlights, warm floor bounce
-      const softbox1 = Math.exp(-Math.pow((u - 0.25) * 6, 2) - Math.pow((v - 0.68) * 5, 2));
-      const softbox2 = Math.exp(-Math.pow((u - 0.75) * 5, 2) - Math.pow((v - 0.58) * 6, 2));
+      // High-contrast studio softboxes + window lightformer + warm floor bounce
+      const softboxKey = Math.exp(-Math.pow((u - 0.22) * 5.5, 2) - Math.pow((v - 0.66) * 4.5, 2));
+      const softboxFill = Math.exp(-Math.pow((u - 0.78) * 5.0, 2) - Math.pow((v - 0.58) * 5.0, 2));
+      const topSkylight = Math.exp(-Math.pow((v - 0.92) * 4.0, 2));
 
-      const skyR = 246 + softbox1 * 9 + softbox2 * 8;
-      const skyG = 243 + softbox1 * 10 + softbox2 * 8;
-      const skyB = 236 + softbox1 * 12 + softbox2 * 10;
+      const skyR = 205 + softboxKey * 50 + softboxFill * 38 + topSkylight * 35;
+      const skyG = 203 + softboxKey * 49 + softboxFill * 36 + topSkylight * 35;
+      const skyB = 198 + softboxKey * 46 + softboxFill * 34 + topSkylight * 36;
 
-      const groundR = 218;
-      const groundG = 212;
-      const groundB = 202;
+      const groundR = 156;
+      const groundG = 148;
+      const groundB = 138;
 
-      const blend = Math.pow(v, 0.85);
+      const blend = Math.pow(v, 0.75);
       const r = Math.min(255, Math.round(groundR * (1 - blend) + skyR * blend));
       const g = Math.min(255, Math.round(groundG * (1 - blend) + skyG * blend));
       const b = Math.min(255, Math.round(groundB * (1 - blend) + skyB * blend));
@@ -362,18 +505,18 @@ export function getV3PbrMaterial(
   const existing = pbrMaterialCache.get(key);
   if (existing) return existing;
 
-  const emissive = isSelected ? new THREE.Color(0xd97706) : new THREE.Color(0x000000);
-  const emissiveIntensity = isSelected ? 0.44 : 0.0;
+  const emissive = isSelected ? new THREE.Color(0x5b8a72) : new THREE.Color(0x000000);
+  const emissiveIntensity = isSelected ? 0.32 : 0.0;
 
   // 0. Warm 3000K Recessed LED Channel Emissive Material
   if (matDef.id === "mat_led_warm_3000k") {
     const ledMat = new THREE.MeshPhysicalMaterial({
-      color: new THREE.Color("#fff7d6"),
-      emissive: new THREE.Color("#ffb300"),
-      emissiveIntensity: isSelected ? 2.2 : 1.65,
-      roughness: 0.12,
-      metalness: 0.1,
-      clearcoat: 0.8,
+      color: new THREE.Color("#fff9e6"),
+      emissive: new THREE.Color("#ffbe3d"),
+      emissiveIntensity: isSelected ? 2.4 : 1.85,
+      roughness: 0.1,
+      metalness: 0.05,
+      clearcoat: 0.9,
     });
     pbrMaterialCache.set(key, ledMat);
     return ledMat;
@@ -382,12 +525,14 @@ export function getV3PbrMaterial(
   // 1. Brushed Anodized Champagne/Chrome Hardware (Hanging rails, fittings)
   if (isRailOrMetalFitting || matDef.category === "metal") {
     const mat = new THREE.MeshPhysicalMaterial({
-      color: new THREE.Color("#c8c6c0"),
-      metalness: 0.88,
-      roughness: 0.22,
-      clearcoat: 0.3,
-      clearcoatRoughness: 0.2,
-      reflectivity: 0.9,
+      color: new THREE.Color("#d4d2cd"),
+      metalness: 0.92,
+      roughness: 0.18,
+      clearcoat: 0.45,
+      clearcoatRoughness: 0.14,
+      ior: 1.6,
+      reflectivity: 0.95,
+      envMapIntensity: 1.55,
       emissive,
       emissiveIntensity,
     });
@@ -399,16 +544,17 @@ export function getV3PbrMaterial(
   if (matDef.category === "glass" || matDef.id.includes("glass")) {
     const mat = new THREE.MeshPhysicalMaterial({
       color: new THREE.Color(matDef.colorHex),
-      metalness: 0.15,
-      roughness: 0.08,
-      transmission: 0.58,
+      metalness: 0.1,
+      roughness: 0.05,
+      transmission: 0.64,
       transparent: true,
-      opacity: 0.82,
+      opacity: 0.84,
       depthWrite: false,
       ior: 1.52,
-      reflectivity: 0.95,
+      reflectivity: 0.98,
       clearcoat: 1.0,
-      clearcoatRoughness: 0.05,
+      clearcoatRoughness: 0.04,
+      envMapIntensity: 1.65,
       emissive,
       emissiveIntensity,
     });
@@ -418,19 +564,22 @@ export function getV3PbrMaterial(
 
   const maps = getOrCreateProceduralMaps(matDef);
 
-  // 3. Natural Wood Veneers (Oak & American Walnut) with Satin Clearcoat
+  // 3. Natural Wood Veneers (Oak & American Walnut) with Two-Component Satin Polyurethane Clearcoat
   if (matDef.category === "wood" || (matDef.category === "laminate" && matDef.hasGrain)) {
     const mat = new THREE.MeshPhysicalMaterial({
-      color: new THREE.Color("#ffffff"), // Pure white multiplier so procedural wood map colors shine accurately
+      color: new THREE.Color("#ffffff"),
       map: maps.colorMap || null,
       bumpMap: maps.bumpMap || null,
-      bumpScale: 0.0025,
+      bumpScale: 0.0032,
       roughnessMap: maps.roughnessMap || null,
-      roughness: 0.52,
+      roughness: 0.44,
       metalness: 0.02,
-      clearcoat: 0.28, // Two-component satin polyurethane furniture varnish
-      clearcoatRoughness: 0.38,
-      reflectivity: 0.45,
+      ior: 1.49,
+      specularIntensity: 0.85,
+      clearcoat: 0.42,
+      clearcoatRoughness: 0.28,
+      reflectivity: 0.62,
+      envMapIntensity: 1.35,
       emissive,
       emissiveIntensity,
     });
@@ -443,12 +592,14 @@ export function getV3PbrMaterial(
     const mat = new THREE.MeshPhysicalMaterial({
       color: new THREE.Color("#ffffff"),
       map: maps.colorMap || null,
-      roughness: 0.16,
-      metalness: 0.04,
-      clearcoat: 0.88,
-      clearcoatRoughness: 0.1,
-      reflectivity: 0.92,
-      envMapIntensity: 1.35,
+      roughness: 0.12,
+      metalness: 0.03,
+      ior: 1.54,
+      specularIntensity: 1.0,
+      clearcoat: 0.92,
+      clearcoatRoughness: 0.08,
+      reflectivity: 0.96,
+      envMapIntensity: 1.5,
       emissive,
       emissiveIntensity,
     });
@@ -456,18 +607,23 @@ export function getV3PbrMaterial(
     return mat;
   }
 
-  // 4. Silk Matte Lacquer (Cream, Sage Green, Anthracite Supramat) — Soft velvety architectural sheen
+  // 4. Silk Matte Lacquer & Soft-Touch Supramat — Velvety micro-sheen + clearcoat lobe
   if (matDef.category === "lacquer") {
     const [r, g, b] = hexToRgb(matDef.colorHex);
     const mat = new THREE.MeshPhysicalMaterial({
       color: new THREE.Color(`rgb(${r}, ${g}, ${b})`),
       roughnessMap: maps.roughnessMap || null,
-      roughness: 0.26,
-      metalness: 0.03,
-      clearcoat: 0.55,
-      clearcoatRoughness: 0.24,
-      reflectivity: 0.68,
-      envMapIntensity: 1.25,
+      roughness: 0.24,
+      metalness: 0.02,
+      ior: 1.49,
+      specularIntensity: 0.88,
+      sheen: 0.25,
+      sheenRoughness: 0.42,
+      sheenColor: new THREE.Color("#f8fafc"),
+      clearcoat: 0.58,
+      clearcoatRoughness: 0.22,
+      reflectivity: 0.74,
+      envMapIntensity: 1.38,
       emissive,
       emissiveIntensity,
     });
@@ -479,12 +635,17 @@ export function getV3PbrMaterial(
   const mat = new THREE.MeshPhysicalMaterial({
     color: new THREE.Color(matDef.colorHex),
     roughnessMap: maps.roughnessMap || null,
-    roughness: 0.36,
-    metalness: 0.04,
-    clearcoat: 0.28,
-    clearcoatRoughness: 0.34,
-    reflectivity: 0.58,
-    envMapIntensity: 1.18,
+    roughness: 0.32,
+    metalness: 0.03,
+    ior: 1.48,
+    specularIntensity: 0.82,
+    sheen: 0.14,
+    sheenRoughness: 0.5,
+    sheenColor: new THREE.Color("#f8fafc"),
+    clearcoat: 0.36,
+    clearcoatRoughness: 0.28,
+    reflectivity: 0.65,
+    envMapIntensity: 1.28,
     emissive,
     emissiveIntensity,
   });

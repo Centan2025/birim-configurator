@@ -9,6 +9,56 @@ cylinder.rotateX(Math.PI / 2);
 const cylinderY = new THREE.CylinderGeometry(0.5, 0.5, 1, 20);
 const edges = new THREE.EdgesGeometry(box);
 
+/**
+ * Builds a true 3D 45°-Sloped Chamfered Frustum Geometry for 45°-beveled cabinet doors (bevel_45).
+ * Matches the 2D trapezoidal cross-section drawing 1-to-1: the outer perimeter slopes inward at 45°
+ * from the back base (±w/2, ±h/2, -d/2) to the inner bevel plateau (±(w/2 - bevel), ±(h/2 - bevel), +d/2)
+ * with 4 crisp diagonal 45° miter lines at the corners!
+ */
+function createBevel45FrustumGeometry(w: number, h: number, d: number, bevelMm: number): THREE.BufferGeometry {
+  const hw = w / 2;
+  const hh = h / 2;
+  const hd = d / 2;
+  const b = Math.min(bevelMm, hw * 0.35, hh * 0.35);
+  const iw = hw - b;
+  const ih = hh - b;
+
+  // 8 vertices: 0..3 back rectangle (z = -hd), 4..7 front beveled plateau (z = +hd)
+  const v = [
+    [-hw, -hh, -hd], // 0: back bottom-left
+    [hw, -hh, -hd],  // 1: back bottom-right
+    [hw, hh, -hd],   // 2: back top-right
+    [-hw, hh, -hd],  // 3: back top-left
+    [-iw, -ih, hd],  // 4: front bottom-left (inward by bevelMm)
+    [iw, -ih, hd],   // 5: front bottom-right
+    [iw, ih, hd],    // 6: front top-right
+    [-iw, ih, hd],   // 7: front top-left
+  ];
+
+  // 6 quad faces (front plateau, back base, bottom 45° slope, right 45° slope, top 45° slope, left 45° slope)
+  const quads = [
+    [4, 5, 6, 7], // front face
+    [1, 0, 3, 2], // back face
+    [0, 1, 5, 4], // bottom 45° chamfer slope
+    [1, 2, 6, 5], // right 45° chamfer slope
+    [2, 3, 7, 6], // top 45° chamfer slope
+    [3, 0, 4, 7], // left 45° chamfer slope
+  ];
+
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  for (const [a, bIdx, c, dIdx] of quads) {
+    positions.push(...v[a], ...v[bIdx], ...v[c], ...v[a], ...v[c], ...v[dIdx]);
+    uvs.push(0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1);
+  }
+
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geom.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geom.computeVertexNormals();
+  return geom;
+}
+
 const darkDamperMat = new THREE.MeshStandardMaterial({
   color: 0x1e293b,
   roughness: 0.32,
@@ -110,45 +160,47 @@ export function createComponentMesh(
     const isRightHinge = comp.id.includes("right");
     const dirSign = isRightHinge ? -1 : 1;
     const doorYaw = comp.rotation?.[1] || 0;
+    // NOTE: group origin is at door pivot (z_local = 0 is OUTER face of 18mm door, z_local = -18 is INNER back face of door).
+    // All hinge parts MUST stay at z_local <= -15 so NOTHING ever pokes through the front face of the door!
+    const cupX = dirSign * 21;
 
-    // PART A (ROTATES WITH DOOR): Ø35mm Cylindrical Hinge Cup + Oval Flange + 2x Ø8mm Boss Dowels on back of door leaf
+    // PART A (ROTATES WITH DOOR): Ø35mm Cylindrical Hinge Cup + Oval Flange strictly on INNER back face of door (z_local = -18.5)
     const cupMesh = new THREE.Mesh(cylinder, chromeHardwareMat);
-    cupMesh.scale.set(35, 35, 12);
-    cupMesh.position.set(cx + dirSign * 4, cy, cz + 14);
+    cupMesh.scale.set(35, 35, 5);
+    cupMesh.position.set(cupX, cy, -16.5);
     tagSubMesh(cupMesh, userData, comp);
     group.add(cupMesh);
 
     const flangeMesh = new THREE.Mesh(box, chromeHardwareMat);
-    flangeMesh.scale.set(22, 58, 3);
-    flangeMesh.position.set(cx + dirSign * 4, cy, cz + 9);
+    flangeMesh.scale.set(22, 58, 2.5);
+    flangeMesh.position.set(cupX, cy, -19.2);
     tagSubMesh(flangeMesh, userData, comp);
     group.add(flangeMesh);
 
     [-22.5, 22.5].forEach((dy) => {
       const boss = new THREE.Mesh(cylinder, screwHeadMat);
-      boss.scale.set(8, 8, 8);
-      boss.position.set(cx + dirSign * 4, cy + dy, cz + 11);
+      boss.scale.set(8, 8, 3);
+      boss.position.set(cupX, cy + dy, -18.5);
       tagSubMesh(boss, userData, comp);
       group.add(boss);
     });
 
     // PART B (STATIONARY ON CARCASS SIDE PANEL): Counter-rotate by -doorYaw around hinge pivot (0, cy, 0)
-    // so the Cruciform Mounting Plate & BLUMOTION Body NEVER detach from the cabinet side panel when the door opens!
+    // Positioned inside the carcass at z_local = -42..-22 so it stays bolted to the inner side panel!
     const carcassFixedGroup = new THREE.Group();
     carcassFixedGroup.rotation.y = -doorYaw;
 
-    // Cruciform System 32 Mounting Plate flush on the inner side panel (37mm setback)
     const plateX = dirSign * 5;
-    const plateZ = -32;
+    const plateZ = -42;
     const mountWingVert = new THREE.Mesh(box, chromeHardwareMat);
-    mountWingVert.scale.set(6, 54, 18);
+    mountWingVert.scale.set(6, 54, 16);
     mountWingVert.position.set(plateX, cy, plateZ);
     tagSubMesh(mountWingVert, userData, comp);
     carcassFixedGroup.add(mountWingVert);
 
     const mountWingHoriz = new THREE.Mesh(box, chromeHardwareMat);
-    mountWingHoriz.scale.set(8, 18, 42);
-    mountWingHoriz.position.set(plateX + dirSign * 2, cy, plateZ + 6);
+    mountWingHoriz.scale.set(8, 18, 32);
+    mountWingHoriz.position.set(plateX + dirSign * 2, cy, plateZ + 4);
     tagSubMesh(mountWingHoriz, userData, comp);
     carcassFixedGroup.add(mountWingHoriz);
 
@@ -160,37 +212,92 @@ export function createComponentMesh(
       carcassFixedGroup.add(mountScrew);
     });
 
-    // Stationary Hinge Clip Arm + Anthracite BLUMOTION Soft-Close Damper Capsule on the side panel
     const armBody = new THREE.Mesh(box, chromeHardwareMat);
-    armBody.scale.set(14, 15, 36);
-    armBody.position.set(plateX + dirSign * 6, cy, plateZ + 10);
+    armBody.scale.set(13, 15, 24);
+    armBody.position.set(plateX + dirSign * 6, cy, -33);
     tagSubMesh(armBody, userData, comp);
     carcassFixedGroup.add(armBody);
 
     const damperMesh = new THREE.Mesh(cylinder, darkDamperMat);
-    damperMesh.scale.set(10, 10, 28);
-    damperMesh.position.set(plateX + dirSign * 6, cy + 3, plateZ + 12);
+    damperMesh.scale.set(10, 10, 20);
+    damperMesh.position.set(plateX + dirSign * 6, cy + 3, -32);
     tagSubMesh(damperMesh, userData, comp);
     carcassFixedGroup.add(damperMesh);
 
     group.add(carcassFixedGroup);
 
-    // PART C (ARTICULATED FOLDING GOOSENECK LINKAGE ARM): Rotates at half angle to bridge carcass body -> door cup
+    // PART C (ARTICULATED FOLDING GOOSENECK LINKAGE ARM): Strictly behind inner door face (z_local = -25)
     const linkGroup = new THREE.Group();
     linkGroup.rotation.y = -doorYaw * 0.48;
     const neckLink = new THREE.Mesh(box, chromeHardwareMat);
-    neckLink.scale.set(14, 13, 28);
-    neckLink.position.set(dirSign * 11, cy, -8);
+    neckLink.scale.set(14, 13, 14);
+    neckLink.position.set(dirSign * 13, cy, -25);
     tagSubMesh(neckLink, userData, comp);
     linkGroup.add(neckLink);
 
     const pivotPin = new THREE.Mesh(cylinderY, screwHeadMat);
     pivotPin.scale.set(6, 18, 6);
-    pivotPin.position.set(dirSign * 8, cy, -2);
+    pivotPin.position.set(dirSign * 9, cy, -21);
     tagSubMesh(pivotPin, userData, comp);
     linkGroup.add(pivotPin);
 
     group.add(linkGroup);
+    return group;
+  }
+
+  // 1B. REAL 3D ADJUSTABLE BLACK ABS PLASTIC KITCHEN CABINET LEGS (_plastic_leg_)
+  if (comp.id.includes("_plastic_leg_")) {
+    const h = comp.dimensions.height;
+    // Wide Ø68mm circular floor glide flange
+    const baseFoot = new THREE.Mesh(cylinderY, darkCavityMat);
+    baseFoot.scale.set(68, 8, 68);
+    baseFoot.position.set(cx, cy - h / 2 + 4, cz);
+    tagSubMesh(baseFoot, userData, comp);
+    group.add(baseFoot);
+
+    // Threaded adjustable Ø38mm ABS vertical shaft
+    const legShaft = new THREE.Mesh(cylinderY, darkDamperMat);
+    legShaft.scale.set(38, Math.max(20, h - 18), 38);
+    legShaft.position.set(cx, cy, cz);
+    tagSubMesh(legShaft, userData, comp);
+    group.add(legShaft);
+
+    // Adjustment knurled collar ring
+    const collarRing = new THREE.Mesh(cylinderY, darkCavityMat);
+    collarRing.scale.set(46, 12, 46);
+    collarRing.position.set(cx, cy - h * 0.15, cz);
+    tagSubMesh(collarRing, userData, comp);
+    group.add(collarRing);
+
+    // Top carcass mounting socket plate
+    const topSocket = new THREE.Mesh(cylinderY, darkCavityMat);
+    topSocket.scale.set(58, 10, 58);
+    topSocket.position.set(cx, cy + h / 2 - 5, cz);
+    tagSubMesh(topSocket, userData, comp);
+    group.add(topSocket);
+
+    return group;
+  }
+
+  // 1C. RECESSED ALUMINUM LED CHANNEL WITH FLUSH 3000K OPAL DIFFUSER (_recessed_led_)
+  if (comp.id.includes("_recessed_led_")) {
+    const w = comp.dimensions.width;
+    const h = comp.dimensions.height;
+    const d = comp.dimensions.depth;
+    // Anodized recessed aluminum housing milled into the panel
+    const housing = new THREE.Mesh(box, screwHeadMat);
+    housing.scale.set(w, h, d);
+    housing.position.set(cx, cy, cz);
+    tagSubMesh(housing, userData, comp);
+    group.add(housing);
+
+    // Warm 3000K glowing opal diffuser core flush with the panel face
+    const diffuser = new THREE.Mesh(box, material);
+    diffuser.scale.set(Math.max(3, w * 0.86), Math.max(3, h * 0.86), Math.max(3, d * 0.86));
+    diffuser.position.set(cx, cy, cz + 0.5);
+    tagSubMesh(diffuser, userData, comp);
+    group.add(diffuser);
+
     return group;
   }
 
@@ -605,6 +712,106 @@ export function createComponentMesh(
     }
   }
   group.add(mesh);
+
+  // 6B. 3D CNC DOOR CROSS-SECTION PROFILE RENDERING (Shaker Frame / Fluted Ribbed / 45° Bevel / Custom DXF-SVG CAD Profile)
+  if (
+    (comp.role === "door_left" || comp.role === "door_right" || comp.role === "drawer_front") &&
+    typeof window !== "undefined"
+  ) {
+    const activeProfile =
+      (window as unknown as { __birimDoorCrossSection?: string }).__birimDoorCrossSection ||
+      (comp.handleCategory === "decorative_bespoke" ? "shaker_frame" : "flat_slab");
+    const w = comp.dimensions.width;
+    const h = comp.dimensions.height;
+    const d = comp.dimensions.depth;
+
+    if (activeProfile === "shaker_frame" && w > 160 && h > 160) {
+      const stileW = Math.min(68, Math.max(38, Math.round(w * 0.14)));
+      const innerW = Math.max(40, w - 2 * stileW);
+      const innerH = Math.max(40, h - 2 * stileW);
+      // Recessed shadow frame + raised 6mm outer Shaker stiles & rails
+      const recessWell = new THREE.Mesh(box, darkCavityMat);
+      recessWell.scale.set(innerW + 4, innerH + 4, 2.5);
+      recessWell.position.set(cx, cy, cz + d * 0.5 - 0.5);
+      tagSubMesh(recessWell, userData, comp);
+      group.add(recessWell);
+
+      const centerPanel = new THREE.Mesh(box, material);
+      centerPanel.scale.set(innerW - 4, innerH - 4, 2.5);
+      centerPanel.position.set(cx, cy, cz + d * 0.5 + 0.4);
+      centerPanel.add(new THREE.LineSegments(edges, revealShadowMat));
+      tagSubMesh(centerPanel, userData, comp);
+      group.add(centerPanel);
+
+      // Left, Right, Top, Bottom 5mm Raised Shaker Frame Bars
+      const frameBars = [
+        { sx: stileW, sy: h, px: cx - w / 2 + stileW / 2, py: cy },
+        { sx: stileW, sy: h, px: cx + w / 2 - stileW / 2, py: cy },
+        { sx: innerW, sy: stileW, px: cx, py: cy + h / 2 - stileW / 2 },
+        { sx: innerW, sy: stileW, px: cx, py: cy - h / 2 + stileW / 2 },
+      ];
+      frameBars.forEach((fb) => {
+        const bar = new THREE.Mesh(box, material);
+        bar.scale.set(fb.sx, fb.sy, 4.5);
+        bar.position.set(fb.px, fb.py, cz + d * 0.5 + 2.2);
+        bar.add(new THREE.LineSegments(edges, revealShadowMat));
+        tagSubMesh(bar, userData, comp);
+        group.add(bar);
+      });
+    } else if (activeProfile === "fluted_ribbed" && w > 120) {
+      // Vertical CNC Fluted / Ribbed Slats across the door front
+      const slatPitch = 36;
+      const slatCount = Math.min(28, Math.max(4, Math.floor((w - 24) / slatPitch)));
+      const spanW = w - 28;
+      const stepX = spanW / Math.max(1, slatCount - 1);
+      for (let s = 0; s < slatCount; s++) {
+        const slat = new THREE.Mesh(box, material);
+        slat.scale.set(Math.max(10, stepX * 0.62), h - 16, 4.5);
+        slat.position.set(cx - spanW / 2 + s * stepX, cy, cz + d * 0.5 + 2.2);
+        slat.add(new THREE.LineSegments(edges, revealShadowMat));
+        tagSubMesh(slat, userData, comp);
+        group.add(slat);
+      }
+    } else if (activeProfile === "bevel_45" && w > 120 && h > 120) {
+      // TRUE 3D 45°-SLOPED PERIMETER CHAMFER (matches the 2D trapezoidal cross-section 1-to-1!)
+      // Back 8mm is straight edge-banded base; front 12mm slopes inward at a 45° angle (32mm visual chamfer width)
+      mesh.scale.set(w, h, Math.max(6, d * 0.42));
+      mesh.position.set(cx, cy, cz - d * 0.29);
+
+      const bevelDepth = Math.max(10, d * 0.68);
+      const bevelSlopeW = 32;
+      const frustumGeo = createBevel45FrustumGeometry(w, h, bevelDepth, bevelSlopeW);
+      const frustumMesh = new THREE.Mesh(frustumGeo, material);
+      frustumMesh.position.set(cx, cy, cz + d * 0.22);
+      frustumMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(frustumGeo, 12), revealShadowMat));
+      tagSubMesh(frustumMesh, userData, comp);
+      group.add(frustumMesh);
+    } else if (activeProfile === "custom_cad_profile" && w > 140 && h > 140) {
+      // Custom CAD Profile: Outer 45° Bevel + Recessed Inner Groove + Raised Center Field (matches the 2D custom CAD diagram!)
+      const frustumGeo = createBevel45FrustumGeometry(w, h, 8, 22);
+      const outerBevel = new THREE.Mesh(frustumGeo, material);
+      outerBevel.position.set(cx, cy, cz + d * 0.5 + 3);
+      outerBevel.add(new THREE.LineSegments(new THREE.EdgesGeometry(frustumGeo, 12), revealShadowMat));
+      tagSubMesh(outerBevel, userData, comp);
+      group.add(outerBevel);
+
+      if (w > 200 && h > 200) {
+        const grooveWell = new THREE.Mesh(box, darkCavityMat);
+        grooveWell.scale.set(w - 56, h - 56, 3);
+        grooveWell.position.set(cx, cy, cz + d * 0.5 + 6.2);
+        tagSubMesh(grooveWell, userData, comp);
+        group.add(grooveWell);
+
+        const innerField = new THREE.Mesh(box, material);
+        innerField.scale.set(w - 84, h - 84, 4);
+        innerField.position.set(cx, cy, cz + d * 0.5 + 7.8);
+        innerField.add(new THREE.LineSegments(edges, revealShadowMat));
+        tagSubMesh(innerField, userData, comp);
+        group.add(innerField);
+      }
+    }
+  }
+
   return group;
 }
 

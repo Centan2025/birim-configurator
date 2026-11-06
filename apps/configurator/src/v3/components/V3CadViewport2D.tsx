@@ -88,7 +88,6 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
     } | null>(null);
 
     const handleWheelZoom = useCallback((e: React.WheelEvent) => {
-      e.preventDefault();
       e.stopPropagation();
       const delta = e.deltaY < 0 ? 0.14 : -0.14;
       setZoom((prev) => Math.max(0.4, Math.min(3.5, +(prev + delta).toFixed(2))));
@@ -1188,7 +1187,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
           {planRowSnapBanner && (
             <div
               data-testid="plan-row-snap-banner"
-              className="absolute top-16 left-1/2 -translate-x-1/2 z-30 pointer-events-none px-4 py-1.5 rounded-xl bg-amber-700 text-white border-2 border-amber-200 shadow-lg font-mono text-xs font-extrabold"
+              className="absolute top-16 left-1/2 -translate-x-1/2 z-30 pointer-events-none px-4 py-1.5 rounded-xl bg-[#F3E9D2] text-[#5C4018] text-white border-2 border-amber-200 shadow-lg font-mono text-xs font-extrabold"
             >
               {planRowSnapBanner}
             </div>
@@ -1296,7 +1295,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     setChainOriginPoint(null);
                     setActiveSnapTarget(null);
                   }}
-                  className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold cursor-pointer"
+                  className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-[#E5EFEA] text-[#1E3F2F] text-white font-semibold cursor-pointer"
                   title="Mevcut duvar zincirini sonlandır (Esc / Sağ Tık)"
                 >
                   ✓ Zinciri Bitir (Esc)
@@ -1361,7 +1360,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     }}
                     className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold flex items-center gap-1 transition cursor-pointer ${
                       newObstacleType === ot.id
-                        ? "bg-amber-700 text-white shadow-2xs"
+                        ? "bg-[#F3E9D2] text-[#5C4018] text-white shadow-2xs"
                         : "text-stone-700 hover:bg-white"
                     }`}
                     title={`${ot.label} seç`}
@@ -1520,7 +1519,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       type="button"
                       data-testid="plan-import-dxf-walls-btn"
                       onClick={() => importWallsFromUnderlay(false)}
-                      className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold cursor-pointer"
+                      className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-[#E5EFEA] text-[#1E3F2F] text-white font-semibold cursor-pointer"
                     >
                       Duvara Dönüştür
                     </button>
@@ -1566,7 +1565,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                             setTimeout(() => setPlanRowSnapBanner(null), 2500);
                           }
                         }}
-                        className="px-2 py-0.5 rounded bg-amber-700 hover:bg-amber-800 text-white font-bold text-[10px] cursor-pointer"
+                        className="px-2 py-0.5 rounded bg-[#F3E9D2] text-[#5C4018] hover:bg-amber-800 text-white font-bold text-[10px] cursor-pointer"
                         title="Bu modülü solundaki modülle yer değiştir"
                       >
                         ⇄ Solla Değiştir
@@ -1581,7 +1580,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                             setTimeout(() => setPlanRowSnapBanner(null), 2500);
                           }
                         }}
-                        className="px-2 py-0.5 rounded bg-amber-700 hover:bg-amber-800 text-white font-bold text-[10px] cursor-pointer"
+                        className="px-2 py-0.5 rounded bg-[#F3E9D2] text-[#5C4018] hover:bg-amber-800 text-white font-bold text-[10px] cursor-pointer"
                         title="Bu modülü sağındaki modülle yer değiştir"
                       >
                         ⇄ Sağla Değiştir
@@ -1674,7 +1673,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                             position: nextPos,
                           });
                         }}
-                        className="px-2 py-0.5 rounded bg-amber-600 hover:bg-amber-700 text-white font-bold text-[10px] cursor-pointer"
+                        className="px-2 py-0.5 rounded bg-amber-600 hover:bg-[#F3E9D2] text-[#5C4018] text-white font-bold text-[10px] cursor-pointer"
                         title="Pencere / Kapı / Engeli 90° döndür (Yan duvara çevir veya yönünü değiştir)"
                       >
                         🔄 90° Döndür ({selectedObstacleObj.rotationY || 0}°)
@@ -1689,7 +1688,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                                 selectedObstacleObj.doorSwing === "right" ? "left" : "right",
                             })
                           }
-                          className="px-2 py-0.5 rounded bg-sky-700 hover:bg-sky-800 text-white font-bold text-[10px] cursor-pointer"
+                          className="px-2 py-0.5 rounded bg-[#EAF0F6] text-[#1E3A5F] hover:bg-sky-800 text-white font-bold text-[10px] cursor-pointer"
                           title="Kapı kanadı açılış yönünü (Sol / Sağ) değiştir"
                         >
                           ↔️ Kanat: {selectedObstacleObj.doorSwing === "right" ? "Sağ" : "Sol"}
@@ -1787,7 +1786,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     type="button"
                     data-testid="plan-delete-selected-object-btn"
                     onClick={handleDeleteSelectedObject}
-                    className="px-2 py-0.5 rounded bg-red-600 hover:bg-red-700 text-white font-bold text-[10px] cursor-pointer"
+                    className="px-2 py-0.5 rounded bg-red-100 text-red-900 hover:bg-red-100 text-red-900 text-white font-bold text-[10px] cursor-pointer"
                     title="Seçili objeyi sil (Delete / Backspace)"
                   >
                     🗑 Seçiliyi Sil (Del)
@@ -1801,7 +1800,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 onClick={() => setMagnetEnabled((m) => !m)}
                 className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
                   magnetEnabled
-                    ? "bg-emerald-700 text-white"
+                    ? "bg-[#E5EFEA] text-[#1E3F2F] text-white"
                     : "bg-stone-200 text-stone-800 hover:bg-stone-300"
                 }`}
                 title="Modül sürüklerken mıknatıslı yapışmayı (Snap) aç/kapat (İpucu: Alt tuşuna basılı tutarak da serbest taşıyabilirsiniz)"
@@ -4005,7 +4004,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         {/* Top Header Bar (Non-overlapping with SVG drawing!) */}
         <div className="h-11 px-4 bg-[#D8D3C8] border-b border-stone-300 flex flex-wrap items-center justify-between gap-2 shrink-0 z-10">
           <div className="flex items-center gap-2">
-            <span className="px-2.5 py-1 rounded-lg bg-stone-900 text-white text-xs font-bold">
+            <span className="px-2.5 py-1 rounded-lg bg-[#E8E2D5] text-white text-xs font-bold">
               {mode === "elevation"
                 ? "2D Ön Cephe & İç Düzen Editörü"
                 : mode === "plan"
@@ -4111,7 +4110,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         removeSpaceObstacle(selObs.id);
                         setSelectedPlanObject(null);
                       }}
-                      className="px-1.5 py-0.5 rounded bg-red-600 hover:bg-red-700 text-white font-bold cursor-pointer"
+                      className="px-1.5 py-0.5 rounded bg-red-100 text-red-900 hover:bg-red-100 text-red-900 text-white font-bold cursor-pointer"
                     >
                       🗑 Sil
                     </button>
@@ -4160,7 +4159,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 onClick={() => setShowRoomContextInElev((v) => !v)}
                 className={`px-3 py-1 rounded-lg border text-xs font-bold transition cursor-pointer ${
                   showRoomContextInElev
-                    ? "bg-sky-700 border-sky-800 text-white"
+                    ? "bg-[#EAF0F6] text-[#1E3A5F] border-sky-800 text-white"
                     : "bg-white hover:bg-stone-100 border-stone-300 text-stone-800"
                 }`}
                 title="Duvar sınırını, pencereyi, kapıyı, kolonu, su/gider tesisatını ve tüm modülleri cephe görünüşünde göster/gizle"
@@ -4175,7 +4174,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
               onClick={() => setShowDoorsIn2D((v) => !v)}
               className={`px-3 py-1 rounded-lg border text-xs font-bold transition cursor-pointer ${
                 showDoorsIn2D
-                  ? "bg-amber-700 border-amber-800 text-white"
+                  ? "bg-[#F3E9D2] text-[#5C4018] border-amber-800 text-white"
                   : "bg-white hover:bg-stone-100 border-stone-300 text-stone-800"
               }`}
             >

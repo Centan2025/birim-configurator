@@ -37,18 +37,19 @@ export function generateModuleGeometry(
   } = module.carcass;
 
   // Handle complementary single-piece modules cleanly (Countertop, Backsplash, End Panel, Wall Filler, Leveling Feet, Wall Bracket)
-  if (module.category === "complementary" && module.complementaryRole) {
+  if (module.category === "complementary") {
+    const cRole = module.complementaryRole || "end_panel";
     const nonPanelRoles = new Set([
       "leveling_feet",
       "led_channel",
       "wall_bracket",
       "service_spacer",
     ]);
-    const isPanel = !nonPanelRoles.has(module.complementaryRole);
+    const isPanel = !nonPanelRoles.has(cRole);
     const compRole =
-      module.complementaryRole === "countertop" || module.complementaryRole === "waterfall_edge"
+      cRole === "countertop" || cRole === "waterfall_edge"
         ? "countertop"
-        : module.complementaryRole === "plinth_strip" || module.complementaryRole === "skirting"
+        : cRole === "plinth_strip" || cRole === "skirting"
         ? "plinth"
         : isPanel
         ? "carcass_side_left"
@@ -91,35 +92,441 @@ export function generateModuleGeometry(
   const explodeZ = explodedFactor > 0 ? explodedFactor * 300 : 0;
 
   const innerSpanW = width - 2 * T;
+  const tplLowerCheck = (module.templateId || "").toLowerCase();
+  const nameLowerCheck = (module.name || "").toLowerCase();
   const isWardrobe =
     !module.category ||
     module.category.startsWith("wardrobe") ||
+    module.category === "special_corner" ||
     module.moduleFamilyId === "fam_wardrobe" ||
+    module.moduleFamilyId === "fam_special_corner" ||
     Boolean(module.templateId?.startsWith("tpl_wd_")) ||
     Boolean(module.templateId?.startsWith("tpl_wardrobe")) ||
-    Boolean(module.templateId?.startsWith("tpl_sc_05")) ||
-    Boolean(module.templateId?.startsWith("tpl_sc_06"));
+    Boolean(module.templateId?.startsWith("tpl_sc_")) ||
+    (Boolean(module.isCorner) && height >= 1400);
 
-  // 1. Plinth (Baza) — in wardrobes, side panels extend to floor so plinth fits between side panels (x = T, width = innerSpanW)
+  const isTrueLCorner =
+    Boolean(module.isCorner) &&
+    !tplLowerCheck.includes("blind") &&
+    !tplLowerCheck.includes("diagonal") &&
+    !tplLowerCheck.includes("outer_corner") &&
+    !nameLowerCheck.includes("kör") &&
+    !nameLowerCheck.includes("diyagonal") &&
+    !nameLowerCheck.includes("dış köşe") &&
+    width >= 550 &&
+    depth >= 550;
+
+  if (isTrueLCorner) {
+    const isWallL = module.category === "kitchen_wall" || module.moduleFamilyId === "fam_kitchen_wall";
+    const wingD = isWallL
+      ? Math.min(360, Math.round(depth * 0.56))
+      : isWardrobe
+      ? Math.min(600, Math.round(depth * 0.58))
+      : Math.min(580, Math.round(depth * 0.64));
+    const returnSpanZ = Math.max(180, depth - wingD);
+    // In wardrobes / tall corners, ALL vertical uprights (dikmeler) extend all the way down to the floor (y = 0)!
+    const sideY = isWardrobe ? 0 : plinthHeight;
+    const sideH = isWardrobe ? height : height - plinthHeight;
+    const netH = Math.max(120, height - plinthHeight - 2 * T);
+
+    // 1. Floor-standing Plinth (for Wardrobe) OR Adjustable Black Plastic Kitchen Legs (for Kitchen L-Corner Base)
+    if (plinthHeight > 0) {
+      if (isWardrobe) {
+        components.push(
+          {
+            id: `${module.id}_plinth_front_x`,
+            role: "plinth",
+            label: "Köşe Gardırop Ön Baza (X Kolu)",
+            dimensions: { width: Math.max(80, width - wingD - T), height: plinthHeight, depth: T },
+            position: { x: wingD, y: 0, z: wingD - T - 16 },
+            materialId: bodyMaterialId,
+            isManufacturablePanel: true,
+            thicknessAxis: "z",
+          },
+          {
+            id: `${module.id}_plinth_front_z`,
+            role: "plinth",
+            label: "Köşe Gardırop Dönüş Baza (Z Kolu)",
+            dimensions: { width: T, height: plinthHeight, depth: Math.max(80, returnSpanZ - T) },
+            position: { x: wingD - T - 16, y: 0, z: wingD },
+            materialId: bodyMaterialId,
+            isManufacturablePanel: true,
+            thicknessAxis: "x",
+          }
+        );
+      } else {
+        // 6 Adjustable Black Plastic Legs under the L-Corner Kitchen Base Cabinet
+        const lLegCoords = [
+          { id: "fl_back", x: 42, z: 42 },
+          { id: "fr_back", x: width - 42, z: 42 },
+          { id: "fr_front", x: width - 42, z: wingD - 48 },
+          { id: "inner_corner", x: wingD - 48, z: wingD - 48 },
+          { id: "ret_left", x: 42, z: depth - 48 },
+          { id: "ret_right", x: wingD - 48, z: depth - 48 },
+        ];
+        lLegCoords.forEach((lc, lIdx) => {
+          components.push({
+            id: `${module.id}_plastic_leg_${lc.id}_${lIdx + 1}`,
+            role: "special_fitting",
+            label: `Ayarlanabilir Plastik Baza Ayağı #${lIdx + 1}`,
+            dimensions: { width: 52, height: plinthHeight, depth: 52 },
+            position: { x: lc.x - 26, y: 0, z: Math.max(30, lc.z - 52) },
+            materialId: "mat_anodized_metal",
+            isManufacturablePanel: false,
+          });
+        });
+        // Ready-made L-Corner Kitchen Base comes with L-shaped Front Plinth installed in front of the plastic legs!
+        components.push(
+          {
+            id: `${module.id}_plinth_front_x`,
+            role: "plinth",
+            label: "Mutfak L-Köşe Ön Baza Bandı (X Kolu)",
+            dimensions: { width: Math.max(80, width - wingD), height: plinthHeight, depth: T },
+            position: { x: wingD, y: 0, z: wingD - T - 22 },
+            materialId: doorMaterialId || bodyMaterialId,
+            isManufacturablePanel: true,
+            thicknessAxis: "z",
+          },
+          {
+            id: `${module.id}_plinth_front_z`,
+            role: "plinth",
+            label: "Mutfak L-Köşe Dönüş Baza Bandı (Z Kolu)",
+            dimensions: { width: T, height: plinthHeight, depth: Math.max(80, returnSpanZ) },
+            position: { x: wingD - T - 22, y: 0, z: wingD },
+            materialId: doorMaterialId || bodyMaterialId,
+            isManufacturablePanel: true,
+            thicknessAxis: "x",
+          }
+        );
+      }
+    }
+
+    // 2. Vertical Uprights (Dikmeler) — Floor-to-top (y=0..height) for Wardrobe Corners!
+    components.push(
+      {
+        id: `${module.id}_side_left_outer`,
+        role: "carcass_side_left",
+        label: "Köşe Sol Dış Boy Dikme (Yere Kadar)",
+        dimensions: { width: T, height: sideH, depth },
+        position: { x: 0, y: sideY, z: 0 },
+        materialId: bodyMaterialId,
+        isManufacturablePanel: true,
+        thicknessAxis: "x",
+      },
+      {
+        id: `${module.id}_side_right_end`,
+        role: "carcass_side_right",
+        label: "Köşe Sağ Bitiş Dikmesi (X Kolu)",
+        dimensions: { width: T, height: sideH, depth: wingD },
+        position: { x: width - T, y: sideY, z: 0 },
+        materialId: bodyMaterialId,
+        isManufacturablePanel: true,
+        thicknessAxis: "x",
+      },
+      {
+        id: `${module.id}_side_front_return`,
+        role: "carcass_side_right",
+        label: "Köşe Ön Dönüş Bitiş Dikmesi (Z Kolu)",
+        dimensions: { width: wingD - T, height: sideH, depth: T },
+        position: { x: T, y: sideY, z: depth - T },
+        materialId: bodyMaterialId,
+        isManufacturablePanel: true,
+        thicknessAxis: "z",
+      },
+      {
+        id: `${module.id}_corner_inner_pillar`,
+        role: "carcass_divider",
+        label: "Köşe İç Taşıyıcı Dikme",
+        dimensions: { width: 65, height: sideH, depth: T },
+        position: { x: wingD - 65, y: sideY, z: T },
+        materialId: bodyMaterialId,
+        isManufacturablePanel: true,
+        thicknessAxis: "z",
+      }
+    );
+
+    // 3. L-Shaped Bottom & Top Panels
+    components.push(
+      {
+        id: `${module.id}_bottom_main`,
+        role: "carcass_bottom",
+        label: "L-Köşe Alt Tabla (Ana Kol)",
+        dimensions: { width: width - 2 * T, height: T, depth: wingD },
+        position: { x: T, y: plinthHeight, z: 0 },
+        materialId: bodyMaterialId,
+        isManufacturablePanel: true,
+        thicknessAxis: "y",
+      },
+      {
+        id: `${module.id}_bottom_return`,
+        role: "carcass_bottom",
+        label: "L-Köşe Alt Tabla (Dönüş Kolu)",
+        dimensions: { width: wingD - T, height: T, depth: returnSpanZ - T },
+        position: { x: T, y: plinthHeight, z: wingD },
+        materialId: bodyMaterialId,
+        isManufacturablePanel: true,
+        thicknessAxis: "y",
+      },
+      {
+        id: `${module.id}_top_main`,
+        role: "carcass_top",
+        label: "L-Köşe Üst Tabla (Ana Kol)",
+        dimensions: { width: width - 2 * T, height: T, depth: wingD },
+        position: { x: T, y: height - T, z: 0 },
+        materialId: bodyMaterialId,
+        isManufacturablePanel: true,
+        thicknessAxis: "y",
+      },
+      {
+        id: `${module.id}_top_return`,
+        role: "carcass_top",
+        label: "L-Köşe Üst Tabla (Dönüş Kolu)",
+        dimensions: { width: wingD - T, height: T, depth: returnSpanZ - T },
+        position: { x: T, y: height - T, z: wingD },
+        materialId: bodyMaterialId,
+        isManufacturablePanel: true,
+        thicknessAxis: "y",
+      },
+      {
+        id: `${module.id}_back_main`,
+        role: "carcass_back",
+        label: "L-Köşe Arkalık",
+        dimensions: { width: width - 2 * T, height: netH, depth: T_back },
+        position: { x: T, y: plinthHeight + T, z: 8 },
+        materialId: bodyMaterialId,
+        isManufacturablePanel: true,
+        thicknessAxis: "z",
+      }
+    );
+
+    // 4. L-Shaped Internal Shelves & Hanging Rails
+    const firstBay = module.bays[0];
+    if (firstBay) {
+      firstBay.shelves.forEach((sh, sIdx) => {
+        const sy = plinthHeight + T + sh.elevationY;
+        components.push(
+          {
+            id: sh.id || `${module.id}_l_shelf_main_${sIdx}`,
+            role: "shelf",
+            label: `L-Köşe Raf #${sIdx + 1} (Ana Kol)`,
+            bayIndex: 0,
+            dimensions: { width: width - 2 * T - 4, height: T, depth: wingD - 24 },
+            position: { x: T + 2, y: sy, z: 18 },
+            materialId: bodyMaterialId,
+            isManufacturablePanel: true,
+            thicknessAxis: "y",
+          },
+          {
+            id: `${sh.id || module.id}_l_shelf_ret_${sIdx}`,
+            role: "shelf",
+            label: `L-Köşe Raf #${sIdx + 1} (Dönüş Kolu)`,
+            bayIndex: 0,
+            dimensions: { width: wingD - T - 24, height: T, depth: returnSpanZ - T - 4 },
+            position: { x: T + 18, y: sy, z: wingD - 2 },
+            materialId: bodyMaterialId,
+            isManufacturablePanel: true,
+            thicknessAxis: "y",
+          }
+        );
+      });
+      firstBay.hangingRails.forEach((rl, rIdx) => {
+        const ry = plinthHeight + T + rl.elevationY;
+        components.push(
+          {
+            id: rl.id || `${module.id}_l_rail_main_${rIdx}`,
+            role: "hanging_rail",
+            label: `L-Köşe Askı Borusu #${rIdx + 1} (Ana Kol)`,
+            bayIndex: 0,
+            dimensions: { width: width - 2 * T - 10, height: 25, depth: 15 },
+            position: { x: T + 5, y: ry, z: wingD * 0.5 },
+            materialId: "mat_metal_chrome",
+            isManufacturablePanel: false,
+          },
+          {
+            id: `${rl.id || module.id}_l_rail_ret_${rIdx}`,
+            role: "hanging_rail",
+            label: `L-Köşe Askı Borusu #${rIdx + 1} (Dönüş Kolu)`,
+            bayIndex: 0,
+            dimensions: { width: 15, height: 25, depth: returnSpanZ - T - 10 },
+            position: { x: wingD * 0.5, y: ry, z: wingD + 5 },
+            materialId: "mat_metal_chrome",
+            isManufacturablePanel: false,
+          }
+        );
+      });
+    }
+
+    // 5. L-Shaped Calacatta Quartz Countertop & Backsplash for Kitchen Base L-Corner
+    if (!isWardrobe && !isWallL) {
+      components.push(
+        {
+          id: `${module.id}_l_countertop_main`,
+          role: "countertop",
+          label: "L-Köşe Kuvars Tezgâh (Ana Kol 38mm)",
+          dimensions: { width, height: 38, depth: wingD + 22 },
+          position: { x: 0, y: height, z: 0 },
+          materialId: module.carcass.countertopMaterialId || "mat_neolith_calacatta_luxe",
+          isFrontFacing: true,
+          isManufacturablePanel: false,
+        },
+        {
+          id: `${module.id}_l_countertop_return`,
+          role: "countertop",
+          label: "L-Köşe Kuvars Tezgâh (Dönüş Kolu 38mm)",
+          dimensions: { width: wingD + 22, height: 38, depth: returnSpanZ },
+          position: { x: 0, y: height, z: wingD },
+          materialId: module.carcass.countertopMaterialId || "mat_neolith_calacatta_luxe",
+          isFrontFacing: true,
+          isManufacturablePanel: false,
+        }
+      );
+    }
+
+    // 6. 90° Inner-Corner Bi-Fold Meeting Doors (unless open walk-in)
+    if (!module.isOpenFront && firstBay?.door && firstBay.door.type !== "open" && firstBay.door.doorSystemId !== "open") {
+      const doorY = plinthHeight + doorPerimeterGap;
+      const doorH = Math.max(120, height - plinthHeight - 2 * doorPerimeterGap);
+      const leaf1W = Math.max(120, width - wingD - doorPerimeterGap * 2);
+      const leaf2W = Math.max(120, returnSpanZ - T - doorPerimeterGap * 2);
+      const rad = (doorOpenAngleDeg * Math.PI) / 180;
+      const doorMatId = firstBay.door.doorMaterialId || doorMaterialId;
+
+      const leaf1: ComponentGeometry = {
+        id: `${firstBay.door.id}_lcorner_right`,
+        role: "door_right",
+        label: "90° L-Köşe Sağ Kanat (X Açılım)",
+        bayIndex: 0,
+        dimensions: { width: leaf1W, height: doorH, depth: T },
+        position: { x: wingD + doorPerimeterGap, y: doorY, z: wingD },
+        rotation: [0, rad, 0],
+        pivot: { x: wingD + doorPerimeterGap + leaf1W, y: doorY, z: wingD + T },
+        materialId: doorMatId,
+        isFrontFacing: true,
+        isManufacturablePanel: true,
+        thicknessAxis: "z",
+      };
+      components.push(leaf1);
+
+      // Second 90° meeting leaf along Z return wall (at x = wingD, spanning z = wingD + T .. depth - T)
+      const openShiftZ = Math.round(Math.sin(rad * 0.85) * leaf2W * 0.45);
+      const openShiftX = Math.round(Math.sin(rad * 0.85) * leaf2W * 0.75);
+      components.push({
+        id: `${firstBay.door.id}_lcorner_return`,
+        role: "door_left",
+        label: "90° L-Köşe Dönüş Kanadı (Z Açılım)",
+        bayIndex: 0,
+        dimensions: { width: T, height: doorH, depth: leaf2W },
+        position: {
+          x: wingD + openShiftX,
+          y: doorY,
+          z: wingD + T + doorPerimeterGap - openShiftZ,
+        },
+        rotation: [0, -rad * 0.85, 0],
+        pivot: { x: wingD + T, y: doorY, z: wingD + T + doorPerimeterGap + leaf2W },
+        materialId: doorMatId,
+        isFrontFacing: true,
+        isManufacturablePanel: true,
+        thicknessAxis: "x",
+      });
+
+      const hCat = firstBay.door.handleCategory || "bar_handle";
+      components.push(
+        ...generateHandleGeometry(leaf1, hCat, {
+          moduleCategory: module.category,
+          moduleElevationY: module.position.y,
+          moduleHeight: module.dimensions.height,
+        })
+      );
+    }
+
+    if (module.componentMaterialOverrides) {
+      components.forEach((c) => {
+        const ov = module.componentMaterialOverrides?.[c.id];
+        if (ov) c.materialId = ov;
+      });
+    }
+    const lResult: ModuleGeometryBreakdown = {
+      moduleId: module.id,
+      overall: module.dimensions,
+      components,
+      bayWidths: [width - 2 * T],
+      netInnerHeight: netH,
+      netInnerDepth: wingD - 20,
+    };
+    moduleGeometryCache.set(cacheKey, lResult);
+    return lResult;
+  }
+
+  // 1. Plinth (Baza) & Visible Adjustable Plastic Kitchen Legs
   if (plinthHeight > 0) {
-    components.push({
-      id: `${module.id}_plinth_front`,
-      role: "plinth",
-      label: "Baza Ön",
-      dimensions: {
-        width: isWardrobe ? innerSpanW : width,
-        height: plinthHeight,
-        depth: T,
-      },
-      position: {
-        x: isWardrobe ? T : 0,
-        y: explodeY > 0 ? -explodeY : 0,
-        z: depth - T - 20,
-      },
-      materialId: bodyMaterialId,
-      isManufacturablePanel: true,
-      thicknessAxis: "z",
-    });
+    if (isWardrobe) {
+      // In wardrobes, side panels extend to floor so plinth fits between side panels (x = T, width = innerSpanW)
+      components.push({
+        id: `${module.id}_plinth_front`,
+        role: "plinth",
+        label: "Baza Ön",
+        dimensions: {
+          width: innerSpanW,
+          height: plinthHeight,
+          depth: T,
+        },
+        position: {
+          x: T,
+          y: explodeY > 0 ? -explodeY : 0,
+          z: depth - T - 20,
+        },
+        materialId: bodyMaterialId,
+        isManufacturablePanel: true,
+        thicknessAxis: "z",
+      });
+    } else {
+      // In kitchen base & tall cabinets: generate visible 3D Adjustable Black ABS Plastic Legs (_plastic_leg_)!
+      const legXs = [46, width - 46];
+      if (width > 950) {
+        legXs.push(Math.round(width / 2));
+      }
+      // 1. Adjustable Black ABS Plastic Legs sit at z = depth - 82mm (strictly BEHIND the front plinth board!)
+      const legZs = [54, Math.max(90, depth - 82)];
+      let legCounter = 1;
+      for (const lx of legXs) {
+        for (const lz of legZs) {
+          components.push({
+            id: `${module.id}_plastic_leg_${legCounter}`,
+            role: "special_fitting",
+            label: `Ayarlanabilir Plastik Mutfak Baza Ayağı #${legCounter} (H:${plinthHeight}mm)`,
+            dimensions: { width: 52, height: plinthHeight, depth: 52 },
+            position: {
+              x: lx - 26,
+              y: explodeY > 0 ? -explodeY : 0,
+              z: lz - 26,
+            },
+            materialId: "mat_anodized_metal",
+            isManufacturablePanel: false,
+          });
+          legCounter++;
+        }
+      }
+      // 2. Ready-Made Kitchen Base Front Plinth (Ön Baza Bandı) is included by default at z = depth - T - 24 (in front of the plastic legs!)
+      components.push({
+        id: `${module.id}_plinth_front`,
+        role: "plinth",
+        label: `Mutfak Ön Baza Bandı (H:${plinthHeight}mm, Su Contalı)`,
+        dimensions: {
+          width,
+          height: plinthHeight,
+          depth: T,
+        },
+        position: {
+          x: 0,
+          y: explodeY > 0 ? -explodeY : 0,
+          z: depth - T - 24,
+        },
+        materialId: doorMaterialId || bodyMaterialId,
+        isFrontFacing: true,
+        isManufacturablePanel: true,
+        thicknessAxis: "z",
+      });
+    }
   }
 
   // 2. Left Side Panel — in wardrobes, side panels extend all the way to the floor (y = 0, height = height)
@@ -301,7 +708,7 @@ export function generateModuleGeometry(
       label: `Çimstone Calacatta Kuvars Tezgâh (38mm)`,
       dimensions: { width, height: ctopThickness, depth: depth + 26 },
       position: { x: 0, y: height, z: 0 },
-      materialId: "mat_stone_calacatta",
+      materialId: module.carcass.countertopMaterialId || "mat_neolith_calacatta_luxe",
       isFrontFacing: true,
       isManufacturablePanel: false,
     });
@@ -311,7 +718,7 @@ export function generateModuleGeometry(
       label: `Tezgâh Arka Süpürgelik Çıtası (45×18mm)`,
       dimensions: { width, height: 45, depth: 18 },
       position: { x: 0, y: height + ctopThickness, z: 0 },
-      materialId: "mat_stone_calacatta",
+      materialId: module.carcass.countertopMaterialId || "mat_neolith_calacatta_luxe",
       isFrontFacing: true,
       isManufacturablePanel: false,
     });
@@ -350,6 +757,12 @@ export function generateModuleGeometry(
 
   // 7. Bays, Internal Dividers, Shelves, Rails, Drawers & All 12 V4 Door Systems
   let currentX = T;
+  const moduleVertLedSpec = module.bays
+    .flatMap((b) => b.specialFittings || [])
+    .find((f) => f.type === "led_vertical_strip");
+  const moduleHorizLedSpec = module.bays
+    .flatMap((b) => b.specialFittings || [])
+    .find((f) => f.type === "led_profile");
 
   module.bays.forEach((bay, bayIdx) => {
     const bayW = bayWidths[bayIdx] || 0;
@@ -369,6 +782,72 @@ export function generateModuleGeometry(
         isManufacturablePanel: true,
         thicknessAxis: "x",
       });
+    }
+
+    // Multi-Door / Multi-Bay Automatic Recessed Vertical Side LEDs on BOTH left & right panels of EVERY bay!
+    if (moduleVertLedSpec) {
+      const hasOwnVertLed = (bay.specialFittings || []).some((f) => f.type === "led_vertical_strip");
+      if (!hasOwnVertLed) {
+        const chanW = Math.max(6, Math.min(40, moduleVertLedSpec.width || 14));
+        const chanSetbackD = Math.max(20, Math.min(depth - 40, moduleVertLedSpec.depth || 75));
+        const vLedH = Math.max(160, netInnerH - 24);
+        const ledZ = Math.max(24, depth - chanSetbackD);
+        components.push(
+          {
+            id: `${module.id}_bay_${bayIdx}_recessed_led_vert_left`,
+            role: "special_fitting",
+            label: `B${bayIdx + 1} Sol Yan Gömme LED Kanal 3000K (${chanW}×${chanSetbackD}mm)`,
+            bayIndex: bayIdx,
+            dimensions: { width: 4, height: vLedH, depth: chanW },
+            position: { x: bayStartX - 1.5, y: plinthHeight + T + 12, z: ledZ },
+            materialId: "mat_led_warm_3000k",
+            isManufacturablePanel: false,
+          },
+          {
+            id: `${module.id}_bay_${bayIdx}_recessed_led_vert_right`,
+            role: "special_fitting",
+            label: `B${bayIdx + 1} Sağ Yan Gömme LED Kanal 3000K (${chanW}×${chanSetbackD}mm)`,
+            bayIndex: bayIdx,
+            dimensions: { width: 4, height: vLedH, depth: chanW },
+            position: { x: bayStartX + bayW - 2.5, y: plinthHeight + T + 12, z: ledZ },
+            materialId: "mat_led_warm_3000k",
+            isManufacturablePanel: false,
+          }
+        );
+      }
+    }
+
+    // Multi-Door / Multi-Bay Automatic Recessed Top & Under-Shelf LEDs on EVERY bay!
+    if (moduleHorizLedSpec) {
+      const hasOwnHorizLed = (bay.specialFittings || []).some((f) => f.type === "led_profile");
+      if (!hasOwnHorizLed) {
+        const spanW = Math.max(60, Math.min(bayW - 4, moduleHorizLedSpec.width || bayW - 12));
+        const chanD = Math.max(8, Math.min(60, moduleHorizLedSpec.depth || 18));
+        const xOff = bayStartX + Math.round((bayW - spanW) / 2);
+        const zPos = Math.max(50, depth - 95);
+        components.push({
+          id: `${module.id}_bay_${bayIdx}_recessed_led_top`,
+          role: "special_fitting",
+          label: `B${bayIdx + 1} Üst Tabla Gömme LED Kanal 3000K (${spanW}×${chanD}mm)`,
+          bayIndex: bayIdx,
+          dimensions: { width: spanW, height: 4, depth: chanD },
+          position: { x: xOff, y: plinthHeight + T + netInnerH - 2.5, z: zPos },
+          materialId: "mat_led_warm_3000k",
+          isManufacturablePanel: false,
+        });
+        bay.shelves.forEach((sh, shIdx) => {
+          components.push({
+            id: `${module.id}_bay_${bayIdx}_recessed_led_sh_${shIdx}`,
+            role: "special_fitting",
+            label: `B${bayIdx + 1} Raf #${shIdx + 1} Altı Gömme LED 3000K (${spanW}×${chanD}mm)`,
+            bayIndex: bayIdx,
+            dimensions: { width: spanW, height: 4, depth: chanD },
+            position: { x: xOff, y: plinthHeight + T + sh.elevationY - 2.5, z: zPos },
+            materialId: "mat_led_warm_3000k",
+            isManufacturablePanel: false,
+          });
+        });
+      }
     }
 
     // Shelves
@@ -454,23 +933,36 @@ export function generateModuleGeometry(
         fit.type === "led_vertical_strip" ||
         fit.type === "led_rod_strip";
 
-      // Primary interactive component (for LED fittings, use a sleek 3000K warm emissive LED bar instead of a full-bay chrome box!)
+      const ledChanW =
+        fit.type === "led_vertical_strip"
+          ? Math.max(6, Math.min(40, fit.width || 14))
+          : Math.max(60, Math.min(bayW - 4, fit.width || bayW - 12));
+      const ledChanD =
+        fit.type === "led_vertical_strip"
+          ? Math.max(20, Math.min(depth - 40, fit.depth || 75))
+          : Math.max(8, Math.min(60, fit.depth || 18));
+
+      // Primary interactive component (for LED fittings, use a flush RECESSED 3000K warm emissive LED channel milled into the panel!)
       components.push({
-        id: baseId,
+        id: `${baseId}_recessed_led_main`,
         role: "special_fitting",
-        label: `${brandLabel} B${bayIdx + 1}`,
+        label: `${brandLabel} B${bayIdx + 1} (${ledChanW}×${ledChanD}mm)`,
         bayIndex: bayIdx,
         dimensions: isLedFitting
           ? fit.type === "led_vertical_strip"
-            ? { width: 14, height: Math.max(160, netInnerH - 40), depth: 18 }
-            : { width: Math.max(60, bayW - 12), height: 14, depth: 22 }
+            ? { width: 4, height: Math.max(160, netInnerH - 24), depth: ledChanW }
+            : { width: ledChanW, height: 4, depth: ledChanD }
           : { width: fitW, height: fit.height, depth: fitD },
         position: isLedFitting
           ? fit.type === "led_vertical_strip"
-            ? { x: bayStartX + 3, y: plinthHeight + T + 20, z: Math.max(60, depth - 85) }
+            ? { x: bayStartX - 1.5, y: plinthHeight + T + 12, z: Math.max(24, depth - ledChanD) }
             : fit.type === "led_rod_strip"
-            ? { x: bayStartX + 6, y: fitY, z: depth / 2 }
-            : { x: bayStartX + 6, y: plinthHeight + T + netInnerH - 16, z: Math.max(80, depth - 110) }
+            ? { x: bayStartX + Math.round((bayW - ledChanW) / 2), y: fitY, z: depth / 2 }
+            : {
+                x: bayStartX + Math.round((bayW - ledChanW) / 2),
+                y: plinthHeight + T + netInnerH - 2.5,
+                z: Math.max(50, depth - 95),
+              }
           : { x: fitX, y: fitY, z: fitZ },
         materialId: isLedFitting ? "mat_led_warm_3000k" : "mat_metal_chrome",
         isManufacturablePanel: false,
@@ -592,52 +1084,31 @@ export function generateModuleGeometry(
           }
         );
       } else if (fit.type === "led_profile") {
-        components.push({
-          id: `${baseId}_sub_led_top`,
-          role: "special_fitting",
-          label: "Häfele Loox5 Üst Tabla Gömme LED 3000K",
-          bayIndex: bayIdx,
-          dimensions: { width: Math.max(60, bayW - 12), height: 10, depth: 18 },
-          position: { x: bayStartX + 6, y: plinthHeight + T + netInnerH - 12, z: Math.max(80, depth - 110) },
-          materialId: "mat_led_warm_3000k",
-          isManufacturablePanel: false,
-        });
+        const xOff = bayStartX + Math.round((bayW - ledChanW) / 2);
         bay.shelves.forEach((sh, shIdx) => {
           components.push({
-            id: `${baseId}_sub_led_sh_${shIdx}`,
+            id: `${baseId}_recessed_led_sh_${shIdx}`,
             role: "special_fitting",
-            label: `Häfele Loox5 Raf #${shIdx + 1} Altı Gömme LED 3000K`,
+            label: `Häfele Loox5 Raf #${shIdx + 1} Altı Gömme LED 3000K (${ledChanW}×${ledChanD}mm)`,
             bayIndex: bayIdx,
-            dimensions: { width: Math.max(60, bayW - 12), height: 10, depth: 18 },
-            position: { x: bayStartX + 6, y: plinthHeight + T + sh.elevationY - 10, z: Math.max(80, depth - 110) },
+            dimensions: { width: ledChanW, height: 4, depth: ledChanD },
+            position: { x: xOff, y: plinthHeight + T + sh.elevationY - 2.5, z: Math.max(50, depth - 95) },
             materialId: "mat_led_warm_3000k",
             isManufacturablePanel: false,
           });
         });
       } else if (fit.type === "led_vertical_strip") {
-        const vLedH = Math.max(160, netInnerH - 40);
-        components.push(
-          {
-            id: `${baseId}_sub_led_vert_left`,
-            role: "special_fitting",
-            label: "Häfele Loox5 Sol Dikme Boy LED 3000K",
-            bayIndex: bayIdx,
-            dimensions: { width: 12, height: vLedH, depth: 16 },
-            position: { x: bayStartX + 2, y: plinthHeight + T + 20, z: Math.max(60, depth - 85) },
-            materialId: "mat_led_warm_3000k",
-            isManufacturablePanel: false,
-          },
-          {
-            id: `${baseId}_sub_led_vert_right`,
-            role: "special_fitting",
-            label: "Häfele Loox5 Sağ Dikme Boy LED 3000K",
-            bayIndex: bayIdx,
-            dimensions: { width: 12, height: vLedH, depth: 16 },
-            position: { x: bayStartX + bayW - 14, y: plinthHeight + T + 20, z: Math.max(60, depth - 85) },
-            materialId: "mat_led_warm_3000k",
-            isManufacturablePanel: false,
-          }
-        );
+        const vLedH = Math.max(160, netInnerH - 24);
+        components.push({
+          id: `${baseId}_recessed_led_vert_right`,
+          role: "special_fitting",
+          label: `Häfele Loox5 Sağ Dikme Gömme Boy LED 3000K (${ledChanW}×${ledChanD}mm)`,
+          bayIndex: bayIdx,
+          dimensions: { width: 4, height: vLedH, depth: ledChanW },
+          position: { x: bayStartX + bayW - 2.5, y: plinthHeight + T + 12, z: Math.max(24, depth - ledChanD) },
+          materialId: "mat_led_warm_3000k",
+          isManufacturablePanel: false,
+        });
       } else if (fit.type === "led_rod_strip") {
         components.push({
           id: `${baseId}_sub_led_rod`,
@@ -1035,13 +1506,16 @@ export function generateModuleGeometry(
           });
         });
       } else if (dSys === "lift_bi_fold") {
-        // WP-04: Coupled 2-leaf bi-fold linkage (AVENTOS HF top)
+        // WP-04: Coupled 2-leaf bi-fold linkage (Blum AVENTOS HF top)
+        // Upper leaf pivots around its stationary TOP edge (y = doorY + 2*halfH + gap, z = doorZ)
+        // Lower leaf top edge is hinged directly to the moving bottom edge of the upper leaf!
         const halfH = leafSpec.leafHeightMm;
-        const thetaTop = rad * 0.96;
-        const thetaBot = rad * 0.58;
-        const topPivotY = doorY + halfH + doorPerimeterGap;
-        const midJointRiseY = Math.round(halfH * (1 - Math.cos(thetaTop)) * 0.72);
-        const midJointOutZ = Math.round(halfH * Math.sin(thetaTop) * 0.78);
+        const thetaTop = rad * 0.92;
+        const thetaBot = rad * 0.62;
+        const topLeafBaseY = doorY + halfH + doorPerimeterGap;
+        const topCeilingPivotY = topLeafBaseY + halfH;
+        const knuckleJointY = topCeilingPivotY - Math.round(halfH * Math.cos(thetaTop)) - doorPerimeterGap;
+        const knuckleJointZ = doorZ + Math.round(halfH * Math.sin(thetaTop));
         components.push({
           id: `${bay.door.id}_lift_bifold_top`,
           role: "door_left",
@@ -1050,8 +1524,8 @@ export function generateModuleGeometry(
           dimensions: { width: fullDoorW, height: halfH, depth: T_door },
           position: {
             x: doorX0,
-            y: topPivotY + midJointRiseY * 0.55,
-            z: doorZ + midJointOutZ * 0.75,
+            y: topLeafBaseY,
+            z: doorZ,
           },
           rotation: [-thetaTop, 0, 0],
           materialId: doorMatId,
@@ -1067,8 +1541,8 @@ export function generateModuleGeometry(
           dimensions: { width: fullDoorW, height: halfH, depth: T_door },
           position: {
             x: doorX0,
-            y: doorY + midJointRiseY + Math.round(openRatio * halfH * 0.55),
-            z: doorZ + midJointOutZ,
+            y: knuckleJointY - halfH,
+            z: knuckleJointZ,
           },
           rotation: [thetaBot, 0, 0],
           materialId: doorMatId,
@@ -1076,7 +1550,7 @@ export function generateModuleGeometry(
           isManufacturablePanel: true,
           thicknessAxis: "z",
         });
-        // Real 3D Blum AVENTOS HF top Bi-Fold Power Units, Telescopic Arms & Center Knuckle Hinges (Left & Right)
+        // Real 3D Blum AVENTOS HF top Bi-Fold Power Units & Telescopic Arms (Left & Right)
         const mechH = Math.min(145, Math.max(90, doorH * 0.34));
         const mechD = Math.min(230, Math.max(120, netInnerD * 0.66));
         const mechY = doorY + Math.max(40, doorH - mechH - 22);
@@ -1088,7 +1562,7 @@ export function generateModuleGeometry(
             role: "special_fitting",
             label: `Blum AVENTOS HF top Katlanır Teleskopik Mekanizma (${isRightSide ? "Sağ" : "Sol"}) B${bayIdx + 1}`,
             bayIndex: bayIdx,
-            dimensions: { width: 32, height: mechH, depth: mechD + Math.round(midJointOutZ * 0.75) },
+            dimensions: { width: 32, height: mechH, depth: mechD + Math.round((knuckleJointZ - doorZ) * 0.65) },
             position: {
               x: isRightSide ? bayStartX + bayW - 34 : bayStartX + 2,
               y: mechY,
@@ -1100,15 +1574,17 @@ export function generateModuleGeometry(
           });
         });
       } else if (dSys === "folding_side" || dType === "folding") {
-        // WP-04: Coupled side-folding wing kinematics (WingLine L)
-        const wingW = leafSpec.leafWidthMm;
-        const thetaWing = rad * 0.94;
+        // WP-04: True Coupled Accordion Bi-Fold Kinematics (Hettich WingLine L)
+        // Wing 1 pivots around left carcass edge (doorX0, doorZ + T_door) by -thetaWing;
+        // Wing 2 left knuckle is locked to Wing 1 right tip (jointX, jointZ) and rotates by +thetaWing so its right roller glides along z = doorZ!
+        const wingW = Math.max(120, Math.round((fullDoorW - doorPerimeterGap) / 2));
+        const thetaWing = rad * 0.88;
         const jointX = doorX0 + Math.round(wingW * Math.cos(thetaWing)) + doorPerimeterGap;
-        const jointZ = doorZ + Math.round(wingW * Math.sin(thetaWing) * 0.82);
+        const jointZ = doorZ + Math.round(wingW * Math.sin(thetaWing));
         components.push({
           id: `${bay.door.id}_fold_wing_1`,
           role: "door_left",
-          label: `Katlanır Sol Kanat B${bayIdx + 1}`,
+          label: `Katlanır Sol Ana Kanat B${bayIdx + 1}`,
           bayIndex: bayIdx,
           dimensions: { width: wingW, height: doorH, depth: T_door },
           position: { x: doorX0, y: doorY, z: doorZ },
@@ -1121,7 +1597,7 @@ export function generateModuleGeometry(
         components.push({
           id: `${bay.door.id}_fold_wing_2`,
           role: "door_right",
-          label: `Katlanır Orta Kanat B${bayIdx + 1}`,
+          label: `Katlanır Sağ Eşlenik Kanat B${bayIdx + 1}`,
           bayIndex: bayIdx,
           dimensions: { width: wingW, height: doorH, depth: T_door },
           position: {
@@ -1129,11 +1605,22 @@ export function generateModuleGeometry(
             y: doorY,
             z: jointZ,
           },
-          rotation: [0, thetaWing * 0.92, 0],
+          rotation: [0, thetaWing, 0],
           materialId: doorMatId,
           isFrontFacing: true,
           isManufacturablePanel: true,
           thicknessAxis: "z",
+        });
+        // Top Aluminum Guide Track for Hettich WingLine L Folding System
+        components.push({
+          id: `${bay.door.id}_wingline_top_track`,
+          role: "special_fitting",
+          label: `Hettich WingLine L Üst Katlanır Kılavuz Rayı B${bayIdx + 1}`,
+          bayIndex: bayIdx,
+          dimensions: { width: fullDoorW, height: 14, depth: 22 },
+          position: { x: doorX0, y: doorY + doorH - 12, z: doorZ - 8 },
+          materialId: "mat_metal_chrome",
+          isManufacturablePanel: false,
         });
       } else if (dSys === "pocket_retractable" || dType === "pocket") {
         // WP-04: Two-stage pivot (0..35%) then linear pocket retraction (35..100%)
@@ -1280,6 +1767,15 @@ export function generateModuleGeometry(
     }
   }
 
+  if (module.componentMaterialOverrides) {
+    components.forEach((c) => {
+      if (c.role === "plinth" && module.componentMaterialOverrides?.__plinth__) {
+        c.materialId = module.componentMaterialOverrides.__plinth__;
+      }
+      const ov = module.componentMaterialOverrides?.[c.id];
+      if (ov) c.materialId = ov;
+    });
+  }
   const result: ModuleGeometryBreakdown = {
     moduleId: module.id,
     overall: module.dimensions,

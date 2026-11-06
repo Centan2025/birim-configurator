@@ -27,7 +27,9 @@ import {
 import {
   getV3PbrMaterial,
   getStudioEnvironmentTexture,
+  getStudioPmremEnvironment,
   getArchitecturalFloorTexture,
+  type ArchitecturalFloorStyle,
 } from "../materials/pbrMaterialSystem";
 import { Plus, Layers, RotateCw, Columns, Ruler } from "lucide-react";
 
@@ -37,16 +39,17 @@ function getContactAoShadowTexture(): THREE.CanvasTexture | null {
   if (typeof document === "undefined") return null;
   if (cachedContactAoTex) return cachedContactAoTex;
   const canvas = document.createElement("canvas");
-  canvas.width = 128;
-  canvas.height = 128;
+  canvas.width = 256;
+  canvas.height = 256;
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
-  const grad = ctx.createRadialGradient(64, 64, 10, 64, 64, 62);
-  grad.addColorStop(0, "rgba(15, 13, 11, 0.52)");
-  grad.addColorStop(0.55, "rgba(28, 25, 23, 0.26)");
+  const grad = ctx.createRadialGradient(128, 128, 14, 128, 128, 124);
+  grad.addColorStop(0, "rgba(12, 10, 9, 0.68)");
+  grad.addColorStop(0.42, "rgba(20, 18, 15, 0.38)");
+  grad.addColorStop(0.75, "rgba(28, 25, 23, 0.14)");
   grad.addColorStop(1, "rgba(28, 25, 23, 0.0)");
   ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, 128, 128);
+  ctx.fillRect(0, 0, 256, 256);
   const tex = new THREE.CanvasTexture(canvas);
   tex.needsUpdate = true;
   cachedContactAoTex = tex;
@@ -103,14 +106,14 @@ function getCachedEdgeMaterial(
       color: isSelected ? 0xb86b2b : isActiveMod ? 0x1c1917 : isLightTheme ? 0x292524 : 0x64748b,
       linewidth: 1,
       opacity: isSelected
-        ? 1.0
+        ? 0.95
         : isPhotoreal
         ? isActiveMod
-          ? 0.42
-          : 0.26
+          ? 0.18
+          : 0.11
         : isActiveMod
-        ? 0.88
-        : 0.65,
+        ? 0.85
+        : 0.62,
       transparent: true,
     });
     v3EdgeCache.set(key, m);
@@ -272,6 +275,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       addSubDivider,
       addAdjacentModule,
       rotateActiveModule90,
+      flipActiveDoorDirection,
       setModulePosition,
       swapModuleWithNeighbor,
       finishModuleDragWithSmartSwap,
@@ -288,9 +292,17 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
     const [lightingPreset, setLightingPreset] = useState<"daylight" | "showroom_warm" | "night_led">(
       "showroom_warm"
     );
-    const [floorStyle, setFloorStyle] = useState<"oak_parquet" | "travertine" | "studio">(
-      "oak_parquet"
-    );
+    const [floorStyle, setFloorStyle] = useState<ArchitecturalFloorStyle>("oak_parquet");
+    const [activeCamPill, setActiveCamPill] = useState<"3d" | "2d" | "front" | "side" | "top" | "interior">("3d");
+    const [renderMenuOpen, setRenderMenuOpen] = useState<boolean>(false);
+    useEffect(() => {
+      const onFloorChange = (ev: Event) => {
+        const customEv = ev as CustomEvent<ArchitecturalFloorStyle>;
+        if (customEv.detail) setFloorStyle(customEv.detail);
+      };
+      window.addEventListener("birim:set-floor-style", onFloorChange);
+      return () => window.removeEventListener("birim:set-floor-style", onFloorChange);
+    }, []);
     const [renderEdgeMode, setRenderEdgeMode] = useState<"photoreal" | "cad">("photoreal");
     const [moveObjectMode3D, setMoveObjectMode3D] = useState<boolean>(true);
     const [invertCameraMouse, setInvertCameraMouse] = useState<boolean>(true);
@@ -383,73 +395,43 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       const mod = project.modules[activeModuleIndex] || project.modules[0];
       if (!effectiveShowDimensions || !mod) return [];
       const { width: W, height: H, depth: D } = mod.dimensions;
-      const T = mod.carcass.panelThickness;
-      const fourSpaces = calculateFourSpaceDimensions(mod);
+      const T = mod.carcass.panelThickness || 18;
+      const soketW = Math.max(200, W - 2 * T);
       const list: DimensionAnchor[] = [
         {
-          id: "dim_SEL",
-          tag: `★ SEÇİLİ MODÜL #${activeModuleIndex + 1}`,
-          valueText: mod.name,
-          borderColor: "#d97706",
-          badgeBg: "#b45309",
-          localMidpoint: new THREE.Vector3(W * 0.5, H + 235, D * 0.5),
-        },
-        {
           id: "dim_W",
-          tag: "GENİŞLİK",
+          tag: "Genişlik",
           valueText: `${W} mm`,
-          borderColor: "#b45309",
-          badgeBg: "#b45309",
-          localMidpoint: new THREE.Vector3(W * 0.5, H + 115, D),
+          borderColor: "#E2DDD3",
+          badgeBg: "#2B2927",
+          localMidpoint: new THREE.Vector3(W * 0.5, H + 105, D * 0.65),
         },
         {
           id: "dim_H",
-          tag: "YÜKSEKLİK",
+          tag: "Yükseklik",
           valueText: `${H} mm`,
-          borderColor: "#0369a1",
-          badgeBg: "#0369a1",
-          localMidpoint: new THREE.Vector3(W + 130, H * 0.5, D),
+          borderColor: "#BFDBFE",
+          badgeBg: "#2563EB",
+          localMidpoint: new THREE.Vector3(W + 115, H * 0.52, D),
         },
         {
           id: "dim_D",
-          tag: "DERİNLİK",
+          tag: "Derinlik",
           valueText: `${D} mm`,
-          borderColor: "#15803d",
-          badgeBg: "#15803d",
-          localMidpoint: new THREE.Vector3(W + 120, 0, D * 0.5),
+          borderColor: "#BBF7D0",
+          badgeBg: "#16A34A",
+          localMidpoint: new THREE.Vector3(W + 125, 18, D * 0.5),
+        },
+        {
+          id: "dim_SOKET",
+          tag: "Soket",
+          valueText: `${soketW} mm`,
+          borderColor: "#E2DDD3",
+          badgeBg: "#2B2927",
+          localMidpoint: new THREE.Vector3(W * 0.5, 8, D + 115),
         },
       ];
-      let curX = T;
-      fourSpaces.usableInternal.bayClearWidthsMm.forEach((bayW: number, bIdx: number) => {
-        list.push({
-          id: `dim_B_${bIdx}`,
-          tag: `BÖLME ${bIdx + 1}`,
-          valueText: `${bayW} mm`,
-          borderColor: "#44403c",
-          badgeBg: "#44403c",
-          localMidpoint: new THREE.Vector3(curX + bayW * 0.5, 0, D + 115),
-        });
-        curX += bayW + T;
-      });
 
-      // Add dimensions for ALL other modules in the scene so measurements are visible across the entire layout
-      project.modules.forEach((otherMod, mIdx) => {
-        if (mIdx === activeModuleIndex || otherMod.category === "complementary") return;
-        list.push({
-          id: `dim_MOD_${mIdx}`,
-          tag: `#${mIdx + 1} ${otherMod.name}`,
-          valueText: `${otherMod.dimensions.width}×${otherMod.dimensions.height} mm`,
-          borderColor: "#57534e",
-          badgeBg: "#44403c",
-          localMidpoint: new THREE.Vector3(
-            otherMod.dimensions.width * 0.5,
-            otherMod.dimensions.height + 95,
-            otherMod.dimensions.depth
-          ),
-        });
-      });
-
-      // Add Total Row Span dimension when multiple modules exist
       const mainMods = project.modules.filter((m) => m.category !== "complementary");
       if (mainMods.length > 1) {
         const minX = Math.min(...mainMods.map((m) => m.position.x));
@@ -457,11 +439,11 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         const maxH = Math.max(...mainMods.map((m) => m.position.y + m.dimensions.height));
         list.push({
           id: "dim_TOTAL_SPAN",
-          tag: "TOPLAM DİZİLİM",
+          tag: "Toplam Genişlik",
           valueText: `${Math.round(maxX - minX)} mm`,
-          borderColor: "#0f766e",
-          badgeBg: "#0f766e",
-          localMidpoint: new THREE.Vector3((minX + maxX) * 0.5, maxH + 340, 300),
+          borderColor: "#E2DDD3",
+          badgeBg: "#2B2927",
+          localMidpoint: new THREE.Vector3((minX + maxX) * 0.5, maxH + 260, 300),
         });
       }
 
@@ -598,15 +580,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       });
       controlsRef.current = controls;
 
-      // Generate PMREM prefiltered environment map for realistic roughness-aware reflections
-      try {
-        const pmrem = new THREE.PMREMGenerator(renderer);
-        pmrem.compileEquirectangularShader();
-        scene.environment = pmrem.fromEquirectangular(getStudioEnvironmentTexture()).texture;
-        pmrem.dispose();
-      } catch {
-        scene.environment = getStudioEnvironmentTexture();
-      }
+      // Generate HDR Studio Lightformer PMREM prefiltered environment map for photorealistic reflections
+      scene.environment = getStudioPmremEnvironment(renderer);
 
       // Calibrated Architectural Daylight + Warm Softbox Lighting with full-room 2048x2048 shadow frustum
       const hemiLight = new THREE.HemisphereLight(0xfffdf8, 0xd8d2c5, 0.92);
@@ -635,9 +610,14 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       scene.add(rimLight);
       rimLightRef.current = rimLight;
 
-      const frontFillLight = new THREE.DirectionalLight(0xfff8ed, 0.52);
+      const frontFillLight = new THREE.DirectionalLight(0xfff8ed, 0.58);
       frontFillLight.position.set(-1800, 1900, 3200);
       scene.add(frontFillLight);
+
+      // Upward warm floor bounce light (illuminates underside of upper cabinets, countertops, and Gola channels)
+      const floorBounceLight = new THREE.DirectionalLight(0xf7ead9, 0.36);
+      floorBounceLight.position.set(600, -1400, 2200);
+      scene.add(floorBounceLight);
 
       // Subtle architectural floor grid with clear contrast
       const gridColor1 = theme === "dark" ? 0x334155 : 0x8c857b;
@@ -2183,23 +2163,24 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       const fourSpaces = calculateFourSpaceDimensions(mod);
       const localAnchors: DimensionAnchor[] = [];
 
-      // 1. Total Width (W) along top-front edge
+      const soketW = Math.max(200, W - 2 * T);
+      // 1. Total Width (Genişlik) along top edge
       addDimensionSegment(
         modDimContainer,
         localAnchors,
         "dim_W",
-        new THREE.Vector3(0, H, D),
-        new THREE.Vector3(W, H, D),
+        new THREE.Vector3(0, H, D * 0.65),
+        new THREE.Vector3(W, H, D * 0.65),
         new THREE.Vector3(0, 1, 0),
         95,
-        "GENİŞLİK",
+        "Genişlik",
         `${W} mm`,
-        0xb45309,
-        "#b45309",
-        "#b45309"
+        0x2b2927,
+        "#E2DDD3",
+        "#2B2927"
       );
 
-      // 2. Total Height (H) along right-front vertical edge
+      // 2. Total Height (Yükseklik) along right-front vertical edge (Blue)
       addDimensionSegment(
         modDimContainer,
         localAnchors,
@@ -2207,15 +2188,15 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         new THREE.Vector3(W, 0, D),
         new THREE.Vector3(W, H, D),
         new THREE.Vector3(1, 0, 0),
-        115,
-        "YÜKSEKLİK",
+        95,
+        "Yükseklik",
         `${H} mm`,
-        0x0369a1,
-        "#0369a1",
-        "#0369a1"
+        0x2563eb,
+        "#BFDBFE",
+        "#2563EB"
       );
 
-      // 3. Total Depth (D) along right-bottom floor edge
+      // 3. Total Depth (Derinlik) along right-bottom floor edge (Green)
       addDimensionSegment(
         modDimContainer,
         localAnchors,
@@ -2223,45 +2204,31 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         new THREE.Vector3(W, 0, 0),
         new THREE.Vector3(W, 0, D),
         new THREE.Vector3(1, 0, 0),
-        105,
-        "DERİNLİK",
+        95,
+        "Derinlik",
         `${D} mm`,
-        0x15803d,
-        "#15803d",
-        "#15803d"
+        0x16a34a,
+        "#BBF7D0",
+        "#16A34A"
       );
 
-      // 4. Per-bay internal widths along front-bottom
-      let curX = T;
-      fourSpaces.usableInternal.bayClearWidthsMm.forEach((bayW: number, bIdx: number) => {
-        addDimensionSegment(
-          modDimContainer,
-          localAnchors,
-          `dim_B_${bIdx}`,
-          new THREE.Vector3(curX, 0, D + 20),
-          new THREE.Vector3(curX + bayW, 0, D + 20),
-          new THREE.Vector3(0, 0, 1),
-          90,
-          `BÖLME ${bIdx + 1}`,
-          `${bayW} mm`,
-          0x44403c,
-          "#44403c",
-          "#44403c"
-        );
-        curX += bayW + T;
-      });
+      // 4. Soket (Plinth width) along front-bottom floor edge
+      addDimensionSegment(
+        modDimContainer,
+        localAnchors,
+        "dim_SOKET",
+        new THREE.Vector3(T, 0, D),
+        new THREE.Vector3(W - T, 0, D),
+        new THREE.Vector3(0, 0, 1),
+        95,
+        "Soket",
+        `${soketW} mm`,
+        0x2b2927,
+        "#E2DDD3",
+        "#2B2927"
+      );
 
-      // Add Selected Module top anchor
-      localAnchors.unshift({
-        id: "dim_SEL",
-        tag: `★ SEÇİLİ MODÜL #${activeModuleIndex + 1}`,
-        valueText: mod.name,
-        borderColor: "#d97706",
-        badgeBg: "#b45309",
-        localMidpoint: new THREE.Vector3(W * 0.5, H + 235, D * 0.5),
-      });
-
-      dimGroup.add(modDimContainer);
+            dimGroup.add(modDimContainer);
       modDimContainer.updateMatrixWorld(true);
 
       const allWorldAnchors: { id: string; worldPos: THREE.Vector3 }[] = localAnchors.map((a) => ({
@@ -2523,7 +2490,7 @@ const clear3DGhostPreview = useCallback(() => {
         {dragDropSnapBanner && (
           <div
             data-testid="viewport-3d-dragdrop-snap-banner"
-            className="absolute top-14 left-1/2 -translate-x-1/2 z-30 pointer-events-none px-4 py-2 rounded-2xl bg-amber-700 text-white border-2 border-amber-200 shadow-xl font-mono text-xs font-extrabold flex items-center gap-2"
+            className="absolute top-14 left-1/2 -translate-x-1/2 z-30 pointer-events-none px-4 py-2 rounded-2xl bg-[#E8E2D5] text-[#1C1917] border border-[#BFB5A2] border-2 border-amber-200 shadow-xl font-mono text-xs font-extrabold flex items-center gap-2"
           >
             <span>{dragDropSnapBanner}</span>
           </div>
@@ -2534,7 +2501,7 @@ const clear3DGhostPreview = useCallback(() => {
           className="w-full h-full cursor-grab active:cursor-grabbing"
         />
 
-        {/* CRISP PROJECTED 3D DIMENSION CALLOUT PILLS OVERLAY */}
+        {/* CRISP PROJECTED 3D DIMENSION CALLOUT PILLS OVERLAY (Design Studio White Capsules) */}
         {effectiveShowDimensions && dimLabels.length > 0 && (
           <div
             data-testid="viewport-3d-dim-labels"
@@ -2552,18 +2519,14 @@ const clear3DGhostPreview = useCallback(() => {
                   }
                 }}
                 style={{
-                  borderColor: item.borderColor,
                   transform: "translate3d(-9999px, -9999px, 0)",
                 }}
-                className="absolute top-0 left-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-white/95 backdrop-blur-xs border-2 shadow-lg whitespace-nowrap transition-opacity duration-75"
+                className="absolute top-0 left-0 inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-white/95 backdrop-blur-xs border border-[#E2DDD3] shadow-md whitespace-nowrap transition-opacity duration-75"
               >
-                <span
-                  style={{ backgroundColor: item.badgeBg }}
-                  className="px-1.5 py-0.5 rounded-md text-[10px] font-black tracking-wide text-white leading-none"
-                >
+                <span className="text-[12px] font-bold text-[#1C1917] leading-none">
                   {item.tag}
                 </span>
-                <span className="text-[13px] font-black font-mono text-stone-950 leading-none tracking-tight">
+                <span className="text-[12px] font-medium text-[#57534E] leading-none">
                   {item.valueText}
                 </span>
               </div>
@@ -2575,427 +2538,637 @@ const clear3DGhostPreview = useCallback(() => {
         {active3DSnap && (
           <div
             data-testid="in-canvas-snap-badge"
-            className="absolute top-16 left-1/2 -translate-x-1/2 z-20 pointer-events-none px-3.5 py-1.5 rounded-xl bg-sky-700 text-white border-2 border-white shadow-lg font-mono text-xs font-extrabold flex items-center gap-2"
+            className="absolute top-16 left-1/2 -translate-x-1/2 z-20 pointer-events-none px-3.5 py-1.5 rounded-full bg-white/95 text-[#1C1917] border border-[#E2DDD3] shadow-lg text-xs font-bold flex items-center gap-2"
           >
             <span>🎯 Hizalandı: {active3DSnap.label}</span>
-            <span className="px-1.5 py-0.5 rounded bg-sky-900 text-sky-100">
+            <span className="px-2 py-0.5 rounded-full bg-[#F4F2ED] text-[#1C1917] font-mono">
               Y: {active3DSnap.elevationY} mm
             </span>
           </div>
         )}
 
-        {/* UNIFIED NON-OVERLAPPING 3D BOTTOM DOCK BAR (Lighting, Floor, Edge Mode, Mouse Mode, Room & Dimensions) */}
+        {/* LEFT VERTICAL VIEW & CAMERA PILL (Design Studio: 3D | 2D Plan | Ön | Yan | Üst | İç Görünüm | Fit) */}
         <div
           data-testid="viewport-3d-visual-quality-bar"
-          className="absolute bottom-3 left-3 right-3 z-10 flex items-center justify-between gap-2 bg-white/95 backdrop-blur-md px-3.5 py-2 rounded-2xl border border-stone-300 shadow-lg text-xs text-stone-800 overflow-x-auto"
+          className="absolute left-4 top-4 z-20 flex flex-col items-center gap-1 bg-white/95 backdrop-blur-md p-1.5 rounded-2xl border border-[#E6E2D8] shadow-md text-[#2B2927] w-[58px]"
         >
-          <div className="flex items-center gap-1 shrink-0">
-            {[
-              { id: "daylight", label: "☀️ Gün Işığı" },
-              { id: "showroom_warm", label: "✨ Showroom 3000K" },
-              { id: "night_led", label: "🌙 Gece / LED" },
-            ].map((lp) => (
-              <button
-                key={lp.id}
-                type="button"
-                data-testid={`viewport-3d-light-${lp.id}`}
-                onClick={() =>
-                  setLightingPreset(lp.id as "daylight" | "showroom_warm" | "night_led")
+          {[
+            {
+              id: "3d",
+              label: "3D",
+              icon: (
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <path d="M12 3L4 7.5v9L12 21l8-4.5v-9L12 3z" />
+                  <path d="M12 12l8-4.5M12 12v9M12 12L4 7.5" />
+                </svg>
+              ),
+              onClick: () => {
+                setActiveCamPill("3d");
+                const group = meshGroupRef.current,
+                  controls = controlsRef.current,
+                  perspective = perspCamRef.current;
+                if (group && controls && perspective) {
+                  const bounds = new THREE.Box3().setFromObject(group);
+                  if (!bounds.isEmpty()) {
+                    const center = bounds.getCenter(new THREE.Vector3());
+                    const radius = bounds.getSize(new THREE.Vector3()).length() / 2;
+                    const dist = Math.max(1200, radius * 2.35);
+                    const dir = new THREE.Vector3(0.95, 0.55, 1.35).normalize();
+                    controls.target.copy(center);
+                    perspective.position.copy(center).addScaledVector(dir, dist);
+                    perspective.lookAt(center);
+                    perspective.updateProjectionMatrix();
+                    controls.update();
+                    requestRender();
+                  }
                 }
-                className={`px-2 py-1 rounded-lg font-bold transition cursor-pointer shrink-0 ${
-                  lightingPreset === lp.id
-                    ? "bg-amber-600 text-white shadow-xs"
-                    : "bg-stone-100 hover:bg-stone-200 text-stone-800 border border-stone-300"
-                }`}
-              >
-                {lp.label}
-              </button>
-            ))}
-
-            <div className="h-4 w-px bg-stone-200 mx-0.5 shrink-0" />
-
-            {[
-              { id: "oak_parquet", label: "🪵 Parke" },
-              { id: "travertine", label: "🏛️ Mermer" },
-              { id: "studio", label: "⬜ Stüdyo" },
-            ].map((fl) => (
+              },
+            },
+            {
+              id: "2d-elevation",
+              label: "2D Cephe",
+              icon: (
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                  <path d="M12 3v18M3 15h18" />
+                </svg>
+              ),
+              onClick: () => {
+                if (typeof window !== "undefined") {
+                  window.dispatchEvent(
+                    new CustomEvent("birim:studio-view-change", { detail: "2d-elevation" })
+                  );
+                }
+              },
+            },
+            {
+              id: "2d-section",
+              label: "2D Kesit",
+              icon: (
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <rect x="5" y="3" width="14" height="18" rx="2" />
+                  <path d="M5 9h14M5 15h14" />
+                </svg>
+              ),
+              onClick: () => {
+                if (typeof window !== "undefined") {
+                  window.dispatchEvent(
+                    new CustomEvent("birim:studio-view-change", { detail: "2d-section" })
+                  );
+                }
+              },
+            },
+            {
+              id: "2d",
+              label: "2D Plan",
+              icon: (
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                  <path d="M3 9h18M9 9v12" />
+                </svg>
+              ),
+              onClick: () => {
+                setActiveCamPill("2d");
+                if (typeof window !== "undefined") {
+                  window.dispatchEvent(new CustomEvent("birim:studio-view-change", { detail: "plan" }));
+                }
+              },
+            },
+            {
+              id: "front",
+              label: "Ön",
+              icon: (
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <rect x="4" y="4" width="16" height="16" rx="2" />
+                  <path d="M4 9h16" />
+                </svg>
+              ),
+              onClick: () => {
+                setActiveCamPill("front");
+                const group = meshGroupRef.current,
+                  controls = controlsRef.current,
+                  perspective = perspCamRef.current;
+                if (group && controls && perspective) {
+                  const bounds = new THREE.Box3().setFromObject(group);
+                  if (!bounds.isEmpty()) {
+                    const center = bounds.getCenter(new THREE.Vector3());
+                    const radius = bounds.getSize(new THREE.Vector3()).length() / 2;
+                    const dist = Math.max(1200, radius * 2.3);
+                    controls.target.copy(center);
+                    perspective.position.set(center.x, center.y + 80, center.z + dist);
+                    perspective.lookAt(center);
+                    perspective.updateProjectionMatrix();
+                    controls.update();
+                    requestRender();
+                  }
+                }
+              },
+            },
+            {
+              id: "side",
+              label: "Yan",
+              icon: (
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <rect x="4" y="4" width="16" height="16" rx="2" />
+                  <path d="M12 4v16" />
+                </svg>
+              ),
+              onClick: () => {
+                setActiveCamPill("side");
+                const group = meshGroupRef.current,
+                  controls = controlsRef.current,
+                  perspective = perspCamRef.current;
+                if (group && controls && perspective) {
+                  const bounds = new THREE.Box3().setFromObject(group);
+                  if (!bounds.isEmpty()) {
+                    const center = bounds.getCenter(new THREE.Vector3());
+                    const radius = bounds.getSize(new THREE.Vector3()).length() / 2;
+                    const dist = Math.max(1200, radius * 2.3);
+                    controls.target.copy(center);
+                    perspective.position.set(center.x + dist, center.y + 80, center.z + 180);
+                    perspective.lookAt(center);
+                    perspective.updateProjectionMatrix();
+                    controls.update();
+                    requestRender();
+                  }
+                }
+              },
+            },
+            {
+              id: "top",
+              label: "Üst",
+              icon: (
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <rect x="4" y="4" width="16" height="16" rx="2" />
+                  <path d="M4 15h16" />
+                </svg>
+              ),
+              onClick: () => {
+                setActiveCamPill("top");
+                const group = meshGroupRef.current,
+                  controls = controlsRef.current,
+                  perspective = perspCamRef.current;
+                if (group && controls && perspective) {
+                  const bounds = new THREE.Box3().setFromObject(group);
+                  if (!bounds.isEmpty()) {
+                    const center = bounds.getCenter(new THREE.Vector3());
+                    const radius = bounds.getSize(new THREE.Vector3()).length() / 2;
+                    const dist = Math.max(1400, radius * 2.4);
+                    controls.target.copy(center);
+                    perspective.position.set(center.x, center.y + dist, center.z + 120);
+                    perspective.lookAt(center);
+                    perspective.updateProjectionMatrix();
+                    controls.update();
+                    requestRender();
+                  }
+                }
+              },
+            },
+            {
+              id: "interior",
+              label: "İç Görünüm",
+              icon: (
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <path d="M12 3L4 7.5v9L12 21l8-4.5v-9L12 3z" />
+                  <path d="M4 12l8 4.5 8-4.5" />
+                </svg>
+              ),
+              onClick: () => {
+                setActiveCamPill((prev) => (prev === "interior" ? "3d" : "interior"));
+                if (typeof window !== "undefined") {
+                  window.dispatchEvent(new CustomEvent("birim:toggle-interior-view"));
+                }
+              },
+            },
+          ].map((btn) => {
+            const isActive =
+              btn.id === "interior"
+                ? doorOpenAngleDeg > 10 || activeCamPill === "interior"
+                : activeCamPill === btn.id;
+            return (
               <button
-                key={fl.id}
+                key={btn.id}
                 type="button"
-                data-testid={`viewport-3d-floor-${fl.id}`}
-                onClick={() => setFloorStyle(fl.id as "oak_parquet" | "travertine" | "studio")}
-                className={`px-2 py-1 rounded-lg font-bold transition cursor-pointer shrink-0 ${
-                  floorStyle === fl.id
-                    ? "bg-amber-100 text-amber-950 border border-amber-400"
-                    : "bg-stone-100 hover:bg-stone-200 text-stone-800 border border-stone-300"
+                data-testid={`viewport-3d-pill-${btn.id}`}
+                onClick={btn.onClick}
+                className={`w-full py-2 px-1 rounded-xl flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
+                  isActive
+                    ? "bg-[#2B2927] text-white shadow-xs"
+                    : "text-[#57534E] hover:bg-[#F4F2ED] hover:text-[#1C1917]"
                 }`}
               >
-                {fl.label}
+                {btn.icon}
+                <span className="text-[9px] font-semibold leading-tight text-center">
+                  {btn.label}
+                </span>
               </button>
-            ))}
+            );
+          })}
 
-            <div className="h-4 w-px bg-stone-200 mx-0.5 shrink-0" />
+          <div className="w-8 h-px bg-[#E6E2D8] my-0.5" />
 
+          <button
+            type="button"
+            data-testid="in-canvas-fit-scene"
+            title="Sahneye Sığdır"
+            onClick={() => {
+              const group = meshGroupRef.current,
+                controls = controlsRef.current,
+                perspective = perspCamRef.current,
+                orthographic = orthoCamRef.current;
+              if (!group || !controls || !perspective || !orthographic) return;
+              const bounds = new THREE.Box3().setFromObject(group);
+              if (bounds.isEmpty()) return;
+              const center = bounds.getCenter(new THREE.Vector3());
+              const radius = bounds.getSize(new THREE.Vector3()).length() / 2;
+              const halfFov = Math.atan(
+                Math.tan((perspective.fov * Math.PI) / 360) * Math.min(1, perspective.aspect)
+              );
+              const distance = Math.max(500, (radius / Math.sin(halfFov)) * 1.15);
+              const direction = new THREE.Vector3(1, 0.7, 1.3).normalize();
+              controls.maxDistance = Math.max(14000, distance * 3);
+              controls.target.copy(center);
+              for (const camera of [perspective, orthographic]) {
+                camera.position.copy(center).addScaledVector(direction, distance);
+                camera.far = Math.max(25000, distance * 5);
+                camera.lookAt(center);
+              }
+              perspective.updateProjectionMatrix();
+              orthographic.updateProjectionMatrix();
+              controls.update();
+              requestRender();
+            }}
+            className="w-full py-2 rounded-xl flex items-center justify-center text-[#57534E] hover:bg-[#F4F2ED] hover:text-[#1C1917] transition cursor-pointer"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+            </svg>
+          </button>
+        </div>
+
+        {/* TOP-CENTER CONTEXTUAL ACTION BAR (Design Studio: Seç | Taşı | Ölçü | Kopyala | Aynala | Sil) */}
+        {showInCanvasHud && (
+          <div
+            data-testid="in-canvas-direct-hud"
+            className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-[#E6E2D8] shadow-md text-[#2B2927]"
+          >
+            {/* 1. Seç */}
             <button
               type="button"
-              data-testid="viewport-3d-edge-mode-toggle"
-              onClick={() =>
-                setRenderEdgeMode((m) => (m === "photoreal" ? "cad" : "photoreal"))
-              }
-              className={`px-2 py-1 rounded-lg font-bold transition cursor-pointer shrink-0 ${
-                renderEdgeMode === "photoreal"
-                  ? "bg-emerald-100 text-emerald-950 border border-emerald-400"
-                  : "bg-stone-100 text-stone-800 border border-stone-300"
+              data-testid="hud-tool-select"
+              onClick={() => setMoveObjectMode3D(false)}
+              className={`px-3 py-1.5 rounded-xl flex flex-col items-center gap-0.5 transition cursor-pointer ${
+                !moveObjectMode3D
+                  ? "bg-[#F4F2ED] text-[#1C1917] font-semibold"
+                  : "text-[#57534E] hover:bg-[#F8F6F2]"
               }`}
-              title="Fotogerçekçi yumuşak derz görünümü ile teknik CAD kenar çizgisi arasında geçiş yap"
+              title="Seçim ve İnceleme Modu"
             >
-              {renderEdgeMode === "photoreal" ? "📸 Fotogerçekçi" : "📐 CAD Çizgili"}
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M5 3l14 8-6.5 2L9 19.5 5 3z" />
+              </svg>
+              <span className="text-[10px]">Seç</span>
             </button>
 
-            <div className="h-4 w-px bg-stone-200 mx-0.5 shrink-0" />
-
+            {/* 2. Taşı */}
             <button
               type="button"
               data-testid="viewport-3d-move-mode-toggle"
               onClick={() => setMoveObjectMode3D((v) => !v)}
-              className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer shrink-0 ${
+              className={`px-3 py-1.5 rounded-xl flex flex-col items-center gap-0.5 transition cursor-pointer ${
                 moveObjectMode3D
-                  ? "bg-amber-600 text-white ring-1 ring-amber-400"
-                  : "bg-stone-100 hover:bg-stone-200 text-stone-800 border border-stone-300"
+                  ? "bg-[#2B2927] text-white font-semibold"
+                  : "text-[#57534E] hover:bg-[#F8F6F2]"
               }`}
-              title="Sol Tuşla nesneleri doğrudan 3D sahnede taşı, boşlukta Sol Tuşla sahneyi kaydır (Pan), Sağ Tuşla döndür."
+              title="Modülü 3D Sahnede Tutup Taşı (Mıknatıslı Duvar Hizalama)"
             >
-              {moveObjectMode3D
-                ? "🖱️ Sol: Taşı/Pan | Sağ: Döndür"
-                : "🔄 Sol: Döndür (Shift+Sol: Taşı)"}
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20" />
+              </svg>
+              <span className="text-[10px]">Taşı</span>
             </button>
 
-            <button
-              type="button"
-              data-testid="viewport-3d-mouse-dir-toggle"
-              onClick={() => setInvertCameraMouse((v) => !v)}
-              className="px-2 py-1 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-800 border border-stone-300 font-bold transition cursor-pointer shrink-0"
-              title="Fare ile 3D döndürme yönünü değiştir"
-            >
-              {invertCameraMouse ? "🖱️ Doğal" : "🖱️ Ters"}
-            </button>
-          </div>
-
-          <div className="flex items-center gap-1.5 shrink-0">
-            <button
-              type="button"
-              data-testid="viewport-3d-room-toggle"
-              onClick={() => setShowRoomArchitecture3D((prev) => !prev)}
-              className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1.5 transition cursor-pointer shrink-0 ${
-                showRoomArchitecture3D
-                  ? "bg-sky-100 text-sky-950 border-sky-400 hover:bg-sky-200"
-                  : "bg-stone-100 text-stone-700 border-stone-300 hover:bg-stone-200"
-              }`}
-              title="3D Sahnede Duvar, Pencere, Kapı, Kolon ve Tesisat Noktalarını Göster / Gizle"
-            >
-              <span>{showRoomArchitecture3D ? "🏠 Mekân: Açık" : "🏠 Mekân: Kapalı"}</span>
-            </button>
-
-            <button
-              type="button"
-              data-testid="viewport-3d-dimensions-toggle"
-              onClick={handleToggleDimensions}
-              className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1.5 transition cursor-pointer shrink-0 ${
-                effectiveShowDimensions
-                  ? "bg-amber-600 text-white border-amber-500 hover:bg-amber-500"
-                  : "bg-stone-100 text-stone-700 border-stone-300 hover:bg-stone-200"
-              }`}
-              title="3D Perspektif Ölçü Çizgilerini Göster / Gizle"
-            >
-              <Ruler className="w-3.5 h-3.5" />
-              <span>{effectiveShowDimensions ? "Ölçüler: Açık" : "Ölçüler: Kapalı"}</span>
-            </button>
-          </div>
-        </div>
-
-        {/* IN-CANVAS DIRECT DIMENSION & CONTEXTUAL ACTION HUD */}
-        {showInCanvasHud && (
-          <div
-            data-testid="in-canvas-direct-hud"
-            className="absolute top-3 left-1/2 -translate-x-1/2 z-10 flex flex-wrap items-center gap-1.5 bg-white/95 text-stone-900 backdrop-blur-md px-3.5 py-2 rounded-2xl border border-stone-300 shadow-lg text-xs max-w-[96%]"
-          >
-            <span className="font-bold text-amber-800 px-1.5 border-r border-stone-200 flex items-center gap-1">
-              <span>★ #{activeModuleIndex + 1} {activeModule.name}</span>
-            </span>
-            {project.modules.length > 1 && (
-              <div className="inline-flex items-center gap-1 pr-1.5 border-r border-stone-200">
-                <button
-                  type="button"
-                  data-testid="hud-swap-mod-left-btn"
-                  onClick={() => {
-                    const res = swapModuleWithNeighbor(activeModuleIndex, "left");
-                    if (res) {
-                      setDragDropSnapBanner(`🔄 Solundaki "${res.swappedWithName}" ile yer değiştirdi`);
-                      setTimeout(() => setDragDropSnapBanner(null), 2500);
-                    }
-                  }}
-                  className="px-1.5 py-0.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold text-[11px] cursor-pointer"
-                  title="Seçili modülü solundaki modülle yer değiştir"
-                >
-                  ⇄ Sol
-                </button>
-                <button
-                  type="button"
-                  data-testid="hud-swap-mod-right-btn"
-                  onClick={() => {
-                    const res = swapModuleWithNeighbor(activeModuleIndex, "right");
-                    if (res) {
-                      setDragDropSnapBanner(`🔄 Sağındaki "${res.swappedWithName}" ile yer değiştirdi`);
-                      setTimeout(() => setDragDropSnapBanner(null), 2500);
-                    }
-                  }}
-                  className="px-1.5 py-0.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold text-[11px] cursor-pointer"
-                  title="Seçili modülü sağındaki modülle yer değiştir"
-                >
-                  Sağ ⇄
-                </button>
-              </div>
-            )}
-
-            {effectiveShowDimensions && (
-              <>
-                {/* Clickable Width Label */}
-                {editingBadge === "W" ? (
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      commitBadgeEdit();
-                    }}
-                    className="inline-flex items-center gap-1"
-                  >
-                    <input
-                      type="number"
-                      data-testid="in-canvas-input-W"
-                      autoFocus
-                      min={300}
-                      max={3600}
-                      step={50}
-                      value={badgeDraftValue}
-                      onChange={(e) => setBadgeDraftValue(e.target.value)}
-                      onBlur={commitBadgeEdit}
-                      className="w-16 px-1.5 py-0.5 rounded bg-amber-50 border border-amber-700 font-mono text-xs font-bold text-stone-900 text-center"
-                    />
-                  </form>
-                ) : (
-                  <button
-                    type="button"
-                    data-testid="in-canvas-badge-W"
-                    onClick={() => {
-                      setEditingBadge("W");
-                      setBadgeDraftValue(String(width));
-                    }}
-                    className="px-2 py-1 rounded-lg bg-stone-100 hover:bg-amber-50 hover:border-amber-700 border border-stone-200 font-mono font-bold text-stone-900 transition cursor-pointer"
-                    title="Genişliği doğrudan değiştirmek için tıklayın"
-                  >
-                    W: {width}mm
-                  </button>
-                )}
-
-                {/* Clickable Height Label */}
-                {editingBadge === "H" ? (
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      commitBadgeEdit();
-                    }}
-                    className="inline-flex items-center gap-1"
-                  >
-                    <input
-                      type="number"
-                      data-testid="in-canvas-input-H"
-                      autoFocus
-                      min={400}
-                      max={2800}
-                      step={50}
-                      value={badgeDraftValue}
-                      onChange={(e) => setBadgeDraftValue(e.target.value)}
-                      onBlur={commitBadgeEdit}
-                      className="w-16 px-1.5 py-0.5 rounded bg-amber-50 border border-amber-700 font-mono text-xs font-bold text-stone-900 text-center"
-                    />
-                  </form>
-                ) : (
-                  <button
-                    type="button"
-                    data-testid="in-canvas-badge-H"
-                    onClick={() => {
-                      setEditingBadge("H");
-                      setBadgeDraftValue(String(height));
-                    }}
-                    className="px-2 py-1 rounded-lg bg-stone-100 hover:bg-amber-50 hover:border-amber-700 border border-stone-200 font-mono font-bold text-stone-900 transition cursor-pointer"
-                    title="Yüksekliği doğrudan değiştirmek için tıklayın"
-                  >
-                    H: {height}mm
-                  </button>
-                )}
-
-                {/* Clickable Depth Label */}
-                {editingBadge === "D" ? (
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      commitBadgeEdit();
-                    }}
-                    className="inline-flex items-center gap-1"
-                  >
-                    <input
-                      type="number"
-                      data-testid="in-canvas-input-D"
-                      autoFocus
-                      min={250}
-                      max={900}
-                      step={50}
-                      value={badgeDraftValue}
-                      onChange={(e) => setBadgeDraftValue(e.target.value)}
-                      onBlur={commitBadgeEdit}
-                      className="w-16 px-1.5 py-0.5 rounded bg-amber-50 border border-amber-700 font-mono text-xs font-bold text-stone-900 text-center"
-                    />
-                  </form>
-                ) : (
-                  <button
-                    type="button"
-                    data-testid="in-canvas-badge-D"
-                    onClick={() => {
-                      setEditingBadge("D");
-                      setBadgeDraftValue(String(depth));
-                    }}
-                    className="px-2 py-1 rounded-lg bg-stone-100 hover:bg-amber-50 hover:border-amber-700 border border-stone-200 font-mono font-bold text-stone-900 transition cursor-pointer"
-                    title="Derinliği doğrudan değiştirmek için tıklayın"
-                  >
-                    D: {depth}mm
-                  </button>
-                )}
-              </>
-            )}
-
+            {/* 3. Ölçü */}
             <button
               type="button"
               data-testid="in-canvas-toggle-dimensions"
               onClick={handleToggleDimensions}
-              className={`px-2 py-1 rounded-lg border font-semibold flex items-center gap-1 cursor-pointer transition ${
+              className={`px-3 py-1.5 rounded-xl flex flex-col items-center gap-0.5 transition cursor-pointer ${
                 effectiveShowDimensions
-                  ? "bg-amber-50 border-amber-600 text-amber-900"
-                  : "bg-stone-100 border-stone-200 text-stone-600 hover:bg-stone-200"
+                  ? "bg-[#F4F2ED] text-[#1C1917] font-semibold"
+                  : "text-[#57534E] hover:bg-[#F8F6F2]"
               }`}
-              title="Perspektif ekranında ölçü çizgilerini ve etiketlerini aç/kapat"
+              title="3D Ölçü Çizgilerini Göster / Gizle"
             >
-              <Ruler className="w-3 h-3 text-amber-700" />
-              <span>{effectiveShowDimensions ? "Ölçü Gizle" : "Ölçü Göster"}</span>
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <path d="M4 8v8M20 8v8M4 12h16" />
+              </svg>
+              <span className="text-[10px]">Ölçü</span>
             </button>
 
-            <div className="h-4 w-px bg-stone-200 mx-0.5" />
-
-            {/* Contextual 1-Click Interior, Sub-Divider & LED Actions */}
-            <button
-              type="button"
-              data-testid="in-canvas-add-led"
-              onClick={() => addSpecialFitting(activeBayIndex, "led_profile")}
-              className="px-2 py-1 rounded-lg bg-amber-100 hover:bg-amber-200 border border-amber-400 text-amber-950 font-bold flex items-center gap-1 cursor-pointer"
-              title="Seçili bölmeye Häfele Loox5 3000K Sıcak LED Aydınlatma ekle"
-            >
-              <span>💡 +LED ({(activeBay?.specialFittings || []).filter((f) => f.type.startsWith("led_")).length})</span>
-            </button>
-
-            <button
-              type="button"
-              data-testid="in-canvas-add-divider"
-              onClick={() => addSubDivider(activeBayIndex)}
-              className="px-2 py-1 rounded-lg bg-stone-100 hover:bg-amber-50 border border-stone-300 text-stone-900 font-semibold flex items-center gap-1 cursor-pointer"
-              title="İki raf arasına dikey Ara Dikme (bölücü) ekle"
-            >
-              <Columns className="w-3 h-3 text-amber-400" />
-              <span>+Raf Arası Dikme ({activeBay?.subDividers?.length || 0})</span>
-            </button>
-
-            <button
-              type="button"
-              data-testid="in-canvas-add-shelf"
-              onClick={() => addShelf(activeBayIndex)}
-              className="px-2 py-1 rounded-lg bg-stone-100 hover:bg-amber-50 text-stone-800 font-semibold flex items-center gap-1 cursor-pointer"
-              title="Seçili bölmeye raf ekle"
-            >
-              <Layers className="w-3 h-3 text-amber-700" />
-              <span>+Raf ({activeBay?.shelves.length || 0})</span>
-            </button>
-
-            <button
-              type="button"
-              data-testid="in-canvas-add-drawer"
-              onClick={() => addDrawer(activeBayIndex)}
-              className="px-2 py-1 rounded-lg bg-stone-100 hover:bg-amber-50 text-stone-800 font-semibold flex items-center gap-1 cursor-pointer"
-              title="Seçili bölmeye çekmece ekle"
-            >
-              <Plus className="w-3 h-3 text-amber-700" />
-              <span>+Çekmece ({activeBay?.drawers.length || 0})</span>
-            </button>
-
-            <button
-              type="button"
-              data-testid="in-canvas-rotate-mod"
-              onClick={rotateActiveModule90}
-              className="px-2 py-1 rounded-lg bg-stone-100 hover:bg-amber-50 text-stone-800 font-semibold flex items-center gap-1 cursor-pointer"
-              title="Modülü 90° Köşe Dönüşü İçin Döndür"
-            >
-              <RotateCw className="w-3 h-3 text-amber-700" />
-              <span>{activeModule.rotation?.y || 0}°</span>
-            </button>
-
-            <button
-              type="button"
-              data-testid="in-canvas-fit-scene"
-              className="px-2 py-1 rounded-lg bg-stone-100 text-stone-800 font-semibold cursor-pointer"
-              onClick={() => {
-                const group = meshGroupRef.current,
-                  controls = controlsRef.current;
-                const perspective = perspCamRef.current,
-                  orthographic = orthoCamRef.current;
-                if (!group || !controls || !perspective || !orthographic) return;
-                const bounds = new THREE.Box3().setFromObject(group);
-                if (bounds.isEmpty()) return;
-                const center = bounds.getCenter(new THREE.Vector3());
-                const radius = bounds.getSize(new THREE.Vector3()).length() / 2;
-                const halfFov = Math.atan(
-                  Math.tan((perspective.fov * Math.PI) / 360) * Math.min(1, perspective.aspect)
-                );
-                const distance = Math.max(500, (radius / Math.sin(halfFov)) * 1.15);
-                const direction = new THREE.Vector3(1, 0.7, 1.3).normalize();
-                controls.maxDistance = Math.max(14000, distance * 3);
-                controls.target.copy(center);
-                for (const camera of [perspective, orthographic]) {
-                  camera.position.copy(center).addScaledVector(direction, distance);
-                  camera.far = Math.max(25000, distance * 5);
-                  camera.lookAt(center);
-                }
-                orthographic.zoom =
-                  Math.min(
-                    orthographic.right - orthographic.left,
-                    orthographic.top - orthographic.bottom
-                  ) / Math.max(1, radius * 2.3);
-                perspective.updateProjectionMatrix();
-                orthographic.updateProjectionMatrix();
-                controls.update();
-                requestRender();
-              }}
-            >
-              Tümünü sığdır
-            </button>
-
+            {/* 4. Kopyala */}
             <button
               type="button"
               data-testid="in-canvas-add-module"
               onClick={addAdjacentModule}
-              className="px-2 py-1 rounded-lg bg-amber-700 hover:bg-amber-800 text-white font-semibold flex items-center gap-1 cursor-pointer"
-              title="Aktif modülün bir kopyasını yanına bitişik olarak ekle"
+              className="px-3 py-1.5 rounded-xl flex flex-col items-center gap-0.5 text-[#57534E] hover:bg-[#F8F6F2] hover:text-[#1C1917] transition cursor-pointer"
+              title="Seçili modülü yanına kopyala"
             >
-              <Plus className="w-3 h-3" />
-              <span>Aynı Modülden Ekle</span>
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <rect x="9" y="9" width="13" height="13" rx="2" />
+                <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+              </svg>
+              <span className="text-[10px]">Kopyala</span>
+            </button>
+
+            {/* 5. Aynala (Kapak Yönü / Modül Simetrisi) */}
+            <button
+              type="button"
+              data-testid="in-canvas-flip-door-dir"
+              onClick={() => {
+                flipActiveDoorDirection(activeBayIndex);
+                setDragDropSnapBanner("⇄ Kapak Açılış Yönü Aynalandı (Sol ⇄ Sağ)");
+                setTimeout(() => setDragDropSnapBanner(null), 2200);
+              }}
+              className="px-3 py-1.5 rounded-xl flex flex-col items-center gap-0.5 text-[#57534E] hover:bg-[#F8F6F2] hover:text-[#1C1917] transition cursor-pointer"
+              title="Kapak açılış yönünü aynala (Sol ⇄ Sağ)"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <path d="M12 3v18M4 7l5 5-5 5V7zM20 7l-5 5 5 5V7z" />
+              </svg>
+              <span className="text-[10px]">Aynala</span>
+            </button>
+
+            <div className="h-6 w-px bg-[#E6E2D8] mx-0.5" />
+
+            {/* 6. Sil */}
+            <button
+              type="button"
+              data-testid="hud-tool-delete"
+              onClick={() => {
+                if (typeof window !== "undefined") {
+                  window.dispatchEvent(new CustomEvent("birim:delete-active-selection"));
+                }
+              }}
+              className="px-3 py-1.5 rounded-xl flex flex-col items-center gap-0.5 text-red-600 hover:bg-red-50 transition cursor-pointer"
+              title="Seçili parçayı veya modülü sil"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+              </svg>
+              <span className="text-[10px] font-medium">Sil</span>
             </button>
           </div>
         )}
+
+        {/* BOTTOM-LEFT 3D COORDINATE AXIS GIZMO (Z Blue, Y Green, X Red) */}
+        <div
+          data-testid="viewport-3d-axis-gizmo"
+          className="absolute left-5 bottom-5 z-10 pointer-events-none select-none"
+        >
+          <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+            {/* Z Vertical Axis (Blue) */}
+            <line x1="20" y1="44" x2="20" y2="12" stroke="#2563EB" strokeWidth="2" />
+            <polygon points="20,8 17,14 23,14" fill="#2563EB" />
+            <text x="16" y="7" fill="#2563EB" fontSize="10" fontWeight="700">Z</text>
+            {/* Y Depth Axis (Green) */}
+            <line x1="20" y1="44" x2="42" y2="28" stroke="#16A34A" strokeWidth="2" />
+            <polygon points="46,25 39,27 42,31" fill="#16A34A" />
+            <text x="47" y="26" fill="#16A34A" fontSize="10" fontWeight="700">Y</text>
+            {/* X Horizontal Axis (Red) */}
+            <line x1="20" y1="44" x2="50" y2="52" stroke="#DC2626" strokeWidth="2" />
+            <polygon points="54,53 48,49 47,54" fill="#DC2626" />
+            <text x="55" y="56" fill="#DC2626" fontSize="10" fontWeight="700">X</text>
+            <circle cx="20" cy="44" r="2.5" fill="#2B2927" />
+          </svg>
+        </div>
+
+        {/* BOTTOM-CENTER NAVIGATION PILL (Orbit | Pan | Zoom | Sığdır) + RENDER MODE SELECTOR (Gerçekçi ⌄) */}
+        <div
+          data-testid="viewport-3d-bottom-nav-bar"
+          className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3"
+        >
+          <div className="bg-white/95 backdrop-blur-md px-2.5 py-1.5 rounded-2xl border border-[#E6E2D8] shadow-md flex items-center gap-1 text-[#2B2927]">
+            <button
+              type="button"
+              onClick={() => setMoveObjectMode3D(false)}
+              className={`px-3 py-1 rounded-xl flex flex-col items-center gap-0.5 transition cursor-pointer ${
+                !moveObjectMode3D ? "bg-[#F4F2ED] text-[#1C1917] font-semibold" : "text-[#57534E] hover:bg-[#F8F6F2]"
+              }`}
+              title="Sahneyi Döndür (Orbit)"
+            >
+              <RotateCw className="w-3.5 h-3.5" />
+              <span className="text-[10px]">Orbit</span>
+            </button>
+            <div className="h-5 w-px bg-[#E6E2D8]" />
+            <button
+              type="button"
+              onClick={() => setMoveObjectMode3D(true)}
+              className={`px-3 py-1 rounded-xl flex flex-col items-center gap-0.5 transition cursor-pointer ${
+                moveObjectMode3D ? "bg-[#F4F2ED] text-[#1C1917] font-semibold" : "text-[#57534E] hover:bg-[#F8F6F2]"
+              }`}
+              title="Kaydır / Taşı (Pan)"
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <path d="M18 11V6a2 2 0 00-2-2v0a2 2 0 00-2 2v0M14 10V4a2 2 0 00-2-2v0a2 2 0 00-2 2v6M10 10.5V6a2 2 0 00-2-2v0a2 2 0 00-2 2v8" />
+                <path d="M18 8a2 2 0 114 0v6a8 8 0 01-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 012.83-2.82L7 15" />
+              </svg>
+              <span className="text-[10px]">Pan</span>
+            </button>
+            <div className="h-5 w-px bg-[#E6E2D8]" />
+            <button
+              type="button"
+              onClick={() => {
+                const perspective = perspCamRef.current,
+                  controls = controlsRef.current;
+                if (perspective && controls) {
+                  const dir = new THREE.Vector3().subVectors(perspective.position, controls.target);
+                  const nextLen = dir.length() > 1350 ? dir.length() * 0.82 : dir.length() * 1.25;
+                  perspective.position.copy(controls.target).add(dir.normalize().multiplyScalar(nextLen));
+                  perspective.updateProjectionMatrix();
+                  controls.update();
+                  requestRender();
+                }
+              }}
+              className="px-3 py-1 rounded-xl flex flex-col items-center gap-0.5 text-[#57534E] hover:bg-[#F8F6F2] hover:text-[#1C1917] transition cursor-pointer"
+              title="Yakınlaştır / Uzaklaştır (Zoom)"
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <circle cx="11" cy="11" r="8" />
+                <path d="M21 21l-4.35-4.35M11 8v6M8 11h6" />
+              </svg>
+              <span className="text-[10px]">Zoom</span>
+            </button>
+            <div className="h-5 w-px bg-[#E6E2D8]" />
+            <button
+              type="button"
+              onClick={() => {
+                const group = meshGroupRef.current,
+                  controls = controlsRef.current,
+                  perspective = perspCamRef.current;
+                if (group && controls && perspective) {
+                  const bounds = new THREE.Box3().setFromObject(group);
+                  if (!bounds.isEmpty()) {
+                    const center = bounds.getCenter(new THREE.Vector3());
+                    const radius = bounds.getSize(new THREE.Vector3()).length() / 2;
+                    const dist = Math.max(1200, radius * 2.35);
+                    const dir = new THREE.Vector3(0.95, 0.55, 1.35).normalize();
+                    controls.target.copy(center);
+                    perspective.position.copy(center).addScaledVector(dir, dist);
+                    perspective.lookAt(center);
+                    perspective.updateProjectionMatrix();
+                    controls.update();
+                    requestRender();
+                  }
+                }
+              }}
+              className="px-3 py-1 rounded-xl flex flex-col items-center gap-0.5 text-[#57534E] hover:bg-[#F8F6F2] hover:text-[#1C1917] transition cursor-pointer"
+              title="Sahneye Sığdır"
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+              </svg>
+              <span className="text-[10px]">Sığdır</span>
+            </button>
+          </div>
+
+          {/* Render Mode & Environment Selector Pill (Gerçekçi ⌄) */}
+          <div className="relative">
+            <button
+              type="button"
+              data-testid="viewport-3d-edge-mode-toggle"
+              onClick={() => setRenderMenuOpen((v) => !v)}
+              className="bg-white/95 backdrop-blur-md px-3.5 py-2.5 rounded-2xl border border-[#E6E2D8] shadow-md flex items-center gap-2 text-xs font-semibold text-[#1C1917] hover:bg-[#FAF9F6] transition cursor-pointer"
+            >
+              <svg className="w-4 h-4 text-[#57534E]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <circle cx="8.5" cy="8.5" r="1.5" />
+                <path d="M21 15l-5-5L5 21" />
+              </svg>
+              <span>{renderEdgeMode === "photoreal" ? "Gerçekçi" : "Teknik CAD"}</span>
+              <span className="text-[10px] text-[#57534E]">⌄</span>
+            </button>
+
+            {renderMenuOpen && (
+              <div className="absolute bottom-full right-0 mb-2 w-64 bg-white rounded-2xl border border-[#E6E2D8] shadow-xl p-3 space-y-3 z-30 text-xs">
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-[#57534E] mb-1.5">
+                    Görünüm Modu
+                  </div>
+                  <div className="grid grid-cols-2 gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRenderEdgeMode("photoreal");
+                        setRenderMenuOpen(false);
+                      }}
+                      className={`py-1.5 px-2 rounded-lg font-semibold cursor-pointer ${
+                        renderEdgeMode === "photoreal"
+                          ? "bg-[#2B2927] text-white"
+                          : "bg-[#F4F2ED] text-[#1C1917]"
+                      }`}
+                    >
+                      Gerçekçi PBR
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRenderEdgeMode("cad");
+                        setRenderMenuOpen(false);
+                      }}
+                      className={`py-1.5 px-2 rounded-lg font-semibold cursor-pointer ${
+                        renderEdgeMode === "cad"
+                          ? "bg-[#2B2927] text-white"
+                          : "bg-[#F4F2ED] text-[#1C1917]"
+                      }`}
+                    >
+                      Teknik Çizim
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-[#57534E] mb-1.5">
+                    Stüdyo Işığı
+                  </div>
+                  <div className="grid grid-cols-3 gap-1">
+                    {[
+                      { id: "daylight", label: "Gün Işığı" },
+                      { id: "showroom_warm", label: "Stüdyo 3000K" },
+                      { id: "night_led", label: "Gece LED" },
+                    ].map((lp) => (
+                      <button
+                        key={lp.id}
+                        type="button"
+                        data-testid={`viewport-3d-light-${lp.id}`}
+                        onClick={() =>
+                          setLightingPreset(lp.id as "daylight" | "showroom_warm" | "night_led")
+                        }
+                        className={`py-1 px-1.5 rounded-lg text-[10px] font-semibold cursor-pointer ${
+                          lightingPreset === lp.id
+                            ? "bg-[#2B2927] text-white"
+                            : "bg-[#F4F2ED] text-[#1C1917]"
+                        }`}
+                      >
+                        {lp.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-[#57534E] mb-1.5">
+                    Zemin Kaplaması
+                  </div>
+                  <div className="grid grid-cols-2 gap-1">
+                    {[
+                      { id: "oak_parquet", label: "Meşe Parke" },
+                      { id: "herringbone_oak", label: "Balıksırtı" },
+                      { id: "walnut_parquet", label: "Ceviz Parke" },
+                      { id: "travertine", label: "Traverten Taş" },
+                      { id: "neolith_calacatta", label: "Neolith Mermer" },
+                      { id: "microcement", label: "Mikrobeton" },
+                      { id: "studio", label: "Stüdyo Fon" },
+                    ].map((fl) => (
+                      <button
+                        key={fl.id}
+                        type="button"
+                        data-testid={`viewport-3d-floor-${fl.id}`}
+                        onClick={() => setFloorStyle(fl.id as ArchitecturalFloorStyle)}
+                        className={`py-1 px-2 rounded-lg text-[10px] font-semibold text-left cursor-pointer ${
+                          floorStyle === fl.id
+                            ? "bg-[#2B2927] text-white"
+                            : "bg-[#F4F2ED] text-[#1C1917]"
+                        }`}
+                      >
+                        {fl.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="pt-1.5 border-t border-[#ECE8DF] flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    data-testid="viewport-3d-room-toggle"
+                    onClick={() => setShowRoomArchitecture3D((prev) => !prev)}
+                    className="px-2.5 py-1 rounded-lg bg-[#F4F2ED] hover:bg-[#E8E2D5] text-[10px] font-semibold text-[#1C1917] cursor-pointer"
+                  >
+                    {showRoomArchitecture3D ? "🏠 Duvarlar: Açık" : "🏠 Duvarlar: Gizli"}
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="viewport-3d-rotate-mod-90"
+                    onClick={() => rotateActiveModule90(90)}
+                    className="px-2.5 py-1 rounded-lg bg-[#F4F2ED] hover:bg-[#E8E2D5] text-[10px] font-semibold text-[#1C1917] cursor-pointer"
+                  >
+                    🔄 90° Döndür
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     );
   }

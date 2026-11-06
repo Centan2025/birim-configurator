@@ -6,25 +6,25 @@ import { usePathname } from "next/navigation";
 import { Check, ChevronDown, AlertCircle, Info, Sparkles } from "lucide-react";
 
 // ---------------------------------------------------------------------------
-// 1. DESIGN SYSTEM TOKENS (Warm, Bright, High-Readability Architectural Light Theme)
+// 1. DESIGN SYSTEM TOKENS (Warm Cashmere & Espresso Monochrome Architectural Theme)
 // ---------------------------------------------------------------------------
 export const V3_TOKENS = {
   colors: {
-    canvasWarm: "#F7F6F2",
+    canvasWarm: "#F5F3EE",
     surfacePrimary: "#FFFFFF",
-    surfaceSecondary: "#F8F7F4",
-    surfaceMuted: "#F1EFEA",
-    borderSubtle: "#E4E2DA",
-    borderFocus: "#D97706",
-    textPrimary: "#18181B",
-    textSecondary: "#3F3F46",
-    textMuted: "#71717A",
-    accentPrimary: "#D97706",
-    accentHover: "#B45309",
-    accentSoft: "#FFFBEB",
-    statusSuccess: "#15803D",
-    statusWarning: "#B45309",
-    statusError: "#B91C1C",
+    surfaceSecondary: "#FAF9F6",
+    surfaceMuted: "#F2EFE9",
+    borderSubtle: "#E5E0D5",
+    borderFocus: "#2C2A29",
+    textPrimary: "#1C1917",
+    textSecondary: "#44403C",
+    textMuted: "#78716C",
+    accentPrimary: "#2C2A29",
+    accentHover: "#1C1917",
+    accentSoft: "#F5F2EB",
+    statusSuccess: "#2E6F40",
+    statusWarning: "#8C5A2B",
+    statusError: "#9E2A2B",
   },
   spacing: {
     xs: "4px",
@@ -40,44 +40,31 @@ export const V3_TOKENS = {
 // 2. OFFICIAL BİRİM® BRAND LOGO (Authentic B1R1M® Geometric Wordmark from birim-store)
 // ---------------------------------------------------------------------------
 export const V3BrandBadge: React.FC<{ subtitle?: string; dark?: boolean }> = ({
-  subtitle = "V4.1",
+  subtitle = "V4.2",
   dark = false,
 }) => (
   <div className="flex items-center gap-2.5 select-none">
     <div className="flex items-center gap-2">
-      {/* Authentic Official BİRİM® Geometric Wordmark (Angled Bevels + Split '1' Stems) */}
       <svg
         viewBox="0 0 236 46"
-        className={`h-6 w-auto shrink-0 ${dark ? "text-white" : "text-stone-950"}`}
+        className={`h-6 w-auto shrink-0 ${dark ? "text-white" : "text-[#1C1917]"}`}
         aria-label="BİRİM Logo"
         role="img"
       >
-        {/* B: Angled top-left chamfer + bold double-counter geometric block */}
         <path
           fill="currentColor"
           d="M2 14 L15 5 H46 C54 5 59 9 59 15 C59 19 56 22 51 23.5 C57 25 60 28.5 60 34 C60 40.5 54.5 44 46 44 H2 Z M16 14 V20 H41 C43.5 20 45 18.8 45 17 C45 15.2 43.5 14 41 14 Z M16 28 V35 H42 C44.5 35 46 33.6 46 31.5 C46 29.4 44.5 28 42 28 Z"
         />
-        {/* 1st I ('1' shape with angled top bevel & horizontal split notch on left) */}
-        <path
-          fill="currentColor"
-          d="M65 14 L79 5 V44 H65 V27 H73 V22.5 H65 Z"
-        />
-        {/* R: Angled top-left chamfer + wide geometric loop + bold vertical/angled leg */}
+        <path fill="currentColor" d="M65 14 L79 5 V44 H65 V27 H73 V22.5 H65 Z" />
         <path
           fill="currentColor"
           d="M84 14 L98 5 H129 C137.5 5 143 9.5 143 16.5 C143 22 139.5 25.5 133.5 27 C138.5 28.2 141.5 31.5 142.5 37 L143.5 44 H128.5 L127.5 36.5 C126.8 32.5 124.5 31 119.5 31 H99 V44 H84 Z M99 14 V22 H123.5 C126.5 22 128.5 20.3 128.5 18 C128.5 15.7 126.5 14 123.5 14 Z"
         />
-        {/* 2nd I ('1' shape with angled top bevel & horizontal split notch on left) */}
-        <path
-          fill="currentColor"
-          d="M148 14 L162 5 V44 H148 V27 H156 V22.5 H148 Z"
-        />
-        {/* M: Angled top-left chamfer + deep center V-chevron + bold right pillar */}
+        <path fill="currentColor" d="M148 14 L162 5 V44 H148 V27 H156 V22.5 H148 Z" />
         <path
           fill="currentColor"
           d="M167 14 L181 5 H188 L201.5 25 L215 5 H229 V44 H215 V22 L201.5 41 H199.5 L181 22 V44 H167 Z"
         />
-        {/* Registered Trademark ® */}
         <circle cx="230" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.2" />
         <text
           x="230"
@@ -93,10 +80,10 @@ export const V3BrandBadge: React.FC<{ subtitle?: string; dark?: boolean }> = ({
       </svg>
 
       <span
-        className={`text-[11px] px-2 py-0.5 rounded-md font-mono font-bold border ${
+        className={`text-[10px] px-2 py-0.5 rounded-md font-mono font-bold border ${
           dark
-            ? "bg-amber-500/20 text-amber-300 border-amber-500/30"
-            : "bg-amber-100 text-amber-900 border-amber-300"
+            ? "bg-stone-800 text-stone-200 border-stone-700"
+            : "bg-[#F2EFE9] text-[#44403C] border-[#DED8CC]"
         }`}
       >
         {subtitle}
@@ -106,7 +93,7 @@ export const V3BrandBadge: React.FC<{ subtitle?: string; dark?: boolean }> = ({
 );
 
 // ---------------------------------------------------------------------------
-// 3. PROTOTYPE ROUTE SWITCHER PILL (Allows instant switching across V3 routes)
+// 3. PROTOTYPE ROUTE SWITCHER PILL
 // ---------------------------------------------------------------------------
 export const V3PrototypeSwitcher: React.FC<{ dark?: boolean }> = ({ dark = false }) => {
   const pathname = usePathname();
@@ -122,7 +109,7 @@ export const V3PrototypeSwitcher: React.FC<{ dark?: boolean }> = ({ dark = false
       className={`inline-flex items-center p-1 rounded-xl border text-xs ${
         dark
           ? "bg-stone-900/80 border-stone-700/80 text-stone-300 backdrop-blur-md"
-          : "bg-stone-100 border-stone-300 text-stone-800"
+          : "bg-[#F2EFE9] border-[#E5E0D5] text-[#44403C]"
       }`}
     >
       {routes.map((r) => {
@@ -133,10 +120,10 @@ export const V3PrototypeSwitcher: React.FC<{ dark?: boolean }> = ({ dark = false
             href={r.href}
             className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 ${
               active
-                ? "bg-amber-600 text-white shadow-sm"
+                ? "bg-[#E8E2D5] text-[#1C1917] border border-[#BFB5A2] shadow-xs"
                 : dark
                 ? "text-stone-300 hover:text-white"
-                : "text-stone-700 hover:text-stone-950"
+                : "text-[#57534E] hover:text-[#1C1917]"
             }`}
           >
             <span>{r.label}</span>
@@ -148,7 +135,7 @@ export const V3PrototypeSwitcher: React.FC<{ dark?: boolean }> = ({ dark = false
 };
 
 // ---------------------------------------------------------------------------
-// 4. BUTTONS (Touch-friendly, High-Contrast Light Architectural Style)
+// 4. BUTTONS (Warm Cashmere & Espresso Monochrome Style)
 // ---------------------------------------------------------------------------
 interface V3ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: "primary" | "secondary" | "outline" | "ghost" | "danger";
@@ -166,22 +153,22 @@ export const V3Button: React.FC<V3ButtonProps> = ({
 }) => {
   const sizeCls =
     size === "touch"
-      ? "min-h-[44px] px-4 py-2.5 text-xs font-bold rounded-xl"
+      ? "min-h-[42px] px-4 py-2 text-xs font-bold rounded-xl"
       : size === "sm"
-      ? "min-h-[34px] px-3 py-1.5 text-xs font-semibold rounded-lg"
-      : "min-h-[38px] px-3.5 py-2 text-xs font-bold rounded-xl";
+      ? "min-h-[32px] px-2.5 py-1 text-xs font-semibold rounded-lg"
+      : "min-h-[36px] px-3.5 py-1.5 text-xs font-bold rounded-xl";
 
   const variantCls = active
-    ? "bg-amber-600 text-white border border-amber-700 shadow-sm"
+    ? "bg-[#E8E2D5] text-[#1C1917] border border-[#BFB5A2] shadow-xs"
     : variant === "primary"
-    ? "bg-stone-900 hover:bg-stone-800 text-white border border-stone-950 shadow-sm"
+    ? "bg-[#E8E2D5] hover:bg-[#DDD5C5] text-[#1C1917] border border-[#BFB5A2] shadow-xs"
     : variant === "outline"
-    ? "bg-white hover:bg-stone-100 text-stone-900 border border-stone-300 shadow-2xs"
+    ? "bg-white hover:bg-[#F5F2EB] text-[#1C1917] border border-[#DED8CC] shadow-2xs"
     : variant === "danger"
-    ? "bg-red-50 hover:bg-red-100 text-red-700 border border-red-200"
+    ? "bg-[#FDF2F2] hover:bg-[#FCE4E4] text-[#9E2A2B] border border-[#F2C6C6]"
     : variant === "ghost"
-    ? "bg-transparent hover:bg-stone-200/70 text-stone-800"
-    : "bg-stone-100 hover:bg-stone-200 text-stone-900 border border-stone-300";
+    ? "bg-transparent hover:bg-[#EBE6DC] text-[#44403C]"
+    : "bg-[#F2EFE9] hover:bg-[#E8E3D9] text-[#1C1917] border border-[#DED8CC]";
 
   return (
     <button
@@ -194,7 +181,7 @@ export const V3Button: React.FC<V3ButtonProps> = ({
 };
 
 // ---------------------------------------------------------------------------
-// 5. DIMENSION INPUT WITH TOUCH STEPPERS & QUICK PRESETS (Readable Light Card)
+// 5. DIMENSION INPUT WITH TOUCH STEPPERS & QUICK PRESETS
 // ---------------------------------------------------------------------------
 interface V3DimensionControlProps {
   label: string;
@@ -222,57 +209,53 @@ export const V3DimensionControl: React.FC<V3DimensionControlProps> = ({
   const clamp = (v: number) => Math.min(max, Math.max(min, v));
 
   return (
-    <div className="p-3 rounded-xl bg-[#F8F7F4] border border-stone-200/90 space-y-2.5 shadow-2xs">
+    <div className="p-2.5 rounded-xl bg-[#FAF9F6] border border-[#E5E0D5] space-y-2">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <span className="w-6 h-6 rounded-lg bg-amber-100 border border-amber-300 text-amber-900 font-mono text-xs font-extrabold flex items-center justify-center">
+          <span className="w-6 h-6 rounded-lg bg-[#EBE6DC] border border-[#D6CFC2] text-[#2C2A29] font-mono text-xs font-extrabold flex items-center justify-center">
             {code}
           </span>
-          <span className="text-xs font-bold text-stone-900">{label}</span>
+          <span className="text-xs font-bold text-[#1C1917]">{label}</span>
         </div>
 
-        {/* Touch Stepper + Direct Input */}
         <div className="flex items-center gap-1">
           <button
             type="button"
             data-testid={`${testIdPrefix}-minus`}
             onClick={() => onChange(clamp(value - step))}
-            className="w-8 h-8 rounded-lg bg-white hover:bg-amber-50 border border-stone-300 text-stone-900 font-extrabold text-base flex items-center justify-center transition cursor-pointer shadow-2xs"
+            className="w-7 h-7 rounded-lg bg-white hover:bg-[#F2EFE9] border border-[#DED8CC] text-[#1C1917] font-extrabold text-sm flex items-center justify-center transition cursor-pointer"
             title={`-${step} mm`}
           >
             −
           </button>
-          <div className="relative flex items-center">
-            <input
-              type="number"
-              data-testid={`${testIdPrefix}-input`}
-              min={min}
-              max={max}
-              step={10}
-              value={value}
-              onChange={(e) => {
-                const parsed = Number(e.target.value);
-                if (!Number.isNaN(parsed) && parsed >= min) {
-                  onChange(clamp(parsed));
-                }
-              }}
-              className="w-20 h-8 px-2 bg-white border border-stone-300 rounded-lg text-center font-mono text-xs font-extrabold text-stone-950 focus:outline-none focus:border-amber-600 focus:ring-2 focus:ring-amber-500/20"
-            />
-          </div>
+          <input
+            type="number"
+            data-testid={`${testIdPrefix}-input`}
+            min={min}
+            max={max}
+            step={10}
+            value={value}
+            onChange={(e) => {
+              const parsed = Number(e.target.value);
+              if (!Number.isNaN(parsed) && parsed >= min) {
+                onChange(clamp(parsed));
+              }
+            }}
+            className="w-18 h-7 px-1.5 bg-white border border-[#DED8CC] rounded-lg text-center font-mono text-xs font-extrabold text-[#1C1917] focus:outline-none focus:border-[#2C2A29]"
+          />
           <button
             type="button"
             data-testid={`${testIdPrefix}-plus`}
             onClick={() => onChange(clamp(value + step))}
-            className="w-8 h-8 rounded-lg bg-white hover:bg-amber-50 border border-stone-300 text-stone-900 font-extrabold text-base flex items-center justify-center transition cursor-pointer shadow-2xs"
+            className="w-7 h-7 rounded-lg bg-white hover:bg-[#F2EFE9] border border-[#DED8CC] text-[#1C1917] font-extrabold text-sm flex items-center justify-center transition cursor-pointer"
             title={`+${step} mm`}
           >
             +
           </button>
-          <span className="text-[11px] font-mono font-semibold text-stone-600 ml-0.5">mm</span>
+          <span className="text-[10px] font-mono font-semibold text-[#78716C]">mm</span>
         </div>
       </div>
 
-      {/* Preset Pills */}
       <div className="flex items-center gap-1 flex-wrap">
         {presets.map((p) => {
           const isSelected = value === p;
@@ -282,10 +265,10 @@ export const V3DimensionControl: React.FC<V3DimensionControlProps> = ({
               type="button"
               data-testid={`${testIdPrefix}-preset-${p}`}
               onClick={() => onChange(p)}
-              className={`flex-1 min-w-[46px] py-1.5 px-2 rounded-lg font-mono text-[11px] font-bold transition cursor-pointer ${
+              className={`flex-1 min-w-[44px] py-1 px-1.5 rounded-lg font-mono text-[10px] font-bold transition cursor-pointer ${
                 isSelected
-                  ? "bg-amber-600 text-white border border-amber-700 shadow-xs"
-                  : "bg-white hover:bg-stone-100 text-stone-700 hover:text-stone-950 border border-stone-200"
+                  ? "bg-[#E8E2D5] text-[#1C1917] border border-[#BFB5A2]"
+                  : "bg-white hover:bg-[#F2EFE9] text-[#57534E] border border-[#E5E0D5]"
               }`}
             >
               {p}
@@ -294,7 +277,6 @@ export const V3DimensionControl: React.FC<V3DimensionControlProps> = ({
         })}
       </div>
 
-      {/* Smooth Slider */}
       <input
         type="range"
         data-testid={`${testIdPrefix}-slider`}
@@ -303,14 +285,14 @@ export const V3DimensionControl: React.FC<V3DimensionControlProps> = ({
         step={50}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full accent-amber-600 h-2 bg-stone-200 rounded-lg cursor-pointer"
+        className="w-full accent-[#8C7A6B] h-1.5 bg-[#E5E0D5] rounded-lg cursor-pointer"
       />
     </div>
   );
 };
 
 // ---------------------------------------------------------------------------
-// 6. MATERIAL SWATCH CARD (High-Contrast Light Card)
+// 6. MATERIAL SWATCH CARD
 // ---------------------------------------------------------------------------
 interface V3MaterialSwatchProps {
   id: string;
@@ -340,10 +322,10 @@ export const V3MaterialSwatch: React.FC<V3MaterialSwatchProps> = ({
         type="button"
         data-testid={testId}
         onClick={onSelect}
-        className={`flex items-center gap-2 p-2.5 rounded-xl border text-left transition cursor-pointer ${
+        className={`flex items-center gap-2 p-2 rounded-xl border text-left transition cursor-pointer ${
           selected
-            ? "bg-amber-50 border-amber-600 text-stone-950 ring-2 ring-amber-500/20"
-            : "bg-white hover:bg-stone-50 border-stone-200 text-stone-800"
+            ? "bg-[#F5F2EB] border-[#2C2A29] text-[#1C1917] ring-1 ring-[#2C2A29]"
+            : "bg-white hover:bg-[#FAF9F6] border-[#E5E0D5] text-[#44403C]"
         }`}
       >
         <span
@@ -361,8 +343,8 @@ export const V3MaterialSwatch: React.FC<V3MaterialSwatchProps> = ({
           )}
         </span>
         <div className="min-w-0 flex-1">
-          <div className="text-xs font-bold text-stone-900 truncate">{name}</div>
-          <div className="text-[11px] font-mono text-stone-600">€{costPerM2}/m²</div>
+          <div className="text-xs font-bold text-[#1C1917] truncate">{name}</div>
+          <div className="text-[10px] font-mono text-[#78716C]">€{costPerM2}/m²</div>
         </div>
       </button>
     );
@@ -373,20 +355,20 @@ export const V3MaterialSwatch: React.FC<V3MaterialSwatchProps> = ({
       type="button"
       data-testid={testId}
       onClick={onSelect}
-      className={`w-full flex items-center justify-between p-2.5 rounded-xl border text-left transition cursor-pointer ${
+      className={`w-full flex items-center justify-between p-2 rounded-xl border text-left transition cursor-pointer ${
         selected
-          ? "bg-amber-50/95 border-amber-600 text-stone-950 ring-2 ring-amber-500/20 shadow-xs"
-          : "bg-white hover:bg-stone-50 border-stone-200/90 text-stone-800"
+          ? "bg-[#F5F2EB] border-[#2C2A29] text-[#1C1917] ring-1 ring-[#2C2A29] shadow-2xs"
+          : "bg-white hover:bg-[#FAF9F6] border-[#E5E0D5] text-[#44403C]"
       }`}
     >
       <div className="flex items-center gap-2.5 min-w-0">
         <span
-          className="w-8 h-8 rounded-lg border border-stone-300 shadow-inner shrink-0 flex items-center justify-center"
+          className="w-7 h-7 rounded-lg border border-stone-300 shadow-inner shrink-0 flex items-center justify-center"
           style={{ backgroundColor: colorHex }}
         >
           {selected && (
             <Check
-              className={`w-4 h-4 ${
+              className={`w-3.5 h-3.5 ${
                 colorHex.toLowerCase() === "#f3f4f6" || colorHex.toLowerCase() === "#ede8d0"
                   ? "text-stone-950"
                   : "text-white"
@@ -395,13 +377,13 @@ export const V3MaterialSwatch: React.FC<V3MaterialSwatchProps> = ({
           )}
         </span>
         <div className="truncate">
-          <div className="text-xs font-bold text-stone-900 truncate">{name}</div>
-          <div className="text-[11px] text-stone-600 truncate">
+          <div className="text-xs font-bold text-[#1C1917] truncate">{name}</div>
+          <div className="text-[10px] text-[#78716C] truncate">
             {category || "18mm Kalibrasyonlu Plaka"}
           </div>
         </div>
       </div>
-      <span className="font-mono text-xs font-extrabold text-amber-800 shrink-0 ml-2">
+      <span className="font-mono text-xs font-bold text-[#44403C] shrink-0 ml-2">
         €{costPerM2}
       </span>
     </button>
@@ -409,7 +391,7 @@ export const V3MaterialSwatch: React.FC<V3MaterialSwatchProps> = ({
 };
 
 // ---------------------------------------------------------------------------
-// 7. COLLAPSIBLE ACCORDION SECTION (Bright, Hierarchical Light Card)
+// 7. ANIMATED STRETCH-DOWN COLLAPSIBLE ACCORDION SECTION
 // ---------------------------------------------------------------------------
 interface V3SectionProps {
   title: string;
@@ -426,35 +408,182 @@ export const V3CollapsibleSection: React.FC<V3SectionProps> = ({
 }) => {
   const [open, setOpen] = React.useState(defaultOpen);
   return (
-    <div className="border border-stone-200/95 rounded-2xl bg-white overflow-hidden shadow-xs">
+    <div className="border border-[#E5E0D5] rounded-2xl bg-white overflow-hidden shadow-2xs transition-all">
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="w-full px-4 py-3 flex items-center justify-between bg-[#F4F2EC] hover:bg-[#EBE8DF] transition cursor-pointer"
+        className="w-full px-3.5 py-2.5 flex items-center justify-between bg-[#F7F5F0] hover:bg-[#EFECE4] transition cursor-pointer"
       >
-        <span className="text-xs font-extrabold uppercase tracking-wide text-stone-900">
+        <span className="text-xs font-extrabold tracking-tight text-[#1C1917]">
           {title}
         </span>
         <div className="flex items-center gap-2">
           {badge && (
-            <span className="text-[11px] font-mono font-bold px-2.5 py-0.5 rounded-lg bg-white text-amber-900 border border-stone-300 shadow-2xs">
+            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-white text-[#44403C] border border-[#DED8CC]">
               {badge}
             </span>
           )}
           <ChevronDown
-            className={`w-4 h-4 text-stone-700 transition-transform ${
+            className={`w-4 h-4 text-[#57534E] transition-transform duration-300 ease-out ${
               open ? "rotate-180" : ""
             }`}
           />
         </div>
       </button>
-      {open && <div className="p-3.5 space-y-3 border-t border-stone-200/80">{children}</div>}
+      <div
+        className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${
+          open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0 pointer-events-none"
+        }`}
+      >
+        <div className="overflow-hidden">
+          <div className="p-3 space-y-2.5 border-t border-[#E5E0D5]">{children}</div>
+        </div>
+      </div>
     </div>
   );
 };
 
 // ---------------------------------------------------------------------------
-// 8. STATUS & VALIDATION BANNER (High-Contrast Light Banner)
+// 8. PREMIUM STRETCH-DOWN DROPDOWN MENU (Smooth vertical stretch animation)
+// ---------------------------------------------------------------------------
+export interface V3PremiumDropdownOption {
+  value: string;
+  label: string;
+  sub?: string;
+  badge?: string;
+  icon?: React.ReactNode;
+}
+
+export const V3PremiumDropdown: React.FC<{
+  label?: string;
+  value: string;
+  options: V3PremiumDropdownOption[];
+  onChange: (value: string) => void;
+  testId?: string;
+}> = ({ label, value, options, onChange, testId }) => {
+  const [open, setOpen] = React.useState(false);
+  const selectedOpt = options.find((o) => o.value === value) || options[0];
+
+  return (
+    <div
+      data-testid={testId ? `${testId}-wrapper` : undefined}
+      className="rounded-xl border border-[#DED8CC] bg-white overflow-hidden shadow-2xs transition-all"
+    >
+      {/* Hidden native select for automated test compatibility */}
+      {testId && (
+        <select
+          aria-label={label || "Seçim Menüsü"}
+          data-testid={testId}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="sr-only"
+        >
+          {options.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      )}
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className="w-full px-3 py-2 flex items-center justify-between gap-2 bg-[#FAF9F6] hover:bg-[#F2EFE9] text-left transition cursor-pointer"
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          {selectedOpt?.icon && (
+            <span className="shrink-0 text-[#2C2A29]">{selectedOpt.icon}</span>
+          )}
+          <div className="min-w-0">
+            {label && (
+              <span className="text-[9px] font-bold uppercase tracking-wider text-[#78716C] block leading-none mb-0.5">
+                {label}
+              </span>
+            )}
+            <span className="text-xs font-extrabold text-[#1C1917] truncate block">
+              {selectedOpt?.label || value}
+            </span>
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {selectedOpt?.badge && (
+            <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-[#EBE6DC] text-[#2C2A29]">
+              {selectedOpt.badge}
+            </span>
+          )}
+          <ChevronDown
+            className={`w-4 h-4 text-[#57534E] transition-transform duration-300 ease-out ${
+              open ? "rotate-180" : ""
+            }`}
+          />
+        </div>
+      </button>
+
+      {/* Smooth Stretch-Down Options Drawer */}
+      <div
+        className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${
+          open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0 pointer-events-none"
+        }`}
+      >
+        <div className="overflow-hidden">
+          <div className="p-1.5 space-y-1 border-t border-[#E5E0D5] bg-white max-h-60 overflow-y-auto">
+            {options.map((opt) => {
+              const isSel = opt.value === value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => {
+                    onChange(opt.value);
+                    setOpen(false);
+                  }}
+                  className={`w-full px-2.5 py-1.5 rounded-lg text-left flex items-center justify-between gap-2 transition cursor-pointer ${
+                    isSel
+                      ? "bg-[#E8E2D5] text-[#1C1917] border border-[#BFB5A2]"
+                      : "hover:bg-[#F5F2EB] text-[#1C1917]"
+                  }`}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    {opt.icon && <span className="shrink-0">{opt.icon}</span>}
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold truncate">{opt.label}</div>
+                      {opt.sub && (
+                        <div
+                          className={`text-[10px] truncate ${
+                            isSel ? "text-stone-300" : "text-[#78716C]"
+                          }`}
+                        >
+                          {opt.sub}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {opt.badge && (
+                      <span
+                        className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+                          isSel
+                            ? "bg-white/20 text-white"
+                            : "bg-[#F2EFE9] text-[#57534E]"
+                        }`}
+                      >
+                        {opt.badge}
+                      </span>
+                    )}
+                    {isSel && <Check className="w-3.5 h-3.5 shrink-0" />}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// 9. STATUS & VALIDATION BANNER
 // ---------------------------------------------------------------------------
 export const V3AlertBanner: React.FC<{
   type: "warning" | "info" | "success";
@@ -465,20 +594,20 @@ export const V3AlertBanner: React.FC<{
 }> = ({ type, title, message, actionLabel, onAction }) => {
   const styles =
     type === "warning"
-      ? "bg-amber-50 border-amber-300 text-amber-950"
+      ? "bg-[#FAF6F0] border-[#E5D5C0] text-[#5C3A1E]"
       : type === "success"
-      ? "bg-emerald-50 border-emerald-300 text-emerald-950"
-      : "bg-stone-100 border-stone-300 text-stone-900";
+      ? "bg-[#F2F7F4] border-[#C5DDD0] text-[#1E462E]"
+      : "bg-[#F5F3EE] border-[#DED8CC] text-[#2C2A29]";
 
   return (
     <div className={`p-3 rounded-xl border text-xs space-y-2 ${styles}`}>
       <div className="flex items-start gap-2">
         {type === "warning" ? (
-          <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+          <AlertCircle className="w-4 h-4 text-[#8C5A2B] shrink-0 mt-0.5" />
         ) : type === "success" ? (
-          <Sparkles className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
+          <Sparkles className="w-4 h-4 text-[#2E6F40] shrink-0 mt-0.5" />
         ) : (
-          <Info className="w-4 h-4 text-stone-700 shrink-0 mt-0.5" />
+          <Info className="w-4 h-4 text-[#57534E] shrink-0 mt-0.5" />
         )}
         <div className="space-y-0.5 flex-1">
           <div className="font-bold">{title}</div>
@@ -489,7 +618,7 @@ export const V3AlertBanner: React.FC<{
         <button
           type="button"
           onClick={onAction}
-          className="w-full py-1.5 px-3 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs transition cursor-pointer"
+          className="w-full py-1.5 px-3 rounded-lg bg-[#E8E2D5] hover:bg-[#DDD5C5] text-[#1C1917] border border-[#BFB5A2] font-bold text-xs transition cursor-pointer"
         >
           {actionLabel}
         </button>

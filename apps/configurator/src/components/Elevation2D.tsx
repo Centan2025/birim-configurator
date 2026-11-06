@@ -36,7 +36,7 @@ export default function Elevation2D() {
   };
 
   const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
+    e.stopPropagation();
     const newZoom = Math.min(Math.max(0.4, zoom - e.deltaY * 0.001), 3);
     setZoom(newZoom);
   };
