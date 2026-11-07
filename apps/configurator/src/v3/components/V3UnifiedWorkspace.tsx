@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import dynamic from "next/dynamic";
 import {
   useV3Adapter,
+  getBayShelfIntervalsForSubDivider,
   DEFAULT_MATERIALS,
   WARDROBE_TEMPLATES,
   KITCHEN_ENGINEERING_RULE_REGISTRY,
@@ -887,6 +888,7 @@ export const V3UnifiedWorkspace: React.FC<{
     autoGenerateKitchenComplementary,
     attachComplementaryToActiveModule,
     applyProjectSegmentPreset,
+    applyGuidedWizardLayout,
     v4ModuleFamilies,
     v4ModuleTemplates,
     doorSystemDefinitions,
@@ -1323,6 +1325,23 @@ export const V3UnifiedWorkspace: React.FC<{
 
   // V4 Showroom Hızlı Satış, Oto-Dizilim, 3'lü Bütçe Paketi ve Müşteri Teklif Föyü Durumları
   const [showQuickSellModal, setShowQuickSellModal] = useState(false);
+
+  // V4 5-Adımda Kolay Tasarım Sihirbazı (Step-by-Step Guided Wizard) Durumları
+  const [showStepWizardModal, setShowStepWizardModal] = useState(false);
+  const [wizardStep, setWizardStep] = useState<1 | 2 | 3 | 4 | 5>(1);
+  const [wizSpaceCategory, setWizSpaceCategory] = useState<"wardrobe" | "walkin" | "kitchen" | "living">("wardrobe");
+  const [wizRoomShape, setWizRoomShape] = useState<"rectangular" | "l_shape" | "u_shape">("rectangular");
+  const [wizWallWidthMm, setWizWallWidthMm] = useState<number>(3600);
+  const [wizTargetHeightMm, setWizTargetHeightMm] = useState<number>(2400);
+  const [wizTargetDepthMm, setWizTargetDepthMm] = useState<number>(600);
+  const [wizAutoFiller50Mm, setWizAutoFiller50Mm] = useState<boolean>(true);
+  const [wizInteriorFocus, setWizInteriorFocus] = useState<"hanging" | "balanced" | "shelves">("balanced");
+  const [wizDoorStyle, setWizDoorStyle] = useState<"hinged" | "sliding" | "glass" | "open">("hinged");
+  const [wizConceptTier, setWizConceptTier] = useState<"eco" | "smart" | "signature">("smart");
+  const [wizColorSwatch, setWizColorSwatch] = useState<"cashmere" | "white" | "oak" | "walnut" | "anthracite">("cashmere");
+  const [wizAddLed, setWizAddLed] = useState<boolean>(true);
+  const [wizAddTrouserRack, setWizAddTrouserRack] = useState<boolean>(true);
+  const [wizAddJewelryTray, setWizAddJewelryTray] = useState<boolean>(false);
   const [quoteDiscountPct, setQuoteDiscountPct] = useState<number>(10);
   const [quoteInstallments, setQuoteInstallments] = useState<number>(6);
   const [activeConceptTier, setActiveConceptTier] = useState<"eco" | "smart" | "signature">("smart");
@@ -1368,7 +1387,7 @@ export const V3UnifiedWorkspace: React.FC<{
       0,
       Math.round((project.modules.reduce((s, m) => s + m.dimensions.width, 0) / 220) * 2)
     );
-    const sheetCount2800x2070 = Math.max(1, Math.ceil(totalPanelAreaM2 / 4.75));
+    const sheetCount2800x2070 = project.modules.length === 0 ? 0 : Math.max(1, Math.ceil(totalPanelAreaM2 / 4.75));
     const mainWallLen = spaceWalls[0]?.length || 3600;
     const usedWallLen = project.modules.reduce(
       (acc, m) => Math.max(acc, (m.position?.x || 0) + m.dimensions.width),
@@ -1395,53 +1414,51 @@ export const V3UnifiedWorkspace: React.FC<{
     };
   }, [project.modules, spaceWalls]);
 
-  // 30 Saniyede Akıllı Duvar Otomatik Doldurma (Kör Çıta Paylı)
+  // 30 Saniyede Akıllı Duvar Otomatik Doldurma (%100 Çakışmasız Atomik Yerleşim)
   const handleSmartWallAutoFill = useCallback(
     (preset: "wardrobe_max" | "his_hers" | "kitchen_smart" | "zero_gap_filler") => {
       const wallLen = spaceWalls[0]?.length || 3600;
-      const usableSpan = Math.max(900, wallLen - 100); // Sağ + Sol 50mm kör çıta payı
-
       if (preset === "zero_gap_filler") {
         distributeAlongWall();
         setApprovalBanner({
-          text: `📏 Duvar (${wallLen}mm) üzerindeki ${project.modules.length} modül kör çıta payları korunarak sıfır boşlukla hizalandı.`,
+          text: `📏 Duvar (${wallLen}mm) üzerindeki modüller çakışmasız şekilde sıfır boşlukla hizalandı.`,
           ok: true,
         });
         setTimeout(() => setApprovalBanner(null), 4500);
         return;
       }
 
-      if (preset === "kitchen_smart") {
-        loadLinearKitchen();
-        setApprovalBanner({
-          text: `🍳 ${wallLen}mm duvar için Tesisat/Eviye + Ankastre + Hazırlık modüllü akıllı mutfak dizilimi oluşturuldu!`,
-          ok: true,
-        });
-        setTimeout(() => setApprovalBanner(null), 4500);
-        return;
-      }
+      applyGuidedWizardLayout({
+        spaceCategory:
+          preset === "kitchen_smart"
+            ? "kitchen"
+            : preset === "his_hers"
+            ? "walkin"
+            : "wardrobe",
+        roomShape: "rectangular",
+        wallWidthMm: wallLen,
+        targetHeightMm: preset === "kitchen_smart" ? 900 : 2400,
+        targetDepthMm: preset === "kitchen_smart" ? 580 : 600,
+        autoFiller50Mm: true,
+        interiorFocus: preset === "wardrobe_max" ? "hanging" : "balanced",
+        doorStyle: preset === "his_hers" ? "sliding" : "hinged",
+        conceptTier: activeConceptTier,
+        colorSwatchId: "cashmere",
+        addLed: true,
+        addTrouserRack: preset !== "kitchen_smart",
+        addJewelryTray: preset === "his_hers",
+      });
 
-      if (preset === "his_hers") {
-        applySmartWallProposal("sw_balanced_sym", usableSpan);
-        setApprovalBanner({
-          text: `👗 ${wallLen}mm duvar için His & Hers çift kişilik simetrik giyinme odası (${usableSpan}mm net + 2×50mm kör çıta) oluşturuldu!`,
-          ok: true,
-        });
-        setTimeout(() => setApprovalBanner(null), 4500);
-        return;
-      }
-
-      applySmartSpan(usableSpan);
       setApprovalBanner({
-        text: `👔 ${wallLen}mm duvar için maksimum askı ve çekmeceli ebeveyn gardırobu (${usableSpan}mm net + 2×50mm kör çıta) oluşturuldu!`,
+        text: `✨ ${wallLen / 10} cm duvar için çakışmasız (2×5 cm kör çıtalı) otomatik dizilim oluşturuldu!`,
         ok: true,
       });
       setTimeout(() => setApprovalBanner(null), 4500);
     },
-    [spaceWalls, project.modules.length, distributeAlongWall, loadLinearKitchen, applySmartWallProposal, applySmartSpan]
+    [spaceWalls, distributeAlongWall, applyGuidedWizardLayout, activeConceptTier]
   );
 
-  // 3'lü Bütçe & İç Mimari Konsept Paketi Uygulayıcı (Ekonomik / Smart / Signature)
+    // 3'lü Bütçe & İç Mimari Konsept Paketi Uygulayıcı (Ekonomik / Smart / Signature)
   const handleApplyConceptTier = useCallback(
     (tier: "eco" | "smart" | "signature") => {
       setActiveConceptTier(tier);
@@ -1677,9 +1694,73 @@ export const V3UnifiedWorkspace: React.FC<{
     liveCustomerAndFactoryStats,
   ]);
 
-  if (!activeModule) return null;
+  // Adım Adım Kolay Tasarım Sihirbazı Uygulayıcı (Atomik ve %100 Çakışmasız Yerleşim)
+  const handleFinishStepWizard = useCallback(
+    (targetDestination: "studio_3d" | "plan_2d" | "print_pdf") => {
+      applyGuidedWizardLayout({
+        spaceCategory: wizSpaceCategory,
+        roomShape: wizRoomShape,
+        wallWidthMm: wizWallWidthMm,
+        targetHeightMm: wizTargetHeightMm,
+        targetDepthMm: wizTargetDepthMm,
+        autoFiller50Mm: wizAutoFiller50Mm,
+        interiorFocus: wizInteriorFocus,
+        doorStyle: wizDoorStyle,
+        conceptTier: wizConceptTier,
+        colorSwatchId: wizColorSwatch,
+        addLed: wizAddLed,
+        addTrouserRack: wizAddTrouserRack,
+        addJewelryTray: wizAddJewelryTray,
+      });
+
+      setShowStepWizardModal(false);
+      if (targetDestination === "plan_2d") {
+        setMode("plan");
+      } else {
+        setMode("studio");
+        setStudioView("3d");
+      }
+
+      setApprovalBanner({
+        ok: true,
+        text: `✨ Tasarımınız (${wizWallWidthMm / 10} cm duvar, sıfır çakışma ve ${
+          wizAutoFiller50Mm ? "2×5 cm kör çıta payı ile" : "tam ölçüyle"
+        }) oluşturuldu!`,
+      });
+      setTimeout(() => setApprovalBanner(null), 4500);
+
+      if (targetDestination === "print_pdf") {
+        setTimeout(() => {
+          handlePrintVisualCustomerPresentation();
+        }, 250);
+      }
+    },
+    [
+      applyGuidedWizardLayout,
+      wizSpaceCategory,
+      wizRoomShape,
+      wizWallWidthMm,
+      wizTargetHeightMm,
+      wizTargetDepthMm,
+      wizAutoFiller50Mm,
+      wizInteriorFocus,
+      wizDoorStyle,
+      wizConceptTier,
+      wizColorSwatch,
+      wizAddLed,
+      wizAddTrouserRack,
+      wizAddJewelryTray,
+      handlePrintVisualCustomerPresentation,
+    ]
+  );
+
+  const activeBreakdown = useMemo(
+    () => (activeModule ? generateModuleGeometry(activeModule, { doorOpenAngleDeg: 0 }) : null),
+    [activeModule]
+  );
+
+  if (!activeModule || !activeBreakdown) return null;
   const { width, height, depth } = activeModule.dimensions;
-  const activeBreakdown = generateModuleGeometry(activeModule, { doorOpenAngleDeg: 0 });
   const currentBayWidthMm = activeBreakdown.bayWidths[activeBayIndex] || 0;
   const netInnerHeightMm = activeBreakdown.netInnerHeight || Math.max(400, height - 116);
   const mainWall = spaceWalls[0] || { length: 3600, height: 2700 };
@@ -1864,7 +1945,21 @@ export const V3UnifiedWorkspace: React.FC<{
           </div>
 
           {/* Center-Right: B1R1M Architectural Studio Mode Switcher & Showroom Actions */}
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              data-testid="open-step-wizard-btn"
+              onClick={() => {
+                setWizardStep(1);
+                setShowStepWizardModal(true);
+              }}
+              className="h-9 px-4 rounded-full font-bold text-xs flex items-center gap-1.5 bg-[#2563EB] hover:bg-[#1D4ED8] text-white shadow-xs transition active:scale-[0.98] cursor-pointer"
+              title="4 Adımda Görsel ve Kolay Tasarım Sihirbazını Başlat"
+            >
+              <Wand2 className="w-3.5 h-3.5 text-white" />
+              <span>Kolay Sihirbaz</span>
+            </button>
+
             <button
               type="button"
               data-testid="open-quick-sell-header-btn"
@@ -7835,7 +7930,7 @@ export const V3UnifiedWorkspace: React.FC<{
                             Kenar Bandı Kalınlığı (ABS)
                           </label>
                           <span className="text-xs font-mono text-[#475569]">
-                            Birim Maliyet: €{bodyMatDef.edgeBandCostPerM.toFixed(2)}/m
+                            Birim Maliyet: €{(bodyMatDef.edgeBandCostPerM ?? 0).toFixed(2)}/m
                           </span>
                         </div>
                         <div className="grid grid-cols-3 gap-2 p-0.5">
@@ -9574,49 +9669,18 @@ export const V3UnifiedWorkspace: React.FC<{
 
                         {/* SUB-DIVIDERS */}
                         {(activeBay.subDividers || []).map((sd, i) => {
-                          const sortedShelves = [...activeBay.shelves].sort(
-                            (a, b) => a.elevationY - b.elevationY
+                          const rawIvs = getBayShelfIntervalsForSubDivider(
+                            activeBay,
+                            netInnerHeightMm,
+                            activeModule.carcass.panelThickness || 18
                           );
-                          const shelfSpans: {
-                            label: string;
-                            elevY: number;
-                            height: number;
-                          }[] = [];
-                          if (sortedShelves.length === 0) {
-                            shelfSpans.push({
-                              label: "Alt Taban ↔ Üst Tavan",
-                              elevY: 0,
-                              height: netInnerHeightMm,
-                            });
-                          } else {
-                            if (sortedShelves[0].elevationY > 40) {
-                              shelfSpans.push({
-                                label: "Alt ↔ Raf 1",
-                                elevY: 0,
-                                height: sortedShelves[0].elevationY,
-                              });
-                            }
-                            for (let k = 0; k < sortedShelves.length - 1; k++) {
-                              const botY = sortedShelves[k].elevationY + 18;
-                              const topY = sortedShelves[k + 1].elevationY;
-                              if (topY - botY >= 60) {
-                                shelfSpans.push({
-                                  label: `Raf ${k + 1} ↔ Raf ${k + 2}`,
-                                  elevY: botY,
-                                  height: topY - botY,
-                                });
-                              }
-                            }
-                            const lastShelf = sortedShelves[sortedShelves.length - 1];
-                            const lastBotY = lastShelf.elevationY + 18;
-                            if (netInnerHeightMm - lastBotY >= 60) {
-                              shelfSpans.push({
-                                label: `Raf ${sortedShelves.length} ↔ Üst`,
-                                elevY: lastBotY,
-                                height: netInnerHeightMm - lastBotY,
-                              });
-                            }
-                          }
+                          const shelfSpans = rawIvs.map((iv) => ({
+                            label: iv.label,
+                            elevY: iv.botY,
+                            height: iv.height,
+                            hasConflict: iv.hasConflict,
+                            conflictReason: iv.conflictReason,
+                          }));
 
                           return (
                             <div
@@ -9658,20 +9722,29 @@ export const V3UnifiedWorkspace: React.FC<{
                                         <button
                                           key={sp.label}
                                           type="button"
+                                          disabled={sp.hasConflict}
                                           data-testid={`studio-subdivider-span-${i}-${spIdx}`}
-                                          onClick={() =>
+                                          onClick={() => {
+                                            if (sp.hasConflict) return;
                                             setSubDividerPlacement(activeBayIndex, sd.id, {
                                               elevationY: sp.elevY,
                                               height: sp.height,
-                                            })
+                                            });
+                                          }}
+                                          title={
+                                            sp.hasConflict
+                                              ? `Bu aralıkta ${sp.conflictReason} bulunduğu için dikme konulamaz`
+                                              : `${sp.label} aralığına taşı`
                                           }
-                                          className={`px-2 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
-                                            isSelected
-                                              ? "bg-[#EEF3F8] text-[#1C1917] border border-[#CBD5E1]"
-                                              : "bg-white hover:bg-stone-100 border border-stone-300 text-stone-700"
+                                          className={`px-2 py-1 rounded-lg text-xs font-bold transition ${
+                                            sp.hasConflict
+                                              ? "bg-red-50 text-red-400 border border-red-200 cursor-not-allowed line-through"
+                                              : isSelected
+                                              ? "bg-blue-600 text-white border border-blue-700 cursor-pointer shadow-2xs"
+                                              : "bg-white hover:bg-stone-100 border border-stone-300 text-stone-700 cursor-pointer"
                                           }`}
                                         >
-                                          {sp.label}
+                                          {sp.hasConflict ? `🔒 ${sp.label}` : sp.label}
                                         </button>
                                       );
                                     })}
@@ -11735,7 +11808,7 @@ export const V3UnifiedWorkspace: React.FC<{
                         <div className="p-3 rounded-2xl bg-[#F8FAFC] border border-[#CBD5E1] space-y-2.5">
                           <div className="flex items-center justify-between text-xs text-[#475569]">
                             <span>
-                              SKU: <b className="font-mono text-[#111827]">{activeHingeObj.sku}</b> • Birim: <b>€{activeHingeObj.unitPriceEur.toFixed(2)}</b>
+                              SKU: <b className="font-mono text-[#111827]">{activeHingeObj.sku}</b> • Birim: <b>€{(activeHingeObj.unitPriceEur ?? 0).toFixed(2)}</b>
                             </span>
                             <span
                               className={`px-1.5 py-0.5 rounded font-bold ${
@@ -11781,7 +11854,7 @@ export const V3UnifiedWorkspace: React.FC<{
                                       <div className="min-w-0">
                                         <div className="text-[13px] truncate">{hItem.name}</div>
                                         <div className="text-xs text-[#64748B] font-mono">
-                                          SKU: {hItem.sku} • Kapak: {hItem.doorThicknessLimitsMm?.[0]}–{hItem.doorThicknessLimitsMm?.[1]}mm • €{hItem.unitPriceEur.toFixed(2)}/ad.
+                                          SKU: {hItem.sku} • Kapak: {hItem.doorThicknessLimitsMm?.[0]}–{hItem.doorThicknessLimitsMm?.[1]}mm • €{(hItem.unitPriceEur ?? 0).toFixed(2)}/ad.
                                         </div>
                                       </div>
                                       {renderManufacturerBadge(hItem.manufacturerId)}
@@ -11909,7 +11982,7 @@ export const V3UnifiedWorkspace: React.FC<{
                                       <div className="min-w-0">
                                         <div className="text-[13px] truncate">{rItem.name}</div>
                                         <div className="text-xs text-[#64748B] font-mono">
-                                          SKU: {rItem.sku} • {rItem.loadCapacityKg}kg • Taban Düşümü: LW-{rItem.drawerCuttingFormula?.bottomWidthDeductionMm || 35}mm • €{rItem.unitPriceEur.toFixed(2)}
+                                          SKU: {rItem.sku} • {rItem.loadCapacityKg}kg • Taban Düşümü: LW-{rItem.drawerCuttingFormula?.bottomWidthDeductionMm || 35}mm • €{(rItem.unitPriceEur ?? 0).toFixed(2)}
                                         </div>
                                       </div>
                                       {renderManufacturerBadge(rItem.manufacturerId)}
@@ -13658,6 +13731,19 @@ export const V3UnifiedWorkspace: React.FC<{
             <div className="flex items-center gap-2 ml-auto">
               <button
                 type="button"
+                data-testid="plan-open-step-wizard-btn"
+                onClick={() => {
+                  setWizardStep(1);
+                  setShowStepWizardModal(true);
+                }}
+                className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-[#141413] text-xs font-extrabold flex items-center gap-1.5 shadow-2xs transition active:scale-95 cursor-pointer"
+                title="5 Adımda Kolay Tasarım Sihirbazı"
+              >
+                <span>🪄</span>
+                <span>Sihirbaz</span>
+              </button>
+              <button
+                type="button"
                 data-testid="plan-quick-sell-btn"
                 onClick={() => setShowQuickSellModal(true)}
                 className="px-3 py-1.5 rounded-xl bg-[#141413] hover:bg-[#292524] text-white text-xs font-semibold flex items-center gap-1.5 shadow-2xs transition active:scale-95 cursor-pointer"
@@ -14309,7 +14395,983 @@ export const V3UnifiedWorkspace: React.FC<{
         </div>
       )}
 
-      {showQuickSellModal && (
+      {showStepWizardModal && (() => {
+        const safeStep = Math.min(4, Math.max(1, wizardStep)) as 1 | 2 | 3 | 4;
+        const fillerMm = wizAutoFiller50Mm && wizWallWidthMm >= 1400 ? 50 : 0;
+        const estUsableMm = Math.max(800, wizWallWidthMm - fillerMm * 2);
+        const estModCount =
+          estUsableMm < 1300 ? 1 : estUsableMm < 2200 ? 2 : estUsableMm < 3300 ? 3 : 4;
+        const estBays = estModCount * 2;
+        const estHanging =
+          wizInteriorFocus === "hanging"
+            ? Math.round((estUsableMm * 0.82) / 32)
+            : wizInteriorFocus === "balanced"
+            ? Math.round((estUsableMm * 0.58) / 32)
+            : Math.round((estUsableMm * 0.32) / 32);
+        const estFolded =
+          wizInteriorFocus === "shelves"
+            ? Math.round(estBays * 28)
+            : wizInteriorFocus === "balanced"
+            ? Math.round(estBays * 20)
+            : Math.round(estBays * 12);
+
+        const swatchDefs = [
+          {
+            id: "cashmere" as const,
+            name: "İpeksi Kaşmir Mat",
+            sub: "Sıcak bej-gri soft-touch",
+            hex: "#D8D0C5",
+            borderHex: "#A89F91",
+            interiorHex: "#F5F2EB",
+            tier: "smart" as const,
+          },
+          {
+            id: "white" as const,
+            name: "Alabaster Saf Beyaz",
+            sub: "Ferah modern mat beyaz",
+            hex: "#F8FAFC",
+            borderHex: "#CBD5E1",
+            interiorHex: "#FFFFFF",
+            tier: "eco" as const,
+          },
+          {
+            id: "oak" as const,
+            name: "Doğal Safir Meşe",
+            sub: "Sıcak İskandinav ahşap dokusu",
+            hex: "#C89F70",
+            borderHex: "#9A6B3B",
+            interiorHex: "#F5EBE0",
+            tier: "smart" as const,
+          },
+          {
+            id: "walnut" as const,
+            name: "Amerikan Doğal Ceviz",
+            sub: "Zengin koyu ceviz kaplama",
+            hex: "#6E473B",
+            borderHex: "#4A2E25",
+            interiorHex: "#EDE4DF",
+            tier: "signature" as const,
+          },
+          {
+            id: "anthracite" as const,
+            name: "Antrasit İpek Mat",
+            sub: "Modern mimari koyu gri",
+            hex: "#334155",
+            borderHex: "#1E293B",
+            interiorHex: "#E2E8F0",
+            tier: "signature" as const,
+          },
+        ];
+        const activeSwatch =
+          swatchDefs.find((s) => s.id === wizColorSwatch) || swatchDefs[0];
+
+        const basePricePerMeter =
+          wizConceptTier === "eco" ? 540 : wizConceptTier === "smart" ? 720 : 960;
+        const doorMultiplier =
+          wizDoorStyle === "glass"
+            ? 1.18
+            : wizDoorStyle === "sliding"
+            ? 1.08
+            : wizDoorStyle === "open"
+            ? 0.82
+            : 1.0;
+        const accExtra =
+          (wizAddLed ? 85 : 0) +
+          (wizAddTrouserRack ? 65 : 0) +
+          (wizAddJewelryTray ? 75 : 0);
+        const estTotalEur = Math.round(
+          (wizWallWidthMm / 1000) * basePricePerMeter * doorMultiplier + accExtra
+        );
+
+        const stepsList = [
+          { num: 1 as const, title: "Mekân Seçimi" },
+          { num: 2 as const, title: "Duvar Ölçüsü" },
+          { num: 3 as const, title: "İç Düzen & Kapak" },
+          { num: 4 as const, title: "Renk & Konfor" },
+        ];
+
+        return (
+          <div
+            data-testid="v4-step-wizard-modal"
+            className="fixed inset-0 z-[130] bg-slate-900/45 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 overflow-y-auto"
+            onClick={() => setShowStepWizardModal(false)}
+          >
+            <div
+              className="bg-white rounded-3xl border border-slate-200/90 shadow-[0_24px_60px_rgba(15,23,42,0.18)] max-w-5xl w-full overflow-hidden text-slate-900 flex flex-col max-h-[92vh]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Ferah, Aydınlık Üst Başlık ve Yumuşak Adım Çubuğu */}
+              <div className="px-6 pt-5 pb-4 bg-gradient-to-r from-sky-50/90 via-blue-50/50 to-emerald-50/60 border-b border-slate-200/80">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-sm shrink-0">
+                      <Wand2 className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-extrabold text-blue-700">
+                          Akıllı Tasarım Sihirbazı
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                          ✓ %100 Çakışmasız Yerleşim Garantisi
+                        </span>
+                      </div>
+                      <h2 className="text-base sm:text-lg font-extrabold text-slate-900">
+                        4 Kolay Adımda Hayalinizdeki Dolabı Tasarlayın
+                      </h2>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    data-testid="close-step-wizard-btn"
+                    onClick={() => setShowStepWizardModal(false)}
+                    className="w-9 h-9 rounded-full bg-white hover:bg-slate-100 text-slate-500 hover:text-slate-900 font-bold text-sm flex items-center justify-center border border-slate-200/90 shadow-2xs transition cursor-pointer"
+                    title="Kapat"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* 4 Adımlı Görsel İlerleme Hapları */}
+                <div className="grid grid-cols-4 gap-2 mt-4">
+                  {stepsList.map((st) => {
+                    const isCur = safeStep === st.num;
+                    const isPassed = safeStep > st.num;
+                    return (
+                      <button
+                        key={st.num}
+                        type="button"
+                        data-testid={`wizard-step-tab-${st.num}`}
+                        onClick={() => setWizardStep(st.num)}
+                        className={`py-2 px-3 rounded-2xl border text-left transition flex items-center gap-2 cursor-pointer ${
+                          isCur
+                            ? "bg-blue-600 text-white border-blue-600 shadow-sm"
+                            : isPassed
+                            ? "bg-emerald-50/90 text-emerald-900 border-emerald-200 hover:bg-emerald-100/70"
+                            : "bg-white/90 text-slate-600 border-slate-200/80 hover:bg-white"
+                        }`}
+                      >
+                        <span
+                          className={`w-6 h-6 rounded-full text-xs font-extrabold flex items-center justify-center shrink-0 ${
+                            isCur
+                              ? "bg-white text-blue-600"
+                              : isPassed
+                              ? "bg-emerald-600 text-white"
+                              : "bg-slate-100 text-slate-600"
+                          }`}
+                        >
+                          {isPassed ? "✓" : st.num}
+                        </span>
+                        <span className="text-xs font-bold truncate">{st.title}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 2 Sütunlu Ana Gövde: Sol = Görsel Seçimler (7 birim), Sağ = Canlı İnteraktif Dolap Önizlemesi (5 birim) */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 flex-1 min-h-0 overflow-y-auto">
+                {/* SOL SÜTUN: ADIM İÇERİKLERİ */}
+                <div className="lg:col-span-7 p-6 space-y-5 overflow-y-auto">
+                  {/* ADIM 1: MEKÂN SEÇİMİ (Görsel SVG İkonlu Ferah Kartlar) */}
+                  {safeStep === 1 && (
+                    <div data-testid="wizard-step-1-content" className="space-y-4">
+                      <div>
+                        <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">
+                          Adım 1 / 4
+                        </span>
+                        <h3 className="text-lg font-extrabold text-slate-900 mt-0.5">
+                          Hangi Odaya Dolap Yapıyoruz?
+                        </h3>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          Birini seçin; ideal ölçüler ve iç bölmeler otomatik hazırlansın.
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {[
+                          {
+                            id: "wardrobe" as const,
+                            title: "Yatak Odası Gardırobu",
+                            desc: "Askılık, katlı raf ve çekmeceli yatak odası dolabı",
+                            badge: "En Popüler",
+                            defaultW: 3000,
+                            defaultH: 2400,
+                            defaultD: 600,
+                            svg: (
+                              <svg viewBox="0 0 64 52" className="w-12 h-10 shrink-0">
+                                <rect x="6" y="4" width="52" height="44" rx="4" fill="#EFF6FF" stroke="#2563EB" strokeWidth="2.5" />
+                                <line x1="24" y1="4" x2="24" y2="48" stroke="#2563EB" strokeWidth="2" />
+                                <line x1="41" y1="4" x2="41" y2="48" stroke="#2563EB" strokeWidth="2" />
+                                <line x1="20" y1="24" x2="20" y2="30" stroke="#1D4ED8" strokeWidth="2.5" strokeLinecap="round" />
+                                <line x1="37" y1="24" x2="37" y2="30" stroke="#1D4ED8" strokeWidth="2.5" strokeLinecap="round" />
+                              </svg>
+                            ),
+                          },
+                          {
+                            id: "walkin" as const,
+                            title: "Giyinme Odası (Walk-In)",
+                            desc: "Çift kişilik geniş askı, pantolonluk, takı çekmecesi ve iç LED",
+                            badge: "Konfor Serisi",
+                            defaultW: 3600,
+                            defaultH: 2400,
+                            defaultD: 600,
+                            svg: (
+                              <svg viewBox="0 0 64 52" className="w-12 h-10 shrink-0">
+                                <rect x="4" y="4" width="56" height="44" rx="4" fill="#ECFDF5" stroke="#059669" strokeWidth="2.5" />
+                                <line x1="22" y1="4" x2="22" y2="48" stroke="#059669" strokeWidth="2" />
+                                <line x1="42" y1="4" x2="42" y2="48" stroke="#059669" strokeWidth="2" />
+                                <line x1="6" y1="14" x2="58" y2="14" stroke="#10B981" strokeWidth="2" />
+                                <line x1="22" y1="34" x2="42" y2="34" stroke="#10B981" strokeWidth="2" />
+                                <line x1="22" y1="41" x2="42" y2="41" stroke="#10B981" strokeWidth="2" />
+                              </svg>
+                            ),
+                          },
+                          {
+                            id: "kitchen" as const,
+                            title: "Mutfak Dolabı Sistemi",
+                            desc: "Eviye altı, çekmeceli ocak altı ve hazırlık modülleri",
+                            badge: "Tesisat Uyumlu",
+                            defaultW: 3600,
+                            defaultH: 900,
+                            defaultD: 580,
+                            svg: (
+                              <svg viewBox="0 0 64 52" className="w-12 h-10 shrink-0">
+                                <rect x="6" y="18" width="52" height="30" rx="3" fill="#FFFBEB" stroke="#D97706" strokeWidth="2.5" />
+                                <line x1="24" y1="18" x2="24" y2="48" stroke="#D97706" strokeWidth="2" />
+                                <line x1="42" y1="18" x2="42" y2="48" stroke="#D97706" strokeWidth="2" />
+                                <line x1="24" y1="28" x2="42" y2="28" stroke="#D97706" strokeWidth="2" />
+                                <line x1="24" y1="38" x2="42" y2="38" stroke="#D97706" strokeWidth="2" />
+                              </svg>
+                            ),
+                          },
+                          {
+                            id: "living" as const,
+                            title: "TV Ünitesi & Kitaplık",
+                            desc: "Füme cam vitrinli, açık raflı ve alt çekmeceli yaşam ünitesi",
+                            badge: "Salon & Ofis",
+                            defaultW: 2800,
+                            defaultH: 2200,
+                            defaultD: 450,
+                            svg: (
+                              <svg viewBox="0 0 64 52" className="w-12 h-10 shrink-0">
+                                <rect x="6" y="6" width="52" height="42" rx="4" fill="#F5F3FF" stroke="#7C3AED" strokeWidth="2.5" />
+                                <line x1="20" y1="6" x2="20" y2="48" stroke="#7C3AED" strokeWidth="2" />
+                                <line x1="44" y1="6" x2="44" y2="48" stroke="#7C3AED" strokeWidth="2" />
+                                <rect x="23" y="16" width="18" height="14" rx="2" fill="#DDD6FE" stroke="#7C3AED" strokeWidth="1.8" />
+                              </svg>
+                            ),
+                          },
+                        ].map((item) => {
+                          const sel = wizSpaceCategory === item.id;
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              data-testid={`wizard-cat-${item.id}`}
+                              onClick={() => {
+                                setWizSpaceCategory(item.id);
+                                setWizWallWidthMm(item.defaultW);
+                                setWizTargetHeightMm(item.defaultH);
+                                setWizTargetDepthMm(item.defaultD);
+                                if (item.id === "living") setWizDoorStyle("glass");
+                                else if (item.id === "wardrobe" || item.id === "kitchen") setWizDoorStyle("hinged");
+                              }}
+                              className={`p-4 rounded-2xl border-2 text-left transition-all flex items-start gap-3.5 cursor-pointer ${
+                                sel
+                                  ? "bg-blue-50/70 border-blue-600 shadow-sm ring-2 ring-blue-500/15"
+                                  : "bg-slate-50/60 hover:bg-white border-slate-200 hover:border-blue-300"
+                              }`}
+                            >
+                              <div className="p-2 rounded-xl bg-white border border-slate-200/80 shadow-2xs">
+                                {item.svg}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center justify-between gap-1">
+                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white text-blue-700 border border-blue-200">
+                                    {item.badge}
+                                  </span>
+                                  {sel && (
+                                    <span className="text-xs font-extrabold text-blue-600">
+                                      ✓ Seçili
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-sm font-extrabold text-slate-900 mt-1.5">
+                                  {item.title}
+                                </div>
+                                <p className="text-xs text-slate-500 mt-0.5 leading-snug">
+                                  {item.desc}
+                                </p>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ADIM 2: DUVAR ÖLÇÜSÜ (Tek Tıkla Hazır Santimetre Hapları + Yumuşak Sürgü) */}
+                  {safeStep === 2 && (
+                    <div data-testid="wizard-step-2-content" className="space-y-5">
+                      <div>
+                        <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">
+                          Adım 2 / 4
+                        </span>
+                        <h3 className="text-lg font-extrabold text-slate-900 mt-0.5">
+                          Duvarınızın Genişliği ve Yüksekliği Kaç cm?
+                        </h3>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          Sağdaki canlı çizimde modül sayısının duvarınıza göre nasıl bölündüğünü anında görebilirsiniz.
+                        </p>
+                      </div>
+
+                      {/* Genişlik */}
+                      <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/90 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-slate-700">
+                            1. Duvar Genişliği (Soldan Sağa)
+                          </span>
+                          <span className="text-base font-black font-mono text-blue-700 bg-blue-50 px-3 py-1 rounded-xl border border-blue-200">
+                            {wizWallWidthMm / 10} cm
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          data-testid="wizard-wall-width-slider"
+                          min={1200}
+                          max={5200}
+                          step={100}
+                          value={wizWallWidthMm}
+                          onChange={(e) => setWizWallWidthMm(Number(e.target.value))}
+                          className="w-full accent-blue-600 h-2 bg-slate-200 rounded-lg cursor-pointer"
+                        />
+                        <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                          {[1800, 2400, 3000, 3600, 4200, 4800].map((w) => (
+                            <button
+                              key={w}
+                              type="button"
+                              onClick={() => setWizWallWidthMm(w)}
+                              className={`py-2 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                                wizWallWidthMm === w
+                                  ? "bg-blue-600 text-white border-blue-600 shadow-2xs"
+                                  : "bg-white text-slate-700 border-slate-200 hover:border-blue-300"
+                              }`}
+                            >
+                              {w / 10} cm
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Yükseklik ve Oda Tipi */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/90">
+                          <div className="text-xs font-bold text-slate-700 mb-2.5">
+                            2. Dolap Yüksekliği
+                          </div>
+                          <div className="grid grid-cols-3 gap-2">
+                            {[
+                              { h: 2100, label: "210 cm", sub: "Standart" },
+                              { h: 2400, label: "240 cm", sub: "Yüksek" },
+                              { h: 2600, label: "260 cm", sub: "Tavana Tam" },
+                            ].map((opt) => (
+                              <button
+                                key={opt.h}
+                                type="button"
+                                onClick={() => setWizTargetHeightMm(opt.h)}
+                                className={`p-2.5 rounded-xl border text-center transition cursor-pointer ${
+                                  wizTargetHeightMm === opt.h
+                                    ? "bg-blue-600 text-white border-blue-600 shadow-2xs"
+                                    : "bg-white text-slate-700 border-slate-200 hover:border-blue-300"
+                                }`}
+                              >
+                                <div className="text-xs font-extrabold">{opt.label}</div>
+                                <div className="text-[10px] opacity-80 mt-0.5">{opt.sub}</div>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/90">
+                          <div className="text-xs font-bold text-slate-700 mb-2.5">
+                            3. Duvar Şekli
+                          </div>
+                          <div className="grid grid-cols-3 gap-2">
+                            {[
+                              { id: "rectangular" as const, label: "Düz Duvar", sub: "I Tipi" },
+                              { id: "l_shape" as const, label: "L Köşe", sub: "2 Duvar" },
+                              { id: "u_shape" as const, label: "U Tipi", sub: "3 Duvar" },
+                            ].map((sh) => (
+                              <button
+                                key={sh.id}
+                                type="button"
+                                data-testid={`wizard-shape-${sh.id}`}
+                                onClick={() => setWizRoomShape(sh.id)}
+                                className={`p-2.5 rounded-xl border text-center transition cursor-pointer ${
+                                  wizRoomShape === sh.id
+                                    ? "bg-blue-600 text-white border-blue-600 shadow-2xs"
+                                    : "bg-white text-slate-700 border-slate-200 hover:border-blue-300"
+                                }`}
+                              >
+                                <div className="text-xs font-extrabold">{sh.label}</div>
+                                <div className="text-[10px] opacity-80 mt-0.5">{sh.sub}</div>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      <label className="flex items-center gap-3 p-3.5 rounded-2xl bg-emerald-50/90 border border-emerald-200 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={wizAutoFiller50Mm}
+                          onChange={(e) => setWizAutoFiller50Mm(e.target.checked)}
+                          className="w-4 h-4 accent-emerald-600 rounded"
+                        />
+                        <div>
+                          <div className="text-xs font-extrabold text-emerald-950">
+                            Sağ ve Sol Duvarda 5 cm Kör Çıta Payı Bırak (Önerilen)
+                          </div>
+                          <div className="text-[11px] text-emerald-700">
+                            Kapakların duvara sürtmeden 90° rahat açılmasını sağlar ve çakışmayı önler.
+                          </div>
+                        </div>
+                      </label>
+                    </div>
+                  )}
+
+                  {/* ADIM 3: İÇ DÜZEN VE KAPAK TİPİ (Görsel İç Şemalı Kartlar) */}
+                  {safeStep === 3 && (
+                    <div data-testid="wizard-step-3-content" className="space-y-5">
+                      <div>
+                        <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">
+                          Adım 3 / 4
+                        </span>
+                        <h3 className="text-lg font-extrabold text-slate-900 mt-0.5">
+                          İç Bölme Düzeni ve Kapak Tipi Nasıl Olsun?
+                        </h3>
+                      </div>
+
+                      <div>
+                        <div className="text-xs font-bold text-slate-700 mb-2">
+                          1. Dolap İçi Yerleşim Tarzı
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          {[
+                            {
+                              id: "hanging" as const,
+                              title: "Bol Askılı",
+                              desc: "Elbise, gömlek ve ceket ağırlıklı",
+                              svg: (
+                                <svg viewBox="0 0 60 44" className="w-full h-11">
+                                  <rect x="4" y="2" width="52" height="40" rx="3" fill="#F8FAFC" stroke="#64748B" strokeWidth="2" />
+                                  <line x1="4" y1="10" x2="56" y2="10" stroke="#64748B" strokeWidth="2" />
+                                  <line x1="6" y1="15" x2="54" y2="15" stroke="#2563EB" strokeWidth="2.5" />
+                                  {[14, 22, 30, 38, 46].map((x) => (
+                                    <rect key={x} x={x} y="16" width="5" height="20" rx="1.5" fill="#93C5FD" />
+                                  ))}
+                                </svg>
+                              ),
+                            },
+                            {
+                              id: "balanced" as const,
+                              title: "Dengeli Aile (Önerilen)",
+                              desc: "Sol bölme askılık, sağ bölme raf ve çekmece",
+                              svg: (
+                                <svg viewBox="0 0 60 44" className="w-full h-11">
+                                  <rect x="4" y="2" width="52" height="40" rx="3" fill="#F8FAFC" stroke="#64748B" strokeWidth="2" />
+                                  <line x1="30" y1="2" x2="30" y2="42" stroke="#64748B" strokeWidth="2" />
+                                  <line x1="6" y1="14" x2="28" y2="14" stroke="#2563EB" strokeWidth="2.5" />
+                                  {[10, 17, 23].map((x) => (
+                                    <rect key={x} x={x} y="15" width="4" height="19" rx="1" fill="#93C5FD" />
+                                  ))}
+                                  <line x1="30" y1="14" x2="56" y2="14" stroke="#64748B" strokeWidth="2" />
+                                  <line x1="30" y1="24" x2="56" y2="24" stroke="#64748B" strokeWidth="2" />
+                                  <rect x="32" y="31" width="22" height="9" rx="1" fill="#FDE68A" stroke="#D97706" strokeWidth="1.5" />
+                                </svg>
+                              ),
+                            },
+                            {
+                              id: "shelves" as const,
+                              title: "Bol Raflı & Çekmeceli",
+                              desc: "Katlı kazak, tişört ve kutu düzeni",
+                              svg: (
+                                <svg viewBox="0 0 60 44" className="w-full h-11">
+                                  <rect x="4" y="2" width="52" height="40" rx="3" fill="#F8FAFC" stroke="#64748B" strokeWidth="2" />
+                                  <line x1="30" y1="2" x2="30" y2="42" stroke="#64748B" strokeWidth="2" />
+                                  {[11, 20, 29].map((y) => (
+                                    <line key={y} x1="4" y1={y} x2="56" y2={y} stroke="#64748B" strokeWidth="2" />
+                                  ))}
+                                  <rect x="6" y="31" width="22" height="9" rx="1" fill="#FDE68A" stroke="#D97706" strokeWidth="1.5" />
+                                </svg>
+                              ),
+                            },
+                          ].map((foc) => {
+                            const sel = wizInteriorFocus === foc.id;
+                            return (
+                              <button
+                                key={foc.id}
+                                type="button"
+                                data-testid={`wizard-focus-${foc.id}`}
+                                onClick={() => setWizInteriorFocus(foc.id)}
+                                className={`p-3 rounded-2xl border-2 text-left transition cursor-pointer ${
+                                  sel
+                                    ? "bg-blue-50/70 border-blue-600 shadow-2xs"
+                                    : "bg-slate-50/60 hover:bg-white border-slate-200 hover:border-blue-300"
+                                }`}
+                              >
+                                {foc.svg}
+                                <div className="text-xs font-extrabold text-slate-900 mt-2">
+                                  {foc.title}
+                                </div>
+                                <div className="text-[11px] text-slate-500 mt-0.5 leading-snug">
+                                  {foc.desc}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="text-xs font-bold text-slate-700 mb-2">
+                          2. Kapak Açılım Tercihi
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                          {[
+                            { id: "hinged" as const, title: "Menteşeli Kapak", sub: "90° Frenli Açılır" },
+                            { id: "sliding" as const, title: "Sürme Kapak", sub: "Raylı, Yer Kaplamaz" },
+                            { id: "glass" as const, title: "Füme Cam Vitrin", sub: "Alüminyum Çerçeve" },
+                            { id: "open" as const, title: "Açık Giyinme", sub: "Kapaksız Walk-In" },
+                          ].map((dr) => (
+                            <button
+                              key={dr.id}
+                              type="button"
+                              data-testid={`wizard-door-${dr.id}`}
+                              onClick={() => setWizDoorStyle(dr.id)}
+                              className={`p-3 rounded-2xl border-2 text-left transition cursor-pointer ${
+                                wizDoorStyle === dr.id
+                                  ? "bg-blue-600 text-white border-blue-600 shadow-2xs"
+                                  : "bg-white text-slate-800 border-slate-200 hover:border-blue-300"
+                              }`}
+                            >
+                              <div className="text-xs font-extrabold">{dr.title}</div>
+                              <div
+                                className={`text-[10px] mt-0.5 ${
+                                  wizDoorStyle === dr.id ? "text-blue-100" : "text-slate-500"
+                                }`}
+                              >
+                                {dr.sub}
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ADIM 4: GERÇEK RENK KARTELASI & KONFOR PAKETİ */}
+                  {safeStep === 4 && (
+                    <div data-testid="wizard-step-4-content" className="space-y-5">
+                      <div>
+                        <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">
+                          Adım 4 / 4
+                        </span>
+                        <h3 className="text-lg font-extrabold text-slate-900 mt-0.5">
+                          Kapak Renginizi ve Konfor Eklentilerinizi Seçin
+                        </h3>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          Seçtiğiniz renk sağdaki canlı dolap önizlemesine anında uygulanır.
+                        </p>
+                      </div>
+
+                      {/* Gerçek Renk Kartelası */}
+                      <div>
+                        <div className="text-xs font-bold text-slate-700 mb-2">
+                          1. Gövde & Kapak Renk Kartelası
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          {swatchDefs.map((sw) => {
+                            const sel = wizColorSwatch === sw.id;
+                            return (
+                              <button
+                                key={sw.id}
+                                type="button"
+                                data-testid={`wizard-swatch-${sw.id}`}
+                                onClick={() => {
+                                  setWizColorSwatch(sw.id);
+                                  setWizConceptTier(sw.tier);
+                                }}
+                                className={`p-3 rounded-2xl border-2 flex items-center gap-3 text-left transition cursor-pointer ${
+                                  sel
+                                    ? "bg-blue-50/70 border-blue-600 shadow-2xs"
+                                    : "bg-white border-slate-200 hover:border-blue-300"
+                                }`}
+                              >
+                                <span
+                                  className="w-10 h-10 rounded-full shrink-0 shadow-inner border-2"
+                                  style={{
+                                    backgroundColor: sw.hex,
+                                    borderColor: sw.borderHex,
+                                  }}
+                                />
+                                <div className="min-w-0 flex-1">
+                                  <div className="text-xs font-extrabold text-slate-900 flex items-center justify-between">
+                                    <span>{sw.name}</span>
+                                    {sel && <span className="text-blue-600">✓</span>}
+                                  </div>
+                                  <div className="text-[11px] text-slate-500 truncate">
+                                    {sw.sub}
+                                  </div>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Konfor Aksesuarları */}
+                      <div>
+                        <div className="text-xs font-bold text-slate-700 mb-2">
+                          2. Dolap İçi Konfor Aksesuarları
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                          {[
+                            {
+                              id: "led",
+                              checked: wizAddLed,
+                              toggle: () => setWizAddLed((v) => !v),
+                              title: "Sensörlü İç LED",
+                              sub: "3000K Sıcak Günışığı (+€85)",
+                            },
+                            {
+                              id: "trouser",
+                              checked: wizAddTrouserRack,
+                              toggle: () => setWizAddTrouserRack((v) => !v),
+                              title: "Raylı Pantolonluk",
+                              sub: "Frenli Teleskopik (+€65)",
+                            },
+                            {
+                              id: "jewelry",
+                              checked: wizAddJewelryTray,
+                              toggle: () => setWizAddJewelryTray((v) => !v),
+                              title: "Takı Çekmecesi",
+                              sub: "Kadife Bölmeli (+€75)",
+                            },
+                          ].map((acc) => (
+                            <button
+                              key={acc.id}
+                              type="button"
+                              onClick={acc.toggle}
+                              className={`p-3 rounded-2xl border-2 text-left transition cursor-pointer ${
+                                acc.checked
+                                  ? "bg-emerald-50/80 border-emerald-500 text-emerald-950"
+                                  : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
+                              }`}
+                            >
+                              <div className="flex items-center justify-between text-xs font-extrabold">
+                                <span>{acc.title}</span>
+                                <span
+                                  className={`w-5 h-5 rounded-md flex items-center justify-center text-[11px] ${
+                                    acc.checked
+                                      ? "bg-emerald-600 text-white"
+                                      : "bg-slate-100 text-slate-400"
+                                  }`}
+                                >
+                                  {acc.checked ? "✓" : "+"}
+                                </span>
+                              </div>
+                              <div className="text-[10px] opacity-80 mt-0.5">{acc.sub}</div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* SAĞ SÜTUN: HER ADIMDA GÖRÜNEN CANLI İNTERAKTİF DOLAP ÖNİZLEMESİ VE TEK TIKLA UYGULA */}
+                <div className="lg:col-span-5 bg-slate-50/90 border-t lg:border-t-0 lg:border-l border-slate-200/90 p-5 flex flex-col justify-between">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-extrabold text-slate-800">
+                        Canlı Tasarım Önizlemesi
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-extrabold">
+                        {estModCount} Modül • 0 Çakışma
+                      </span>
+                    </div>
+
+                    {/* Canlı İnteraktif SVG Dolap Çizimi */}
+                    <div
+                      data-testid="wizard-live-svg-preview"
+                      className="bg-white rounded-2xl border border-slate-200/90 p-3 shadow-2xs"
+                    >
+                      <svg viewBox="0 0 380 230" className="w-full h-44 block select-none">
+                        {/* Oda Arka Duvarı */}
+                        <rect x="16" y="14" width="348" height="190" rx="6" fill="#F1F5F9" stroke="#CBD5E1" strokeWidth="1.5" />
+
+                        {/* Sol & Sağ 5cm Kör Çıta Şeritleri */}
+                        {wizAutoFiller50Mm && (
+                          <>
+                            <rect x="24" y="26" width="10" height="176" fill="#E2E8F0" stroke="#94A3B8" strokeWidth="1" />
+                            <rect x="346" y="26" width="10" height="176" fill="#E2E8F0" stroke="#94A3B8" strokeWidth="1" />
+                          </>
+                        )}
+
+                        {/* Dinamik Modüller */}
+                        {Array.from({ length: estModCount }).map((_, mIdx) => {
+                          const startX = wizAutoFiller50Mm ? 34 : 24;
+                          const totalDrawW = wizAutoFiller50Mm ? 312 : 332;
+                          const unitW = totalDrawW / estModCount;
+                          const mx = startX + mIdx * unitW;
+                          const my = wizSpaceCategory === "kitchen" ? 105 : 26;
+                          const mh = wizSpaceCategory === "kitchen" ? 97 : 176;
+                          return (
+                            <g key={mIdx}>
+                              {/* Gövde / İç */}
+                              <rect
+                                x={mx + 1}
+                                y={my}
+                                width={unitW - 2}
+                                height={mh}
+                                rx="3"
+                                fill={
+                                  wizDoorStyle === "open" || wizDoorStyle === "glass"
+                                    ? activeSwatch.interiorHex
+                                    : activeSwatch.hex
+                                }
+                                stroke={activeSwatch.borderHex}
+                                strokeWidth="2"
+                              />
+                              {/* LED Işık Efekti */}
+                              {wizAddLed && (
+                                <line
+                                  x1={mx + 5}
+                                  y1={my + 4}
+                                  x2={mx + unitW - 5}
+                                  y2={my + 4}
+                                  stroke="#FBBF24"
+                                  strokeWidth="3"
+                                />
+                              )}
+                              {/* İç Raf/Askı Silüeti veya Kapak Çizgileri */}
+                              {wizDoorStyle === "open" || wizDoorStyle === "glass" ? (
+                                <>
+                                  <line
+                                    x1={mx + 3}
+                                    y1={my + mh * 0.22}
+                                    x2={mx + unitW - 3}
+                                    y2={my + mh * 0.22}
+                                    stroke={activeSwatch.borderHex}
+                                    strokeWidth="1.5"
+                                  />
+                                  {wizInteriorFocus !== "shelves" ? (
+                                    <line
+                                      x1={mx + 6}
+                                      y1={my + mh * 0.3}
+                                      x2={mx + unitW - 6}
+                                      y2={my + mh * 0.3}
+                                      stroke="#2563EB"
+                                      strokeWidth="2"
+                                    />
+                                  ) : (
+                                    <>
+                                      <line
+                                        x1={mx + 3}
+                                        y1={my + mh * 0.48}
+                                        x2={mx + unitW - 3}
+                                        y2={my + mh * 0.48}
+                                        stroke={activeSwatch.borderHex}
+                                        strokeWidth="1.5"
+                                      />
+                                      <line
+                                        x1={mx + 3}
+                                        y1={my + mh * 0.72}
+                                        x2={mx + unitW - 3}
+                                        y2={my + mh * 0.72}
+                                        stroke={activeSwatch.borderHex}
+                                        strokeWidth="1.5"
+                                      />
+                                    </>
+                                  )}
+                                  {wizDoorStyle === "glass" && (
+                                    <rect
+                                      x={mx + 3}
+                                      y={my + 2}
+                                      width={unitW - 6}
+                                      height={mh - 4}
+                                      fill="rgba(15, 23, 42, 0.16)"
+                                      stroke="#334155"
+                                      strokeWidth="1.5"
+                                    />
+                                  )}
+                                </>
+                              ) : (
+                                <>
+                                  {/* Çift Kapak Orta Derz Çizgisi ve Kulplar */}
+                                  <line
+                                    x1={mx + unitW / 2}
+                                    y1={my + 2}
+                                    x2={mx + unitW / 2}
+                                    y2={my + mh - 2}
+                                    stroke={activeSwatch.borderHex}
+                                    strokeWidth="1.2"
+                                  />
+                                  <line
+                                    x1={mx + unitW / 2 - 5}
+                                    y1={my + mh * 0.45}
+                                    x2={mx + unitW / 2 - 5}
+                                    y2={my + mh * 0.58}
+                                    stroke="#334155"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                  />
+                                  <line
+                                    x1={mx + unitW / 2 + 5}
+                                    y1={my + mh * 0.45}
+                                    x2={mx + unitW / 2 + 5}
+                                    y2={my + mh * 0.58}
+                                    stroke="#334155"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                  />
+                                </>
+                              )}
+                            </g>
+                          );
+                        })}
+
+                        {/* Alt Ölçü Çizgisi */}
+                        <line x1="24" y1="215" x2="356" y2="215" stroke="#2563EB" strokeWidth="2" />
+                        <rect x="125" y="205" width="130" height="18" rx="6" fill="#EFF6FF" stroke="#93C5FD" strokeWidth="1" />
+                        <text x="190" y="217" textAnchor="middle" fill="#1D4ED8" fontSize="10" fontWeight="800" fontFamily="monospace">
+                          {wizWallWidthMm / 10} cm ({estModCount} Modül)
+                        </text>
+                      </svg>
+                    </div>
+
+                    {/* Canlı Kapasite & Ölçü Kartları */}
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="p-2.5 rounded-xl bg-white border border-slate-200/80">
+                        <div className="text-[10px] font-semibold text-slate-400">Net Ölçü & Renk</div>
+                        <div className="font-bold text-slate-800 truncate mt-0.5">
+                          {wizWallWidthMm / 10}×{wizTargetHeightMm / 10} cm • {activeSwatch.name.split(" ")[0]}
+                        </div>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-white border border-slate-200/80">
+                        <div className="text-[10px] font-semibold text-slate-400">Tahmini Kapasite</div>
+                        <div className="font-bold text-slate-800 mt-0.5">
+                          🧥 ~{estHanging} Askı • 👕 ~{estFolded} Raf
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="p-3.5 rounded-2xl bg-blue-50/80 border border-blue-200/90 flex items-center justify-between">
+                      <div>
+                        <div className="text-[10px] font-bold text-blue-700 uppercase">
+                          KDV Dahil Tahmini Toplam
+                        </div>
+                        <div className="text-xs text-slate-600 mt-0.5">
+                          Ücretsiz kurulum • 14 iş günü teslim
+                        </div>
+                      </div>
+                      <div className="text-xl font-black font-mono text-blue-700">
+                        ~€{estTotalEur.toLocaleString("tr-TR")}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Her Adımda Aktif "Hemen Oluştur" Aksiyon Butonları */}
+                  <div className="space-y-2 mt-4 pt-3 border-t border-slate-200/80">
+                    <button
+                      type="button"
+                      data-testid="wizard-finish-3d-btn"
+                      onClick={() => handleFinishStepWizard("studio_3d")}
+                      className="w-full py-3 px-4 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs flex items-center justify-center gap-2 shadow-sm transition active:scale-[0.99] cursor-pointer"
+                    >
+                      <Sparkles className="w-4 h-4" />
+                      <span>Tasarımı Oluştur ve 3D Stüdyoda Aç</span>
+                    </button>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        data-testid="wizard-finish-2d-btn"
+                        onClick={() => handleFinishStepWizard("plan_2d")}
+                        className="py-2.5 px-3 rounded-xl bg-white hover:bg-slate-100 text-slate-800 border border-slate-200 font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                      >
+                        <span>📐</span>
+                        <span>2D Planda Aç</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        data-testid="wizard-finish-pdf-btn"
+                        onClick={() => handleFinishStepWizard("print_pdf")}
+                        className="py-2.5 px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200 font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                      >
+                        <span>🖨️</span>
+                        <span>Sunum PDF'i Al</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Alt İleri / Geri Navigasyon Çubuğu */}
+              <div className="px-6 py-3 bg-slate-50 border-t border-slate-200/80 flex items-center justify-between">
+                <button
+                  type="button"
+                  data-testid="wizard-prev-btn"
+                  disabled={safeStep === 1}
+                  onClick={() => setWizardStep((s) => Math.max(1, s - 1) as 1 | 2 | 3 | 4 | 5)}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold border transition ${
+                    safeStep === 1
+                      ? "opacity-40 cursor-not-allowed bg-slate-100 text-slate-400 border-slate-200"
+                      : "bg-white hover:bg-slate-100 text-slate-800 border-slate-300 cursor-pointer"
+                  }`}
+                >
+                  ‹ Önceki Adım
+                </button>
+
+                <div className="flex items-center gap-1.5">
+                  {[1, 2, 3, 4].map((dot) => (
+                    <span
+                      key={dot}
+                      className={`h-2 rounded-full transition-all ${
+                        safeStep === dot ? "w-6 bg-blue-600" : "w-2 bg-slate-300"
+                      }`}
+                    />
+                  ))}
+                </div>
+
+                {safeStep < 4 ? (
+                  <button
+                    type="button"
+                    data-testid="wizard-next-btn"
+                    onClick={() => setWizardStep((s) => Math.min(4, s + 1) as 1 | 2 | 3 | 4 | 5)}
+                    className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-extrabold shadow-2xs transition cursor-pointer"
+                  >
+                    Sonraki Adım ›
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => handleFinishStepWizard("studio_3d")}
+                    className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-2xs transition cursor-pointer"
+                  >
+                    ✓ Tamamla ve 3D Aç
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+            {showQuickSellModal && (
         <div
           data-testid="v4-quick-sell-modal"
           className="fixed inset-0 z-[120] bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto"

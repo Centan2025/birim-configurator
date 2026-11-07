@@ -18,6 +18,7 @@ export function findDraggableInteriorComponent(
   bayIdx: number;
   targetId: string;
   startVal: number;
+  startElevY?: number;
   itemHeightMm?: number;
 } | null {
   for (let bIdx = 0; bIdx < mod.bays.length; bIdx++) {
@@ -87,6 +88,8 @@ export function findDraggableInteriorComponent(
         bayIdx: bIdx,
         targetId: subDiv.id,
         startVal: subDiv.offsetX,
+        startElevY: subDiv.elevationY,
+        itemHeightMm: subDiv.height,
       };
     }
   }

@@ -214,6 +214,16 @@ function commitAdapterState(patch: Partial<ReturnType<typeof useConfiguratorStor
   const state = useConfiguratorStore.getState();
   if (!patch.project) { useConfiguratorStore.setState(patch); return; }
   const project = { ...patch.project, status: "draft" as const, version: Math.max(state.project.version + 1, patch.project.version), updatedAt: new Date().toISOString() };
+  // Fast-path during active 2D/3D drag or resize gesture: skip heavy BOM/2D sheet nesting/pricing/validation on 60Hz mousemove!
+  // commitHistoryTransaction() automatically runs full recompute(project) once on mouseup.
+  if (state.batchStartProject !== null && !patch.history) {
+    useConfiguratorStore.setState({
+      ...patch,
+      project,
+      autoSaveStatus: "unsaved",
+    });
+    return;
+  }
   const bom = generateBOMForProject(project);
   const active = project.modules[patch.activeModuleIndex ?? state.activeModuleIndex] ?? project.modules[0] ?? createDefaultWardrobeModule("empty_fallback");
   useConfiguratorStore.setState({ ...patch, project, bom, pricing: calculateProjectPrice(bom), validationIssues: validateProject(project),
@@ -227,6 +237,102 @@ function commitAdapterState(patch: Partial<ReturnType<typeof useConfiguratorStor
  * Includes spatial & kitchen engineering rules, 90° corner rotation support,
  * architectural obstacle management, and V4 Universal Module & Hardware Library.
  */
+export interface SubDividerShelfInterval {
+  label: string;
+  botY: number;
+  topY: number;
+  height: number;
+  hasConflict: boolean;
+  conflictReason?: string;
+}
+
+export function getBayShelfIntervalsForSubDivider(
+  bay: BayConfig,
+  netInnerH: number,
+  panelThickness = 18
+): SubDividerShelfInterval[] {
+  const T = panelThickness || 18;
+  const sortedShelves = [...(bay.shelves || [])].sort((a, b) => a.elevationY - b.elevationY);
+  const rawIntervals: { label: string; botY: number; topY: number }[] = [];
+
+  if (sortedShelves.length === 0) {
+    rawIntervals.push({ label: "Alt Taban ↔ Üst Tavan", botY: 0, topY: netInnerH });
+  } else {
+    if (sortedShelves[0].elevationY >= 60) {
+      rawIntervals.push({
+        label: "Alt Taban ↔ Raf 1",
+        botY: 0,
+        topY: sortedShelves[0].elevationY,
+      });
+    }
+    for (let k = 0; k < sortedShelves.length - 1; k++) {
+      const bY = sortedShelves[k].elevationY + (sortedShelves[k].thickness || T);
+      const tY = sortedShelves[k + 1].elevationY;
+      if (tY - bY >= 60) {
+        rawIntervals.push({
+          label: `Raf ${k + 1} ↔ Raf ${k + 2}`,
+          botY: bY,
+          topY: tY,
+        });
+      }
+    }
+    const lastIdx = sortedShelves.length - 1;
+    const lastBotY = sortedShelves[lastIdx].elevationY + (sortedShelves[lastIdx].thickness || T);
+    if (netInnerH - lastBotY >= 60) {
+      rawIntervals.push({
+        label: `Raf ${sortedShelves.length} ↔ Üst Tavan`,
+        botY: lastBotY,
+        topY: netInnerH,
+      });
+    }
+  }
+
+  return rawIntervals.map((iv) => {
+    const height = Math.max(60, iv.topY - iv.botY);
+    const hasRail = (bay.hangingRails || []).some(
+      (r) => r.elevationY >= iv.botY - 12 && r.elevationY <= iv.topY + 12
+    );
+    if (hasRail) {
+      return {
+        ...iv,
+        height,
+        hasConflict: true,
+        conflictReason: "Askılık (Elbise Borusu) var",
+      };
+    }
+    const hasDrawer = (bay.drawers || []).some(
+      (d) => d.elevationY < iv.topY - 8 && d.elevationY + d.height > iv.botY + 8
+    );
+    if (hasDrawer) {
+      return {
+        ...iv,
+        height,
+        hasConflict: true,
+        conflictReason: "Çekmece var",
+      };
+    }
+    const hasFitting = (bay.specialFittings || []).some(
+      (f) =>
+        f.type !== "led_profile" &&
+        f.elevationY < iv.topY - 8 &&
+        f.elevationY + (f.height || 80) > iv.botY + 8
+    );
+    if (hasFitting) {
+      return {
+        ...iv,
+        height,
+        hasConflict: true,
+        conflictReason: "Çekmeli Aksesuar var",
+      };
+    }
+    return {
+      ...iv,
+      height,
+      hasConflict: false,
+    };
+  });
+}
+
 export function useV3Adapter() {
   const project = useConfiguratorStore((s) => s.project);
   const activeModuleIndex = useConfiguratorStore((s) => s.activeModuleIndex);
@@ -595,17 +701,41 @@ export function useV3Adapter() {
     () => (activeModule ? calculateFourSpaceDimensions(activeModule) : null),
     [activeModule]
   );
+  const batchStartProject = useConfiguratorStore((s) => s.batchStartProject);
+  const isDraggingActive = batchStartProject !== null;
+
+  // Structural signature for space so module drags never invalidate spaceWalls / spaceObstacles references
+  const spaceSignature = useMemo(() => {
+    const wKey = (project.space?.walls || [])
+      .map((w) => `${w.id}:${w.length}:${w.height}:${w.thickness}:${w.position.x}:${w.position.y}:${w.position.z}:${w.rotationY}:${w.wallType || ""}`)
+      .join("|");
+    const eKey = (project.space?.elements || [])
+      .map((e) => `${e.id}:${e.type}:${e.position.x}:${e.position.y}:${e.position.z}:${e.dimensions.width}:${e.dimensions.height}:${e.dimensions.depth}:${e.rotationY || 0}:${e.doorSwing || ""}`)
+      .join("|");
+    return `${project.space?.ceilingHeight || 2600}__${wKey}__${eKey}`;
+  }, [project.space]);
+
   const v4CompatibilityReport = useMemo(
-    () => evaluateProjectCompatibility(project),
-    [project]
+    () => (isDraggingActive ? { isCompatible: true, issues: [], checkedRulesCount: 0 } : evaluateProjectCompatibility(project)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [isDraggingActive ? null : project]
   );
 
-  // Spatial obstacles & walls
-  const spaceObstacles = useMemo(() => getEffectiveSpaceObstacles(project), [project]);
-  const spaceWalls = useMemo(() => getEffectiveSpaceWalls(project), [project]);
+  // Spatial obstacles & walls memoized by spaceSignature so cabinet drags never rebuild 3D room architecture
+  const spaceObstacles = useMemo(
+    () => getEffectiveSpaceObstacles(project),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [spaceSignature]
+  );
+  const spaceWalls = useMemo(
+    () => getEffectiveSpaceWalls(project),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [spaceSignature]
+  );
   const spatialIssues = useMemo(
-    () => validateSpatialAndKitchenEngineering(project),
-    [project]
+    () => (isDraggingActive ? [] : validateSpatialAndKitchenEngineering(project)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [isDraggingActive ? null : project]
   );
 
   const validationIssues = useMemo(() => {
@@ -2213,6 +2343,333 @@ export function useV3Adapter() {
   );
 
   /**
+   * V4 Guided Step-by-Step Wizard Atomic Builder:
+   * Builds a 100% collision-free, non-overlapping multi-module wall layout in one atomic state commit.
+   */
+  const applyGuidedWizardLayout = useCallback(
+    (wiz: {
+      spaceCategory: "wardrobe" | "walkin" | "kitchen" | "living";
+      roomShape: "rectangular" | "l_shape" | "u_shape";
+      wallWidthMm: number;
+      targetHeightMm: number;
+      targetDepthMm: number;
+      autoFiller50Mm: boolean;
+      interiorFocus: "hanging" | "balanced" | "shelves";
+      doorStyle: "hinged" | "sliding" | "glass" | "open";
+      conceptTier: "eco" | "smart" | "signature";
+      colorSwatchId?: string;
+      addLed: boolean;
+      addTrouserRack: boolean;
+      addJewelryTray: boolean;
+    }) => {
+      const state = useConfiguratorStore.getState();
+      const curProj = state.project;
+
+      const safeWallW = Math.max(1200, Math.min(6000, Math.round(wiz.wallWidthMm)));
+      const fillerEach = wiz.autoFiller50Mm && safeWallW >= 1400 ? 50 : 0;
+      const usableSpan = Math.max(800, safeWallW - fillerEach * 2);
+      const effHeight =
+        wiz.spaceCategory === "kitchen"
+          ? 900
+          : Math.max(1800, Math.min(2700, Math.round(wiz.targetHeightMm)));
+      const effDepth = Math.max(350, Math.min(700, Math.round(wiz.targetDepthMm)));
+      const ceilH = Math.max(2550, effHeight + 150);
+
+      // Material mapping by selected color swatch & concept tier
+      const swatchMatMap: Record<string, { body: string; door: string }> = {
+        cashmere: { body: "mat_veneer_oak", door: "mat_ye_kasmir_gri" },
+        white: { body: "mat_melamine_white", door: "mat_melamine_white" },
+        oak: { body: "mat_ke_safir_mese", door: "mat_veneer_oak" },
+        walnut: { body: "mat_ke_mattplus_vizon", door: "mat_veneer_walnut" },
+        anthracite: { body: "mat_mdf_anthracite", door: "mat_lacquer_anthracite" },
+      };
+      const chosenMats =
+        (wiz.colorSwatchId && swatchMatMap[wiz.colorSwatchId]) ||
+        (wiz.conceptTier === "eco"
+          ? swatchMatMap.white
+          : wiz.conceptTier === "signature"
+          ? swatchMatMap.walnut
+          : swatchMatMap.cashmere);
+
+      const modCount =
+        usableSpan < 1300 ? 1 : usableSpan < 2200 ? 2 : usableSpan < 3300 ? 3 : 4;
+      const baseUnitW = Math.floor(usableSpan / modCount / 10) * 10;
+      const remW = usableSpan - baseUnitW * modCount;
+
+      let curX = fillerEach;
+      const builtModules: ModuleInstance[] = [];
+
+      for (let i = 0; i < modCount; i++) {
+        const thisW = i === modCount - 1 ? baseUnitW + remW : baseUnitW;
+        const tplId =
+          wiz.spaceCategory === "kitchen"
+            ? i === 0
+              ? "tpl_kb_06_sink_double_door"
+              : i === 1
+              ? "tpl_kb_04_three_drawer"
+              : "tpl_kb_02_double_door"
+            : i % 2 === 1 && wiz.interiorFocus !== "hanging"
+            ? "tpl_wd_12_mixed_organizer"
+            : "tpl_wd_02_two_door";
+
+        const tpl =
+          getV4TemplateById(tplId) ||
+          WARDROBE_TEMPLATES[0];
+        const modTitle =
+          wiz.spaceCategory === "kitchen"
+            ? i === 0
+              ? "Eviye Alt Dolabı"
+              : i === 1
+              ? "Çekmeceli Ocak Altı"
+              : `Hazırlık Dolabı #${i + 1}`
+            : wiz.spaceCategory === "living"
+            ? `Vitrin & Depolama #${i + 1}`
+            : wiz.spaceCategory === "walkin"
+            ? `Giyinme Ünitesi #${i + 1}`
+            : `Gardırop Gövde #${i + 1}`;
+
+        const m = tpl
+          ? tpl.createInstance(`mod_wiz_${Date.now()}_${i + 1}`, modTitle)
+          : createDefaultWardrobeModule(`mod_wiz_${Date.now()}_${i + 1}`);
+
+        m.name = modTitle;
+        m.position = { x: curX, y: 0, z: 0 };
+        m.rotation = { x: 0, y: 0, z: 0 };
+        m.dimensions = { width: thisW, height: effHeight, depth: effDepth };
+        m.isOpenFront = wiz.doorStyle === "open";
+        m.carcass = {
+          ...m.carcass,
+          bodyMaterialId: chosenMats.body,
+          doorMaterialId: chosenMats.door,
+          ledLightingEnabled: wiz.addLed,
+          ledColorTempK: 3000,
+        };
+
+        // Configure bays cleanly for `thisW` without any customWidth mismatch
+        const targetBayCount = thisW >= 750 ? 2 : 1;
+        while (m.bays.length < targetBayCount) {
+          m.bays.push(JSON.parse(JSON.stringify(m.bays[0])));
+        }
+        if (m.bays.length > targetBayCount) {
+          m.bays = m.bays.slice(0, targetBayCount);
+        }
+
+        const T = m.carcass.panelThickness || 18;
+        const plinthH = m.carcass.plinthHeight ?? 100;
+        const netH = Math.max(400, effHeight - plinthH - 2 * T);
+        const topShelfY = Math.round((netH - 360) / 32) * 32;
+        const railHighY = Math.max(400, topShelfY - 64);
+
+        m.bays = m.bays.map((b, bIdx) => {
+          const isSingleBayMod = targetBayCount === 1;
+          const nextDoorType =
+            wiz.doorStyle === "open"
+              ? ("open" as const)
+              : wiz.doorStyle === "sliding"
+              ? ("sliding" as const)
+              : isSingleBayMod
+              ? ("double" as const)
+              : bIdx === 0
+              ? ("single_left" as const)
+              : ("single_right" as const);
+
+          const nextDoorSys =
+            wiz.doorStyle === "open"
+              ? ("open" as const)
+              : wiz.doorStyle === "sliding"
+              ? ("sliding_top_hung" as const)
+              : isSingleBayMod
+              ? ("hinged_double" as const)
+              : ("hinged_single" as const);
+
+          let nextShelves = b.shelves || [];
+          let nextRails = b.hangingRails || [];
+          let nextDrawers = b.drawers || [];
+          const nextFittings: typeof b.specialFittings = [];
+
+          if (wiz.spaceCategory !== "kitchen") {
+            if (wiz.interiorFocus === "hanging") {
+              nextShelves = [
+                { id: `sh_${m.id}_${bIdx}_top`, bayIndex: bIdx, elevationY: topShelfY, isAdjustable: false },
+              ];
+              nextRails = [
+                { id: `rl_${m.id}_${bIdx}_1`, bayIndex: bIdx, elevationY: railHighY },
+              ];
+              nextDrawers = [];
+            } else if (wiz.interiorFocus === "shelves") {
+              const stepS = Math.floor(netH / 5 / 32) * 32;
+              nextShelves = [1, 2, 3, 4].map((sIdx) => ({
+                id: `sh_${m.id}_${bIdx}_${sIdx}`,
+                bayIndex: bIdx,
+                elevationY: Math.max(256, stepS * sIdx),
+                isAdjustable: true,
+              }));
+              nextRails = [];
+              nextDrawers =
+                bIdx === 0
+                  ? [
+                      { id: `drw_${m.id}_${bIdx}_1`, bayIndex: bIdx, height: 192, elevationY: 0, frontMaterialId: chosenMats.door },
+                      { id: `drw_${m.id}_${bIdx}_2`, bayIndex: bIdx, height: 192, elevationY: 195, frontMaterialId: chosenMats.door },
+                    ]
+                  : [];
+            } else {
+              // Balanced family layout: Bay 0 = Top Shelf + Hanging Rail, Bay 1 = Shelves + 2 Bottom Drawers
+              if (bIdx === 0) {
+                nextShelves = [
+                  { id: `sh_${m.id}_${bIdx}_top`, bayIndex: bIdx, elevationY: topShelfY, isAdjustable: false },
+                ];
+                nextRails = [
+                  { id: `rl_${m.id}_${bIdx}_1`, bayIndex: bIdx, elevationY: railHighY },
+                ];
+                nextDrawers = [];
+              } else {
+                nextDrawers = [
+                  { id: `drw_${m.id}_${bIdx}_1`, bayIndex: bIdx, height: 192, elevationY: 0, frontMaterialId: chosenMats.door },
+                  { id: `drw_${m.id}_${bIdx}_2`, bayIndex: bIdx, height: 192, elevationY: 195, frontMaterialId: chosenMats.door },
+                ];
+                nextShelves = [
+                  { id: `sh_${m.id}_${bIdx}_1`, bayIndex: bIdx, elevationY: 448, isAdjustable: true },
+                  { id: `sh_${m.id}_${bIdx}_2`, bayIndex: bIdx, elevationY: 896, isAdjustable: true },
+                  { id: `sh_${m.id}_${bIdx}_3`, bayIndex: bIdx, elevationY: 1344, isAdjustable: true },
+                  { id: `sh_${m.id}_${bIdx}_4`, bayIndex: bIdx, elevationY: topShelfY, isAdjustable: false },
+                ].filter((s) => s.elevationY < netH - 160);
+                nextRails = [];
+              }
+            }
+
+            if (wiz.addLed) {
+              nextFittings.push({
+                id: `fit_led_${m.id}_${bIdx}`,
+                bayIndex: bIdx,
+                elevationY: Math.max(400, netH - 48),
+                type: "led_profile",
+                height: 20,
+              });
+            }
+            if (wiz.addTrouserRack && i === 0 && bIdx === 0) {
+              nextFittings.push({
+                id: `fit_tr_${m.id}_${bIdx}`,
+                bayIndex: bIdx,
+                elevationY: 640,
+                type: "trouser_pullout",
+                height: 85,
+              });
+            }
+            if (wiz.addJewelryTray && i === 0 && bIdx === m.bays.length - 1) {
+              nextFittings.push({
+                id: `fit_jw_${m.id}_${bIdx}`,
+                bayIndex: bIdx,
+                elevationY: 512,
+                type: "jewelry_tray",
+                height: 70,
+              });
+            }
+          }
+
+          return {
+            ...b,
+            index: bIdx,
+            customWidth: undefined,
+            shelves: nextShelves,
+            hangingRails: nextRails,
+            drawers: nextDrawers,
+            specialFittings: nextFittings,
+            door: {
+              ...b.door,
+              id: `door_${m.id}_${bIdx}`,
+              bayIndex: bIdx,
+              type: nextDoorType,
+              doorSystemId: nextDoorSys,
+              doorMaterialId: chosenMats.door,
+              doorSubType:
+                wiz.doorStyle === "glass" ? "alu_frame_smoked_glass" : "flat_panel",
+            },
+          };
+        });
+
+        builtModules.push(m);
+        curX += thisW;
+      }
+
+      // Build clean room walls matching roomShape and safeWallW
+      const nextWalls = [
+        {
+          id: "wall_main",
+          name: "Ana Duvar",
+          length: safeWallW,
+          height: ceilH,
+          thickness: 150,
+          position: { x: 0, y: 0, z: 0 },
+          rotationY: 0,
+          elements: [],
+        },
+        ...(wiz.roomShape === "l_shape" || wiz.roomShape === "u_shape"
+          ? [
+              {
+                id: "wall_left_return",
+                name: "Sol Yan Duvar",
+                length: 2200,
+                height: ceilH,
+                thickness: 150,
+                position: { x: 0, y: 0, z: 0 },
+                rotationY: 90,
+                elements: [],
+              },
+            ]
+          : []),
+        ...(wiz.roomShape === "u_shape"
+          ? [
+              {
+                id: "wall_right_return",
+                name: "Sağ Yan Duvar",
+                length: 2200,
+                height: ceilH,
+                thickness: 150,
+                position: { x: safeWallW, y: 0, z: 0 },
+                rotationY: 90,
+                elements: [],
+              },
+            ]
+          : []),
+      ];
+
+      const nextSpace = {
+        ...curProj.space,
+        type: wiz.spaceCategory === "kitchen" ? ("kitchen_linear" as const) : ("wardrobe_zone" as const),
+        ceilingHeight: ceilH,
+        walls: nextWalls,
+        elements: [],
+        wizardCleanRoom: true,
+      } as typeof curProj.space;
+
+      const nextProj = {
+        ...curProj,
+        version: (curProj.version || 1) + 1,
+        updatedAt: new Date().toISOString(),
+        space: nextSpace,
+        modules: builtModules,
+      };
+
+      const nextIssues = validateProject(nextProj);
+      const nextBom = generateBOMForProject(nextProj);
+      const nextPricing = calculateProjectPrice(nextBom);
+
+      commitAdapterState({
+        history: [...state.history.slice(-15), curProj],
+        future: [],
+        project: nextProj,
+        activeModuleIndex: 0,
+        activeBayIndex: 0,
+        selectedComponentId: null,
+        validationIssues: nextIssues,
+        bom: nextBom,
+        pricing: nextPricing,
+      });
+    },
+    []
+  );
+
+  /**
    * Update Shelf Elevation Y (in mm from inner bottom panel) by manual drag or exact numeric input
    */
   /**
@@ -2415,7 +2872,7 @@ export function useV3Adapter() {
           return mod;
         }
 
-        // Case 0B: Raf Arası Dikme (Sub-Divider spanning automatically between the shelves above and below elevationY!)
+        // Case 0B: Raf Arası Dikme (Sub-Divider spanning automatically between shelves — NEVER inside an interval with a Hanging Rail / Drawer!)
         if (
           itemKind === "lib_sub_divider" ||
           itemKind === "sub_divider" ||
@@ -2424,23 +2881,48 @@ export function useV3Adapter() {
           const T = mod.carcass.panelThickness || 18;
           const bayWidths = calculateBayWidths(mod);
           const bayW = bayWidths[safeBayIdx] || 600;
-          const sortedShelves = [...(bay.shelves || [])].sort((a, b) => a.elevationY - b.elevationY);
+          const intervals = getBayShelfIntervalsForSubDivider(bay, netH, T);
+          const hoveredIv =
+            intervals.find((iv) => elevationY >= iv.botY - 24 && elevationY <= iv.topY + 24) ||
+            intervals.reduce(
+              (best, iv) =>
+                !best ||
+                Math.abs((iv.botY + iv.topY) / 2 - elevationY) <
+                  Math.abs((best.botY + best.topY) / 2 - elevationY)
+                  ? iv
+                  : best,
+              null as SubDividerShelfInterval | null
+            );
 
-          // Find shelf immediately below and immediately above the drop elevationY
-          let botY = 0;
-          let topY = netH;
-          for (const s of sortedShelves) {
-            if (s.elevationY + T <= elevationY + 24) {
-              botY = Math.max(botY, s.elevationY + T);
-            } else if (s.elevationY > elevationY - 24 && s.elevationY < topY) {
-              topY = s.elevationY;
+          // If the target interval has a hanging rail, drawer, or pull-out fitting, find the nearest conflict-free shelf interval;
+          // if NO conflict-free shelf interval exists in this bay, refuse to place the sub-divider on top of the hanging rail!
+          let chosenIv: SubDividerShelfInterval | null = hoveredIv;
+          if (!chosenIv || chosenIv.hasConflict) {
+            const freeIntervals = intervals.filter((iv) => !iv.hasConflict);
+            if (freeIntervals.length === 0) {
+              return mod;
             }
+            chosenIv = freeIntervals.reduce((best, iv) =>
+              Math.abs((iv.botY + iv.topY) / 2 - elevationY) <
+              Math.abs((best.botY + best.topY) / 2 - elevationY)
+                ? iv
+                : best
+            );
           }
-          const spanH = Math.max(80, topY - botY);
+
+          const botY = chosenIv.botY;
+          const spanH = Math.max(80, chosenIv.height);
+          const existingInSpan = (bay.subDividers || []).filter(
+            (sd) => Math.abs(sd.elevationY - botY) <= 15
+          ).length;
           const rawX =
             typeof options?.offsetX === "number"
               ? options.offsetX
-              : Math.round(bayW / 2 - T / 2);
+              : Math.round(
+                  bayW / 2 -
+                    T / 2 +
+                    (existingInSpan % 2 === 1 ? 90 : existingInSpan > 0 ? -90 : 0)
+                );
           const clampedX = Math.max(48, Math.min(Math.max(80, bayW - T - 48), Math.round(rawX / 10) * 10));
 
           bay.subDividers = bay.subDividers || [];
@@ -2548,12 +3030,30 @@ export function useV3Adapter() {
     (bayIdx: number, shelfId: string, elevationY: number, pushHistory = true) => {
       commitActiveModuleUpdate((mod) => {
         const netH = calculateNetInnerHeight(mod);
+        const T = mod.carcass.panelThickness || 18;
         const clampedY = Math.max(60, Math.min(Math.max(100, netH - 60), Math.round(elevationY)));
         const bay = mod.bays[bayIdx];
         if (!bay) return mod;
         bay.shelves = bay.shelves.map((s) =>
           s.id === shelfId ? { ...s, elevationY: clampedY } : s
         );
+        // Automatically re-snap any sub-dividers in this bay so they stay flush between shelves
+        if (bay.subDividers && bay.subDividers.length > 0) {
+          const ivs = getBayShelfIntervalsForSubDivider(bay, netH, T);
+          const freeIvs = ivs.filter((iv) => !iv.hasConflict);
+          const pool = freeIvs.length > 0 ? freeIvs : ivs;
+          if (pool.length > 0) {
+            bay.subDividers = bay.subDividers.map((sd) => {
+              const midY = sd.elevationY + sd.height / 2;
+              const best = pool.reduce((b, iv) =>
+                Math.abs((iv.botY + iv.topY) / 2 - midY) < Math.abs((b.botY + b.topY) / 2 - midY)
+                  ? iv
+                  : b
+              );
+              return { ...sd, elevationY: best.botY, height: best.height };
+            });
+          }
+        }
         return mod;
       }, pushHistory);
     },
@@ -2791,19 +3291,34 @@ export function useV3Adapter() {
         const bayW = bayWidths[bayIdx] || 600;
         const netH = calculateNetInnerHeight(mod);
         const T = mod.carcass.panelThickness || 18;
-        const sortedShelves = [...bay.shelves].sort((a, b) => a.elevationY - b.elevationY);
+        const intervals = getBayShelfIntervalsForSubDivider(bay, netH, T);
+        const freeIntervals = intervals.filter((iv) => !iv.hasConflict);
 
         let elevY = 0;
         let spanH = Math.min(350, netH);
         if (customSpan && typeof customSpan.elevationY === "number" && typeof customSpan.height === "number") {
           elevY = Math.max(0, Math.round(customSpan.elevationY));
           spanH = Math.max(60, Math.min(netH - elevY, Math.round(customSpan.height)));
-        } else if (sortedShelves.length >= 2) {
-          elevY = sortedShelves[0].elevationY + T;
-          spanH = Math.max(120, sortedShelves[1].elevationY - elevY);
-        } else if (sortedShelves.length === 1) {
-          elevY = 0;
-          spanH = Math.max(120, sortedShelves[0].elevationY);
+          // Ensure customSpan does not collide with a hanging rail or drawer
+          const customMidY = elevY + spanH / 2;
+          const matchingIv = intervals.find((iv) => customMidY >= iv.botY && customMidY <= iv.topY);
+          if (matchingIv?.hasConflict) {
+            if (freeIntervals.length === 0) return mod;
+            elevY = freeIntervals[0].botY;
+            spanH = freeIntervals[0].height;
+          }
+        } else {
+          if (freeIntervals.length === 0) {
+            // No conflict-free shelf interval exists in this bay (e.g. hanging rail occupies the bay)
+            return mod;
+          }
+          // Prefer a conflict-free interval that does not yet have a sub-divider, or the first conflict-free interval
+          const unoccupiedFreeIv =
+            freeIntervals.find(
+              (iv) => !(bay.subDividers || []).some((sd) => Math.abs(sd.elevationY - iv.botY) <= 15)
+            ) || freeIntervals[0];
+          elevY = unoccupiedFreeIv.botY;
+          spanH = Math.max(80, unoccupiedFreeIv.height);
         }
 
         const existingInSameSpan = (bay.subDividers || []).filter(
@@ -2831,13 +3346,13 @@ export function useV3Adapter() {
   );
 
   /**
-   * Update a partial vertical sub-divider's horizontal offsetX, bottom elevationY, or span height
+   * Update a partial vertical sub-divider's horizontal offsetX, bottom elevationY, span height, or targetMidY (vertical drag across shelf intervals!)
    */
   const setSubDividerPlacement = useCallback(
     (
       bayIdx: number,
       subDividerId: string,
-      updates: { offsetX?: number; elevationY?: number; height?: number },
+      updates: { offsetX?: number; elevationY?: number; height?: number; targetMidY?: number },
       pushHistory = true
     ) => {
       commitActiveModuleUpdate((mod) => {
@@ -2847,6 +3362,8 @@ export function useV3Adapter() {
         const bayW = bayWidths[bayIdx] || 600;
         const netH = calculateNetInnerHeight(mod);
         const T = mod.carcass.panelThickness || 18;
+        const intervals = getBayShelfIntervalsForSubDivider(bay, netH, T);
+        const freeIntervals = intervals.filter((iv) => !iv.hasConflict);
 
         bay.subDividers = bay.subDividers.map((sd) => {
           if (sd.id !== subDividerId) return sd;
@@ -2854,14 +3371,55 @@ export function useV3Adapter() {
             typeof updates.offsetX === "number"
               ? Math.max(40, Math.min(Math.max(60, bayW - T - 40), Math.round(updates.offsetX)))
               : sd.offsetX;
-          const nextH =
+
+          // If targetMidY is provided (user is dragging the sub-divider vertically in 2D Elevation or 3D),
+          // snap it to the conflict-free shelf interval containing or nearest to targetMidY!
+          if (typeof updates.targetMidY === "number" && freeIntervals.length > 0) {
+            const midY = updates.targetMidY;
+            const containingIv = freeIntervals.find(
+              (iv) => midY >= iv.botY - 18 && midY <= iv.topY + 18
+            );
+            const bestIv =
+              containingIv ||
+              freeIntervals.reduce((best, iv) =>
+                Math.abs((iv.botY + iv.topY) / 2 - midY) <
+                Math.abs((best.botY + best.topY) / 2 - midY)
+                  ? iv
+                  : best
+              );
+            return {
+              ...sd,
+              offsetX: nextX,
+              elevationY: bestIv.botY,
+              height: Math.max(80, bestIv.height),
+            };
+          }
+
+          let nextH =
             typeof updates.height === "number"
               ? Math.max(80, Math.min(netH, Math.round(updates.height)))
               : sd.height;
-          const nextY =
+          let nextY =
             typeof updates.elevationY === "number"
               ? Math.max(0, Math.min(Math.max(0, netH - nextH), Math.round(updates.elevationY)))
               : sd.elevationY;
+
+          // Prevent manual Y input from placing the sub-divider inside an interval with a hanging rail or drawer
+          const checkMidY = nextY + nextH / 2;
+          const hitConflict = intervals.find(
+            (iv) => iv.hasConflict && checkMidY >= iv.botY && checkMidY <= iv.topY
+          );
+          if (hitConflict && freeIntervals.length > 0) {
+            const nearestFree = freeIntervals.reduce((best, iv) =>
+              Math.abs((iv.botY + iv.topY) / 2 - checkMidY) <
+              Math.abs((best.botY + best.topY) / 2 - checkMidY)
+                ? iv
+                : best
+            );
+            nextY = nearestFree.botY;
+            nextH = Math.max(80, nearestFree.height);
+          }
+
           return { ...sd, offsetX: nextX, elevationY: nextY, height: nextH };
         });
         return mod;
@@ -4776,6 +5334,7 @@ export function useV3Adapter() {
     autoGenerateKitchenComplementary,
     attachComplementaryToActiveModule,
     applyProjectSegmentPreset,
+    applyGuidedWizardLayout,
     addShelf,
     removeShelf,
     addHangingRail,

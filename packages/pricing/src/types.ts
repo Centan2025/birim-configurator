@@ -23,8 +23,12 @@ export interface MaterialAlternativeComparison {
 export interface PricingBreakdown {
   currency: "EUR" | "TRY";
   materialCost: number;
+  materialCostEur?: number;
   edgeBandCost: number;
+  edgeBandCostEur?: number;
   hardwareCost: number;
+  hardwareCostEur?: number;
+  laborCostEur?: number;
   cncDrillingCost: number;
   rawMaterialsTotal: number;
   laborCost: number;

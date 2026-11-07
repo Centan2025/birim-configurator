@@ -120,8 +120,12 @@ export function calculateProjectPrice(
   return {
     currency: params.currency,
     materialCost: Number(totalMaterialCostEur.toFixed(2)),
+    materialCostEur: Number(totalMaterialCostEur.toFixed(2)),
     edgeBandCost: Number(totalEdgeBandCostEur.toFixed(2)),
+    edgeBandCostEur: Number(totalEdgeBandCostEur.toFixed(2)),
     hardwareCost: Number(totalHardwareCostEur.toFixed(2)),
+    hardwareCostEur: Number(totalHardwareCostEur.toFixed(2)),
+    laborCostEur: Number(laborCost.toFixed(2)),
     cncDrillingCost: Number(cncDrillingCost.toFixed(2)),
     rawMaterialsTotal: Number(rawMaterialsTotal.toFixed(2)),
     laborCost: Number(laborCost.toFixed(2)),

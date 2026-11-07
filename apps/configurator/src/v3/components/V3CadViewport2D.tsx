@@ -22,6 +22,7 @@ import {
   getActiveDraggedTemplateId,
   setActiveDraggedTemplateId,
   computeRowSnapPreview,
+  getBayShelfIntervalsForSubDivider,
   type RowSnapPreviewResult,
 } from "../adapter/useV3Adapter";
 import {
@@ -91,6 +92,11 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
     const lastAccessoryDropTarget2DRef = useRef<{ bayIndex: number; elevationY: number; offsetX?: number; accessory: any } | null>(null);
     const [zoom, setZoom] = useState(1);
     const [panPx, setPanPx] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+    const panPxRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+    const lastPointerMoveTsRef = useRef<number>(0);
+    useEffect(() => {
+      panPxRef.current = panPx;
+    }, [panPx]);
     const [panning2D, setPanning2D] = useState<{
       startClientX: number;
       startClientY: number;
@@ -223,6 +229,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
     });
 
     // Interactive dragging state for 2D Elevation interior blocks (Shelf Y, Drawer Y, Rail Y, Bay Divider X, SubDivider X)
+    const [elevPanMode, setElevPanMode] = useState<boolean>(false);
     const [interiorDrag, setInteriorDrag] = useState<{
       kind: "shelf" | "drawer" | "rail" | "special_fitting" | "divider" | "sub_divider";
       bayIdx: number;
@@ -230,6 +237,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       startClientX: number;
       startClientY: number;
       startValueMm: number;
+      startElevY?: number;
       itemHeightMm?: number;
     } | null>(null);
     const [activeElevSnap, setActiveElevSnap] = useState<ElevationSnapTarget | null>(null);
@@ -259,6 +267,15 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
 
     const footprints = useMemo(
       () => project.modules.map((m, idx) => getModuleOrientedFootprint(m, idx)),
+      [project.modules]
+    );
+
+    const moduleCadMetrics = useMemo(
+      () =>
+        project.modules.map((m) => ({
+          bayWidths: calculateBayWidths(m),
+          fourSpace: calculateFourSpaceDimensions(m),
+        })),
       [project.modules]
     );
 
@@ -1188,6 +1205,9 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       };
 
       const handleSvgPointerMove = (e: React.MouseEvent<SVGSVGElement>) => {
+        const nowTs = performance.now();
+        if (nowTs - lastPointerMoveTsRef.current < 14) return;
+        lastPointerMoveTsRef.current = nowTs;
         const svgEl = e.currentTarget;
         if (isPlacingObstacle) {
           const raw = clientToSvgRawMm(svgEl, e.clientX, e.clientY);
@@ -3032,20 +3052,26 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             }}
             onMouseMove={(e) => {
               if (panning2D) {
-                setPanPx({
-                  x: panning2D.startPanX + (e.clientX - panning2D.startClientX),
-                  y: panning2D.startPanY + (e.clientY - panning2D.startClientY),
-                });
+                const nx = panning2D.startPanX + (e.clientX - panning2D.startClientX);
+                const ny = panning2D.startPanY + (e.clientY - panning2D.startClientY);
+                panPxRef.current = { x: nx, y: ny };
+                e.currentTarget.style.transform = `translate(${nx}px, ${ny}px) scale(${zoom})`;
                 return;
               }
               handleSvgPointerMove(e);
             }}
             onMouseUp={() => {
-              if (panning2D) setPanning2D(null);
+              if (panning2D) {
+                setPanPx(panPxRef.current);
+                setPanning2D(null);
+              }
               handleSvgPointerUp();
             }}
             onMouseLeave={() => {
-              if (panning2D) setPanning2D(null);
+              if (panning2D) {
+                setPanPx(panPxRef.current);
+                setPanning2D(null);
+              }
               handleSvgPointerUp();
             }}
             style={{
@@ -3054,12 +3080,14 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             }}
           >
             <defs>
-              <pattern id="v3_cad_grid_sm" width="100" height="100" patternUnits="userSpaceOnUse">
-                <path d="M 100 0 L 0 0 0 100" fill="none" stroke="#CCC7BC" strokeWidth="1.2" />
-              </pattern>
               <pattern id="v3_cad_grid_lg" width="500" height="500" patternUnits="userSpaceOnUse">
-                <rect width="500" height="500" fill="url(#v3_cad_grid_sm)" />
-                <path d="M 500 0 L 0 0 0 500" fill="none" stroke="#B5AFA2" strokeWidth="2" />
+                <path
+                  d="M 100 0 L 100 500 M 200 0 L 200 500 M 300 0 L 300 500 M 400 0 L 400 500 M 0 100 L 500 100 M 0 200 L 500 200 M 0 300 L 500 300 M 0 400 L 500 400"
+                  fill="none"
+                  stroke="#D6D1C6"
+                  strokeWidth="1"
+                />
+                <path d="M 500 0 L 0 0 0 500" fill="none" stroke="#B5AFA2" strokeWidth="1.8" />
               </pattern>
               <pattern id="column_hatch" width="20" height="20" patternTransform="rotate(45 0 0)" patternUnits="userSpaceOnUse">
                 <line x1="0" y1="0" x2="0" y2="20" stroke="#44403C" strokeWidth="4" />
@@ -4468,8 +4496,8 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     }
 
                     // Standard Rectangular Module Footprint — 100% Synchronized with 3D Product (Exact Bay Widths, Door Systems & True 90° Quarter-Circle Arcs)
-                    const realBayWidths = mod ? calculateBayWidths(mod) : [mw];
-                    const fourSpace = mod ? calculateFourSpaceDimensions(mod) : null;
+                    const realBayWidths = moduleCadMetrics[idx]?.bayWidths ?? (mod ? calculateBayWidths(mod) : [mw]);
+                    const fourSpace = moduleCadMetrics[idx]?.fourSpace ?? null;
                     const hasDoorSwingError = liveSpatialAlerts.some(
                       (al) => al.modIdx === idx && al.kind === "door_swing"
                     );
@@ -5978,6 +6006,8 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
     }
 
     // Standard Single-Module High-Precision Architectural Elevation / TopPlan / Section
+    const hasSceneModules =
+      project.modules.length > 0 && activeModule.id !== "empty_scene_placeholder";
     const breakdown = generateModuleGeometry(activeModule, { doorOpenAngleDeg: 0 });
     const sectionCutSpanMm =
       sectionDirection2D === "Z" ? breakdown.overall.width : breakdown.overall.depth;
@@ -6132,13 +6162,49 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
 
       if (interiorDrag.kind === "sub_divider") {
         const dxMm = (e.clientX - interiorDrag.startClientX) * mmPerPxX;
+        const dyMm = -(e.clientY - interiorDrag.startClientY) * mmPerPxY;
         const snappedX = Math.round((interiorDrag.startValueMm + dxMm) / 10) * 10;
+        const startMidY =
+          (interiorDrag.startElevY ?? 0) + (interiorDrag.itemHeightMm ?? 300) / 2;
+        const targetMidY = Math.round(startMidY + dyMm);
         setSubDividerPlacement(
           interiorDrag.bayIdx,
           interiorDrag.targetId,
-          { offsetX: snappedX },
+          { offsetX: snappedX, targetMidY },
           false
         );
+        const curBay = activeModule.bays[interiorDrag.bayIdx];
+        if (curBay) {
+          const ivs = getBayShelfIntervalsForSubDivider(
+            curBay,
+            calculateNetInnerHeight(activeModule),
+            activeModule.carcass.panelThickness || 18
+          );
+          const freeIvs = ivs.filter((iv) => !iv.hasConflict);
+          const hoveredConflictIv = ivs.find(
+            (iv) => iv.hasConflict && targetMidY >= iv.botY && targetMidY <= iv.topY
+          );
+          const bestIv =
+            freeIvs.find((iv) => targetMidY >= iv.botY - 18 && targetMidY <= iv.topY + 18) ||
+            freeIvs.reduce(
+              (best, iv) =>
+                !best ||
+                Math.abs((iv.botY + iv.topY) / 2 - targetMidY) <
+                  Math.abs((best.botY + best.topY) / 2 - targetMidY)
+                  ? iv
+                  : best,
+              null as (typeof freeIvs)[number] | null
+            );
+          if (hoveredConflictIv && bestIv) {
+            setPlanRowSnapBanner(
+              `⚠️ Bu aralıkta ${hoveredConflictIv.conflictReason}! Dikme en yakın boş aralığa (${bestIv.label} • Y:${bestIv.botY}mm) kilitlendi`
+            );
+          } else if (bestIv) {
+            setPlanRowSnapBanner(
+              `✥ Raf Arası Dikme • ${bestIv.label} • Sol X: ${snappedX}mm (Alt Y: ${bestIv.botY}mm • Boy: ${bestIv.height}mm)`
+            );
+          }
+        }
         return;
       }
 
@@ -6200,6 +6266,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       }
       if (interiorDrag) {
         setInteriorDrag(null);
+        setPlanRowSnapBanner(null);
         commitHistoryTransaction();
       }
       setActiveElevSnap(null);
@@ -6209,15 +6276,17 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
     const findInteriorDragTarget = (compId: string) =>
       findDraggableInteriorComponent(activeModule, compId, breakdown.bayWidths);
 
-    // Collect hanging rails for 2D elevation (projection2d filters them out by default)
+    // Collect hanging rails for 2D elevation (only when scene actually has modules!)
     const railComponents =
-      mode === "elevation"
+      hasSceneModules && mode === "elevation"
         ? breakdown.components.filter((c) => c.role === "hanging_rail")
         : [];
 
     // Filter or show doors in 2D elevation so interior blocks are unobstructed and easy to drag,
-    // and exclude `drawer_box` in elevation so it doesn't cover `drawer_front` labels
-    const visibleElements = data.elements.filter((el) => {
+    // and return empty array when all modules have been deleted from the scene!
+    const visibleElements = !hasSceneModules
+      ? []
+      : data.elements.filter((el) => {
       if (mode === "elevation") {
         if (!showDoorsIn2D && el.role.startsWith("door") && el.role !== "door_hinge") return false;
         if (
@@ -6277,14 +6346,62 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         const rawY = mod.dimensions.height - svgY - plinthH - carcassT;
         const snappedElevY = Math.max(64, Math.min(netH - 64, Math.round(rawY / 32) * 32));
 
+        const accObj = activeAcc || { id: "lib_shelf", title: "Raf" };
+        const isSubDivAcc =
+          accObj.id === "lib_sub_divider" ||
+          accObj.id === "sub_divider" ||
+          accObj.visual === "sub_divider";
+
+        if (isSubDivAcc && mod.bays[targetBayIdx]) {
+          const ivs = getBayShelfIntervalsForSubDivider(
+            mod.bays[targetBayIdx],
+            netH,
+            carcassT
+          );
+          const hoveredIv = ivs.find(
+            (iv) => snappedElevY >= iv.botY - 24 && snappedElevY <= iv.topY + 24
+          );
+          const freeIvs = ivs.filter((iv) => !iv.hasConflict);
+          if (hoveredIv?.hasConflict) {
+            if (freeIvs.length > 0) {
+              const nearestFree = freeIvs.reduce((best, iv) =>
+                Math.abs((iv.botY + iv.topY) / 2 - snappedElevY) <
+                Math.abs((best.botY + best.topY) / 2 - snappedElevY)
+                  ? iv
+                  : best
+              );
+              lastAccessoryDropTarget2DRef.current = {
+                bayIndex: targetBayIdx,
+                elevationY: Math.round((nearestFree.botY + nearestFree.topY) / 2),
+                offsetX: localBayX,
+                accessory: accObj,
+              };
+              setPlanRowSnapBanner(
+                `⚠️ Bu aralıkta ${hoveredIv.conflictReason}! Boş raf aralığına (${nearestFree.label}) hizalandı • X: ${localBayX}mm`
+              );
+            } else {
+              lastAccessoryDropTarget2DRef.current = {
+                bayIndex: targetBayIdx,
+                elevationY: snappedElevY,
+                offsetX: localBayX,
+                accessory: accObj,
+              };
+              setPlanRowSnapBanner(
+                `⛔ Bölme ${targetBayIdx + 1} içinde ${hoveredIv.conflictReason} ve boş raf aralığı yok! Önce raf ekleyin.`
+              );
+            }
+            return;
+          }
+        }
+
         lastAccessoryDropTarget2DRef.current = {
           bayIndex: targetBayIdx,
           elevationY: snappedElevY,
           offsetX: localBayX,
-          accessory: activeAcc || { id: "lib_shelf", title: "Raf" },
+          accessory: accObj,
         };
 
-        setPlanRowSnapBanner(`📐 ${activeAcc?.title || "Aksesuar"} • Bölme ${targetBayIdx + 1} • Y: ${snappedElevY} mm`);
+        setPlanRowSnapBanner(`📐 ${accObj.title || "Aksesuar"} • Bölme ${targetBayIdx + 1} • Y: ${snappedElevY} mm`);
         return;
       }
 
@@ -6321,8 +6438,33 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         const bayIdx = dropInfo ? dropInfo.bayIndex : 0;
         const elevY = dropInfo ? dropInfo.elevationY : 400;
 
+        const modBefore = activeModule || project.modules[0];
+        const bayBefore = modBefore?.bays[bayIdx];
+        const isSubDivDrop =
+          acc.id === "lib_sub_divider" ||
+          acc.id === "sub_divider" ||
+          acc.visual === "sub_divider";
+        if (isSubDivDrop && modBefore && bayBefore) {
+          const ivs = getBayShelfIntervalsForSubDivider(
+            bayBefore,
+            calculateNetInnerHeight(modBefore),
+            modBefore.carcass.panelThickness || 18
+          );
+          const freeIvs = ivs.filter((iv) => !iv.hasConflict);
+          if (freeIvs.length === 0) {
+            setPlanRowSnapBanner(
+              `⛔ Bölme ${bayIdx + 1} içinde Askılık/Çekmece var ve boş raf aralığı yok! Önce raf ekleyin veya askılığı kaldırın.`
+            );
+            setTimeout(() => setPlanRowSnapBanner(null), 4200);
+            lastAccessoryDropTarget2DRef.current = null;
+            if (typeof window !== "undefined") {
+              (window as any).__birimActiveDraggedAccessory = null;
+            }
+            return;
+          }
+        }
         addInteriorItemAtElevation(bayIdx, acc.id, elevY, { offsetX: dropInfo?.offsetX });
-        setPlanRowSnapBanner(`✓ ${acc.title} yerleştirildi: Bölme ${bayIdx + 1} (Y: ${elevY} mm)`);
+        setPlanRowSnapBanner(`✓ ${acc.title} yerleştirildi: Bölme ${bayIdx + 1}`);
         setTimeout(() => setPlanRowSnapBanner(null), 3500);
 
         lastAccessoryDropTarget2DRef.current = null;
@@ -6650,7 +6792,20 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
           </button>
           <button
             type="button"
-            onClick={() => { setZoom(1); setPanPx({ x: 0, y: 0 }); }}
+            data-testid="elev-pan-mode-toggle"
+            onClick={() => setElevPanMode((p) => !p)}
+            className={`ml-1 px-2 py-0.5 rounded text-xs font-bold border transition cursor-pointer ${
+              elevPanMode
+                ? "bg-blue-600 text-white border-blue-700 shadow-2xs"
+                : "bg-stone-100 hover:bg-stone-200 text-stone-700 border-stone-300"
+            }`}
+            title="Çalışma alanını fareyle sürükleyerek kaydır (Pan Modu)"
+          >
+            🖐️ Kaydır
+          </button>
+          <button
+            type="button"
+            onClick={() => { setZoom(1); setPanPx({ x: 0, y: 0 }); setElevPanMode(false); }}
             className="ml-1 text-xs font-semibold text-stone-600 hover:text-stone-900 underline cursor-pointer"
           >
             Sıfırla
@@ -6661,11 +6816,24 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
           viewBox={`${vb.x} ${vb.y} ${vb.width} ${vb.height}`}
           className={`w-full h-full ${panning2D ? "cursor-grabbing" : "cursor-grab"}`}
           onContextMenu={(e) => e.preventDefault()}
+          onMouseDownCapture={(e) => {
+            if (elevPanMode && e.button === 0) {
+              e.preventDefault();
+              e.stopPropagation();
+              setPanning2D({
+                startClientX: e.clientX,
+                startClientY: e.clientY,
+                startPanX: panPxRef.current.x,
+                startPanY: panPxRef.current.y,
+              });
+            }
+          }}
           onMouseDown={(e) => {
             const isBgClick =
               e.target === e.currentTarget ||
               (e.target as Element).getAttribute?.("data-elev-bg") === "true";
             if (
+              elevPanMode ||
               e.button === 2 ||
               e.button === 1 ||
               (e.button === 0 && e.altKey) ||
@@ -6675,27 +6843,33 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
               setPanning2D({
                 startClientX: e.clientX,
                 startClientY: e.clientY,
-                startPanX: panPx.x,
-                startPanY: panPx.y,
+                startPanX: panPxRef.current.x,
+                startPanY: panPxRef.current.y,
               });
             }
           }}
           onMouseMove={(e) => {
             if (panning2D) {
-              setPanPx({
-                x: panning2D.startPanX + (e.clientX - panning2D.startClientX),
-                y: panning2D.startPanY + (e.clientY - panning2D.startClientY),
-              });
+              const nx = panning2D.startPanX + (e.clientX - panning2D.startClientX);
+              const ny = panning2D.startPanY + (e.clientY - panning2D.startClientY);
+              panPxRef.current = { x: nx, y: ny };
+              e.currentTarget.style.transform = `translate(${nx}px, ${ny}px) scale(${zoom})`;
               return;
             }
             handleElevationPointerMove(e);
           }}
           onMouseUp={() => {
-            if (panning2D) setPanning2D(null);
+            if (panning2D) {
+              setPanPx(panPxRef.current);
+              setPanning2D(null);
+            }
             handleElevationPointerUp();
           }}
           onMouseLeave={() => {
-            if (panning2D) setPanning2D(null);
+            if (panning2D) {
+              setPanPx(panPxRef.current);
+              setPanning2D(null);
+            }
             handleElevationPointerUp();
           }}
           style={{
@@ -6709,7 +6883,14 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             </pattern>
           </defs>
 
-          <rect data-elev-bg="true" x={vb.x} y={vb.y} width={vb.width} height={vb.height} fill="url(#v3_elev_grid)" />
+          <rect
+            data-elev-bg="true"
+            x={vb.x - 25000}
+            y={vb.y - 25000}
+            width={vb.width + 50000}
+            height={vb.height + 50000}
+            fill="url(#v3_elev_grid)"
+          />
 
           {/* ROOM WALL ELEVATION BACKDROP, OTHER MODULES & ARCHITECTURAL OBSTACLES (WINDOW, DOOR, PLUMBING, COLUMN, BEAM) */}
           {mode === "elevation" && showRoomContextInElev && (() => {
@@ -6718,8 +6899,9 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             const wallLeftSvgX = -activeModOffX;
             return (
               <g data-testid="cad-elevation-room-context">
-                {/* Wall Surface */}
+                {/* Wall Surface (marked data-elev-bg so dragging anywhere on the wall pans the 2D Elevation canvas!) */}
                 <rect
+                  data-elev-bg="true"
                   x={wallLeftSvgX}
                   y={ceilingSvgY}
                   width={mainWallLen}
@@ -7137,7 +7319,36 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   );
                 })}
 
+                {/* Empty Wall Prompt when all modules are deleted */}
+                {!hasSceneModules && (
+                  <g data-testid="elev-empty-scene-notice" className="pointer-events-none">
+                    <rect
+                      x={mainWallLen / 2 - 420}
+                      y={floorSvgY - ceilingH / 2 - 44}
+                      width={840}
+                      height={88}
+                      rx={16}
+                      fill="rgba(255, 255, 255, 0.92)"
+                      stroke="#94A3B8"
+                      strokeWidth="3"
+                      strokeDasharray="10 6"
+                    />
+                    <text
+                      x={mainWallLen / 2}
+                      y={floorSvgY - ceilingH / 2 + 8}
+                      textAnchor="middle"
+                      fill="#334155"
+                      fontSize="26"
+                      fontWeight="800"
+                      fontFamily="sans-serif"
+                    >
+                      📦 Sahnede dolap yok — Sol panelden veya '+ Modül Ekle' ile dolap ekleyebilirsiniz
+                    </text>
+                  </g>
+                )}
+
                 {/* Active Module Selection Banner in 2D Elevation */}
+                {hasSceneModules && (
                 <g data-testid="elev-active-mod-selection-halo">
                   <g
                     onMouseDown={(e) => {
@@ -7177,6 +7388,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     </text>
                   </g>
                 </g>
+                )}
 
                 {/* Neighboring Modules in Room Wall Elevation (clickable & horizontally draggable + CAD dimensions!) */}
                 {project.modules.map((m, mIdx) => {
@@ -7514,9 +7726,9 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 key={el.id}
                 data-testid={`cad-el-${el.id}`}
                 onMouseDown={(e) => {
-                  e.stopPropagation();
                   setSelectedComponentId(el.id);
-                  if (dragMeta) {
+                  if (dragMeta && !elevPanMode && e.button === 0 && !e.altKey) {
+                    e.stopPropagation();
                     beginHistoryTransaction();
                     setActiveBayIndex(dragMeta.bayIdx);
                     setInteriorDrag({
@@ -7526,30 +7738,36 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       startClientX: e.clientX,
                       startClientY: e.clientY,
                       startValueMm: dragMeta.startVal,
+                      startElevY: dragMeta.startElevY,
                       itemHeightMm: dragMeta.itemHeightMm,
                     });
                   }
                 }}
                 className={
-                  dragMeta
-                    ? dragMeta.kind === "divider" || dragMeta.kind === "sub_divider"
+                  elevPanMode
+                    ? "cursor-grab"
+                    : dragMeta
+                    ? dragMeta.kind === "sub_divider"
+                      ? "cursor-move"
+                      : dragMeta.kind === "divider"
                       ? "cursor-ew-resize"
                       : "cursor-ns-resize"
-                    : "cursor-pointer"
+                    : "cursor-grab"
                 }
               >
                 {/* Invisible wider hit target for thin shelves & dividers so dragging is effortless */}
                 {dragMeta && (
                   <rect
-                    x={el.x - (isDivider || isSubDivider ? 24 : 0)}
-                    y={el.y - (isShelf ? 24 : 0)}
-                    width={Math.max(1, el.width + (isDivider || isSubDivider ? 48 : 0))}
-                    height={Math.max(1, el.height + (isShelf ? 48 : 0))}
+                    x={el.x - (isDivider || isSubDivider ? 30 : 0)}
+                    y={el.y - (isShelf || isSubDivider ? 24 : 0)}
+                    width={Math.max(1, el.width + (isDivider || isSubDivider ? 60 : 0))}
+                    height={Math.max(1, el.height + (isShelf || isSubDivider ? 48 : 0))}
                     fill="transparent"
                   />
                 )}
 
                 <rect
+                  data-elev-bg={!dragMeta ? "true" : undefined}
                   x={el.x}
                   y={el.y}
                   width={Math.max(1, el.width)}
@@ -7886,7 +8104,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       fontFamily="monospace"
                     >
                       {isSubDivider
-                        ? `↔ Raf Dikme (X:${dragMeta?.startVal ?? 0})`
+                        ? `✥ Raf Dikme (X:${dragMeta?.startVal ?? 0})`
                         : "↔ Ana Dikme"}
                     </text>
                   </g>
@@ -8013,7 +8231,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             })()}
 
           {/* High-Contrast, Large Architectural Dimension Callouts with Pill Backgrounds */}
-          {data.dimensionLines.map((dim) => {
+          {(hasSceneModules ? data.dimensionLines : []).map((dim) => {
             const isH = dim.orientation === "horizontal";
             const midX = (dim.x1 + dim.x2) / 2;
             const midY = (dim.y1 + dim.y2) / 2;
@@ -8118,7 +8336,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
           })}
 
           {/* ALWAYS-ACTIVE 4-EDGE PARAMETRIC RESIZE HANDLES IN 2D ELEVATION (▲ Üst Boy H, ▼ Alt Kot Y, ◀ Sol Genişlik W, ▶ Sağ Genişlik W) */}
-          {mode === "elevation" && (
+          {hasSceneModules && mode === "elevation" && (
             <g data-testid="elev-parametric-4edge-resize-handles">
               <rect
                 x={-10}

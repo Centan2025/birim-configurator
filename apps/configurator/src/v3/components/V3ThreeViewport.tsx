@@ -1569,6 +1569,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           kind: dragMeta.kind,
           targetId: dragMeta.targetId,
           startValueMm: dragMeta.startVal,
+          startSecondValueMm: dragMeta.startElevY,
           itemHeightMm: dragMeta.itemHeightMm,
           startClientX: e.clientX,
           startClientY: e.clientY,
@@ -1923,10 +1924,13 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         if (activeDrag3D.kind === "sub_divider") {
           const rawX = activeDrag3D.startValueMm + dxPx * activeDrag3D.mmPerPx;
           const snappedX = Math.round(rawX / 10) * 10;
+          const startMidY =
+            (activeDrag3D.startSecondValueMm ?? 0) + (activeDrag3D.itemHeightMm ?? 300) / 2;
+          const targetMidY = Math.round(startMidY - dyPx * activeDrag3D.mmPerPx);
           state.setSubDividerPlacement(
             activeDrag3D.bayIdx,
             activeDrag3D.targetId,
-            { offsetX: snappedX },
+            { offsetX: snappedX, targetMidY },
             false
           );
           return;
@@ -2449,6 +2453,48 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       const meshGroup = meshGroupRef.current;
       if (!meshGroup) return;
 
+      const moduleSigs = project.modules.map((mod, modIdx) =>
+        JSON.stringify({
+          id: mod.id,
+          dims: mod.dimensions,
+          bays: mod.bays,
+          carcass: mod.carcass,
+          bodyMat: mod.bodyMaterialId,
+          doorMat: mod.doorMaterialId,
+          plinth: mod.plinthHeight,
+          openFront: mod.isOpenFront,
+          cat: mod.category,
+          tmpl: mod.templateId,
+          isActive: modIdx === activeModuleIndex,
+          activeBay: modIdx === activeModuleIndex ? activeBayIndex : -1,
+          doorOpenAngleDeg,
+          drawerOpenMm,
+          explodedFactor,
+          doorsHiddenIn3D,
+          cutawayActiveBay,
+          showInteriorProps3D,
+          theme,
+          renderEdgeMode,
+          selectedComponentId,
+        })
+      );
+
+      // Fast-path: if only module positions/rotations or room walls/obstacles changed (e.g. 2D/3D dragging),
+      // update existing Three.js group transforms in 0.02ms without rebuilding any meshes or clothes!
+      if (
+        meshGroup.children.length === project.modules.length &&
+        project.modules.every((m, idx) => meshGroup.children[idx]?.userData?.renderSig === moduleSigs[idx])
+      ) {
+        project.modules.forEach((m, idx) => {
+          const child = meshGroup.children[idx];
+          const placementGroup = createModuleGroup(m);
+          child.position.copy(placementGroup.position);
+          child.rotation.y = placementGroup.rotation.y;
+        });
+        requestRender();
+        return;
+      }
+
       meshGroup.clear();
       const matMap = new Map(DEFAULT_MATERIALS.map((m) => [m.id, m]));
       const isLight = theme !== "dark";
@@ -2463,6 +2509,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
 
         const isActiveMod = modIdx === activeModuleIndex;
         const modContainer = createModuleGroup(mod);
+        modContainer.userData = { moduleId: mod.id, renderSig: moduleSigs[modIdx] };
 
         breakdown.components.forEach((comp) => {
           const fallbackStoneDef = {

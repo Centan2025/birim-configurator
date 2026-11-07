@@ -84,12 +84,12 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
   <table>
     <thead><tr><th>Katalog Kodu (SKU)</th><th>Donanım / Aksesuar Açıklaması</th><th>Miktar</th><th>Birim Fiyat (€)</th><th>Toplam (€)</th></tr></thead>
     <tbody>
-      ${bom.hardwareList.map((h) => `<tr><td><code>${h.sku}</code></td><td>${h.name}</td><td>${h.quantity} ${h.unit}</td><td>€${h.unitPrice.toFixed(2)}</td><td>€${h.totalPrice.toFixed(2)}</td></tr>`).join("")}
+      ${bom.hardwareList.map((h) => `<tr><td><code>${h.sku}</code></td><td>${h.name}</td><td>${h.quantity} ${h.unit}</td><td>€${(h.unitPrice ?? 0).toFixed(2)}</td><td>€${(h.totalPrice ?? 0).toFixed(2)}</td></tr>`).join("")}
     </tbody>
   </table>
   <div class="total-box">
     <div style="font-size:13px;color:#d6d3d1;">KDV Dahil Genel Toplam Teklif Tutarı</div>
-    <div style="font-size:26px;font-weight:900;color:#fbbf24;">€${pricing.totalWithVatEur.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} (${pricing.totalWithVatTry.toLocaleString("tr-TR", { maximumFractionDigits: 0 })} TL)</div>
+    <div style="font-size:26px;font-weight:900;color:#fbbf24;">€${(pricing.totalWithVatEur ?? 0).toLocaleString("tr-TR", { minimumFractionDigits: 2 })} (${(pricing.totalWithVatTry ?? 0).toLocaleString("tr-TR", { maximumFractionDigits: 0 })} TL)</div>
   </div>
 </body>
 </html>`;
@@ -553,9 +553,9 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
                       <td className="p-3 text-right text-emerald-400 font-bold">
                         {hw.quantity} {hw.unit}
                       </td>
-                      <td className="p-3 text-right text-slate-300">{hw.unitPrice.toFixed(2)}</td>
+                      <td className="p-3 text-right text-slate-300">{(hw.unitPrice ?? 0).toFixed(2)}</td>
                       <td className="p-3 text-right text-emerald-400 font-bold">
-                        {hw.totalPrice.toFixed(2)}
+                        {(hw.totalPrice ?? 0).toFixed(2)}
                       </td>
                     </tr>
                   ))}
@@ -1135,25 +1135,25 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
                   <div className="space-y-1.5 font-mono">
                     <div className="flex justify-between text-slate-300">
                       <span>Ahşap / Levha Maliyeti:</span>
-                      <span>€{pricing.materialCostEur.toFixed(2)}</span>
+                      <span>€{(pricing.materialCost ?? (pricing as any).materialCostEur ?? 0).toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between text-slate-300">
                       <span>Kenar Bandı (PVC/ABS) Maliyeti:</span>
-                      <span>€{pricing.edgeBandCostEur.toFixed(2)}</span>
+                      <span>€{(pricing.edgeBandCost ?? (pricing as any).edgeBandCostEur ?? 0).toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between text-slate-300">
                       <span>Dünya Markaları Aksesuar & LED Donanım:</span>
-                      <span>€{pricing.hardwareCostEur.toFixed(2)}</span>
+                      <span>€{(pricing.hardwareCost ?? (pricing as any).hardwareCostEur ?? 0).toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between text-slate-300">
                       <span>CNC İşçilik, Ebatlama & Montaj:</span>
-                      <span>€{pricing.laborCostEur.toFixed(2)}</span>
+                      <span>€{(pricing.laborCost ?? (pricing as any).laborCostEur ?? 0).toFixed(2)}</span>
                     </div>
                     <div className="pt-2 border-t border-slate-800 flex justify-between text-base font-black text-amber-400">
                       <span>KDV Dahil Müşteri Satış Toplamı:</span>
                       <span>
-                        €{pricing.totalWithVatEur.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} (
-                        {pricing.totalWithVatTry.toLocaleString("tr-TR", { maximumFractionDigits: 0 })} TL)
+                        €{(pricing.totalWithVatEur ?? 0).toLocaleString("tr-TR", { minimumFractionDigits: 2 })} (
+                        {(pricing.totalWithVatTry ?? 0).toLocaleString("tr-TR", { maximumFractionDigits: 0 })} TL)
                       </span>
                     </div>
                   </div>

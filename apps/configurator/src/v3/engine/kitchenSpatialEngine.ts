@@ -424,9 +424,17 @@ export function getModuleOrientedFootprint(
  * or returns the existing elements in `project.space.elements`.
  */
 export function getEffectiveSpaceObstacles(project: DesignProject): ArchitecturalElement[] {
+  if ((project.space as any).wizardCleanRoom) {
+    return project.space.elements || [];
+  }
   if (project.space.elements && project.space.elements.length > 0) {
     return project.space.elements;
   }
+
+  const maxModRightX = (project.modules || []).reduce(
+    (maxX, m) => Math.max(maxX, (m.position?.x || 0) + (m.dimensions?.width || 0)),
+    0
+  );
 
   // Provide realistic architectural fixtures for kitchen layouts
   if (project.space.type.startsWith("kitchen")) {
@@ -449,19 +457,19 @@ export function getEffectiveSpaceObstacles(project: DesignProject): Architectura
         id: "arch_column_right",
         type: "column",
         name: "Taşıyıcı Köşe Kolonu",
-        position: { x: 2950, y: 0, z: 0 },
+        position: { x: Math.max(3650, maxModRightX + 40), y: 0, z: 0 },
         dimensions: { width: 250, height: 2600, depth: 300 },
       },
     ];
   }
 
-  // Wardrobe room default architectural element (right wall column at 3300mm)
+  // Wardrobe room default architectural element placed safely beyond active module span
   return [
     {
       id: "arch_wardrobe_column",
       type: "column",
       name: "Oda Köşe Kolonu",
-      position: { x: 3350, y: 0, z: 0 },
+      position: { x: Math.max(3350, maxModRightX + 40), y: 0, z: 0 },
       dimensions: { width: 250, height: 2700, depth: 250 },
     },
   ];
