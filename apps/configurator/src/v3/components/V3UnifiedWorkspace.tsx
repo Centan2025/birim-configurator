@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import dynamic from "next/dynamic";
 import {
   useV3Adapter,
@@ -9,6 +9,7 @@ import {
   KITCHEN_ENGINEERING_RULE_REGISTRY,
   generateModuleGeometry,
   startModuleSilhouetteDrag,
+  startAccessorySilhouetteDrag,
   setActiveDraggedTemplateId,
 } from "../adapter/useV3Adapter";
 import {
@@ -897,6 +898,12 @@ export const V3UnifiedWorkspace: React.FC<{
     selectedComponentId,
     setSelectedComponentMaterial,
     setCountertopMaterial,
+    activeBlumEngineering,
+    exportBlumBxfString,
+    exportAllPanelsDxfString,
+    exportNestingDxfString,
+    importBlumBxfFile,
+    applyBlumQuickWizardPreset,
     activeSpatialMetrics,
     alignActiveModuleOnWall,
     distributeModulesWithGap,
@@ -915,7 +922,43 @@ export const V3UnifiedWorkspace: React.FC<{
   const [mode, setMode] = useState<V3WorkspaceMode>(initialMode);
   const [canvasTheme, setCanvasTheme] = useState<"warm-light" | "dark">("warm-light");
   const [leftOpen, setLeftOpen] = useState(true);
-  const [leftTab, setLeftTab] = useState<"templates" | "accessories" | "materials">("templates");
+  const [leftTab, setLeftTab] = useState<
+    "quick_wizard" | "templates" | "interior" | "materials" | "accessories" | "hardware"
+  >("quick_wizard");
+  const [quickCabinetType, setQuickCabinetType] = useState<
+    "base" | "wall" | "tall" | "wardrobe" | "drawers_3" | "corner"
+  >("base");
+  const [quickCabinetWidth, setQuickCabinetWidth] = useState<number>(600);
+  const [quickCabinetHeight, setQuickCabinetHeight] = useState<number>(720);
+  const [quickCabinetDepth, setQuickCabinetDepth] = useState<number>(580);
+  const [quickFrontType, setQuickFrontType] = useState<
+    | "single_door_left"
+    | "single_door_right"
+    | "double_door"
+    | "drawers_2"
+    | "drawers_3"
+    | "aventos_hf"
+    | "space_tower"
+    | "open"
+  >("double_door");
+  const [isSimpleBlumMode, setIsSimpleBlumMode] = useState<boolean>(true);
+
+  useEffect(() => {
+    const onGlobalKeyDown = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") {
+        setShowRulesModal(false);
+        setShowAdminModal(false);
+        setIsVisualCatalogOpen(false);
+        setOpenRightDrawer(null);
+        setShowCompatPopover(false);
+        setApprovalBanner(null);
+        setHardwareValidationErrorMsg(null);
+        setMaterialValidationErrorMsg(null);
+      }
+    };
+    window.addEventListener("keydown", onGlobalKeyDown);
+    return () => window.removeEventListener("keydown", onGlobalKeyDown);
+  }, []);
   const [leftSubCat, setLeftSubCat] = useState<string>("dolap");
   const [openRightDrawer, setOpenRightDrawer] = useState<null | "material" | "handle" | "soket" | "more_menu">(null);
   const [adjustableLegsEnabled, setAdjustableLegsEnabled] = useState<boolean>(true);
@@ -955,7 +998,7 @@ export const V3UnifiedWorkspace: React.FC<{
   const [newDraftHeight, setNewDraftHeight] = useState<number>(720);
   const [newDraftDepth, setNewDraftDepth] = useState<number>(580);
   const [newDraftDoorSys, setNewDraftDoorSys] = useState<DoorSystemId>("hinged_double");
-  const [studioLeftWidthPx, setStudioLeftWidthPx] = useState<number>(440);
+  const [studioLeftWidthPx, setStudioLeftWidthPx] = useState<number>(450);
   const [isVisualCatalogOpen, setIsVisualCatalogOpen] = useState<boolean>(false);
   const [catalogSearchQuery, setCatalogSearchQuery] = useState<string>("");
   const [catalogWidthFilter, setCatalogWidthFilter] = useState<"all" | "narrow" | "medium" | "wide">("all");
@@ -1066,7 +1109,7 @@ export const V3UnifiedWorkspace: React.FC<{
     if (!resizingPanel) return;
     const onMouseMove = (ev: MouseEvent) => {
       if (resizingPanel === "studio-left") {
-        setStudioLeftWidthPx(Math.max(220, Math.min(520, ev.clientX)));
+        setStudioLeftWidthPx(Math.max(380, Math.min(650, ev.clientX)));
       } else if (resizingPanel === "studio-right") {
         setStudioRightWidthPx(
           Math.max(280, Math.min(580, window.innerWidth - ev.clientX))
@@ -1284,6 +1327,90 @@ export const V3UnifiedWorkspace: React.FC<{
     setTimeout(() => setApprovalBanner(null), 4500);
   };
 
+  const handleApplyQuickCabinet = useCallback(
+    (isAppend: boolean) => {
+      let targetTplId = "tpl_kb_02_double_door";
+
+      if (quickCabinetType === "base") {
+        if (quickFrontType === "single_door_left" || quickFrontType === "single_door_right")
+          targetTplId = "tpl_kb_01_single_door";
+        else if (quickFrontType === "double_door") targetTplId = "tpl_kb_02_double_door";
+        else if (quickFrontType === "drawers_2") targetTplId = "tpl_kb_04_two_drawers";
+        else if (quickFrontType === "drawers_3") targetTplId = "tpl_kb_05_three_drawers";
+        else if (quickFrontType === "open") targetTplId = "tpl_kb_16_open_shelf";
+        else targetTplId = "tpl_kb_02_double_door";
+      } else if (quickCabinetType === "drawers_3") {
+        targetTplId = "tpl_kb_05_three_drawers";
+      } else if (quickCabinetType === "wall") {
+        if (quickFrontType === "aventos_hf") targetTplId = "tpl_kw_06_lift_bifold";
+        else if (quickFrontType === "single_door_left" || quickFrontType === "single_door_right")
+          targetTplId = "tpl_kw_01_single_door";
+        else if (quickFrontType === "open") targetTplId = "tpl_kw_03_open_shelf";
+        else targetTplId = "tpl_kw_02_double_door";
+      } else if (quickCabinetType === "tall") {
+        if (quickFrontType === "space_tower") targetTplId = "tpl_kt_03_space_tower";
+        else targetTplId = "tpl_kt_01_single_door_pantry";
+      } else if (quickCabinetType === "wardrobe") {
+        if (quickFrontType === "single_door_left" || quickFrontType === "single_door_right")
+          targetTplId = "tpl_wd_01_single_door";
+        else if (quickCabinetWidth >= 1600) targetTplId = "tpl_wd_04_four_door";
+        else if (quickCabinetWidth >= 1200) targetTplId = "tpl_wd_03_three_door";
+        else targetTplId = "tpl_wd_02_two_door";
+      } else if (quickCabinetType === "corner") {
+        targetTplId =
+          quickCabinetHeight > 1500 ? "tpl_wd_13_corner_wardrobe" : "tpl_kb_14_l_corner";
+      }
+
+      // 1. Apply the base V4 template
+      applyV4Template(targetTplId, isAppend);
+
+      // 2. Apply exact dimensions and explicit door/front configuration deterministically
+      setTimeout(() => {
+        setDimensions(quickCabinetWidth, quickCabinetHeight, quickCabinetDepth);
+
+        setTimeout(() => {
+          if (quickFrontType === "double_door") {
+            setBayDoorType(0, "double");
+            setBayV4DoorConfig(0, { doorSystemId: "hinged_double" });
+          } else if (quickFrontType === "single_door_left") {
+            setBayDoorType(0, "single_left");
+            setBayV4DoorConfig(0, { doorSystemId: "hinged_single" });
+          } else if (quickFrontType === "single_door_right") {
+            setBayDoorType(0, "single_right");
+            setBayV4DoorConfig(0, { doorSystemId: "hinged_single" });
+          } else if (quickFrontType === "open") {
+            setBayDoorType(0, "open");
+            setBayV4DoorConfig(0, { doorSystemId: "open" });
+          } else if (quickFrontType === "space_tower") {
+            applyBlumQuickWizardPreset("blum_space_tower");
+          } else if (quickFrontType === "aventos_hf") {
+            applyBlumQuickWizardPreset("blum_aventos_wall");
+          } else if (quickFrontType === "drawers_3") {
+            applyBlumQuickWizardPreset("blum_legrabox_base");
+          }
+
+          setApprovalBanner({
+            ok: true,
+            text: `✓ Hızlı Gövde Uygulandı: ${quickCabinetWidth}×${quickCabinetHeight}×${quickCabinetDepth} mm`,
+          });
+          setTimeout(() => setApprovalBanner(null), 3000);
+        }, 25);
+      }, 25);
+    },
+    [
+      quickCabinetType,
+      quickCabinetWidth,
+      quickCabinetHeight,
+      quickCabinetDepth,
+      quickFrontType,
+      applyV4Template,
+      setDimensions,
+      setBayDoorType,
+      setBayV4DoorConfig,
+      applyBlumQuickWizardPreset,
+    ]
+  );
+
   return (
     <div
       data-testid="v3-unified-root"
@@ -1327,6 +1454,28 @@ export const V3UnifiedWorkspace: React.FC<{
 
           {/* Center-Right: 3-Mode Pill Switcher (Tasarım | Plan (2D) | Sunum) */}
           <div className="flex items-center gap-3">
+            <button
+              type="button"
+              data-testid="toggle-simple-blum-mode-btn"
+              onClick={() => {
+                const next = !isSimpleBlumMode;
+                setIsSimpleBlumMode(next);
+                if (next) {
+                  setLeftTab("quick_wizard");
+                  setLeftOpen(true);
+                }
+              }}
+              className={`px-3 py-1.5 rounded-full font-bold text-xs flex items-center gap-1.5 border transition cursor-pointer ${
+                isSimpleBlumMode
+                  ? "bg-blue-600 text-white border-blue-600 shadow-xs"
+                  : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
+              }`}
+              title="Aşırı düğmeleri ve kalabalık teknik yazıları gizleyip Blum tarzı sade arayüze geçer"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+              <span>{isSimpleBlumMode ? "✨ Sade Mod (Blum)" : "⚙️ Detaylı Mod"}</span>
+            </button>
+            
             <nav
               aria-label="Design Studio Çalışma Modu"
               data-testid="v3-mode-switcher"
@@ -1497,6 +1646,7 @@ export const V3UnifiedWorkspace: React.FC<{
               <Camera className="w-4 h-4" />
             </button>
 
+            {!isSimpleBlumMode && (
             <button
               type="button"
               data-testid="v3-engineering-badge"
@@ -1511,6 +1661,7 @@ export const V3UnifiedWorkspace: React.FC<{
               <AlertTriangle className="w-3.5 h-3.5 text-[#475569] shrink-0" />
               <span className="hidden xl:inline">{humanCompatStatusLabel}</span>
             </button>
+            )}
 
             <button
               type="button"
@@ -1845,12 +1996,12 @@ export const V3UnifiedWorkspace: React.FC<{
           <aside
             data-testid="plan-left-panel"
             className="border-r border-[#E2E8F0] bg-white text-[#111827] flex flex-row z-20 shrink-0 relative"
-            style={{ width: planLeftOpen ? "336px" : "64px" }}
+            style={{ width: planLeftOpen ? "390px" : "70px" }}
           >
             {/* FAR-LEFT 7-ITEM VERTICAL ICON RAIL FOR PLAN MODE (Mekân | Modüller | Ölçü | Katmanlar | Görünüm | DXF / DWG | Ayarlar) */}
             <div
               data-testid="plan-left-icon-rail"
-              className="w-[64px] bg-[#F8FAFC] border-r border-[#E2E8F0] py-2.5 px-1.5 flex flex-col items-center justify-between shrink-0 select-none"
+              className="w-[70px] bg-[#F8FAFC] border-r border-[#E2E8F0] py-3 px-1.5 flex flex-col items-center justify-between shrink-0 select-none"
             >
               <div className="w-full space-y-1.5 flex flex-col items-center">
                 {[
@@ -2026,7 +2177,7 @@ export const V3UnifiedWorkspace: React.FC<{
                         <span className="text-[11px] text-[#64748B]">Tıkla & Yerleştir</span>
                       </div>
 
-                      <div className="grid grid-cols-3 gap-1.5">
+                      <div className="grid grid-cols-3 gap-2 p-0.5">
                         {[
                           {
                             id: "wall" as const,
@@ -2306,7 +2457,7 @@ export const V3UnifiedWorkspace: React.FC<{
                         <span className="text-[10px] text-[#64748B]">Oda Geometrisi</span>
                       </div>
 
-                      <div className="grid grid-cols-3 gap-1.5">
+                      <div className="grid grid-cols-3 gap-2 p-0.5">
                         {[
                           {
                             id: "rectangular" as const,
@@ -2407,7 +2558,7 @@ export const V3UnifiedWorkspace: React.FC<{
                         placeholder="Plana eklenecek modül ara..."
                         className="w-full px-3 py-1.5 rounded-xl bg-[#F8FAFC] border border-[#CBD5E1] text-xs font-medium text-[#111827]"
                       />
-                      <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
+                      <div className="flex flex-wrap gap-1.5">
                         {[
                           { id: "dolap", label: "Gardırop", fam: "fam_wardrobe" as ModuleFamilyId },
                           { id: "kose", label: "Köşe", fam: "fam_special_corner" as ModuleFamilyId },
@@ -2482,44 +2633,65 @@ export const V3UnifiedWorkspace: React.FC<{
               />
             )}
 
-            {/* FAR-LEFT 7-ITEM VERTICAL NAVIGATION RAIL (Matches image_e719c6.jpg) */}
-            <div className="w-[64px] bg-[#F8FAFC] border-r border-[#E2E8F0] py-2.5 px-1.5 flex flex-col items-center justify-between shrink-0 select-none">
+            {/* FAR-LEFT 8-ITEM VERTICAL NAVIGATION RAIL (Blum Sade & Hızlı Mod Destekli) */}
+            <div className="w-[72px] bg-[#F8FAFC] border-r border-[#E2E8F0] py-3 px-1.5 flex flex-col items-center justify-between shrink-0 select-none">
               <div className="w-full space-y-1.5 flex flex-col items-center">
+                <button
+                  type="button"
+                  data-testid="studio-tab-quick-wizard"
+                  onClick={() => {
+                    setLeftTab("quick_wizard");
+                    setLeftOpen(true);
+                  }}
+                  className={`w-full py-2.5 px-1 rounded-xl flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
+                    leftTab === "quick_wizard"
+                      ? "bg-blue-600 text-white font-bold shadow-sm"
+                      : "text-[#475569] hover:bg-[#F1F5F9] hover:text-[#111827] font-semibold"
+                  }`}
+                  title="Blum Tarzı Hızlı ve Sade Gövde Sihirbazı"
+                >
+                  <Sparkles className={`w-5 h-5 ${leftTab === "quick_wizard" ? "text-amber-300" : "text-blue-600"}`} />
+                  <span className="text-[10px] leading-tight text-center">Hızlı Gövde</span>
+                </button>
+
                 <button
                   type="button"
                   data-testid="studio-tab-templates"
                   onClick={() => {
                     setLeftTab("templates");
+                    setStudioInspectorTab("dimensions");
                     setLeftOpen(true);
                   }}
-                  className={`w-full py-2 px-1 rounded-xl flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
-                    leftTab === "templates"
+                  className={`w-full py-2.5 px-1 rounded-xl flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
+                    leftTab === "templates" && studioInspectorTab !== "interior" && studioInspectorTab !== "material" && studioInspectorTab !== "all"
                       ? "bg-[#EEF3F8] text-[#111827] border border-[#94A3B8] font-bold shadow-2xs"
-                      : "text-[#475569] hover:bg-[#F1F5F9] hover:text-[#111827] font-medium"
+                      : "text-[#475569] hover:bg-[#F1F5F9] hover:text-[#111827] font-semibold"
                   }`}
                 >
-                  <Package className="w-4 h-4" />
-                  <span className="text-[9px] leading-none">Modüller</span>
+                  <Package className="w-5 h-5" />
+                  <span className="text-[10px] leading-tight text-center">Modüller</span>
                 </button>
 
                 <button
                   type="button"
-                  data-testid="v4-open-floating-catalog-btn"
-                  onClick={() => setIsVisualCatalogOpen(true)}
-                  className="w-full py-2 px-1 rounded-xl flex flex-col items-center justify-center gap-1 text-[#475569] hover:bg-[#F1F5F9] hover:text-[#111827] font-medium transition cursor-pointer"
+                  data-testid="studio-tab-interior"
+                  onClick={() => {
+                    setLeftTab("interior");
+                    setStudioInspectorTab("interior");
+                    setLeftOpen(true);
+                    if (doorOpenAngleDeg === 0 && !doorsHiddenStudio) {
+                      setDoorOpenAngleDeg(85);
+                    }
+                  }}
+                  className={`w-full py-2.5 px-1 rounded-xl flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
+                    leftTab === "interior" || studioInspectorTab === "interior"
+                      ? "bg-[#EEF3F8] text-[#111827] border border-[#94A3B8] font-bold shadow-2xs"
+                      : "text-[#475569] hover:bg-[#F1F5F9] hover:text-[#111827] font-semibold"
+                  }`}
+                  title="Raf, Çekmece, Askılık ve Bölme Kütüphanesi"
                 >
-                  <Maximize2 className="w-4 h-4" />
-                  <span className="text-[9px] leading-none">Kütüphane</span>
-                </button>
-
-                <button
-                  type="button"
-                  data-testid="v3-open-projects-btn"
-                  onClick={() => setIsProjectModalOpen(true)}
-                  className="w-full py-2 px-1 rounded-xl flex flex-col items-center justify-center gap-1 text-[#475569] hover:bg-[#F1F5F9] hover:text-[#111827] font-medium transition cursor-pointer"
-                >
-                  <FolderOpen className="w-4 h-4" />
-                  <span className="text-[9px] leading-none">Projeler</span>
+                  <Layers className="w-5 h-5" />
+                  <span className="text-[10px] leading-tight text-center">İç Düzen</span>
                 </button>
 
                 <button
@@ -2527,51 +2699,56 @@ export const V3UnifiedWorkspace: React.FC<{
                   data-testid="studio-tab-materials"
                   onClick={() => {
                     setLeftTab("materials");
+                    setStudioInspectorTab("material");
                     setLeftOpen(true);
                   }}
-                  className={`w-full py-2 px-1 rounded-xl flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
-                    leftTab === "materials"
+                  className={`w-full py-2.5 px-1 rounded-xl flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
+                    leftTab === "materials" || studioInspectorTab === "material"
                       ? "bg-[#EEF3F8] text-[#111827] border border-[#94A3B8] font-bold shadow-2xs"
-                      : "text-[#475569] hover:bg-[#F1F5F9] hover:text-[#111827] font-medium"
+                      : "text-[#475569] hover:bg-[#F1F5F9] hover:text-[#111827] font-semibold"
                   }`}
                 >
-                  <Palette className="w-4 h-4" />
-                  <span className="text-[9px] leading-none">Malzemeler</span>
+                  <Palette className="w-5 h-5" />
+                  <span className="text-[10px] leading-tight text-center">Malzeme</span>
                 </button>
 
                 <button
                   type="button"
-                  data-testid="studio-tab-accessories"
+                  data-testid="studio-tab-hardware"
                   onClick={() => {
-                    setLeftTab("accessories");
+                    setLeftTab("hardware");
+                    setStudioInspectorTab("all");
                     setLeftOpen(true);
                   }}
-                  className={`w-full py-2 px-1 rounded-xl flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
-                    leftTab === "accessories"
+                  className={`w-full py-2.5 px-1 rounded-xl flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
+                    leftTab === "hardware" || studioInspectorTab === "all"
                       ? "bg-[#EEF3F8] text-[#111827] border border-[#94A3B8] font-bold shadow-2xs"
-                      : "text-[#475569] hover:bg-[#F1F5F9] hover:text-[#111827] font-medium"
+                      : "text-[#475569] hover:bg-[#F1F5F9] hover:text-[#111827] font-semibold"
                   }`}
+                  title="Blum & Donanım Kütüphanesi"
                 >
-                  <Sparkles className="w-4 h-4" />
-                  <span className="text-[9px] leading-none">Aksesuarlar</span>
+                  <Wrench className="w-5 h-5" />
+                  <span className="text-[10px] leading-tight text-center">Donanım</span>
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => setShowRulesModal(true)}
-                  className="w-full py-2 px-1 rounded-xl flex flex-col items-center justify-center gap-1 text-[#475569] hover:bg-[#F1F5F9] hover:text-[#111827] font-medium transition cursor-pointer"
+                  data-testid="v4-open-floating-catalog-btn"
+                  onClick={() => setIsVisualCatalogOpen(true)}
+                  className="w-full py-2.5 px-1 rounded-xl flex flex-col items-center justify-center gap-1 text-[#475569] hover:bg-[#F1F5F9] hover:text-[#111827] font-semibold transition cursor-pointer"
                 >
-                  <ShieldCheck className="w-4 h-4" />
-                  <span className="text-[9px] leading-none">Kurallar</span>
+                  <Maximize2 className="w-5 h-5" />
+                  <span className="text-[10px] leading-tight text-center">Katalog</span>
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => setIsBomModalOpen(true)}
-                  className="w-full py-2 px-1 rounded-xl flex flex-col items-center justify-center gap-1 text-[#475569] hover:bg-[#F1F5F9] hover:text-[#111827] font-medium transition cursor-pointer"
+                  data-testid="v3-open-projects-btn"
+                  onClick={() => setIsProjectModalOpen(true)}
+                  className="w-full py-2.5 px-1 rounded-xl flex flex-col items-center justify-center gap-1 text-[#475569] hover:bg-[#F1F5F9] hover:text-[#111827] font-semibold transition cursor-pointer"
                 >
-                  <FileSpreadsheet className="w-4 h-4" />
-                  <span className="text-[9px] leading-none text-center">BOM & Üretim</span>
+                  <FolderOpen className="w-5 h-5" />
+                  <span className="text-[10px] leading-tight text-center">Projeler</span>
                 </button>
               </div>
 
@@ -2583,14 +2760,7 @@ export const V3UnifiedWorkspace: React.FC<{
                   title={leftOpen ? "Sol Paneli Daralt" : "Sol Paneli Aç"}
                   className="p-1.5 rounded-lg text-[#475569] hover:text-[#111827] hover:bg-[#E2E8F0] transition cursor-pointer"
                 >
-                  {leftOpen ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowRulesModal(true)}
-                  className="w-6 h-6 rounded-full border border-[#CBD5E1] text-[11px] font-bold text-[#475569] hover:text-[#111827] flex items-center justify-center cursor-pointer"
-                >
-                  ?
+                  {leftOpen ? <ChevronLeft className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
                 </button>
               </div>
             </div>
@@ -2598,10 +2768,639 @@ export const V3UnifiedWorkspace: React.FC<{
             {/* MAIN LEFT LIBRARY CONTENT AREA */}
             {leftOpen && (
               <div className="flex-1 flex flex-col min-w-0 min-h-0 bg-white">
-                {leftTab === "templates" ? (
-                  <div className="flex-1 flex flex-col min-h-0">
-                    {/* EKRAN 6 (FAZ 1): SOL PANEL — MALZEME KÜTÜPHANESİ (Matches image_dad0ff.jpg when Malzeme tab is active) */}
-                    {studioInspectorTab === "material" && (() => {
+
+                {(() => {
+                  if (leftTab === "quick_wizard") {
+                    return (
+                      /* ✨ HIZLI GÖVDE SİHİRBAZI (BLUM TARZI SADE MOD) */
+                  <div
+                    data-testid="quick-cabinet-wizard-panel"
+                    className="flex-1 flex flex-col min-h-0 bg-white"
+                  >
+                    {/* Header */}
+                    <div className="px-4 py-3 border-b border-[#E2E8F0] bg-gradient-to-r from-blue-50/70 to-indigo-50/40">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
+                            <Sparkles className="w-4 h-4 text-amber-300" />
+                          </div>
+                          <div>
+                            <h2 className="text-sm font-extrabold text-[#111827]">
+                              Hızlı Gövde Sihirbazı
+                            </h2>
+                            <p className="text-[11px] text-[#475569]">
+                              Blum standartlarında 3 adımda hatasız gövde
+                            </p>
+                          </div>
+                        </div>
+                        <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 text-[10px] font-bold">
+                          Sade Mod
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Content (Scrollable) */}
+                    <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
+                      {/* ADIM 1: GÖVDE TİPİ */}
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="font-extrabold text-slate-900 text-xs flex items-center gap-1.5">
+                            <span className="w-4 h-4 rounded-full bg-blue-600 text-white text-[10px] flex items-center justify-center font-bold">1</span>
+                            Gövde Tipi
+                          </span>
+                          <span className="text-[11px] text-slate-500 font-medium">Standart Kategori</span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          {[
+                            {
+                              id: "base",
+                              title: "Alt Dolap",
+                              sub: "Tezgâh Altı (H: 720 mm)",
+                              icon: "🗄️",
+                              defW: 600, defH: 720, defD: 580,
+                              defFront: "double_door",
+                            },
+                            {
+                              id: "drawers_3",
+                              title: "3 Çekmeceli Alt",
+                              sub: "1+2 Derin LEGRABOX",
+                              icon: "📑",
+                              defW: 600, defH: 720, defD: 580,
+                              defFront: "drawers_3",
+                            },
+                            {
+                              id: "wall",
+                              title: "Üst Dolap",
+                              sub: "Duvara Asma (H: 720 mm)",
+                              icon: "📦",
+                              defW: 600, defH: 720, defD: 350,
+                              defFront: "double_door",
+                            },
+                            {
+                              id: "tall",
+                              title: "Boy Dolap / Kiler",
+                              sub: "Yüksek (H: 2100 mm)",
+                              icon: "🚪",
+                              defW: 600, defH: 2100, defD: 580,
+                              defFront: "single_door_left",
+                            },
+                            {
+                              id: "wardrobe",
+                              title: "Gardırop",
+                              sub: "Giyinme (H: 2200 mm)",
+                              icon: "👔",
+                              defW: 1000, defH: 2200, defD: 600,
+                              defFront: "double_door",
+                            },
+                            {
+                              id: "corner",
+                              title: "Köşe Dolap",
+                              sub: "L Dönüş (900×900 mm)",
+                              icon: "📐",
+                              defW: 900, defH: 720, defD: 900,
+                              defFront: "single_door_left",
+                            },
+                          ].map((c) => {
+                            const isSelected = quickCabinetType === c.id;
+                            return (
+                              <button
+                                key={c.id}
+                                type="button"
+                                data-testid={`quick-type-${c.id}`}
+                                onClick={() => {
+                                  setQuickCabinetType(c.id as any);
+                                  setQuickCabinetWidth(c.defW);
+                                  setQuickCabinetHeight(c.defH);
+                                  setQuickCabinetDepth(c.defD);
+                                  setQuickFrontType(c.defFront as any);
+                                }}
+                                className={`p-3 rounded-2xl border text-left flex flex-col justify-between transition cursor-pointer relative ${
+                                  isSelected
+                                    ? "bg-blue-50/80 border-2 border-blue-600 shadow-xs ring-1 ring-blue-500/20"
+                                    : "bg-white hover:bg-slate-50 border-slate-200 hover:border-slate-300"
+                                }`}
+                              >
+                                <div className="flex items-center justify-between w-full">
+                                  <span className="text-xl">{c.icon}</span>
+                                  {isSelected && (
+                                    <span className="w-4 h-4 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] font-bold">✓</span>
+                                  )}
+                                </div>
+                                <div className="mt-2">
+                                  <div className="font-bold text-slate-900 text-xs leading-tight">{c.title}</div>
+                                  <div className="text-[11px] text-slate-500 mt-0.5">{c.sub}</div>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* ADIM 2: STANDART EBATLAR */}
+                      <div className="space-y-2 pt-2 border-t border-slate-100">
+                        <div className="flex items-center justify-between">
+                          <span className="font-extrabold text-slate-900 text-xs flex items-center gap-1.5">
+                            <span className="w-4 h-4 rounded-full bg-blue-600 text-white text-[10px] flex items-center justify-center font-bold">2</span>
+                            Standart Modüler Genişlik
+                          </span>
+                          <span className="text-[11px] text-blue-600 font-bold">{quickCabinetWidth} mm</span>
+                        </div>
+
+                        <div className="flex flex-wrap gap-1.5">
+                          {[300, 450, 600, 800, 900, 1000, 1200].map((w) => (
+                            <button
+                              key={w}
+                              type="button"
+                              data-testid={`quick-width-${w}`}
+                              onClick={() => setQuickCabinetWidth(w)}
+                              className={`px-3 py-1.5 rounded-xl font-bold text-xs transition cursor-pointer border ${
+                                quickCabinetWidth === w
+                                  ? "bg-blue-600 text-white border-blue-600 shadow-xs"
+                                  : "bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200"
+                              }`}
+                            >
+                              {w / 10} cm
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Yükseklik ve Derinlik Hızlı Bilgisi */}
+                        <div className="grid grid-cols-2 gap-2 pt-1">
+                          <div className="p-2 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
+                            <span className="text-[11px] text-slate-500">Yükseklik:</span>
+                            <span className="font-bold text-slate-800 text-xs">{quickCabinetHeight} mm</span>
+                          </div>
+                          <div className="p-2 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
+                            <span className="text-[11px] text-slate-500">Derinlik:</span>
+                            <span className="font-bold text-slate-800 text-xs">{quickCabinetDepth} mm</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* ADIM 3: ÖN CEPHE & DONANIM */}
+                      <div className="space-y-2 pt-2 border-t border-slate-100">
+                        <div className="flex items-center justify-between">
+                          <span className="font-extrabold text-slate-900 text-xs flex items-center gap-1.5">
+                            <span className="w-4 h-4 rounded-full bg-blue-600 text-white text-[10px] flex items-center justify-center font-bold">3</span>
+                            Ön Cephe & Fonksiyon
+                          </span>
+                          <span className="text-[11px] text-slate-500 font-medium">Blum Standart</span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          {[
+                            {
+                              id: "single_door_left",
+                              title: "Tek Kapak (Sol)",
+                              sub: "Blum 110° Menteşe",
+                              badge: "CLIP top",
+                            },
+                            {
+                              id: "single_door_right",
+                              title: "Tek Kapak (Sağ)",
+                              sub: "Blum 110° Menteşe",
+                              badge: "CLIP top",
+                            },
+                            {
+                              id: "double_door",
+                              title: "Çift Kapak",
+                              sub: "2 Kapaklı Eşit Açılım",
+                              badge: "CLIP top",
+                            },
+                            {
+                              id: "drawers_3",
+                              title: "3 Çekmece",
+                              sub: "1 Çatal-Kaşık + 2 Derin",
+                              badge: "LEGRABOX",
+                            },
+                            {
+                              id: "drawers_2",
+                              title: "2 Derin Çekmece",
+                              sub: "Tencere/Kiler Çekmecesi",
+                              badge: "LEGRABOX",
+                            },
+                            {
+                              id: "aventos_hf",
+                              title: "AVENTOS HF",
+                              sub: "İki Parçalı Katlanır Kalkar",
+                              badge: "AVENTOS",
+                            },
+                            {
+                              id: "space_tower",
+                              title: "SPACE TOWER",
+                              sub: "4 İç Çekmeceli Kiler",
+                              badge: "155° Sıfır Çıkıntı",
+                            },
+                            {
+                              id: "open",
+                              title: "Açık Gövde",
+                              sub: "Kapaksız Raf Ünitesi",
+                              badge: "Dekoratif",
+                            },
+                          ].map((f) => {
+                            const isSelected = quickFrontType === f.id;
+                            return (
+                              <button
+                                key={f.id}
+                                type="button"
+                                data-testid={`quick-front-${f.id}`}
+                                onClick={() => setQuickFrontType(f.id as any)}
+                                className={`p-2.5 rounded-2xl border text-left flex flex-col justify-between transition cursor-pointer relative ${
+                                  isSelected
+                                    ? "bg-indigo-50/80 border-2 border-indigo-600 shadow-xs ring-1 ring-indigo-500/20"
+                                    : "bg-white hover:bg-slate-50 border-slate-200"
+                                }`}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className="font-bold text-slate-900 text-xs">{f.title}</span>
+                                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-100 font-semibold text-slate-600">
+                                    {f.badge}
+                                  </span>
+                                </div>
+                                <div className="text-[10px] text-slate-500 mt-1 leading-tight">{f.sub}</div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* BLUM GÜVENCESİ BİLGİ KUTUSU */}
+                      <div className="p-3 rounded-2xl bg-blue-50/60 border border-blue-200/80 flex items-start gap-2.5">
+                        <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                        <div className="text-[11px] text-blue-900 leading-snug">
+                          <span className="font-bold">Otomatik Mühendislik: </span>
+                          18 mm gövde, 2 mm kapak fugası, arka kanal ve Blum EASYSTICK delik eksenleri otomatik kilitlenir.
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Footer Action Buttons */}
+                    <div className="p-4 border-t border-[#E2E8F0] bg-slate-50/80 space-y-2">
+                      <button
+                        type="button"
+                        data-testid="quick-wizard-apply-btn"
+                        onClick={() => handleApplyQuickCabinet(false)}
+                        className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow transition cursor-pointer"
+                      >
+                        <CheckCircle className="w-4 h-4" />
+                        <span>Seçili Modüle Uygula (Dönüştür)</span>
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="quick-wizard-add-new-btn"
+                        onClick={() => handleApplyQuickCabinet(true)}
+                        className="w-full py-2 px-4 rounded-xl bg-white hover:bg-slate-100 text-slate-800 font-semibold text-xs flex items-center justify-center gap-1.5 border border-slate-300 transition cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Yanına Yeni Modül Olarak Ekle</span>
+                      </button>
+                    </div>
+                  </div>
+                    );
+                  }
+                  if (leftTab === "interior" || (leftTab === "templates" && studioInspectorTab === "interior")) {
+                    return (
+                      /* 🚪 İÇ DÜZEN KÜTÜPHANESİ (FULL HEIGHT) */
+                  <div className="flex-1 flex flex-col min-h-0 bg-white">
+                    {(() => {
+                      const interiorLibraryCatalog = [
+                        {
+                          id: "lib_shelf",
+                          cat: "raf" as const,
+                          title: "Raf",
+                          spec: "18–36 mm",
+                          visual: "shelf" as const,
+                          minW: 200,
+                          maxW: 1200,
+                          onAdd: () => addShelf(activeBayIndex),
+                        },
+                        {
+                          id: "lib_rail",
+                          cat: "askilik" as const,
+                          title: "Askılık",
+                          spec: "Ø25 mm",
+                          visual: "rail" as const,
+                          minW: 250,
+                          maxW: 1200,
+                          onAdd: () => addHangingRail(activeBayIndex),
+                        },
+                        {
+                          id: "lib_drawer",
+                          cat: "cekmece" as const,
+                          title: "Çekmece",
+                          spec: "H: 100–300 mm",
+                          visual: "drawer" as const,
+                          minW: 300,
+                          maxW: 1200,
+                          onAdd: () => addDrawer(activeBayIndex),
+                        },
+                        {
+                          id: "lib_internal_drawer",
+                          cat: "cekmece" as const,
+                          title: "İç Çekmece",
+                          spec: "H: 80–200 mm",
+                          visual: "internal_drawer" as const,
+                          minW: 300,
+                          maxW: 1200,
+                          onAdd: () => addInternalDrawer(activeBayIndex, 140),
+                        },
+                        {
+                          id: "lib_trouser_rack",
+                          cat: "pantolonluk" as const,
+                          title: "Pantolonluk",
+                          spec: "G: 600–900 mm",
+                          visual: "trouser_rack" as const,
+                          minW: 380,
+                          maxW: 1000,
+                          onAdd: () => addSpecialFitting(activeBayIndex, "trouser_rack"),
+                        },
+                        {
+                          id: "lib_shoe_rack",
+                          cat: "ayakkabilik" as const,
+                          title: "Ayakkabılık",
+                          spec: "Eğimli / Düz",
+                          visual: "shoe_rack" as const,
+                          minW: 350,
+                          maxW: 1100,
+                          onAdd: () => addSpecialFitting(activeBayIndex, "shoe_rack"),
+                        },
+                        {
+                          id: "lib_tie_rack",
+                          cat: "kravatlik" as const,
+                          title: "Kravatlık",
+                          spec: "G: 300–600 mm",
+                          visual: "tie_rack" as const,
+                          minW: 250,
+                          maxW: 1200,
+                          onAdd: () => addSpecialFitting(activeBayIndex, "tie_rack"),
+                        },
+                        {
+                          id: "lib_belt_rack",
+                          cat: "kemerlik" as const,
+                          title: "Kemerlik",
+                          spec: "G: 300–600 mm",
+                          visual: "belt_rack" as const,
+                          minW: 250,
+                          maxW: 1200,
+                          onAdd: () => addSpecialFitting(activeBayIndex, "belt_rack"),
+                        },
+                        {
+                          id: "lib_wardrobe_lift",
+                          cat: "askilik" as const,
+                          title: "Gardırop Asansörü",
+                          spec: "Servetto 10 kg",
+                          visual: "wardrobe_lift" as const,
+                          minW: 450,
+                          maxW: 1150,
+                          onAdd: () => addSpecialFitting(activeBayIndex, "wardrobe_lift"),
+                        },
+                        {
+                          id: "lib_wire_basket",
+                          cat: "cekmece" as const,
+                          title: "Tel Sepet",
+                          spec: "H: 150 mm",
+                          visual: "wire_basket" as const,
+                          minW: 350,
+                          maxW: 1000,
+                          onAdd: () => addSpecialFitting(activeBayIndex, "wire_basket"),
+                        },
+                        {
+                          id: "lib_jewelry_tray",
+                          cat: "cekmece" as const,
+                          title: "Takı Çekmecesi",
+                          spec: "Kadife Bölümlü",
+                          visual: "jewelry_tray" as const,
+                          minW: 350,
+                          maxW: 1000,
+                          onAdd: () => addSpecialFitting(activeBayIndex, "jewelry_tray"),
+                        },
+                        {
+                          id: "lib_led_profile",
+                          cat: "raf" as const,
+                          title: "Loox5 LED",
+                          spec: "3000K + Sensör",
+                          visual: "led_profile" as const,
+                          minW: 200,
+                          maxW: 2400,
+                          onAdd: () => addSpecialFitting(activeBayIndex, "led_profile"),
+                        },
+                      ];
+
+                      const qLib = interiorLibSearch.trim().toLowerCase();
+                      const filteredInteriorCatalog = interiorLibraryCatalog.filter((it) => {
+                        if (interiorLibCat !== "all" && it.cat !== interiorLibCat) return false;
+                        if (
+                          qLib &&
+                          !it.title.toLowerCase().includes(qLib) &&
+                          !it.spec.toLowerCase().includes(qLib)
+                        ) {
+                          return false;
+                        }
+                        return true;
+                      });
+
+                      return (
+                        <div
+                          data-testid="interior-library-panel"
+                          className="bg-white flex flex-col flex-1 min-h-0"
+                        >
+                          {/* Header: İç Düzen Kütüphanesi */}
+                          <div className="px-3.5 pt-3 pb-1.5 flex items-center justify-between gap-2">
+                            <div>
+                              <h2 className="text-sm font-bold text-[#111827]">
+                                İç Düzen Kütüphanesi
+                              </h2>
+                              <span className="text-[10px] text-[#2563EB] font-semibold">
+                                Seçili: Bölme {activeBayIndex + 1} ({currentBayWidthMm} mm)
+                              </span>
+                            </div>
+                            <span className="px-2 py-0.5 rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] text-[10px] font-bold text-[#1D4ED8]">
+                              🖐️ Sürükle-Bırak veya Tıkla
+                            </span>
+                          </div>
+
+                          {/* Search Bar */}
+                          <div className="px-3.5 pb-2 flex items-center gap-1.5">
+                            <div className="relative flex-1 flex items-center">
+                              <svg
+                                className="w-3.5 h-3.5 text-[#64748B] absolute left-3 pointer-events-none"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                              >
+                                <circle cx="11" cy="11" r="8" />
+                                <path d="M21 21l-4.35-4.35" />
+                              </svg>
+                              <input
+                                type="text"
+                                data-testid="interior-library-search-input"
+                                value={interiorLibSearch}
+                                onChange={(e) => setInteriorLibSearch(e.target.value)}
+                                placeholder="Raf, çekmece, askılık ara..."
+                                className="w-full pl-8 pr-2.5 py-1.5 rounded-xl bg-[#F8FAFC] border border-[#CBD5E1] text-xs font-medium text-[#111827] placeholder:text-[#94A3B8] focus:outline-none focus:border-[#2563EB]"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Category Pills: Tümü | Raf | Askılık | Çekmece | Pantolonluk | Ayakkabılık | Kravatlık | Kemerlik */}
+                          <div className="px-3.5 py-2.5 flex flex-wrap gap-1.5 border-b border-[#E2E8F0] bg-[#F8FAFC]">
+                            {[
+                              { id: "all" as const, label: "Tümü" },
+                              { id: "raf" as const, label: "Raf" },
+                              { id: "askilik" as const, label: "Askılık" },
+                              { id: "cekmece" as const, label: "Çekmece" },
+                              { id: "pantolonluk" as const, label: "Pantolonluk" },
+                              { id: "ayakkabilik" as const, label: "Ayakkabılık" },
+                              { id: "kravatlik" as const, label: "Kravatlık" },
+                              { id: "kemerlik" as const, label: "Kemerlik" },
+                            ].map((cPill) => {
+                              const activePill = interiorLibCat === cPill.id;
+                              return (
+                                <button
+                                  key={cPill.id}
+                                  type="button"
+                                  data-testid={`interior-lib-cat-${cPill.id}`}
+                                  onClick={() => setInteriorLibCat(cPill.id)}
+                                  className={`px-2.5 py-1 rounded-full text-[11px] shrink-0 transition cursor-pointer border ${
+                                    activePill
+                                      ? "bg-[#EFF6FF] text-[#1D4ED8] border-[#2563EB] font-bold shadow-2xs"
+                                      : "bg-[#F8FAFC] hover:bg-[#F1F5F9] text-[#475569] border-[#E2E8F0] font-medium"
+                                  }`}
+                                >
+                                  {cPill.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          {/* Scrollable 2-Column Realistic Accessory Cards + Hazır İç Düzen Şablonları */}
+                          <div className="flex-1 overflow-y-auto px-3.5 py-2.5 space-y-3">
+                            <div className="grid grid-cols-2 gap-2">
+                              {filteredInteriorCatalog.map((item) => {
+                                const isWidthCompatible =
+                                  currentBayWidthMm >= item.minW && currentBayWidthMm <= item.maxW;
+                                return (
+                                  <button
+                                    key={item.id}
+                                    type="button"
+                                    data-testid={`interior-lib-card-${item.id}`}
+                                    draggable={true}
+                                    onDragStart={(e) =>
+                                      startAccessorySilhouetteDrag(e, {
+                                        id: item.id,
+                                        visual: item.visual,
+                                        title: item.title,
+                                        cat: item.cat,
+                                        spec: item.spec,
+                                      })
+                                    }
+                                    onDragEnd={() => {
+                                      if (typeof window !== "undefined") {
+                                        (window as any).__birimActiveDraggedAccessory = null;
+                                      }
+                                    }}
+                                    onClick={item.onAdd}
+                                    title={`${item.title} (${item.spec}) — Gövde üzerine sürükleyip istediğiniz yüksekliğe bırakın veya tıklayın` }
+                                    className="p-2.5 rounded-2xl border bg-[#F8FAFC]/80 hover:bg-[#EFF6FF]/60 border-[#E2E8F0] hover:border-[#2563EB] flex flex-col items-center text-center justify-between gap-1 transition cursor-pointer relative group"
+                                  >
+                                    <span className="opacity-0 group-hover:opacity-100 absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-[#2563EB] text-white flex items-center justify-center text-xs font-bold transition">
+                                      +
+                                    </span>
+                                    <div className="py-0.5 flex items-center justify-center">
+                                      {renderInteriorComponentIllustration(item.visual, "md")}
+                                    </div>
+                                    <div className="w-full min-w-0">
+                                      <div className="text-[11px] font-bold text-[#111827] leading-tight truncate">
+                                        {item.title}
+                                      </div>
+                                      <div className="text-[10px] text-[#64748B] mt-0.5">
+                                        {item.spec}
+                                      </div>
+                                      {!isWidthCompatible && (
+                                        <div className="text-[9px] text-amber-700 font-semibold mt-0.5">
+                                          Önerilen: {item.minW}–{item.maxW}mm
+                                        </div>
+                                      )}
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+
+                            {/* Hazır İç Düzen Şablonları (Gömlek + Raf | Elbise + Çekmece | Karma Düzen) */}
+                            <div className="pt-2 border-t border-[#E2E8F0] space-y-2">
+                              <div className="flex items-center justify-between text-xs font-bold text-[#111827]">
+                                <span>⌄ Hazır İç Düzen Şablonları</span>
+                                <span className="text-[10px] font-normal text-[#64748B]">
+                                  Bölme {activeBayIndex + 1}
+                                </span>
+                              </div>
+                              <div className="grid grid-cols-3 gap-2 p-1">
+                                {[
+                                  {
+                                    id: "shirt_shelf" as const,
+                                    title: "Gömlek + Raf",
+                                    visual: "template_shirt_shelf" as const,
+                                  },
+                                  {
+                                    id: "dress_drawer" as const,
+                                    title: "Elbise + Çekmece",
+                                    visual: "template_dress_drawer" as const,
+                                  },
+                                  {
+                                    id: "mixed_combo" as const,
+                                    title: "Karma Düzen",
+                                    visual: "template_mixed_combo" as const,
+                                  },
+                                ].map((tpl) => {
+                                  const isPreviewingThis =
+                                    interiorPreviewBanner?.templateName.includes(tpl.title) &&
+                                    interiorPreviewBanner?.bayIndex === activeBayIndex;
+                                  return (
+                                    <button
+                                      key={tpl.id}
+                                      type="button"
+                                      data-testid={`interior-lib-template-${tpl.id}`}
+                                      onClick={() => {
+                                        const snapshot =
+                                          interiorPreviewBanner?.snapshotBays ||
+                                          JSON.parse(JSON.stringify(activeModule.bays));
+                                        applyBayInteriorPreset(activeBayIndex, tpl.id);
+                                        setInteriorPreviewBanner({
+                                          templateName: `Bölme ${activeBayIndex + 1}: ${tpl.title}`,
+                                          bayIndex: activeBayIndex,
+                                          snapshotBays: snapshot,
+                                        });
+                                      }}
+                                      className={`p-2 rounded-2xl border flex flex-col items-center text-center gap-1 transition cursor-pointer ${
+                                        isPreviewingThis
+                                          ? "bg-[#EFF6FF] border-2 border-[#2563EB] text-[#111827] shadow-2xs"
+                                          : "bg-white hover:bg-[#F8FAFC] border-[#E2E8F0] text-[#111827]"
+                                      }`}
+                                    >
+                                      {renderInteriorComponentIllustration(tpl.visual, "sm")}
+                                      <span className="text-[10px] font-bold text-[#111827] leading-tight">
+                                        {tpl.title}
+                                      </span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                    );
+                  }
+                  if (leftTab === "materials" || (leftTab === "templates" && studioInspectorTab === "material")) {
+                    return (
+                      /* 🎨 MALZEME KÜTÜPHANESİ (FULL HEIGHT) */
+                  <div className="flex-1 flex flex-col min-h-0 bg-white">
+                    {(() => {
                       const classifyMatTab = (m: import("@birim/core").MaterialDefinition) => {
                         const n = m.name.toLowerCase();
                         if (m.category === "stone" || m.category === "compact") return "stone";
@@ -2676,7 +3475,7 @@ export const V3UnifiedWorkspace: React.FC<{
                       return (
                         <div
                           data-testid="material-library-panel"
-                          className="border-b-2 border-[#CBD5E1] bg-white flex flex-col max-h-[75%] shrink-0"
+                          className="bg-white flex flex-col flex-1 min-h-0"
                         >
                           {/* Header: Malzeme Kütüphanesi */}
                           <div className="px-3.5 pt-3 pb-1.5 flex items-center justify-between gap-2">
@@ -2745,7 +3544,7 @@ export const V3UnifiedWorkspace: React.FC<{
                           </div>
 
                           {/* Category Pills: Tümü | Suntalam | MDF | Lake | Ahşap Kaplama | Cam & Ayna | Mermer & Taş */}
-                          <div className="px-3.5 pb-2 flex items-center gap-1 flex-wrap border-b border-[#E2E8F0]">
+                          <div className="px-3.5 py-2.5 flex flex-wrap gap-1.5 border-b border-[#E2E8F0] bg-[#F8FAFC]">
                             {[
                               { id: "all" as const, label: "Tümü" },
                               { id: "suntalam" as const, label: "Suntalam" },
@@ -2834,8 +3633,14 @@ export const V3UnifiedWorkspace: React.FC<{
                         </div>
                       );
                     })()}
-                    {/* EKRAN 5 (FAZ 1): SOL PANEL — DONANIM KÜTÜPHANESİ (Matches Birim_Tasarim_5_Donanim_Mekanizmalar.png when Donanım tab is active) */}
-                    {studioInspectorTab === "all" && (() => {
+                  </div>
+                    );
+                  }
+                  if (leftTab === "hardware" || (leftTab === "templates" && studioInspectorTab === "all")) {
+                    return (
+                      /* ⚙️ DONANIM KÜTÜPHANESİ (FULL HEIGHT) */
+                  <div className="flex-1 flex flex-col min-h-0 bg-white">
+                    {(() => {
                       const T_door =
                         activeBay?.door.doorThicknessMm || activeModule.carcass.doorThickness || 18;
                       const netInnerD = fourSpaceDimensions.usableInternal.netInnerDepthMm;
@@ -3272,7 +4077,7 @@ export const V3UnifiedWorkspace: React.FC<{
                       return (
                         <div
                           data-testid="hardware-library-panel"
-                          className="border-b-2 border-[#CBD5E1] bg-white flex flex-col max-h-[72%] shrink-0"
+                          className="bg-white flex flex-col flex-1 min-h-0"
                         >
                           {/* Header: Donanım Kütüphanesi */}
                           <div className="px-3.5 pt-3 pb-1.5 flex items-center justify-between gap-2">
@@ -3326,7 +4131,7 @@ export const V3UnifiedWorkspace: React.FC<{
                           </div>
 
                           {/* Category Pills: Tümü | Menteşe | Ray | Açılma Sistemi | Aydınlatma | Kulp | İç Donanım */}
-                          <div className="px-3.5 pb-2 flex items-center gap-1 flex-wrap border-b border-[#E2E8F0]">
+                          <div className="px-3.5 py-2.5 flex flex-wrap gap-1.5 border-b border-[#E2E8F0] bg-[#F8FAFC]">
                             {[
                               { id: "all" as const, label: "Tümü" },
                               { id: "hinge" as const, label: "Menteşe" },
@@ -3363,6 +4168,36 @@ export const V3UnifiedWorkspace: React.FC<{
                                   key={hwCard.id}
                                   type="button"
                                   data-testid={`hardware-lib-card-${hwCard.id}`}
+                                  draggable={hwCard.cat === "interior_acc" || hwCard.cat === "lighting"}
+                                  onDragStart={(e) => {
+                                    if (hwCard.cat !== "interior_acc" && hwCard.cat !== "lighting") return;
+                                    const mapKind =
+                                      hwCard.id.includes("rail")
+                                        ? "rail"
+                                        : hwCard.id.includes("trouser")
+                                        ? "trouser_rack"
+                                        : hwCard.id.includes("shoe")
+                                        ? "shoe_rack"
+                                        : hwCard.id.includes("basket")
+                                        ? "wire_basket"
+                                        : hwCard.id.includes("lift")
+                                        ? "wardrobe_lift"
+                                        : hwCard.id.includes("jewelry")
+                                        ? "jewelry_tray"
+                                        : "led_profile";
+                                    startAccessorySilhouetteDrag(e, {
+                                      id: mapKind,
+                                      visual: mapKind,
+                                      title: hwCard.title,
+                                      cat: hwCard.cat,
+                                      spec: hwCard.subtitle,
+                                    });
+                                  }}
+                                  onDragEnd={() => {
+                                    if (typeof window !== "undefined") {
+                                      (window as any).__birimActiveDraggedAccessory = null;
+                                    }
+                                  }}
                                   onClick={hwCard.onSelect}
                                   title={
                                     hwCard.isCompatible
@@ -3419,322 +4254,91 @@ export const V3UnifiedWorkspace: React.FC<{
                         </div>
                       );
                     })()}
-                    {/* EKRAN 4: SOL PANEL — İÇ DÜZEN KÜTÜPHANESİ (Active when İç Düzen tab is selected) */}
-                    {studioInspectorTab === "interior" && (() => {
-                      const interiorLibraryCatalog = [
-                        {
-                          id: "lib_shelf",
-                          cat: "raf" as const,
-                          title: "Raf",
-                          spec: "18–36 mm",
-                          visual: "shelf" as const,
-                          minW: 200,
-                          maxW: 1200,
-                          onAdd: () => addShelf(activeBayIndex),
-                        },
-                        {
-                          id: "lib_rail",
-                          cat: "askilik" as const,
-                          title: "Askılık",
-                          spec: "Ø25 mm",
-                          visual: "rail" as const,
-                          minW: 250,
-                          maxW: 1200,
-                          onAdd: () => addHangingRail(activeBayIndex),
-                        },
-                        {
-                          id: "lib_drawer",
-                          cat: "cekmece" as const,
-                          title: "Çekmece",
-                          spec: "H: 100–300 mm",
-                          visual: "drawer" as const,
-                          minW: 300,
-                          maxW: 1200,
-                          onAdd: () => addDrawer(activeBayIndex),
-                        },
-                        {
-                          id: "lib_internal_drawer",
-                          cat: "cekmece" as const,
-                          title: "İç Çekmece",
-                          spec: "H: 80–200 mm",
-                          visual: "internal_drawer" as const,
-                          minW: 300,
-                          maxW: 1200,
-                          onAdd: () => addInternalDrawer(activeBayIndex, 140),
-                        },
-                        {
-                          id: "lib_trouser_rack",
-                          cat: "pantolonluk" as const,
-                          title: "Pantolonluk",
-                          spec: "G: 600–900 mm",
-                          visual: "trouser_rack" as const,
-                          minW: 380,
-                          maxW: 1000,
-                          onAdd: () => addSpecialFitting(activeBayIndex, "trouser_rack"),
-                        },
-                        {
-                          id: "lib_shoe_rack",
-                          cat: "ayakkabilik" as const,
-                          title: "Ayakkabılık",
-                          spec: "Eğimli / Düz",
-                          visual: "shoe_rack" as const,
-                          minW: 350,
-                          maxW: 1100,
-                          onAdd: () => addSpecialFitting(activeBayIndex, "shoe_rack"),
-                        },
-                        {
-                          id: "lib_tie_rack",
-                          cat: "kravatlik" as const,
-                          title: "Kravatlık",
-                          spec: "G: 300–600 mm",
-                          visual: "tie_rack" as const,
-                          minW: 250,
-                          maxW: 1200,
-                          onAdd: () => addSpecialFitting(activeBayIndex, "tie_rack"),
-                        },
-                        {
-                          id: "lib_belt_rack",
-                          cat: "kemerlik" as const,
-                          title: "Kemerlik",
-                          spec: "G: 300–600 mm",
-                          visual: "belt_rack" as const,
-                          minW: 250,
-                          maxW: 1200,
-                          onAdd: () => addSpecialFitting(activeBayIndex, "belt_rack"),
-                        },
-                        {
-                          id: "lib_wardrobe_lift",
-                          cat: "askilik" as const,
-                          title: "Gardırop Asansörü",
-                          spec: "Servetto 10 kg",
-                          visual: "wardrobe_lift" as const,
-                          minW: 450,
-                          maxW: 1150,
-                          onAdd: () => addSpecialFitting(activeBayIndex, "wardrobe_lift"),
-                        },
-                        {
-                          id: "lib_wire_basket",
-                          cat: "cekmece" as const,
-                          title: "Tel Sepet",
-                          spec: "H: 150 mm",
-                          visual: "wire_basket" as const,
-                          minW: 350,
-                          maxW: 1000,
-                          onAdd: () => addSpecialFitting(activeBayIndex, "wire_basket"),
-                        },
-                        {
-                          id: "lib_jewelry_tray",
-                          cat: "cekmece" as const,
-                          title: "Takı Çekmecesi",
-                          spec: "Kadife Bölümlü",
-                          visual: "jewelry_tray" as const,
-                          minW: 350,
-                          maxW: 1000,
-                          onAdd: () => addSpecialFitting(activeBayIndex, "jewelry_tray"),
-                        },
-                        {
-                          id: "lib_led_profile",
-                          cat: "raf" as const,
-                          title: "Loox5 LED",
-                          spec: "3000K + Sensör",
-                          visual: "led_profile" as const,
-                          minW: 200,
-                          maxW: 2400,
-                          onAdd: () => addSpecialFitting(activeBayIndex, "led_profile"),
-                        },
-                      ];
-
-                      const qLib = interiorLibSearch.trim().toLowerCase();
-                      const filteredInteriorCatalog = interiorLibraryCatalog.filter((it) => {
-                        if (interiorLibCat !== "all" && it.cat !== interiorLibCat) return false;
-                        if (
-                          qLib &&
-                          !it.title.toLowerCase().includes(qLib) &&
-                          !it.spec.toLowerCase().includes(qLib)
-                        ) {
-                          return false;
-                        }
-                        return true;
-                      });
-
-                      return (
-                        <div
-                          data-testid="interior-library-panel"
-                          className="border-b-2 border-[#CBD5E1] bg-white flex flex-col max-h-[68%] shrink-0"
-                        >
-                          {/* Header: İç Düzen Kütüphanesi */}
-                          <div className="px-3.5 pt-3 pb-1.5 flex items-center justify-between gap-2">
-                            <div>
-                              <h2 className="text-sm font-bold text-[#111827]">
-                                İç Düzen Kütüphanesi
-                              </h2>
-                              <span className="text-[10px] text-[#2563EB] font-semibold">
-                                Seçili: Bölme {activeBayIndex + 1} ({currentBayWidthMm} mm)
-                              </span>
-                            </div>
-                            <span className="px-2 py-0.5 rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] text-[10px] font-bold text-[#1D4ED8]">
-                              Tıkla → Ekle
+                  </div>
+                    );
+                  }
+                  if (leftTab === "accessories") {
+                    return (
+                      /* TAB 2: AKSESUARLAR */
+                  <div className="flex-1 overflow-y-auto p-3.5 space-y-4">
+                    <div className="space-y-2">
+                      <div className="text-xs font-bold text-[#111827]">
+                        Hazır Oda & Mutfak Dizilimleri
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        {WARDROBE_TEMPLATES.map((tpl) => (
+                          <button
+                            key={tpl.templateId}
+                            type="button"
+                            data-testid={`studio-tpl-${tpl.templateId}`}
+                            draggable={true}
+                            onDragStart={(e) => startModuleSilhouetteDrag(e, tpl.templateId)}
+                            onDragEnd={() => setActiveDraggedTemplateId(null)}
+                            onClick={() => applyTemplate(tpl.templateId)}
+                            className="p-2 rounded-xl bg-white hover:bg-[#F1F5F9] border border-[#E2E8F0] flex flex-col items-center text-center gap-1 cursor-pointer"
+                          >
+                            <V3IsometricModuleIcon
+                              module={tpl.createInstance(`preview_${tpl.templateId}`)}
+                              size="md"
+                            />
+                            <span className="text-[11px] font-bold text-[#111827] line-clamp-1">
+                              {tpl.name}
                             </span>
-                          </div>
-
-                          {/* Search Bar */}
-                          <div className="px-3.5 pb-2 flex items-center gap-1.5">
-                            <div className="relative flex-1 flex items-center">
-                              <svg
-                                className="w-3.5 h-3.5 text-[#64748B] absolute left-3 pointer-events-none"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                              >
-                                <circle cx="11" cy="11" r="8" />
-                                <path d="M21 21l-4.35-4.35" />
-                              </svg>
-                              <input
-                                type="text"
-                                data-testid="interior-library-search-input"
-                                value={interiorLibSearch}
-                                onChange={(e) => setInteriorLibSearch(e.target.value)}
-                                placeholder="Raf, çekmece, askılık ara..."
-                                className="w-full pl-8 pr-2.5 py-1.5 rounded-xl bg-[#F8FAFC] border border-[#CBD5E1] text-xs font-medium text-[#111827] placeholder:text-[#94A3B8] focus:outline-none focus:border-[#2563EB]"
-                              />
-                            </div>
-                          </div>
-
-                          {/* Category Pills: Tümü | Raf | Askılık | Çekmece | Pantolonluk | Ayakkabılık | Kravatlık | Kemerlik */}
-                          <div className="px-3.5 pb-2 flex items-center gap-1 flex-wrap border-b border-[#E2E8F0]">
-                            {[
-                              { id: "all" as const, label: "Tümü" },
-                              { id: "raf" as const, label: "Raf" },
-                              { id: "askilik" as const, label: "Askılık" },
-                              { id: "cekmece" as const, label: "Çekmece" },
-                              { id: "pantolonluk" as const, label: "Pantolonluk" },
-                              { id: "ayakkabilik" as const, label: "Ayakkabılık" },
-                              { id: "kravatlik" as const, label: "Kravatlık" },
-                              { id: "kemerlik" as const, label: "Kemerlik" },
-                            ].map((cPill) => {
-                              const activePill = interiorLibCat === cPill.id;
-                              return (
-                                <button
-                                  key={cPill.id}
-                                  type="button"
-                                  data-testid={`interior-lib-cat-${cPill.id}`}
-                                  onClick={() => setInteriorLibCat(cPill.id)}
-                                  className={`px-2.5 py-1 rounded-full text-[11px] shrink-0 transition cursor-pointer border ${
-                                    activePill
-                                      ? "bg-[#EFF6FF] text-[#1D4ED8] border-[#2563EB] font-bold shadow-2xs"
-                                      : "bg-[#F8FAFC] hover:bg-[#F1F5F9] text-[#475569] border-[#E2E8F0] font-medium"
-                                  }`}
-                                >
-                                  {cPill.label}
-                                </button>
-                              );
-                            })}
-                          </div>
-
-                          {/* Scrollable 2-Column Realistic Accessory Cards + Hazır İç Düzen Şablonları */}
-                          <div className="flex-1 overflow-y-auto px-3.5 py-2.5 space-y-3">
-                            <div className="grid grid-cols-2 gap-2">
-                              {filteredInteriorCatalog.map((item) => {
-                                const isWidthCompatible =
-                                  currentBayWidthMm >= item.minW && currentBayWidthMm <= item.maxW;
-                                return (
-                                  <button
-                                    key={item.id}
-                                    type="button"
-                                    data-testid={`interior-lib-card-${item.id}`}
-                                    onClick={item.onAdd}
-                                    title={`${item.title} (${item.spec}) — Bölme ${activeBayIndex + 1} içine eklemek için tıklayın`}
-                                    className="p-2.5 rounded-2xl border bg-[#F8FAFC]/80 hover:bg-[#EFF6FF]/60 border-[#E2E8F0] hover:border-[#2563EB] flex flex-col items-center text-center justify-between gap-1 transition cursor-pointer relative group"
-                                  >
-                                    <span className="opacity-0 group-hover:opacity-100 absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-[#2563EB] text-white flex items-center justify-center text-xs font-bold transition">
-                                      +
-                                    </span>
-                                    <div className="py-0.5 flex items-center justify-center">
-                                      {renderInteriorComponentIllustration(item.visual, "md")}
-                                    </div>
-                                    <div className="w-full min-w-0">
-                                      <div className="text-[11px] font-bold text-[#111827] leading-tight truncate">
-                                        {item.title}
-                                      </div>
-                                      <div className="text-[10px] text-[#64748B] mt-0.5">
-                                        {item.spec}
-                                      </div>
-                                      {!isWidthCompatible && (
-                                        <div className="text-[9px] text-amber-700 font-semibold mt-0.5">
-                                          Önerilen: {item.minW}–{item.maxW}mm
-                                        </div>
-                                      )}
-                                    </div>
-                                  </button>
-                                );
-                              })}
-                            </div>
-
-                            {/* Hazır İç Düzen Şablonları (Gömlek + Raf | Elbise + Çekmece | Karma Düzen) */}
-                            <div className="pt-2 border-t border-[#E2E8F0] space-y-2">
-                              <div className="flex items-center justify-between text-xs font-bold text-[#111827]">
-                                <span>⌄ Hazır İç Düzen Şablonları</span>
-                                <span className="text-[10px] font-normal text-[#64748B]">
-                                  Bölme {activeBayIndex + 1}
-                                </span>
-                              </div>
-                              <div className="grid grid-cols-3 gap-1.5">
-                                {[
-                                  {
-                                    id: "shirt_shelf" as const,
-                                    title: "Gömlek + Raf",
-                                    visual: "template_shirt_shelf" as const,
-                                  },
-                                  {
-                                    id: "dress_drawer" as const,
-                                    title: "Elbise + Çekmece",
-                                    visual: "template_dress_drawer" as const,
-                                  },
-                                  {
-                                    id: "mixed_combo" as const,
-                                    title: "Karma Düzen",
-                                    visual: "template_mixed_combo" as const,
-                                  },
-                                ].map((tpl) => {
-                                  const isPreviewingThis =
-                                    interiorPreviewBanner?.templateName.includes(tpl.title) &&
-                                    interiorPreviewBanner?.bayIndex === activeBayIndex;
-                                  return (
-                                    <button
-                                      key={tpl.id}
-                                      type="button"
-                                      data-testid={`interior-lib-template-${tpl.id}`}
-                                      onClick={() => {
-                                        const snapshot =
-                                          interiorPreviewBanner?.snapshotBays ||
-                                          JSON.parse(JSON.stringify(activeModule.bays));
-                                        applyBayInteriorPreset(activeBayIndex, tpl.id);
-                                        setInteriorPreviewBanner({
-                                          templateName: `Bölme ${activeBayIndex + 1}: ${tpl.title}`,
-                                          bayIndex: activeBayIndex,
-                                          snapshotBays: snapshot,
-                                        });
-                                      }}
-                                      className={`p-2 rounded-2xl border flex flex-col items-center text-center gap-1 transition cursor-pointer ${
-                                        isPreviewingThis
-                                          ? "bg-[#EFF6FF] border-2 border-[#2563EB] text-[#111827] shadow-2xs"
-                                          : "bg-white hover:bg-[#F8FAFC] border-[#E2E8F0] text-[#111827]"
-                                      }`}
-                                    >
-                                      {renderInteriorComponentIllustration(tpl.visual, "sm")}
-                                      <span className="text-[10px] font-bold text-[#111827] leading-tight">
-                                        {tpl.title}
-                                      </span>
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })()}
+                          </button>
+                        ))}
+                        <button
+                          type="button"
+                          data-testid="studio-tpl-kitchen-linear"
+                          onClick={loadLinearKitchen}
+                          className="p-2 rounded-xl bg-white hover:bg-[#F1F5F9] border border-[#E2E8F0] flex flex-col items-center text-center gap-1 cursor-pointer"
+                        >
+                          <V3IsometricModuleIcon presetLayout="linear_kitchen" size="md" />
+                          <span className="text-[11px] font-bold text-[#111827]">Doğrusal Mutfak</span>
+                        </button>
+                        <button
+                          type="button"
+                          data-testid="studio-tpl-kitchen-l"
+                          onClick={loadLKitchen}
+                          className="p-2 rounded-xl bg-white hover:bg-[#F1F5F9] border border-[#E2E8F0] flex flex-col items-center text-center gap-1 cursor-pointer"
+                        >
+                          <V3IsometricModuleIcon presetLayout="l_kitchen" size="md" />
+                          <span className="text-[11px] font-bold text-[#111827]">L Tipi Mutfak</span>
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-1.5 pt-1">
+                        <button
+                          type="button"
+                          data-testid="v4-smart-wall-4carcass"
+                          onClick={() => applySmartWallProposal("smart_layout_4_equal", 3600)}
+                          className="py-2 px-2.5 rounded-xl bg-white hover:bg-[#F1F5F9] border border-[#E2E8F0] text-[11px] font-semibold text-[#111827] cursor-pointer"
+                        >
+                          3.6m → 4 Eşit Gövde
+                        </button>
+                        <button
+                          type="button"
+                          data-testid="v4-smart-wall-mixed"
+                          onClick={() => applySmartWallProposal("smart_layout_mixed_wardrobe", 3600)}
+                          className="py-2 px-2.5 rounded-xl bg-white hover:bg-[#F1F5F9] border border-[#E2E8F0] text-[11px] font-semibold text-[#111827] cursor-pointer"
+                        >
+                          3.6m → Karma Dizilim
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        data-testid="v4-auto-complementary-btn"
+                        onClick={autoGenerateKitchenComplementary}
+                        className="w-full py-2 px-3 rounded-xl bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1] text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" />
+                        <span>Otomatik Tezgâh / Backsplash / Yan Bitiş</span>
+                      </button>
+                    </div>
+                  </div>
+                    );
+                  }
+                  return (
+                    /* 📦 MODÜL KÜTÜPHANESİ (FULL HEIGHT) */
+                  <div className="flex-1 flex flex-col min-h-0 bg-white">
                     {/* Header: Modül Kütüphanesi + Kart/Liste Switcher */}
                     <div className="px-3.5 pt-3 pb-2 flex items-center justify-between gap-2">
                       <h2 className="text-sm font-bold text-[#111827]">Modül Kütüphanesi</h2>
@@ -3806,7 +4410,7 @@ export const V3UnifiedWorkspace: React.FC<{
                     </div>
 
                     {/* Horizontal Category Chips (Tümü | Dolap | Giyinme | Çekmece | Köşe | Üst | Alt) */}
-                    <div className="px-3.5 pb-2 flex items-center gap-1 flex-wrap border-b border-[#E2E8F0]">
+                    <div className="px-3.5 py-2.5 flex flex-wrap gap-1.5 border-b border-[#E2E8F0] bg-[#F8FAFC]">
                       {[
                         {
                           id: "tumu",
@@ -4110,136 +4714,8 @@ export const V3UnifiedWorkspace: React.FC<{
                       </button>
                     </div>
                   </div>
-                ) : leftTab === "accessories" ? (
-                  /* TAB 2: AKSESUARLAR */
-                  <div className="flex-1 overflow-y-auto p-3.5 space-y-4">
-                    <div className="space-y-2">
-                      <div className="text-xs font-bold text-[#111827]">
-                        Hazır Oda & Mutfak Dizilimleri
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        {WARDROBE_TEMPLATES.map((tpl) => (
-                          <button
-                            key={tpl.templateId}
-                            type="button"
-                            data-testid={`studio-tpl-${tpl.templateId}`}
-                            onClick={() => applyTemplate(tpl.templateId)}
-                            className="p-2 rounded-xl bg-white hover:bg-[#F1F5F9] border border-[#E2E8F0] flex flex-col items-center text-center gap-1 cursor-pointer"
-                          >
-                            <V3IsometricModuleIcon
-                              module={tpl.createInstance(`preview_${tpl.templateId}`)}
-                              size="md"
-                            />
-                            <span className="text-[11px] font-bold text-[#111827] line-clamp-1">
-                              {tpl.name}
-                            </span>
-                          </button>
-                        ))}
-                        <button
-                          type="button"
-                          data-testid="studio-tpl-kitchen-linear"
-                          onClick={loadLinearKitchen}
-                          className="p-2 rounded-xl bg-white hover:bg-[#F1F5F9] border border-[#E2E8F0] flex flex-col items-center text-center gap-1 cursor-pointer"
-                        >
-                          <V3IsometricModuleIcon presetLayout="linear_kitchen" size="md" />
-                          <span className="text-[11px] font-bold text-[#111827]">Doğrusal Mutfak</span>
-                        </button>
-                        <button
-                          type="button"
-                          data-testid="studio-tpl-kitchen-l"
-                          onClick={loadLKitchen}
-                          className="p-2 rounded-xl bg-white hover:bg-[#F1F5F9] border border-[#E2E8F0] flex flex-col items-center text-center gap-1 cursor-pointer"
-                        >
-                          <V3IsometricModuleIcon presetLayout="l_kitchen" size="md" />
-                          <span className="text-[11px] font-bold text-[#111827]">L Tipi Mutfak</span>
-                        </button>
-                      </div>
-                      <div className="grid grid-cols-2 gap-1.5 pt-1">
-                        <button
-                          type="button"
-                          data-testid="v4-smart-wall-4carcass"
-                          onClick={() => applySmartWallProposal("smart_layout_4_equal", 3600)}
-                          className="py-2 px-2.5 rounded-xl bg-white hover:bg-[#F1F5F9] border border-[#E2E8F0] text-[11px] font-semibold text-[#111827] cursor-pointer"
-                        >
-                          3.6m → 4 Eşit Gövde
-                        </button>
-                        <button
-                          type="button"
-                          data-testid="v4-smart-wall-mixed"
-                          onClick={() => applySmartWallProposal("smart_layout_mixed_wardrobe", 3600)}
-                          className="py-2 px-2.5 rounded-xl bg-white hover:bg-[#F1F5F9] border border-[#E2E8F0] text-[11px] font-semibold text-[#111827] cursor-pointer"
-                        >
-                          3.6m → Karma Dizilim
-                        </button>
-                      </div>
-                      <button
-                        type="button"
-                        data-testid="v4-auto-complementary-btn"
-                        onClick={autoGenerateKitchenComplementary}
-                        className="w-full py-2 px-3 rounded-xl bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1] text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
-                      >
-                        <Sparkles className="w-3.5 h-3.5" />
-                        <span>Otomatik Tezgâh / Backsplash / Yan Bitiş</span>
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  /* TAB 3: MALZEMELER */
-                  <div className="flex-1 overflow-y-auto p-3.5 space-y-4">
-                    <div
-                      data-testid="v4-segment-switcher"
-                      className="p-2.5 rounded-xl bg-[#F1F5F9] border border-[#E2E8F0] space-y-1.5"
-                    >
-                      <div className="text-[10px] font-bold uppercase tracking-wider text-[#57534E]">
-                        Hızlı Segment Dönüşümü
-                      </div>
-                      <div className="grid grid-cols-3 gap-1">
-                        {[
-                          { id: "economy", label: "Ekonomik", sub: "Suntalam" },
-                          { id: "standard", label: "Standart", sub: "MDFLam" },
-                          { id: "premium", label: "Premium", sub: "Supramat+LED" },
-                        ].map((seg) => (
-                          <button
-                            key={seg.id}
-                            type="button"
-                            data-testid={`v4-segment-btn-${seg.id}`}
-                            onClick={() =>
-                              applyProjectSegmentPreset(
-                                seg.id as "economy" | "standard" | "premium"
-                              )
-                            }
-                            className="p-2 rounded-xl bg-white hover:bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1] transition flex flex-col items-center text-center cursor-pointer"
-                          >
-                            <span className="text-[11px] font-bold">{seg.label}</span>
-                            <span className="text-[9px] opacity-75">{seg.sub}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <V3CollapsibleSection
-                      title="Kapak & Ön Cephe Malzemeleri"
-                      badge="Ahşap • Lake"
-                      defaultOpen={true}
-                    >
-                      <div className="space-y-1.5">
-                        {DEFAULT_MATERIALS.filter((m) => m.id !== "mat_led_warm_3000k").map((mat) => (
-                          <V3MaterialSwatch
-                            key={mat.id}
-                            id={mat.id}
-                            testId={`studio-door-mat-${mat.id}`}
-                            name={mat.decorCode ? `${mat.name} [${mat.decorCode}]` : mat.name}
-                            colorHex={mat.colorHex}
-                            costPerM2={mat.costPerM2}
-                            category={mat.brand ? `${mat.brand} • ${mat.category}` : mat.category}
-                            selected={activeModule.carcass.doorMaterialId === mat.id}
-                            onSelect={() => setMaterials(undefined, mat.id)}
-                          />
-                        ))}
-                      </div>
-                    </V3CollapsibleSection>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
             )}
           </aside>
@@ -5140,8 +5616,8 @@ export const V3UnifiedWorkspace: React.FC<{
                 <button
                   type="button"
                   onClick={() => setStudioRightOpen(false)}
-                  title="Sağ Paneli Daralt (Mobil/Tablet Görünümü)"
-                  className="p-1.5 rounded-lg hover:bg-[#F1F5F9] text-[#57534E] hover:text-[#111827] transition cursor-pointer lg:hidden"
+                  title="Sağ Paneli Daralt"
+                  className="p-1.5 rounded-lg hover:bg-[#F1F5F9] text-[#57534E] hover:text-[#111827] transition cursor-pointer"
                 >
                   <ChevronRight className="w-4 h-4" />
                 </button>
@@ -5244,8 +5720,18 @@ export const V3UnifiedWorkspace: React.FC<{
                         | "door"
                         | "material";
                       setStudioInspectorTab(nextTab);
-                      if (nextTab === "interior" && doorOpenAngleDeg === 0 && !doorsHiddenStudio) {
-                        setDoorOpenAngleDeg(85);
+                      if (nextTab === "interior") {
+                        setLeftTab("interior");
+                        setLeftOpen(true);
+                        if (doorOpenAngleDeg === 0 && !doorsHiddenStudio) {
+                          setDoorOpenAngleDeg(85);
+                        }
+                      } else if (nextTab === "material") {
+                        setLeftTab("materials");
+                        setLeftOpen(true);
+                      } else if (nextTab === "all") {
+                        setLeftTab("hardware");
+                        setLeftOpen(true);
                       }
                       if (nextTab === "all") {
                         if (doorOpenAngleDeg === 0 && !doorsHiddenStudio) {
@@ -5305,6 +5791,88 @@ export const V3UnifiedWorkspace: React.FC<{
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {isSimpleBlumMode && (
+                <div
+                  data-testid="blum-clean-inspector-card"
+                  className="p-4 rounded-2xl bg-gradient-to-br from-blue-50/90 via-white to-indigo-50/50 border-2 border-blue-200 shadow-xs space-y-3.5"
+                >
+                  <div className="flex items-center justify-between border-b border-blue-100 pb-2.5">
+                    <div className="flex items-center gap-2">
+                      <span className="w-7 h-7 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold text-xs shadow-2xs">
+                        ✨
+                      </span>
+                      <div>
+                        <div className="text-sm font-extrabold text-slate-900 leading-tight">
+                          Hızlı Modül Özeti
+                        </div>
+                        <div className="text-[11px] text-slate-500 font-medium">
+                          Sade Görünüm • Seçili Bölme {activeBayIndex + 1}
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsSimpleBlumMode(false)}
+                      className="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-bold cursor-pointer transition"
+                      title="Tüm teknik CNC ve mühendislik parametrelerini göster"
+                    >
+                      ⚙️ Detayları Aç
+                    </button>
+                  </div>
+
+                  {/* Clean 3-Box Dimension Summary */}
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div className="p-2.5 rounded-xl bg-white border border-slate-200/90 shadow-2xs">
+                      <div className="text-[11px] text-slate-500 font-semibold">Genişlik</div>
+                      <div className="text-base font-black text-slate-900 mt-0.5">{width} <span className="text-[11px] font-normal text-slate-500">mm</span></div>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-white border border-slate-200/90 shadow-2xs">
+                      <div className="text-[11px] text-slate-500 font-semibold">Yükseklik</div>
+                      <div className="text-base font-black text-slate-900 mt-0.5">{height} <span className="text-[11px] font-normal text-slate-500">mm</span></div>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-white border border-slate-200/90 shadow-2xs">
+                      <div className="text-[11px] text-slate-500 font-semibold">Derinlik</div>
+                      <div className="text-base font-black text-slate-900 mt-0.5">{depth} <span className="text-[11px] font-normal text-slate-500">mm</span></div>
+                    </div>
+                  </div>
+
+                  {/* Quick One-Click Actions */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={toggleDoorOpen}
+                      className="py-2 px-3 rounded-xl bg-white hover:bg-blue-50 text-slate-800 border border-slate-200 font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-2xs"
+                    >
+                      <DoorOpen className="w-4 h-4 text-blue-600" />
+                      <span>{doorOpenAngleDeg > 0 ? "Kapakları Kapat" : "Kapakları Aç"}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => addShelf(activeBayIndex)}
+                      className="py-2 px-3 rounded-xl bg-white hover:bg-blue-50 text-slate-800 border border-slate-200 font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-2xs"
+                    >
+                      <Plus className="w-4 h-4 text-blue-600" />
+                      <span>Hızlı Raf Ekle ({activeBay?.shelves.length || 0})</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => addDrawer(activeBayIndex)}
+                      className="py-2 px-3 rounded-xl bg-white hover:bg-blue-50 text-slate-800 border border-slate-200 font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-2xs"
+                    >
+                      <Plus className="w-4 h-4 text-indigo-600" />
+                      <span>Çekmece Ekle ({activeBay?.drawers.length || 0})</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => addHangingRail(activeBayIndex)}
+                      className="py-2 px-3 rounded-xl bg-white hover:bg-blue-50 text-slate-800 border border-slate-200 font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-2xs"
+                    >
+                      <Plus className="w-4 h-4 text-emerald-600" />
+                      <span>Askılık Ekle ({activeBay?.hangingRails.length || 0})</span>
+                    </button>
+                  </div>
+                </div>
+              )}
               {/* Interactive Door & Drawer Open/Close Control Bar (Visible in Kapak & İç Donanım tabs, or whenever doors/drawers are open) */}
               {(studioInspectorTab === "door" ||
                 studioInspectorTab === "interior" ||
@@ -5364,30 +5932,46 @@ export const V3UnifiedWorkspace: React.FC<{
               )}
 
                             {/* Contextual Selected Part Banner (Shown whenever a single door, shelf, divider, or countertop is clicked in 3D/2D) */}
-              {selectedComponentId && (
+              {selectedComponentId && (() => {
+                const matchedPart = activeBreakdown.components.find((c) => c.id === selectedComponentId);
+                return (
                 <div
                   data-testid="studio-selected-component-card"
-                  className="p-3 rounded-2xl bg-white border border-[#CBD5E1] space-y-2.5 text-xs shadow-2xs"
+                  className="p-3.5 rounded-2xl bg-blue-50/70 border-2 border-blue-500 space-y-2.5 text-xs shadow-sm"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
-                      <div className="font-bold text-[#1C1917]">🎯 Seçili Parça Malzemesi</div>
-                      <div className="text-xs font-mono text-[#78716C] truncate">
-                        {selectedComponentId}
+                      <div className="font-extrabold text-blue-950 text-sm">
+                        🎯 {matchedPart ? matchedPart.label : "Seçili Parça"}
+                      </div>
+                      <div className="text-[11px] font-medium text-blue-700 truncate mt-0.5">
+                        {matchedPart
+                          ? `Ölçü: ${matchedPart.dimensions.width} × ${matchedPart.dimensions.height} × ${matchedPart.dimensions.depth} mm`
+                          : selectedComponentId}
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      data-testid="studio-delete-selected-component-btn"
-                      onClick={() => {
-                        removeSelectedInteriorComponent();
-                      }}
-                      className="px-2.5 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-[13px] font-semibold flex items-center gap-1 shrink-0 cursor-pointer"
-                      title="Seçili iç parçayı sil"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                      <span>Sil</span>
-                    </button>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        data-testid="studio-delete-selected-component-btn"
+                        onClick={() => {
+                          removeSelectedInteriorComponent();
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs font-semibold flex items-center gap-1 shrink-0 cursor-pointer"
+                        title="Seçili iç parçayı sil"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span>Sil</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedComponentId(null)}
+                        title="Seçili parça kartını kapat"
+                        className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 font-bold text-xs cursor-pointer"
+                      >
+                        ✕
+                      </button>
+                    </div>
                   </div>
                   <V3PremiumDropdown
                     label="Yalnızca Bu Parçanın Malzemesi"
@@ -5414,7 +5998,8 @@ export const V3UnifiedWorkspace: React.FC<{
                     onChange={(val) => setSelectedComponentMaterial(val || null)}
                   />
                 </div>
-              )}
+                );
+              })()}
 
               {/* TAB 1: ÖLÇÜLER (Matches Design Studio Reference Image 1-to-1) */}
               {studioInspectorTab === "dimensions" && (() => {
@@ -6076,7 +6661,7 @@ export const V3UnifiedWorkspace: React.FC<{
                       </div>
 
                       {/* 3 Selectable Plinth / Leg Option Cards */}
-                      <div className="grid grid-cols-3 gap-1.5">
+                      <div className="grid grid-cols-3 gap-2 p-0.5">
                         {[
                           {
                             id: "plinth_with_legs",
@@ -6271,7 +6856,7 @@ export const V3UnifiedWorkspace: React.FC<{
                             Birim Maliyet: €{bodyMatDef.edgeBandCostPerM.toFixed(2)}/m
                           </span>
                         </div>
-                        <div className="grid grid-cols-3 gap-1.5">
+                        <div className="grid grid-cols-3 gap-2 p-0.5">
                           {[
                             { val: 0.8, label: "0.8 mm ABS", sub: "İç kenar" },
                             { val: 1, label: "1.0 mm ABS", sub: "Standart gövde" },
@@ -6704,6 +7289,7 @@ export const V3UnifiedWorkspace: React.FC<{
               })()}
 
               {/* HUMAN-FRIENDLY PRODUCTION CHECK BANNER (Replaces developer-centric UNVERIFIED label) */}
+              {!isSimpleBlumMode && (
               <div
                 data-testid="v4-compatibility-card"
                 className="p-3 rounded-2xl border text-xs bg-[#F8FAFC] border-[#CBD5E1] space-y-2 shadow-2xs"
@@ -6768,6 +7354,7 @@ export const V3UnifiedWorkspace: React.FC<{
                   </div>
                 )}
               </div>
+              )}
 
               {studioInspectorTab === "all" && (
                 <V3CollapsibleSection
@@ -7836,7 +8423,7 @@ export const V3UnifiedWorkspace: React.FC<{
                           +24V Trafo & IR Sensör Otomatik
                         </span>
                       </div>
-                      <div className="grid grid-cols-3 gap-1.5">
+                      <div className="grid grid-cols-3 gap-2 p-0.5">
                         {[
                           {
                             type: "led_profile",
@@ -8676,7 +9263,7 @@ export const V3UnifiedWorkspace: React.FC<{
               )}
 
               {/* EKRAN 3: KAPAK VE KULP — YENİDEN TASARLANMIŞ SAĞ PANEL (Matches image_e5c524.jpg 1-to-1) */}
-              {activeBay && studioInspectorTab === "door" && (() => {
+              {!isSimpleBlumMode && activeBay && studioInspectorTab === "door" && (() => {
                 const curProf =
                   activeBay.door.crossSectionProfile ||
                   activeModule.carcass.crossSectionProfile ||
@@ -10700,7 +11287,7 @@ export const V3UnifiedWorkspace: React.FC<{
 
                       {expandedHwGroup === "accessories" && (
                         <div className="p-2.5 rounded-2xl bg-[#F8FAFC] border border-[#CBD5E1] space-y-2">
-                          <div className="grid grid-cols-3 gap-1.5">
+                          <div className="grid grid-cols-3 gap-2 p-0.5">
                             {[
                               {
                                 id: "rail",
@@ -10845,12 +11432,218 @@ export const V3UnifiedWorkspace: React.FC<{
                         />
                       </div>
                     </section>
+
+                    {/* GRUP G: BLUM GÖVDE TASARLAYICI (CABINET CONFIGURATOR / E-SERVICES) & BXF ÜRETİM PAKETİ */}
+                    {activeBlumEngineering && (
+                      <section
+                        data-testid="hardware-group-blum-bxf"
+                        className="p-3 rounded-2xl bg-[#EFF6FF]/60 border border-[#BFDBFE] space-y-2.5"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div>
+                            <span className="text-xs font-extrabold text-[#1E3A8A] block">
+                              🟦 Blum Gövde & Donanım Asistanı (BXF / EASYSTICK)
+                            </span>
+                            <span className="text-[11px] text-[#475569]">
+                              KB/LW İç-Dış Ölçü • Kapak Ağırlığı (kg) & LF • MINIPRESS BXF
+                            </span>
+                          </div>
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
+                              activeBlumEngineering.collisionFree
+                                ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
+                                : "bg-amber-100 text-amber-900 border border-amber-300"
+                            }`}
+                          >
+                            {activeBlumEngineering.collisionFree ? "✓ Çakışma Yok" : "⚠ Uyarı"}
+                          </span>
+                        </div>
+
+                        {/* 1-Click Blum Cabinet Application Wizards */}
+                        <div className="space-y-1">
+                          <span className="text-[11px] font-bold text-[#334155] block">
+                            Hızlı Blum Gövde Uygulamaları (Tek Tıkla Kurulum):
+                          </span>
+                          <div className="grid grid-cols-2 gap-1.5">
+                            {[
+                              {
+                                id: "blum_space_tower" as const,
+                                title: "SPACE TOWER",
+                                sub: "155° Menteşe + 4 İç LEGRABOX",
+                              },
+                              {
+                                id: "blum_aventos_wall" as const,
+                                title: "AVENTOS HF top",
+                                sub: "Katlanır Kalkar Üst Dolap",
+                              },
+                              {
+                                id: "blum_legrabox_base" as const,
+                                title: "LEGRABOX 3 Çekmece",
+                                sub: "40kg Tam Açılım Kasa Seti",
+                              },
+                              {
+                                id: "blum_155_wardrobe" as const,
+                                title: "CLIP top 155°",
+                                sub: "Sıfır Çıkıntı Gardırop Seti",
+                              },
+                            ].map((wp) => (
+                              <button
+                                key={wp.id}
+                                type="button"
+                                data-testid={`blum-wizard-preset-${wp.id}`}
+                                onClick={() => applyBlumQuickWizardPreset(wp.id)}
+                                className="p-2 rounded-xl bg-white hover:bg-[#DBEAFE] border border-[#BFDBFE] text-left transition cursor-pointer"
+                              >
+                                <div className="text-xs font-bold text-[#1E3A8A] truncate">
+                                  {wp.title}
+                                </div>
+                                <div className="text-[10px] text-[#475569] truncate">{wp.sub}</div>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Live Blum KB/LW, Door Weight & AVENTOS LF Matrix */}
+                        <div className="p-2.5 rounded-xl bg-white border border-[#E2E8F0] space-y-1.5 text-xs">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[#475569]">Dış (KB×KH×KT):</span>
+                            <span className="font-mono font-bold text-[#111827]">
+                              {activeBlumEngineering.outerDimensions.KB}×
+                              {activeBlumEngineering.outerDimensions.KH}×
+                              {activeBlumEngineering.outerDimensions.KT} mm
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-[#475569]">Net İç (LW×LH×LT):</span>
+                            <span className="font-mono font-bold text-[#2563EB]">
+                              {activeBlumEngineering.innerDimensions.LW}×
+                              {activeBlumEngineering.innerDimensions.LH}×
+                              {activeBlumEngineering.innerDimensions.LT} mm
+                            </span>
+                          </div>
+                          {activeBlumEngineering.doors[activeBayIndex] && (
+                            <>
+                              <div className="flex items-center justify-between">
+                                <span className="text-[#475569]">
+                                  Kapak Ağırlığı (Bölme {activeBayIndex + 1}):
+                                </span>
+                                <span className="font-mono font-bold text-emerald-700">
+                                  {activeBlumEngineering.doors[activeBayIndex].estimatedWeightKg} kg •{" "}
+                                  {activeBlumEngineering.doors[activeBayIndex].recommendedHingeCount}×{" "}
+                                  {activeBlumEngineering.doors[activeBayIndex].hingeSku}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <span className="text-[#475569]">AVENTOS Güç Faktörü (LF):</span>
+                                <span className="font-mono font-bold text-[#1E3A8A]">
+                                  LF = {activeBlumEngineering.doors[activeBayIndex].aventosPowerFactorLf}
+                                </span>
+                              </div>
+                            </>
+                          )}
+                          {activeBlumEngineering.drawers[0] && (
+                            <div className="flex items-center justify-between pt-1 border-t border-[#F1F5F9]">
+                              <span className="text-[#475569]">Çekmece Ahşap Taban:</span>
+                              <span className="font-mono font-bold text-[#111827]">
+                                {activeBlumEngineering.drawers[0].woodenBottomWidthMm}×
+                                {activeBlumEngineering.drawers[0].woodenBottomDepthMm} mm
+                              </span>
+                            </div>
+                          )}
+                        </div>
+
+                        {activeBlumEngineering.collisionWarnings.length > 0 && (
+                          <div className="p-2 rounded-xl bg-amber-50 border border-amber-300 text-[11px] text-amber-900 space-y-1">
+                            {activeBlumEngineering.collisionWarnings.map((cw, ci) => (
+                              <div key={ci}>• {cw}</div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* 1-Click Blum .BXF Download & Import Buttons */}
+                        <div className="grid grid-cols-2 gap-1.5 pt-0.5">
+                          <button
+                            type="button"
+                            data-testid="studio-export-blum-bxf-btn"
+                            onClick={() => {
+                              const xml = exportBlumBxfString();
+                              const blob = new Blob([xml], { type: "application/xml;charset=utf-8" });
+                              const url = URL.createObjectURL(blob);
+                              const a = document.createElement("a");
+                              a.href = url;
+                              a.download = `Blum_Easystick_${project.id}_v${project.version}.bxf`;
+                              document.body.appendChild(a);
+                              a.click();
+                              setTimeout(() => {
+                                if (a.parentNode) a.parentNode.removeChild(a);
+                                URL.revokeObjectURL(url);
+                              }, 1500);
+                            }}
+                            className="py-2 px-2.5 rounded-xl bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs transition cursor-pointer"
+                          >
+                            <span>🟦 .BXF İndir (EASYSTICK)</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            data-testid="studio-export-cutlist-dxf-btn"
+                            onClick={() => {
+                              const dxf = exportAllPanelsDxfString();
+                              const blob = new Blob([dxf], { type: "application/dxf" });
+                              const url = URL.createObjectURL(blob);
+                              const a = document.createElement("a");
+                              a.href = url;
+                              a.download = `Parca_Kesim_Listesi_CNC_${project.id}_v${project.version}.dxf`;
+                              document.body.appendChild(a);
+                              a.click();
+                              setTimeout(() => {
+                                if (a.parentNode) a.parentNode.removeChild(a);
+                                URL.revokeObjectURL(url);
+                              }, 1500);
+                            }}
+                            className="col-span-2 py-2 px-2.5 rounded-xl bg-[#0F172A] hover:bg-[#1E293B] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs transition cursor-pointer"
+                          >
+                            <span>📐 Parça Listesi Kesim & CNC Delik İndir (.DXF)</span>
+                          </button>
+
+                          <label
+                            data-testid="studio-import-blum-bxf-btn"
+                            className="py-2 px-2.5 rounded-xl bg-white hover:bg-[#F8FAFC] border border-[#2563EB] text-[#1D4ED8] text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer"
+                          >
+                            <span>📥 .BXF İçe Aktar</span>
+                            <input
+                              type="file"
+                              accept=".bxf,.xml"
+                              className="hidden"
+                              onChange={async (e) => {
+                                const file = e.target.files?.[0];
+                                if (!file) return;
+                                const text = await file.text();
+                                const res = importBlumBxfFile(text, false);
+                                if (res.ok) {
+                                  setApprovalBanner({
+                                    ok: true,
+                                    text: `✓ Blum BXF dosyası başarıyla yüklendi: ${res.name}`,
+                                  });
+                                } else {
+                                  setApprovalBanner({
+                                    ok: false,
+                                    text: res.error || "BXF dosyası okunamadı.",
+                                  });
+                                }
+                                e.target.value = "";
+                              }}
+                            />
+                          </label>
+                        </div>
+                      </section>
+                    )}
                   </div>
                 );
               })()}
 
               {/* 3. V4 UNIVERSAL DOOR, HANDLE, OPENING & HARDWARE SYSTEM */}
-              {activeBay && (studioInspectorTab === "all" || studioInspectorTab === "door") && (
+              {!isSimpleBlumMode && activeBay && (studioInspectorTab === "all" || studioInspectorTab === "door") && (
                 <V3CollapsibleSection
                   title="3. Kapak, Kulp & Donanım (V4)"
                   badge={activeBay.door.doorSystemId || activeBay.door.type}
@@ -10874,7 +11667,7 @@ export const V3UnifiedWorkspace: React.FC<{
                           🔄 Yönü Ters Çevir
                         </button>
                       </div>
-                      <div className="grid grid-cols-3 gap-1.5">
+                      <div className="grid grid-cols-3 gap-2 p-0.5">
                         {[
                           {
                             id: "single_left",
@@ -11682,6 +12475,28 @@ export const V3UnifiedWorkspace: React.FC<{
               <div className="flex items-center gap-2">
                 <button
                   type="button"
+                  data-testid="studio-bottom-download-dxf-btn"
+                  onClick={() => {
+                    const dxf = exportAllPanelsDxfString();
+                    const blob = new Blob([dxf], { type: "application/dxf" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `Parca_Kesim_Listesi_CNC_${project.id}_v${project.version}.dxf`;
+                    document.body.appendChild(a);
+                    a.click();
+                    setTimeout(() => {
+                      if (a.parentNode) a.parentNode.removeChild(a);
+                      URL.revokeObjectURL(url);
+                    }, 1500);
+                  }}
+                  title="Parça Kesim Listesi ve CNC Delik Çizimlerini Doğrudan DXF Olarak İndir"
+                  className="h-10 px-3 rounded-xl border border-[#CBD5E1] bg-white hover:bg-[#EFF6FF] text-xs font-bold text-[#1E293B] flex items-center gap-1.5 transition cursor-pointer"
+                >
+                  <span>📐 Kesim DXF</span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => setIsBomModalOpen(true)}
                   title="Kesim Listesi, BOM & CNC Paketi"
                   className="h-10 w-10 rounded-xl border border-[#CBD5E1] bg-white hover:bg-[#F1F5F9] text-[#1C1917] font-bold flex items-center justify-center transition cursor-pointer"
@@ -11983,9 +12798,13 @@ export const V3UnifiedWorkspace: React.FC<{
       {showRulesModal && (
         <div
           data-testid="v3-engineering-modal"
+          onClick={() => setShowRulesModal(false)}
           className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/40 backdrop-blur-xs p-4"
         >
-          <div className="bg-white border border-stone-200 rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden text-stone-900">
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white border border-stone-200 rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden text-stone-900"
+          >
             <div className="px-5 py-4 border-b border-stone-200 flex items-center justify-between bg-stone-50">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="w-4 h-4 text-[#57534E]" />
@@ -12077,9 +12896,13 @@ export const V3UnifiedWorkspace: React.FC<{
       {showAdminModal && (
         <div
           data-testid="v4-library-admin-modal"
+          onClick={() => setShowAdminModal(false)}
           className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/40 backdrop-blur-xs p-4"
         >
-          <div className="bg-white border border-stone-200 rounded-2xl shadow-2xl max-w-3xl w-full overflow-hidden text-stone-900">
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white border border-stone-200 rounded-2xl shadow-2xl max-w-3xl w-full overflow-hidden text-stone-900"
+          >
             <div className="px-5 py-4 border-b border-stone-200 flex items-center justify-between bg-stone-50">
               <div className="flex items-center gap-2">
                 <Wrench className="w-4 h-4 text-[#57534E]" />

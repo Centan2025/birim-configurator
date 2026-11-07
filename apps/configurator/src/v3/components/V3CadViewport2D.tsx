@@ -5,6 +5,8 @@ import {
   ArchitecturalElement,
   parseCadDxfText,
   parsePdfFloorPlanMetadata,
+  calculateNetInnerHeight,
+  calculateBayWidths,
 } from "@birim/core";
 import {
   useV3Adapter,
@@ -49,6 +51,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       finishModuleDragWithSmartSwap,
       setShelfElevation,
       setDrawerPlacement,
+      setSpecialFittingPlacement,
       setHangingRailElevation,
       setBayCustomWidth,
       setSubDividerPlacement,
@@ -77,10 +80,12 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       commitHistoryTransaction,
       activeSpatialMetrics,
       applyRoomShapePreset,
+      addInteriorItemAtElevation,
       undo,
       redo,
     } = useV3Adapter();
 
+    const lastAccessoryDropTarget2DRef = useRef<{ bayIndex: number; elevationY: number; accessory: any } | null>(null);
     const [zoom, setZoom] = useState(1);
     const [panPx, setPanPx] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
     const [panning2D, setPanning2D] = useState<{
@@ -216,7 +221,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
 
     // Interactive dragging state for 2D Elevation interior blocks (Shelf Y, Drawer Y, Rail Y, Bay Divider X, SubDivider X)
     const [interiorDrag, setInteriorDrag] = useState<{
-      kind: "shelf" | "drawer" | "rail" | "divider" | "sub_divider";
+      kind: "shelf" | "drawer" | "rail" | "special_fitting" | "divider" | "sub_divider";
       bayIdx: number;
       targetId: string;
       startClientX: number;
@@ -1133,29 +1138,61 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
 
         if (dragMod && useMagnet) {
           const dragW = footprints[draggingModIdx]?.planWidth || dragMod.dimensions.width;
+          const dragD = footprints[draggingModIdx]?.planDepth || dragMod.dimensions.depth;
+          const dragRotY = (((dragMod.rotation?.y || 0) % 360) + 360) % 360;
           const startedAtZero = dragStartClient.startModX <= 5;
           if (rawNextX <= SNAP_THRESHOLD_MM && (!startedAtZero || dxMm <= 0)) {
             nextX = 0;
             snappedEdgeX = 0;
-            activeSnapMsg = "🧲 Duvar Başlangıcı (X: 0mm) — Ayırmak için fareyi çekin veya Alt tuşuna basın";
+            activeSnapMsg = "🧲 Sol Duvar Hizası (X: 0mm) — Ayırmak için fareyi çekin veya Alt tuşuna basın";
           }
           if (rawNextZ <= 28) {
             nextZ = 0;
           }
+
+          // Helper: check if placing dragged module at (candX, candZ) would overlap any other module in 2D
+          const wouldOverlapOtherModule = (candX: number, candZ: number, ignoreIdx: number) => {
+            return project.modules.some((m, mIdx) => {
+              if (mIdx === draggingModIdx || mIdx === ignoreIdx || m.category === "complementary") {
+                return false;
+              }
+              const mFp = footprints[mIdx];
+              const mw = mFp?.planWidth || m.dimensions.width;
+              const md = mFp?.planDepth || m.dimensions.depth;
+              const xOverlap = candX < m.position.x + mw - 4 && candX + dragW > m.position.x + 4;
+              const zOverlap = candZ < m.position.z + md - 4 && candZ + dragD > m.position.z + 4;
+              return xOverlap && zOverlap;
+            });
+          };
+
           project.modules.forEach((other, oIdx) => {
             if (oIdx === draggingModIdx || other.category === "complementary") return;
+            const otherRotY = (((other.rotation?.y || 0) % 360) + 360) % 360;
+            // Only snap side-by-side along X if BOTH modules are in the same Z row (within 60mm) and same orientation!
+            if (otherRotY !== dragRotY || Math.abs(rawNextZ - other.position.z) > 60) {
+              return;
+            }
+
             const otherW = footprints[oIdx]?.planWidth || other.dimensions.width;
             const otherRight = other.position.x + otherW;
             const otherLeft = other.position.x;
 
             // Breakaway check: if we started already touching this edge and are pulling away, do NOT trap!
-            const startedAtRight = Math.abs(dragStartClient.startModX - otherRight) <= 6;
-            const pullingAwayFromRight = startedAtRight && Math.abs(dxMm) > 4;
+            const startedAtRight =
+              Math.abs(dragStartClient.startModX - otherRight) <= 6 &&
+              Math.abs(dragStartClient.startModZ - other.position.z) <= 60;
+            const pullingAwayFromRight = startedAtRight && (Math.abs(dxMm) > 4 || Math.abs(dzMm) > 15);
 
-            const startedAtLeft = Math.abs(dragStartClient.startModX + dragW - otherLeft) <= 6;
-            const pullingAwayFromLeft = startedAtLeft && Math.abs(dxMm) > 4;
+            const startedAtLeft =
+              Math.abs(dragStartClient.startModX + dragW - otherLeft) <= 6 &&
+              Math.abs(dragStartClient.startModZ - other.position.z) <= 60;
+            const pullingAwayFromLeft = startedAtLeft && (Math.abs(dxMm) > 4 || Math.abs(dzMm) > 15);
 
-            if (!pullingAwayFromRight && Math.abs(rawNextX - otherRight) <= SNAP_THRESHOLD_MM) {
+            if (
+              !pullingAwayFromRight &&
+              Math.abs(rawNextX - otherRight) <= SNAP_THRESHOLD_MM &&
+              !wouldOverlapOtherModule(otherRight, other.position.z, oIdx)
+            ) {
               nextX = otherRight;
               nextZ = other.position.z;
               snappedEdgeX = otherRight;
@@ -1163,7 +1200,8 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             } else if (
               !pullingAwayFromLeft &&
               Math.abs(rawNextX + dragW - otherLeft) <= SNAP_THRESHOLD_MM &&
-              otherLeft - dragW >= 0
+              otherLeft - dragW >= 0 &&
+              !wouldOverlapOtherModule(otherLeft - dragW, other.position.z, oIdx)
             ) {
               nextX = otherLeft - dragW;
               nextZ = other.position.z;
@@ -1195,18 +1233,10 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
           commitHistoryTransaction();
         }
         if (draggingModIdx !== null) {
-          const finishedIdx = draggingModIdx;
-          const origX = dragStartClient.startModX;
           setDraggingModIdx(null);
           setActivePlanSnapX(null);
-          const swapMsg = finishModuleDragWithSmartSwap(finishedIdx, origX);
+          setPlanRowSnapBanner(null);
           commitHistoryTransaction();
-          if (swapMsg) {
-            setPlanRowSnapBanner(swapMsg);
-            setTimeout(() => setPlanRowSnapBanner(null), 2800);
-          } else {
-            setPlanRowSnapBanner(null);
-          }
         }
       };
 
@@ -3288,18 +3318,29 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             {/* 3. Modules in Top Plan (Respecting 90° L/U Rotations & Wall Clearances) */}
             {footprints.map((fp, idx) => {
               const mod = project.modules[idx];
-              const isAct = idx === activeModuleIndex || selectedModuleIds.includes(fp.moduleId);
+              const isAct = idx === activeModuleIndex;
               const hasCollisionError = errorModuleIds.has(fp.moduleId);
               const mx = fp.x;
               const mz = fp.z;
               const mw = fp.planWidth;
               const md = fp.planDepth;
 
-              const nextFp = footprints[idx + 1];
+              // Find nearest module to the right THAT IS IN THE SAME Z ROW (within 100mm)
+              const sameRowRightNeighbors = footprints
+                .filter(
+                  (otherFp, oIdx) =>
+                    oIdx !== idx &&
+                    otherFp.category !== "complementary" &&
+                    otherFp.rotationY === 0 &&
+                    Math.abs(otherFp.z - mz) <= 100 &&
+                    otherFp.x >= mx + mw - 5
+                )
+                .sort((a, b) => a.x - b.x);
+              const nextSameRowFp = sameRowRightNeighbors[0];
               const gapRight =
                 fp.rotationY === 0
-                  ? nextFp && nextFp.rotationY === 0
-                    ? nextFp.x - (mx + mw)
+                  ? nextSameRowFp
+                    ? nextSameRowFp.x - (mx + mw)
                     : mainWall.length - (mx + mw)
                   : 0;
 
@@ -4264,7 +4305,16 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         {/* 4. Live Magnetic Snap Lines during Existing Module Drag in 2D Plan */}
             {draggingModIdx !== null && (
               <g data-testid="plan-existing-mod-snap-guides" className="pointer-events-none">
-                {[0, ...footprints.flatMap((f, i) => (i === draggingModIdx ? [] : [f.x, f.x + f.planWidth]))].map(
+                {[
+                  0,
+                  mainWall.length,
+                  ...footprints.flatMap((f, i) =>
+                    i === draggingModIdx ||
+                    Math.abs(f.z - (footprints[draggingModIdx]?.z || 0)) > 65
+                      ? []
+                      : [f.x, f.x + f.planWidth]
+                  ),
+                ].map(
                   (sx, sIdx) => {
                     const isLocked = activePlanSnapX === sx;
                     return (
@@ -4638,6 +4688,8 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         );
       } else if (interiorDrag.kind === "rail") {
         setHangingRailElevation(interiorDrag.bayIdx, interiorDrag.targetId, snappedY, false);
+      } else if (interiorDrag.kind === "special_fitting") {
+        setSpecialFittingPlacement(interiorDrag.bayIdx, interiorDrag.targetId, { elevationY: snappedY }, false);
       }
     };
 
@@ -4699,6 +4751,54 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
 
     const handleElevDragOver = (e: React.DragEvent<HTMLDivElement>) => {
       if (mode !== "elevation") return;
+      const activeAcc = typeof window !== "undefined" ? (window as any).__birimActiveDraggedAccessory : null;
+      const hasAccessoryMime = e.dataTransfer.types.includes("application/x-birim-accessory-id");
+
+      if (hasAccessoryMime || activeAcc) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+        const mod = activeModule || project.modules[0];
+        if (!mod) return;
+
+        const svgEl = e.currentTarget.querySelector("svg");
+        const rect = (svgEl || e.currentTarget).getBoundingClientRect();
+        const relX = Math.max(0, Math.min(1, (e.clientX - rect.left) / Math.max(1, rect.width)));
+        const relY = Math.max(0, Math.min(1, (e.clientY - rect.top) / Math.max(1, rect.height)));
+        const svgX = vb.x + relX * vb.width;
+        const svgY = vb.y + relY * vb.height;
+
+        const carcassT = mod.carcass?.panelThickness || 18;
+        const plinthH = mod.carcass?.plinthHeight || 0;
+        const netH = calculateNetInnerHeight(mod);
+        const bayWidths = calculateBayWidths(mod);
+
+        const modX = mod.position?.x || 0;
+        const localX = svgX - modX;
+        let targetBayIdx = 0;
+        let accX = carcassT;
+        for (let i = 0; i < bayWidths.length; i++) {
+          const bw = bayWidths[i];
+          if (localX >= accX && localX <= accX + bw + carcassT) {
+            targetBayIdx = i;
+            break;
+          }
+          accX += bw + carcassT;
+        }
+        targetBayIdx = Math.max(0, Math.min(mod.bays.length - 1, targetBayIdx));
+
+        const rawY = mod.dimensions.height - svgY - plinthH - carcassT;
+        const snappedElevY = Math.max(64, Math.min(netH - 64, Math.round(rawY / 32) * 32));
+
+        lastAccessoryDropTarget2DRef.current = {
+          bayIndex: targetBayIdx,
+          elevationY: snappedElevY,
+          accessory: activeAcc || { id: "lib_shelf", title: "Raf" },
+        };
+
+        setPlanRowSnapBanner(`📐 ${activeAcc?.title || "Aksesuar"} • Bölme ${targetBayIdx + 1} • Y: ${snappedElevY} mm`);
+        return;
+      }
+
       const hasMime = e.dataTransfer.types.includes("application/x-birim-template-id");
       const activeTplId = getActiveDraggedTemplateId();
       if (!hasMime && !activeTplId) return;
@@ -4722,6 +4822,27 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
 
     const handleElevDrop = (e: React.DragEvent<HTMLDivElement>) => {
       if (mode !== "elevation") return;
+      const activeAcc = typeof window !== "undefined" ? (window as any).__birimActiveDraggedAccessory : null;
+      const hasAccessoryMime = e.dataTransfer.types.includes("application/x-birim-accessory-id");
+
+      if (hasAccessoryMime || activeAcc || lastAccessoryDropTarget2DRef.current) {
+        e.preventDefault();
+        const dropInfo = lastAccessoryDropTarget2DRef.current;
+        const acc = dropInfo?.accessory || activeAcc || { id: "lib_shelf", title: "Raf" };
+        const bayIdx = dropInfo ? dropInfo.bayIndex : 0;
+        const elevY = dropInfo ? dropInfo.elevationY : 400;
+
+        addInteriorItemAtElevation(bayIdx, acc.id, elevY);
+        setPlanRowSnapBanner(`✓ ${acc.title} yerleştirildi: Bölme ${bayIdx + 1} (Y: ${elevY} mm)`);
+        setTimeout(() => setPlanRowSnapBanner(null), 3500);
+
+        lastAccessoryDropTarget2DRef.current = null;
+        if (typeof window !== "undefined") {
+          (window as any).__birimActiveDraggedAccessory = null;
+        }
+        return;
+      }
+
       const tplId =
         e.dataTransfer.getData("application/x-birim-template-id") ||
         getActiveDraggedTemplateId();

@@ -507,8 +507,8 @@ export function getV3PbrMaterial(
   const existing = pbrMaterialCache.get(key);
   if (existing) return existing;
 
-  const emissive = isSelected ? new THREE.Color(0x5b8a72) : new THREE.Color(0x000000);
-  const emissiveIntensity = isSelected ? 0.32 : 0.0;
+  const emissive = isSelected ? new THREE.Color(0x2563eb) : new THREE.Color(0x000000);
+  const emissiveIntensity = isSelected ? 0.42 : 0.0;
 
   // 0. Warm 3000K Recessed LED Channel Emissive Material
   if (matDef.id === "mat_led_warm_3000k") {

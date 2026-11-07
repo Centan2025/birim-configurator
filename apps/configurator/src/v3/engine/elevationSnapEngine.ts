@@ -14,7 +14,7 @@ export function findDraggableInteriorComponent(
   compId: string,
   bayWidths: number[]
 ): {
-  kind: "shelf" | "drawer" | "rail" | "divider" | "sub_divider";
+  kind: "shelf" | "drawer" | "rail" | "special_fitting" | "divider" | "sub_divider";
   bayIdx: number;
   targetId: string;
   startVal: number;
@@ -58,6 +58,23 @@ export function findDraggableInteriorComponent(
         targetId: rail.id,
         startVal: rail.elevationY,
         itemHeightMm: 25,
+      };
+    }
+
+    const fit = bay.specialFittings?.find(
+      (f, fIdx) =>
+        compId === f.id ||
+        compId.startsWith(`${f.id}_`) ||
+        compId === `${mod.id}_bay_${bIdx}_fit_${fIdx}` ||
+        compId.startsWith(`${mod.id}_bay_${bIdx}_fit_${fIdx}_`)
+    );
+    if (fit) {
+      return {
+        kind: "special_fitting",
+        bayIdx: bIdx,
+        targetId: fit.id,
+        startVal: fit.elevationY,
+        itemHeightMm: fit.height || 100,
       };
     }
 

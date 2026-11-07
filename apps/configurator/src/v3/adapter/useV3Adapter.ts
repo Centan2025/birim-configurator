@@ -39,7 +39,14 @@ import {
   generateKitchenComplementaryModules,
   defaultLibraryAdminStore,
 } from "@birim/catalog";
-import { generateBOMForProject } from "@birim/manufacturing";
+import {
+  generateBOMForProject,
+  calculateBlumEngineeringSummary,
+  generateBlumBxfXml,
+  parseBlumBxfXml,
+  exportAllPanelsDXF,
+  exportNestingSheetsDXF,
+} from "@birim/manufacturing";
 import { calculateProjectPrice } from "@birim/pricing";
 import {
   generateModuleGeometry,
@@ -57,6 +64,7 @@ import {
   setActiveDraggedTemplateId,
   getActiveDraggedTemplateId,
   startModuleSilhouetteDrag,
+  startAccessorySilhouetteDrag,
   type RowSnapPreviewResult,
   type SnapSlotCandidate,
 } from "../engine/kitchenSpatialEngine";
@@ -86,6 +94,7 @@ export {
   setActiveDraggedTemplateId,
   getActiveDraggedTemplateId,
   startModuleSilhouetteDrag,
+  startAccessorySilhouetteDrag,
   type RowSnapPreviewResult,
   type SnapSlotCandidate,
 };
@@ -747,6 +756,7 @@ export function useV3Adapter() {
       });
       commitAdapterState({
         activeModuleIndex: modIdx,
+        selectedModuleIds: nextMods[modIdx] ? [nextMods[modIdx].id] : [],
         project: { ...curProj, modules: nextMods, updatedAt: new Date().toISOString() },
       });
     },
@@ -948,7 +958,14 @@ export function useV3Adapter() {
           // > 2750mm: 3 Bays (2 Ara Dikme), 6 Doors (Double + Double + Double)
           if (clampedW <= 600) {
             targetBayCount = 1;
-            bayDoorPlan = ["single_left"];
+            const curDType = firstBay?.door?.type;
+            bayDoorPlan = [
+              curDType === "double" && clampedW >= 500
+                ? "double"
+                : curDType === "single_right"
+                ? "single_right"
+                : "single_left",
+            ];
           } else if (clampedW <= 1150) {
             targetBayCount = 1;
             bayDoorPlan = ["double"];
@@ -1163,65 +1180,9 @@ export function useV3Adapter() {
    * another module in the same row, automatically swaps their positions & resolves the overlap!
    */
   const finishModuleDragWithSmartSwap = useCallback(
-    (modIdx: number, startModX: number): string | null => {
-      const curState = useConfiguratorStore.getState();
-      const curProj = curState.project;
-      const dragged = curProj.modules[modIdx];
-      if (!dragged || dragged.category === "complementary") return null;
-
-      const isWallCab =
-        dragged.category === "kitchen_wall" || dragged.moduleFamilyId === "fam_kitchen_wall";
-      const dragW = dragged.dimensions.width;
-      const dragCenter = dragged.position.x + dragW / 2;
-
-      // Find if dragged module overlaps any same-row module by more than 25% of width
-      for (let i = 0; i < curProj.modules.length; i++) {
-        if (i === modIdx) continue;
-        const other = curProj.modules[i];
-        if (other.category === "complementary") continue;
-        const oIsWall =
-          other.category === "kitchen_wall" || other.moduleFamilyId === "fam_kitchen_wall";
-        if (oIsWall !== isWallCab || (other.rotation?.y || 0) !== (dragged.rotation?.y || 0)) {
-          continue;
-        }
-        const otherW = other.dimensions.width;
-        const overlap =
-          Math.min(dragged.position.x + dragW, other.position.x + otherW) -
-          Math.max(dragged.position.x, other.position.x);
-
-        if (overlap > Math.min(dragW, otherW) * 0.22) {
-          const nextMods = JSON.parse(JSON.stringify(curProj.modules)) as ModuleInstance[];
-          // Determine whether user dragged from left-to-right or right-to-left
-          if (startModX <= other.position.x) {
-            const baseLeft = startModX;
-            nextMods[i].position.x = baseLeft;
-            nextMods[modIdx].position.x = baseLeft + otherW;
-          } else {
-            const baseLeft = other.position.x;
-            nextMods[modIdx].position.x = baseLeft;
-            nextMods[i].position.x = baseLeft + dragW;
-          }
-          // Swap array order if needed so visual left-to-right matches index
-          if (
-            (modIdx < i && nextMods[modIdx].position.x > nextMods[i].position.x) ||
-            (modIdx > i && nextMods[modIdx].position.x < nextMods[i].position.x)
-          ) {
-            const tmp = nextMods[modIdx];
-            nextMods[modIdx] = nextMods[i];
-            nextMods[i] = tmp;
-            commitAdapterState({
-              activeModuleIndex: i,
-              project: { ...curProj, modules: nextMods, updatedAt: new Date().toISOString() },
-            });
-          } else {
-            commitAdapterState({
-              activeModuleIndex: modIdx,
-              project: { ...curProj, modules: nextMods, updatedAt: new Date().toISOString() },
-            });
-          }
-          return `🔄 "${dragged.name}" ile "${other.name}" otomatik yer değiştirdi`;
-        }
-      }
+    (_modIdx: number, _startModX: number): string | null => {
+      // Never auto-shift or teleport untouched modules on drag end in 2D Plan!
+      // Users can freely position modules anywhere in X/Z without other cabinets jumping.
       return null;
     },
     []
@@ -1790,6 +1751,7 @@ export function useV3Adapter() {
         future: [],
         project: nextProj,
         activeModuleIndex: nextModules.length - 1,
+        selectedModuleIds: [newMod.id],
         activeBayIndex: 0,
         doorOpenAngleDeg: 0,
         drawerOpenMm: 0,
@@ -2227,6 +2189,135 @@ export function useV3Adapter() {
   /**
    * Update Shelf Elevation Y (in mm from inner bottom panel) by manual drag or exact numeric input
    */
+  /**
+   * Adds an interior accessory/item (shelf, drawer, rail, special fitting) into the specified bay
+   * at an exact elevation Y (mm from bottom) with System 32 / logical boundary clamping.
+   */
+  const addInteriorItemAtElevation = useCallback(
+    (
+      bayIdx: number,
+      itemKind: string,
+      elevationY: number,
+      options?: { drawerHeight?: number; isInternal?: boolean }
+    ) => {
+      commitActiveModuleUpdate((mod) => {
+        const netH = calculateNetInnerHeight(mod);
+        const safeBayIdx = Math.max(0, Math.min(mod.bays.length - 1, bayIdx));
+        const bay = mod.bays[safeBayIdx];
+        if (!bay) return mod;
+
+        // Logical System 32 grid snap (multiples of 32mm)
+        const snappedY = Math.round(elevationY / 32) * 32;
+
+        // Helper to avoid exact vertical collision with existing shelves/rails/fittings
+        const resolveCollisionFreeY = (targetY: number, minGap = 96, minY = 64, maxY = netH - 64): number => {
+          const occupied = [
+            ...(bay.shelves || []).map((s) => s.elevationY),
+            ...(bay.hangingRails || []).map((r) => r.elevationY),
+            ...(bay.specialFittings || []).map((f) => f.elevationY),
+          ];
+          let candidate = Math.max(minY, Math.min(maxY, targetY));
+          for (let step = 0; step <= 12; step++) {
+            const offset = step * 32;
+            for (const dir of [1, -1]) {
+              const testY = Math.max(minY, Math.min(maxY, candidate + dir * offset));
+              if (!occupied.some((oy) => Math.abs(oy - testY) < minGap)) {
+                return testY;
+              }
+            }
+          }
+          return candidate;
+        };
+
+        if (itemKind === "lib_shelf" || itemKind === "shelf") {
+          const clampedY = resolveCollisionFreeY(snappedY, 96, 64, netH - 64);
+          bay.shelves = bay.shelves || [];
+          bay.shelves.push({
+            id: `shelf_${safeBayIdx}_${Date.now()}`,
+            bayIndex: safeBayIdx,
+            elevationY: clampedY,
+            isAdjustable: true,
+          });
+        } else if (
+          itemKind === "lib_drawer" ||
+          itemKind === "drawer" ||
+          itemKind === "lib_internal_drawer" ||
+          itemKind === "internal_drawer"
+        ) {
+          const isInternal = itemKind.includes("internal") || !!options?.isInternal;
+          const h = options?.drawerHeight || (isInternal ? 140 : 180);
+          bay.drawers = bay.drawers || [];
+          // Smart stacking: if dropped near the bottom or overlapping an existing drawer, stack neatly on top of the highest drawer or at snappedY
+          let clampedY = Math.max(0, Math.min(netH - h, snappedY));
+          const hasOverlap = bay.drawers.some(
+            (d) => clampedY < d.elevationY + d.height && clampedY + h > d.elevationY
+          );
+          if (hasOverlap || clampedY < 96) {
+            const topOfStack = bay.drawers.reduce(
+              (maxTop, d) => Math.max(maxTop, d.elevationY + d.height),
+              0
+            );
+            if (topOfStack + h <= netH) {
+              clampedY = topOfStack;
+            }
+          }
+          const optNl = Math.min(
+            600,
+            Math.max(270, Math.floor((mod.dimensions.depth - 28) / 50) * 50)
+          );
+          bay.drawers.push({
+            id: `drw_${safeBayIdx}_${Date.now()}`,
+            bayIndex: safeBayIdx,
+            elevationY: clampedY,
+            height: h,
+            slideType: "soft_close",
+            isInternal,
+            hardwareProductId: isInternal
+              ? "hw_blum_legrabox_m40"
+              : "hw_blum_legrabox_c40",
+            nominalLengthMm: optNl,
+          });
+        } else if (
+          itemKind === "lib_rail" ||
+          itemKind === "rail" ||
+          itemKind === "hanging_rail"
+        ) {
+          // Logical wardrobe hanging zone: at least 350mm, and if dropped near top, place 80mm below top shelf/panel
+          const clampedY = resolveCollisionFreeY(snappedY, 128, 320, netH - 64);
+          bay.hangingRails = bay.hangingRails || [];
+          bay.hangingRails.push({
+            id: `rail_${safeBayIdx}_${Date.now()}`,
+            bayIndex: safeBayIdx,
+            elevationY: clampedY,
+          });
+        } else {
+          // Special fittings: trouser_rack, shoe_rack, wire_basket, jewelry_tray, tie_rack, belt_rack, wardrobe_lift, led_profile
+          let fittingType: import("@birim/core").SpecialFittingConfig["type"] = "trouser_rack";
+          if (itemKind.includes("trouser")) fittingType = "trouser_rack";
+          else if (itemKind.includes("shoe")) fittingType = "shoe_rack";
+          else if (itemKind.includes("wire")) fittingType = "wire_basket";
+          else if (itemKind.includes("jewelry")) fittingType = "jewelry_tray";
+          else if (itemKind.includes("tie")) fittingType = "tie_rack";
+          else if (itemKind.includes("belt")) fittingType = "belt_rack";
+          else if (itemKind.includes("lift")) fittingType = "wardrobe_lift";
+          else if (itemKind.includes("led")) fittingType = "led_profile";
+
+          const clampedY = resolveCollisionFreeY(snappedY, 96, 64, netH - 64);
+          bay.specialFittings = bay.specialFittings || [];
+          bay.specialFittings.push({
+            id: `fit_${fittingType}_${safeBayIdx}_${Date.now()}`,
+            bayIndex: safeBayIdx,
+            elevationY: clampedY,
+            type: fittingType,
+            height: fittingType === "wardrobe_lift" ? 850 : 120,
+          });
+        }
+        return mod;
+      }, true);
+    },
+    [commitActiveModuleUpdate]
+  );
+
   const setShelfElevation = useCallback(
     (bayIdx: number, shelfId: string, elevationY: number, pushHistory = true) => {
       commitActiveModuleUpdate((mod) => {
@@ -3676,7 +3767,7 @@ export function useV3Adapter() {
           (f) =>
             f.category !== "complementary" &&
             (f.rotationY === 0 || f.rotationY === 180) &&
-            Math.abs(f.z - hostWall.position.z) <= 650
+            Math.abs(f.z - targetFp.z) <= 120
         );
         const totalModuleLengthOnWallMm = sameWallFootprints.reduce(
           (sum, f) => sum + f.planWidth,
@@ -4163,8 +4254,209 @@ export function useV3Adapter() {
     []
   );
 
+
+  /**
+   * Blum Cabinet Configurator (E-SERVICES) live engineering summary for activeModule
+   */
+  const activeBlumEngineering = useMemo(
+    () => (activeModule ? calculateBlumEngineeringSummary(activeModule) : null),
+    [activeModule]
+  );
+
+  /**
+   * Generates a Blum Exchange Format (.bxf / XML) string for the current project & BOM
+   */
+  const exportBlumBxfString = useCallback((): string => {
+    const curState = useConfiguratorStore.getState();
+    return generateBlumBxfXml(curState.project, curState.bom);
+  }, []);
+
+  /**
+   * Imports a Blum .bxf / XML file and creates/updates the module in the project
+   */
+  const importBlumBxfFile = useCallback(
+    (xmlText: string, appendToProject = false): { ok: boolean; name?: string; error?: string } => {
+      const parsed = parseBlumBxfXml(xmlText);
+      if (!parsed) {
+        return { ok: false, error: "Geçersiz veya okunamayan Blum BXF / XML dosyası." };
+      }
+      const curState = useConfiguratorStore.getState();
+      const curProj = curState.project;
+      const newMod = parsed.createdModule;
+      if (appendToProject && curProj.modules.length > 0) {
+        const maxRight = Math.max(
+          0,
+          ...curProj.modules
+            .filter((m) => m.category !== "complementary" && (m.rotation?.y || 0) === 0)
+            .map((m) => m.position.x + m.dimensions.width)
+        );
+        newMod.position = { x: maxRight, y: 0, z: 0 };
+      }
+      const nextModules = appendToProject
+        ? [...curProj.modules, newMod]
+        : curProj.modules.map((m, idx) => (idx === curState.activeModuleIndex ? newMod : m));
+      const nextProj = {
+        ...curProj,
+        version: (curProj.version || 1) + 1,
+        updatedAt: new Date().toISOString(),
+        modules: nextModules,
+      };
+      const nextBom = generateBOMForProject(nextProj);
+      commitAdapterState({
+        history: [...curState.history.slice(-15), curProj],
+        future: [],
+        project: nextProj,
+        activeModuleIndex: appendToProject ? nextModules.length - 1 : curState.activeModuleIndex,
+        selectedModuleIds: [newMod.id],
+        validationIssues: validateProject(nextProj),
+        bom: nextBom,
+        pricing: calculateProjectPrice(nextBom),
+      });
+      return { ok: true, name: parsed.name };
+    },
+    []
+  );
+
+  /**
+   * 1-Click Blum Cabinet Applications (SPACE TOWER, AVENTOS HF top, LEGRABOX pure, 155° Zero-Protrusion)
+   */
+  const applyBlumQuickWizardPreset = useCallback(
+    (
+      presetId:
+        | "blum_space_tower"
+        | "blum_aventos_wall"
+        | "blum_legrabox_base"
+        | "blum_155_wardrobe"
+    ) => {
+      commitActiveModuleUpdate((mod) => {
+        const bIdx = Math.min(
+          useConfiguratorStore.getState().activeBayIndex,
+          Math.max(0, mod.bays.length - 1)
+        );
+        const bay = mod.bays[bIdx] || mod.bays[0];
+        if (!bay) return mod;
+
+        if (presetId === "blum_space_tower") {
+          // SPACE TOWER: 155° Zero-Protrusion CLIP top BLUMOTION (71B7550) + 4 Internal LEGRABOX drawers
+          mod.carcass.hingeDrillingTemplateId = "tpl_drill_blum_155_zero";
+          mod.carcass.drawerDrillingSetId = "blum_legrabox";
+          bay.door = {
+            ...bay.door,
+            doorSystemId: bay.door.type === "double" ? "hinged_double" : "hinged_single",
+            hardwareProductId: "hw_blum_71b7550",
+            openingTechnology: "soft_close",
+            softClose: true,
+          };
+          const optNl = Math.min(
+            600,
+            Math.max(270, Math.floor((mod.dimensions.depth - 28) / 50) * 50)
+          );
+          bay.drawers = [0, 1, 2, 3].map((dIdx) => ({
+            id: `${mod.id}_spacetower_${bIdx}_${dIdx}_${Date.now()}`,
+            bayIndex: bIdx,
+            elevationY: dIdx * 280,
+            height: 180,
+            slideType: "soft_close" as const,
+            isInternal: true,
+            hardwareProductId: "hw_blum_legrabox_m40",
+            nominalLengthMm: optNl,
+          }));
+        } else if (presetId === "blum_aventos_wall") {
+          // AVENTOS HF top Bi-Fold Lift System (for wall/upper cabinets)
+          if (mod.dimensions.height > 1040) {
+            mod.dimensions.height = 780;
+            mod.dimensions.depth = 350;
+            mod.carcass.plinthHeight = 0;
+          }
+          bay.door = {
+            ...bay.door,
+            type: "lift_bi_fold",
+            doorSystemId: "lift_bi_fold",
+            hardwareProductId: "hw_blum_aventos_hf_25",
+            openingTechnology: "soft_close",
+            softClose: true,
+          };
+        } else if (presetId === "blum_legrabox_base") {
+          // LEGRABOX pure 3-drawer stack
+          mod.carcass.drawerDrillingSetId = "blum_legrabox";
+          const optNl = Math.min(
+            600,
+            Math.max(270, Math.floor((mod.dimensions.depth - 28) / 50) * 50)
+          );
+          bay.drawers = [
+            {
+              id: `${mod.id}_lgb_${bIdx}_0_${Date.now()}`,
+              bayIndex: bIdx,
+              elevationY: 0,
+              height: 240,
+              slideType: "soft_close",
+              isInternal: false,
+              hardwareProductId: "hw_blum_legrabox_m40",
+              nominalLengthMm: optNl,
+            },
+            {
+              id: `${mod.id}_lgb_${bIdx}_1_${Date.now()}`,
+              bayIndex: bIdx,
+              elevationY: 258,
+              height: 180,
+              slideType: "soft_close",
+              isInternal: false,
+              hardwareProductId: "hw_blum_legrabox_m40",
+              nominalLengthMm: optNl,
+            },
+            {
+              id: `${mod.id}_lgb_${bIdx}_2_${Date.now()}`,
+              bayIndex: bIdx,
+              elevationY: 456,
+              height: 140,
+              slideType: "soft_close",
+              isInternal: false,
+              hardwareProductId: "hw_blum_legrabox_m40",
+              nominalLengthMm: optNl,
+            },
+          ];
+        } else if (presetId === "blum_155_wardrobe") {
+          // CLIP top BLUMOTION 155° + TANDEMBOX antaro + Hanging Rail
+          mod.carcass.hingeDrillingTemplateId = "tpl_drill_blum_155_zero";
+          mod.carcass.drawerDrillingSetId = "blum_tandembox";
+          bay.door = {
+            ...bay.door,
+            hardwareProductId: "hw_blum_71b7550",
+            openingTechnology: "soft_close",
+            softClose: true,
+          };
+        }
+        return mod;
+      }, true);
+    },
+    [commitActiveModuleUpdate]
+  );
+
+
+  /**
+   * Generates a complete AutoCAD DXF string of all cutlist panels + CNC holes
+   */
+  const exportAllPanelsDxfString = useCallback((): string => {
+    const curState = useConfiguratorStore.getState();
+    return exportAllPanelsDXF(curState.bom);
+  }, []);
+
+  /**
+   * Generates a 2800x2070mm 2D sheet nesting layout DXF string
+   */
+  const exportNestingDxfString = useCallback((): string => {
+    const curState = useConfiguratorStore.getState();
+    return exportNestingSheetsDXF(curState.bom);
+  }, []);
+
   return {
     project,
+    activeBlumEngineering,
+    exportBlumBxfString,
+    exportAllPanelsDxfString,
+    exportNestingDxfString,
+    importBlumBxfFile,
+    applyBlumQuickWizardPreset,
     activeSpatialMetrics,
     computeWallAndModuleClearances,
     alignActiveModuleOnWall,
@@ -4293,6 +4585,7 @@ export function useV3Adapter() {
     swapModuleWithNeighbor,
     finishModuleDragWithSmartSwap,
     updateObstaclePosition,
+    addInteriorItemAtElevation,
     setShelfElevation,
     setDrawerPlacement,
     setSpecialFittingPlacement,

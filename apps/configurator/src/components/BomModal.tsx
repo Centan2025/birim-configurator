@@ -19,6 +19,9 @@ import {
   generateSelcoExportPackage,
   generatePanelDXF,
   exportAllPanelsDXF,
+  exportNestingSheetsDXF,
+  generateBlumBxfXml,
+  calculateBlumEngineeringSummary,
   CutPiece,
 } from "@birim/manufacturing";
 
@@ -29,7 +32,7 @@ interface BomModalProps {
 
 export default function BomModal({ isOpen, onClose }: BomModalProps) {
   const [activeTab, setActiveTab] = useState<
-    "cutlist" | "hardware" | "nesting" | "validation" | "assembly" | "selco" | "quote"
+    "cutlist" | "hardware" | "nesting" | "validation" | "assembly" | "selco" | "quote" | "blum_bxf"
   >("cutlist");
   const bom = useConfiguratorStore((s) => s.bom);
   const project = useConfiguratorStore((s) => s.project);
@@ -83,38 +86,67 @@ export default function BomModal({ isOpen, onClose }: BomModalProps) {
   </div>
 </body>
 </html>`;
-    const dataStr = "data:text/html;charset=utf-8," + encodeURIComponent(html);
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = dataStr;
+    a.href = url;
     a.download = `Musteri_Teklif_Foyu_${project.id}_v${project.version}.html`;
+    document.body.appendChild(a);
     a.click();
+    setTimeout(() => {
+      if (a.parentNode) a.parentNode.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 1500);
+  };
+
+
+  const blumBxfXml = generateBlumBxfXml(project, bom);
+  const blumCabinetSummaries = project.modules
+    .filter((m) => m.category !== "complementary")
+    .map((m) => calculateBlumEngineeringSummary(m));
+
+  const downloadFile = (content: string, filename: string, mimeType: string) => {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      if (a.parentNode) a.parentNode.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 1500);
+  };
+
+  const downloadBlumBxf = () => {
+    downloadFile(
+      blumBxfXml,
+      `Blum_Easystick_${project.id}_v${project.version}.bxf`,
+      "application/xml;charset=utf-8"
+    );
   };
 
   const downloadJson = () => {
-    const dataStr =
-      "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(bom, null, 2));
-    const a = document.createElement("a");
-    a.href = dataStr;
-    a.download = `BOM_${project.id}_v${project.version}.json`;
-    a.click();
+    downloadFile(
+      JSON.stringify(bom, null, 2),
+      `BOM_${project.id}_v${project.version}.json`,
+      "application/json;charset=utf-8"
+    );
   };
 
   const downloadCsv = () => {
     const csvContent = exportCutListToCSV(bom);
-    const dataStr = "data:text/csv;charset=utf-8," + encodeURIComponent(csvContent);
-    const a = document.createElement("a");
-    a.href = dataStr;
-    a.download = `Kesim_Listesi_${project.id}_v${project.version}.csv`;
-    a.click();
+    downloadFile(
+      csvContent,
+      `Kesim_Listesi_${project.id}_v${project.version}.csv`,
+      "text/csv;charset=utf-8"
+    );
   };
 
   const downloadPieceDXF = (piece: CutPiece) => {
     const dxfContent = generatePanelDXF(piece);
-    const dataStr = "data:application/dxf;charset=utf-8," + encodeURIComponent(dxfContent);
-    const a = document.createElement("a");
-    a.href = dataStr;
-    a.download = `${piece.id}.dxf`;
-    a.click();
+    downloadFile(dxfContent, `${piece.id}.dxf`, "application/dxf;charset=utf-8");
   };
 
   const downloadSampleDXF = () => {
@@ -126,11 +158,20 @@ export default function BomModal({ isOpen, onClose }: BomModalProps) {
   const downloadAllPanelsDXF = () => {
     if (!bom.cutList.length) return;
     const dxfContent = exportAllPanelsDXF(bom);
-    const dataStr = "data:application/dxf;charset=utf-8," + encodeURIComponent(dxfContent);
-    const a = document.createElement("a");
-    a.href = dataStr;
-    a.download = `Tum_Paneller_CNC_${project.id}_v${project.version}.dxf`;
-    a.click();
+    downloadFile(
+      dxfContent,
+      `Tum_Paneller_CNC_${project.id}_v${project.version}.dxf`,
+      "application/dxf;charset=utf-8"
+    );
+  };
+
+  const downloadNestingSheetsDXF = () => {
+    const dxfContent = exportNestingSheetsDXF(bom);
+    downloadFile(
+      dxfContent,
+      `Plaka_Yerlesim_Kesim_Semasi_2800x2070_${project.id}_v${project.version}.dxf`,
+      "application/dxf;charset=utf-8"
+    );
   };
 
   const assemblySteps = generateAssemblyInstructions(project, bom);
@@ -160,6 +201,15 @@ export default function BomModal({ isOpen, onClose }: BomModalProps) {
           </div>
           <div className="flex items-center gap-2">
             <button
+              onClick={downloadBlumBxf}
+              data-testid="bom-download-bxf-btn"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white shadow transition-all cursor-pointer"
+              title="Blum E-SERVICES / EASYSTICK / MINIPRESS ve CAD/CAM yazılımları için .BXF üretim dosyasını indir"
+            >
+              <Download className="w-3.5 h-3.5" />
+              🟦 Blum .BXF İndir
+            </button>
+            <button
               onClick={downloadCustomerQuoteHtml}
               data-testid="bom-download-quote-btn"
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-amber-600 hover:bg-amber-500 text-white shadow transition-all cursor-pointer"
@@ -176,11 +226,21 @@ export default function BomModal({ isOpen, onClose }: BomModalProps) {
             </button>
             <button
               onClick={downloadAllPanelsDXF}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-indigo-700 hover:bg-indigo-600 text-white shadow transition-all cursor-pointer"
-              title="Projedeki tüm panellerin katmanlı CNC DXF çizimini indir"
+              data-testid="bom-download-all-dxf-btn"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white shadow transition-all cursor-pointer"
+              title="Projedeki tüm parçaların bitmiş kontur, net kesim, kanal ve delik katmanlı CNC DXF çizimini indir"
             >
               <FileCode className="w-3.5 h-3.5" />
-              Tüm Paneller DXF
+              📐 Parça Listesi DXF İndir
+            </button>
+            <button
+              onClick={downloadNestingSheetsDXF}
+              data-testid="bom-download-nesting-dxf-btn"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-purple-700 hover:bg-purple-600 text-white shadow transition-all cursor-pointer"
+              title="2800x2070 mm plaka yerleşim (optimizasyon) kesim şemasını DXF olarak indir"
+            >
+              <FileCode className="w-3.5 h-3.5" />
+              📏 Plaka Kesim DXF
             </button>
             <button
               onClick={downloadSampleDXF}
@@ -308,6 +368,17 @@ export default function BomModal({ isOpen, onClose }: BomModalProps) {
             📄 Müşteri Teklif & Sunum Föyü
           </button>
           <button
+            onClick={() => setActiveTab("blum_bxf")}
+            data-testid="bom-tab-blum-bxf"
+            className={`pb-2.5 border-b-2 transition-colors cursor-pointer shrink-0 ${
+              activeTab === "blum_bxf"
+                ? "border-amber-500 text-amber-400 font-semibold"
+                : "border-transparent text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            🟦 Blum BXF & EASYSTICK (MINIPRESS)
+          </button>
+          <button
             onClick={() => setActiveTab("selco")}
             className={`pb-2.5 border-b-2 transition-colors cursor-pointer shrink-0 ${
               activeTab === "selco"
@@ -324,7 +395,36 @@ export default function BomModal({ isOpen, onClose }: BomModalProps) {
         <div className="flex-1 overflow-auto p-6 text-xs">
           {/* TAB 1: CUT LIST & DRILLING */}
           {activeTab === "cutlist" && (
-            <div className="border border-slate-800 rounded-lg overflow-hidden">
+            <div className="space-y-3">
+              <div className="p-3 bg-slate-950 border border-indigo-500/40 rounded-xl flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <span className="font-bold text-slate-100 block">
+                    📐 AutoCAD / CNC Parça Kesim ve Delik Çizimleri (.DXF — AC1009 / mm)
+                  </span>
+                  <span className="text-[11px] text-slate-400">
+                    Her parçanın bitmiş ebadı (PANEL_CONTOUR), bant düşümlü net kesim ebadı (NET_CUT_CONTOUR), 8mm arkalık kanalı (BACK_GROOVE_8MM) ve delik eksenleri ayrı katmanlarda (LAYER) yer alır.
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={downloadAllPanelsDXF}
+                    className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Tüm Parça Listesini DXF İndir ({bom.cutList.length} Parça)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={downloadNestingSheetsDXF}
+                    className="px-3.5 py-2 rounded-xl bg-purple-700 hover:bg-purple-600 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>2800×2070 Plaka Kesim Şeması DXF İndir</span>
+                  </button>
+                </div>
+              </div>
+              <div className="border border-slate-800 rounded-lg overflow-hidden">
               <table className="w-full text-left border-collapse">
                 <thead className="bg-slate-950 text-slate-400 uppercase tracking-wider text-[11px]">
                   <tr>
@@ -419,6 +519,7 @@ export default function BomModal({ isOpen, onClose }: BomModalProps) {
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           )}
 
@@ -702,6 +803,164 @@ export default function BomModal({ isOpen, onClose }: BomModalProps) {
                   </pre>
                 </div>
               )}
+            </div>
+          )}
+
+
+          {/* TAB 8: BLUM BXF & EASYSTICK (MINIPRESS / E-SERVICES) */}
+          {activeTab === "blum_bxf" && (
+            <div data-testid="bom-blum-bxf-panel" className="space-y-5 text-xs">
+              <div className="p-4 rounded-xl bg-slate-950 border border-blue-500/40 flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-base font-bold text-blue-400">
+                    BLUM GÖVDE TASARLAYICI (CABINET CONFIGURATOR) & BXF / EASYSTICK ÜRETİM PAKETİ
+                  </h3>
+                  <p className="text-slate-400 mt-0.5">
+                    KB/KH/KT Dış Ölçüler • LW/LH/LT Net İç Ölçüler • Kapak Ağırlığı (kg) & AVENTOS Güç Faktörü (LF) • LEGRABOX/TANDEMBOX Ahşap Kesim Formülleri • MINIPRESS EASYSTICK Delik Matrisi
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={downloadBlumBxf}
+                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold cursor-pointer"
+                >
+                  🟦 Blum .BXF Dosyasını İndir (EASYSTICK / CAD)
+                </button>
+              </div>
+
+              {blumCabinetSummaries.map((cab, cIdx) => (
+                <div
+                  key={cab.moduleId}
+                  className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-4"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+                    <div>
+                      <span className="font-bold text-slate-100 text-sm">
+                        {cIdx + 1}. {cab.moduleName} ({cab.moduleId})
+                      </span>
+                      <div className="text-[11px] font-mono text-slate-400 mt-0.5">
+                        Dış (KB×KH×KT):{" "}
+                        <strong className="text-amber-400">
+                          {cab.outerDimensions.KB} × {cab.outerDimensions.KH} × {cab.outerDimensions.KT} mm
+                        </strong>{" "}
+                        • Net İç (LW×LH×LT):{" "}
+                        <strong className="text-emerald-400">
+                          {cab.innerDimensions.LW} × {cab.innerDimensions.LH} × {cab.innerDimensions.LT} mm
+                        </strong>{" "}
+                        • Panel: {cab.panelThicknessMm}mm • Derz (Fuge): {cab.frontGapFugeMm}mm
+                      </div>
+                    </div>
+                    <span
+                      className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                        cab.collisionFree
+                          ? "bg-emerald-900/60 text-emerald-300 border border-emerald-700"
+                          : "bg-amber-900/60 text-amber-300 border border-amber-700"
+                      }`}
+                    >
+                      {cab.collisionFree ? "✓ BLUM ÇAKIŞMA KONTROLÜ: UYGUN" : "⚠ UYARI MEVCUT"}
+                    </span>
+                  </div>
+
+                  {cab.collisionWarnings.length > 0 && (
+                    <div className="p-2.5 rounded-lg bg-amber-950/50 border border-amber-800 text-amber-200 space-y-1">
+                      {cab.collisionWarnings.map((w, wi) => (
+                        <div key={wi}>• {w}</div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Front Weight, Hinge & AVENTOS LF Table */}
+                  {cab.doors.length > 0 && (
+                    <div className="space-y-1.5">
+                      <div className="font-bold text-slate-300 text-[11px] uppercase tracking-wider">
+                        Kapak Ağırlığı, CLIP top BLUMOTION Menteşe & AVENTOS Güç Faktörü (LF = KH × kg)
+                      </div>
+                      <table className="w-full text-left border-collapse font-mono text-[11px]">
+                        <thead className="bg-slate-900 text-slate-400">
+                          <tr>
+                            <th className="p-2">Bölme</th>
+                            <th className="p-2">Kapak Ölçüsü</th>
+                            <th className="p-2">Ağırlık (kg)</th>
+                            <th className="p-2">Menteşe Adedi & Kodu</th>
+                            <th className="p-2">Delik Şablonu</th>
+                            <th className="p-2">AVENTOS LF & Öneri</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/70">
+                          {cab.doors.map((d) => (
+                            <tr key={d.bayIndex}>
+                              <td className="p-2 text-slate-200">Bölme {d.bayIndex + 1}</td>
+                              <td className="p-2 text-amber-400">
+                                {d.doorWidthMm}×{d.doorHeightMm}×{d.doorThicknessMm} mm
+                              </td>
+                              <td className="p-2 text-emerald-400 font-bold">{d.estimatedWeightKg} kg</td>
+                              <td className="p-2 text-slate-200">
+                                {d.recommendedHingeCount}× {d.hingeSku} + {d.mountingPlateSku}
+                              </td>
+                              <td className="p-2 text-slate-400">{d.cupDrillingPattern}</td>
+                              <td className="p-2 text-blue-300">
+                                LF={d.aventosPowerFactorLf} • {d.recommendedAventosModel || "Menteşeli"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {/* Drawer Cutting Formulas & EASYSTICK Ruler Coordinates */}
+                  {cab.drawers.length > 0 && (
+                    <div className="space-y-1.5">
+                      <div className="font-bold text-slate-300 text-[11px] uppercase tracking-wider">
+                        Çekmece Ahşap Kesim Ölçüleri (Taban & Arkalık) ve EASYSTICK Ray Delik Eksenleri
+                      </div>
+                      <table className="w-full text-left border-collapse font-mono text-[11px]">
+                        <thead className="bg-slate-900 text-slate-400">
+                          <tr>
+                            <th className="p-2">Bölme</th>
+                            <th className="p-2">Blum Sistem & Ray SKU</th>
+                            <th className="p-2">NL / LW</th>
+                            <th className="p-2">Ahşap Taban Kesim</th>
+                            <th className="p-2">Ahşap Arkalık Kesim</th>
+                            <th className="p-2">EASYSTICK Yan Delik X (mm)</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/70">
+                          {cab.drawers.map((drw) => (
+                            <tr key={drw.drawerId}>
+                              <td className="p-2 text-slate-200">Bölme {drw.bayIndex + 1}</td>
+                              <td className="p-2 text-slate-200">
+                                {drw.systemName} [{drw.runnerSku}]
+                              </td>
+                              <td className="p-2 text-amber-400">
+                                NL:{drw.nominalLengthNlMm} / LW:{drw.netInnerWidthLwMm}
+                              </td>
+                              <td className="p-2 text-emerald-400 font-bold">
+                                {drw.woodenBottomWidthMm} × {drw.woodenBottomDepthMm} mm (16mm)
+                              </td>
+                              <td className="p-2 text-emerald-400 font-bold">
+                                {drw.woodenBackWidthMm} × {drw.woodenBackHeightMm} mm (16mm)
+                              </td>
+                              <td className="p-2 text-purple-300">
+                                Y:{drw.easystickElevationYMm}mm → X:[{drw.easystickSideHoleXCoordsMm.join(", ")}]
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              <div className="space-y-2">
+                <h4 className="font-semibold text-slate-300">
+                  Canlı Blum Exchange Format (.BXF / XML) Çıktı Önizlemesi:
+                </h4>
+                <pre className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-slate-300 text-[11px] font-mono overflow-x-auto max-h-64">
+                  {blumBxfXml}
+                </pre>
+              </div>
             </div>
           )}
 

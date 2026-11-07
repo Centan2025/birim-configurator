@@ -298,7 +298,17 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   setViewMode: (viewMode) => set({ viewMode }),
   setCameraPreset: (cameraPreset) => set({ cameraPreset }),
   setSelectedComponentId: (selectedComponentId) => set({ selectedComponentId }),
-  setActiveModuleIndex: (activeModuleIndex) => set({ activeModuleIndex: Math.max(0, Math.min(get().project.modules.length - 1, activeModuleIndex)), activeBayIndex: 0, selectedComponentId: null }),
+  setActiveModuleIndex: (activeModuleIndex) => {
+    const mods = get().project.modules;
+    const clampedIdx = Math.max(0, Math.min(mods.length - 1, activeModuleIndex));
+    const targetMod = mods[clampedIdx];
+    set({
+      activeModuleIndex: clampedIdx,
+      activeBayIndex: 0,
+      selectedComponentId: null,
+      selectedModuleIds: targetMod ? [targetMod.id] : [],
+    });
+  },
   setDoorOpenAngleDeg: (doorOpenAngleDeg) => set({ doorOpenAngleDeg }),
   setDrawerOpenMm: (drawerOpenMm) => set({ drawerOpenMm }),
   setExplodedFactor: (explodedFactor) => set({ explodedFactor }),

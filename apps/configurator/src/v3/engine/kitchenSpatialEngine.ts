@@ -104,6 +104,85 @@ export function startModuleSilhouetteDrag(
   }
 }
 
+
+let accessoryDragCanvas: HTMLCanvasElement | null = null;
+
+/**
+ * Sets a clean, button-free 3D isometric silhouette as the cursor drag image when dragging
+ * an interior accessory (shelf, drawer, rail, trouser rack, etc.) so the browser never drags the button card.
+ */
+export function startAccessorySilhouetteDrag(
+  e: React.DragEvent<HTMLElement>,
+  item: { id: string; visual: string; title: string; cat: string; spec: string }
+): void {
+  e.dataTransfer.setData("application/x-birim-accessory-id", item.id);
+  e.dataTransfer.setData("application/x-birim-accessory-kind", item.visual);
+  e.dataTransfer.setData("text/plain", item.title);
+  e.dataTransfer.effectAllowed = "copy";
+
+  if (typeof window !== "undefined") {
+    (window as any).__birimActiveDraggedAccessory = item;
+  }
+
+  if (typeof document !== "undefined") {
+    if (!accessoryDragCanvas) {
+      accessoryDragCanvas = document.createElement("canvas");
+      accessoryDragCanvas.width = 96;
+      accessoryDragCanvas.height = 72;
+      accessoryDragCanvas.style.position = "fixed";
+      accessoryDragCanvas.style.top = "-9999px";
+      accessoryDragCanvas.style.left = "-9999px";
+      accessoryDragCanvas.style.pointerEvents = "none";
+      document.body.appendChild(accessoryDragCanvas);
+    }
+    const ctx = accessoryDragCanvas.getContext("2d");
+    if (ctx) {
+      ctx.clearRect(0, 0, 96, 72);
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+
+      if (item.visual.includes("drawer") || item.visual.includes("basket")) {
+        // Draw clean 3D drawer box silhouette
+        ctx.fillStyle = "rgba(37, 99, 235, 0.28)";
+        ctx.strokeStyle = "#1D4ED8";
+        ctx.lineWidth = 2;
+        ctx.fillRect(16, 20, 56, 30);
+        ctx.strokeRect(16, 20, 56, 30);
+        ctx.beginPath();
+        ctx.moveTo(16, 20);
+        ctx.lineTo(28, 10);
+        ctx.lineTo(84, 10);
+        ctx.lineTo(72, 20);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      } else if (item.visual.includes("rail")) {
+        // Draw clean 3D chrome hanging rail silhouette
+        ctx.strokeStyle = "#2563EB";
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.moveTo(12, 32);
+        ctx.lineTo(84, 32);
+        ctx.stroke();
+      } else {
+        // Draw clean 3D isometric shelf / accessory board silhouette
+        ctx.fillStyle = "rgba(37, 99, 235, 0.35)";
+        ctx.strokeStyle = "#1D4ED8";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(12, 36);
+        ctx.lineTo(30, 22);
+        ctx.lineTo(84, 26);
+        ctx.lineTo(66, 40);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
+    e.dataTransfer.setDragImage(accessoryDragCanvas, 48, 36);
+  }
+}
+
 export interface SnapSlotCandidate {
   x: number;
   y: number;
