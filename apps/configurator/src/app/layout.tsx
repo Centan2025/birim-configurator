@@ -5,10 +5,7 @@ export const metadata: Metadata = {
   title: "Birim Configurator | Parametrik Dolap ve Mutfak Platformu",
   description: "Birim Mağaza & Üretim Entegre Parametrik Tasarım ve Konfigürasyon Motoru",
   icons: {
-    icon: [
-      { url: "/favicon.ico", sizes: "32x32" },
-      { url: "/icon.svg", type: "image/svg+xml" },
-    ],
+    icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%232563EB'/><text x='16' y='22' text-anchor='middle' fill='white' font-family='sans-serif' font-weight='800' font-size='18'>B</text></svg>",
   },
 };
 

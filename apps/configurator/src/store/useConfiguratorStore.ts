@@ -299,9 +299,16 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   setCameraPreset: (cameraPreset) => set({ cameraPreset }),
   setSelectedComponentId: (selectedComponentId) => set({ selectedComponentId }),
   setActiveModuleIndex: (activeModuleIndex) => {
-    const mods = get().project.modules;
+    const curState = get();
+    const mods = curState.project.modules;
     const clampedIdx = Math.max(0, Math.min(mods.length - 1, activeModuleIndex));
     const targetMod = mods[clampedIdx];
+    if (clampedIdx === curState.activeModuleIndex) {
+      set({
+        selectedModuleIds: targetMod ? [targetMod.id] : [],
+      });
+      return;
+    }
     set({
       activeModuleIndex: clampedIdx,
       activeBayIndex: 0,
@@ -334,10 +341,15 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       set({ batchStartProject: null });
       return;
     }
+    const { validationIssues, bom, pricing, smartAdvice } = recompute(project);
     set({
       history: [...history.slice(-15), batchStartProject],
       future: [],
       batchStartProject: null,
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
     });
   },
 
@@ -587,12 +599,30 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     if (!mod || !mod.bays[bayIdx]) return;
 
     const bay = mod.bays[bayIdx];
-    const newElevation = bay.shelves.length > 0 ? (bay.shelves[bay.shelves.length - 1].elevationY || 300) + 350 : 400;
+    const T = mod.carcass.panelThickness || 18;
+    const plinthH = mod.carcass.plinthHeight ?? 100;
+    const netH = Math.max(200, mod.dimensions.height - plinthH - 2 * T);
+    const drawerTopY =
+      bay.drawers.length > 0
+        ? Math.max(...bay.drawers.map((d) => d.elevationY + d.height))
+        : 0;
+    const minY = Math.min(netH - 80, drawerTopY + 64);
+    const maxY = Math.max(minY + 32, netH - 64);
+
     bay.shelves.push({
       id: `shelf_${bayIdx}_${Date.now()}`,
       bayIndex: bayIdx,
-      elevationY: Math.min(newElevation, 1900),
+      elevationY: Math.round((minY + maxY) / 2),
       isAdjustable: true,
+    });
+
+    // Intelligently distribute all shelves in this bay evenly inside the usable cavity [drawerTopY .. netH]
+    const totalShelves = bay.shelves.length;
+    const usableSpan = Math.max(120, netH - drawerTopY);
+    bay.shelves.forEach((sh, idx) => {
+      const idealY = drawerTopY + ((idx + 1) * usableSpan) / (totalShelves + 1);
+      const snappedY = Math.round(idealY / 32) * 32;
+      sh.elevationY = Math.max(48, Math.min(netH - 48, snappedY));
     });
 
     const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
@@ -634,10 +664,18 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
 
+    const T_r = mod.carcass.panelThickness || 18;
+    const plinth_r = mod.carcass.plinthHeight ?? 100;
+    const netH_r = Math.max(240, mod.dimensions.height - plinth_r - 2 * T_r);
+    const existingRails = mod.bays[bayIdx].hangingRails.length;
+    const targetRailY =
+      existingRails === 0
+        ? Math.max(120, netH_r - 88)
+        : Math.max(96, Math.round((netH_r * 0.48) / 32) * 32);
     mod.bays[bayIdx].hangingRails.push({
       id: `rail_${bayIdx}_${Date.now()}`,
       bayIndex: bayIdx,
-      elevationY: 1700,
+      elevationY: Math.min(netH_r - 48, targetRailY),
     });
 
     const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
@@ -680,13 +718,20 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     if (!mod || !mod.bays[bayIdx]) return;
 
     const bay = mod.bays[bayIdx];
-    const prevCount = bay.drawers.length;
-    const newElevation = prevCount * 185;
+    const T_d = mod.carcass.panelThickness || 18;
+    const plinth_d = mod.carcass.plinthHeight ?? 100;
+    const netH_d = Math.max(220, mod.dimensions.height - plinth_d - 2 * T_d);
+    const prevTop =
+      bay.drawers.length > 0
+        ? Math.max(...bay.drawers.map((d) => d.elevationY + d.height))
+        : 0;
+    const drwH = Math.min(180, Math.max(110, Math.floor(netH_d / Math.max(2, bay.drawers.length + 1))));
+    const clampedElev = Math.max(0, Math.min(netH_d - drwH, prevTop));
     bay.drawers.push({
       id: `drw_${bayIdx}_${Date.now()}`,
       bayIndex: bayIdx,
-      elevationY: newElevation,
-      height: 180,
+      elevationY: clampedElev,
+      height: drwH,
       slideType: "soft_close",
     });
 
@@ -758,12 +803,18 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       cutlery_tray: 480,
     };
     const existingCount = bay.specialFittings.length;
+    const T_f = mod.carcass.panelThickness || 18;
+    const plinth_f = mod.carcass.plinthHeight ?? 100;
+    const netH_f = Math.max(200, mod.dimensions.height - plinth_f - 2 * T_f);
+    const fitH = Math.min(netH_f - 40, defaultHeights[type] ?? 120);
+    const rawFitY = defaultElevs[type] ?? (160 + existingCount * 180);
+    const clampedFitY = Math.max(32, Math.min(Math.max(48, netH_f - fitH - 16), rawFitY));
     bay.specialFittings.push({
       id: `fit_${bayIdx}_${Date.now()}_${existingCount}`,
       bayIndex: bayIdx,
-      elevationY: defaultElevs[type] ?? Math.min(1400, 350 + existingCount * 220),
+      elevationY: clampedFitY,
       type,
-      height: defaultHeights[type] ?? 120,
+      height: fitH,
     });
 
     const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);

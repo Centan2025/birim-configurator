@@ -310,7 +310,8 @@ export function generateModuleGeometry(
     const firstBay = module.bays[0];
     if (firstBay) {
       firstBay.shelves.forEach((sh, sIdx) => {
-        const sy = plinthHeight + T + sh.elevationY;
+        const clampedElevY = Math.max(32, Math.min(Math.max(64, netH - T - 24), sh.elevationY));
+        const sy = plinthHeight + T + clampedElevY;
         components.push(
           {
             id: sh.id || `${module.id}_l_shelf_main_${sIdx}`,
@@ -337,7 +338,8 @@ export function generateModuleGeometry(
         );
       });
       firstBay.hangingRails.forEach((rl, rIdx) => {
-        const ry = plinthHeight + T + rl.elevationY;
+        const clampedRailY = Math.max(64, Math.min(Math.max(96, netH - 40), rl.elevationY));
+        const ry = plinthHeight + T + clampedRailY;
         components.push(
           {
             id: rl.id || `${module.id}_l_rail_main_${rIdx}`,
@@ -596,7 +598,8 @@ export function generateModuleGeometry(
     const firstBay = module.bays[0];
     if (firstBay) {
       firstBay.shelves.forEach((sh, sIdx) => {
-        const sy = plinthHeight + T + sh.elevationY;
+        const clampedElevY = Math.max(32, Math.min(Math.max(64, netH - T - 24), sh.elevationY));
+        const sy = plinthHeight + T + clampedElevY;
         components.push(
           {
             id: sh.id || `${module.id}_diag_shelf_main_${sIdx}`,
@@ -1114,7 +1117,7 @@ export function generateModuleGeometry(
         label: `Raf B${bayIdx + 1}-${sIdx + 1} (${shelf.isAdjustable ? "Hareketli" : "Sabit"})`,
         bayIndex: bayIdx,
         dimensions: { width: bayW - 2, height: shelfT, depth: netInnerD - 10 },
-        position: { x: bayStartX + 1, y: plinthHeight + T + shelf.elevationY, z: 20 },
+        position: { x: bayStartX + 1, y: plinthHeight + T + Math.max(24, Math.min(Math.max(48, netInnerH - shelfT - 16), shelf.elevationY)), z: 20 },
         materialId: bodyMaterialId,
         isManufacturablePanel: true,
         thicknessAxis: "y",
@@ -1152,7 +1155,7 @@ export function generateModuleGeometry(
         label: `Askı Borusu B${bayIdx + 1}-${rIdx + 1}`,
         bayIndex: bayIdx,
         dimensions: { width: bayW, height: 25, depth: 25 },
-        position: { x: bayStartX, y: plinthHeight + T + rail.elevationY, z: depth / 2 - 12 },
+        position: { x: bayStartX, y: plinthHeight + T + Math.max(48, Math.min(Math.max(80, netInnerH - 36), rail.elevationY)), z: depth / 2 - 12 },
         materialId: "mat_metal_chrome",
         isManufacturablePanel: false,
       });

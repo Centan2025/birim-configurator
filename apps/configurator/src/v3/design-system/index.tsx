@@ -450,24 +450,79 @@ export interface V3PremiumDropdownOption {
   value: string;
   label: string;
   sub?: string;
+  subLabel?: string;
   badge?: string;
+  colorHex?: string;
   icon?: React.ReactNode;
+}
+
+function renderAutoOptionVisual(opt?: V3PremiumDropdownOption) {
+  if (!opt) return null;
+  if (opt.icon) return <span className="shrink-0 text-[#2563EB]">{opt.icon}</span>;
+  const v = (opt.value || "").toLowerCase();
+  const lbl = (opt.label || "").toLowerCase();
+
+  // Auto color swatch for materials
+  const matColorMap: Record<string, string> = {
+    mat_melamine_white: "#F8FAFC",
+    mat_melamine_cashmere: "#DFD7CC",
+    mat_mdf_anthracite: "#334155",
+    mat_wood_natural_oak: "#C8A476",
+    mat_wood_smoked_walnut: "#5C4028",
+    mat_lacquer_sage: "#849B87",
+    mat_lacquer_sand: "#E2D9C8",
+    mat_glass_bronze: "#785A46",
+    mat_mirror_silver: "#CBD5E1",
+    mat_neolith_calacatta_luxe: "#F4F1EA",
+  };
+  const hex = opt.colorHex || matColorMap[v];
+  if (hex || v.startsWith("mat_")) {
+    return (
+      <span
+        className="w-5 h-5 rounded-lg border border-slate-300 shadow-inner shrink-0 inline-block"
+        style={{ backgroundColor: hex || "#E2E8F0" }}
+      />
+    );
+  }
+  if (v.includes("blum") || lbl.includes("blum")) {
+    return (
+      <span className="px-1.5 py-0.5 rounded bg-orange-50 border border-orange-200 text-[#FF5500] font-black text-[9px] shrink-0">
+        blum
+      </span>
+    );
+  }
+  if (v.includes("hafele") || lbl.includes("häfele") || lbl.includes("loox")) {
+    return (
+      <span className="px-1.5 py-0.5 rounded bg-red-50 border border-red-200 text-[#DC2626] font-extrabold text-[9px] shrink-0">
+        HÄF
+      </span>
+    );
+  }
+  return (
+    <span className="w-5 h-5 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-600 shrink-0">
+      <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <rect x="4" y="4" width="16" height="16" rx="3" />
+        <path d="M9 12h6" />
+      </svg>
+    </span>
+  );
 }
 
 export const V3PremiumDropdown: React.FC<{
   label?: string;
+  placeholder?: string;
   value: string;
   options: V3PremiumDropdownOption[];
   onChange: (value: string) => void;
   testId?: string;
-}> = ({ label, value, options, onChange, testId }) => {
+}> = ({ label, placeholder, value, options, onChange, testId }) => {
   const [open, setOpen] = React.useState(false);
   const selectedOpt = options.find((o) => o.value === value) || options[0];
 
   return (
     <div
       data-testid={testId ? `${testId}-wrapper` : undefined}
-      className="rounded-xl border border-[#CBD5E1] bg-white overflow-hidden shadow-2xs transition-all"
+      className="rounded-2xl border border-slate-300/90 bg-white/85 backdrop-blur-xl overflow-hidden shadow-xs hover:border-blue-400 transition-all duration-200"
     >
       {/* Hidden native select for automated test compatibility */}
       {testId && (
@@ -488,47 +543,50 @@ export const V3PremiumDropdown: React.FC<{
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}
-        className="w-full px-3 py-2 flex items-center justify-between gap-2 bg-[#FFFFFF] hover:bg-[#F1F5F9] text-left transition cursor-pointer"
+        className="w-full min-h-[40px] px-3 py-2 flex items-center justify-between gap-2 bg-gradient-to-b from-white to-slate-50/70 hover:from-blue-50/40 hover:to-blue-50/20 text-left transition-all duration-150 cursor-pointer active:scale-[0.99]"
       >
-        <div className="flex items-center gap-2 min-w-0">
-          {selectedOpt?.icon && (
-            <span className="shrink-0 text-[#2C2A29]">{selectedOpt.icon}</span>
-          )}
+        <div className="flex items-center gap-2.5 min-w-0">
+          {renderAutoOptionVisual(selectedOpt)}
           <div className="min-w-0">
             {label && (
-              <span className="text-xs font-semibold text-[#475569] block leading-tight mb-0.5">
+              <span className="text-[11px] font-semibold text-[#475569] block leading-tight mb-0.5">
                 {label}
               </span>
             )}
-            <span className="text-xs font-extrabold text-[#1C1917] truncate block">
-              {selectedOpt?.label || value}
+            <span className="text-xs font-extrabold text-[#111827] truncate block">
+              {selectedOpt?.label || placeholder || value}
             </span>
           </div>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
           {selectedOpt?.badge && (
-            <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-[#EBE6DC] text-[#2C2A29]">
+            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200/80">
               {selectedOpt.badge}
             </span>
           )}
-          <ChevronDown
-            className={`w-4 h-4 text-[#57534E] transition-transform duration-300 ease-out ${
-              open ? "rotate-180" : ""
-            }`}
-          />
+          <span className="w-6 h-6 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center">
+            <ChevronDown
+              className={`w-3.5 h-3.5 text-[#334155] transition-transform duration-300 ease-out ${
+                open ? "rotate-180 text-blue-600" : ""
+              }`}
+            />
+          </span>
         </div>
       </button>
 
       {/* Smooth Stretch-Down Options Drawer */}
       <div
-        className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${
-          open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0 pointer-events-none"
+        className={`grid transition-[grid-template-rows,opacity,transform] duration-250 ease-out origin-top ${
+          open
+            ? "grid-rows-[1fr] opacity-100 scale-y-100"
+            : "grid-rows-[0fr] opacity-0 scale-y-95 pointer-events-none"
         }`}
       >
         <div className="overflow-hidden">
-          <div className="p-1.5 space-y-1 border-t border-[#E2E8F0] bg-white max-h-60 overflow-y-auto">
+          <div className="p-1.5 space-y-1 border-t border-slate-200/80 bg-white/95 backdrop-blur-xl max-h-64 overflow-y-auto">
             {options.map((opt, optIdx) => {
               const isSel = opt.value === value;
+              const subTxt = opt.sub || opt.subLabel;
               return (
                 <button
                   key={`${opt.value}_${optIdx}`}
@@ -537,23 +595,23 @@ export const V3PremiumDropdown: React.FC<{
                     onChange(opt.value);
                     setOpen(false);
                   }}
-                  className={`w-full px-2.5 py-1.5 rounded-lg text-left flex items-center justify-between gap-2 transition cursor-pointer ${
+                  className={`w-full px-2.5 py-2 rounded-xl text-left flex items-center justify-between gap-2 transition-all duration-150 cursor-pointer ${
                     isSel
-                      ? "bg-[#EEF3F8] text-[#1C1917] border border-[#CBD5E1]"
-                      : "hover:bg-[#F8FAFC] text-[#1C1917]"
+                      ? "bg-blue-50/90 text-blue-950 border border-blue-400 shadow-2xs"
+                      : "hover:bg-slate-100/80 text-[#111827] border border-transparent"
                   }`}
                 >
-                  <div className="flex items-center gap-2 min-w-0">
-                    {opt.icon && <span className="shrink-0">{opt.icon}</span>}
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    {renderAutoOptionVisual(opt)}
                     <div className="min-w-0">
                       <div className="text-xs font-bold truncate">{opt.label}</div>
-                      {opt.sub && (
+                      {subTxt && (
                         <div
                           className={`text-[10px] truncate ${
-                            isSel ? "text-stone-300" : "text-[#78716C]"
+                            isSel ? "text-blue-700" : "text-[#64748B]"
                           }`}
                         >
-                          {opt.sub}
+                          {subTxt}
                         </div>
                       )}
                     </div>
@@ -561,16 +619,16 @@ export const V3PremiumDropdown: React.FC<{
                   <div className="flex items-center gap-1.5 shrink-0">
                     {opt.badge && (
                       <span
-                        className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+                        className={`text-[10px] font-mono px-1.5 py-0.5 rounded-md ${
                           isSel
-                            ? "bg-white/20 text-white"
-                            : "bg-[#F1F5F9] text-[#57534E]"
+                            ? "bg-blue-600 text-white font-bold"
+                            : "bg-[#F1F5F9] text-[#475569]"
                         }`}
                       >
                         {opt.badge}
                       </span>
                     )}
-                    {isSel && <Check className="w-3.5 h-3.5 shrink-0" />}
+                    {isSel && <Check className="w-4 h-4 text-blue-600 shrink-0" />}
                   </div>
                 </button>
               );

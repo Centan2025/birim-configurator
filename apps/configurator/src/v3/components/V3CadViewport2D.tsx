@@ -7,6 +7,9 @@ import {
   parsePdfFloorPlanMetadata,
   calculateNetInnerHeight,
   calculateBayWidths,
+  calculateFourSpaceDimensions,
+  inferDoorSystemIdFromType,
+  getModuleFrontSweepBounds,
 } from "@birim/core";
 import {
   useV3Adapter,
@@ -85,7 +88,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       redo,
     } = useV3Adapter();
 
-    const lastAccessoryDropTarget2DRef = useRef<{ bayIndex: number; elevationY: number; accessory: any } | null>(null);
+    const lastAccessoryDropTarget2DRef = useRef<{ bayIndex: number; elevationY: number; offsetX?: number; accessory: any } | null>(null);
     const [zoom, setZoom] = useState(1);
     const [panPx, setPanPx] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
     const [panning2D, setPanning2D] = useState<{
@@ -231,8 +234,28 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
     } | null>(null);
     const [activeElevSnap, setActiveElevSnap] = useState<ElevationSnapTarget | null>(null);
     const [planRowSnapBanner, setPlanRowSnapBanner] = useState<string | null>(null);
+    const [activeSpatialAlertIdx, setActiveSpatialAlertIdx] = useState<number>(0);
+    const [spatialAlertsMinimized, setSpatialAlertsMinimized] = useState<boolean>(false);
+    const [cadTextScale, setCadTextScale] = useState<number>(() => {
+      if (typeof window !== "undefined") {
+        const saved = Number(window.localStorage.getItem("birim_v4_cad_text_scale"));
+        if (saved >= 0.8 && saved <= 2.6) return saved;
+      }
+      return 1.65;
+    });
+    const updateCadTextScale = (nextVal: number) => {
+      const clamped = Math.max(0.85, Math.min(2.5, Number(nextVal.toFixed(2))));
+      setCadTextScale(clamped);
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("birim_v4_cad_text_scale", String(clamped));
+      }
+    };
     const [dragGhostPreview, setDragGhostPreview] = useState<RowSnapPreviewResult | null>(null);
     const [activePlanSnapX, setActivePlanSnapX] = useState<number | null>(null);
+    const [sectionDirection2D, setSectionDirection2D] = useState<"Z" | "X">("Z");
+    const [sectionCutRatio2D, setSectionCutRatio2D] = useState<number>(0.5);
+    const [cadDrawerTab, setCadDrawerTab] = useState<"wall" | "obstacle" | "dxf">("wall");
+    const [showWallCoordsInPill, setShowWallCoordsInPill] = useState<boolean>(false);
 
     const footprints = useMemo(
       () => project.modules.map((m, idx) => getModuleOrientedFootprint(m, idx)),
@@ -242,12 +265,338 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
     const errorModuleIds = useMemo(() => {
       const set = new Set<string>();
       validationIssues.forEach((iss) => {
-        if (iss.severity === "error" && iss.targetId) {
+        if (
+          (iss.severity === "error" ||
+            iss.code === "WARN_FRONT_OPENING_SWEEP_COLLISION") &&
+          iss.targetId
+        ) {
           set.add(iss.targetId);
+          project.modules.forEach((m) => {
+            if (iss.targetId?.includes(m.id)) {
+              set.add(m.id);
+            }
+          });
         }
       });
       return set;
-    }, [validationIssues]);
+    }, [validationIssues, project.modules]);
+
+    // Compute real-time 2D spatial/architectural intersection warnings (Window, Plumbing, Door Swing, Column, Module Overlap)
+    const liveSpatialAlerts = useMemo(() => {
+      const alerts: {
+        id: string;
+        kind: "window" | "plumbing" | "door_swing" | "column" | "module_overlap";
+        severity: "error" | "warning";
+        title: string;
+        detail: string;
+        x: number;
+        z: number;
+        y: number;
+        w: number;
+        h: number;
+        modIdx?: number;
+      }[] = [];
+
+      const isSinkCompatible = (mod: (typeof project.modules)[number]) => {
+        const lbl = `${mod.id} ${mod.name} ${mod.templateId || ""}`.toLowerCase();
+        return (
+          lbl.includes("eviye") ||
+          lbl.includes("sink") ||
+          lbl.includes("snk") ||
+          lbl.includes("ıslak") ||
+          lbl.includes("islak") ||
+          lbl.includes("tesisat") ||
+          lbl.includes("bulaşık") ||
+          lbl.includes("bulasik") ||
+          lbl.includes("dsh")
+        );
+      };
+
+      // Check each module against obstacles & side walls
+      footprints.forEach((fp, mIdx) => {
+        const mod = project.modules[mIdx];
+        if (!mod || mod.category === "complementary") return;
+        const mx1 = fp.x;
+        const mx2 = fp.x + fp.planWidth;
+        const mz1 = fp.z;
+        const mz2 = fp.z + fp.planDepth;
+        const worktopH = mod.category === "kitchen_base" ? 40 : 0;
+        const mBottomY = mod.position.y;
+        const mTopY = mod.position.y + mod.dimensions.height + worktopH;
+        const hasHingedDoor =
+          !mod.isOpenFront &&
+          mod.bays.some((b) => b.door.type !== "open" && b.door.type !== "sliding");
+        const sweepD = hasHingedDoor
+          ? Math.min(550, Math.max(320, Math.round(fp.planWidth / Math.max(1, mod.bays.length))))
+          : 0;
+
+        // Side-wall handle block check: hinged door right against X=0 or side return wall (<25mm gap)
+        if (hasHingedDoor && fp.rotationY === 0) {
+          const firstDoorDir = mod.bays[0]?.door?.direction;
+          const lastDoorDir = mod.bays[mod.bays.length - 1]?.door?.direction;
+          const hasLeftReturnWall = spaceWalls.some(
+            (w) => (w.rotationY === 90 || w.rotationY === 270) && w.position.x <= 50
+          );
+          if (hasLeftReturnWall && mx1 < 25 && (firstDoorDir === "left" || firstDoorDir === "double")) {
+            alerts.push({
+              id: `door_wall_left_${mod.id}`,
+              kind: "door_swing",
+              severity: "warning",
+              title: "🚪 KAPAK AÇILIM ENGELİ",
+              detail: `${mod.name} sol yan duvara sıfır (${mx1}mm); kulp duvara çarpar (min 35mm kör çıta önerilir)`,
+              x: mx1 + 80,
+              z: mz2 + 120,
+              y: mBottomY + mod.dimensions.height / 2,
+              w: 220,
+              h: 220,
+              modIdx: mIdx,
+            });
+          }
+          const hasRightReturnWall = spaceWalls.some(
+            (w) => (w.rotationY === 90 || w.rotationY === 270) && Math.abs(w.position.x - (spaceWalls[0]?.length || 3600)) <= 60
+          );
+          const mainLen = spaceWalls[0]?.length || 3600;
+          if (hasRightReturnWall && mainLen - mx2 >= 0 && mainLen - mx2 < 25 && (lastDoorDir === "right" || lastDoorDir === "double")) {
+            alerts.push({
+              id: `door_wall_right_${mod.id}`,
+              kind: "door_swing",
+              severity: "warning",
+              title: "🚪 KAPAK AÇILIM ENGELİ",
+              detail: `${mod.name} sağ yan duvara sıfır; kapak tam açılamaz (kör çıta önerilir)`,
+              x: mx2 - 80,
+              z: mz2 + 120,
+              y: mBottomY + mod.dimensions.height / 2,
+              w: 220,
+              h: 220,
+              modIdx: mIdx,
+            });
+          }
+        }
+
+        spaceObstacles.forEach((obs) => {
+          const oRot = (((obs.rotationY || 0) % 360) + 360) % 360;
+          const isSideObs = oRot === 90 || oRot === 270;
+          const ox1 = obs.position.x;
+          const ox2 = obs.position.x + (isSideObs ? Math.max(180, obs.dimensions.depth || 150) : obs.dimensions.width);
+          const oz1 = obs.position.z;
+          const oz2 = obs.position.z + (isSideObs ? obs.dimensions.width : Math.max(180, obs.dimensions.depth || 150));
+          const oy1 = obs.position.y;
+          const oy2 = obs.position.y + obs.dimensions.height;
+
+          const xOverlap = mx1 < ox2 - 2 && mx2 > ox1 + 2;
+          const zOverlap = isSideObs
+            ? mz1 < oz2 - 2 && mz2 > oz1 + 2 && mx1 < 260
+            : mz1 < 350;
+          const yOverlap = mBottomY < oy2 - 2 && mTopY > oy1 + 2;
+
+          // A. Window Collision
+          if (obs.type === "window" && (isSideObs ? zOverlap : xOverlap && mz1 < 350)) {
+            if (yOverlap) {
+              const overlapX1 = Math.max(mx1, ox1);
+              const overlapX2 = Math.min(mx2, ox2);
+              alerts.push({
+                id: `win_hit_${mod.id}_${obs.id}`,
+                kind: "window",
+                severity: "error",
+                title: `🪟 PENCERE KESİŞİMİ (${obs.name})`,
+                detail: `${mod.name} üst kotu (${mTopY}mm) pencere denizliğini (Y:${oy1}mm) ${mTopY - oy1}mm aşıyor!`,
+                x: Math.round((overlapX1 + overlapX2) / 2),
+                z: mz1 + fp.planDepth / 2,
+                y: oy1,
+                w: Math.max(160, overlapX2 - overlapX1),
+                h: Math.max(120, mTopY - oy1),
+                modIdx: mIdx,
+              });
+            }
+          }
+
+          // B. Plumbing Compatibility Check
+          if (obs.type === "plumbing" && xOverlap && mz1 < 350 && mBottomY < 500 && mod.category !== "kitchen_wall") {
+            if (!isSinkCompatible(mod)) {
+              alerts.push({
+                id: `plumb_incompat_${mod.id}_${obs.id}`,
+                kind: "plumbing",
+                severity: "error",
+                title: "🚰 TESİSAT UYUMSUZLUĞU!",
+                detail: `Tesisat önüne "${mod.name}" geldi! Buraya mutlaka Eviye (Sink) / tesisat uyumlu modül yerleştirilmelidir.`,
+                x: Math.round(obs.position.x + obs.dimensions.width / 2),
+                z: mz1 + fp.planDepth / 2,
+                y: oy1 + obs.dimensions.height / 2,
+                w: fp.planWidth,
+                h: mod.dimensions.height,
+                modIdx: mIdx,
+              });
+            }
+          }
+
+          // C. Architectural Room Door Swing Collision
+          if (obs.type === "door") {
+            const doorArcMaxX = isSideObs ? ox1 + obs.dimensions.width * 0.85 : ox2;
+            const doorArcMaxZ = isSideObs ? oz2 : Math.max(oz2, obs.dimensions.width * 0.85);
+            if (mx1 < doorArcMaxX - 5 && mx2 > ox1 + 5 && mz1 < doorArcMaxZ - 5 && yOverlap) {
+              alerts.push({
+                id: `room_door_hit_${mod.id}_${obs.id}`,
+                kind: "door_swing",
+                severity: "error",
+                title: `🚪 KAPI AÇILIM ENGELİ (${obs.name})`,
+                detail: `${mod.name} modülü oda kapısının 90° açılış alanını kapatıyor!`,
+                x: Math.round((Math.max(mx1, ox1) + Math.min(mx2, doorArcMaxX)) / 2),
+                z: Math.round(doorArcMaxZ * 0.5),
+                y: oy1 + 900,
+                w: obs.dimensions.width,
+                h: obs.dimensions.height,
+                modIdx: mIdx,
+              });
+            }
+          }
+
+          // D. Column / Beam / Partition Body or Cabinet Door Sweep Collision
+          if (obs.type === "column" || obs.type === "beam" || obs.type === "partition" || obs.type === "protrusion") {
+            const bodyZHit = mz1 < oz2 - 2 && mz2 > oz1 + 2;
+            const sweepZHit = hasHingedDoor && mz2 + sweepD > oz1 + 2 && mz1 < oz2 - 2;
+            if (xOverlap && bodyZHit && yOverlap) {
+              alerts.push({
+                id: `col_hit_${mod.id}_${obs.id}`,
+                kind: "column",
+                severity: "error",
+                title: `🏛️ ${obs.name.toUpperCase()} ÇAKIŞMASI`,
+                detail: `${mod.name} gövdesi ${obs.name} ile iç içe geçiyor!`,
+                x: Math.round(obs.position.x + obs.dimensions.width / 2),
+                z: Math.round(obs.position.z + (obs.dimensions.depth || 250) / 2),
+                y: mBottomY + mod.dimensions.height / 2,
+                w: obs.dimensions.width,
+                h: mod.dimensions.height,
+                modIdx: mIdx,
+              });
+            } else if (xOverlap && sweepZHit && yOverlap) {
+              alerts.push({
+                id: `col_door_hit_${mod.id}_${obs.id}`,
+                kind: "door_swing",
+                severity: "error",
+                title: `🚪 KAPAK AÇILIM ENGELİ (${obs.name})`,
+                detail: `${mod.name} kapağı açılırken ${obs.name} engeline çarpıyor!`,
+                x: Math.round(obs.position.x + obs.dimensions.width / 2),
+                z: mz2 + Math.round(sweepD * 0.5),
+                y: mBottomY + mod.dimensions.height / 2,
+                w: obs.dimensions.width,
+                h: mod.dimensions.height,
+                modIdx: mIdx,
+              });
+            }
+          }
+        });
+      });
+
+      // Check unassigned plumbing points (plumbing with no floor module in front of it)
+      spaceObstacles
+        .filter((o) => o.type === "plumbing")
+        .forEach((plumb) => {
+          const px1 = plumb.position.x;
+          const px2 = plumb.position.x + plumb.dimensions.width;
+          const hasCoveringMod = footprints.some((fp, idx) => {
+            const m = project.modules[idx];
+            return (
+              m &&
+              m.category !== "complementary" &&
+              m.category !== "kitchen_wall" &&
+              m.position.y < 500 &&
+              fp.z < 350 &&
+              fp.x < px2 - 2 &&
+              fp.x + fp.planWidth > px1 + 2
+            );
+          });
+          if (!hasCoveringMod) {
+            alerts.push({
+              id: `plumb_unassigned_${plumb.id}`,
+              kind: "plumbing",
+              severity: "warning",
+              title: "🚰 AÇIKTA TESİSAT AKSI",
+              detail: `X:${Math.round(px1 + plumb.dimensions.width / 2)}mm tesisat önünde Eviye (Sink) modülü yok!`,
+              x: Math.round(px1 + plumb.dimensions.width / 2),
+              z: 220,
+              y: plumb.position.y + plumb.dimensions.height / 2,
+              w: plumb.dimensions.width,
+              h: plumb.dimensions.height,
+            });
+          }
+        });
+
+      // Check Module-to-Module Body Overlap & Door-Swing Sweep Collision
+      for (let i = 0; i < footprints.length; i++) {
+        for (let j = i + 1; j < footprints.length; j++) {
+          const f1 = footprints[i];
+          const f2 = footprints[j];
+          const m1 = project.modules[i];
+          const m2 = project.modules[j];
+          if (!m1 || !m2 || m1.category === "complementary" || m2.category === "complementary") continue;
+          const yHit =
+            m1.position.y < m2.position.y + m2.dimensions.height - 2 &&
+            m1.position.y + m1.dimensions.height > m2.position.y + 2;
+          if (!yHit) continue;
+
+          const xHit = f1.x < f2.x + f2.planWidth - 4 && f1.x + f1.planWidth > f2.x + 4;
+          const zHit = f1.z < f2.z + f2.planDepth - 4 && f1.z + f1.planDepth > f2.z + 4;
+          if (xHit && zHit) {
+            alerts.push({
+              id: `mod_overlap_${m1.id}_${m2.id}`,
+              kind: "module_overlap",
+              severity: "error",
+              title: "⚠️ MODÜL ÇAKIŞMASI",
+              detail: `#${i + 1} ${m1.name} ile #${j + 1} ${m2.name} üst üste biniyor!`,
+              x: Math.round((Math.max(f1.x, f2.x) + Math.min(f1.x + f1.planWidth, f2.x + f2.planWidth)) / 2),
+              z: Math.round((Math.max(f1.z, f2.z) + Math.min(f1.z + f1.planDepth, f2.z + f2.planDepth)) / 2),
+              y: Math.max(m1.position.y, m2.position.y) + 400,
+              w: Math.max(120, Math.min(f1.x + f1.planWidth, f2.x + f2.planWidth) - Math.max(f1.x, f2.x)),
+              h: 600,
+              modIdx: i,
+            });
+            continue;
+          }
+
+          // Check Door Opening Sweep Collision between m1 and m2
+          const s1 = getModuleFrontSweepBounds(m1);
+          const s2 = getModuleFrontSweepBounds(m2);
+          const s1HitsM2 =
+            s1 &&
+            s1.minX < f2.x + f2.planWidth - 4 &&
+            s1.maxX > f2.x + 4 &&
+            s1.minZ < f2.z + f2.planDepth - 4 &&
+            s1.maxZ > f2.z + 4;
+          const s2HitsM1 =
+            s2 &&
+            s2.minX < f1.x + f1.planWidth - 4 &&
+            s2.maxX > f1.x + 4 &&
+            s2.minZ < f1.z + f1.planDepth - 4 &&
+            s2.maxZ > f1.z + 4;
+          const sweepsCollide =
+            s1 &&
+            s2 &&
+            f1.rotationY !== f2.rotationY &&
+            s1.minX < s2.maxX - 4 &&
+            s1.maxX > s2.minX + 4 &&
+            s1.minZ < s2.maxZ - 4 &&
+            s1.maxZ > s2.minZ + 4;
+
+          if (s1HitsM2 || s2HitsM1 || sweepsCollide) {
+            alerts.push({
+              id: `door_sweep_${m1.id}_${m2.id}`,
+              kind: "door_swing",
+              severity: "warning",
+              title: "🚪 KAPAK AÇILIM ÇAKIŞMASI",
+              detail: `#${i + 1} ${m1.name} ve #${j + 1} ${m2.name} kapak açılış yönleri birbirini engelliyor!`,
+              x: Math.round((f1.x + f1.planWidth / 2 + f2.x + f2.planWidth / 2) / 2),
+              z: Math.max(f1.z + f1.planDepth, f2.z + f2.planDepth) + 120,
+              y: Math.max(m1.position.y, m2.position.y) + 450,
+              w: 260,
+              h: 260,
+              modIdx: i,
+            });
+          }
+        }
+      }
+
+      return alerts;
+    }, [footprints, project.modules, spaceObstacles, spaceWalls]);
 
     const handleDeleteSelectedObject = useCallback(() => {
       if (!selectedPlanObject) {
@@ -552,12 +901,14 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         ...footprints.map((fp) => fp.z + fp.planDepth + 520)
       );
 
-      const pad = 360;
+      const padX = 400;
+      const padTop = 420;
+      const padBottom = 420;
       const computedVb = {
-        x: -pad,
-        y: -pad,
-        width: totalModExtentX + pad * 2,
-        height: maxDepthZ + pad * 2,
+        x: -padX,
+        y: -padTop,
+        width: totalModExtentX + padX * 2,
+        height: maxDepthZ + padTop + padBottom,
       };
       const isAnyPlanDragActive =
         draggingModIdx !== null ||
@@ -568,6 +919,10 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         lockedPlanVbRef.current = computedVb;
       }
       const vb = lockedPlanVbRef.current;
+      // Goldilocks Midpoint CAD Scale: ts ≈ 1.85x at default (cadTextScale = 1.65), halfway between tiny (1.0x) and huge (2.97x)
+      const baseVbScale = Math.max(1.05, Math.min(1.35, vb.width / 3800));
+      const zoomCompScale = Math.max(0.78, Math.min(1.28, 1 / Math.pow(Math.max(0.5, zoom), 0.38)));
+      const ts = Number((baseVbScale * zoomCompScale * cadTextScale).toFixed(2));
 
       const clientToSvgRawMm = (svgEl: SVGSVGElement, clientX: number, clientY: number) => {
         try {
@@ -699,7 +1054,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       };
 
       const handleModPointerDown = (e: React.MouseEvent, idx: number) => {
-        if (isDrawingWall || isPlacingObstacle) return;
+        if (e.button !== 0 || isDrawingWall || isPlacingObstacle) return;
         e.stopPropagation();
         const mod = project.modules[idx];
         if (mod) {
@@ -726,7 +1081,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       };
 
       const handleObstaclePointerDown = (e: React.MouseEvent, obs: ArchitecturalElement) => {
-        if (isDrawingWall || isPlacingObstacle) return;
+        if (e.button !== 0 || isDrawingWall || isPlacingObstacle) return;
         e.stopPropagation();
         setSelectedPlanObject({ kind: "obstacle", id: obs.id });
         beginHistoryTransaction();
@@ -743,7 +1098,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         e: React.MouseEvent,
         wall: (typeof spaceWalls)[number]
       ) => {
-        if (isDrawingWall || isPlacingObstacle) return;
+        if (e.button !== 0 || isDrawingWall || isPlacingObstacle) return;
         e.stopPropagation();
         setSelectedPlanObject({ kind: "wall", id: wall.id });
         beginHistoryTransaction();
@@ -822,8 +1177,8 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       };
 
       const handleSvgContextMenu = (e: React.MouseEvent<SVGSVGElement>) => {
+        e.preventDefault();
         if (isDrawingWall || isPlacingObstacle) {
-          e.preventDefault();
           setDrawWallStart(null);
           setDrawWallCursor(null);
           setChainOriginPoint(null);
@@ -1210,6 +1565,39 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             }
           });
         }
+        // Smart L/U Wall Auto-Rotate on Side-Wall Snap (Automatically rotates 0° <-> 90° when dragged onto a side wall or back to main wall)
+        if (dragMod && useMagnet) {
+          const curRot = (((dragMod.rotation?.y || 0) % 360) + 360) % 360;
+          const hasSideWallLeft =
+            spaceWalls.some((w) => (((w.rotationY || 0) % 360) + 360) % 360 === 90 && w.position.x <= 80) ||
+            rawNextZ >= 360;
+          const rightWall = spaceWalls.find(
+            (w) => (((w.rotationY || 0) % 360) + 360) % 360 === 90 && w.position.x >= mainWall.length - 150
+          );
+
+          if (curRot === 0 && rawNextZ >= 340 && rawNextX <= 85 && hasSideWallLeft) {
+            if (draggingModIdx !== activeModuleIndex) setActiveModuleIndex(draggingModIdx);
+            rotateActiveModule90(90);
+            nextX = 0;
+            activeSnapMsg = "🔄🧲 Sol Yan Duvara Otomatik 90° Döndü ve Yapıştı (X: 0mm)";
+          } else if (
+            curRot === 0 &&
+            rawNextZ >= 340 &&
+            rightWall &&
+            Math.abs(rawNextX + (footprints[draggingModIdx]?.planWidth || dragMod.dimensions.width) - rightWall.position.x) <= 95
+          ) {
+            if (draggingModIdx !== activeModuleIndex) setActiveModuleIndex(draggingModIdx);
+            rotateActiveModule90(270);
+            nextX = Math.max(0, rightWall.position.x - dragMod.dimensions.depth);
+            activeSnapMsg = "🔄🧲 Sağ Yan Duvara Otomatik 270° Döndü ve Yapıştı";
+          } else if ((curRot === 90 || curRot === 270) && rawNextZ <= 75 && rawNextX >= 140) {
+            if (draggingModIdx !== activeModuleIndex) setActiveModuleIndex(draggingModIdx);
+            rotateActiveModule90(curRot === 90 ? -90 : -270);
+            nextZ = 0;
+            activeSnapMsg = "🔄🧲 Ana Duvara Otomatik 0° Döndü ve Hizalandı (Z: 0mm)";
+          }
+        }
+
         setActivePlanSnapX(snappedEdgeX);
         setPlanRowSnapBanner(activeSnapMsg);
         setModulePosition(draggingModIdx, nextX, nextZ, useMagnet ? (activeSnapMsg ? 1 : 10) : 1);
@@ -1367,19 +1755,296 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
           onDrop={handlePlanDrop}
           className="relative w-full h-full bg-[#E2DED5] overflow-hidden select-none flex flex-col"
         >
-          {planRowSnapBanner && (
-            <div
-              data-testid="plan-row-snap-banner"
-              className="absolute top-16 left-1/2 -translate-x-1/2 z-30 pointer-events-none px-4 py-1.5 rounded-xl bg-[#F1F5F9] text-[#5C4018] text-white border-2 border-amber-200 shadow-lg font-mono text-xs font-extrabold"
-            >
-              {planRowSnapBanner}
-            </div>
-          )}
-          {/* Inline Wall Dimension Click-to-Edit Popover */}
+          {/* SINGLE-CARD CAROUSEL & MINIMIZABLE SPATIAL WARNING BAR (Never stacks vertically, never sits under top module dock) */}
+          {liveSpatialAlerts.length > 0 && (() => {
+            const safeIdx = Math.min(activeSpatialAlertIdx, liveSpatialAlerts.length - 1);
+            const al = liveSpatialAlerts[safeIdx];
+            const totalAlerts = liveSpatialAlerts.length;
+
+            const handleAutoFixAllAlerts = (e: React.MouseEvent) => {
+              e.stopPropagation();
+              let curX = 50; // 50mm sol kör çıta payı
+              const winObs = spaceObstacles.find((o) => o.type === "window");
+              project.modules.forEach((m, mIdx) => {
+                if (m.category === "complementary") return;
+                const colObs = spaceObstacles.find(
+                  (o) =>
+                    (o.type === "column" || o.type === "beam") &&
+                    curX < o.position.x + o.dimensions.width &&
+                    curX + m.dimensions.width > o.position.x
+                );
+                if (colObs) {
+                  curX = colObs.position.x + colObs.dimensions.width + 15;
+                }
+                setModulePosition(mIdx, curX, m.position.z, 1);
+                if (
+                  winObs &&
+                  curX < winObs.position.x + winObs.dimensions.width &&
+                  curX + m.dimensions.width > winObs.position.x &&
+                  m.dimensions.height > winObs.position.y
+                ) {
+                  const safeH = Math.max(450, winObs.position.y - 10);
+                  resizeModuleParametric(mIdx, m.dimensions.width, undefined, undefined, safeH);
+                }
+                curX += m.dimensions.width;
+              });
+              setPlanRowSnapBanner("✨ Tüm çakışma, kolon, pencere ve kör çıta uyarıları tek tıkla otomatik çözüldü!");
+              setTimeout(() => setPlanRowSnapBanner(null), 3500);
+            };
+
+            return (
+              <div
+                data-testid="plan-live-spatial-warnings"
+                className="shrink-0 w-full z-20 px-2.5 py-1.5 bg-slate-900/95 border-b border-red-500/60 pointer-events-auto"
+              >
+                {spatialAlertsMinimized ? (
+                  /* Ultra-Compact Single-Line Pill Mode */
+                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-2xl bg-slate-900/92 backdrop-blur-xl text-white border border-red-400/90 shadow-lg text-[11px]">
+                    <span className="font-extrabold text-red-300 whitespace-nowrap">
+                      ⚠️ {totalAlerts} Çakışma
+                    </span>
+                    <button
+                      type="button"
+                      data-testid="plan-autofix-all-minimized-btn"
+                      onClick={handleAutoFixAllAlerts}
+                      className="px-2 py-0.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-[10px] whitespace-nowrap cursor-pointer transition"
+                    >
+                      🪄 Tümünü Çöz
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="plan-alert-expand-btn"
+                      onClick={() => setSpatialAlertsMinimized(false)}
+                      className="px-1.5 py-0.5 rounded-lg bg-white/15 hover:bg-white/25 text-white font-bold text-[10px] cursor-pointer transition"
+                      title="Uyarı detayını göster"
+                    >
+                      Aç ▾
+                    </button>
+                  </div>
+                ) : (
+                  /* Single-Card Carousel Mode (Shows 1 alert at a time with Prev/Next & Auto-Fix) */
+                  <div
+                    key={al.id}
+                    onClick={() => {
+                      if (typeof al.modIdx === "number") {
+                        setActiveModuleIndex(al.modIdx);
+                      }
+                    }}
+                    className={`px-3 py-2 rounded-2xl backdrop-blur-xl border shadow-xl text-[11px] leading-snug transition ${
+                      al.severity === "error"
+                        ? "bg-slate-900/92 text-white border-red-400/90 ring-1 ring-red-500/30"
+                        : "bg-slate-900/92 text-amber-50 border-amber-400/90 ring-1 ring-amber-500/30"
+                    }`}
+                  >
+                    {/* Carousel Header: Alert Count + Prev/Next Stepper + Fix All + Minimize */}
+                    <div className="flex items-center justify-between gap-1.5 pb-1.5 mb-1.5 border-b border-white/15">
+                      <div className="flex items-center gap-1">
+                        <span className="px-1.5 py-0.5 rounded bg-red-500/30 text-red-200 font-black text-[10px] whitespace-nowrap">
+                          ⚠️ {safeIdx + 1}/{totalAlerts} Uyarı
+                        </span>
+                        {totalAlerts > 1 && (
+                          <div className="inline-flex items-center bg-white/10 rounded-lg p-0.5">
+                            <button
+                              type="button"
+                              data-testid="plan-alert-prev-btn"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveSpatialAlertIdx((prev) => (prev - 1 + totalAlerts) % totalAlerts);
+                              }}
+                              title="Önceki Uyarı"
+                              className="px-1.5 py-0.2 rounded hover:bg-white/20 text-white font-bold text-[10px] cursor-pointer"
+                            >
+                              ‹
+                            </button>
+                            <button
+                              type="button"
+                              data-testid="plan-alert-next-btn"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveSpatialAlertIdx((prev) => (prev + 1) % totalAlerts);
+                              }}
+                              title="Sonraki Uyarı"
+                              className="px-1.5 py-0.2 rounded hover:bg-white/20 text-white font-bold text-[10px] cursor-pointer"
+                            >
+                              ›
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-1">
+                        {totalAlerts > 1 && (
+                          <button
+                            type="button"
+                            data-testid="plan-autofix-all-btn"
+                            onClick={handleAutoFixAllAlerts}
+                            className="px-1.5 py-0.5 rounded-md bg-emerald-500/25 hover:bg-emerald-500/40 text-emerald-200 border border-emerald-400/40 font-extrabold text-[9px] whitespace-nowrap cursor-pointer transition"
+                            title="Tüm çakışmaları tek tıkla otomatik çöz"
+                          >
+                            🪄 Tümünü Çöz
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          data-testid="plan-alert-minimize-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSpatialAlertsMinimized(true);
+                          }}
+                          className="px-1.5 py-0.5 rounded-md bg-white/10 hover:bg-white/20 text-slate-200 font-bold text-[9px] cursor-pointer transition"
+                          title="Uyarı kartını tek satıra küçült"
+                        >
+                          Küçült ▴
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Active Alert Title & Detail */}
+                    <div className="font-extrabold flex items-center justify-between gap-2">
+                      <span className="truncate">{al.title}</span>
+                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-white/15 shrink-0">
+                        X:{al.x}mm
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-slate-200 mt-0.5 line-clamp-2">{al.detail}</div>
+
+                    {/* 1-Click Auto-Resolve Actions for Active Alert */}
+                    <div className="mt-1.5 pt-1.5 border-t border-white/15 flex flex-wrap items-center gap-1.5">
+                      {al.kind === "window" && typeof al.modIdx === "number" && (
+                        <>
+                          <button
+                            type="button"
+                            data-testid={`plan-autofix-win-move-${al.id}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const targetMod = project.modules[al.modIdx!];
+                              const winObs = spaceObstacles.find((o) => o.type === "window");
+                              if (targetMod && winObs) {
+                                const rightCandidateX = winObs.position.x + winObs.dimensions.width + 20;
+                                const leftCandidateX = Math.max(0, winObs.position.x - targetMod.dimensions.width - 20);
+                                const nextX =
+                                  rightCandidateX + targetMod.dimensions.width <= mainWall.length
+                                    ? rightCandidateX
+                                    : leftCandidateX;
+                                setModulePosition(al.modIdx!, nextX, targetMod.position.z, 1);
+                                setPlanRowSnapBanner(`✨ "${targetMod.name}" pencere açıklığının yanına (X:${nextX}mm) kaydırıldı`);
+                                setTimeout(() => setPlanRowSnapBanner(null), 3000);
+                              }
+                            }}
+                            className="px-2 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-[10px] inline-flex items-center gap-1 cursor-pointer transition active:scale-95"
+                          >
+                            <span>🪄</span>
+                            <span>Pencere Kenarına Kaydır</span>
+                          </button>
+                          <button
+                            type="button"
+                            data-testid={`plan-autofix-win-lower-${al.id}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const targetMod = project.modules[al.modIdx!];
+                              const winObs = spaceObstacles.find((o) => o.type === "window");
+                              if (targetMod && winObs) {
+                                const safeH = Math.max(450, winObs.position.y - (targetMod.category === "kitchen_base" ? 40 : 0) - 10);
+                                resizeModuleParametric(al.modIdx!, targetMod.dimensions.width, undefined, undefined, safeH);
+                                setPlanRowSnapBanner(`✨ "${targetMod.name}" yüksekliği pencere denizlik altına (${safeH}mm) indirildi`);
+                                setTimeout(() => setPlanRowSnapBanner(null), 3000);
+                              }
+                            }}
+                            className="px-2 py-1 rounded-lg bg-white/15 hover:bg-white/25 text-white font-bold text-[10px] inline-flex items-center gap-1 cursor-pointer transition"
+                          >
+                            <span>↕ Denizlik Altına İndir</span>
+                          </button>
+                        </>
+                      )}
+
+                      {al.kind === "plumbing" && (
+                        <button
+                          type="button"
+                          data-testid={`plan-autofix-plumbing-${al.id}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const plumbObs = spaceObstacles.find((o) => o.type === "plumbing");
+                            if (typeof al.modIdx === "number") {
+                              setActiveModuleIndex(al.modIdx);
+                              dropV4TemplateWithSnap("tpl_kb_06_sink_double_door", plumbObs ? plumbObs.position.x : al.x);
+                              setPlanRowSnapBanner("✨ Tesisat önüne uyumlu Eviye (Sink) Alt Modülü yerleştirildi");
+                              setTimeout(() => setPlanRowSnapBanner(null), 3000);
+                            } else if (plumbObs) {
+                              dropV4TemplateWithSnap("tpl_kb_06_sink_double_door", Math.max(0, plumbObs.position.x - 200));
+                              setPlanRowSnapBanner("✨ Açıkta kalan tesisat aksına Eviye (Sink) Alt Modülü eklendi");
+                              setTimeout(() => setPlanRowSnapBanner(null), 3000);
+                            }
+                          }}
+                          className="px-2 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-[10px] inline-flex items-center gap-1 cursor-pointer transition active:scale-95"
+                        >
+                          <span>🪄</span>
+                          <span>Tesisat Önüne Eviye Modülü Yerleştir</span>
+                        </button>
+                      )}
+
+                      {al.kind === "door_swing" && typeof al.modIdx === "number" && (
+                        <button
+                          type="button"
+                          data-testid={`plan-autofix-doorswing-${al.id}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const targetMod = project.modules[al.modIdx!];
+                            setActiveModuleIndex(al.modIdx!);
+                            if (targetMod && targetMod.position.x < 50) {
+                              setModulePosition(al.modIdx!, 50, targetMod.position.z, 1);
+                            }
+                            setPlanRowSnapBanner("✨ 50mm Kör Çıta (Duvar Açılım Payı) bırakılarak kapak sıkışması giderildi");
+                            setTimeout(() => setPlanRowSnapBanner(null), 3000);
+                          }}
+                          className="px-2 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-[10px] inline-flex items-center gap-1 cursor-pointer transition active:scale-95"
+                        >
+                          <span>🪄</span>
+                          <span>50mm Kör Çıta Payı Bırak & Çöz</span>
+                        </button>
+                      )}
+
+                      {(al.kind === "module_overlap" || al.kind === "column") && typeof al.modIdx === "number" && (
+                        <button
+                          type="button"
+                          data-testid={`plan-autofix-overlap-${al.id}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            let curX = 0;
+                            project.modules.forEach((m, mIdx) => {
+                              if (m.category === "complementary") return;
+                              const colObs = spaceObstacles.find(
+                                (o) =>
+                                  (o.type === "column" || o.type === "beam") &&
+                                  curX < o.position.x + o.dimensions.width &&
+                                  curX + m.dimensions.width > o.position.x
+                              );
+                              if (colObs) {
+                                curX = colObs.position.x + colObs.dimensions.width + 10;
+                              }
+                              setModulePosition(mIdx, curX, m.position.z, 1);
+                              curX += m.dimensions.width;
+                            });
+                            setPlanRowSnapBanner("✨ Modüller çakışmayacak şekilde sırayla duvara dizildi");
+                            setTimeout(() => setPlanRowSnapBanner(null), 3000);
+                          }}
+                          className="px-2 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-[10px] inline-flex items-center gap-1 cursor-pointer transition active:scale-95"
+                        >
+                          <span>🪄</span>
+                          <span>Çakışmayı Otomatik Ayır & Hizala</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+                    {/* Inline Wall Dimension Click-to-Edit Popover */}
           {inlineEditWallId && (
             <div
               data-testid="plan-inline-wall-dim-editor"
-              className="absolute top-14 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 bg-white px-3.5 py-2 rounded-2xl border-2 border-[#2563EB] shadow-xl text-xs"
+              className="absolute top-14 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 bg-white/95 backdrop-blur-xl px-3.5 py-2 rounded-2xl border-2 border-[#2563EB] shadow-xl text-xs"
             >
               <span className="font-bold text-[#111827]">Duvar Ölçüsü (mm):</span>
               <input
@@ -1429,411 +2094,146 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             </div>
           )}
 
-          {/* Bottom Room, Wall, Obstacle, Freehand Wall & DWG/DXF/PDF Floorplan Bar (Collapsible CAD drawer, always in DOM for tests) */}
-          <div
-            data-testid="plan-room-architecture-bar"
-            className={`absolute bottom-14 left-4 right-4 z-20 flex flex-wrap items-center gap-2 bg-white/95 backdrop-blur-md px-3 py-2 rounded-xl border border-stone-200 shadow-md text-[11px] text-stone-700 transition-opacity ${
-              showAdvancedCadBar || isDrawingWall || isPlacingObstacle || selectedPlanObject
-                ? "opacity-100"
-                : "opacity-0 pointer-events-none h-0 overflow-hidden py-0 border-0"
-            }`}
-          >
-            {/* 0. Undo / Redo (Ctrl+Z / Ctrl+Y) */}
-            <div className="flex items-center gap-1 pr-2 border-r border-stone-200">
-              <button
-                type="button"
-                data-testid="plan-undo-btn"
-                onClick={undo}
-                className="px-2 py-1 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-800 font-semibold cursor-pointer"
-                title="Geri Al (Ctrl+Z)"
+          {/* UNIFIED NON-OVERLAPPING BOTTOM DOCK STACK (Snap Toast + Selected Object Pill + CAD Drawer + Scale Bar) */}
+          <div className="absolute bottom-2.5 left-2 right-2 z-20 flex flex-col items-center gap-1.5 pointer-events-none">
+            {/* 0. Snap / Action Toast Banner */}
+            {planRowSnapBanner && (
+              <div
+                data-testid="plan-row-snap-banner"
+                className="pointer-events-none max-w-[calc(100%-16px)] px-3.5 py-1.5 rounded-2xl bg-slate-900/92 backdrop-blur-xl text-white border border-emerald-400/80 shadow-xl ring-1 ring-black/15 font-mono text-xs font-bold flex items-center gap-2 truncate"
               >
-                ↶ Geri Al (Ctrl+Z)
-              </button>
-              <button
-                type="button"
-                data-testid="plan-redo-btn"
-                onClick={redo}
-                className="px-2 py-1 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-800 font-semibold cursor-pointer"
-                title="İleri Al (Ctrl+Y)"
-              >
-                ↷
-              </button>
-            </div>
-
-            {/* 1. Room & Wall Dimensions */}
-            <div className="flex items-center gap-1.5 pr-2 border-r border-stone-200">
-              <span className="font-semibold text-stone-800">Oda/Duvar:</span>
-              <label className="flex items-center gap-1 text-stone-600">
-                <span>Boy</span>
-                <input
-                  data-testid="plan-wall-length-input"
-                  type="number"
-                  min={800}
-                  max={12000}
-                  step={100}
-                  value={mainWall.length}
-                  onChange={(e) =>
-                    setRoomDimensions(
-                      Number(e.target.value) || 3600,
-                      project.space.ceilingHeight || 2600
-                    )
-                  }
-                  className="w-16 px-1.5 py-0.5 rounded border border-stone-300 font-mono text-[11px] text-stone-900"
-                />
-              </label>
-              <label className="flex items-center gap-1 text-stone-600">
-                <span>Tavan</span>
-                <input
-                  data-testid="plan-ceiling-height-input"
-                  type="number"
-                  min={1800}
-                  max={5000}
-                  step={50}
-                  value={project.space.ceilingHeight || 2600}
-                  onChange={(e) =>
-                    setRoomDimensions(
-                      mainWall.length,
-                      Number(e.target.value) || 2600
-                    )
-                  }
-                  className="w-16 px-1.5 py-0.5 rounded border border-stone-300 font-mono text-[11px] text-stone-900"
-                />
-              </label>
-            </div>
-
-            {/* 2. Continuous Freehand Wall Drawing + Snap */}
-            <div className="flex items-center gap-1.5 pr-2 border-r border-stone-200">
-              <button
-                type="button"
-                data-testid="plan-draw-wall-toggle"
-                onClick={() => {
-                  setIsDrawingWall((v) => !v);
-                  setIsPlacingObstacle(false);
-                  setDrawWallStart(null);
-                  setDrawWallCursor(null);
-                  setChainOriginPoint(null);
-                  setActiveSnapTarget(null);
-                }}
-                className={`px-2.5 py-1 rounded-lg font-semibold transition cursor-pointer ${
-                  isDrawingWall
-                    ? "bg-amber-600 text-white shadow-xs"
-                    : "bg-stone-100 hover:bg-stone-200 text-stone-800"
-                }`}
-              >
-                {isDrawingWall
-                  ? drawWallStart
-                    ? "🔗 Zincir Çiziliyor (Sonraki Nokta)..."
-                    : "1. Başlangıç Noktasını Tıklayın..."
-                  : "✏️ Devamlı Duvar Çiz (Snap)"}
-              </button>
-              {isDrawingWall && drawWallStart && (
-                <button
-                  type="button"
-                  data-testid="plan-finish-wall-chain-btn"
-                  onClick={() => {
-                    setDrawWallStart(null);
-                    setDrawWallCursor(null);
-                    setChainOriginPoint(null);
-                    setActiveSnapTarget(null);
-                  }}
-                  className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-[#E5EFEA] text-[#1E3F2F] text-white font-semibold cursor-pointer"
-                  title="Mevcut duvar zincirini sonlandır (Esc / Sağ Tık)"
-                >
-                  ✓ Zinciri Bitir (Esc)
-                </button>
-              )}
-              {spaceWalls.length > 1 && (
-                <button
-                  type="button"
-                  data-testid="plan-remove-last-wall-btn"
-                  onClick={() => removeWallSegment(spaceWalls[spaceWalls.length - 1].id)}
-                  className="px-2 py-1 rounded-lg bg-stone-100 hover:bg-red-50 text-stone-600 hover:text-red-700 cursor-pointer"
-                  title="Son eklenen duvarı sil"
-                >
-                  Duvar Sil ({spaceWalls.length})
-                </button>
-              )}
-            </div>
-
-            {/* 3. Architectural Obstacle Adder + Visual Icon Buttons + Target Wall / X-Z / Click-on-Map Placement */}
-            <div className="flex items-center gap-1.5 pr-2 border-r border-stone-200 flex-wrap">
-              <div className="inline-flex items-center gap-0.5 bg-stone-100 p-0.5 rounded-lg border border-stone-200">
-                {[
-                  { id: "plumbing", icon: "🚰", label: "Tesisat" },
-                  { id: "electrical", icon: "⚡", label: "Priz" },
-                  { id: "window", icon: "🪟", label: "Pencere" },
-                  { id: "door", icon: "🚪", label: "Kapı" },
-                  { id: "column", icon: "🏛️", label: "Kolon" },
-                  { id: "beam", icon: "🧱", label: "Kiriş" },
-                ].map((ot) => (
-                  <button
-                    key={ot.id}
-                    type="button"
-                    data-testid={`plan-obs-quick-${ot.id}`}
-                    onClick={() => {
-                      const t = ot.id as ArchitecturalElement["type"];
-                      setNewObstacleType(t);
-                      if (t === "window") {
-                        setNewObstacleW(950);
-                        setNewObstacleH(1100);
-                        setNewObstacleY(1000);
-                      } else if (t === "door") {
-                        setNewObstacleW(900);
-                        setNewObstacleH(2100);
-                        setNewObstacleY(0);
-                      } else if (t === "plumbing") {
-                        setNewObstacleW(200);
-                        setNewObstacleH(250);
-                        setNewObstacleY(450);
-                      } else if (t === "electrical") {
-                        setNewObstacleW(160);
-                        setNewObstacleH(160);
-                        setNewObstacleY(1150);
-                      } else if (t === "column") {
-                        setNewObstacleW(250);
-                        setNewObstacleH(2600);
-                        setNewObstacleY(0);
-                      } else if (t === "beam") {
-                        setNewObstacleW(300);
-                        setNewObstacleH(300);
-                        setNewObstacleY((project.space.ceilingHeight || 2600) - 300);
-                      }
-                    }}
-                    className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold flex items-center gap-1 transition cursor-pointer ${
-                      newObstacleType === ot.id
-                        ? "bg-[#F1F5F9] text-[#5C4018] text-white shadow-2xs"
-                        : "text-stone-700 hover:bg-white"
-                    }`}
-                    title={`${ot.label} seç`}
-                  >
-                    <span>{ot.icon}</span>
-                    <span>{ot.label}</span>
-                  </button>
-                ))}
+                <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+                <span className="truncate">{planRowSnapBanner}</span>
               </div>
-              <select
-                data-testid="plan-obstacle-type-select"
-                value={newObstacleType}
-                onChange={(e) =>
-                  setNewObstacleType(e.target.value as ArchitecturalElement["type"])
-                }
-                className="px-1.5 py-0.5 rounded border border-stone-300 bg-white text-[11px] font-medium text-stone-800"
-              >
-                <option value="column">Kolon</option>
-                <option value="window">Pencere</option>
-                <option value="door">Kapı</option>
-                <option value="beam">Kiriş</option>
-                <option value="plumbing">Tesisat</option>
-                <option value="electrical">Elektrik Prizi (Y:1150mm)</option>
-              </select>
-              <select
-                data-testid="plan-obstacle-wall-select"
-                value={obstacleTargetWallId}
-                onChange={(e) => setObstacleTargetWallId(e.target.value)}
-                className="px-1.5 py-0.5 rounded border border-stone-300 bg-white text-[11px] text-stone-700"
-                title="Engelin ekleneceği duvar veya serbest koordinat"
-              >
-                {spaceWalls.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    📍 {w.name}
-                  </option>
-                ))}
-                <option value="custom_xz">📍 Serbest (X, Z)</option>
-              </select>
-              <input
-                data-testid="plan-obstacle-x-input"
-                type="number"
-                step={50}
-                value={newObstacleX}
-                onChange={(e) => setNewObstacleX(Number(e.target.value) || 0)}
-                className="w-14 px-1.5 py-0.5 rounded border border-stone-300 font-mono text-[11px]"
-                title="Duvar boyunca mesafe veya X konumu (mm)"
-              />
-              {obstacleTargetWallId === "custom_xz" && (
-                <input
-                  data-testid="plan-obstacle-z-input"
-                  type="number"
-                  step={50}
-                  value={newObstacleZ}
-                  onChange={(e) => setNewObstacleZ(Number(e.target.value) || 0)}
-                  className="w-14 px-1.5 py-0.5 rounded border border-stone-300 font-mono text-[11px]"
-                  title="Engel Z derinlik konumu (mm)"
-                />
-              )}
-              <label className="flex items-center gap-0.5 text-[10px]" title="Genişlik (W mm)">
-                <span>En(W):</span>
-                <input
-                  data-testid="plan-obstacle-width-input"
-                  type="number"
-                  step={50}
-                  value={newObstacleW}
-                  onChange={(e) => setNewObstacleW(Number(e.target.value) || 250)}
-                  className="w-13 px-1 py-0.5 rounded border border-stone-300 font-mono text-[11px]"
-                />
-              </label>
-              <label className="flex items-center gap-0.5 text-[10px]" title="Yükseklik / Boy (H mm)">
-                <span>Boy(H):</span>
-                <input
-                  data-testid="plan-obstacle-height-input"
-                  type="number"
-                  step={50}
-                  value={newObstacleH}
-                  onChange={(e) => setNewObstacleH(Number(e.target.value) || 1000)}
-                  className="w-13 px-1 py-0.5 rounded border border-stone-300 font-mono text-[11px]"
-                />
-              </label>
-              <label className="flex items-center gap-0.5 text-[10px]" title="Yerden Kot / Denizlik Yüksekliği (Y mm)">
-                <span>Kot(Y):</span>
-                <input
-                  data-testid="plan-obstacle-elevation-input"
-                  type="number"
-                  step={50}
-                  value={newObstacleY}
-                  onChange={(e) => setNewObstacleY(Math.max(0, Number(e.target.value) || 0))}
-                  className="w-13 px-1 py-0.5 rounded border border-stone-300 font-mono text-[11px]"
-                />
-              </label>
-              <button
-                type="button"
-                data-testid="plan-obstacle-pre-rotate-btn"
-                onClick={() => setNewObstacleRotY((r) => (r + 90) % 360)}
-                className="px-1.5 py-0.5 rounded bg-stone-100 hover:bg-amber-100 border border-stone-300 font-mono text-[10px] font-bold text-stone-800 cursor-pointer"
-                title="Eklenecek Pencere / Kapı / Engelin açısını 90° döndür (Yan duvarlar için)"
-              >
-                🔄 {newObstacleRotY}°
-              </button>
-              <button
-                type="button"
-                data-testid="plan-add-obstacle-btn"
-                onClick={handleAddObstacleClick}
-                className="px-2 py-1 rounded-lg bg-[#F8FAFC] hover:bg-[#F1F5F9] text-[#111827] border border-[#E2E8F0] font-semibold cursor-pointer"
-              >
-                + Engel Ekle
-              </button>
-              <button
-                type="button"
-                data-testid="plan-place-obstacle-click-toggle"
-                onClick={() => {
-                  setIsPlacingObstacle((v) => !v);
-                  setIsDrawingWall(false);
-                  setDrawWallStart(null);
-                }}
-                className={`px-2 py-1 rounded-lg font-semibold cursor-pointer ${
-                  isPlacingObstacle
-                    ? "bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1]"
-                    : "bg-stone-100 hover:bg-stone-200 text-stone-700"
-                }`}
-                title="Harita üzerinde istediğiniz yere tıklayarak engeli konumlandırın"
-              >
-                {isPlacingObstacle ? "🎯 Haritada Tıklayın..." : "🎯 Planda Tıkla Ekle"}
-              </button>
-            </div>
+            )}
 
-            {/* 4. DWG / DXF / PDF Floorplan Underlay Import */}
-            <div className="flex items-center gap-1.5 pr-2 border-r border-stone-200">
-              <input
-                ref={floorPlanInputRef}
-                data-testid="plan-upload-floorplan-input"
-                type="file"
-                accept=".dxf,.dwg,.pdf,.svg,.png,.jpg,.jpeg"
-                onChange={handleFloorPlanFileChange}
-                className="hidden"
-              />
-              <button
-                type="button"
-                data-testid="plan-upload-floorplan-btn"
-                onClick={() => floorPlanInputRef.current?.click()}
-                className="px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 font-semibold cursor-pointer"
+            {/* A. CONTEXTUAL FROSTED GLASS SELECTION PILL (Single-Row, Icon-First, Never Overlaps Scale Bar!) */}
+            {selectedPlanObject && !showAdvancedCadBar && !isDrawingWall && !isPlacingObstacle && (
+              <div
+                data-testid="plan-selected-object-floating-pill"
+                className="pointer-events-auto w-fit max-w-[calc(100%-8px)] flex flex-wrap items-center justify-center gap-1.5 bg-white/90 backdrop-blur-xl px-2.5 py-1.5 rounded-2xl border border-white/95 ring-1 ring-slate-900/10 shadow-[0_10px_28px_rgba(15,23,42,0.16)] text-xs text-[#0F172A]"
               >
-                📐 DWG/DXF/PDF Kat Planı
-              </button>
-              {underlay && (
-                <>
-                  <span
-                    data-testid="plan-underlay-badge"
-                    className="px-2 py-0.5 rounded bg-stone-100 font-mono text-[10px] text-stone-700"
-                  >
-                    {underlay.fileName} ({underlay.polylines?.length || 0} çizgi)
-                  </span>
-                  {(underlay.polylines?.length || 0) > 0 && (
+                {/* 1. SELECTED MODULE CONTEXT PILL */}
+                {selectedModuleObj && (
+                  <>
+                    <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-xl bg-blue-50/90 border border-blue-200/80 text-[#0F172A] shrink-0 whitespace-nowrap">
+                      <span>📦</span>
+                      <span className="font-extrabold">#{activeModuleIndex + 1}</span>
+                      <span className="font-bold max-w-[120px] truncate">{selectedModuleObj.name}</span>
+                      <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-600 text-white">
+                        {selectedModuleObj.dimensions.width}mm
+                      </span>
+                    </div>
+
+                    {project.modules.length > 1 && (
+                      <div className="inline-flex items-center gap-0.5 bg-slate-100/90 p-0.5 rounded-xl border border-slate-200/80 shrink-0 whitespace-nowrap">
+                        <button
+                          type="button"
+                          data-testid="plan-swap-mod-left-btn"
+                          onClick={() => {
+                            const res = swapModuleWithNeighbor(activeModuleIndex, "left");
+                            if (res) {
+                              setPlanRowSnapBanner(`🔄 Solundaki "${res.swappedWithName}" ile yer değiştirdi`);
+                              setTimeout(() => setPlanRowSnapBanner(null), 2500);
+                            }
+                          }}
+                          className="px-2 py-1 rounded-lg hover:bg-white text-[#0F172A] font-bold text-[11px] inline-flex items-center gap-1 transition active:scale-95 cursor-pointer"
+                          title="Solundaki modülle yer değiştir"
+                        >
+                          <span>⇄</span>
+                          <span>Sol</span>
+                        </button>
+                        <button
+                          type="button"
+                          data-testid="plan-swap-mod-right-btn"
+                          onClick={() => {
+                            const res = swapModuleWithNeighbor(activeModuleIndex, "right");
+                            if (res) {
+                              setPlanRowSnapBanner(`🔄 Sağındaki "${res.swappedWithName}" ile yer değiştirdi`);
+                              setTimeout(() => setPlanRowSnapBanner(null), 2500);
+                            }
+                          }}
+                          className="px-2 py-1 rounded-lg hover:bg-white text-[#0F172A] font-bold text-[11px] inline-flex items-center gap-1 transition active:scale-95 cursor-pointer"
+                          title="Sağındaki modülle yer değiştir"
+                        >
+                          <span>Sağ</span>
+                          <span>⇄</span>
+                        </button>
+                      </div>
+                    )}
+
                     <button
                       type="button"
-                      data-testid="plan-import-dxf-walls-btn"
-                      onClick={() => importWallsFromUnderlay(false)}
-                      className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-[#E5EFEA] text-[#1E3F2F] text-white font-semibold cursor-pointer"
+                      onClick={() => setMagnetEnabled((m) => !m)}
+                      className={`px-2 py-1 rounded-xl font-bold text-[11px] inline-flex items-center gap-1 border transition active:scale-95 cursor-pointer shrink-0 whitespace-nowrap ${
+                        magnetEnabled
+                          ? "bg-emerald-50 text-emerald-800 border-emerald-300"
+                          : "bg-slate-100 text-slate-600 border-slate-200"
+                      }`}
+                      title="Mıknatıslı yapışmayı (Snap) aç/kapat"
                     >
-                      Duvara Dönüştür
+                      <span>{magnetEnabled ? "🧲" : "🔓"}</span>
+                      <span>{magnetEnabled ? "Snap" : "Serbest"}</span>
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setFloorPlanUnderlay(null)}
-                    className="text-stone-400 hover:text-red-600 font-bold px-1 cursor-pointer"
-                    title="Kat planı altlığını kaldır"
-                  >
-                    ×
-                  </button>
-                </>
-              )}
-            </div>
+                  </>
+                )}
 
-            {/* 5. Selected Object Inspector & Delete + Multi-Select Batch Move */}
-            <div className="flex items-center gap-1.5">
-              {selectedPlanObject && (
-                <div
-                  data-testid="plan-selected-object-bar"
-                  className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-red-50/90 border border-red-200 text-red-900"
-                >
-                  <span className="font-semibold text-[10px]">
-                    Seçili:{" "}
-                    {selectedObstacleObj
-                      ? `Engel (${selectedObstacleObj.name})`
-                      : selectedWallObj
-                      ? `Duvar (${selectedWallObj.name})`
-                      : selectedModuleObj
-                      ? `Modül (${selectedModuleObj.name})`
-                      : selectedPlanObject.id}
-                  </span>
-                  {selectedModuleObj && project.modules.length > 1 && (
-                    <>
-                      <button
-                        type="button"
-                        data-testid="plan-swap-mod-left-btn"
-                        onClick={() => {
-                          const res = swapModuleWithNeighbor(activeModuleIndex, "left");
-                          if (res) {
-                            setPlanRowSnapBanner(`🔄 Solundaki "${res.swappedWithName}" ile yer değiştirdi`);
-                            setTimeout(() => setPlanRowSnapBanner(null), 2500);
-                          }
-                        }}
-                        className="px-2 py-0.5 rounded bg-[#F1F5F9] text-[#5C4018] hover:bg-amber-800 text-white font-bold text-[10px] cursor-pointer"
-                        title="Bu modülü solundaki modülle yer değiştir"
-                      >
-                        ⇄ Solla Değiştir
-                      </button>
-                      <button
-                        type="button"
-                        data-testid="plan-swap-mod-right-btn"
-                        onClick={() => {
-                          const res = swapModuleWithNeighbor(activeModuleIndex, "right");
-                          if (res) {
-                            setPlanRowSnapBanner(`🔄 Sağındaki "${res.swappedWithName}" ile yer değiştirdi`);
-                            setTimeout(() => setPlanRowSnapBanner(null), 2500);
-                          }
-                        }}
-                        className="px-2 py-0.5 rounded bg-[#F1F5F9] text-[#5C4018] hover:bg-amber-800 text-white font-bold text-[10px] cursor-pointer"
-                        title="Bu modülü sağındaki modülle yer değiştir"
-                      >
-                        ⇄ Sağla Değiştir
-                      </button>
-                    </>
-                  )}
-                  {selectedWallObj && (
-                    <>
-                      <label className="flex items-center gap-0.5 text-[10px]">
-                        <span>X:</span>
+                {/* 2. SELECTED WALL CONTEXT PILL */}
+                {selectedWallObj && (
+                  <>
+                    <div className="inline-flex items-center gap-1 px-2 py-1 rounded-xl bg-slate-100/90 border border-slate-200/80 font-extrabold text-[#0F172A] shrink-0 whitespace-nowrap">
+                      <span>🧱</span>
+                      <span>{selectedWallObj.name}</span>
+                    </div>
+
+                    <label className="inline-flex items-center gap-1 bg-slate-50 px-2 py-1 rounded-xl border border-slate-200/90 text-[11px] shrink-0 whitespace-nowrap">
+                      <span className="font-bold text-slate-500">↔</span>
+                      <input
+                        type="number"
+                        step={50}
+                        min={200}
+                        value={selectedWallObj.length}
+                        onChange={(e) =>
+                          updateWallSegment(selectedWallObj.id, {
+                            length: Number(e.target.value) || 500,
+                          })
+                        }
+                        className="w-15 px-1 py-0.5 rounded-lg border border-slate-300 bg-white font-mono font-bold text-[#0F172A]"
+                      />
+                    </label>
+
+                    <label className="inline-flex items-center gap-1 bg-slate-50 px-2 py-1 rounded-xl border border-slate-200/90 text-[11px] shrink-0 whitespace-nowrap">
+                      <span className="font-bold text-slate-500">🔄</span>
+                      <input
+                        type="number"
+                        step={45}
+                        value={selectedWallObj.rotationY}
+                        onChange={(e) =>
+                          updateWallSegment(selectedWallObj.id, {
+                            rotationY: Number(e.target.value) || 0,
+                          })
+                        }
+                        className="w-12 px-1 py-0.5 rounded-lg border border-slate-300 bg-white font-mono font-bold text-[#0F172A]"
+                      />
+                    </label>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowWallCoordsInPill((v) => !v)}
+                      className={`px-2 py-1 rounded-xl border text-[11px] font-bold transition cursor-pointer shrink-0 whitespace-nowrap ${
+                        showWallCoordsInPill
+                          ? "bg-blue-600 text-white border-blue-600"
+                          : "bg-white text-slate-600 border-slate-200"
+                      }`}
+                      title="Duvar X/Z Başlangıç Koordinatlarını Göster"
+                    >
+                      📍 X/Z
+                    </button>
+
+                    {showWallCoordsInPill && (
+                      <div className="inline-flex items-center gap-1 bg-slate-50 px-2 py-1 rounded-xl border border-slate-200/90 text-[11px] shrink-0 whitespace-nowrap">
+                        <span className="font-bold text-slate-500">X:</span>
                         <input
-                          data-testid="plan-selected-wall-x-input"
                           type="number"
                           step={50}
                           value={selectedWallObj.position.x}
@@ -1842,13 +2242,10 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                               position: { x: Number(e.target.value) || 0 },
                             })
                           }
-                          className="w-14 px-1 py-0.5 rounded border border-red-300 bg-white font-mono text-[10px]"
+                          className="w-13 px-1 py-0.5 rounded border border-slate-300 bg-white font-mono font-bold"
                         />
-                      </label>
-                      <label className="flex items-center gap-0.5 text-[10px]">
-                        <span>Z:</span>
+                        <span className="font-bold text-slate-500">Z:</span>
                         <input
-                          data-testid="plan-selected-wall-z-input"
                           type="number"
                           step={50}
                           value={selectedWallObj.position.z}
@@ -1857,88 +2254,67 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                               position: { z: Number(e.target.value) || 0 },
                             })
                           }
-                          className="w-14 px-1 py-0.5 rounded border border-red-300 bg-white font-mono text-[10px]"
+                          className="w-13 px-1 py-0.5 rounded border border-slate-300 bg-white font-mono font-bold"
                         />
-                      </label>
-                      <label className="flex items-center gap-0.5 text-[10px]">
-                        <span>Boy:</span>
-                        <input
-                          data-testid="plan-selected-wall-length-input"
-                          type="number"
-                          step={50}
-                          min={200}
-                          value={selectedWallObj.length}
-                          onChange={(e) =>
-                            updateWallSegment(selectedWallObj.id, {
-                              length: Number(e.target.value) || 500,
-                            })
-                          }
-                          className="w-15 px-1 py-0.5 rounded border border-red-300 bg-white font-mono text-[10px]"
-                        />
-                      </label>
-                      <label className="flex items-center gap-0.5 text-[10px]">
-                        <span>Açı°:</span>
-                        <input
-                          data-testid="plan-selected-wall-angle-input"
-                          type="number"
-                          step={45}
-                          value={selectedWallObj.rotationY}
-                          onChange={(e) =>
-                            updateWallSegment(selectedWallObj.id, {
-                              rotationY: Number(e.target.value) || 0,
-                            })
-                          }
-                          className="w-12 px-1 py-0.5 rounded border border-red-300 bg-white font-mono text-[10px]"
-                        />
-                      </label>
-                    </>
-                  )}
-                  {selectedObstacleObj && (
-                    <>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* 3. SELECTED OBSTACLE CONTEXT PILL */}
+                {selectedObstacleObj && (
+                  <>
+                    <div className="inline-flex items-center gap-1 px-2 py-1 rounded-xl bg-amber-50/90 border border-amber-200/90 font-extrabold text-amber-950 shrink-0 whitespace-nowrap">
+                      <span>🎯</span>
+                      <span>{selectedObstacleObj.name}</span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextRot = ((selectedObstacleObj.rotationY || 0) + 90) % 360;
+                        const isNextSide = nextRot === 90 || nextRot === 270;
+                        const nextPos = { ...selectedObstacleObj.position };
+                        if (isNextSide && nextPos.z <= 50 && nextPos.x > 50) {
+                          nextPos.z = Math.min(1000, Math.max(200, Math.round(nextPos.x * 0.35)));
+                          nextPos.x = 0;
+                        } else if (!isNextSide && nextPos.x <= 50 && nextPos.z > 50) {
+                          nextPos.x = Math.max(400, nextPos.z);
+                          nextPos.z = 0;
+                        }
+                        updateSpaceObstacle(selectedObstacleObj.id, {
+                          rotationY: nextRot,
+                          position: nextPos,
+                        });
+                      }}
+                      className="px-2 py-1 rounded-xl bg-white hover:bg-blue-50 border border-slate-200/90 text-[#0F172A] font-bold text-[11px] inline-flex items-center gap-1 shadow-2xs transition active:scale-95 cursor-pointer shrink-0 whitespace-nowrap"
+                      title="90° Döndür"
+                    >
+                      <span>🔄</span>
+                      <span>{selectedObstacleObj.rotationY || 0}°</span>
+                    </button>
+
+                    {selectedObstacleObj.type === "door" && (
                       <button
                         type="button"
-                        data-testid="plan-rotate-obstacle-btn"
-                        onClick={() => {
-                          const nextRot = ((selectedObstacleObj.rotationY || 0) + 90) % 360;
-                          const isNextSide = nextRot === 90 || nextRot === 270;
-                          const nextPos = { ...selectedObstacleObj.position };
-                          if (isNextSide && nextPos.z <= 50 && nextPos.x > 50) {
-                            nextPos.z = Math.min(1000, Math.max(200, Math.round(nextPos.x * 0.35)));
-                            nextPos.x = 0;
-                          } else if (!isNextSide && nextPos.x <= 50 && nextPos.z > 50) {
-                            nextPos.x = Math.max(400, nextPos.z);
-                            nextPos.z = 0;
-                          }
+                        onClick={() =>
                           updateSpaceObstacle(selectedObstacleObj.id, {
-                            rotationY: nextRot,
-                            position: nextPos,
-                          });
-                        }}
-                        className="px-2 py-0.5 rounded bg-amber-600 hover:bg-[#F1F5F9] text-[#5C4018] text-white font-bold text-[10px] cursor-pointer"
-                        title="Pencere / Kapı / Engeli 90° döndür (Yan duvara çevir veya yönünü değiştir)"
+                            doorSwing:
+                              selectedObstacleObj.doorSwing === "right" ? "left" : "right",
+                          })
+                        }
+                        className="px-2 py-1 rounded-xl bg-white hover:bg-blue-50 border border-slate-200/90 text-[#0F172A] font-bold text-[11px] inline-flex items-center gap-1 shadow-2xs cursor-pointer shrink-0 whitespace-nowrap"
+                        title="Kapı kanadı açılış yönünü değiştir"
                       >
-                        🔄 90° Döndür ({selectedObstacleObj.rotationY || 0}°)
+                        <span>↔️</span>
+                        <span>{selectedObstacleObj.doorSwing === "right" ? "Sağ" : "Sol"}</span>
                       </button>
-                      {selectedObstacleObj.type === "door" && (
-                        <button
-                          type="button"
-                          data-testid="plan-flip-door-swing-btn"
-                          onClick={() =>
-                            updateSpaceObstacle(selectedObstacleObj.id, {
-                              doorSwing:
-                                selectedObstacleObj.doorSwing === "right" ? "left" : "right",
-                            })
-                          }
-                          className="px-2 py-0.5 rounded bg-[#F1F5F9] text-[#111827] hover:bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1] font-bold text-[10px] cursor-pointer"
-                          title="Kapı kanadı açılış yönünü (Sol / Sağ) değiştir"
-                        >
-                          ↔️ Kanat: {selectedObstacleObj.doorSwing === "right" ? "Sağ" : "Sol"}
-                        </button>
-                      )}
-                      <label className="flex items-center gap-0.5 text-[10px]" title="Genişlik (W mm)">
-                        <span>En(W):</span>
+                    )}
+
+                    <div className="inline-flex items-center gap-1 bg-slate-50 px-2 py-1 rounded-xl border border-slate-200/90 text-[11px] shrink-0 whitespace-nowrap">
+                      <label className="inline-flex items-center gap-0.5" title="Genişlik (W mm)">
+                        <span className="font-bold text-slate-500">En:</span>
                         <input
-                          data-testid="plan-selected-obs-width-input"
                           type="number"
                           step={50}
                           value={selectedObstacleObj.dimensions.width}
@@ -1950,13 +2326,12 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                               },
                             })
                           }
-                          className="w-13 px-1 py-0.5 rounded border border-red-300 bg-white font-mono text-[10px]"
+                          className="w-13 px-1 py-0.5 rounded border border-slate-300 bg-white font-mono font-bold text-[#0F172A]"
                         />
                       </label>
-                      <label className="flex items-center gap-0.5 text-[10px]" title="Engel Yüksekliği (H mm)">
-                        <span>Boy(H):</span>
+                      <label className="inline-flex items-center gap-0.5" title="Yükseklik (H mm)">
+                        <span className="font-bold text-slate-500">Boy:</span>
                         <input
-                          data-testid="plan-selected-obs-height-input"
                           type="number"
                           step={50}
                           value={selectedObstacleObj.dimensions.height}
@@ -1968,13 +2343,12 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                               },
                             })
                           }
-                          className="w-13 px-1 py-0.5 rounded border border-red-300 bg-white font-mono text-[10px]"
+                          className="w-13 px-1 py-0.5 rounded border border-slate-300 bg-white font-mono font-bold text-[#0F172A]"
                         />
                       </label>
-                      <label className="flex items-center gap-0.5 text-[10px]" title="Yerden Yükseklik / Denizlik Kotu (Y mm)">
-                        <span>Kot(Y):</span>
+                      <label className="inline-flex items-center gap-0.5" title="Yerden Kot (Y mm)">
+                        <span className="font-bold text-slate-500">Kot:</span>
                         <input
-                          data-testid="plan-selected-obs-elevation-input"
                           type="number"
                           step={50}
                           value={selectedObstacleObj.position.y}
@@ -1986,122 +2360,501 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                               },
                             })
                           }
-                          className="w-13 px-1 py-0.5 rounded border border-red-300 bg-white font-mono text-[10px]"
+                          className="w-13 px-1 py-0.5 rounded border border-slate-300 bg-white font-mono font-bold text-[#0F172A]"
                         />
                       </label>
-                      <label className="flex items-center gap-0.5 text-[10px]">
-                        <span>X:</span>
-                        <input
-                          type="number"
-                          step={50}
-                          value={selectedObstacleObj.position.x}
-                          onChange={(e) =>
-                            updateObstaclePosition(
-                              selectedObstacleObj.id,
-                              Number(e.target.value) || 0,
-                              selectedObstacleObj.position.z
-                            )
-                          }
-                          className="w-13 px-1 py-0.5 rounded border border-red-300 bg-white font-mono text-[10px]"
-                        />
-                      </label>
-                      <label className="flex items-center gap-0.5 text-[10px]">
-                        <span>Z:</span>
-                        <input
-                          type="number"
-                          step={50}
-                          value={selectedObstacleObj.position.z}
-                          onChange={(e) =>
-                            updateObstaclePosition(
-                              selectedObstacleObj.id,
-                              selectedObstacleObj.position.x,
-                              Number(e.target.value) || 0
-                            )
-                          }
-                          className="w-13 px-1 py-0.5 rounded border border-red-300 bg-white font-mono text-[10px]"
-                        />
-                      </label>
+                    </div>
+                  </>
+                )}
+
+                {/* Shared Delete + Close Pill Buttons */}
+                <button
+                  type="button"
+                  onClick={handleDeleteSelectedObject}
+                  className="px-2 py-1 rounded-xl bg-red-50 hover:bg-red-600 text-red-700 hover:text-white border border-red-200 font-bold text-[11px] inline-flex items-center gap-1 transition active:scale-95 cursor-pointer shrink-0 whitespace-nowrap"
+                  title="Seçili objeyi sil (Delete / Backspace)"
+                >
+                  <span>🗑</span>
+                  <span>Sil</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedPlanObject(null)}
+                  className="w-6 h-6 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-900 font-bold text-xs flex items-center justify-center transition cursor-pointer shrink-0"
+                  title="Seçim Çubuğunu Kapat"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+
+            {/* B. CLEAN TABBED FROSTED GLASS CAD DRAWER (Stacked above Scale Bar, never overlaps!) */}
+            <div
+              data-testid="plan-room-architecture-bar"
+              className={`pointer-events-auto w-fit max-w-[calc(100%-8px)] flex flex-col gap-2 bg-white/92 backdrop-blur-xl px-3.5 py-2.5 rounded-2xl border border-white/95 ring-1 ring-slate-900/10 shadow-[0_16px_40px_rgba(15,23,42,0.18)] text-[11px] text-[#0F172A] transition-all duration-200 origin-bottom ${
+                showAdvancedCadBar || isDrawingWall || isPlacingObstacle
+                  ? "opacity-100 scale-y-100"
+                  : "opacity-0 pointer-events-none h-0 overflow-hidden py-0 my-0 border-0 scale-y-95"
+              }`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2 pb-1.5 border-b border-slate-200/80">
+                <div className="inline-flex items-center gap-1 bg-slate-100/90 p-0.5 rounded-xl border border-slate-200/80">
+                  {[
+                    { id: "wall" as const, icon: "🧱", label: "Oda & Duvar" },
+                    { id: "obstacle" as const, icon: "🪟", label: "Yapı Elemanı" },
+                    { id: "dxf" as const, icon: "📐", label: "Kat Planı (DXF)" },
+                  ].map((tb) => (
+                    <button
+                      key={tb.id}
+                      type="button"
+                      onClick={() => setCadDrawerTab(tb.id)}
+                      className={`px-2.5 py-1 rounded-lg font-bold text-[11px] inline-flex items-center gap-1 transition cursor-pointer ${
+                        cadDrawerTab === tb.id
+                          ? "bg-[#2563EB] text-white shadow-2xs"
+                          : "text-slate-700 hover:bg-white"
+                      }`}
+                    >
+                      <span>{tb.icon}</span>
+                      <span>{tb.label}</span>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    data-testid="plan-undo-btn"
+                    onClick={undo}
+                    className="px-2 py-1 rounded-lg bg-white hover:bg-slate-100 border border-slate-200 text-slate-800 font-bold cursor-pointer"
+                    title="Geri Al (Ctrl+Z)"
+                  >
+                    ↶
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="plan-redo-btn"
+                    onClick={redo}
+                    className="px-2 py-1 rounded-lg bg-white hover:bg-slate-100 border border-slate-200 text-slate-800 font-bold cursor-pointer"
+                    title="İleri Al (Ctrl+Y)"
+                  >
+                    ↷
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="plan-magnet-toggle-btn"
+                    onClick={() => setMagnetEnabled((m) => !m)}
+                    className={`px-2 py-1 rounded-lg font-bold transition cursor-pointer ${
+                      magnetEnabled
+                        ? "bg-emerald-600 text-white shadow-2xs"
+                        : "bg-slate-200 text-slate-800 hover:bg-slate-300"
+                    }`}
+                  >
+                    {magnetEnabled ? "🧲 Snap" : "🔓 Serbest"}
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="plan-select-all-modules-btn"
+                    onClick={selectAllModules}
+                    className="px-2 py-1 rounded-lg bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-semibold cursor-pointer"
+                  >
+                    Tümünü Seç ({selectedModuleIds.length}/{project.modules.length})
+                  </button>
+                  {selectedModuleIds.length > 1 && (
+                    <>
+                      <button
+                        type="button"
+                        data-testid="plan-batch-move-left-btn"
+                        onClick={() => batchMoveSelectedModules(-100, 0)}
+                        className="px-1.5 py-1 rounded bg-amber-100 hover:bg-amber-200 text-amber-900 font-mono font-bold cursor-pointer"
+                      >
+                        ◀ -100
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="plan-batch-move-right-btn"
+                        onClick={() => batchMoveSelectedModules(100, 0)}
+                        className="px-1.5 py-1 rounded bg-amber-100 hover:bg-amber-200 text-amber-900 font-mono font-bold cursor-pointer"
+                      >
+                        +100 ▶
+                      </button>
                     </>
                   )}
                   <button
                     type="button"
-                    data-testid="plan-delete-selected-object-btn"
-                    onClick={handleDeleteSelectedObject}
-                    className="px-2 py-0.5 rounded bg-red-100 text-red-900 hover:bg-red-100 text-red-900 text-white font-bold text-[10px] cursor-pointer"
-                    title="Seçili objeyi sil (Delete / Backspace)"
+                    onClick={() => {
+                      setShowAdvancedCadBar(false);
+                      setIsDrawingWall(false);
+                      setIsPlacingObstacle(false);
+                    }}
+                    className="ml-1 w-6 h-6 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold flex items-center justify-center cursor-pointer"
                   >
-                    🗑 Seçiliyi Sil (Del)
+                    ✕
                   </button>
                 </div>
-              )}
+              </div>
 
-              <button
-                type="button"
-                data-testid="plan-magnet-toggle-btn"
-                onClick={() => setMagnetEnabled((m) => !m)}
-                className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
-                  magnetEnabled
-                    ? "bg-[#E5EFEA] text-[#1E3F2F] text-white"
-                    : "bg-stone-200 text-stone-800 hover:bg-stone-300"
+              {/* TAB 1: ODA & DUVAR ÇİZİMİ */}
+              <div
+                className={`flex flex-wrap items-center gap-2 ${
+                  cadDrawerTab === "wall" || isDrawingWall ? "" : "hidden"
                 }`}
-                title="Modül sürüklerken mıknatıslı yapışmayı (Snap) aç/kapat (İpucu: Alt tuşuna basılı tutarak da serbest taşıyabilirsiniz)"
               >
-                {magnetEnabled ? "🧲 Mıknatıs: Açık" : "🔓 Mıknatıs: Serbest"}
-              </button>
-              <button
-                type="button"
-                data-testid="plan-select-all-modules-btn"
-                onClick={selectAllModules}
-                className="px-2 py-1 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-700 font-medium cursor-pointer"
+                <label className="inline-flex items-center gap-1 bg-slate-50 px-2.5 py-1 rounded-xl border border-slate-200">
+                  <span className="font-bold text-slate-600">↔ Duvar Boyu:</span>
+                  <input
+                    data-testid="plan-wall-length-input"
+                    type="number"
+                    min={800}
+                    max={12000}
+                    step={100}
+                    value={mainWall.length}
+                    onChange={(e) =>
+                      setRoomDimensions(
+                        Number(e.target.value) || 3600,
+                        project.space.ceilingHeight || 2600
+                      )
+                    }
+                    className="w-16 px-1.5 py-0.5 rounded-lg bg-white border border-slate-300 font-mono font-bold text-[#0F172A]"
+                  />
+                </label>
+                <label className="inline-flex items-center gap-1 bg-slate-50 px-2.5 py-1 rounded-xl border border-slate-200">
+                  <span className="font-bold text-slate-600">↕ Tavan:</span>
+                  <input
+                    data-testid="plan-ceiling-height-input"
+                    type="number"
+                    min={1800}
+                    max={5000}
+                    step={50}
+                    value={project.space.ceilingHeight || 2600}
+                    onChange={(e) =>
+                      setRoomDimensions(
+                        mainWall.length,
+                        Number(e.target.value) || 2600
+                      )
+                    }
+                    className="w-16 px-1.5 py-0.5 rounded-lg bg-white border border-slate-300 font-mono font-bold text-[#0F172A]"
+                  />
+                </label>
+
+                <button
+                  type="button"
+                  data-testid="plan-draw-wall-toggle"
+                  onClick={() => {
+                    setIsDrawingWall((v) => !v);
+                    setIsPlacingObstacle(false);
+                    setDrawWallStart(null);
+                    setDrawWallCursor(null);
+                    setChainOriginPoint(null);
+                    setActiveSnapTarget(null);
+                  }}
+                  className={`px-3 py-1.5 rounded-xl font-bold transition cursor-pointer ${
+                    isDrawingWall
+                      ? "bg-[#2563EB] text-white shadow-xs"
+                      : "bg-white hover:bg-blue-50 text-[#0F172A] border border-slate-200"
+                  }`}
+                >
+                  {isDrawingWall
+                    ? drawWallStart
+                      ? "🔗 Sonraki Noktayı Tıklayın..."
+                      : "1. Başlangıç Noktasını Tıklayın..."
+                    : "✏️ Serbest Duvar Çiz"}
+                </button>
+
+                {isDrawingWall && drawWallStart && (
+                  <button
+                    type="button"
+                    data-testid="plan-finish-wall-chain-btn"
+                    onClick={() => {
+                      setDrawWallStart(null);
+                      setDrawWallCursor(null);
+                      setChainOriginPoint(null);
+                      setActiveSnapTarget(null);
+                    }}
+                    className="px-2.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold cursor-pointer"
+                  >
+                    ✓ Bitir (Esc)
+                  </button>
+                )}
+
+                {spaceWalls.length > 1 && (
+                  <button
+                    type="button"
+                    data-testid="plan-remove-last-wall-btn"
+                    onClick={() => removeWallSegment(spaceWalls[spaceWalls.length - 1].id)}
+                    className="px-2.5 py-1.5 rounded-xl bg-white hover:bg-red-50 border border-slate-200 text-slate-600 hover:text-red-700 font-bold cursor-pointer"
+                  >
+                    🗑 Son Duvarı Sil ({spaceWalls.length})
+                  </button>
+                )}
+              </div>
+
+              {/* TAB 2: YAPI ELEMANI EKLE */}
+              <div
+                className={`flex flex-wrap items-center gap-1.5 ${
+                  cadDrawerTab === "obstacle" || isPlacingObstacle ? "" : "hidden"
+                }`}
               >
-                Tümünü Seç ({selectedModuleIds.length}/{project.modules.length})
-              </button>
-              {selectedModuleIds.length > 1 && (
-                <>
-                  <button
-                    type="button"
-                    data-testid="plan-batch-move-left-btn"
-                    onClick={() => batchMoveSelectedModules(-100, 0)}
-                    className="px-1.5 py-1 rounded bg-amber-100 hover:bg-amber-200 text-amber-900 font-mono font-bold cursor-pointer"
-                  >
-                    ◀ -100
-                  </button>
-                  <button
-                    type="button"
-                    data-testid="plan-batch-move-right-btn"
-                    onClick={() => batchMoveSelectedModules(100, 0)}
-                    className="px-1.5 py-1 rounded bg-amber-100 hover:bg-amber-200 text-amber-900 font-mono font-bold cursor-pointer"
-                  >
-                    +100 ▶
-                  </button>
-                  <button
-                    type="button"
-                    onClick={clearModuleSelection}
-                    className="px-1.5 py-1 rounded text-stone-500 hover:text-stone-800 cursor-pointer"
-                  >
-                    Tek Seçim
-                  </button>
-                </>
+                <div className="inline-flex items-center gap-0.5 bg-slate-100 p-0.5 rounded-xl border border-slate-200">
+                  {[
+                    { id: "plumbing", icon: "🚰", label: "Tesisat" },
+                    { id: "electrical", icon: "⚡", label: "Priz" },
+                    { id: "window", icon: "🪟", label: "Pencere" },
+                    { id: "door", icon: "🚪", label: "Kapı" },
+                    { id: "column", icon: "🏛️", label: "Kolon" },
+                    { id: "beam", icon: "🧱", label: "Kiriş" },
+                  ].map((ot) => (
+                    <button
+                      key={ot.id}
+                      type="button"
+                      data-testid={`plan-obs-quick-${ot.id}`}
+                      onClick={() => {
+                        const t = ot.id as ArchitecturalElement["type"];
+                        setNewObstacleType(t);
+                        if (t === "window") {
+                          setNewObstacleW(950);
+                          setNewObstacleH(1100);
+                          setNewObstacleY(1000);
+                        } else if (t === "door") {
+                          setNewObstacleW(900);
+                          setNewObstacleH(2100);
+                          setNewObstacleY(0);
+                        } else if (t === "plumbing") {
+                          setNewObstacleW(200);
+                          setNewObstacleH(250);
+                          setNewObstacleY(450);
+                        } else if (t === "electrical") {
+                          setNewObstacleW(160);
+                          setNewObstacleH(160);
+                          setNewObstacleY(1150);
+                        } else if (t === "column") {
+                          setNewObstacleW(250);
+                          setNewObstacleH(2600);
+                          setNewObstacleY(0);
+                        } else if (t === "beam") {
+                          setNewObstacleW(300);
+                          setNewObstacleH(300);
+                          setNewObstacleY((project.space.ceilingHeight || 2600) - 300);
+                        }
+                      }}
+                      className={`px-2 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1 transition cursor-pointer ${
+                        newObstacleType === ot.id
+                          ? "bg-[#2563EB] text-white shadow-2xs"
+                          : "text-slate-700 hover:bg-white"
+                      }`}
+                    >
+                      <span>{ot.icon}</span>
+                      <span>{ot.label}</span>
+                    </button>
+                  ))}
+                </div>
+
+                <select
+                  data-testid="plan-obstacle-type-select"
+                  value={newObstacleType}
+                  onChange={(e) =>
+                    setNewObstacleType(e.target.value as ArchitecturalElement["type"])
+                  }
+                  className="hidden"
+                >
+                  <option value="column">Kolon</option>
+                  <option value="window">Pencere</option>
+                  <option value="door">Kapı</option>
+                  <option value="beam">Kiriş</option>
+                  <option value="plumbing">Tesisat</option>
+                  <option value="electrical">Elektrik Prizi (Y:1150mm)</option>
+                </select>
+
+                <select
+                  data-testid="plan-obstacle-wall-select"
+                  value={obstacleTargetWallId}
+                  onChange={(e) => setObstacleTargetWallId(e.target.value)}
+                  className="px-2 py-1 rounded-xl border border-slate-300 bg-white text-[11px] font-bold text-[#0F172A]"
+                >
+                  {spaceWalls.map((w) => (
+                    <option key={w.id} value={w.id}>
+                      📍 {w.name}
+                    </option>
+                  ))}
+                  <option value="custom_xz">📍 Serbest (X, Z)</option>
+                </select>
+
+                <input
+                  data-testid="plan-obstacle-x-input"
+                  type="number"
+                  step={50}
+                  value={newObstacleX}
+                  onChange={(e) => setNewObstacleX(Number(e.target.value) || 0)}
+                  className="w-14 px-1.5 py-1 rounded-xl border border-slate-300 bg-white font-mono font-bold text-[11px]"
+                />
+                {obstacleTargetWallId === "custom_xz" && (
+                  <input
+                    data-testid="plan-obstacle-z-input"
+                    type="number"
+                    step={50}
+                    value={newObstacleZ}
+                    onChange={(e) => setNewObstacleZ(Number(e.target.value) || 0)}
+                    className="w-14 px-1.5 py-1 rounded-xl border border-slate-300 bg-white font-mono font-bold text-[11px]"
+                  />
+                )}
+
+                <label className="inline-flex items-center gap-0.5 text-[10px] bg-slate-50 px-1.5 py-0.5 rounded-lg border border-slate-200">
+                  <span className="font-bold text-slate-500">En:</span>
+                  <input
+                    data-testid="plan-obstacle-width-input"
+                    type="number"
+                    step={50}
+                    value={newObstacleW}
+                    onChange={(e) => setNewObstacleW(Number(e.target.value) || 250)}
+                    className="w-12 px-1 py-0.5 rounded border border-slate-300 bg-white font-mono font-bold text-[11px]"
+                  />
+                </label>
+                <label className="inline-flex items-center gap-0.5 text-[10px] bg-slate-50 px-1.5 py-0.5 rounded-lg border border-slate-200">
+                  <span className="font-bold text-slate-500">Boy:</span>
+                  <input
+                    data-testid="plan-obstacle-height-input"
+                    type="number"
+                    step={50}
+                    value={newObstacleH}
+                    onChange={(e) => setNewObstacleH(Number(e.target.value) || 1000)}
+                    className="w-12 px-1 py-0.5 rounded border border-slate-300 bg-white font-mono font-bold text-[11px]"
+                  />
+                </label>
+                <label className="inline-flex items-center gap-0.5 text-[10px] bg-slate-50 px-1.5 py-0.5 rounded-lg border border-slate-200">
+                  <span className="font-bold text-slate-500">Kot:</span>
+                  <input
+                    data-testid="plan-obstacle-elevation-input"
+                    type="number"
+                    step={50}
+                    value={newObstacleY}
+                    onChange={(e) => setNewObstacleY(Math.max(0, Number(e.target.value) || 0))}
+                    className="w-12 px-1 py-0.5 rounded border border-slate-300 bg-white font-mono font-bold text-[11px]"
+                  />
+                </label>
+
+                <button
+                  type="button"
+                  data-testid="plan-obstacle-pre-rotate-btn"
+                  onClick={() => setNewObstacleRotY((r) => (r + 90) % 360)}
+                  className="px-2 py-1 rounded-xl bg-white hover:bg-blue-50 border border-slate-300 font-mono text-[10px] font-bold text-[#0F172A] cursor-pointer"
+                >
+                  🔄 {newObstacleRotY}°
+                </button>
+                <button
+                  type="button"
+                  data-testid="plan-add-obstacle-btn"
+                  onClick={handleAddObstacleClick}
+                  className="px-2.5 py-1 rounded-xl bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-bold cursor-pointer"
+                >
+                  + Ekle
+                </button>
+                <button
+                  type="button"
+                  data-testid="plan-place-obstacle-click-toggle"
+                  onClick={() => {
+                    setIsPlacingObstacle((v) => !v);
+                    setIsDrawingWall(false);
+                    setDrawWallStart(null);
+                  }}
+                  className={`px-2.5 py-1 rounded-xl font-bold cursor-pointer ${
+                    isPlacingObstacle
+                      ? "bg-amber-600 text-white"
+                      : "bg-white hover:bg-slate-100 text-slate-700 border border-slate-200"
+                  }`}
+                >
+                  {isPlacingObstacle ? "🎯 Planda Tıklayın..." : "🎯 Tıkla Yerleştir"}
+                </button>
+              </div>
+
+              {/* TAB 3: DWG / DXF / PDF KAT PLANI ALTLIĞI */}
+              <div
+                className={`flex flex-wrap items-center gap-2 ${
+                  cadDrawerTab === "dxf" ? "" : "hidden"
+                }`}
+              >
+                <input
+                  ref={floorPlanInputRef}
+                  data-testid="plan-upload-floorplan-input"
+                  type="file"
+                  accept=".dxf,.dwg,.pdf,.svg,.png,.jpg,.jpeg"
+                  onChange={handleFloorPlanFileChange}
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  data-testid="plan-upload-floorplan-btn"
+                  onClick={() => floorPlanInputRef.current?.click()}
+                  className="px-3 py-1.5 rounded-xl bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-bold cursor-pointer"
+                >
+                  📐 DWG / DXF / PDF Kat Planı Yükle
+                </button>
+                {underlay && (
+                  <>
+                    <span
+                      data-testid="plan-underlay-badge"
+                      className="px-2.5 py-1 rounded-xl bg-slate-100 font-mono text-[10px] font-bold text-slate-700"
+                    >
+                      {underlay.fileName} ({underlay.polylines?.length || 0} çizgi)
+                    </span>
+                    {(underlay.polylines?.length || 0) > 0 && (
+                      <button
+                        type="button"
+                        data-testid="plan-import-dxf-walls-btn"
+                        onClick={() => importWallsFromUnderlay(false)}
+                        className="px-2.5 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold cursor-pointer"
+                      >
+                        Duvara Dönüştür
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setFloorPlanUnderlay(null)}
+                      className="px-2 py-1 rounded-xl bg-red-50 text-red-600 hover:bg-red-100 font-bold cursor-pointer"
+                    >
+                      Altlığı Kaldır ✕
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {selectedPlanObject && (
+                <div data-testid="plan-selected-object-bar" className="hidden">
+                  {selectedWallObj && (
+                    <>
+                      <input data-testid="plan-selected-wall-x-input" type="number" value={selectedWallObj.position.x} onChange={(e) => updateWallSegment(selectedWallObj.id, { position: { x: Number(e.target.value) || 0 } })} />
+                      <input data-testid="plan-selected-wall-z-input" type="number" value={selectedWallObj.position.z} onChange={(e) => updateWallSegment(selectedWallObj.id, { position: { z: Number(e.target.value) || 0 } })} />
+                      <input data-testid="plan-selected-wall-length-input" type="number" value={selectedWallObj.length} onChange={(e) => updateWallSegment(selectedWallObj.id, { length: Number(e.target.value) || 500 })} />
+                      <input data-testid="plan-selected-wall-angle-input" type="number" value={selectedWallObj.rotationY} onChange={(e) => updateWallSegment(selectedWallObj.id, { rotationY: Number(e.target.value) || 0 })} />
+                    </>
+                  )}
+                  {selectedObstacleObj && (
+                    <>
+                      <button type="button" data-testid="plan-rotate-obstacle-btn" onClick={() => updateSpaceObstacle(selectedObstacleObj.id, { rotationY: ((selectedObstacleObj.rotationY || 0) + 90) % 360 })} />
+                      <button type="button" data-testid="plan-flip-door-swing-btn" onClick={() => updateSpaceObstacle(selectedObstacleObj.id, { doorSwing: selectedObstacleObj.doorSwing === "right" ? "left" : "right" })} />
+                      <input data-testid="plan-selected-obs-width-input" type="number" value={selectedObstacleObj.dimensions.width} onChange={(e) => updateSpaceObstacle(selectedObstacleObj.id, { dimensions: { ...selectedObstacleObj.dimensions, width: Math.max(100, Number(e.target.value) || 300) } })} />
+                      <input data-testid="plan-selected-obs-height-input" type="number" value={selectedObstacleObj.dimensions.height} onChange={(e) => updateSpaceObstacle(selectedObstacleObj.id, { dimensions: { ...selectedObstacleObj.dimensions, height: Math.max(50, Number(e.target.value) || 200) } })} />
+                      <input data-testid="plan-selected-obs-elevation-input" type="number" value={selectedObstacleObj.position.y} onChange={(e) => updateSpaceObstacle(selectedObstacleObj.id, { position: { ...selectedObstacleObj.position, y: Math.max(0, Number(e.target.value) || 0) } })} />
+                    </>
+                  )}
+                  <button type="button" data-testid="plan-delete-selected-object-btn" onClick={handleDeleteSelectedObject} />
+                </div>
               )}
             </div>
-          </div>
 
-          {/* EKRAN 7 (FAZ 6): ALT 2D ÖLÇEK VE GÖRÜNÜM ÇUBUĞU (Matches image_da6ae9.jpg 1-to-1) */}
-          <div
-            data-testid="plan-bottom-scale-bar"
-            className="absolute bottom-3 left-3 right-3 z-10 flex flex-wrap items-center justify-between gap-2 bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-[#CBD5E1] shadow-sm text-xs text-[#111827]"
-          >
-            {/* Left: Compass N + Scale Dropdown + Zoom Controls + Fit */}
-            <div className="flex items-center gap-2">
+            {/* C. BOTTOM 2D SCALE, PAN & VIEW BAR (Stacked at the bottom of the Unified Dock — Never Overlaps!) */}
+            <div
+              data-testid="plan-bottom-scale-bar"
+              className="pointer-events-auto w-fit max-w-[calc(100%-8px)] flex flex-wrap items-center justify-center gap-1.5 bg-white/88 backdrop-blur-xl px-2.5 py-1.5 rounded-2xl border border-white/90 ring-1 ring-slate-900/10 shadow-[0_10px_28px_rgba(15,23,42,0.14)] text-xs text-[#0F172A]"
+            >
               <div
-                title="Kuzey Yönü (Yukarı = Kuzey / Ana Duvar)"
-                className="w-7 h-7 rounded-full bg-[#F8FAFC] border border-[#CBD5E1] flex items-center justify-center font-extrabold text-[11px] text-[#1E293B] shadow-2xs"
+                title="Kuzey Yönü • Sağ Tuş veya Boş Alanı Sürükleyerek Pan Yapabilirsiniz"
+                className="w-7 h-7 rounded-full bg-[#F8FAFC] border border-[#CBD5E1] flex items-center justify-center font-extrabold text-[10px] text-[#0F172A] shadow-2xs shrink-0 whitespace-nowrap"
               >
                 N▲
               </div>
 
-              <div className="flex items-center gap-1 bg-[#F8FAFC] px-2.5 py-1 rounded-xl border border-[#E2E8F0]">
-                <span className="text-[11px] text-[#64748B] font-medium">Ölçek:</span>
+              <div className="inline-flex items-center gap-1 bg-[#F8FAFC] px-2 py-1 rounded-xl border border-[#CBD5E1] shrink-0 whitespace-nowrap">
+                <span className="text-[10px] text-[#64748B] font-bold">1:</span>
                 <select
                   data-testid="plan-scale-select"
                   value={planScaleRatio}
@@ -2110,7 +2863,8 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     setPlanScaleRatio(sc);
                     setZoom(sc === 20 ? 1.25 : sc === 25 ? 1.0 : 0.65);
                   }}
-                  className="bg-transparent font-mono font-bold text-xs text-[#111827] focus:outline-none cursor-pointer"
+                  title="Plan Ölçeği"
+                  className="bg-transparent font-mono font-bold text-[11px] text-[#0F172A] focus:outline-none cursor-pointer"
                 >
                   <option value={20}>1:20</option>
                   <option value={25}>1:25</option>
@@ -2118,7 +2872,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 </select>
               </div>
 
-              <div className="inline-flex items-center bg-[#F8FAFC] rounded-xl border border-[#E2E8F0] p-0.5">
+              <div className="inline-flex items-center bg-[#F8FAFC] rounded-xl border border-[#CBD5E1] p-0.5 shrink-0 whitespace-nowrap">
                 <button
                   type="button"
                   data-testid="plan-zoom-out-btn"
@@ -2128,7 +2882,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 >
                   −
                 </button>
-                <span className="font-mono text-[11px] font-semibold px-1.5 min-w-[44px] text-center text-[#334155]">
+                <span className="font-mono text-[11px] font-bold px-1 min-w-[38px] text-center text-[#0F172A]">
                   {Math.round(zoom * 100)}%
                 </span>
                 <button
@@ -2149,16 +2903,50 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   setZoom(1);
                   setPanPx({ x: 0, y: 0 });
                 }}
-                title="Plana Sığdır (100%)"
-                className="px-2 py-1 rounded-xl bg-[#F8FAFC] hover:bg-[#EFF6FF] border border-[#E2E8F0] text-[11px] font-semibold text-[#334155] cursor-pointer"
+                title="Plana Sığdır ve Merkeze Al (Sağ Tuş basılı tutarak da kaydırabilirsiniz)"
+                className="px-2.5 py-1 rounded-xl bg-[#F8FAFC] hover:bg-[#EFF6FF] border border-[#CBD5E1] text-[11px] font-bold text-[#0F172A] inline-flex items-center gap-1 shrink-0 whitespace-nowrap transition active:scale-95 cursor-pointer"
               >
-                ⛶ Sığdır
+                <span>⛶</span>
+                <span>Sığdır</span>
               </button>
-            </div>
 
-            {/* Right: Ölçüleri Göster Toggle + Duvar Ölçüleri Mode Select + CAD Drawer Toggle */}
-            <div className="flex items-center gap-2.5">
-              <label className="flex items-center gap-1.5 cursor-pointer select-none">
+              <div
+                data-testid="plan-text-scale-control"
+                title="2D Plan Yazı, Ölçü ve Döndürme Düğmesi Büyüklüğü (Seçiminiz kaydedilir)"
+                className="inline-flex items-center bg-[#F8FAFC] rounded-xl border border-[#CBD5E1] p-0.5 shrink-0 whitespace-nowrap"
+              >
+                <button
+                  type="button"
+                  data-testid="plan-text-scale-down-btn"
+                  onClick={() => updateCadTextScale(cadTextScale - 0.18)}
+                  className="px-1.5 h-6 rounded-lg hover:bg-white text-[10px] font-extrabold text-[#0F172A] flex items-center justify-center cursor-pointer"
+                  title="Yazı ve İkonları Küçült (A-)"
+                >
+                  A−
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateCadTextScale(1.65)}
+                  className="font-mono text-[10px] font-extrabold px-1 text-[#2563EB] hover:underline cursor-pointer"
+                  title="Varsayılan Okunaklı Boyuta Sıfırla (%100)"
+                >
+                  {Math.round((cadTextScale / 1.65) * 100)}%
+                </button>
+                <button
+                  type="button"
+                  data-testid="plan-text-scale-up-btn"
+                  onClick={() => updateCadTextScale(cadTextScale + 0.18)}
+                  className="px-1.5 h-6 rounded-lg hover:bg-white text-[11px] font-extrabold text-[#0F172A] flex items-center justify-center cursor-pointer"
+                  title="Yazı ve İkonları Büyüt (A+)"
+                >
+                  A+
+                </button>
+              </div>
+
+              <label
+                title="Plan Ölçü Çizgilerini Göster / Gizle"
+                className="inline-flex items-center gap-1.5 px-2 py-1 rounded-xl bg-[#F8FAFC] border border-[#CBD5E1] cursor-pointer select-none shrink-0 whitespace-nowrap"
+              >
                 <input
                   type="checkbox"
                   data-testid="plan-toggle-dimensions-checkbox"
@@ -2167,17 +2955,17 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   className="sr-only"
                 />
                 <span
-                  className={`w-8 h-4.5 rounded-full transition relative inline-flex items-center px-0.5 ${
+                  className={`w-7 h-4 rounded-full transition relative inline-flex items-center px-0.5 shrink-0 ${
                     showPlanDimensions ? "bg-[#2563EB]" : "bg-[#CBD5E1]"
                   }`}
                 >
                   <span
-                    className={`w-3.5 h-3.5 rounded-full bg-white shadow-2xs transition-transform ${
-                      showPlanDimensions ? "translate-x-3.5" : "translate-x-0"
+                    className={`w-3 h-3 rounded-full bg-white shadow-2xs transition-transform ${
+                      showPlanDimensions ? "translate-x-3" : "translate-x-0"
                     }`}
                   />
                 </span>
-                <span className="text-[11px] font-semibold text-[#334155]">Ölçüleri Göster</span>
+                <span className="text-[11px] font-bold text-[#0F172A]">Ölçüler</span>
               </label>
 
               <select
@@ -2186,25 +2974,27 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 onChange={(e) =>
                   setWallDimDisplayMode(e.target.value as "net_inner" | "outer" | "plinth")
                 }
-                className="px-2.5 py-1 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] text-[11px] font-semibold text-[#111827] cursor-pointer"
+                title="Duvar Ölçülendirme Modu"
+                className="px-2 py-1 rounded-xl bg-[#F8FAFC] border border-[#CBD5E1] text-[11px] font-bold text-[#0F172A] shrink-0 whitespace-nowrap cursor-pointer"
               >
-                <option value="net_inner">Duvar Ölçüleri (Net İç)</option>
-                <option value="outer">Dış Duvar Ölçüsü</option>
-                <option value="plinth">Kaide / Soket Ölçüsü</option>
+                <option value="net_inner">📏 Net İç Ölçü</option>
+                <option value="outer">📏 Dış Duvar</option>
+                <option value="plinth">📏 Baza / Soket</option>
               </select>
 
               <button
                 type="button"
                 data-testid="plan-toggle-advanced-cad-btn"
                 onClick={() => setShowAdvancedCadBar((v) => !v)}
-                title="Detaylı CAD & Engel Koordinat Çubuğunu Aç/Kapat"
-                className={`px-2 py-1 rounded-xl border text-[11px] font-semibold transition cursor-pointer ${
+                title="Detaylı CAD & Yapı Elemanı Çubuğunu Aç/Kapat"
+                className={`px-2.5 py-1 rounded-xl border text-[11px] font-bold inline-flex items-center gap-1 shrink-0 whitespace-nowrap transition active:scale-95 cursor-pointer ${
                   showAdvancedCadBar
-                    ? "bg-[#EFF6FF] text-[#1D4ED8] border-[#2563EB]"
-                    : "bg-[#F8FAFC] hover:bg-[#F1F5F9] text-[#475569] border-[#E2E8F0]"
+                    ? "bg-[#2563EB] text-white border-[#1D4ED8] shadow-2xs"
+                    : "bg-[#F8FAFC] hover:bg-[#EFF6FF] text-[#0F172A] border-[#CBD5E1]"
                 }`}
               >
-                🛠 CAD
+                <span>🛠</span>
+                <span>CAD</span>
               </button>
             </div>
           </div>
@@ -2212,13 +3002,25 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
           <svg
             data-testid="v3-cad-plan-svg"
             viewBox={`${vb.x} ${vb.y} ${vb.width} ${vb.height}`}
-            className={`w-full h-full ${
-              isDrawingWall || isPlacingObstacle ? "cursor-crosshair" : ""
+            className={`w-full flex-1 min-h-0 ${
+              panning2D
+                ? "cursor-grabbing"
+                : isDrawingWall || isPlacingObstacle
+                ? "cursor-crosshair"
+                : "cursor-grab"
             }`}
             onClick={handleSvgClick}
             onContextMenu={handleSvgContextMenu}
             onMouseDown={(e) => {
-              if (e.button === 1 || (e.button === 0 && e.altKey)) {
+              const isBgClick =
+                e.target === e.currentTarget ||
+                (e.target as Element).getAttribute?.("data-plan-bg") === "true";
+              if (
+                e.button === 2 ||
+                e.button === 1 ||
+                (e.button === 0 && e.altKey) ||
+                (e.button === 0 && isBgClick && !isDrawingWall && !isPlacingObstacle)
+              ) {
                 e.preventDefault();
                 setPanning2D({
                   startClientX: e.clientX,
@@ -2265,7 +3067,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             </defs>
 
             {/* Architectural Grid Background */}
-            <rect x={vb.x} y={vb.y} width={vb.width} height={vb.height} fill={showPlanGrid ? "url(#v3_cad_grid_lg)" : "#EDE9E0"} />
+            <rect data-plan-bg="true" x={vb.x} y={vb.y} width={vb.width} height={vb.height} fill={showPlanGrid ? "url(#v3_cad_grid_lg)" : "#EDE9E0"} />
 
             {/* 0. External DWG / DXF / PDF / Image Floorplan Underlay */}
             {underlay && (
@@ -2476,7 +3278,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 );
               }
               const wallMidX = wall.position.x + wall.length / 2;
-              const dimY = wall.position.z - wall.thickness - 75;
+              const dimY = wall.position.z - wall.thickness - Math.round(70 * ts);
               const displayedWallLen =
                 wallDimDisplayMode === "outer"
                   ? wall.length + wall.thickness * 2
@@ -2490,7 +3292,9 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   ? " (Soket)"
                   : "";
               const wallText = `${wall.name}${modeSuffix}: ${displayedWallLen} mm`;
-              const pillW = Math.max(300, wallText.length * 24 + 40);
+              const wallFont = Math.round(32 * ts);
+              const pillH = Math.round(54 * ts);
+              const pillW = Math.max(Math.round(280 * ts), Math.round(wallText.length * wallFont * 0.62 + 44 * ts));
               return (
                 <g
                   key={wall.id}
@@ -2547,21 +3351,21 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     >
                       <rect
                         x={wallMidX - pillW / 2}
-                        y={dimY - 30}
+                        y={dimY - pillH / 2}
                         width={pillW}
-                        height={60}
-                        rx={12}
+                        height={pillH}
+                        rx={Math.round(12 * ts)}
                         fill="#FFFFFF"
                         stroke="#2563EB"
-                        strokeWidth="3"
+                        strokeWidth={Math.round(3.5 * ts)}
                       />
                       <text
                         x={wallMidX}
-                        y={dimY + 12}
+                        y={dimY + Math.round(wallFont * 0.35)}
                         textAnchor="middle"
-                        fill="#1C1917"
-                        fontSize="38"
-                        fontWeight="800"
+                        fill="#0F172A"
+                        fontSize={wallFont}
+                        fontWeight="900"
                         fontFamily="monospace"
                       >
                         {wallText}
@@ -3052,17 +3856,37 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         />
                       </g>
                     )}
-                    <text
-                      x={obs.position.x + ow / 2}
-                      y={obsY + wallT / 2 + 9}
-                      textAnchor="middle"
-                      fill={isDoor ? "#92400E" : "#0369A1"}
-                      fontSize="26"
-                      fontWeight="800"
-                      fontFamily="monospace"
-                    >
-                      {isDoor ? "🚪 KAPI" : "🪟 PENCERE"} ({ow}×{obs.dimensions.height}mm • Y:{obs.position.y})
-                    </text>
+                    {(() => {
+                      const obsText = `${isDoor ? "🚪 KAPI" : "🪟 PENCERE"} (${ow}×${obs.dimensions.height} • Y:${obs.position.y})`;
+                      const obsFont = Math.round(24 * ts);
+                      const obsPillW = Math.max(Math.round(240 * ts), Math.round(obsText.length * obsFont * 0.6 + 28 * ts));
+                      const obsPillH = Math.round(40 * ts);
+                      return (
+                        <g className="pointer-events-none">
+                          <rect
+                            x={obs.position.x + ow / 2 - obsPillW / 2}
+                            y={obsY + wallT / 2 - obsPillH / 2}
+                            width={obsPillW}
+                            height={obsPillH}
+                            rx={Math.round(9 * ts)}
+                            fill="rgba(255, 255, 255, 0.94)"
+                            stroke={isDoor ? "#D97706" : "#0284C7"}
+                            strokeWidth={Math.round(2.5 * ts)}
+                          />
+                          <text
+                            x={obs.position.x + ow / 2}
+                            y={obsY + wallT / 2 + Math.round(obsFont * 0.35)}
+                            textAnchor="middle"
+                            fill={isDoor ? "#92400E" : "#0369A1"}
+                            fontSize={obsFont}
+                            fontWeight="900"
+                            fontFamily="monospace"
+                          >
+                            {obsText}
+                          </text>
+                        </g>
+                      );
+                    })()}
                     
                     {isSelectedObs && (
                       <g>
@@ -3227,17 +4051,37 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       fill={isSelectedObs ? "#FCA5A5" : "#78716C"}
                       opacity={0.35}
                     />
-                    <text
-                      x={obs.position.x + obs.dimensions.width / 2}
-                      y={obs.position.z + obs.dimensions.depth + 36}
-                      textAnchor="middle"
-                      fill={isSelectedObs ? "#B91C1C" : "#292524"}
-                      fontSize="30"
-                      fontWeight="800"
-                      fontFamily="monospace"
-                    >
-                      {isBeam ? "KİRİŞ" : "KOLON"} ({obs.dimensions.width}×{obs.dimensions.depth})
-                    </text>
+                    {(() => {
+                      const colTxt = `${isBeam ? "KİRİŞ" : "KOLON"} (${obs.dimensions.width}×${obs.dimensions.depth})`;
+                      const colFont = Math.round(23 * ts);
+                      const colPillW = Math.max(Math.round(180 * ts), Math.round(colTxt.length * colFont * 0.62 + 24 * ts));
+                      const colPillH = Math.round(38 * ts);
+                      return (
+                        <g className="pointer-events-none">
+                          <rect
+                            x={obs.position.x + obs.dimensions.width / 2 - colPillW / 2}
+                            y={obs.position.z + obs.dimensions.depth + Math.round(8 * ts)}
+                            width={colPillW}
+                            height={colPillH}
+                            rx={Math.round(8 * ts)}
+                            fill="rgba(255, 255, 255, 0.94)"
+                            stroke={isSelectedObs ? "#DC2626" : "#44403C"}
+                            strokeWidth="2"
+                          />
+                          <text
+                            x={obs.position.x + obs.dimensions.width / 2}
+                            y={obs.position.z + obs.dimensions.depth + Math.round(8 * ts) + Math.round(colPillH * 0.72)}
+                            textAnchor="middle"
+                            fill={isSelectedObs ? "#B91C1C" : "#0F172A"}
+                            fontSize={colFont}
+                            fontWeight="900"
+                            fontFamily="monospace"
+                          >
+                            {colTxt}
+                          </text>
+                        </g>
+                      );
+                    })()}
                   </g>
                 );
               }
@@ -3298,17 +4142,37 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       strokeWidth={isSelectedObs ? "6" : "3.5"}
                       strokeDasharray={isNiche ? "10 6" : undefined}
                     />
-                    <text
-                      x={obs.position.x + obs.dimensions.width / 2}
-                      y={boxY + obs.dimensions.depth + 34}
-                      textAnchor="middle"
-                      fill={isSelectedObs ? "#B91C1C" : "#1E293B"}
-                      fontSize="26"
-                      fontWeight="800"
-                      fontFamily="monospace"
-                    >
-                      {labelTag} ({obs.dimensions.width}×{obs.dimensions.depth}mm)
-                    </text>
+                    {(() => {
+                      const nTxt = `${labelTag} (${obs.dimensions.width}×${obs.dimensions.depth}mm)`;
+                      const nFont = Math.round(23 * ts);
+                      const nPillW = Math.max(Math.round(190 * ts), Math.round(nTxt.length * nFont * 0.62 + 24 * ts));
+                      const nPillH = Math.round(38 * ts);
+                      return (
+                        <g className="pointer-events-none">
+                          <rect
+                            x={obs.position.x + obs.dimensions.width / 2 - nPillW / 2}
+                            y={boxY + obs.dimensions.depth / 2 - nPillH / 2}
+                            width={nPillW}
+                            height={nPillH}
+                            rx={Math.round(8 * ts)}
+                            fill="rgba(255, 255, 255, 0.94)"
+                            stroke={isSelectedObs ? "#DC2626" : "#2563EB"}
+                            strokeWidth="2"
+                          />
+                          <text
+                            x={obs.position.x + obs.dimensions.width / 2}
+                            y={boxY + obs.dimensions.depth / 2 + Math.round(nFont * 0.35)}
+                            textAnchor="middle"
+                            fill={isSelectedObs ? "#B91C1C" : "#0F172A"}
+                            fontSize={nFont}
+                            fontWeight="900"
+                            fontFamily="monospace"
+                          >
+                            {nTxt}
+                          </text>
+                        </g>
+                      );
+                    })()}
                   </g>
                 );
               }
@@ -3443,29 +4307,37 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                                 </g>
                               )}
                               {/* Return Arm Z Dimension Badge */}
-                              <g className="pointer-events-none">
-                                <rect
-                                  x={mx + 18}
-                                  y={mz + wd + (md - wd) / 2 - 20}
-                                  width={Math.min(wd - 36, 220)}
-                                  height={40}
-                                  rx={8}
-                                  fill="#F8FAFC"
-                                  stroke="#CBD5E1"
-                                  strokeWidth="2"
-                                />
-                                <text
-                                  x={mx + wd / 2}
-                                  y={mz + wd + (md - wd) / 2 + 6}
-                                  textAnchor="middle"
-                                  fill="#334155"
-                                  fontSize="22"
-                                  fontWeight="800"
-                                  fontFamily="monospace"
-                                >
-                                  {`Z:${md} (D:${wd})`}
-                                </text>
-                              </g>
+                              {(() => {
+                                const zTxt = `Z:${md} (D:${wd})`;
+                                const zFont = Math.round(22 * ts);
+                                const zPillW = Math.min(wd - 20, Math.max(Math.round(160 * ts), Math.round(zTxt.length * zFont * 0.62 + 20 * ts)));
+                                const zPillH = Math.round(38 * ts);
+                                return (
+                                  <g className="pointer-events-none">
+                                    <rect
+                                      x={mx + wd / 2 - zPillW / 2}
+                                      y={mz + wd + (md - wd) / 2 - zPillH / 2}
+                                      width={zPillW}
+                                      height={zPillH}
+                                      rx={Math.round(8 * ts)}
+                                      fill="#FFFFFF"
+                                      stroke="#2563EB"
+                                      strokeWidth="2.5"
+                                    />
+                                    <text
+                                      x={mx + wd / 2}
+                                      y={mz + wd + (md - wd) / 2 + Math.round(zFont * 0.35)}
+                                      textAnchor="middle"
+                                      fill="#0F172A"
+                                      fontSize={zFont}
+                                      fontWeight="900"
+                                      fontFamily="monospace"
+                                    >
+                                      {zTxt}
+                                    </text>
+                                  </g>
+                                );
+                              })()}
                             </>
                           )}
                         </g>
@@ -3595,7 +4467,44 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       );
                     }
 
-                    // Standard Rectangular Module Footprint
+                    // Standard Rectangular Module Footprint — 100% Synchronized with 3D Product (Exact Bay Widths, Door Systems & True 90° Quarter-Circle Arcs)
+                    const realBayWidths = mod ? calculateBayWidths(mod) : [mw];
+                    const fourSpace = mod ? calculateFourSpaceDimensions(mod) : null;
+                    const hasDoorSwingError = liveSpatialAlerts.some(
+                      (al) => al.modIdx === idx && al.kind === "door_swing"
+                    );
+                    const hasBodyOverlapError = liveSpatialAlerts.some(
+                      (al) => al.modIdx === idx && (al.kind === "module_overlap" || al.kind === "column")
+                    );
+                    const carcassFill = hasBodyOverlapError
+                      ? "#FEE2E2"
+                      : isAct
+                      ? "#EBF5FF"
+                      : fp.category === "kitchen_wall"
+                      ? "#F5F5F4"
+                      : "#FFFFFF";
+                    const carcassStroke = hasCollisionError
+                      ? "#DC2626"
+                      : isAct
+                      ? "#2563EB"
+                      : "#292524";
+
+                    // Precompute each bay's exact start offset along the module width (including 18mm carcass side & divider thickness)
+                    const bayOffsetsMm: { startMm: number; clearWidthMm: number; spanWidthMm: number }[] = [];
+                    if (mod) {
+                      let cursorMm = T;
+                      realBayWidths.forEach((bwClear, bIdx) => {
+                        const leftPad = bIdx === 0 ? T : T / 2;
+                        const rightPad = bIdx === realBayWidths.length - 1 ? T : T / 2;
+                        bayOffsetsMm.push({
+                          startMm: cursorMm - leftPad,
+                          clearWidthMm: bwClear,
+                          spanWidthMm: bwClear + leftPad + rightPad,
+                        });
+                        cursorMm += bwClear + T;
+                      });
+                    }
+
                     return (
                       <>
                         <rect
@@ -3604,47 +4513,147 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                           width={mw}
                           height={md}
                           rx={6}
-                          fill={fillCol}
-                          stroke={strokeCol}
+                          fill={carcassFill}
+                          stroke={carcassStroke}
                           strokeWidth={strokeW}
                           strokeDasharray={fp.category === "kitchen_wall" ? "10 5" : undefined}
                         />
 
-                        {/* Internal Bay Divider Lines */}
+                        {/* 18mm Carcass Side & Back Panel Inner Lines */}
+                        {fp.rotationY === 0 && (
+                          <g className="pointer-events-none" opacity={0.55}>
+                            <line x1={mx + T} y1={mz + T} x2={mx + mw - T} y2={mz + T} stroke="#94A3B8" strokeWidth="2" />
+                            <line x1={mx + T} y1={mz + T} x2={mx + T} y2={mz + md - T} stroke="#94A3B8" strokeWidth="2" />
+                            <line x1={mx + mw - T} y1={mz + T} x2={mx + mw - T} y2={mz + md - T} stroke="#94A3B8" strokeWidth="2" />
+                          </g>
+                        )}
+
+                        {/* Exact Internal Bay Divider Lines & Per-Bay Interior Schematic (Hanging Rail, Drawers, Bay Width Badges) */}
                         {mod &&
-                          mod.bays.length > 1 &&
-                          mod.bays.slice(0, -1).map((b, bIdx) => {
+                          bayOffsetsMm.map((bo, bIdx) => {
+                            const bayObj = mod.bays[bIdx];
+                            const divCoordMm = bo.startMm + bo.spanWidthMm;
+                            const hasDividerAfter = bIdx < bayOffsetsMm.length - 1;
+
                             if (fp.rotationY === 90 || fp.rotationY === 270) {
-                              const bayZ = mz + ((bIdx + 1) * md) / mod.bays.length;
-                              return (
+                              const bayZ = mz + divCoordMm;
+                              return hasDividerAfter ? (
                                 <line
-                                  key={b.index}
+                                  key={`div_${bIdx}`}
                                   x1={mx}
                                   y1={bayZ}
                                   x2={mx + mw}
                                   y2={bayZ}
-                                  stroke={isAct ? "#2563EB" : "#A8A29E"}
-                                  strokeWidth="2"
-                                  strokeDasharray="8 6"
+                                  stroke={isAct ? "#2563EB" : "#64748B"}
+                                  strokeWidth="3"
                                 />
-                              );
+                              ) : null;
                             }
-                            const bayX = mx + ((bIdx + 1) * mw) / mod.bays.length;
+
+                            const bx = mx + bo.startMm;
+                            const bSpan = bo.spanWidthMm;
+                            const divX = mx + divCoordMm;
+                            const extDrawers = bayObj ? bayObj.drawers.filter((d) => !d.isInternal) : [];
+                            const hasRails = bayObj ? bayObj.hangingRails.length > 0 : false;
+
                             return (
-                              <line
-                                key={b.index}
-                                x1={bayX}
-                                y1={mz}
-                                x2={bayX}
-                                y2={mz + md}
-                                stroke={isAct ? "#2563EB" : "#A8A29E"}
-                                strokeWidth="2"
-                                strokeDasharray="8 6"
-                              />
+                              <g key={`bay_plan_int_${bIdx}`} className="pointer-events-none">
+                                {/* Solid 18mm Structural Bay Divider Line at Exact Millimeter Coordinate */}
+                                {hasDividerAfter && (
+                                  <line
+                                    x1={divX}
+                                    y1={mz}
+                                    x2={divX}
+                                    y2={mz + md}
+                                    stroke={isAct ? "#1D4ED8" : "#475569"}
+                                    strokeWidth="3.5"
+                                  />
+                                )}
+
+                                {/* Hanging Rail Centerline + Hanger Ticks inside Bay */}
+                                {hasRails && (
+                                  <g opacity={0.45}>
+                                    <line
+                                      x1={bx + T}
+                                      y1={mz + md * 0.5}
+                                      x2={bx + bSpan - T}
+                                      y2={mz + md * 0.5}
+                                      stroke="#475569"
+                                      strokeWidth="2.5"
+                                      strokeDasharray="8 5"
+                                    />
+                                  </g>
+                                )}
+
+                                {/* External Drawer Stack Indicator at Front Edge of Bay (Scaled with `ts` at front of module) */}
+                                {extDrawers.length > 0 && (() => {
+                                  const drwFont = Math.round(20 * ts);
+                                  const drwH = Math.round(34 * ts);
+                                  return (
+                                    <g>
+                                      <rect
+                                        x={bx + T + 8}
+                                        y={mz + md - drwH - 8}
+                                        width={Math.max(40, bSpan - 2 * T - 16)}
+                                        height={drwH}
+                                        rx={7}
+                                        fill="rgba(254, 243, 199, 0.94)"
+                                        stroke="#D97706"
+                                        strokeWidth="2.2"
+                                        strokeDasharray="6 4"
+                                      />
+                                      <text
+                                        x={bx + bSpan / 2}
+                                        y={mz + md - 8 - Math.round(drwH * 0.28)}
+                                        textAnchor="middle"
+                                        fill="#92400E"
+                                        fontSize={drwFont}
+                                        fontWeight="900"
+                                        fontFamily="monospace"
+                                      >
+                                        {`🗄 ${extDrawers.length} Çekmece`}
+                                      </text>
+                                    </g>
+                                  );
+                                })()}
+
+                                {/* Bay Width Sub-Label at Top Edge of Bay (e.g. B1: 575mm | B2: 1171mm) */}
+                                {mod.bays.length > 1 && (() => {
+                                  const bTxt = `B${bIdx + 1}: ${bo.clearWidthMm}mm`;
+                                  const bFont = Math.round(20 * ts);
+                                  const bPillW = Math.min(bSpan - 10, Math.max(Math.round(125 * ts), Math.round(bTxt.length * bFont * 0.62 + 18 * ts)));
+                                  const bPillH = Math.round(32 * ts);
+                                  return (
+                                    <g>
+                                      <rect
+                                        x={bx + bSpan / 2 - bPillW / 2}
+                                        y={mz + 8}
+                                        width={bPillW}
+                                        height={bPillH}
+                                        rx={7}
+                                        fill="rgba(255, 255, 255, 0.94)"
+                                        stroke={isAct ? "#2563EB" : "#94A3B8"}
+                                        strokeWidth="2"
+                                      />
+                                      <text
+                                        x={bx + bSpan / 2}
+                                        y={mz + 8 + Math.round(bPillH * 0.72)}
+                                        textAnchor="middle"
+                                        fill={isAct ? "#1D4ED8" : "#0F172A"}
+                                        fontSize={bFont}
+                                        fontWeight="900"
+                                        fontFamily="monospace"
+                                      >
+                                        {bTxt}
+                                      </text>
+                                    </g>
+                                  );
+                                })()}
+                              </g>
                             );
                           })}
 
-                        {/* Door Front Direction Line */}
+                        {/* Authentic Door Opening System in 2D Plan (Matches 3D Product 1-to-1: Single Left, Single Right, Double 2-Leaf, Sliding, Bi-Fold, Lift-Up, Pocket, Tambour) */}
                         {fp.rotationY === 90 ? (
                           <line
                             x1={mx + mw + 8}
@@ -3664,341 +4673,677 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                             strokeWidth="4"
                           />
                         ) : (
-                          <line
-                            x1={mx + 12}
-                            y1={mz + md + 8}
-                            x2={mx + mw - 12}
-                            y2={mz + md + 8}
-                            stroke={isAct ? "#2563EB" : "#78716C"}
-                            strokeWidth="4"
-                          />
+                          mod &&
+                          !mod.isOpenFront &&
+                          bayOffsetsMm.map((bo, bIdx) => {
+                            const b = mod.bays[bIdx];
+                            if (!b) return null;
+                            const dType = b.door.type;
+                            const dSys = b.door.doorSystemId || inferDoorSystemIdFromType(dType);
+                            if (dType === "open" || dSys === "open") return null;
+
+                            const leafSpec = fourSpace?.doorLeaves[bIdx];
+                            const bx = mx + bo.startMm;
+                            const baySpanW = bo.spanWidthMm;
+                            const frontZ = mz + md + 4;
+                            const doorStroke = hasDoorSwingError
+                              ? "#DC2626"
+                              : isAct
+                              ? "#2563EB"
+                              : "#475569";
+                            const doorSweepFill = hasDoorSwingError
+                              ? "rgba(239, 68, 68, 0.14)"
+                              : isAct
+                              ? "rgba(37, 99, 235, 0.08)"
+                              : "rgba(100, 116, 139, 0.06)";
+
+                            // 1. SLIDING DOOR SYSTEM (Üstten / Alttan Sürgülü & Eş Düzlemli) — Parallel Tracks, NO Outward Swing Arc!
+                            if (
+                              dSys === "sliding_top_hung" ||
+                              dSys === "sliding_bottom_rolling" ||
+                              dSys === "sliding_coplanar" ||
+                              dType === "sliding" ||
+                              dType === "sliding_bottom"
+                            ) {
+                              const trackZ = frontZ + (bIdx % 2 === 0 ? 2 : 16);
+                              const arrowDir = bIdx % 2 === 0 ? 1 : -1;
+                              const midX = bx + baySpanW / 2;
+                              return (
+                                <g key={`door_sys_${bIdx}`} className="pointer-events-none">
+                                  <rect
+                                    x={bx + 4}
+                                    y={trackZ}
+                                    width={Math.max(40, baySpanW - 8)}
+                                    height={12}
+                                    rx={3}
+                                    fill="#DBEAFE"
+                                    stroke={doorStroke}
+                                    strokeWidth="3"
+                                  />
+                                  <line
+                                    x1={midX - 55 * arrowDir}
+                                    y1={trackZ + 32}
+                                    x2={midX + 55 * arrowDir}
+                                    y2={trackZ + 32}
+                                    stroke={doorStroke}
+                                    strokeWidth="3"
+                                  />
+                                  <text
+                                    x={midX}
+                                    y={trackZ + 60}
+                                    textAnchor="middle"
+                                    fill={doorStroke}
+                                    fontSize="19"
+                                    fontWeight="800"
+                                    fontFamily="monospace"
+                                  >
+                                    {bIdx % 2 === 0 ? "SÜRGÜ KAPAK ➔" : "⬅ SÜRGÜ KAPAK"}
+                                  </text>
+                                </g>
+                              );
+                            }
+
+                            // 2. FOLDING / BI-FOLD DOOR SYSTEM (Katlanır Akordeon Kapak)
+                            if (dSys === "folding_side" || dType === "folding") {
+                              const wingW = Math.round(baySpanW / 2);
+                              const tipX = bx + Math.round(wingW * 0.45);
+                              const tipZ = frontZ + Math.round(wingW * 0.88);
+                              const endX = bx + Math.round(wingW * 0.9);
+                              return (
+                                <g key={`door_sys_${bIdx}`} className="pointer-events-none">
+                                  <polyline
+                                    points={`${bx + 4},${frontZ} ${tipX},${tipZ} ${endX},${frontZ}`}
+                                    fill={doorSweepFill}
+                                    stroke={doorStroke}
+                                    strokeWidth="4"
+                                    strokeLinejoin="round"
+                                  />
+                                  <path
+                                    d={`M ${bx + baySpanW - 4} ${frontZ} A ${wingW} ${wingW} 0 0 1 ${tipX} ${tipZ}`}
+                                    fill="none"
+                                    stroke={doorStroke}
+                                    strokeWidth="2.5"
+                                    strokeDasharray="8 5"
+                                  />
+                                </g>
+                              );
+                            }
+
+                            // 3. LIFT-UP FLAP DOOR SYSTEM (Blum AVENTOS HK / HL / HF Yukarı Kalkar Kapak)
+                            if (dSys.startsWith("lift_") || dType === "flap" || dType.startsWith("lift_")) {
+                              const liftProjD = 240;
+                              return (
+                                <g key={`door_sys_${bIdx}`} className="pointer-events-none">
+                                  <line
+                                    x1={bx + 4}
+                                    y1={frontZ}
+                                    x2={bx + baySpanW - 4}
+                                    y2={frontZ}
+                                    stroke={doorStroke}
+                                    strokeWidth="4.5"
+                                  />
+                                  <rect
+                                    x={bx + 8}
+                                    y={frontZ}
+                                    width={Math.max(40, baySpanW - 16)}
+                                    height={liftProjD}
+                                    rx={6}
+                                    fill={doorSweepFill}
+                                    stroke={doorStroke}
+                                    strokeWidth="2.5"
+                                    strokeDasharray="8 5"
+                                  />
+                                  <text
+                                    x={bx + baySpanW / 2}
+                                    y={frontZ + liftProjD / 2 + 7}
+                                    textAnchor="middle"
+                                    fill={doorStroke}
+                                    fontSize="19"
+                                    fontWeight="800"
+                                    fontFamily="monospace"
+                                  >
+                                    ↑ KALKAR KAPAK
+                                  </text>
+                                </g>
+                              );
+                            }
+
+                            // 4. POCKET RETRACTABLE OR TAMBOUR ROLLER DOOR
+                            if (
+                              dSys === "pocket_retractable" ||
+                              dType === "pocket" ||
+                              dSys === "tambour_roller" ||
+                              dType === "tambour"
+                            ) {
+                              return (
+                                <g key={`door_sys_${bIdx}`} className="pointer-events-none">
+                                  <line
+                                    x1={bx + 4}
+                                    y1={frontZ}
+                                    x2={bx + baySpanW - 4}
+                                    y2={frontZ}
+                                    stroke={doorStroke}
+                                    strokeWidth="4.5"
+                                    strokeDasharray="10 4"
+                                  />
+                                  <text
+                                    x={bx + baySpanW / 2}
+                                    y={frontZ + 32}
+                                    textAnchor="middle"
+                                    fill={doorStroke}
+                                    fontSize="18"
+                                    fontWeight="800"
+                                    fontFamily="monospace"
+                                  >
+                                    {dSys === "tambour_roller" || dType === "tambour" ? "▤ TAMBUR PANJUR" : "↳ POCKET GİZLENİR"}
+                                  </text>
+                                </g>
+                              );
+                            }
+
+                            // 5. HINGED DOUBLE DOOR (Çift Kapak: 2 Equal Leaves Opening Left & Right with True 90° Quarter-Circle Arcs!)
+                            const isDoubleDoor =
+                              dSys === "hinged_double" ||
+                              dType === "double" ||
+                              dType === "inset_double" ||
+                              (leafSpec && leafSpec.leafCount === 2);
+
+                            if (isDoubleDoor) {
+                              const leafW = Math.max(120, Math.round((baySpanW - 8) / 2));
+                              const hxL = bx + 4;
+                              const hxR = bx + baySpanW - 4;
+                              return (
+                                <g
+                                  key={`door_sys_${bIdx}`}
+                                  data-testid={`plan-door-double-bay-${bIdx}`}
+                                  className="pointer-events-none"
+                                >
+                                  {/* Closed Door Leaves Line with Center Split */}
+                                  <line
+                                    x1={hxL}
+                                    y1={frontZ}
+                                    x2={hxL + leafW - 3}
+                                    y2={frontZ}
+                                    stroke={doorStroke}
+                                    strokeWidth="4.5"
+                                  />
+                                  <line
+                                    x1={hxR - leafW + 3}
+                                    y1={frontZ}
+                                    x2={hxR}
+                                    y2={frontZ}
+                                    stroke={doorStroke}
+                                    strokeWidth="4.5"
+                                  />
+                                  {/* Center 2 Handle Ticks */}
+                                  <line
+                                    x1={hxL + leafW - 18}
+                                    y1={frontZ}
+                                    x2={hxL + leafW - 18}
+                                    y2={frontZ + 18}
+                                    stroke="#0F172A"
+                                    strokeWidth="4"
+                                  />
+                                  <line
+                                    x1={hxR - leafW + 18}
+                                    y1={frontZ}
+                                    x2={hxR - leafW + 18}
+                                    y2={frontZ + 18}
+                                    stroke="#0F172A"
+                                    strokeWidth="4"
+                                  />
+
+                                  {/* Left Leaf True 90° Quarter-Circle Sector (Hinged at hxL) */}
+                                  <path
+                                    d={`M ${hxL} ${frontZ} L ${hxL + leafW} ${frontZ} A ${leafW} ${leafW} 0 0 1 ${hxL} ${frontZ + leafW} Z`}
+                                    fill={doorSweepFill}
+                                    stroke={doorStroke}
+                                    strokeWidth="2.2"
+                                    strokeDasharray="8 5"
+                                  />
+                                  <line
+                                    x1={hxL}
+                                    y1={frontZ}
+                                    x2={hxL}
+                                    y2={frontZ + leafW}
+                                    stroke={doorStroke}
+                                    strokeWidth="3.5"
+                                  />
+
+                                  {/* Right Leaf True 90° Quarter-Circle Sector (Hinged at hxR) */}
+                                  <path
+                                    d={`M ${hxR} ${frontZ} L ${hxR - leafW} ${frontZ} A ${leafW} ${leafW} 0 0 0 ${hxR} ${frontZ + leafW} Z`}
+                                    fill={doorSweepFill}
+                                    stroke={doorStroke}
+                                    strokeWidth="2.2"
+                                    strokeDasharray="8 5"
+                                  />
+                                  <line
+                                    x1={hxR}
+                                    y1={frontZ}
+                                    x2={hxR}
+                                    y2={frontZ + leafW}
+                                    stroke={doorStroke}
+                                    strokeWidth="3.5"
+                                  />
+                                </g>
+                              );
+                            }
+
+                            // 6. HINGED SINGLE DOOR (Tek Kapak Sol Menteşe veya Sağ Menteşe — True 90° Quarter-Circle Arc with R = leafW!)
+                            const isRightHinge =
+                              dType === "single_right" ||
+                              dType === "inset_right" ||
+                              dType === "half_overlay_right" ||
+                              b.door.direction === "right";
+                            const leafW = Math.max(140, Math.round(baySpanW - 8));
+                            const hx = isRightHinge ? bx + baySpanW - 4 : bx + 4;
+                            const closedTipX = isRightHinge ? hx - leafW : hx + leafW;
+                            const handleX = isRightHinge ? closedTipX + 22 : closedTipX - 22;
+
+                            return (
+                              <g
+                                key={`door_sys_${bIdx}`}
+                                data-testid={`plan-door-single-bay-${bIdx}`}
+                                className="pointer-events-none"
+                              >
+                                {/* Closed Door Leaf Line */}
+                                <line
+                                  x1={bx + 4}
+                                  y1={frontZ}
+                                  x2={bx + baySpanW - 4}
+                                  y2={frontZ}
+                                  stroke={doorStroke}
+                                  strokeWidth="4.5"
+                                />
+                                {/* Handle Tick on Opposite Edge of Hinge */}
+                                <line
+                                  x1={handleX}
+                                  y1={frontZ}
+                                  x2={handleX}
+                                  y2={frontZ + 18}
+                                  stroke="#0F172A"
+                                  strokeWidth="4"
+                                />
+                                {/* True 90° Quarter-Circle Door Swing Sector (Radius === Door Leaf Width!) */}
+                                <path
+                                  d={
+                                    isRightHinge
+                                      ? `M ${hx} ${frontZ} L ${closedTipX} ${frontZ} A ${leafW} ${leafW} 0 0 0 ${hx} ${frontZ + leafW} Z`
+                                      : `M ${hx} ${frontZ} L ${closedTipX} ${frontZ} A ${leafW} ${leafW} 0 0 1 ${hx} ${frontZ + leafW} Z`
+                                  }
+                                  fill={doorSweepFill}
+                                  stroke={doorStroke}
+                                  strokeWidth="2.2"
+                                  strokeDasharray="8 5"
+                                />
+                                {/* Open 90° Door Leaf Line */}
+                                <line
+                                  x1={hx}
+                                  y1={frontZ}
+                                  x2={hx}
+                                  y2={frontZ + leafW}
+                                  stroke={doorStroke}
+                                  strokeWidth="3.5"
+                                />
+                              </g>
+                            );
+                          })
                         )}
                       </>
                     );
                   })()}
 
 
-                  {/* Unmistakable Selected Module Halo, Ribbon Badge, On-Canvas 90° Rotate Icon & Parametric Edge Resize Handles */}
-                  {isAct && (
-                    <g>
-                      <rect
-                        x={mx - 12}
-                        y={mz - 12}
-                        width={mw + 24}
-                        height={md + 24}
-                        rx={12}
-                        fill="none"
-                        stroke="#D97706"
-                        strokeWidth="4"
-                        strokeDasharray="14 6"
-                        className="pointer-events-none"
-                      />
-                      <rect
-                        x={mx + mw / 2 - 140}
-                        y={mz - 54}
-                        width={280}
-                        height={42}
-                        rx={10}
-                        fill="#B45309"
-                        className="pointer-events-none"
-                      />
-                      <text
-                        x={mx + mw / 2}
-                        y={mz - 26}
-                        textAnchor="middle"
-                        fill="#FFFFFF"
-                        fontSize="24"
-                        fontWeight="900"
-                        fontFamily="monospace"
-                        className="pointer-events-none"
-                      >
-                        {`★ SEÇİLİ MODÜL #${idx + 1}`}
-                      </text>
+                  {/* Unmistakable Selected Module Halo, Proportional Ribbon Badge, 90° Rotate Buttons & Edge Resize Handles */}
+                  {isAct && (() => {
+                    const ribFont = Math.round(20 * ts);
+                    const ribW = Math.round(220 * ts);
+                    const ribH = Math.round(36 * ts);
+                    const ribCenterY = mz - Math.round(32 * ts);
+                    const rotR = Math.round(22 * ts);
+                    const rotOffset = Math.round(ribW / 2 + rotR + 10 * ts);
+                    const sideHandleW = Math.round(30 * ts);
+                    const sideHandleH = Math.round(56 * ts);
+                    const topBotHandleW = Math.round(56 * ts);
+                    const topBotHandleH = Math.round(28 * ts);
+                    const handleFont = Math.round(19 * ts);
 
-                      {/* On-Canvas Clickable -90° (↺) & +90° (↻) Flexible Rotate Gizmo Buttons */}
-                      <g
-                        data-testid={`plan-oncanvas-rotate-ccw-mod-${idx}`}
-                        onMouseDown={(e) => e.stopPropagation()}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (idx !== activeModuleIndex) setActiveModuleIndex(idx);
-                          rotateActiveModule90(-90);
-                        }}
-                        className="cursor-pointer"
-                      >
-                        <circle
-                          cx={mx + mw / 2 - 176}
-                          cy={mz - 33}
-                          r={26}
-                          fill="#D97706"
-                          stroke="#FFFFFF"
-                          strokeWidth="3.5"
-                        />
-                        <text
-                          x={mx + mw / 2 - 176}
-                          y={mz - 25}
-                          textAnchor="middle"
-                          fill="#FFFFFF"
-                          fontSize="22"
-                          fontWeight="900"
-                        >
-                          ↺
-                        </text>
-                      </g>
-                      <g
-                        data-testid={`plan-oncanvas-rotate-mod-${idx}`}
-                        onMouseDown={(e) => e.stopPropagation()}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (idx !== activeModuleIndex) setActiveModuleIndex(idx);
-                          rotateActiveModule90(90);
-                        }}
-                        className="cursor-pointer"
-                      >
-                        <circle
-                          cx={mx + mw / 2 + 176}
-                          cy={mz - 33}
-                          r={26}
-                          fill="#D97706"
-                          stroke="#FFFFFF"
-                          strokeWidth="3.5"
-                        />
-                        <text
-                          x={mx + mw / 2 + 176}
-                          y={mz - 25}
-                          textAnchor="middle"
-                          fill="#FFFFFF"
-                          fontSize="22"
-                          fontWeight="900"
-                        >
-                          ↻
-                        </text>
-                      </g>
-
-                      {/* Left Edge Resize Handle (◀): Width on 0°/180°, Depth on 90°/270° */}
-                      <g
-                        data-testid={`plan-mod-resize-left-${idx}`}
-                        onMouseDown={(e) => {
-                          e.stopPropagation();
-                          if (idx !== activeModuleIndex) setActiveModuleIndex(idx);
-                          const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
-                          const isRot90 = fp.rotationY === 90 || fp.rotationY === 270;
-                          beginHistoryTransaction();
-                          setResizingPlanObject({
-                            kind: "module_left",
-                            targetIdxOrId: idx,
-                            startClientX: e.clientX,
-                            startClientY: e.clientY,
-                            startWidthOrLen: fp.rawWidth,
-                            startDepth: fp.rawDepth,
-                            startPosX: fp.x,
-                            startPosZ: fp.z,
-                            isRotated90: isRot90,
-                            mmPerPx: svgEl ? getSvgMmPerPx(svgEl) : 4,
-                          });
-                        }}
-                        className="cursor-ew-resize"
-                      >
+                    return (
+                      <g>
                         <rect
-                          x={mx - 22}
-                          y={mz + md / 2 - 34}
-                          width={36}
-                          height={68}
-                          rx={9}
-                          fill={fp.rotationY === 90 || fp.rotationY === 270 ? "#0284C7" : "#059669"}
-                          stroke="#FFFFFF"
-                          strokeWidth="3"
+                          x={mx - 8}
+                          y={mz - 8}
+                          width={mw + 16}
+                          height={md + 16}
+                          rx={10}
+                          fill="none"
+                          stroke="#D97706"
+                          strokeWidth={Math.round(3.5 * ts)}
+                          strokeDasharray="12 6"
+                          className="pointer-events-none"
                         />
-                        <text
-                          x={mx - 4}
-                          y={mz + md / 2 + 8}
-                          textAnchor="middle"
-                          fill="#FFFFFF"
-                          fontSize="22"
-                          fontWeight="900"
-                        >
-                          ◀
-                        </text>
-                      </g>
-
-                      {/* Right Edge Resize Handle (▶): Width on 0°/180°, Depth on 90°/270° */}
-                      <g
-                        data-testid={`plan-mod-resize-right-${idx}`}
-                        onMouseDown={(e) => {
-                          e.stopPropagation();
-                          if (idx !== activeModuleIndex) setActiveModuleIndex(idx);
-                          const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
-                          const isRot90 = fp.rotationY === 90 || fp.rotationY === 270;
-                          beginHistoryTransaction();
-                          setResizingPlanObject({
-                            kind: "module_right",
-                            targetIdxOrId: idx,
-                            startClientX: e.clientX,
-                            startClientY: e.clientY,
-                            startWidthOrLen: fp.rawWidth,
-                            startDepth: fp.rawDepth,
-                            startPosX: fp.x,
-                            startPosZ: fp.z,
-                            isRotated90: isRot90,
-                            mmPerPx: svgEl ? getSvgMmPerPx(svgEl) : 4,
-                          });
-                        }}
-                        className="cursor-ew-resize"
-                      >
                         <rect
-                          x={mx + mw - 14}
-                          y={mz + md / 2 - 34}
-                          width={36}
-                          height={68}
-                          rx={9}
-                          fill={fp.rotationY === 90 || fp.rotationY === 270 ? "#0284C7" : "#059669"}
+                          x={mx + mw / 2 - ribW / 2}
+                          y={ribCenterY - ribH / 2}
+                          width={ribW}
+                          height={ribH}
+                          rx={Math.round(9 * ts)}
+                          fill="#B45309"
                           stroke="#FFFFFF"
-                          strokeWidth="3"
-                        />
-                        <text
-                          x={mx + mw + 4}
-                          y={mz + md / 2 + 8}
-                          textAnchor="middle"
-                          fill="#FFFFFF"
-                          fontSize="22"
-                          fontWeight="900"
-                        >
-                          ▶
-                        </text>
-                      </g>
-
-                      {/* Top Edge Resize Handle (▲): Width/Length on 90°/270° vertical cabinets, Depth on 0°/180° */}
-                      <g
-                        data-testid={`plan-mod-resize-top-${idx}`}
-                        onMouseDown={(e) => {
-                          e.stopPropagation();
-                          if (idx !== activeModuleIndex) setActiveModuleIndex(idx);
-                          const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
-                          const isRot90 = fp.rotationY === 90 || fp.rotationY === 270;
-                          beginHistoryTransaction();
-                          setResizingPlanObject({
-                            kind: "module_top",
-                            targetIdxOrId: idx,
-                            startClientX: e.clientX,
-                            startClientY: e.clientY,
-                            startWidthOrLen: fp.rawWidth,
-                            startDepth: fp.rawDepth,
-                            startPosX: fp.x,
-                            startPosZ: fp.z,
-                            isRotated90: isRot90,
-                            mmPerPx: svgEl ? getSvgMmPerPx(svgEl) : 4,
-                          });
-                        }}
-                        className="cursor-ns-resize"
-                      >
-                        <rect
-                          x={mx + mw / 2 - 34}
-                          y={mz - 18}
-                          width={68}
-                          height={32}
-                          rx={8}
-                          fill={fp.rotationY === 90 || fp.rotationY === 270 ? "#059669" : "#0284C7"}
-                          stroke="#FFFFFF"
-                          strokeWidth="3"
+                          strokeWidth="2.5"
+                          className="pointer-events-none"
                         />
                         <text
                           x={mx + mw / 2}
-                          y={mz + 5}
+                          y={ribCenterY + Math.round(ribFont * 0.35)}
                           textAnchor="middle"
                           fill="#FFFFFF"
-                          fontSize="20"
+                          fontSize={ribFont}
                           fontWeight="900"
+                          fontFamily="monospace"
+                          className="pointer-events-none"
                         >
-                          ▲
+                          {`★ SEÇİLİ #${idx + 1}`}
                         </text>
-                      </g>
 
-                      {/* Bottom Edge Resize Handle (▼): Width/Length on 90°/270° vertical cabinets, Depth on 0°/180° */}
-                      <g
-                        data-testid={`plan-mod-resize-depth-${idx}`}
-                        onMouseDown={(e) => {
-                          e.stopPropagation();
-                          if (idx !== activeModuleIndex) setActiveModuleIndex(idx);
-                          const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
-                          const isRot90 = fp.rotationY === 90 || fp.rotationY === 270;
-                          beginHistoryTransaction();
-                          setResizingPlanObject({
-                            kind: "module_depth",
-                            targetIdxOrId: idx,
-                            startClientX: e.clientX,
-                            startClientY: e.clientY,
-                            startWidthOrLen: fp.rawWidth,
-                            startDepth: fp.rawDepth,
-                            startPosX: fp.x,
-                            startPosZ: fp.z,
-                            isRotated90: isRot90,
-                            mmPerPx: svgEl ? getSvgMmPerPx(svgEl) : 4,
-                          });
-                        }}
-                        className="cursor-ns-resize"
-                      >
-                        <rect
-                          x={mx + mw / 2 - 34}
-                          y={mz + md - 14}
-                          width={68}
-                          height={32}
-                          rx={8}
-                          fill={fp.rotationY === 90 || fp.rotationY === 270 ? "#059669" : "#0284C7"}
-                          stroke="#FFFFFF"
-                          strokeWidth="3"
-                        />
-                        <text
-                          x={mx + mw / 2}
-                          y={mz + md + 9}
-                          textAnchor="middle"
-                          fill="#FFFFFF"
-                          fontSize="20"
-                          fontWeight="900"
+                        {/* On-Canvas Clickable -90° (↺) & +90° (↻) Proportional Rotate Gizmo Buttons */}
+                        <g
+                          data-testid={`plan-oncanvas-rotate-ccw-mod-${idx}`}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (idx !== activeModuleIndex) setActiveModuleIndex(idx);
+                            rotateActiveModule90(-90);
+                          }}
+                          className="cursor-pointer"
                         >
-                          ▼
-                        </text>
-                      </g>
-                    </g>
-                  )}
+                          <circle
+                            cx={mx + mw / 2 - rotOffset}
+                            cy={ribCenterY}
+                            r={rotR}
+                            fill="#D97706"
+                            stroke="#FFFFFF"
+                            strokeWidth="2.5"
+                          />
+                          <text
+                            x={mx + mw / 2 - rotOffset}
+                            y={ribCenterY + Math.round(ribFont * 0.36)}
+                            textAnchor="middle"
+                            fill="#FFFFFF"
+                            fontSize={Math.round(21 * ts)}
+                            fontWeight="900"
+                          >
+                            ↺
+                          </text>
+                        </g>
+                        <g
+                          data-testid={`plan-oncanvas-rotate-mod-${idx}`}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (idx !== activeModuleIndex) setActiveModuleIndex(idx);
+                            rotateActiveModule90(90);
+                          }}
+                          className="cursor-pointer"
+                        >
+                          <circle
+                            cx={mx + mw / 2 + rotOffset}
+                            cy={ribCenterY}
+                            r={rotR}
+                            fill="#D97706"
+                            stroke="#FFFFFF"
+                            strokeWidth="2.5"
+                          />
+                          <text
+                            x={mx + mw / 2 + rotOffset}
+                            y={ribCenterY + Math.round(ribFont * 0.36)}
+                            textAnchor="middle"
+                            fill="#FFFFFF"
+                            fontSize={Math.round(21 * ts)}
+                            fontWeight="900"
+                          >
+                            ↻
+                          </text>
+                        </g>
 
-                  {/* Module Name & Dimensions (Positioned cleanly inside the main arm for L-Corner / Diagonal Corner) */}
+                        {/* Left Edge Resize Handle (◀) */}
+                        <g
+                          data-testid={`plan-mod-resize-left-${idx}`}
+                          onMouseDown={(e) => {
+                            e.stopPropagation();
+                            if (idx !== activeModuleIndex) setActiveModuleIndex(idx);
+                            const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
+                            const isRot90 = fp.rotationY === 90 || fp.rotationY === 270;
+                            beginHistoryTransaction();
+                            setResizingPlanObject({
+                              kind: "module_left",
+                              targetIdxOrId: idx,
+                              startClientX: e.clientX,
+                              startClientY: e.clientY,
+                              startWidthOrLen: fp.rawWidth,
+                              startDepth: fp.rawDepth,
+                              startPosX: fp.x,
+                              startPosZ: fp.z,
+                              isRotated90: isRot90,
+                              mmPerPx: svgEl ? getSvgMmPerPx(svgEl) : 4,
+                            });
+                          }}
+                          className="cursor-ew-resize"
+                        >
+                          <rect
+                            x={mx - sideHandleW / 2 - 2}
+                            y={mz + md / 2 - sideHandleH / 2}
+                            width={sideHandleW}
+                            height={sideHandleH}
+                            rx={8}
+                            fill={fp.rotationY === 90 || fp.rotationY === 270 ? "#0284C7" : "#059669"}
+                            stroke="#FFFFFF"
+                            strokeWidth="2.5"
+                          />
+                          <text
+                            x={mx - 2}
+                            y={mz + md / 2 + Math.round(handleFont * 0.35)}
+                            textAnchor="middle"
+                            fill="#FFFFFF"
+                            fontSize={handleFont}
+                            fontWeight="900"
+                          >
+                            ◀
+                          </text>
+                        </g>
+
+                        {/* Right Edge Resize Handle (▶) */}
+                        <g
+                          data-testid={`plan-mod-resize-right-${idx}`}
+                          onMouseDown={(e) => {
+                            e.stopPropagation();
+                            if (idx !== activeModuleIndex) setActiveModuleIndex(idx);
+                            const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
+                            const isRot90 = fp.rotationY === 90 || fp.rotationY === 270;
+                            beginHistoryTransaction();
+                            setResizingPlanObject({
+                              kind: "module_right",
+                              targetIdxOrId: idx,
+                              startClientX: e.clientX,
+                              startClientY: e.clientY,
+                              startWidthOrLen: fp.rawWidth,
+                              startDepth: fp.rawDepth,
+                              startPosX: fp.x,
+                              startPosZ: fp.z,
+                              isRotated90: isRot90,
+                              mmPerPx: svgEl ? getSvgMmPerPx(svgEl) : 4,
+                            });
+                          }}
+                          className="cursor-ew-resize"
+                        >
+                          <rect
+                            x={mx + mw - sideHandleW / 2 + 2}
+                            y={mz + md / 2 - sideHandleH / 2}
+                            width={sideHandleW}
+                            height={sideHandleH}
+                            rx={8}
+                            fill={fp.rotationY === 90 || fp.rotationY === 270 ? "#0284C7" : "#059669"}
+                            stroke="#FFFFFF"
+                            strokeWidth="2.5"
+                          />
+                          <text
+                            x={mx + mw + 2}
+                            y={mz + md / 2 + Math.round(handleFont * 0.35)}
+                            textAnchor="middle"
+                            fill="#FFFFFF"
+                            fontSize={handleFont}
+                            fontWeight="900"
+                          >
+                            ▶
+                          </text>
+                        </g>
+
+                        {/* Top Edge Resize Handle (▲) */}
+                        <g
+                          data-testid={`plan-mod-resize-top-${idx}`}
+                          onMouseDown={(e) => {
+                            e.stopPropagation();
+                            if (idx !== activeModuleIndex) setActiveModuleIndex(idx);
+                            const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
+                            const isRot90 = fp.rotationY === 90 || fp.rotationY === 270;
+                            beginHistoryTransaction();
+                            setResizingPlanObject({
+                              kind: "module_top",
+                              targetIdxOrId: idx,
+                              startClientX: e.clientX,
+                              startClientY: e.clientY,
+                              startWidthOrLen: fp.rawWidth,
+                              startDepth: fp.rawDepth,
+                              startPosX: fp.x,
+                              startPosZ: fp.z,
+                              isRotated90: isRot90,
+                              mmPerPx: svgEl ? getSvgMmPerPx(svgEl) : 4,
+                            });
+                          }}
+                          className="cursor-ns-resize"
+                        >
+                          <rect
+                            x={mx + mw / 2 - topBotHandleW / 2}
+                            y={mz - topBotHandleH / 2}
+                            width={topBotHandleW}
+                            height={topBotHandleH}
+                            rx={7}
+                            fill={fp.rotationY === 90 || fp.rotationY === 270 ? "#059669" : "#0284C7"}
+                            stroke="#FFFFFF"
+                            strokeWidth="2.5"
+                          />
+                          <text
+                            x={mx + mw / 2}
+                            y={mz + Math.round(handleFont * 0.32)}
+                            textAnchor="middle"
+                            fill="#FFFFFF"
+                            fontSize={Math.round(17 * ts)}
+                            fontWeight="900"
+                          >
+                            ▲
+                          </text>
+                        </g>
+
+                        {/* Bottom Edge Resize Handle (▼) */}
+                        <g
+                          data-testid={`plan-mod-resize-depth-${idx}`}
+                          onMouseDown={(e) => {
+                            e.stopPropagation();
+                            if (idx !== activeModuleIndex) setActiveModuleIndex(idx);
+                            const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
+                            const isRot90 = fp.rotationY === 90 || fp.rotationY === 270;
+                            beginHistoryTransaction();
+                            setResizingPlanObject({
+                              kind: "module_depth",
+                              targetIdxOrId: idx,
+                              startClientX: e.clientX,
+                              startClientY: e.clientY,
+                              startWidthOrLen: fp.rawWidth,
+                              startDepth: fp.rawDepth,
+                              startPosX: fp.x,
+                              startPosZ: fp.z,
+                              isRotated90: isRot90,
+                              mmPerPx: svgEl ? getSvgMmPerPx(svgEl) : 4,
+                            });
+                          }}
+                          className="cursor-ns-resize"
+                        >
+                          <rect
+                            x={mx + mw / 2 - topBotHandleW / 2}
+                            y={mz + md - topBotHandleH / 2}
+                            width={topBotHandleW}
+                            height={topBotHandleH}
+                            rx={7}
+                            fill={fp.rotationY === 90 || fp.rotationY === 270 ? "#059669" : "#0284C7"}
+                            stroke="#FFFFFF"
+                            strokeWidth="2.5"
+                          />
+                          <text
+                            x={mx + mw / 2}
+                            y={mz + md + Math.round(handleFont * 0.32)}
+                            textAnchor="middle"
+                            fill="#FFFFFF"
+                            fontSize={Math.round(17 * ts)}
+                            fontWeight="900"
+                          >
+                            ▼
+                          </text>
+                        </g>
+                      </g>
+                    );
+                  })()}
+
+                  {/* Module Name & Dimensions (Concise Title without redundant 'Modülü' + Goldilocks Scale `ts`) */}
                   {(() => {
                     const labelCenterY =
                       fp.cornerType === "l_corner" && (fp.rotationY === 0 || fp.rotationY === 90)
-                        ? mz + Math.min(fp.wingDepthMm || 580, md) * 0.48
-                        : mz + md / 2;
-                    const dimLabel = `${fp.rawWidth}×${fp.rawDepth} (H:${fp.rawHeight}) mm`;
-                    const innerPillW = Math.min(mw - 16, Math.max(180, dimLabel.length * 19 + 28));
+                        ? mz + Math.min(fp.wingDepthMm || 580, md) * 0.42
+                        : mz + md * 0.43;
+                    const conciseName = fp.name.replace(/\s*Modülü/gi, "").trim();
+                    const fullTitle = `#${idx + 1} ${conciseName}${fp.rotationY > 0 ? ` (${fp.rotationY}°)` : ""}`;
+                    const maxAllowedNameFont = Math.floor((mw - 32) / Math.max(7, fullTitle.length * 0.52));
+                    const nameFont = Math.max(24, Math.min(Math.round(26 * ts), maxAllowedNameFont));
+                    const dimFont = Math.max(22, Math.min(Math.round(23 * ts), Math.floor((mw - 36) / 9.8)));
+                    const dimLabel = `${fp.rawWidth}×${fp.rawDepth} (H:${fp.rawHeight})`;
+                    const innerPillH = Math.round(dimFont * 1.72);
+                    const innerPillW = Math.min(
+                      mw - 24,
+                      Math.max(Math.round(160 * ts), Math.round(dimLabel.length * dimFont * 0.6 + 24 * ts))
+                    );
                     return (
                       <g className="pointer-events-none">
                         <text
                           x={mx + mw / 2}
-                          y={labelCenterY - 12}
+                          y={labelCenterY - Math.round(8 * ts)}
                           textAnchor="middle"
-                          fill="#1C1917"
-                          fontSize="30"
-                          fontWeight="700"
+                          fill="#0F172A"
+                          stroke="#FFFFFF"
+                          strokeWidth={Math.round(5 * ts)}
+                          paintOrder="stroke"
+                          fontSize={nameFont}
+                          fontWeight="800"
                           fontFamily="sans-serif"
                         >
-                          {fp.name} {fp.rotationY > 0 ? `(${fp.rotationY}°)` : ""}
+                          {fullTitle}
                         </text>
                         <rect
                           x={mx + mw / 2 - innerPillW / 2}
-                          y={labelCenterY + 6}
+                          y={labelCenterY + Math.round(4 * ts)}
                           width={innerPillW}
-                          height={46}
-                          rx={10}
+                          height={innerPillH}
+                          rx={8}
                           fill="#FFFFFF"
-                          stroke={hasCollisionError ? "#DC2626" : isAct ? "#2563EB" : "#A8A29E"}
-                          strokeWidth="2.5"
+                          stroke={hasCollisionError ? "#DC2626" : isAct ? "#2563EB" : "#94A3B8"}
+                          strokeWidth="2"
                           opacity={0.96}
                         />
                         <text
                           x={mx + mw / 2}
-                          y={labelCenterY + 39}
+                          y={labelCenterY + Math.round(4 * ts) + Math.round(innerPillH * 0.72)}
                           textAnchor="middle"
-                          fill={hasCollisionError ? "#DC2626" : "#1E293B"}
-                          fontSize="28"
+                          fill={hasCollisionError ? "#DC2626" : "#0F172A"}
+                          fontSize={dimFont}
                           fontWeight="800"
                           fontFamily="monospace"
                         >
@@ -4008,56 +5353,55 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     );
                   })()}
 
-                  {/* Width Callout with High-Contrast Pill & Architectural Ticks */}
-                  {(() => {
-                    const calloutY = mz + md + 65;
+                  {/* Width Callout with Clean Proportional Pill & Architectural Ticks */}
+                  {showPlanDimensions && (() => {
+                    const calloutY = mz + md + Math.round(52 * ts);
                     const calloutText = `${mw} mm`;
-                    const pillW = Math.max(160, calloutText.length * 24 + 36);
+                    const calloutFont = Math.round(23 * ts);
+                    const pillH = Math.round(38 * ts);
+                    const pillW = Math.max(Math.round(125 * ts), Math.round(calloutText.length * calloutFont * 0.64 + 26 * ts));
                     return (
                       <g className="pointer-events-none">
-                        {/* Extension Ticks */}
                         <line
                           x1={mx}
-                          y1={calloutY - 22}
+                          y1={calloutY - 14}
                           x2={mx}
-                          y2={calloutY + 22}
+                          y2={calloutY + 14}
                           stroke="#9A3412"
-                          strokeWidth="3.5"
+                          strokeWidth="2.5"
                         />
                         <line
                           x1={mx + mw}
-                          y1={calloutY - 22}
+                          y1={calloutY - 14}
                           x2={mx + mw}
-                          y2={calloutY + 22}
+                          y2={calloutY + 14}
                           stroke="#9A3412"
-                          strokeWidth="3.5"
+                          strokeWidth="2.5"
                         />
-                        {/* Connecting Line */}
                         <line
                           x1={mx}
                           y1={calloutY}
                           x2={mx + mw}
                           y2={calloutY}
                           stroke="#9A3412"
-                          strokeWidth="3.5"
+                          strokeWidth="2.5"
                         />
-                        {/* Badge Pill */}
                         <rect
                           x={mx + mw / 2 - pillW / 2}
-                          y={calloutY - 27}
+                          y={calloutY - pillH / 2}
                           width={pillW}
-                          height={54}
-                          rx={12}
+                          height={pillH}
+                          rx={9}
                           fill="#FFFFFF"
                           stroke="#9A3412"
-                          strokeWidth="3"
+                          strokeWidth="2.5"
                         />
                         <text
                           x={mx + mw / 2}
-                          y={calloutY + 12}
+                          y={calloutY + Math.round(calloutFont * 0.35)}
                           textAnchor="middle"
                           fill="#7C2D12"
-                          fontSize="38"
+                          fontSize={calloutFont}
                           fontWeight="800"
                           fontFamily="monospace"
                         >
@@ -4067,61 +5411,71 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     );
                   })()}
 
-                  {/* Selected Module Alignment Badge (Matches image_da6ae9.jpg: ↔ Merkez Hizala ↔) */}
-                  {isAct && showPlanDimensions && (
-                    <g data-testid={`plan-mod-alignment-badge-${idx}`} className="pointer-events-none">
-                      <rect
-                        x={mx + mw / 2 - 150}
-                        y={mz + md + 112}
-                        width={300}
-                        height={44}
-                        rx={12}
-                        fill="#EFF6FF"
-                        stroke="#2563EB"
-                        strokeWidth="2.5"
-                      />
-                      <text
-                        x={mx + mw / 2}
-                        y={mz + md + 141}
-                        textAnchor="middle"
-                        fill="#1D4ED8"
-                        fontSize="24"
-                        fontWeight="800"
-                        fontFamily="sans-serif"
-                      >
-                        {activeSpatialMetrics.alignmentMode === "center"
-                          ? "↔ Merkez Hizala ↔"
-                          : activeSpatialMetrics.alignmentMode === "left"
-                          ? "⬅ Sola Yaslı (0 mm)"
-                          : activeSpatialMetrics.alignmentMode === "right"
-                          ? "Sağa Yaslı (0 mm) ➡"
-                          : `↔ Sol: ${activeSpatialMetrics.leftClearanceMm} • Sağ: ${activeSpatialMetrics.rightClearanceMm}mm`}
-                      </text>
-                    </g>
-                  )}
+                  {/* Selected Module Alignment Badge (Shown below Width Callout without overlapping) */}
+                  {isAct && showPlanDimensions && (() => {
+                    const alignTxt =
+                      activeSpatialMetrics.alignmentMode === "center"
+                        ? "↔ Merkez Hizala ↔"
+                        : activeSpatialMetrics.alignmentMode === "left"
+                        ? "⬅ Sola Yaslı (0 mm)"
+                        : activeSpatialMetrics.alignmentMode === "right"
+                        ? "Sağa Yaslı (0 mm) ➡"
+                        : `↔ Sol: ${activeSpatialMetrics.leftClearanceMm} • Sağ: ${activeSpatialMetrics.rightClearanceMm}mm`;
+                    const alignFont = Math.round(18 * ts);
+                    const alignH = Math.round(32 * ts);
+                    const alignW = Math.max(Math.round(200 * ts), Math.round(alignTxt.length * alignFont * 0.58 + 24 * ts));
+                    const alignY = mz + md + Math.round(98 * ts);
+                    return (
+                      <g data-testid={`plan-mod-alignment-badge-${idx}`} className="pointer-events-none">
+                        <rect
+                          x={mx + mw / 2 - alignW / 2}
+                          y={alignY - alignH / 2}
+                          width={alignW}
+                          height={alignH}
+                          rx={8}
+                          fill="#EFF6FF"
+                          stroke="#2563EB"
+                          strokeWidth="2"
+                        />
+                        <text
+                          x={mx + mw / 2}
+                          y={alignY + Math.round(alignFont * 0.35)}
+                          textAnchor="middle"
+                          fill="#1D4ED8"
+                          fontSize={alignFont}
+                          fontWeight="800"
+                          fontFamily="sans-serif"
+                        >
+                          {alignTxt}
+                        </text>
+                      </g>
+                    );
+                  })()}
 
-                  {/* Axis-Aligned Remaining Clearance Callout (Matches image_da6ae9.jpg: Boşluk: 710 mm) */}
-                  {showPlanDimensions && gapRight > 15 && (fp.rotationY === 0 || fp.rotationY === 180) && (() => {
-                    const gapY = mz + md / 2;
+                  {/* Axis-Aligned Remaining Clearance Callout (Positioned at 22% depth near wall so it never hits the middle ▶ resize handle or column label!) */}
+                  {showPlanDimensions && gapRight > 80 && (fp.rotationY === 0 || fp.rotationY === 180) && (() => {
+                    const gapY = mz + Math.min(140, md * 0.24);
                     const gapText = `Boşluk: ${Math.round(gapRight)} mm`;
-                    const gapPillW = Math.max(230, gapText.length * 18 + 36);
+                    const gapFont = Math.round(19 * ts);
+                    const gapPillH = Math.round(34 * ts);
+                    const gapPillW = Math.max(Math.round(155 * ts), Math.round(gapText.length * gapFont * 0.6 + 22 * ts));
                     return (
                       <g data-testid={`plan-mod-clearance-badge-${idx}`} className="pointer-events-none">
                         <line
                           x1={mx + mw}
-                          y1={gapY - 18}
+                          y1={gapY - 12}
                           x2={mx + mw}
-                          y2={gapY + 18}
+                          y2={gapY + 12}
                           stroke="#2563EB"
-                          strokeWidth="3.5"
+                          strokeWidth="2.5"
                         />
                         <line
                           x1={mx + mw + gapRight}
-                          y1={gapY - 18}
+                          y1={gapY - 12}
                           x2={mx + mw + gapRight}
-                          y2={gapY + 18}
+                          y2={gapY + 12}
                           stroke="#2563EB"
-                          strokeWidth="3.5"
+                          strokeWidth="2.5"
                         />
                         <line
                           x1={mx + mw}
@@ -4129,25 +5483,25 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                           x2={mx + mw + gapRight}
                           y2={gapY}
                           stroke="#2563EB"
-                          strokeWidth="3.5"
-                          strokeDasharray="10 6"
+                          strokeWidth="2.5"
+                          strokeDasharray="8 5"
                         />
                         <rect
                           x={mx + mw + gapRight / 2 - gapPillW / 2}
-                          y={gapY - 24}
+                          y={gapY - gapPillH / 2}
                           width={gapPillW}
-                          height={48}
-                          rx={10}
+                          height={gapPillH}
+                          rx={8}
                           fill="#FFFFFF"
                           stroke="#2563EB"
-                          strokeWidth="2.5"
+                          strokeWidth="2"
                         />
                         <text
                           x={mx + mw + gapRight / 2}
-                          y={gapY + 10}
+                          y={gapY + Math.round(gapFont * 0.35)}
                           textAnchor="middle"
                           fill="#1D4ED8"
-                          fontSize="28"
+                          fontSize={gapFont}
                           fontWeight="800"
                           fontFamily="monospace"
                         >
@@ -4157,12 +5511,61 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     );
                   })()}
 
-                  {/* Rotated Side-Wall Module Z-Axis Clearance Callout (Never subtracts from Ana Duvar!) */}
+                  {/* Site Survey Detail: Automatic CNC Back-Panel Socket / Plumbing Cut-Out (Buat Kesimi) & 15mm Skirting Allowance */}
+                  {(() => {
+                    const overlappingSockets = spaceObstacles.filter(
+                      (o) =>
+                        (o.type === "electrical" || o.type === "plumbing") &&
+                        o.position.x + o.dimensions.width > mx + 18 &&
+                        o.position.x < mx + mw - 18 &&
+                        mz <= 80
+                    );
+                    if (overlappingSockets.length === 0) return null;
+                    return (
+                      <g data-testid={`plan-mod-cnc-back-cutout-${idx}`} className="pointer-events-none">
+                        {overlappingSockets.map((soc) => {
+                          const sx = Math.max(mx + 24, Math.min(mx + mw - 144, soc.position.x - 20));
+                          const cutW = Math.max(120, soc.dimensions.width + 40);
+                          return (
+                            <g key={`cut_${soc.id}`}>
+                              <rect
+                                x={sx}
+                                y={mz + 2}
+                                width={cutW}
+                                height={28}
+                                rx={4}
+                                fill="#FEF08A"
+                                stroke="#CA8A04"
+                                strokeWidth="2.5"
+                                strokeDasharray="6 3"
+                              />
+                              <text
+                                x={sx + cutW / 2}
+                                y={mz + 21}
+                                textAnchor="middle"
+                                fill="#713F12"
+                                fontSize={Math.round(14 * ts)}
+                                fontWeight="900"
+                                fontFamily="monospace"
+                              >
+                                {soc.type === "electrical" ? "✂ PRİZ BUAT" : "✂ TESİSAT KESİM"}
+                              </text>
+                            </g>
+                          );
+                        })}
+                      </g>
+                    );
+                  })()}
+
+                  {/* Rotated Side-Wall Module Z-Axis Clearance Callout (Placed below the alignment badge so it NEVER overlaps the ▶ handle!) */}
                   {isAct && showPlanDimensions && (fp.rotationY === 90 || fp.rotationY === 270) && activeSpatialMetrics.rightClearanceMm > 15 && (() => {
                     const gapZ = activeSpatialMetrics.rightClearanceMm;
-                    const lineX = mx + mw / 2;
-                    const gapText = `Yan Duvar Boşluk: ${gapZ} mm`;
-                    const gapPillW = Math.max(260, gapText.length * 18 + 36);
+                    const lineX = mx + mw - 60;
+                    const gapText = `Boşluk: ${gapZ} mm`;
+                    const gapFont = Math.round(18 * ts);
+                    const gapPillH = Math.round(32 * ts);
+                    const gapPillW = Math.max(Math.round(150 * ts), Math.round(gapText.length * gapFont * 0.6 + 22 * ts));
+                    const pillCenterY = mz + md + Math.max(145, Math.min(gapZ / 2, 220));
                     return (
                       <g data-testid={`plan-mod-side-clearance-badge-${idx}`} className="pointer-events-none">
                         <line
@@ -4171,25 +5574,25 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                           x2={lineX}
                           y2={mz + md + gapZ}
                           stroke="#2563EB"
-                          strokeWidth="3.5"
-                          strokeDasharray="10 6"
+                          strokeWidth="2.5"
+                          strokeDasharray="8 5"
                         />
                         <rect
                           x={lineX - gapPillW / 2}
-                          y={mz + md + gapZ / 2 - 24}
+                          y={pillCenterY - gapPillH / 2}
                           width={gapPillW}
-                          height={48}
-                          rx={10}
+                          height={gapPillH}
+                          rx={8}
                           fill="#FFFFFF"
                           stroke="#2563EB"
-                          strokeWidth="2.5"
+                          strokeWidth="2"
                         />
                         <text
                           x={lineX}
-                          y={mz + md + gapZ / 2 + 9}
+                          y={pillCenterY + Math.round(gapFont * 0.35)}
                           textAnchor="middle"
                           fill="#1D4ED8"
-                          fontSize="24"
+                          fontSize={gapFont}
                           fontWeight="800"
                           fontFamily="monospace"
                         >
@@ -4202,11 +5605,10 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
               );
             })}
 
-            {/* 3B. Room Center Area & Name Badge + Bottom Oda Genişliği Callout (Matches image_da6ae9.jpg) */}
+            {/* 3B. Unified Bottom Room Dimension & Area Callout (Placed at bottom floor line so it NEVER covers modules in the middle of the room!) */}
             {showPlanDimensions && (() => {
               const roomCenterX = (mainWall.length || 3600) / 2;
               const roomDepth = activeSpatialMetrics.roomDepthMm || 2700;
-              const roomCenterZ = Math.max(1150, Math.round(roomDepth * 0.56));
               const roomTitle =
                 project.space.name && project.space.name !== "Ana Mekân"
                   ? project.space.name
@@ -4217,86 +5619,63 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2,
               });
-              const badgeText = `📐 ${roomTitle} • ${areaStr} m²`;
-              const badgeW = Math.max(460, badgeText.length * 20 + 48);
-              const bottomDimZ = Math.max(roomDepth - 90, 1650);
-              const bottomDimText = `Oda Genişliği: ${mainWall.length} mm`;
+              const bottomDimZ = Math.max(roomDepth - 60, maxDepthZ - 80, 1850);
+              const combinedBottomText = `📐 ${roomTitle} (${areaStr} m²) • Oda Genişliği: ${mainWall.length} mm`;
+              const botFont = Math.round(22 * ts);
+              const botH = Math.round(42 * ts);
+              const botW = Math.max(Math.round(480 * ts), Math.round(combinedBottomText.length * botFont * 0.58 + 36 * ts));
               return (
                 <g data-testid="plan-room-area-badge" className="pointer-events-none">
-                  {/* Subtle Room Side Boundaries when only 1 wall is explicitly in spaceWalls */}
                   {spaceWalls.length === 1 && (
                     <g opacity={0.45}>
                       <line
                         x1={0}
                         y1={0}
                         x2={0}
-                        y2={roomDepth}
+                        y2={bottomDimZ}
                         stroke="#64748B"
-                        strokeWidth="6"
-                        strokeDasharray="18 10"
+                        strokeWidth="5"
+                        strokeDasharray="16 10"
                       />
                       <line
                         x1={mainWall.length}
                         y1={0}
                         x2={mainWall.length}
-                        y2={roomDepth}
+                        y2={bottomDimZ}
                         stroke="#64748B"
-                        strokeWidth="6"
-                        strokeDasharray="18 10"
+                        strokeWidth="5"
+                        strokeDasharray="16 10"
                       />
                     </g>
                   )}
-                  <rect
-                    x={roomCenterX - badgeW / 2}
-                    y={roomCenterZ - 32}
-                    width={badgeW}
-                    height={64}
-                    rx={16}
-                    fill="rgba(255, 255, 255, 0.92)"
-                    stroke="#CBD5E1"
-                    strokeWidth="2.5"
-                  />
-                  <text
-                    x={roomCenterX}
-                    y={roomCenterZ + 11}
-                    textAnchor="middle"
-                    fill="#334155"
-                    fontSize="30"
-                    fontWeight="700"
-                    fontFamily="sans-serif"
-                  >
-                    {badgeText}
-                  </text>
-
-                  {/* Bottom Room Width Callout Line (Oda Genişliği: 3600 mm) */}
                   <line
                     x1={40}
                     y1={bottomDimZ}
                     x2={mainWall.length - 40}
                     y2={bottomDimZ}
-                    stroke="#94A3B8"
+                    stroke="#64748B"
                     strokeWidth="2.5"
                   />
                   <rect
-                    x={roomCenterX - 210}
-                    y={bottomDimZ - 24}
-                    width={420}
-                    height={48}
+                    x={roomCenterX - botW / 2}
+                    y={bottomDimZ - botH / 2}
+                    width={botW}
+                    height={botH}
                     rx={10}
-                    fill="rgba(255, 255, 255, 0.9)"
-                    stroke="#CBD5E1"
+                    fill="rgba(255, 255, 255, 0.94)"
+                    stroke="#64748B"
                     strokeWidth="2"
                   />
                   <text
                     x={roomCenterX}
-                    y={bottomDimZ + 9}
+                    y={bottomDimZ + Math.round(botFont * 0.35)}
                     textAnchor="middle"
-                    fill="#475569"
-                    fontSize="26"
-                    fontWeight="700"
+                    fill="#0F172A"
+                    fontSize={botFont}
+                    fontWeight="800"
                     fontFamily="monospace"
                   >
-                    {bottomDimText}
+                    {combinedBottomText}
                   </text>
                 </g>
               );
@@ -4356,6 +5735,80 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     );
                   }
                 )}
+              </g>
+            )}
+
+            {/* 4B. ON-CANVAS ARCHITECTURAL COLLISION & COMPATIBILITY WARNING CALLOUTS (Positioned cleanly along the intersection zone, never covering cabinet center labels!) */}
+            {liveSpatialAlerts.length > 0 && (
+              <g data-testid="plan-spatial-collision-overlays" className="pointer-events-none">
+                {liveSpatialAlerts.map((al, aIdx) => {
+                  const isErr = al.severity === "error";
+                  const isWallAlert = al.kind === "window" || al.kind === "plumbing";
+                  const collFont = Math.round(18 * ts);
+                  const collH = Math.round(34 * ts);
+                  const badgeW = Math.max(Math.round(240 * ts), Math.round(al.title.length * collFont * 0.6 + 32 * ts));
+                  const targetZ = isWallAlert ? 0 : al.z;
+                  // Keep wall alert badges safely inside the top viewBox (never clipped at top!)
+                  const rawBadgeY = isWallAlert ? -155 - aIdx * 40 : al.z + 95 + (aIdx % 2) * 42;
+                  const badgeY = Math.max(vb.y + collH, rawBadgeY);
+                  return (
+                    <g key={al.id}>
+                      {isWallAlert ? (
+                        <rect
+                          x={al.x - al.w / 2}
+                          y={-32}
+                          width={al.w}
+                          height={76}
+                          rx={8}
+                          fill={isErr ? "rgba(220, 38, 38, 0.26)" : "rgba(217, 119, 6, 0.24)"}
+                          stroke={isErr ? "#DC2626" : "#D97706"}
+                          strokeWidth="5"
+                          strokeDasharray="10 6"
+                        />
+                      ) : (
+                        <circle
+                          cx={al.x}
+                          cy={targetZ}
+                          r={64}
+                          fill={isErr ? "rgba(220, 38, 38, 0.20)" : "rgba(217, 119, 6, 0.20)"}
+                          stroke={isErr ? "#DC2626" : "#D97706"}
+                          strokeWidth="5"
+                          strokeDasharray="12 6"
+                        />
+                      )}
+                      <line
+                        x1={al.x}
+                        y1={targetZ}
+                        x2={al.x}
+                        y2={badgeY}
+                        stroke={isErr ? "#DC2626" : "#D97706"}
+                        strokeWidth="3.5"
+                        strokeDasharray="8 5"
+                      />
+                      <rect
+                        x={al.x - badgeW / 2}
+                        y={badgeY - collH / 2}
+                        width={badgeW}
+                        height={collH}
+                        rx={Math.round(12 * ts)}
+                        fill={isErr ? "#991B1B" : "#92400E"}
+                        stroke="#FFFFFF"
+                        strokeWidth={Math.round(3 * ts)}
+                      />
+                      <text
+                        x={al.x}
+                        y={badgeY + Math.round(collFont * 0.34)}
+                        textAnchor="middle"
+                        fill="#FFFFFF"
+                        fontSize={collFont}
+                        fontWeight="900"
+                        fontFamily="monospace"
+                      >
+                        {`⚠️ ${al.title}`}
+                      </text>
+                    </g>
+                  );
+                })}
               </g>
             )}
 
@@ -4431,42 +5884,66 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         stroke={strokeCol}
                         strokeWidth="7"
                       />
-                      {/* Bay dividers & architectural door swing arcs */}
-                      {Array.from({ length: bayCnt }).map((_, bIdx) => {
-                        const bw = gw / bayCnt;
-                        const bx = gx + bIdx * bw;
-                        return (
-                          <g key={`ghost_bay_${bIdx}`}>
-                            {bIdx > 0 && (
-                              <line
-                                x1={bx}
-                                y1={gz}
-                                x2={bx}
-                                y2={gz + gd}
-                                stroke={strokeCol}
-                                strokeWidth="3.5"
-                                strokeDasharray="10 6"
-                              />
-                            )}
-                            {/* Architectural 90° Door Swing Silhouette Arc */}
-                            <line
-                              x1={bx + 6}
-                              y1={gz + gd}
-                              x2={bx + 6}
-                              y2={gz + gd + bw * 0.85}
-                              stroke={strokeCol}
-                              strokeWidth="4"
-                            />
-                            <path
-                              d={`M ${bx + bw - 6} ${gz + gd} A ${bw * 0.85} ${bw * 0.85} 0 0 1 ${bx + 6} ${gz + gd + bw * 0.85}`}
-                              fill="none"
-                              stroke={strokeCol}
-                              strokeWidth="3.5"
-                              strokeDasharray="12 6"
-                            />
-                          </g>
-                        );
-                      })}
+                      {/* Bay dividers & authentic 90° quarter-circle door swing arcs */}
+                      {(() => {
+                        const gBayWidths = calculateBayWidths(gm);
+                        const gT = gm.carcass.panelThickness || 18;
+                        let gCurX = gT;
+                        return gBayWidths.map((gClearW, bIdx) => {
+                          const lPad = bIdx === 0 ? gT : gT / 2;
+                          const rPad = bIdx === gBayWidths.length - 1 ? gT : gT / 2;
+                          const bx = gx + gCurX - lPad;
+                          const bw = gClearW + lPad + rPad;
+                          gCurX += gClearW + gT;
+                          const bDoor = gm.bays[bIdx]?.door;
+                          const isDbl = bDoor?.type === "double" || bDoor?.doorSystemId === "hinged_double" || bw > 600;
+                          const isSld = bDoor?.type === "sliding" || bDoor?.doorSystemId?.startsWith("sliding");
+                          const leafW = isDbl ? Math.round((bw - 8) / 2) : Math.round(bw - 8);
+                          return (
+                            <g key={`ghost_bay_${bIdx}`}>
+                              {bIdx > 0 && (
+                                <line
+                                  x1={bx}
+                                  y1={gz}
+                                  x2={bx}
+                                  y2={gz + gd}
+                                  stroke={strokeCol}
+                                  strokeWidth="3.5"
+                                  strokeDasharray="10 6"
+                                />
+                              )}
+                              {!gm.isOpenFront && !isSld && (
+                                isDbl ? (
+                                  <>
+                                    <path
+                                      d={`M ${bx + 4} ${gz + gd} L ${bx + 4 + leafW} ${gz + gd} A ${leafW} ${leafW} 0 0 1 ${bx + 4} ${gz + gd + leafW} Z`}
+                                      fill="none"
+                                      stroke={strokeCol}
+                                      strokeWidth="3"
+                                      strokeDasharray="10 6"
+                                    />
+                                    <path
+                                      d={`M ${bx + bw - 4} ${gz + gd} L ${bx + bw - 4 - leafW} ${gz + gd} A ${leafW} ${leafW} 0 0 0 ${bx + bw - 4} ${gz + gd + leafW} Z`}
+                                      fill="none"
+                                      stroke={strokeCol}
+                                      strokeWidth="3"
+                                      strokeDasharray="10 6"
+                                    />
+                                  </>
+                                ) : (
+                                  <path
+                                    d={`M ${bx + 4} ${gz + gd} L ${bx + 4 + leafW} ${gz + gd} A ${leafW} ${leafW} 0 0 1 ${bx + 4} ${gz + gd + leafW} Z`}
+                                    fill="none"
+                                    stroke={strokeCol}
+                                    strokeWidth="3"
+                                    strokeDasharray="10 6"
+                                  />
+                                )
+                              )}
+                            </g>
+                          );
+                        });
+                      })()}
                       {/* Silhouette Label Pill */}
                       <rect
                         x={gx + gw / 2 - 240}
@@ -4502,12 +5979,18 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
 
     // Standard Single-Module High-Precision Architectural Elevation / TopPlan / Section
     const breakdown = generateModuleGeometry(activeModule, { doorOpenAngleDeg: 0 });
+    const sectionCutSpanMm =
+      sectionDirection2D === "Z" ? breakdown.overall.width : breakdown.overall.depth;
+    const sectionCutCoordMm = Math.round(sectionCutSpanMm * sectionCutRatio2D);
     const data =
       mode === "elevation"
         ? generateElevation2D(breakdown, selectedComponentId || undefined)
         : mode === "plan"
         ? generateTopPlan2D(breakdown, selectedComponentId || undefined)
-        : generateCrossSection2D(breakdown, selectedComponentId || undefined);
+        : generateCrossSection2D(breakdown, selectedComponentId || undefined, {
+            direction: sectionDirection2D,
+            cutCoordMm: sectionCutCoordMm,
+          });
 
     const mainWallLen = spaceWalls[0]?.length || 3600;
     const ceilingH = project.space.ceilingHeight || 2600;
@@ -4776,15 +6259,20 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         const localX = svgX - modX;
         let targetBayIdx = 0;
         let accX = carcassT;
+        let bayStartX = carcassT;
+        let curBayWidth = bayWidths[0] || 500;
         for (let i = 0; i < bayWidths.length; i++) {
           const bw = bayWidths[i];
           if (localX >= accX && localX <= accX + bw + carcassT) {
             targetBayIdx = i;
+            bayStartX = accX;
+            curBayWidth = bw;
             break;
           }
           accX += bw + carcassT;
         }
         targetBayIdx = Math.max(0, Math.min(mod.bays.length - 1, targetBayIdx));
+        const localBayX = Math.max(48, Math.min(curBayWidth - 48, Math.round((localX - bayStartX) / 10) * 10));
 
         const rawY = mod.dimensions.height - svgY - plinthH - carcassT;
         const snappedElevY = Math.max(64, Math.min(netH - 64, Math.round(rawY / 32) * 32));
@@ -4792,6 +6280,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         lastAccessoryDropTarget2DRef.current = {
           bayIndex: targetBayIdx,
           elevationY: snappedElevY,
+          offsetX: localBayX,
           accessory: activeAcc || { id: "lib_shelf", title: "Raf" },
         };
 
@@ -4832,7 +6321,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         const bayIdx = dropInfo ? dropInfo.bayIndex : 0;
         const elevY = dropInfo ? dropInfo.elevationY : 400;
 
-        addInteriorItemAtElevation(bayIdx, acc.id, elevY);
+        addInteriorItemAtElevation(bayIdx, acc.id, elevY, { offsetX: dropInfo?.offsetX });
         setPlanRowSnapBanner(`✓ ${acc.title} yerleştirildi: Bölme ${bayIdx + 1} (Y: ${elevY} mm)`);
         setTimeout(() => setPlanRowSnapBanner(null), 3500);
 
@@ -4895,12 +6384,82 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 ? "2D Ön Cephe & İç Düzen Editörü"
                 : mode === "plan"
                 ? "2D Üst Plan Kesiti"
-                : "2D Yan Düşey Kesit"}
+                : sectionDirection2D === "Z"
+                ? `2D A-A Enine Yan Kesit (X: ${sectionCutCoordMm} mm)`
+                : `2D B-B Boyuna Cephe Kesit (Z: ${sectionCutCoordMm} mm)`}
             </span>
             {mode === "elevation" && (
               <span className="text-xs font-semibold text-stone-800 hidden lg:inline">
                 Raf, çekmece, askı ve ara dikmeleri fareyle sürükleyerek veya sağ panelden ölçüyle taşıyabilirsiniz
               </span>
+            )}
+            {mode === "section" && (
+              <div className="flex items-center gap-2 flex-wrap bg-white/80 backdrop-blur-md px-2.5 py-1 rounded-xl border border-stone-300 shadow-2xs text-xs">
+                <div className="inline-flex items-center rounded-lg bg-slate-100 p-0.5">
+                  <button
+                    type="button"
+                    data-testid="section-dir-z-btn"
+                    onClick={() => setSectionDirection2D("Z")}
+                    className={`px-2 py-0.5 rounded-md font-bold text-[11px] transition cursor-pointer ${
+                      sectionDirection2D === "Z"
+                        ? "bg-blue-600 text-white shadow-2xs"
+                        : "text-slate-700 hover:bg-white"
+                    }`}
+                    title="A-A Enine Yan Kesit (Derinlik × Yükseklik)"
+                  >
+                    ↔ A-A Yan Kesit (X)
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="section-dir-x-btn"
+                    onClick={() => setSectionDirection2D("X")}
+                    className={`px-2 py-0.5 rounded-md font-bold text-[11px] transition cursor-pointer ${
+                      sectionDirection2D === "X"
+                        ? "bg-blue-600 text-white shadow-2xs"
+                        : "text-slate-700 hover:bg-white"
+                    }`}
+                    title="B-B Boyuna Cephe Kesit (Genişlik × Yükseklik)"
+                  >
+                    ↕ B-B Boyuna Kesit (Z)
+                  </button>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-bold text-slate-600">
+                    Kesit Noktası ({sectionDirection2D === "Z" ? "X" : "Z"}):
+                  </span>
+                  <input
+                    type="range"
+                    data-testid="section-cut-slider"
+                    min={0.05}
+                    max={0.95}
+                    step={0.02}
+                    value={sectionCutRatio2D}
+                    onChange={(e) => setSectionCutRatio2D(Number(e.target.value))}
+                    className="w-28 accent-blue-600 h-1.5 bg-slate-200 rounded-lg cursor-pointer"
+                  />
+                  <span className="font-mono font-extrabold text-blue-700 text-[11px] min-w-[54px]">
+                    {sectionCutCoordMm} mm
+                  </span>
+                </div>
+                {sectionDirection2D === "Z" && activeModule.bays.length > 1 && (
+                  <div className="flex items-center gap-1 border-l border-slate-200 pl-2">
+                    {activeModule.bays.map((b, bIdx) => {
+                      const ratio = (bIdx + 0.5) / activeModule.bays.length;
+                      return (
+                        <button
+                          key={b.index}
+                          type="button"
+                          onClick={() => setSectionCutRatio2D(Number(ratio.toFixed(2)))}
+                          className="px-1.5 py-0.5 rounded bg-blue-50 hover:bg-blue-100 text-blue-800 font-bold text-[10px] border border-blue-200 cursor-pointer"
+                          title={`Bölme ${bIdx + 1} ortasından kesit al`}
+                        >
+                          B{bIdx + 1}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             )}
           </div>
 
@@ -4996,7 +6555,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         removeSpaceObstacle(selObs.id);
                         setSelectedPlanObject(null);
                       }}
-                      className="px-1.5 py-0.5 rounded bg-red-100 text-red-900 hover:bg-red-100 text-red-900 text-white font-bold cursor-pointer"
+                      className="px-1.5 py-0.5 rounded bg-red-600 hover:bg-red-700 text-white font-bold cursor-pointer"
                     >
                       🗑 Sil
                     </button>
@@ -5045,7 +6604,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 onClick={() => setShowRoomContextInElev((v) => !v)}
                 className={`px-3 py-1 rounded-lg border text-xs font-bold transition cursor-pointer ${
                   showRoomContextInElev
-                    ? "bg-[#F1F5F9] text-[#111827] border-sky-800 text-white"
+                    ? "bg-[#2563EB] text-white border-[#1D4ED8] shadow-2xs"
                     : "bg-white hover:bg-stone-100 border-stone-300 text-stone-800"
                 }`}
                 title="Duvar sınırını, pencereyi, kapıyı, kolonu, su/gider tesisatını ve tüm modülleri cephe görünüşünde göster/gizle"
@@ -5060,7 +6619,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
               onClick={() => setShowDoorsIn2D((v) => !v)}
               className={`px-3 py-1 rounded-lg border text-xs font-bold transition cursor-pointer ${
                 showDoorsIn2D
-                  ? "bg-[#F1F5F9] text-[#5C4018] border-amber-800 text-white"
+                  ? "bg-amber-600 text-white border-amber-700 shadow-2xs"
                   : "bg-white hover:bg-stone-100 border-stone-300 text-stone-800"
               }`}
             >
@@ -5100,9 +6659,18 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
 
         <svg
           viewBox={`${vb.x} ${vb.y} ${vb.width} ${vb.height}`}
-          className="w-full h-full"
+          className={`w-full h-full ${panning2D ? "cursor-grabbing" : "cursor-grab"}`}
+          onContextMenu={(e) => e.preventDefault()}
           onMouseDown={(e) => {
-            if (e.button === 1 || (e.button === 0 && e.altKey)) {
+            const isBgClick =
+              e.target === e.currentTarget ||
+              (e.target as Element).getAttribute?.("data-elev-bg") === "true";
+            if (
+              e.button === 2 ||
+              e.button === 1 ||
+              (e.button === 0 && e.altKey) ||
+              (e.button === 0 && isBgClick)
+            ) {
               e.preventDefault();
               setPanning2D({
                 startClientX: e.clientX,
@@ -5141,7 +6709,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             </pattern>
           </defs>
 
-          <rect x={vb.x} y={vb.y} width={vb.width} height={vb.height} fill="url(#v3_elev_grid)" />
+          <rect data-elev-bg="true" x={vb.x} y={vb.y} width={vb.width} height={vb.height} fill="url(#v3_elev_grid)" />
 
           {/* ROOM WALL ELEVATION BACKDROP, OTHER MODULES & ARCHITECTURAL OBSTACLES (WINDOW, DOOR, PLUMBING, COLUMN, BEAM) */}
           {mode === "elevation" && showRoomContextInElev && (() => {
@@ -5697,6 +7265,54 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     </g>
                   );
                 })}
+
+                {/* ON-CANVAS 2D ELEVATION COLLISION CALLOUTS (Window Intersection, Plumbing Mismatch, Door Swing) */}
+                {liveSpatialAlerts.length > 0 && (
+                  <g data-testid="elev-spatial-collision-overlays" className="pointer-events-none">
+                    {liveSpatialAlerts.map((al) => {
+                      const isErr = al.severity === "error";
+                      const cx = wallLeftSvgX + al.x;
+                      const cy = floorSvgY - al.y;
+                      const badgeW = Math.max(400, al.title.length * 19 + 48);
+                      return (
+                        <g key={`elev_al_${al.id}`}>
+                          <rect
+                            x={cx - al.w / 2}
+                            y={cy - al.h / 2}
+                            width={al.w}
+                            height={al.h}
+                            rx={10}
+                            fill={isErr ? "rgba(220, 38, 38, 0.22)" : "rgba(217, 119, 6, 0.22)"}
+                            stroke={isErr ? "#DC2626" : "#D97706"}
+                            strokeWidth="6"
+                            strokeDasharray="14 6"
+                          />
+                          <rect
+                            x={cx - badgeW / 2}
+                            y={cy - 28}
+                            width={badgeW}
+                            height={52}
+                            rx={12}
+                            fill={isErr ? "#991B1B" : "#92400E"}
+                            stroke="#FFFFFF"
+                            strokeWidth="3"
+                          />
+                          <text
+                            x={cx}
+                            y={cy + 7}
+                            textAnchor="middle"
+                            fill="#FFFFFF"
+                            fontSize="23"
+                            fontWeight="900"
+                            fontFamily="monospace"
+                          >
+                            {`⚠️ ${al.title}`}
+                          </text>
+                        </g>
+                      );
+                    })}
+                  </g>
+                )}
 
                 {/* Live Catalog Drag-and-Drop 2D Elevation Ghost Cabinet Silhouette + Magnetic Snap Lines */}
                 {dragGhostPreview && (

@@ -28,12 +28,19 @@ import {
 interface BomModalProps {
   isOpen: boolean;
   onClose: () => void;
+  initialTab?: "cutlist" | "hardware" | "nesting" | "validation" | "assembly" | "selco" | "quote" | "blum_bxf";
 }
 
-export default function BomModal({ isOpen, onClose }: BomModalProps) {
+export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: BomModalProps) {
   const [activeTab, setActiveTab] = useState<
     "cutlist" | "hardware" | "nesting" | "validation" | "assembly" | "selco" | "quote" | "blum_bxf"
-  >("cutlist");
+  >(initialTab);
+
+  React.useEffect(() => {
+    if (isOpen && initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [isOpen, initialTab]);
   const bom = useConfiguratorStore((s) => s.bom);
   const project = useConfiguratorStore((s) => s.project);
   const pricing = useConfiguratorStore((s) => s.pricing);
@@ -606,33 +613,144 @@ export default function BomModal({ isOpen, onClose }: BomModalProps) {
                           </div>
                         </div>
 
-                        {/* 2D Sheet Canvas Representation */}
-                        <div className="relative w-full aspect-[280/207] bg-slate-900 border border-slate-700 rounded overflow-hidden">
-                          {sheet.placedPieces.map((p) => {
-                            const leftPct = (p.x / 2800) * 100;
-                            const topPct = (p.y / 2070) * 100;
-                            const widthPct = (p.width / 2800) * 100;
-                            const heightPct = (p.length / 2070) * 100;
+                        {/* High-Precision CAD Vector SVG 2800x2070mm Sheet Nesting Representation */}
+                        <div className="relative w-full bg-slate-900 border border-slate-700 rounded-lg overflow-hidden p-1.5">
+                          <svg
+                            data-testid={`bom-nesting-svg-sheet-${sheet.sheetIndex}`}
+                            viewBox="-110 -85 3000 2230"
+                            className="w-full h-auto block select-none"
+                          >
+                            <defs>
+                              <pattern id={`waste_hatch_${sheet.sheetIndex}`} width="40" height="40" patternTransform="rotate(45 0 0)" patternUnits="userSpaceOnUse">
+                                <line x1="0" y1="0" x2="0" y2="40" stroke="#334155" strokeWidth="6" />
+                              </pattern>
+                            </defs>
 
-                            return (
-                              <div
-                                key={p.pieceId}
-                                style={{
-                                  left: `${leftPct}%`,
-                                  top: `${topPct}%`,
-                                  width: `${widthPct}%`,
-                                  height: `${heightPct}%`,
-                                }}
-                                title={`${p.pieceName} (${p.length}x${p.width}mm)`}
-                                className="absolute bg-amber-600/60 hover:bg-amber-500/80 border border-amber-400/80 p-0.5 overflow-hidden text-[8px] font-mono text-white transition-all cursor-pointer flex flex-col justify-center items-center text-center"
-                              >
-                                <span className="truncate w-full font-bold">{p.pieceName}</span>
-                                <span>
-                                  {p.length}x{p.width}
-                                </span>
-                              </div>
-                            );
-                          })}
+                            {/* Outer 2800x2070mm Raw Board */}
+                            <rect
+                              x={0}
+                              y={0}
+                              width={2800}
+                              height={2070}
+                              fill={`url(#waste_hatch_${sheet.sheetIndex})`}
+                              stroke="#64748B"
+                              strokeWidth="8"
+                            />
+                            {/* 15mm Trim Margin (Kenar Temizleme Payı) */}
+                            <rect
+                              x={15}
+                              y={15}
+                              width={2770}
+                              height={2040}
+                              fill="#0F172A"
+                              stroke="#475569"
+                              strokeWidth="4"
+                              strokeDasharray="24 14"
+                            />
+
+                            {/* Top Horizontal Ruler (0 -> 2800 mm) */}
+                            <line x1={0} y1={-32} x2={2800} y2={-32} stroke="#94A3B8" strokeWidth="4" />
+                            {[0, 700, 1400, 2100, 2800].map((tx) => (
+                              <g key={`rx_${tx}`}>
+                                <line x1={tx} y1={-48} x2={tx} y2={-16} stroke="#94A3B8" strokeWidth="4" />
+                                <text x={tx} y={-54} textAnchor="middle" fill="#CBD5E1" fontSize="42" fontWeight="800" fontFamily="monospace">
+                                  {tx}
+                                </text>
+                              </g>
+                            ))}
+
+                            {/* Left Vertical Ruler (0 -> 2070 mm) */}
+                            <line x1={-32} y1={0} x2={-32} y2={2070} stroke="#94A3B8" strokeWidth="4" />
+                            {[0, 500, 1000, 1500, 2070].map((ty) => (
+                              <g key={`ry_${ty}`}>
+                                <line x1={-48} y1={ty} x2={-16} y2={ty} stroke="#94A3B8" strokeWidth="4" />
+                                <text x={-56} y={ty + 14} textAnchor="end" fill="#CBD5E1" fontSize="38" fontWeight="800" fontFamily="monospace">
+                                  {ty}
+                                </text>
+                              </g>
+                            ))}
+
+                            {/* Placed Cut Pieces with 4.4mm Kerf Gap, Grain Direction Arrow & Dimensions */}
+                            {sheet.placedPieces.map((p, pIdx) => {
+                              const pw = Math.max(40, p.width);
+                              const ph = Math.max(40, p.length);
+                              const cx = p.x + pw / 2;
+                              const cy = p.y + ph / 2;
+                              const palette = [
+                                { fill: "#1E3A8A", stroke: "#60A5FA", text: "#EFF6FF" },
+                                { fill: "#064E3B", stroke: "#34D399", text: "#ECFDF5" },
+                                { fill: "#78350F", stroke: "#FBBF24", text: "#FFFBEB" },
+                                { fill: "#3B0764", stroke: "#C084FC", text: "#FAF5FF" },
+                              ];
+                              const col = palette[pIdx % palette.length];
+                              const fontTitle = Math.max(26, Math.min(48, Math.floor(pw / Math.max(6, p.pieceName.length * 0.65))));
+                              const fontDim = Math.max(24, Math.min(42, Math.floor(pw / 8)));
+                              return (
+                                <g key={p.pieceId}>
+                                  {/* 4.4mm Saw Kerf Outline */}
+                                  <rect
+                                    x={p.x - 2.2}
+                                    y={p.y - 2.2}
+                                    width={pw + 4.4}
+                                    height={ph + 4.4}
+                                    fill="none"
+                                    stroke="#EF4444"
+                                    strokeWidth="2.5"
+                                    strokeDasharray="10 6"
+                                  />
+                                  {/* Net Panel Body */}
+                                  <rect
+                                    x={p.x}
+                                    y={p.y}
+                                    width={pw}
+                                    height={ph}
+                                    rx={4}
+                                    fill={col.fill}
+                                    stroke={col.stroke}
+                                    strokeWidth="5"
+                                  />
+                                  {/* Grain Direction Line */}
+                                  {pw >= 180 && ph >= 120 && (
+                                    <line
+                                      x1={cx - Math.min(pw * 0.28, 120)}
+                                      y1={cy + fontDim + 24}
+                                      x2={cx + Math.min(pw * 0.28, 120)}
+                                      y2={cy + fontDim + 24}
+                                      stroke={col.stroke}
+                                      strokeWidth="3.5"
+                                      strokeDasharray="12 6"
+                                    />
+                                  )}
+                                  {pw >= 120 && ph >= 85 && (
+                                    <>
+                                      <text
+                                        x={cx}
+                                        y={cy - 6}
+                                        textAnchor="middle"
+                                        fill={col.text}
+                                        fontSize={fontTitle}
+                                        fontWeight="900"
+                                        fontFamily="sans-serif"
+                                      >
+                                        {p.pieceName.slice(0, 18)}
+                                      </text>
+                                      <text
+                                        x={cx}
+                                        y={cy + fontDim + 4}
+                                        textAnchor="middle"
+                                        fill="#FDE68A"
+                                        fontSize={fontDim}
+                                        fontWeight="800"
+                                        fontFamily="monospace"
+                                      >
+                                        {`${p.length}×${p.width}`}
+                                      </text>
+                                    </>
+                                  )}
+                                </g>
+                              );
+                            })}
+                          </svg>
                         </div>
                       </div>
                     ))}

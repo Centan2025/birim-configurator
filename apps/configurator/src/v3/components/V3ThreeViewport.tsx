@@ -32,6 +32,7 @@ import {
   type ArchitecturalFloorStyle,
 } from "../materials/pbrMaterialSystem";
 import { Plus, Layers, RotateCw, Columns, Ruler } from "lucide-react";
+import { startAccessorySilhouetteDrag } from "../engine/kitchenSpatialEngine";
 
 
 let cachedContactAoTex: THREE.CanvasTexture | null = null;
@@ -341,6 +342,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       addHangingRail,
       addSpecialFitting,
       addSubDivider,
+      splitBayIntoTwo,
       applyBayInteriorPreset,
       removeBayAt,
       addAdjacentModule,
@@ -360,10 +362,115 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
     const [badgeDraftValue, setBadgeDraftValue] = useState<string>("");
     const [doorsHiddenIn3D, setDoorsHiddenIn3D] = useState<boolean>(false);
     const [cutawayActiveBay, setCutawayActiveBay] = useState<boolean>(false);
+    const [showInteriorProps3D, setShowInteriorProps3D] = useState<boolean>(true);
     const bayPopoverDomRef = useRef<HTMLDivElement | null>(null);
     const activeBayWorldAnchorRef = useRef<THREE.Vector3 | null>(null);
     const doorPopoverDomRef = useRef<HTMLDivElement | null>(null);
     const activeDoorWorldAnchorRef = useRef<THREE.Vector3 | null>(null);
+
+    // Draggable & Collapsible Floating Panel System (prevents covering the 3D cabinet)
+    const [floatingPanelPos, setFloatingPanelPos] = useState<
+      Record<"bay" | "door" | "dim" | "context", { x: number; y: number } | null>
+    >({
+      bay: null,
+      door: null,
+      dim: null,
+      context: null,
+    });
+    const floatingPanelPosRef = useRef(floatingPanelPos);
+    useEffect(() => {
+      floatingPanelPosRef.current = floatingPanelPos;
+    }, [floatingPanelPos]);
+
+    const [collapsedFloatingPanels, setCollapsedFloatingPanels] = useState<
+      Record<"bay" | "door" | "callouts", boolean>
+    >({
+      bay: false,
+      door: false,
+      callouts: false,
+    });
+    const [dockedToCorner, setDockedToCorner] = useState<boolean>(true);
+    const dockedToCornerRef = useRef<boolean>(true);
+    useEffect(() => {
+      dockedToCornerRef.current = dockedToCorner;
+    }, [dockedToCorner]);
+
+    const [isDraggingItemOver3D, setIsDraggingItemOver3D] = useState<boolean>(false);
+    const [section3DAxis, setSection3DAxis] = useState<null | "X" | "Z">(null);
+    const [section3DRatio, setSection3DRatio] = useState<number>(0.55);
+    const [section3DMenuOpen, setSection3DMenuOpen] = useState<boolean>(false);
+    const customLabelOffsetsRef = useRef<Record<string, { dx: number; dy: number }>>({});
+    const [, setCustomLabelTick] = useState(0);
+
+    const startFloatingPanelDrag = useCallback(
+      (panelKey: "bay" | "door" | "dim" | "context", e: React.MouseEvent<HTMLElement>) => {
+        if ((e.target as HTMLElement).closest("button, input, select")) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const cardEl = e.currentTarget.parentElement as HTMLElement | null;
+        const containerEl = mountRef.current?.parentElement;
+        if (!cardEl || !containerEl) return;
+        const cRect = containerEl.getBoundingClientRect();
+        const kRect = cardEl.getBoundingClientRect();
+        const startX = kRect.left - cRect.left;
+        const startY = kRect.top - cRect.top;
+        const startClientX = e.clientX;
+        const startClientY = e.clientY;
+
+        const onMove = (me: MouseEvent) => {
+          const nx = Math.max(8, Math.min(cRect.width - 140, startX + (me.clientX - startClientX)));
+          const ny = Math.max(8, Math.min(cRect.height - 60, startY + (me.clientY - startClientY)));
+          const nextPos = { x: Math.round(nx), y: Math.round(ny) };
+          floatingPanelPosRef.current = { ...floatingPanelPosRef.current, [panelKey]: nextPos };
+          setFloatingPanelPos((prev) => ({ ...prev, [panelKey]: nextPos }));
+          if (panelKey === "bay" && bayPopoverDomRef.current) {
+            bayPopoverDomRef.current.style.transform = `translate3d(${nextPos.x}px, ${nextPos.y}px, 0)`;
+          } else if (panelKey === "door" && doorPopoverDomRef.current) {
+            doorPopoverDomRef.current.style.transform = `translate3d(${nextPos.x}px, ${nextPos.y}px, 0)`;
+          }
+        };
+        const onUp = () => {
+          window.removeEventListener("mousemove", onMove);
+          window.removeEventListener("mouseup", onUp);
+        };
+        window.addEventListener("mousemove", onMove);
+        window.addEventListener("mouseup", onUp);
+      },
+      []
+    );
+
+    const startCalloutBadgeDrag = useCallback(
+      (badgeId: string, e: React.MouseEvent<HTMLElement>) => {
+        if (e.button !== 0) return;
+        const startClientX = e.clientX;
+        const startClientY = e.clientY;
+        const cur = customLabelOffsetsRef.current[badgeId] || { dx: 0, dy: 0 };
+        let moved = false;
+
+        const onMove = (me: MouseEvent) => {
+          const dX = me.clientX - startClientX;
+          const dY = me.clientY - startClientY;
+          if (!moved && Math.hypot(dX, dY) < 5) return;
+          moved = true;
+          customLabelOffsetsRef.current[badgeId] = {
+            dx: cur.dx + dX,
+            dy: cur.dy + dY,
+          };
+          needsRenderRef.current = true;
+          setCustomLabelTick((t) => t + 1);
+        };
+        const onUp = () => {
+          window.removeEventListener("mousemove", onMove);
+          window.removeEventListener("mouseup", onUp);
+          if (moved) {
+            (window as any).__birimSuppressNextClick = Date.now();
+          }
+        };
+        window.addEventListener("mousemove", onMove);
+        window.addEventListener("mouseup", onUp);
+      },
+      []
+    );
     const [doorMenuSubSection, setDoorMenuSubSection] = useState<
       null | "type" | "direction" | "handle" | "material"
     >(null);
@@ -393,9 +500,14 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       const onDoorsHiddenChange = (ev: Event) => {
         const customEv = ev as CustomEvent<boolean | "toggle">;
         if (customEv.detail === "toggle") {
-          setDoorsHiddenIn3D((prev) => !prev);
+          setDoorsHiddenIn3D((prev) => {
+            const next = !prev;
+            if (!next) setCutawayActiveBay(false);
+            return next;
+          });
         } else if (typeof customEv.detail === "boolean") {
           setDoorsHiddenIn3D(customEv.detail);
+          if (!customEv.detail) setCutawayActiveBay(false);
         }
       };
       const onHwViewModeChange = (ev: Event) => {
@@ -927,7 +1039,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
     const dimGroupRef = useRef<THREE.Group | null>(null);
     const ghostSnapGroupRef = useRef<THREE.Group | null>(null);
     const lastGhostKeyRef = useRef<string>("");
-    const lastAccessoryDropTargetRef = useRef<{ bayIndex: number; elevationY: number; accessory: any } | null>(null);
+    const lastAccessoryDropTargetRef = useRef<{ bayIndex: number; elevationY: number; offsetX?: number; accessory: any } | null>(null);
+    const selectionFrameGroupRef = useRef<THREE.Group | null>(null);
     const dimWorldAnchorsRef = useRef<{ id: string; worldPos: THREE.Vector3 }[]>([]);
     const dimLabelDomMapRef = useRef<Map<string, HTMLDivElement>>(new Map());
     const gridRef = useRef<THREE.GridHelper | null>(null);
@@ -972,31 +1085,55 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         if (!p.visible) {
           el.style.opacity = "0";
         } else {
+          const uOff = customLabelOffsetsRef.current[p.id] || { dx: 0, dy: 0 };
           el.style.opacity = "1";
-          el.style.transform = `translate3d(${Math.round(p.x)}px, ${Math.round(p.y)}px, 0) translate(-50%, -50%)`;
+          el.style.transform = `translate3d(${Math.round(p.x + uOff.dx)}px, ${Math.round(p.y + uOff.dy)}px, 0) translate(-50%, -50%)`;
         }
       }
 
-      if (bayPopoverDomRef.current && activeBayWorldAnchorRef.current) {
-        const ndc = activeBayWorldAnchorRef.current.clone().project(cam);
-        if (ndc.z > 1) {
-          bayPopoverDomRef.current.style.opacity = "0";
-        } else {
-          const px = Math.max(120, Math.min(w - 150, (ndc.x + 1) * 0.5 * w + 54));
-          const py = Math.max(120, Math.min(h - 140, (-ndc.y + 1) * 0.5 * h));
+      if (bayPopoverDomRef.current) {
+        const customBayPos = floatingPanelPosRef.current.bay;
+        if (customBayPos) {
           bayPopoverDomRef.current.style.opacity = "1";
-          bayPopoverDomRef.current.style.transform = `translate3d(${Math.round(px)}px, ${Math.round(py)}px, 0) translate(0%, -50%)`;
+          bayPopoverDomRef.current.style.transform = `translate3d(${customBayPos.x}px, ${customBayPos.y}px, 0)`;
+        } else if (dockedToCornerRef.current) {
+          // Default non-overlapping top-right dock position so it NEVER covers the 3D cabinet or dimensions!
+          const dockX = Math.max(16, w - 236);
+          const dockY = 68;
+          bayPopoverDomRef.current.style.opacity = "1";
+          bayPopoverDomRef.current.style.transform = `translate3d(${Math.round(dockX)}px, ${dockY}px, 0)`;
+        } else if (activeBayWorldAnchorRef.current) {
+          const ndc = activeBayWorldAnchorRef.current.clone().project(cam);
+          if (ndc.z > 1) {
+            bayPopoverDomRef.current.style.opacity = "0";
+          } else {
+            const px = Math.max(120, Math.min(w - 235, (ndc.x + 1) * 0.5 * w + 54));
+            const py = Math.max(80, Math.min(h - 240, (-ndc.y + 1) * 0.5 * h - 120));
+            bayPopoverDomRef.current.style.opacity = "1";
+            bayPopoverDomRef.current.style.transform = `translate3d(${Math.round(px)}px, ${Math.round(py)}px, 0)`;
+          }
         }
       }
-      if (doorPopoverDomRef.current && activeDoorWorldAnchorRef.current) {
-        const ndc = activeDoorWorldAnchorRef.current.clone().project(cam);
-        if (ndc.z > 1) {
-          doorPopoverDomRef.current.style.opacity = "0";
-        } else {
-          const px = Math.max(140, Math.min(w - 230, (ndc.x + 1) * 0.5 * w + 18));
-          const py = Math.max(140, Math.min(h - 190, (-ndc.y + 1) * 0.5 * h));
+      if (doorPopoverDomRef.current) {
+        const customDoorPos = floatingPanelPosRef.current.door;
+        if (customDoorPos) {
           doorPopoverDomRef.current.style.opacity = "1";
-          doorPopoverDomRef.current.style.transform = `translate3d(${Math.round(px)}px, ${Math.round(py)}px, 0) translate(0%, -50%)`;
+          doorPopoverDomRef.current.style.transform = `translate3d(${customDoorPos.x}px, ${customDoorPos.y}px, 0)`;
+        } else if (dockedToCornerRef.current) {
+          const dockX = Math.max(16, w - 246);
+          const dockY = 68;
+          doorPopoverDomRef.current.style.opacity = "1";
+          doorPopoverDomRef.current.style.transform = `translate3d(${Math.round(dockX)}px, ${dockY}px, 0)`;
+        } else if (activeDoorWorldAnchorRef.current) {
+          const ndc = activeDoorWorldAnchorRef.current.clone().project(cam);
+          if (ndc.z > 1) {
+            doorPopoverDomRef.current.style.opacity = "0";
+          } else {
+            const px = Math.max(140, Math.min(w - 245, (ndc.x + 1) * 0.5 * w + 18));
+            const py = Math.max(80, Math.min(h - 240, (-ndc.y + 1) * 0.5 * h - 120));
+            doorPopoverDomRef.current.style.opacity = "1";
+            doorPopoverDomRef.current.style.transform = `translate3d(${Math.round(px)}px, ${Math.round(py)}px, 0)`;
+          }
         }
       }
       for (const hwAnchor of hwWorldAnchorsRef.current) {
@@ -1006,8 +1143,9 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         if (ndc.z > 1) {
           el.style.opacity = "0";
         } else {
-          const px = Math.max(85, Math.min(w - 140, (ndc.x + 1) * 0.5 * w));
-          const py = Math.max(75, Math.min(h - 85, (-ndc.y + 1) * 0.5 * h));
+          const uOff = customLabelOffsetsRef.current[hwAnchor.id] || { dx: 0, dy: 0 };
+          const px = Math.max(45, Math.min(w - 110, (ndc.x + 1) * 0.5 * w + uOff.dx));
+          const py = Math.max(45, Math.min(h - 65, (-ndc.y + 1) * 0.5 * h + uOff.dy));
           el.style.opacity = "1";
           el.style.transform = `translate3d(${Math.round(px)}px, ${Math.round(py)}px, 0)`;
         }
@@ -1019,8 +1157,9 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         if (ndc.z > 1) {
           el.style.opacity = "0";
         } else {
-          const px = Math.max(85, Math.min(w - 140, (ndc.x + 1) * 0.5 * w));
-          const py = Math.max(75, Math.min(h - 85, (-ndc.y + 1) * 0.5 * h));
+          const uOff = customLabelOffsetsRef.current[matAnchor.id] || { dx: 0, dy: 0 };
+          const px = Math.max(45, Math.min(w - 110, (ndc.x + 1) * 0.5 * w + uOff.dx));
+          const py = Math.max(45, Math.min(h - 65, (-ndc.y + 1) * 0.5 * h + uOff.dy));
           el.style.opacity = "1";
           el.style.transform = `translate3d(${Math.round(px)}px, ${Math.round(py)}px, 0)`;
         }
@@ -1171,6 +1310,11 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       ghostSnapGroup.name = "v3_ghost_silhouette_and_snaps";
       scene.add(ghostSnapGroup);
       ghostSnapGroupRef.current = ghostSnapGroup;
+
+      const selFrameGroup = new THREE.Group();
+      selFrameGroup.name = "v3_selected_part_frame";
+      scene.add(selFrameGroup);
+      selectionFrameGroupRef.current = selFrameGroup;
 
       // Direct model raycast selection + 3D Front/Perspective Interior Component Dragging with Cross-Module Snapping
       const raycaster = new THREE.Raycaster();
@@ -1363,10 +1507,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           clickedCompId,
           modIdx
         );
-        const pLabel = String(hitObj.userData?.label || hitObj.userData?.role || "Parça");
-        const pDims = hitObj.userData?.dimsText ? ` (${hitObj.userData.dimsText})` : "";
-        setDragDropSnapBanner(`🎯 Seçildi: ${pLabel}${pDims}`);
-        setTimeout(() => setDragDropSnapBanner((prev) => (prev?.startsWith("🎯 Seçildi:") ? null : prev)), 3500);
+        // Selection is shown directly in the frosted top pill & floating inspector card (no duplicate overlapping banner)
 
         // Calculate world-mm per screen-pixel at the hit point
         const hitDist = Math.max(300, hits[0].distance);
@@ -1528,18 +1669,26 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           if (hitMesh !== currentHoveredMesh) {
             currentHoveredMesh = hitMesh;
             if (hitMesh) {
-              // Compute world bounding box of the hovered part and wrap hoverOverlayGroup around it!
-              const bbox = new THREE.Box3().setFromObject(hitMesh);
-              if (!bbox.isEmpty()) {
-                const center = new THREE.Vector3();
-                const size = new THREE.Vector3();
-                bbox.getCenter(center);
-                bbox.getSize(size);
-                hoverOverlayGroup.position.copy(center);
+              // Compute Oriented Bounding Box (OBB) in local mesh space + world quaternion so open/angled doors fit 1-to-1!
+              hitMesh.updateWorldMatrix(true, false);
+              if (!hitMesh.geometry.boundingBox) {
+                hitMesh.geometry.computeBoundingBox();
+              }
+              const localBox = hitMesh.geometry.boundingBox;
+              if (localBox && !localBox.isEmpty()) {
+                const localCenter = new THREE.Vector3();
+                const localSize = new THREE.Vector3();
+                localBox.getCenter(localCenter);
+                localBox.getSize(localSize);
+                const worldCenter = localCenter.clone().applyMatrix4(hitMesh.matrixWorld);
+                const worldQuat = new THREE.Quaternion();
+                hitMesh.getWorldQuaternion(worldQuat);
+                hoverOverlayGroup.position.copy(worldCenter);
+                hoverOverlayGroup.quaternion.copy(worldQuat);
                 hoverOverlayGroup.scale.set(
-                  Math.max(12, size.x + 8),
-                  Math.max(12, size.y + 8),
-                  Math.max(12, size.z + 8)
+                  Math.max(12, localSize.x + 6),
+                  Math.max(12, localSize.y + 6),
+                  Math.max(12, localSize.z + 6)
                 );
                 hoverOverlayGroup.visible = true;
               }
@@ -2204,8 +2353,96 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         }
       });
 
+      // Update 3D Blue Selection Frame using Oriented Bounding Box (OBB) so angled/open doors match 1-to-1!
+      const selGroup = selectionFrameGroupRef.current;
+      if (selGroup) {
+        selGroup.clear();
+        if (selectedComponentId) {
+          let matchedMesh: THREE.Mesh | null = null;
+          meshGroup.traverse((obj) => {
+            if (
+              !matchedMesh &&
+              obj instanceof THREE.Mesh &&
+              obj.userData?.componentId === selectedComponentId &&
+              obj.userData?.moduleIndex === activeModuleIndex
+            ) {
+              matchedMesh = obj;
+            }
+          });
+          if (matchedMesh) {
+            const targetMesh = matchedMesh as THREE.Mesh;
+            targetMesh.updateWorldMatrix(true, false);
+            if (!targetMesh.geometry.boundingBox) {
+              targetMesh.geometry.computeBoundingBox();
+            }
+            const lBox = targetMesh.geometry.boundingBox;
+            if (lBox && !lBox.isEmpty()) {
+              const lCenter = new THREE.Vector3();
+              const lSize = new THREE.Vector3();
+              lBox.getCenter(lCenter);
+              lBox.getSize(lSize);
+              const wCenter = lCenter.clone().applyMatrix4(targetMesh.matrixWorld);
+              const wQuat = new THREE.Quaternion();
+              targetMesh.getWorldQuaternion(wQuat);
+
+              const dFrameGeo = new THREE.BoxGeometry(
+                Math.max(12, lSize.x + 8),
+                Math.max(12, lSize.y + 8),
+                Math.max(12, lSize.z + 8)
+              );
+              const dFrameLines = new THREE.LineSegments(
+                new THREE.EdgesGeometry(dFrameGeo),
+                new THREE.LineBasicMaterial({ color: 0x1d4ed8, linewidth: 2 })
+              );
+              dFrameLines.raycast = () => {};
+              const dFrameFill = new THREE.Mesh(
+                dFrameGeo,
+                new THREE.MeshBasicMaterial({
+                  color: 0x3b82f6,
+                  transparent: true,
+                  opacity: 0.2,
+                  depthWrite: false,
+                })
+              );
+              dFrameFill.raycast = () => {};
+              dFrameLines.position.copy(wCenter);
+              dFrameLines.quaternion.copy(wQuat);
+              dFrameFill.position.copy(wCenter);
+              dFrameFill.quaternion.copy(wQuat);
+              selGroup.add(dFrameLines);
+              selGroup.add(dFrameFill);
+
+              activeDoorWorldAnchorRef.current = wCenter.clone();
+            }
+          }
+        }
+      }
+
       requestRender();
-    }, [activeModuleIndex, selectedComponentId, theme, renderEdgeMode, requestRender]);
+    }, [activeModuleIndex, selectedComponentId, project, doorOpenAngleDeg, drawerOpenMm, explodedFactor, theme, renderEdgeMode, requestRender]);
+
+    // 2-Directional Interactive 3D Section Clipping Plane (X Boyuna Kesit & Z Enine Kesit)
+    useEffect(() => {
+      const curRenderer = rendererRef.current;
+      if (!curRenderer) return;
+      if (!section3DAxis) {
+        curRenderer.localClippingEnabled = false;
+        curRenderer.clippingPlanes = [];
+        requestRender();
+        return;
+      }
+      const mod = project.modules[activeModuleIndex] || project.modules[0];
+      if (!mod) return;
+      curRenderer.localClippingEnabled = true;
+      if (section3DAxis === "X") {
+        const cutWorldX = mod.position.x + Math.round(mod.dimensions.width * section3DRatio);
+        curRenderer.clippingPlanes = [new THREE.Plane(new THREE.Vector3(-1, 0, 0), cutWorldX)];
+      } else {
+        const cutWorldZ = mod.position.z + Math.round(mod.dimensions.depth * section3DRatio);
+        curRenderer.clippingPlanes = [new THREE.Plane(new THREE.Vector3(0, 0, -1), cutWorldZ)];
+      }
+      requestRender();
+    }, [section3DAxis, section3DRatio, project, activeModuleIndex, requestRender]);
 
     // Rebuild Parametric Meshes ONLY when project geometry or kinematic sliders change
     useEffect(() => {
@@ -2213,7 +2450,6 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       if (!meshGroup) return;
 
       meshGroup.clear();
-      if (roomArchGroupRef.current) roomArchGroupRef.current.clear();
       const matMap = new Map(DEFAULT_MATERIALS.map((m) => [m.id, m]));
       const isLight = theme !== "dark";
 
@@ -2305,54 +2541,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           });
           modContainer.add(compGroup);
 
-          // Unmistakable Blue 3D Selection Frame around ANY Selected Panel / Door / Drawer / Plinth (Matches image_e5c524.jpg & image_dad0ff.jpg)
-          if (
-            isActiveMod &&
-            comp.isManufacturablePanel !== false &&
-            (comp.id === selectedComponentId ||
-              (clicked3DContext?.kind === "door" && clicked3DContext.componentId === comp.id))
-          ) {
-            const dFrameGeo = new THREE.BoxGeometry(
-              comp.dimensions.width + 8,
-              comp.dimensions.height + 8,
-              comp.dimensions.depth + 8
-            );
-            const dFrameLines = new THREE.LineSegments(
-              new THREE.EdgesGeometry(dFrameGeo),
-              new THREE.LineBasicMaterial({
-                color: 0x1d4ed8,
-                transparent: false,
-                linewidth: 2,
-              })
-            );
-            dFrameLines.raycast = () => {};
-            const dFrameFill = new THREE.Mesh(
-              dFrameGeo,
-              new THREE.MeshBasicMaterial({
-                color: 0x3b82f6,
-                transparent: true,
-                opacity: 0.22,
-                depthWrite: false,
-              })
-            );
-            dFrameFill.raycast = () => {};
-            const pivot = comp.pivot ?? comp.position;
-            const fx = comp.position.x - pivot.x + comp.dimensions.width / 2;
-            const fy = comp.position.y - pivot.y + comp.dimensions.height / 2;
-            const fz = comp.position.z - pivot.z + comp.dimensions.depth / 2 + 2;
-            dFrameLines.position.set(fx, fy, fz);
-            dFrameFill.position.set(fx, fy, fz);
-            compGroup.add(dFrameLines);
-            compGroup.add(dFrameFill);
-
-            const doorLocalAnchor = new THREE.Vector3(
-              comp.position.x + comp.dimensions.width,
-              comp.position.y + comp.dimensions.height * 0.52,
-              comp.position.z + comp.dimensions.depth
-            );
-            modContainer.updateMatrixWorld(true);
-            activeDoorWorldAnchorRef.current = doorLocalAnchor.applyMatrix4(modContainer.matrixWorld);
-          }
+          // Selection frame is rendered via OBB selectionFrameGroupRef in fast selection effect
           if (isLedStrip && activeSceneLedLights < 8) {
             activeSceneLedLights++;
             const ledLight = new THREE.PointLight(0xffcf6e, 1.35, 1600);
@@ -2520,6 +2709,183 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           });
         }
 
+        // 3D Sculptural Wardrobe Garments, Folded Knitwear, Linen Storage Boxes & Shoes (Visible when doors are open/hidden or glass)
+        const shouldRenderProps =
+          showInteriorProps3D &&
+          (doorsHiddenIn3D ||
+            cutawayActiveBay ||
+            doorOpenAngleDeg > 8 ||
+            Boolean(mod.isOpenFront) ||
+            mod.bays.some(
+              (b) =>
+                b.door.type === "open" ||
+                b.door.doorSystemId === "open" ||
+                b.door.doorSubType?.includes("glass")
+            ));
+
+        if (shouldRenderProps && mod.bays.length >= 1) {
+          const T = mod.carcass.panelThickness || 18;
+          const plinthH = mod.carcass.plinthHeight ?? 100;
+          const modD = mod.dimensions.depth;
+          let bayStartX = T;
+
+          const garmentPalette = [0xe7e5e4, 0x334155, 0xc2bab0, 0x475569, 0xf5f5f4, 0x78716c];
+          const hangerWoodMat = new THREE.MeshStandardMaterial({
+            color: 0x3f2e21,
+            roughness: 0.45,
+            metalness: 0.08,
+          });
+          const chromeHookMat = new THREE.MeshStandardMaterial({
+            color: 0xd4d4d8,
+            roughness: 0.2,
+            metalness: 0.85,
+          });
+          const boxLinenMat = new THREE.MeshStandardMaterial({
+            color: 0xd6d1c7,
+            roughness: 0.82,
+            metalness: 0.02,
+          });
+          const boxTabMat = new THREE.MeshStandardMaterial({
+            color: 0x292524,
+            roughness: 0.5,
+          });
+
+          const disableRaycastRecursive = (grp: THREE.Object3D) => {
+            grp.raycast = () => {};
+            grp.children.forEach(disableRaycastRecursive);
+          };
+
+          mod.bays.forEach((bayObj, bIdx) => {
+            const bw =
+              breakdown.bayWidths[bIdx] ||
+              Math.round((mod.dimensions.width - (mod.bays.length + 1) * T) / mod.bays.length);
+            const propsGroup = new THREE.Group();
+            propsGroup.name = `v3_lifestyle_props_bay_${bIdx}`;
+            const centerZ = T + (modD - T) * 0.52;
+
+            // 1. Hanging Garments (Shirts / Jackets / Coats) on each Hanging Rail
+            (bayObj.hangingRails || []).forEach((rail) => {
+              const railWorldY = plinthH + T + (rail.elevationY || 1650);
+              const usableW = Math.max(120, bw - 90);
+              const garmentCount = Math.max(3, Math.min(9, Math.floor(usableW / 68)));
+              const stepX = usableW / garmentCount;
+
+              for (let g = 0; g < garmentCount; g++) {
+                const gx = bayStartX + 45 + stepX * (g + 0.5);
+                const isLongCoat = g % 4 === 0 && (rail.elevationY || 1650) > 1200;
+                const garmentH = isLongCoat ? 880 : 620 + (g % 3) * 45;
+                const garmentD = Math.min(modD - 90, 420);
+                const garmentThick = 34;
+                const gColor = garmentPalette[(g + bIdx * 2) % garmentPalette.length];
+
+                const gMat = new THREE.MeshStandardMaterial({
+                  color: gColor,
+                  roughness: 0.85,
+                  metalness: 0.02,
+                });
+
+                // Chrome Hook
+                const hookGeo = new THREE.CylinderGeometry(2.2, 2.2, 38, 8);
+                const hookMesh = new THREE.Mesh(hookGeo, chromeHookMat);
+                hookMesh.position.set(gx, railWorldY - 18, centerZ);
+                propsGroup.add(hookMesh);
+
+                // Hanger Shoulder Bar
+                const shoulderGeo = new THREE.BoxGeometry(14, 22, Math.min(360, garmentD * 0.86));
+                const shoulderMesh = new THREE.Mesh(shoulderGeo, hangerWoodMat);
+                shoulderMesh.position.set(gx, railWorldY - 42, centerZ);
+                propsGroup.add(shoulderMesh);
+
+                // Sculpted Garment Body
+                const bodyGeo = new THREE.BoxGeometry(garmentThick, garmentH, garmentD);
+                const bodyMesh = new THREE.Mesh(bodyGeo, gMat);
+                bodyMesh.position.set(gx, railWorldY - 52 - garmentH / 2, centerZ);
+                bodyMesh.rotation.y = ((g % 2 === 0 ? 1 : -1) * 0.035);
+                bodyMesh.castShadow = true;
+                propsGroup.add(bodyMesh);
+              }
+            });
+
+            // 2. Folded Knitwear Stacks & Architectural Linen Boxes on Shelves
+            (bayObj.shelves || []).forEach((sh, sIdx) => {
+              const shelfTopY = plinthH + T + sh.elevationY + T;
+              if (bw >= 340 && modD >= 320) {
+                if (sIdx % 2 === 0) {
+                  // Left: 3-Layer Folded Knitwear Stack
+                  const stackW = Math.min(240, bw * 0.42);
+                  const stackD = Math.min(300, modD - 110);
+                  const stackX = bayStartX + bw * 0.28;
+                  [0xd6d3d1, 0x64748b, 0xf5f5f4].forEach((cHex, layerIdx) => {
+                    const fGeo = new THREE.BoxGeometry(stackW - layerIdx * 6, 32, stackD - layerIdx * 6);
+                    const fMat = new THREE.MeshStandardMaterial({ color: cHex, roughness: 0.88 });
+                    const fMesh = new THREE.Mesh(fGeo, fMat);
+                    fMesh.position.set(stackX, shelfTopY + 16 + layerIdx * 33, centerZ);
+                    fMesh.castShadow = true;
+                    propsGroup.add(fMesh);
+                  });
+
+                  // Right: Architectural Linen Storage Box with Leather Pull Tab
+                  if (bw >= 480) {
+                    const boxW = Math.min(250, bw * 0.42);
+                    const boxH = 155;
+                    const boxD = Math.min(320, modD - 100);
+                    const boxX = bayStartX + bw * 0.73;
+                    const bGeo = new THREE.BoxGeometry(boxW, boxH, boxD);
+                    const bMesh = new THREE.Mesh(bGeo, boxLinenMat);
+                    bMesh.position.set(boxX, shelfTopY + boxH / 2, centerZ);
+                    bMesh.castShadow = true;
+                    propsGroup.add(bMesh);
+
+                    const tabGeo = new THREE.BoxGeometry(36, 18, 8);
+                    const tabMesh = new THREE.Mesh(tabGeo, boxTabMat);
+                    tabMesh.position.set(boxX, shelfTopY + boxH * 0.55, centerZ + boxD / 2 + 3);
+                    propsGroup.add(tabMesh);
+                  }
+                } else {
+                  // Centered Architectural Storage Box Pair
+                  const boxW = Math.min(260, bw * 0.55);
+                  const boxH = 140;
+                  const boxD = Math.min(310, modD - 105);
+                  const bGeo = new THREE.BoxGeometry(boxW, boxH, boxD);
+                  const bMesh = new THREE.Mesh(bGeo, boxLinenMat);
+                  bMesh.position.set(bayStartX + bw * 0.5, shelfTopY + boxH / 2, centerZ);
+                  propsGroup.add(bMesh);
+                }
+              }
+            });
+
+            // 3. Minimalist Shoe Pairs on the Bay Floor (if no lower drawer covers the bottom)
+            const hasLowDrawer = (bayObj.drawers || []).some((d) => (d.elevationY || 0) < 280);
+            if (!hasLowDrawer && bw >= 380 && mod.dimensions.height >= 1400) {
+              const floorTopY = plinthH + T;
+              const pairCount = Math.min(3, Math.floor((bw - 60) / 180));
+              const pairStep = (bw - 60) / Math.max(1, pairCount);
+              for (let p = 0; p < pairCount; p++) {
+                const px = bayStartX + 30 + pairStep * (p + 0.5);
+                const shoeMat = new THREE.MeshStandardMaterial({
+                  color: p % 2 === 0 ? 0x292524 : 0x78716c,
+                  roughness: 0.55,
+                });
+                [-36, 36].forEach((offsetX) => {
+                  const soleGeo = new THREE.BoxGeometry(58, 28, 220);
+                  const soleMesh = new THREE.Mesh(soleGeo, shoeMat);
+                  soleMesh.position.set(px + offsetX, floorTopY + 14, centerZ + 20);
+                  propsGroup.add(soleMesh);
+
+                  const vampGeo = new THREE.BoxGeometry(54, 42, 110);
+                  const vampMesh = new THREE.Mesh(vampGeo, shoeMat);
+                  vampMesh.position.set(px + offsetX, floorTopY + 38, centerZ - 20);
+                  propsGroup.add(vampMesh);
+                });
+              }
+            }
+
+            disableRaycastRecursive(propsGroup);
+            modContainer.add(propsGroup);
+            bayStartX += bw + T;
+          });
+        }
+
         // Unmistakable 3D Selection Bounding Frame & Halo on the Active Module (Both Base & Upper Wall Cabinets)
         if (isActiveMod) {
           const selW = mod.dimensions.width + 16;
@@ -2560,6 +2926,29 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         meshGroup.add(modContainer);
       });
 
+      if (rendererRef.current) publishSceneDiagnostics(rendererRef.current.domElement, meshGroup);
+      requestRender();
+    }, [
+      project,
+      doorOpenAngleDeg,
+      drawerOpenMm,
+      toggleDoorOpen,
+      setDrawerOpenMm,
+      explodedFactor,
+      activeModuleIndex,
+      activeBayIndex,
+      doorsHiddenIn3D,
+      cutawayActiveBay,
+      showInteriorProps3D,
+      theme,
+      renderEdgeMode,
+      requestRender,
+    ]);
+
+    // Separate useEffect for 3D Room Architecture so cabinet interior edits/drags never rebuild room walls/floors!
+    useEffect(() => {
+      if (roomArchGroupRef.current) roomArchGroupRef.current.clear();
+      const isLight = theme !== "dark";
       // Render 3D Architectural Backdrop Wall & Obstacles (Window, Plumbing, Door, Column, Beam)
       if (showRoomArchitecture3D) {
         const roomGroup = new THREE.Group();
@@ -3094,28 +3483,15 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
 
         if (roomArchGroupRef.current) roomArchGroupRef.current.add(roomGroup);
       }
-
-      if (rendererRef.current) publishSceneDiagnostics(rendererRef.current.domElement, meshGroup);
       requestRender();
     }, [
-      project,
-      doorOpenAngleDeg,
-      drawerOpenMm,
-      toggleDoorOpen,
-      setDrawerOpenMm,
-      explodedFactor,
-      activeModuleIndex,
-      activeBayIndex,
-      doorsHiddenIn3D,
-      cutawayActiveBay,
-      selectedComponentId,
-      theme,
       showRoomArchitecture3D,
       spaceObstacles,
       spaceWalls,
+      project.space?.ceilingHeight,
       lightingPreset,
       floorStyle,
-      renderEdgeMode,
+      theme,
       requestRender,
     ]);
 
@@ -3416,6 +3792,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
     };
 
 const clear3DGhostPreview = useCallback(() => {
+      setIsDraggingItemOver3D(false);
       lastGhostKeyRef.current = "";
       if (ghostSnapGroupRef.current) {
         ghostSnapGroupRef.current.clear();
@@ -3432,6 +3809,21 @@ const clear3DGhostPreview = useCallback(() => {
         const ndcY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
         const rc = new THREE.Raycaster();
         rc.setFromCamera(new THREE.Vector2(ndcX, ndcY), cam);
+
+        // First try raycasting actual 3D cabinet meshes so multi-module & angled camera drags hit the exact cabinet under cursor
+        if (meshGroupRef.current) {
+          const solidMeshes = collectSolidCabinetMeshes(meshGroupRef.current, true);
+          const hits = rc.intersectObjects(solidMeshes, false);
+          if (hits.length > 0) {
+            const firstHit = hits[0];
+            const hitModIdx = firstHit.object?.userData?.moduleIndex;
+            if (typeof hitModIdx === "number" && hitModIdx >= 0 && hitModIdx !== activeModuleIndex) {
+              setActiveModuleIndex(hitModIdx);
+            }
+            return firstHit.point.clone();
+          }
+        }
+
         const mod = activeModule || project.modules[0];
         const planeZ = mod ? (mod.position.z + mod.dimensions.depth / 2) : 280;
         const cabinetPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -planeZ);
@@ -3477,6 +3869,7 @@ const clear3DGhostPreview = useCallback(() => {
       // CASE 1: ACCESSORY / INTERIOR ITEM DRAG
       if (hasAccessoryMime || activeAcc) {
         e.preventDefault();
+        if (!isDraggingItemOver3D) setIsDraggingItemOver3D(true);
         e.dataTransfer.dropEffect = "copy";
         const mod = activeModule || project.modules[0];
         if (!mod) return;
@@ -3508,23 +3901,49 @@ const clear3DGhostPreview = useCallback(() => {
         }
         targetBayIdx = Math.max(0, Math.min(mod.bays.length - 1, targetBayIdx));
 
-        // 2. Identify Elevation Y (snapped to 32mm hole pattern)
+        // 2. Identify Elevation Y (snapped to 32mm hole pattern) & Horizontal Offset X inside Bay
         const cursorElevY = relY - plinthH - carcassT;
         const snappedElevY = Math.max(64, Math.min(netH - 64, Math.round(cursorElevY / 32) * 32));
+        const localBayX = Math.max(
+          48,
+          Math.min(curBayWidth - 48, Math.round((relX - bayStartX) / 10) * 10)
+        );
+        const accKind = activeAcc?.visual || "shelf";
+        const isVerticalDivider = accKind === "sub_divider" || accKind === "carcass_divider";
+
+        // If sub_divider (Raf Arası Dikme), find shelf immediately below & above cursor
+        const bayShelves = [...(mod.bays[targetBayIdx]?.shelves || [])].sort(
+          (a, b) => a.elevationY - b.elevationY
+        );
+        let subBotY = 0;
+        let subTopY = netH;
+        if (accKind === "sub_divider") {
+          for (const sh of bayShelves) {
+            if (sh.elevationY <= cursorElevY) {
+              subBotY = sh.elevationY + (sh.thickness || carcassT);
+            } else if (sh.elevationY > cursorElevY && subTopY === netH) {
+              subTopY = sh.elevationY;
+            }
+          }
+          if (subTopY - subBotY < 96) {
+            subBotY = Math.max(0, Math.min(netH - 320, snappedElevY - 160));
+            subTopY = Math.min(netH, subBotY + 320);
+          }
+        }
+        const subSpanH = Math.max(120, subTopY - subBotY);
 
         lastAccessoryDropTargetRef.current = {
           bayIndex: targetBayIdx,
-          elevationY: snappedElevY,
+          elevationY: accKind === "sub_divider" ? Math.round((subBotY + subTopY) / 2) : snappedElevY,
+          offsetX: localBayX,
           accessory: activeAcc || { id: "lib_shelf", title: "Raf", visual: "shelf" },
         };
 
-        const ghostKey = `acc_${targetBayIdx}_${snappedElevY}_${activeAcc?.id || "shelf"}`;
+        const ghostKey = `acc_${targetBayIdx}_${snappedElevY}_${isVerticalDivider ? localBayX : 0}_${activeAcc?.id || "shelf"}`;
         if (lastGhostKeyRef.current !== ghostKey && ghostSnapGroupRef.current) {
           lastGhostKeyRef.current = ghostKey;
           const gGroup = ghostSnapGroupRef.current;
           gGroup.clear();
-
-          const accKind = activeAcc?.visual || "shelf";
 
           // Render Ghost Accessory Mesh
           const ghostWorldX = mod.position.x + bayStartX;
@@ -3533,7 +3952,11 @@ const clear3DGhostPreview = useCallback(() => {
           const ghostD = mod.dimensions.depth - 30;
 
           let accGeo: THREE.BufferGeometry;
-          if (accKind === "drawer" || accKind === "internal_drawer") {
+          if (accKind === "sub_divider") {
+            accGeo = new THREE.BoxGeometry(carcassT, subSpanH, ghostD);
+          } else if (accKind === "carcass_divider") {
+            accGeo = new THREE.BoxGeometry(carcassT, netH, ghostD);
+          } else if (accKind === "drawer" || accKind === "internal_drawer") {
             accGeo = new THREE.BoxGeometry(curBayWidth - 10, 160, ghostD);
           } else if (accKind === "rail") {
             accGeo = new THREE.CylinderGeometry(12, 12, curBayWidth - 8, 16);
@@ -3548,12 +3971,24 @@ const clear3DGhostPreview = useCallback(() => {
             new THREE.MeshBasicMaterial({
               color: 0x2563eb,
               transparent: true,
-              opacity: 0.5,
+              opacity: 0.55,
               depthWrite: false,
             })
           );
 
-          if (accKind === "rail") {
+          if (accKind === "sub_divider") {
+            accMesh.position.set(
+              ghostWorldX + localBayX,
+              mod.position.y + plinthH + carcassT + subBotY + subSpanH / 2,
+              ghostWorldZ + ghostD / 2
+            );
+          } else if (accKind === "carcass_divider") {
+            accMesh.position.set(
+              ghostWorldX + localBayX,
+              mod.position.y + plinthH + carcassT + netH / 2,
+              ghostWorldZ + ghostD / 2
+            );
+          } else if (accKind === "rail") {
             accMesh.rotation.z = Math.PI / 2;
             accMesh.position.set(ghostWorldX + curBayWidth / 2, ghostWorldY, ghostWorldZ + ghostD / 2);
           } else if (accKind === "drawer" || accKind === "internal_drawer") {
@@ -3572,19 +4007,39 @@ const clear3DGhostPreview = useCallback(() => {
           );
           gGroup.add(accMesh);
 
-          // Vertical laser height rod from cabinet bottom up to accessory
-          add3DRod(
-            gGroup,
-            new THREE.Vector3(ghostWorldX + 25, mod.position.y + plinthH + carcassT, mod.position.z + 25),
-            new THREE.Vector3(ghostWorldX + 25, ghostWorldY, mod.position.z + 25),
-            3.5,
-            snapSlotActiveRodMat
-          );
+          // Laser measurement guide rod
+          if (isVerticalDivider) {
+            add3DRod(
+              gGroup,
+              new THREE.Vector3(ghostWorldX, mod.position.y + plinthH + carcassT + subBotY + 30, mod.position.z + ghostD),
+              new THREE.Vector3(ghostWorldX + localBayX, mod.position.y + plinthH + carcassT + subBotY + 30, mod.position.z + ghostD),
+              3.5,
+              snapSlotActiveRodMat
+            );
+          } else {
+            add3DRod(
+              gGroup,
+              new THREE.Vector3(ghostWorldX + 25, mod.position.y + plinthH + carcassT, mod.position.z + 25),
+              new THREE.Vector3(ghostWorldX + 25, ghostWorldY, mod.position.z + 25),
+              3.5,
+              snapSlotActiveRodMat
+            );
+          }
 
           requestRender();
         }
 
-        setDragDropSnapBanner(`📐 ${activeAcc?.title || "Aksesuar"} • Bölme ${targetBayIdx + 1} • Y: ${snappedElevY} mm`);
+        if (accKind === "sub_divider") {
+          setDragDropSnapBanner(
+            `📐 Raf Arası Dikme • Bölme ${targetBayIdx + 1} • Sol Mesafe X: ${localBayX} mm (Boy: ${subSpanH} mm)`
+          );
+        } else if (accKind === "carcass_divider") {
+          setDragDropSnapBanner(
+            `📐 Ara Dikme (Bölme ${targetBayIdx + 1} İç Düzeniyle 2'ye Bölünür) • X: ${localBayX} mm`
+          );
+        } else {
+          setDragDropSnapBanner(`📐 ${activeAcc?.title || "Aksesuar"} • Bölme ${targetBayIdx + 1} • Y: ${snappedElevY} mm`);
+        }
         return;
       }
 
@@ -3697,7 +4152,7 @@ const clear3DGhostPreview = useCallback(() => {
         const bayIdx = dropInfo ? dropInfo.bayIndex : 0;
         const elevY = dropInfo ? dropInfo.elevationY : 400;
 
-        addInteriorItemAtElevation(bayIdx, acc.id, elevY);
+        addInteriorItemAtElevation(bayIdx, acc.id, elevY, { offsetX: dropInfo?.offsetX });
 
         // Auto-open doors if closed so the user sees the newly placed accessory
         if (doorOpenAngleDeg === 0) {
@@ -3747,13 +4202,14 @@ const clear3DGhostPreview = useCallback(() => {
         {dragDropSnapBanner && (
           <div
             data-testid="viewport-3d-dragdrop-snap-banner"
-            className="absolute top-14 left-1/2 -translate-x-1/2 z-30 pointer-events-auto px-4 py-2 rounded-2xl bg-[#EEF3F8] text-[#1C1917] border-2 border-amber-200 shadow-xl font-mono text-xs font-extrabold flex items-center gap-2"
+            className="absolute bottom-16 left-1/2 -translate-x-1/2 max-w-[calc(100%-24px)] z-30 pointer-events-auto px-4 py-2 rounded-2xl bg-slate-900/92 backdrop-blur-xl text-white border border-emerald-400/80 shadow-xl ring-1 ring-black/15 font-mono text-xs font-bold flex items-center gap-2"
           >
-            <span>{dragDropSnapBanner}</span>
+            <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+            <span className="truncate">{dragDropSnapBanner}</span>
             <button
               type="button"
               onClick={() => setDragDropSnapBanner(null)}
-              className="ml-1 text-slate-500 hover:text-slate-900 font-bold cursor-pointer"
+              className="ml-1 text-slate-300 hover:text-white font-bold cursor-pointer shrink-0"
             >
               ✕
             </button>
@@ -3810,11 +4266,16 @@ const clear3DGhostPreview = useCallback(() => {
                   style={{
                     transform: "translate3d(-9999px, -9999px, 0)",
                   }}
+                  onMouseDown={(e) => startCalloutBadgeDrag(item.id, e)}
                   onClick={(e) => {
+                    if (typeof window !== "undefined" && (window as any).__birimSuppressNextClick && Date.now() - (window as any).__birimSuppressNextClick < 250) {
+                      e.stopPropagation();
+                      return;
+                    }
                     if (isBayBadge && bayBadgeIdx >= 0) {
                       e.stopPropagation();
                       setActiveBayIndex(bayBadgeIdx);
-                      setCutawayActiveBay(true);
+                      setDismissedBayPopover(false);
                       if (typeof window !== "undefined") {
                         window.dispatchEvent(
                           new CustomEvent("birim:select-bay-3d", {
@@ -3930,12 +4391,17 @@ const clear3DGhostPreview = useCallback(() => {
                       title={`${hc.title}: ${hc.subtitle} — Sağ panelde düzenlemek için tıklayın`}
                     />
 
-                    {/* Leader Line + Contextual Hardware Callout Card */}
+                    {/* Leader Line + Contextual Hardware Callout Card (Draggable & Collapsible!) */}
+                    {!collapsedFloatingPanels.callouts && (
                     <button
                       type="button"
                       data-testid={`viewport-3d-hw-card-${hc.group}`}
+                      onMouseDown={(e) => startCalloutBadgeDrag(hc.id, e)}
                       onClick={(e) => {
                         e.stopPropagation();
+                        if (typeof window !== "undefined" && (window as any).__birimSuppressNextClick && Date.now() - (window as any).__birimSuppressNextClick < 250) {
+                          return;
+                        }
                         setSelectedHwCalloutId(hc.id);
                         setActiveBayIndex(hc.bayIndex);
                         if (typeof window !== "undefined") {
@@ -3990,7 +4456,9 @@ const clear3DGhostPreview = useCallback(() => {
                           {hc.subtitle}
                         </span>
                       </span>
+                      <span className="text-[9px] text-slate-400 ml-1" title="Sürükleyerek taşıyabilirsiniz">⠿</span>
                     </button>
+                    )}
                   </div>
                 );
               })}
@@ -4058,12 +4526,16 @@ const clear3DGhostPreview = useCallback(() => {
                     }`}
                   />
 
-                  {/* Contextual Material Callout Card */}
+                  {/* Contextual Material Callout Card (Draggable!) */}
                   <button
                     type="button"
                     data-testid={`viewport-3d-mat-card-${mc.id}`}
+                    onMouseDown={(e) => startCalloutBadgeDrag(mc.id, e)}
                     onClick={(e) => {
                       e.stopPropagation();
+                      if (typeof window !== "undefined" && (window as any).__birimSuppressNextClick && Date.now() - (window as any).__birimSuppressNextClick < 250) {
+                        return;
+                      }
                       (setSelectedComponentId as (id: string | null, mIdx?: number) => void)(
                         mc.componentId,
                         activeModuleIndex
@@ -4131,9 +4603,18 @@ const clear3DGhostPreview = useCallback(() => {
             <div
               data-testid={`viewport-3d-dim-popover-${editingBadge}`}
               onClick={(e) => e.stopPropagation()}
+              style={
+                floatingPanelPos.dim
+                  ? { left: `${floatingPanelPos.dim.x}px`, top: `${floatingPanelPos.dim.y}px`, transform: "none" }
+                  : undefined
+              }
               className="absolute top-20 left-1/2 -translate-x-1/2 z-30 w-80 bg-white/98 backdrop-blur-md rounded-2xl border-2 border-[#CBD5E1] shadow-2xl p-4 space-y-3 text-xs text-[#111827] pointer-events-auto"
             >
-              <div className="flex items-start justify-between gap-2 border-b border-[#E2E8F0] pb-2">
+              <div
+                onMouseDown={(e) => startFloatingPanelDrag("dim", e)}
+                title="Pencereyi taşımak için basılı tutup sürükleyin"
+                className="flex items-start justify-between gap-2 border-b border-[#E2E8F0] pb-2 cursor-move select-none"
+              >
                 <div>
                   <div className="text-xs font-bold text-[#111827]">
                     📐 {bInfo.label} Düzenle (3D Doğrudan Giriş)
@@ -4298,12 +4779,26 @@ const clear3DGhostPreview = useCallback(() => {
           );
         })()}
 
-        {/* 3D DIRECT INTERACTION MINI CONTEXT MENU (Door Click -> Hide Doors / Compartment Selection Bar) */}
-        {showInCanvasHud && (clicked3DContext || doorsHiddenIn3D || doorOpenAngleDeg > 5) && (
+        {/* 3D DIRECT INTERACTION MINI CONTEXT MENU (Positioned cleanly below top toolbar, never overlapping!) */}
+        {showInCanvasHud && !dragDropSnapBanner && !active3DSnap && (clicked3DContext || doorsHiddenIn3D || cutawayActiveBay || doorOpenAngleDeg > 5) && (
           <div
             data-testid="viewport-3d-context-mini-menu"
-            className="absolute top-18 left-1/2 -translate-x-1/2 z-20 flex flex-wrap items-center justify-center gap-1.5 bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-[#CBD5E1] shadow-lg text-xs text-[#111827]"
+            style={
+              floatingPanelPos.context
+                ? { left: `${floatingPanelPos.context.x}px`, top: `${floatingPanelPos.context.y}px`, transform: "none" }
+                : undefined
+            }
+            className={`absolute top-16 left-1/2 -translate-x-1/2 z-20 flex flex-wrap items-center justify-center gap-1.5 bg-white/75 backdrop-blur-xl px-3 py-1.5 rounded-2xl border border-white/80 ring-1 ring-slate-900/10 shadow-[0_12px_32px_rgba(15,23,42,0.14)] text-xs text-[#111827] transition-all duration-200 ${
+              isDraggingItemOver3D ? "opacity-15 pointer-events-none" : ""
+            }`}
           >
+            <span
+              onMouseDown={(e) => startFloatingPanelDrag("context", e)}
+              title="Bu çubuğu taşımak için sürükleyin"
+              className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 hover:text-slate-900 font-bold cursor-move select-none"
+            >
+              ⠿
+            </span>
             {clicked3DContext?.kind === "door" && !doorsHiddenIn3D ? (
               <>
                 <span className="px-2 py-0.5 rounded-lg bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1] font-bold text-[11px]">
@@ -4397,12 +4892,14 @@ const clear3DGhostPreview = useCallback(() => {
                     </button>
                   );
                 })}
-                {doorsHiddenIn3D && (
+                {(doorsHiddenIn3D || cutawayActiveBay) && (
                   <button
                     type="button"
                     data-testid="mini-menu-show-doors-btn"
                     onClick={() => {
                       setDoorsHiddenIn3D(false);
+                      setCutawayActiveBay(false);
+                      setActiveCamPill("3d");
                       setClicked3DContext(null);
                     }}
                     className="ml-1 px-2.5 py-1 rounded-xl bg-[#EEF3F8] hover:bg-[#E4ECF4] text-[#111827] border border-[#94A3B8] text-[11px] font-bold cursor-pointer transition"
@@ -4439,27 +4936,64 @@ const clear3DGhostPreview = useCallback(() => {
                 data-testid="viewport-3d-floating-door-card"
                 onClick={(e) => e.stopPropagation()}
                 style={{ transform: "translate3d(-9999px, -9999px, 0)" }}
-                className="absolute top-0 left-0 z-[25] w-56 bg-white/98 backdrop-blur-md rounded-2xl border border-[#CBD5E1] shadow-2xl p-3 space-y-1.5 text-xs text-[#111827] pointer-events-auto transition-opacity duration-75"
+                className={`absolute top-0 left-0 z-[25] w-60 bg-white/78 backdrop-blur-xl rounded-2xl border border-white/80 ring-1 ring-slate-900/10 shadow-[0_14px_38px_rgba(15,23,42,0.16)] p-2.5 space-y-1.5 text-xs text-[#111827] transition-all duration-200 ${
+                  isDraggingItemOver3D ? "opacity-15 pointer-events-none" : "pointer-events-auto"
+                }`}
               >
-                <div className="flex items-center justify-between px-1 pb-1.5 border-b border-[#E2E8F0]">
-                  <div>
-                    <div className="font-bold text-xs text-[#111827]">Kapak İşlemleri</div>
-                    <div className="text-[10px] text-[#64748B] font-medium">
-                      {clicked3DContext.label}
+                <div
+                  onMouseDown={(e) => startFloatingPanelDrag("door", e)}
+                  title="Paneli taşımak için başlığı tutup sürükleyin"
+                  className="flex items-center justify-between px-1 pb-1.5 border-b border-[#E2E8F0] cursor-move select-none"
+                >
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="text-slate-400 font-bold text-xs">⠿</span>
+                    <div className="min-w-0">
+                      <div className="font-bold text-xs text-[#111827] truncate">Kapak İşlemleri</div>
+                      <div className="text-[10px] text-[#64748B] font-medium truncate">
+                        {clicked3DContext.label}
+                      </div>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setClicked3DContext(null);
-                      setDoorMenuSubSection(null);
-                    }}
-                    title="Menüyü kapat"
-                    className="text-xs text-[#64748B] hover:text-[#111827] px-1 cursor-pointer"
-                  >
-                    ✕
-                  </button>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFloatingPanelPos((prev) => ({ ...prev, door: null }));
+                        setDockedToCorner((d) => !d);
+                        needsRenderRef.current = true;
+                      }}
+                      title={dockedToCorner ? "Dolap yanına yaklaştır" : "Sağ üst köşeye sabitle (dolabı kapatmasın)"}
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer ${
+                        dockedToCorner ? "bg-blue-50 text-blue-600" : "bg-slate-100 text-slate-600"
+                      }`}
+                    >
+                      📌
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCollapsedFloatingPanels((prev) => ({ ...prev, door: !prev.door }))
+                      }
+                      title={collapsedFloatingPanels.door ? "Genişlet" : "Küçült (Dolabı kapatmasın)"}
+                      className="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[10px] cursor-pointer"
+                    >
+                      {collapsedFloatingPanels.door ? "+" : "—"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setClicked3DContext(null);
+                        setDoorMenuSubSection(null);
+                      }}
+                      title="Menüyü kapat"
+                      className="text-xs text-[#64748B] hover:text-[#111827] px-1 cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  </div>
                 </div>
+                {!collapsedFloatingPanels.door && (
+                  <div className="space-y-1.5">
 
                 {/* 1. Kapak Tipini Değiştir */}
                 <button
@@ -4710,21 +5244,33 @@ const clear3DGhostPreview = useCallback(() => {
                     İçini Göster
                   </button>
                 </div>
+                  </div>
+                )}
               </div>
             );
           })()}
 
-        {/* FLOATING 3D COMPARTMENT POPOVER CARD (Matches image_e548e6.jpg: Bölme X -> Raf Ekle, Askılık Ekle, Çekmece Ekle, Aksesuar Ekle, Bölme Ayarları, Şablon Uygula, Bölmeyi Sil) */}
-        {showInCanvasHud && !dismissedBayPopover && (cutawayActiveBay || doorsHiddenIn3D || doorOpenAngleDeg > 5) && (
+        {/* FLOATING 3D COMPARTMENT POPOVER CARD (Frosted Glass, Draggable, Collapsible, Non-overlapping with Door Card!) */}
+        {showInCanvasHud &&
+          !dismissedBayPopover &&
+          !(clicked3DContext?.kind === "door" && !doorsHiddenIn3D) &&
+          (cutawayActiveBay || doorsHiddenIn3D || doorOpenAngleDeg > 5 || clicked3DContext?.kind === "bay") && (
           <div
             ref={bayPopoverDomRef}
             data-testid="viewport-3d-floating-bay-card"
             onClick={(e) => e.stopPropagation()}
             style={{ transform: "translate3d(-9999px, -9999px, 0)" }}
-            className="absolute top-0 left-0 z-[15] w-52 bg-white/98 backdrop-blur-md rounded-2xl border border-[#CBD5E1] shadow-2xl p-2.5 space-y-1 text-xs text-[#111827] pointer-events-auto transition-opacity duration-75"
+            className={`absolute top-0 left-0 z-[15] w-60 bg-white/78 backdrop-blur-xl rounded-2xl border border-white/80 ring-1 ring-slate-900/10 shadow-[0_14px_38px_rgba(15,23,42,0.16)] p-2.5 space-y-1 text-xs text-[#111827] transition-all duration-200 ${
+              isDraggingItemOver3D ? "opacity-15 pointer-events-none" : "pointer-events-auto"
+            }`}
           >
-            <div className="flex items-center justify-between px-1.5 pb-1.5 border-b border-[#E2E8F0]">
+            <div
+              onMouseDown={(e) => startFloatingPanelDrag("bay", e)}
+              title="Paneli taşımak için başlığı tutup sürükleyin"
+              className="flex items-center justify-between px-1 pb-1.5 border-b border-[#E2E8F0] cursor-move select-none"
+            >
               <div className="flex items-center gap-1.5">
+                <span className="text-slate-400 font-bold text-xs">⠿</span>
                 <span className="font-bold text-xs text-[#111827]">
                   Bölme {activeBayIndex + 1}
                 </span>
@@ -4732,48 +5278,180 @@ const clear3DGhostPreview = useCallback(() => {
                   {calculateFourSpaceDimensions(activeModule).usableInternal.bayClearWidthsMm[activeBayIndex] || 600} mm
                 </span>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setDismissedBayPopover(true);
-                  setCutawayActiveBay(false);
-                  setBayMenuSubSection(null);
-                }}
-                title="Bölme menüsünü kapat"
-                className="text-[10px] text-[#64748B] hover:text-[#111827] cursor-pointer"
-              >
-                ✕
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFloatingPanelPos((prev) => ({ ...prev, bay: null }));
+                    setDockedToCorner((d) => !d);
+                    needsRenderRef.current = true;
+                  }}
+                  title={dockedToCorner ? "Dolap yanına yaklaştır" : "Sağ üst köşeye sabitle (dolabı kapatmasın)"}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer ${
+                    dockedToCorner ? "bg-blue-50 text-blue-600" : "bg-slate-100 text-slate-600"
+                  }`}
+                >
+                  📌
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCollapsedFloatingPanels((prev) => ({ ...prev, bay: !prev.bay }))
+                  }
+                  title={collapsedFloatingPanels.bay ? "Genişlet" : "Küçült (Dolabı kapatmasın)"}
+                  className="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[10px] cursor-pointer"
+                >
+                  {collapsedFloatingPanels.bay ? "+" : "—"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDismissedBayPopover(true);
+                    setCutawayActiveBay(false);
+                    setBayMenuSubSection(null);
+                  }}
+                  title="Bölme menüsünü kapat"
+                  className="text-[10px] text-[#64748B] hover:text-[#111827] px-1 cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
-            <button
-              type="button"
-              data-testid="floating-bay-add-shelf"
-              onClick={() => addShelf(activeBayIndex)}
-              className="w-full px-2 py-1.5 rounded-xl hover:bg-[#EEF3F8] text-[#111827] font-medium flex items-center gap-2 text-left transition cursor-pointer"
-            >
-              <Layers className="w-3.5 h-3.5 text-[#475569] shrink-0" />
-              <span>Raf Ekle</span>
-            </button>
-            <button
-              type="button"
-              data-testid="floating-bay-add-rail"
-              onClick={() => addHangingRail(activeBayIndex)}
-              className="w-full px-2 py-1.5 rounded-xl hover:bg-[#EEF3F8] text-[#111827] font-medium flex items-center gap-2 text-left transition cursor-pointer"
-            >
-              <svg className="w-3.5 h-3.5 text-[#475569] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                <path d="M12 4a2 2 0 012 2c0 1.1-.9 2-2 2v2l8 5v2H4v-2l8-5V8" />
-              </svg>
-              <span>Askılık Ekle</span>
-            </button>
-            <button
-              type="button"
-              data-testid="floating-bay-add-drawer"
-              onClick={() => addDrawer(activeBayIndex)}
-              className="w-full px-2 py-1.5 rounded-xl hover:bg-[#EEF3F8] text-[#111827] font-medium flex items-center gap-2 text-left transition cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5 text-[#475569] shrink-0" />
-              <span>Çekmece Ekle</span>
-            </button>
+            {!collapsedFloatingPanels.bay && (
+              <div className="space-y-1">
+            <div className="px-1.5 py-1 rounded-xl bg-slate-900/5 border border-slate-200/70 flex items-center justify-between gap-1 text-[10px]">
+              <span className="font-bold text-slate-800 truncate">
+                📦 #{activeModuleIndex + 1} {activeModule.name}
+              </span>
+              {selectedComponentId && (() => {
+                const bdSel = generateModuleGeometry(activeModule, { doorOpenAngleDeg: 0 });
+                const selPart = bdSel.components.find((c) => c.id === selectedComponentId);
+                return selPart ? (
+                  <span className="px-1.5 py-0.5 rounded bg-blue-600 text-white font-bold truncate max-w-[105px]" title={selPart.label}>
+                    🎯 {selPart.label.split(" (")[0]}
+                  </span>
+                ) : null;
+              })()}
+            </div>
+            <div className="px-1 py-0.5 text-[10px] font-bold text-[#2563EB] flex items-center justify-between">
+              <span>🖐️ Sürükle-Bırak veya Tıkla</span>
+            </div>
+            <div className="grid grid-cols-2 gap-1.5 pt-0.5">
+              {[
+                {
+                  id: "lib_shelf",
+                  testId: "floating-bay-add-shelf",
+                  title: "Raf",
+                  visual: "shelf",
+                  onClick: () => addShelf(activeBayIndex),
+                  icon: (
+                    <svg viewBox="0 0 40 28" className="w-8 h-6 pointer-events-none" fill="none">
+                      <polygon points="4,14 14,7 36,10 26,17" fill="#E5D3B3" stroke="#8C6D46" strokeWidth="1.4" />
+                      <polygon points="4,14 26,17 26,21 4,18" fill="#C8AD82" stroke="#8C6D46" strokeWidth="1.4" />
+                    </svg>
+                  ),
+                },
+                {
+                  id: "lib_sub_divider",
+                  testId: "floating-bay-add-subdivider",
+                  title: "Raf Arası Dikme",
+                  visual: "sub_divider",
+                  onClick: () => addSubDivider(activeBayIndex),
+                  icon: (
+                    <svg viewBox="0 0 40 28" className="w-8 h-6 pointer-events-none" fill="none">
+                      <rect x="6" y="4" width="28" height="3" fill="#CBD5E1" stroke="#475569" strokeWidth="1.1" />
+                      <rect x="6" y="21" width="28" height="3" fill="#CBD5E1" stroke="#475569" strokeWidth="1.1" />
+                      <rect x="18" y="7" width="4" height="14" fill="#3B82F6" stroke="#1D4ED8" strokeWidth="1.3" />
+                    </svg>
+                  ),
+                },
+                {
+                  id: "lib_carcass_divider",
+                  testId: "floating-bay-split-carcass",
+                  title: "2'ye Böl (Dikme)",
+                  visual: "carcass_divider",
+                  onClick: () => splitBayIntoTwo(activeBayIndex),
+                  icon: (
+                    <svg viewBox="0 0 40 28" className="w-8 h-6 pointer-events-none" fill="none">
+                      <rect x="6" y="3" width="28" height="22" rx="1.5" fill="#F8FAFC" stroke="#475569" strokeWidth="1.3" />
+                      <rect x="18.5" y="3" width="3" height="22" fill="#2563EB" />
+                    </svg>
+                  ),
+                },
+                {
+                  id: "lib_drawer",
+                  testId: "floating-bay-add-drawer",
+                  title: "Çekmece",
+                  visual: "drawer",
+                  onClick: () => addDrawer(activeBayIndex),
+                  icon: (
+                    <svg viewBox="0 0 40 28" className="w-8 h-6 pointer-events-none" fill="none">
+                      <polygon points="6,10 28,13 28,23 6,20" fill="#E5D3B3" stroke="#785A37" strokeWidth="1.3" />
+                      <line x1="13" y1="15.5" x2="21" y2="16.5" stroke="#1E293B" strokeWidth="2" strokeLinecap="round" />
+                    </svg>
+                  ),
+                },
+                {
+                  id: "lib_rail",
+                  testId: "floating-bay-add-rail",
+                  title: "Askılık",
+                  visual: "rail",
+                  onClick: () => addHangingRail(activeBayIndex),
+                  icon: (
+                    <svg viewBox="0 0 40 28" className="w-8 h-6 pointer-events-none" fill="none">
+                      <line x1="6" y1="8" x2="34" y2="8" stroke="#64748B" strokeWidth="3" strokeLinecap="round" />
+                      <polygon points="20,11 13,20 27,20" fill="#D6B88E" stroke="#8C6D46" strokeWidth="1.2" />
+                    </svg>
+                  ),
+                },
+                {
+                  id: "lib_trouser_rack",
+                  testId: "floating-bay-add-trouser",
+                  title: "Pantolonluk",
+                  visual: "trouser_rack",
+                  onClick: () => addSpecialFitting(activeBayIndex, "trouser_rack"),
+                  icon: (
+                    <svg viewBox="0 0 40 28" className="w-8 h-6 pointer-events-none" fill="none">
+                      <polygon points="6,9 14,4 34,7 26,12" fill="none" stroke="#334155" strokeWidth="1.5" />
+                      <rect x="12" y="10" width="5" height="12" fill="#93C5FD" stroke="#475569" strokeWidth="1" />
+                      <rect x="21" y="11" width="5" height="12" fill="#CBD5E1" stroke="#475569" strokeWidth="1" />
+                    </svg>
+                  ),
+                },
+              ].map((fItem) => (
+                <div
+                  key={fItem.id}
+                  role="button"
+                  tabIndex={0}
+                  data-testid={fItem.testId}
+                  draggable={true}
+                  onDragStart={(e) =>
+                    startAccessorySilhouetteDrag(e, {
+                      id: fItem.id,
+                      visual: fItem.visual,
+                      title: fItem.title,
+                      cat: "all",
+                      spec: fItem.title,
+                    })
+                  }
+                  onDragEnd={() => {
+                    if (typeof window !== "undefined") {
+                      (window as any).__birimActiveDraggedAccessory = null;
+                    }
+                  }}
+                  onClick={fItem.onClick}
+                  title={`${fItem.title} — Gövde üzerine sürükleyip bırakın veya tıklayın`}
+                  className="p-1.5 rounded-xl bg-[#F8FAFC] hover:bg-[#EFF6FF] border border-[#E2E8F0] hover:border-[#2563EB] flex flex-col items-center justify-center text-center gap-0.5 transition cursor-grab active:cursor-grabbing select-none"
+                >
+                  <div className="pointer-events-none flex flex-col items-center gap-0.5">
+                    {fItem.icon}
+                    <span className="text-[10px] font-bold text-[#111827] leading-tight">
+                      {fItem.title}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
 
             {/* Aksesuar Ekle › */}
             <button
@@ -4904,6 +5582,8 @@ const clear3DGhostPreview = useCallback(() => {
                 </svg>
                 <span>Bölmeyi Sil</span>
               </button>
+            )}
+              </div>
             )}
           </div>
         )}
@@ -5100,7 +5780,7 @@ const clear3DGhostPreview = useCallback(() => {
             },
             {
               id: "interior",
-              label: "İç Görünüm",
+              label: doorsHiddenIn3D || cutawayActiveBay ? "Kapak Göster" : "İç Görünüm",
               icon: (
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                   <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
@@ -5108,13 +5788,22 @@ const clear3DGhostPreview = useCallback(() => {
                 </svg>
               ),
               onClick: () => {
-                setCutawayActiveBay((v) => !v);
-                setActiveCamPill((prev) => (prev === "interior" ? "3d" : "interior"));
+                const currentlyHidden = doorsHiddenIn3D || cutawayActiveBay;
+                if (currentlyHidden) {
+                  setDoorsHiddenIn3D(false);
+                  setCutawayActiveBay(false);
+                  setActiveCamPill("3d");
+                } else {
+                  setDoorsHiddenIn3D(true);
+                  setCutawayActiveBay(true);
+                  setDismissedBayPopover(false);
+                  setActiveCamPill("interior");
+                }
               },
             },
             {
               id: "hide-doors",
-              label: doorsHiddenIn3D ? "Kapak Göster" : "Kapakları Gizle",
+              label: doorsHiddenIn3D || cutawayActiveBay ? "Kapak Göster" : "Kapakları Gizle",
               icon: (
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                   <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24" />
@@ -5122,10 +5811,20 @@ const clear3DGhostPreview = useCallback(() => {
                 </svg>
               ),
               onClick: () => {
-                setDoorsHiddenIn3D((v) => !v);
+                const currentlyHidden = doorsHiddenIn3D || cutawayActiveBay;
+                if (currentlyHidden) {
+                  setDoorsHiddenIn3D(false);
+                  setCutawayActiveBay(false);
+                  setActiveCamPill("3d");
+                } else {
+                  setDoorsHiddenIn3D(true);
+                  setCutawayActiveBay(false);
+                }
               },
             },
-          ].map((btn) => {
+          ]
+            .filter((btn) => showInCanvasHud || btn.id === "interior" || btn.id === "hide-doors")
+            .map((btn) => {
             const isActive =
               btn.id === "interior"
                 ? doorOpenAngleDeg > 10 || activeCamPill === "interior"
@@ -5189,13 +5888,34 @@ const clear3DGhostPreview = useCallback(() => {
               <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
             </svg>
           </button>
+
+          <button
+            type="button"
+            data-testid="viewport-3d-pill-props"
+            title="Dolap İçi 3D Kıyafet, Askı, Kutu ve Ayakkabı Silüetlerini Göster / Gizle (Kapakları açarak veya gizleyerek inceleyebilirsiniz)"
+            onClick={() => {
+              const next = !showInteriorProps3D;
+              setShowInteriorProps3D(next);
+              if (next && !doorsHiddenIn3D && doorOpenAngleDeg < 15) {
+                setDoorsHiddenIn3D(true);
+              }
+            }}
+            className={`w-full py-1.5 px-1 rounded-xl flex flex-col items-center justify-center gap-0.5 transition cursor-pointer ${
+              showInteriorProps3D
+                ? "bg-[#141413] text-white shadow-xs"
+                : "text-[#57534E] hover:bg-[#F1F5F9] hover:text-[#1C1917]"
+            }`}
+          >
+            <span className="text-xs leading-none">👔</span>
+            <span className="text-[8px] font-bold leading-tight text-center">Eşyalar</span>
+          </button>
         </div>
 
         {/* TOP-CENTER CONTEXTUAL ACTION BAR (Design Studio: Seç | Taşı | Ölçü | Kopyala | Aynala | Sil) */}
         {showInCanvasHud && (
           <div
             data-testid="in-canvas-direct-hud"
-            className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-[#E2E8F0] shadow-md text-[#2B2927]"
+            className="absolute top-3 left-2 right-2 mx-auto w-fit max-w-[calc(100%-16px)] z-20 flex flex-wrap items-center justify-center gap-1 bg-white/82 backdrop-blur-xl px-2.5 py-1.5 rounded-2xl border border-white/85 ring-1 ring-slate-900/10 shadow-[0_10px_30px_rgba(15,23,42,0.12)] text-[#0F172A]"
           >
             {materialModeActive && (
               <>
@@ -5336,9 +6056,7 @@ const clear3DGhostPreview = useCallback(() => {
               type="button"
               data-testid="hud-tool-split-bay"
               onClick={() => {
-                const nextCount = Math.min(6, activeModule.bays.length + 1);
-                setBayCount(nextCount);
-                setActiveBayIndex(nextCount - 1);
+                splitBayIntoTwo(activeBayIndex);
                 setCutawayActiveBay(true);
               }}
               className="px-3 py-1.5 rounded-xl flex flex-col items-center gap-0.5 text-[#57534E] hover:bg-[#EEF3F8] hover:text-[#111827] transition cursor-pointer"
@@ -5476,7 +6194,7 @@ const clear3DGhostPreview = useCallback(() => {
         {/* BOTTOM-CENTER NAVIGATION PILL (Orbit | Pan | Zoom | Sığdır) + RENDER MODE SELECTOR (Gerçekçi ⌄) */}
         <div
           data-testid="viewport-3d-bottom-nav-bar"
-          className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3"
+          className="absolute bottom-3 left-2 right-2 mx-auto w-fit max-w-[calc(100%-16px)] z-20 flex flex-wrap items-center justify-center gap-2"
         >
           <div className="bg-white/95 backdrop-blur-md px-2.5 py-1.5 rounded-2xl border border-[#E2E8F0] shadow-md flex items-center gap-1 text-[#2B2927]">
             <button
@@ -5648,11 +6366,90 @@ const clear3DGhostPreview = useCallback(() => {
             </div>
           )}
 
+          {/* 2-Yönlü 3D Canlı Kesit (X Boyuna & Z Enine Kesit) Pill & Frosted Popover */}
+          <div className="relative">
+            <button
+              type="button"
+              data-testid="viewport-3d-section-toggle-btn"
+              onClick={() => setSection3DMenuOpen((v) => !v)}
+              className={`bg-white/78 backdrop-blur-xl px-3.5 py-2 rounded-2xl border ring-1 ring-slate-900/10 shadow-lg flex items-center gap-1.5 text-xs font-bold transition-all cursor-pointer active:scale-95 ${
+                section3DAxis
+                  ? "border-blue-500 text-blue-700 bg-blue-50/85"
+                  : "border-white/80 text-[#111827] hover:bg-white/90"
+              }`}
+              title="3D Dolap Kesiti (X ve Z yönünde istediğiniz noktadan canlı kesit alın)"
+            >
+              <span>✂️</span>
+              <span>{section3DAxis ? `Kesit (${section3DAxis})` : "Kesit"}</span>
+            </button>
+
+            {section3DMenuOpen && (
+              <div
+                data-testid="viewport-3d-section-popover"
+                onClick={(e) => e.stopPropagation()}
+                className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2.5 w-64 bg-white/82 backdrop-blur-xl rounded-2xl border border-white/80 ring-1 ring-slate-900/10 shadow-2xl p-3 space-y-2.5 z-30 text-xs"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-extrabold text-slate-900">✂️ 2-Yönlü Canlı Kesit</span>
+                  <button
+                    type="button"
+                    onClick={() => setSection3DMenuOpen(false)}
+                    className="text-slate-400 hover:text-slate-800 font-bold cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="grid grid-cols-3 gap-1">
+                  {[
+                    { id: null, label: "Kapalı" },
+                    { id: "X" as const, label: "X (Sol-Sağ)" },
+                    { id: "Z" as const, label: "Z (Ön-Arka)" },
+                  ].map((sOpt) => (
+                    <button
+                      key={String(sOpt.id)}
+                      type="button"
+                      onClick={() => setSection3DAxis(sOpt.id)}
+                      className={`py-1.5 px-2 rounded-xl font-bold text-[11px] border transition cursor-pointer ${
+                        section3DAxis === sOpt.id
+                          ? "bg-blue-600 text-white border-blue-600 shadow-2xs"
+                          : "bg-white/90 hover:bg-blue-50 text-slate-700 border-slate-200"
+                      }`}
+                    >
+                      {sOpt.label}
+                    </button>
+                  ))}
+                </div>
+                {section3DAxis && (
+                  <div className="space-y-1 pt-1 border-t border-slate-200/70">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="font-semibold text-slate-600">Kesit Noktası:</span>
+                      <span className="font-mono font-extrabold text-blue-700">
+                        {Math.round(
+                          (section3DAxis === "X" ? width : depth) * section3DRatio
+                        )}{" "}
+                        mm ({Math.round(section3DRatio * 100)}%)
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0.1}
+                      max={0.95}
+                      step={0.02}
+                      value={section3DRatio}
+                      onChange={(e) => setSection3DRatio(Number(e.target.value))}
+                      className="w-full accent-blue-600 h-1.5 bg-slate-200 rounded-lg cursor-pointer"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Ölçüler Toggle Pill (Matches image_e719c6.jpg Bottom Bar) */}
           <button
             type="button"
             onClick={handleToggleDimensions}
-            className="bg-white/95 backdrop-blur-md px-3.5 py-2 rounded-2xl border border-[#E2E8F0] shadow-md flex items-center gap-2 text-xs font-semibold text-[#111827] cursor-pointer"
+            className="bg-white/78 backdrop-blur-xl px-3.5 py-2 rounded-2xl border border-white/80 ring-1 ring-slate-900/10 shadow-lg flex items-center gap-2 text-xs font-semibold text-[#111827] hover:bg-white/90 transition cursor-pointer"
           >
             <span>Ölçüler</span>
             <span

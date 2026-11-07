@@ -39,8 +39,10 @@ export function startModuleSilhouetteDrag(
       transparentDragCanvas.width = 110;
       transparentDragCanvas.height = 96;
       transparentDragCanvas.style.position = "fixed";
-      transparentDragCanvas.style.top = "-9999px";
-      transparentDragCanvas.style.left = "-9999px";
+      transparentDragCanvas.style.top = "0px";
+      transparentDragCanvas.style.left = "0px";
+      transparentDragCanvas.style.zIndex = "-9999";
+      transparentDragCanvas.style.opacity = "0.01";
       transparentDragCanvas.style.pointerEvents = "none";
       document.body.appendChild(transparentDragCanvas);
     }
@@ -130,8 +132,10 @@ export function startAccessorySilhouetteDrag(
       accessoryDragCanvas.width = 96;
       accessoryDragCanvas.height = 72;
       accessoryDragCanvas.style.position = "fixed";
-      accessoryDragCanvas.style.top = "-9999px";
-      accessoryDragCanvas.style.left = "-9999px";
+      accessoryDragCanvas.style.top = "0px";
+      accessoryDragCanvas.style.left = "0px";
+      accessoryDragCanvas.style.zIndex = "-9999";
+      accessoryDragCanvas.style.opacity = "0.01";
       accessoryDragCanvas.style.pointerEvents = "none";
       document.body.appendChild(accessoryDragCanvas);
     }
@@ -153,6 +157,19 @@ export function startAccessorySilhouetteDrag(
         ctx.lineTo(28, 10);
         ctx.lineTo(84, 10);
         ctx.lineTo(72, 20);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      } else if (item.visual === "sub_divider" || item.visual === "carcass_divider" || item.visual.includes("divider")) {
+        // Draw clean 3D vertical divider panel silhouette (Raf Arası Dikme / Ara Dikme)
+        ctx.fillStyle = "rgba(37, 99, 235, 0.35)";
+        ctx.strokeStyle = "#1D4ED8";
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.moveTo(40, 8);
+        ctx.lineTo(56, 4);
+        ctx.lineTo(56, 62);
+        ctx.lineTo(40, 68);
         ctx.closePath();
         ctx.fill();
         ctx.stroke();

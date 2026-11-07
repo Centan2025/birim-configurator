@@ -731,11 +731,8 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
             const upperBottomY = y0 + usableH - drawerZoneH;
             const upperH = Math.max(8, upperBottomY - upperTopY);
 
-            // Show interior cleanly on open bays OR on the first bay of a multi-bay wardrobe/cabinet
-            const showInteriorInUpperBay =
-              !hasDoorInBay ||
-              isGlassDoor ||
-              (bays >= 2 && bIdx === 0 && (bayShelves > 0 || bayRails > 0 || bayIntDrawers.length > 0));
+            // Only show open interior when the bay is genuinely open or glass-doored (matches 3D product 1-to-1!)
+            const showInteriorInUpperBay = !hasDoorInBay || isGlassDoor;
 
             return (
               <g key={`bay_${bIdx}`}>
@@ -903,8 +900,10 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
                       strokeWidth="0.9"
                       rx="0.5"
                     />
-                    {/* Double Door Center Split */}
-                    {(bayDoorType === "double" || bayDoorSys === "hinged_double") && (
+                    {/* Double Door Center Split (also when bay width > 600mm on hinged) */}
+                    {(bayDoorType === "double" ||
+                      bayDoorSys === "hinged_double" ||
+                      (!isLift && !isSliding && bwMm > 600)) && (
                       <line
                         x1={bx0 + bw / 2}
                         y1={upperTopY}
@@ -914,25 +913,54 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
                         strokeWidth="1.2"
                       />
                     )}
-                    {/* Clean Metallic Handle */}
+                    {/* Clean Metallic Handles matching 3D hinge sides (Left-hinged door -> handle on right; Double door -> 2 center handles) */}
                     {!isLift && !isSliding && (
-                      <line
-                        x1={
-                          bayDoorType === "double" || bayDoorSys === "hinged_double"
-                            ? bx0 + bw / 2 - 3
-                            : bx0 + 5
-                        }
-                        y1={upperTopY + upperH * 0.44}
-                        x2={
-                          bayDoorType === "double" || bayDoorSys === "hinged_double"
-                            ? bx0 + bw / 2 - 3
-                            : bx0 + 5
-                        }
-                        y2={upperTopY + upperH * 0.44 + 10}
-                        stroke="#1c1917"
-                        strokeWidth="1.8"
-                        strokeLinecap="round"
-                      />
+                      bayDoorType === "double" ||
+                      bayDoorSys === "hinged_double" ||
+                      bwMm > 600 ? (
+                        <>
+                          <line
+                            x1={bx0 + bw / 2 - 2.4}
+                            y1={upperTopY + upperH * 0.44}
+                            x2={bx0 + bw / 2 - 2.4}
+                            y2={upperTopY + upperH * 0.44 + 10}
+                            stroke="#1c1917"
+                            strokeWidth="1.7"
+                            strokeLinecap="round"
+                          />
+                          <line
+                            x1={bx0 + bw / 2 + 2.4}
+                            y1={upperTopY + upperH * 0.44}
+                            x2={bx0 + bw / 2 + 2.4}
+                            y2={upperTopY + upperH * 0.44 + 10}
+                            stroke="#1c1917"
+                            strokeWidth="1.7"
+                            strokeLinecap="round"
+                          />
+                        </>
+                      ) : (
+                        <line
+                          x1={
+                            bayDoorType === "single_right" ||
+                            bayDoorType === "inset_right" ||
+                            bayDoorType === "half_overlay_right"
+                              ? bx0 + 3.8
+                              : bx0 + Math.max(4, bw - 3.8)
+                          }
+                          y1={upperTopY + upperH * 0.44}
+                          x2={
+                            bayDoorType === "single_right" ||
+                            bayDoorType === "inset_right" ||
+                            bayDoorType === "half_overlay_right"
+                              ? bx0 + 3.8
+                              : bx0 + Math.max(4, bw - 3.8)
+                          }
+                          y2={upperTopY + upperH * 0.44 + 10}
+                          stroke="#1c1917"
+                          strokeWidth="1.8"
+                          strokeLinecap="round"
+                        />
+                      )
                     )}
                   </g>
                 )}

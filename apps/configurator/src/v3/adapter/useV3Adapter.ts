@@ -1342,6 +1342,32 @@ export function useV3Adapter() {
         updatedAt: new Date().toISOString(),
         modules: nextModules,
       };
+      if (!pushHistory) {
+        // Fast path during live 3D/2D dragging: update geometry at 60 FPS without blocking on CNC nesting/BOM
+        commitAdapterState({
+          project: nextProj,
+        });
+        if (typeof window !== "undefined") {
+          const w = window as any;
+          if (w.__birimLiveDragBomTimer) clearTimeout(w.__birimLiveDragBomTimer);
+          w.__birimLiveDragBomTimer = setTimeout(() => {
+            const latestProj = useConfiguratorStore.getState().project;
+            const dIssues = validateProject(latestProj);
+            const dBom = generateBOMForProject(latestProj);
+            const dPricing = calculateProjectPrice(dBom);
+            commitAdapterState({
+              validationIssues: dIssues,
+              bom: dBom,
+              pricing: dPricing,
+            });
+          }, 180);
+        }
+        return;
+      }
+
+      if (typeof window !== "undefined" && (window as any).__birimLiveDragBomTimer) {
+        clearTimeout((window as any).__birimLiveDragBomTimer);
+      }
       const nextIssues = validateProject(nextProj);
       const nextBom = generateBOMForProject(nextProj);
       const nextPricing = calculateProjectPrice(nextBom);
@@ -1623,7 +1649,7 @@ export function useV3Adapter() {
 
         newMod.id = `comp_att_${parentMod.id}__${attachKey}`;
         newMod.rotation = { x: 0, y: rotY, z: 0 };
-        if (compType !== "worktop" && compType !== "backsplash" && compType !== "waterfall_right") {
+        if (attachKey !== "worktop" && attachKey !== "backsplash" && attachKey !== "waterfall_right") {
         newMod.carcass = {
           ...newMod.carcass,
           bodyMaterialId: parentMod.carcass.doorMaterialId || parentMod.carcass.bodyMaterialId,
@@ -2193,12 +2219,107 @@ export function useV3Adapter() {
    * Adds an interior accessory/item (shelf, drawer, rail, special fitting) into the specified bay
    * at an exact elevation Y (mm from bottom) with System 32 / logical boundary clamping.
    */
+  /**
+   * Splits the specified bay (activeBayIndex) of the active module into 2 equal sub-bays
+   * by inserting a full-height vertical divider (Ara Dikme) right down its center,
+   * preserving all shelves, rails, drawers, and doors on both halves!
+   */
+  const splitBayIntoTwo = useCallback(
+    (bayIdx?: number) => {
+      commitActiveModuleUpdate((mod) => {
+        if (mod.bays.length >= 8) return mod;
+        const st = useConfiguratorStore.getState();
+        const safeBayIdx = Math.max(
+          0,
+          Math.min(mod.bays.length - 1, typeof bayIdx === "number" ? bayIdx : st.activeBayIndex)
+        );
+        const targetBay = mod.bays[safeBayIdx];
+        if (!targetBay) return mod;
+
+        const T = mod.carcass.panelThickness || 18;
+        const currentWidths = calculateBayWidths(mod);
+        const origBayW = currentWidths[safeBayIdx] || 600;
+        const halfW = Math.max(120, Math.floor((origBayW - T) / 2));
+
+        // Create Left & Right halves from the selected bay so interior items are preserved in both
+        const leftBay: typeof targetBay = JSON.parse(JSON.stringify(targetBay));
+        const rightBay: typeof targetBay = JSON.parse(JSON.stringify(targetBay));
+
+        // Adjust widths if other bays exist so only the selected bay is split in two!
+        if (mod.bays.length > 1) {
+          mod.bays.forEach((b, i) => {
+            if (i !== safeBayIdx && typeof b.customWidth !== "number") {
+              b.customWidth = currentWidths[i];
+            }
+          });
+          leftBay.customWidth = halfW;
+          rightBay.customWidth = Math.max(120, origBayW - T - halfW);
+        } else {
+          leftBay.customWidth = undefined;
+          rightBay.customWidth = undefined;
+        }
+
+        // Adjust doors for split bays: if it was double door, each half gets a single door (left & right)
+        if (targetBay.door.type === "double" || targetBay.door.doorSystemId === "hinged_double") {
+          leftBay.door.type = "single_left";
+          leftBay.door.doorSystemId = "hinged_single";
+          rightBay.door.type = "single_right";
+          rightBay.door.doorSystemId = "hinged_single";
+        }
+
+        const nextBays = [
+          ...mod.bays.slice(0, safeBayIdx),
+          leftBay,
+          rightBay,
+          ...mod.bays.slice(safeBayIdx + 1),
+        ];
+
+        // Re-index all bays and give unique IDs to cloned items
+        nextBays.forEach((b, idx) => {
+          b.index = idx;
+          b.door.id = `${mod.id}_door_${idx}`;
+          b.door.bayIndex = idx;
+          b.shelves = (b.shelves || []).map((s, si) => ({
+            ...s,
+            id: `${mod.id}_shelf_${idx}_${si}_${Date.now()}`,
+            bayIndex: idx,
+          }));
+          b.hangingRails = (b.hangingRails || []).map((r, ri) => ({
+            ...r,
+            id: `${mod.id}_rail_${idx}_${ri}_${Date.now()}`,
+            bayIndex: idx,
+          }));
+          b.drawers = (b.drawers || []).map((d, di) => ({
+            ...d,
+            id: `${mod.id}_drw_${idx}_${di}_${Date.now()}`,
+            bayIndex: idx,
+          }));
+          b.specialFittings = (b.specialFittings || []).map((f, fi) => ({
+            ...f,
+            id: `${mod.id}_fit_${idx}_${fi}_${Date.now()}`,
+            bayIndex: idx,
+          }));
+          b.subDividers = (b.subDividers || []).map((sd, sdi) => ({
+            ...sd,
+            id: `${mod.id}_subdiv_${idx}_${sdi}_${Date.now()}`,
+            bayIndex: idx,
+            offsetX: Math.min(Math.max(40, halfW - 40), Math.round(sd.offsetX * 0.5)),
+          }));
+        });
+
+        mod.bays = nextBays;
+        return mod;
+      }, true);
+    },
+    [commitActiveModuleUpdate]
+  );
+
   const addInteriorItemAtElevation = useCallback(
     (
       bayIdx: number,
       itemKind: string,
       elevationY: number,
-      options?: { drawerHeight?: number; isInternal?: boolean }
+      options?: { drawerHeight?: number; isInternal?: boolean; offsetX?: number }
     ) => {
       commitActiveModuleUpdate((mod) => {
         const netH = calculateNetInnerHeight(mod);
@@ -2228,6 +2349,111 @@ export function useV3Adapter() {
           }
           return candidate;
         };
+
+        // Case 0A: Full-Height Ara Dikme (Splits the target bay into 2 sub-bays!)
+        if (
+          itemKind === "lib_carcass_divider" ||
+          itemKind === "carcass_divider" ||
+          itemKind === "ara_dikme"
+        ) {
+          if (mod.bays.length >= 8) return mod;
+          const T = mod.carcass.panelThickness || 18;
+          const currentWidths = calculateBayWidths(mod);
+          const origBayW = currentWidths[safeBayIdx] || 600;
+          const halfW =
+            typeof options?.offsetX === "number"
+              ? Math.max(120, Math.min(origBayW - T - 120, Math.round(options.offsetX)))
+              : Math.max(120, Math.floor((origBayW - T) / 2));
+
+          const leftBay: typeof bay = JSON.parse(JSON.stringify(bay));
+          const rightBay: typeof bay = JSON.parse(JSON.stringify(bay));
+
+          if (mod.bays.length > 1 || typeof options?.offsetX === "number") {
+            mod.bays.forEach((b, i) => {
+              if (i !== safeBayIdx && typeof b.customWidth !== "number") {
+                b.customWidth = currentWidths[i];
+              }
+            });
+            leftBay.customWidth = halfW;
+            rightBay.customWidth = Math.max(120, origBayW - T - halfW);
+          }
+
+          if (bay.door.type === "double" || bay.door.doorSystemId === "hinged_double") {
+            leftBay.door.type = "single_left";
+            leftBay.door.doorSystemId = "hinged_single";
+            rightBay.door.type = "single_right";
+            rightBay.door.doorSystemId = "hinged_single";
+          }
+
+          const nextBays = [
+            ...mod.bays.slice(0, safeBayIdx),
+            leftBay,
+            rightBay,
+            ...mod.bays.slice(safeBayIdx + 1),
+          ];
+          nextBays.forEach((b, idx) => {
+            b.index = idx;
+            b.door.id = `${mod.id}_door_${idx}`;
+            b.door.bayIndex = idx;
+            b.shelves = (b.shelves || []).map((s, si) => ({
+              ...s,
+              id: `${mod.id}_shelf_${idx}_${si}_${Date.now()}`,
+              bayIndex: idx,
+            }));
+            b.hangingRails = (b.hangingRails || []).map((r, ri) => ({
+              ...r,
+              id: `${mod.id}_rail_${idx}_${ri}_${Date.now()}`,
+              bayIndex: idx,
+            }));
+            b.drawers = (b.drawers || []).map((d, di) => ({
+              ...d,
+              id: `${mod.id}_drw_${idx}_${di}_${Date.now()}`,
+              bayIndex: idx,
+            }));
+          });
+          mod.bays = nextBays;
+          return mod;
+        }
+
+        // Case 0B: Raf Arası Dikme (Sub-Divider spanning automatically between the shelves above and below elevationY!)
+        if (
+          itemKind === "lib_sub_divider" ||
+          itemKind === "sub_divider" ||
+          itemKind === "raf_arasi_dikme"
+        ) {
+          const T = mod.carcass.panelThickness || 18;
+          const bayWidths = calculateBayWidths(mod);
+          const bayW = bayWidths[safeBayIdx] || 600;
+          const sortedShelves = [...(bay.shelves || [])].sort((a, b) => a.elevationY - b.elevationY);
+
+          // Find shelf immediately below and immediately above the drop elevationY
+          let botY = 0;
+          let topY = netH;
+          for (const s of sortedShelves) {
+            if (s.elevationY + T <= elevationY + 24) {
+              botY = Math.max(botY, s.elevationY + T);
+            } else if (s.elevationY > elevationY - 24 && s.elevationY < topY) {
+              topY = s.elevationY;
+            }
+          }
+          const spanH = Math.max(80, topY - botY);
+          const rawX =
+            typeof options?.offsetX === "number"
+              ? options.offsetX
+              : Math.round(bayW / 2 - T / 2);
+          const clampedX = Math.max(48, Math.min(Math.max(80, bayW - T - 48), Math.round(rawX / 10) * 10));
+
+          bay.subDividers = bay.subDividers || [];
+          bay.subDividers.push({
+            id: `subdiv_${safeBayIdx}_${Date.now()}_${bay.subDividers.length}`,
+            bayIndex: safeBayIdx,
+            offsetX: clampedX,
+            elevationY: botY,
+            height: spanH,
+            thickness: T,
+          });
+          return mod;
+        }
 
         if (itemKind === "lib_shelf" || itemKind === "shelf") {
           const clampedY = resolveCollisionFreeY(snappedY, 96, 64, netH - 64);
@@ -4585,6 +4811,7 @@ export function useV3Adapter() {
     swapModuleWithNeighbor,
     finishModuleDragWithSmartSwap,
     updateObstaclePosition,
+    splitBayIntoTwo,
     addInteriorItemAtElevation,
     setShelfElevation,
     setDrawerPlacement,

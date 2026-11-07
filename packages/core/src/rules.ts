@@ -315,8 +315,29 @@ export function validateProject(project: DesignProject): ValidationIssue[] {
     ...(project.space.walls || []).flatMap((w) => w.elements || []),
   ];
 
+  // Helper to check if a module is a plumbing-compatible sink / wet module
+  const isPlumbingCompatibleModule = (mod: ModuleInstance): boolean => {
+    const label = `${mod.id} ${mod.name} ${mod.templateId || ""}`.toLowerCase();
+    if (
+      label.includes("eviye") ||
+      label.includes("sink") ||
+      label.includes("snk") ||
+      label.includes("ıslak") ||
+      label.includes("islak") ||
+      label.includes("tesisat") ||
+      label.includes("bulaşık") ||
+      label.includes("bulasik") ||
+      label.includes("dsh")
+    ) {
+      return true;
+    }
+    return false;
+  };
+
   project.modules.forEach((mod) => {
-    const modTopY = mod.position.y + mod.dimensions.height;
+    if (mod.category === "complementary") return;
+    const worktopExtraH = mod.category === "kitchen_base" ? 40 : 0;
+    const modTopY = mod.position.y + mod.dimensions.height + worktopExtraH;
     if (modTopY > ceiling) {
       issues.push({
         severity: "error",
@@ -334,40 +355,134 @@ export function validateProject(project: DesignProject): ValidationIssue[] {
     const mMaxY = modTopY;
     const mMinZ = mod.position.z;
     const mMaxZ = mod.position.z + place.depth;
+    const modSweep = getModuleFrontSweepBounds(mod);
 
     allObstacles.forEach((obs) => {
+      const obsRot = (((obs.rotationY || 0) % 360) + 360) % 360;
+      const isSideObs = obsRot === 90 || obsRot === 270;
       const oMinX = obs.position.x;
-      const oMaxX = obs.position.x + obs.dimensions.width;
+      const oMaxX = obs.position.x + (isSideObs ? Math.max(180, obs.dimensions.depth || 150) : obs.dimensions.width);
       const oMinY = obs.position.y;
       const oMaxY = obs.position.y + obs.dimensions.height;
-      const oMinZ = obs.position.z;
-      const oMaxZ = obs.position.z + obs.dimensions.depth;
+      // Wall-mounted obstacles (window, door, plumbing, electrical) sit at z=0..-150 on back wall, so extend their effective Z check into the wall-adjacent zone (0..220mm)
+      const rawMinZ = obs.position.z;
+      const rawMaxZ = obs.position.z + (isSideObs ? obs.dimensions.width : obs.dimensions.depth || 150);
+      const oMinZ = Math.min(rawMinZ, 0);
+      const oMaxZ = Math.max(rawMaxZ, obs.type === "door" && !isSideObs ? obs.dimensions.width * 0.85 : 220);
 
-      const xHit = mMinX < oMaxX - 0.001 && mMaxX > oMinX + 0.001;
-      const yHit = mMinY < oMaxY - 0.001 && mMaxY > oMinY + 0.001;
-      const zHit = mMinZ < oMaxZ - 0.001 && mMaxZ > oMinZ + 0.001;
+      const xHit = mMinX < oMaxX - 1 && mMaxX > oMinX + 1;
+      const yHit = mMinY < oMaxY - 1 && mMaxY > oMinY + 1;
+      const zHit = mMinZ < oMaxZ - 1 && mMaxZ > oMinZ - 160;
 
-      if (xHit && yHit && zHit) {
-        if (obs.type === "column" || obs.type === "beam") {
+      // 1. Structural Column / Beam / Protrusion / Partition collision with module body or door sweep
+      if (obs.type === "column" || obs.type === "beam" || obs.type === "partition" || obs.type === "protrusion") {
+        if (xHit && yHit && zHit) {
           issues.push({
             severity: "error",
             code: "ERR_COLUMN_COLLISION",
-            message: `Modül "${mod.name}" taşıyıcı eleman "${obs.name}" ile çakışıyor.`,
+            message: `🏛️ KOLON/YAPI ÇAKIŞMASI: "${mod.name}" taşıyıcı eleman "${obs.name}" ile çakışıyor.`,
             targetId: mod.id,
             blockingProduction: true,
           });
-        } else if (obs.type === "window" || obs.type === "door") {
+        } else if (
+          modSweep &&
+          yHit &&
+          modSweep.minX < oMaxX - 1 &&
+          modSweep.maxX > oMinX + 1 &&
+          modSweep.minZ < rawMaxZ - 1 &&
+          modSweep.maxZ > rawMinZ + 1
+        ) {
           issues.push({
             severity: "error",
-            code: obs.type === "window" ? "ERR_WINDOW_COLLISION" : "ERR_DOOR_OBSTACLE_COLLISION",
-            message: `Modül "${mod.name}" mimari açıklık "${obs.name}" ile çakışıyor.`,
+            code: "ERR_CABINET_DOOR_BLOCKED",
+            message: `🚪 KAPAK AÇILIM ENGELİ: "${mod.name}" kapağı açılırken "${obs.name}" engeline çarpıyor!`,
             targetId: mod.id,
             blockingProduction: true,
           });
         }
       }
+
+      // 2. Window Collision (Module body/worktop rises above window sill Y, or blocks window sash)
+      if (obs.type === "window") {
+        const horizHit = isSideObs
+          ? mMinZ < rawMaxZ - 5 && mMaxZ > rawMinZ + 5 && mMinX < 250
+          : xHit && mMinZ < 350;
+        if (horizHit && yHit) {
+          issues.push({
+            severity: "error",
+            code: "ERR_WINDOW_COLLISION",
+            message: `🪟 PENCERE KESİŞİMİ: "${mod.name}" üst kotu (${mMaxY}mm), "${obs.name}" denizlik kotunu (Y:${oMinY}mm) aşarak pencereyi kapatıyor!`,
+            targetId: mod.id,
+            blockingProduction: true,
+          });
+        }
+      }
+
+      // 3. Architectural Room Door Collision (Module blocks door opening or 90° door leaf swing)
+      if (obs.type === "door") {
+        const doorSwingMaxX = isSideObs ? oMinX + obs.dimensions.width * 0.85 : oMaxX;
+        const doorSwingMaxZ = isSideObs ? rawMaxZ : Math.max(oMaxZ, obs.dimensions.width * 0.85);
+        const hitsDoorSweep =
+          mMinX < doorSwingMaxX - 5 &&
+          mMaxX > oMinX + 5 &&
+          mMinZ < doorSwingMaxZ - 5 &&
+          mMaxZ > oMinZ - 50 &&
+          yHit;
+        if (hitsDoorSweep) {
+          issues.push({
+            severity: "error",
+            code: "ERR_DOOR_OBSTACLE_COLLISION",
+            message: `🚪 KAPI AÇILIM ENGELİ: "${mod.name}" modülü, "${obs.name}" oda kapısının açılış alanını kapatıyor!`,
+            targetId: mod.id,
+            blockingProduction: true,
+          });
+        }
+      }
+
+      // 4. Plumbing (Tesisat) Compatibility Check: A floor module in front of plumbing MUST be a Sink / Plumbing-compatible module!
+      if (obs.type === "plumbing") {
+        const plumbingCenterX = obs.position.x + obs.dimensions.width / 2;
+        const isFloorModule = mod.position.y < 500 && mod.category !== "kitchen_wall";
+        if (isFloorModule && xHit && mMinZ < 350) {
+          if (!isPlumbingCompatibleModule(mod)) {
+            issues.push({
+              severity: "error",
+              code: "ERR_PLUMBING_INCOMPATIBLE_MODULE",
+              message: `🚰 TESİSAT UYUMSUZLUĞU: Su/gider tesisatı (X:${Math.round(plumbingCenterX)}mm) önüne "${mod.name}" yerleştirildi! Tesisat önüne mutlaka Eviye (Sink) / tesisat uyumlu modül gelmelidir.`,
+              targetId: mod.id,
+              blockingProduction: true,
+            });
+          }
+        }
+      }
     });
   });
+
+  // Check if any plumbing obstacle has NO floor module covering it at all
+  allObstacles
+    .filter((o) => o.type === "plumbing")
+    .forEach((plumb) => {
+      const pMinX = plumb.position.x;
+      const pMaxX = plumb.position.x + plumb.dimensions.width;
+      const pCenterX = Math.round(pMinX + plumb.dimensions.width / 2);
+      const coveringFloorMods = project.modules.filter(
+        (m) =>
+          m.category !== "complementary" &&
+          m.category !== "kitchen_wall" &&
+          m.position.y < 500 &&
+          m.position.z < 350 &&
+          m.position.x < pMaxX - 1 &&
+          m.position.x + calculateModulePlacement(m).width > pMinX + 1
+      );
+      if (coveringFloorMods.length === 0) {
+        issues.push({
+          severity: "warning",
+          code: "WARN_PLUMBING_UNASSIGNED",
+          message: `🚰 AÇIKTA TESİSAT: X:${pCenterX}mm noktasındaki tesisat önünde henüz Eviye (Sink) alt modülü bulunmuyor.`,
+          targetId: plumb.id,
+        });
+      }
+    });
 
   // 3. Multi-module 3D collision / overlap check (AABB) & Front Opening Sweep Collision
   for (let i = 0; i < project.modules.length; i++) {

@@ -191,19 +191,105 @@ export function generateTopPlan2D(
  */
 export function generateCrossSection2D(
   breakdown: ModuleGeometryBreakdown,
-  selectedComponentId?: string
+  selectedComponentId?: string,
+  options?: { direction?: "Z" | "X"; cutCoordMm?: number }
 ): Elevation2DData {
   const { overall, components } = breakdown;
   const padding = 120;
+  const dir = options?.direction || "Z";
 
-  // Filter components visible in depth cross-section (bottom, top, plinth, shelves, drawer boxes, doors)
+  // Direction "X": B-B Longitudinal Cross-Section (Boyuna Kesit at Depth Z = cutCoordMm, projecting Width X vs Height Y)
+  if (dir === "X") {
+    const cutZ =
+      typeof options?.cutCoordMm === "number"
+        ? Math.max(0, Math.min(overall.depth, options.cutCoordMm))
+        : Math.round(overall.depth * 0.5);
+
+    const elements: Rect2D[] = components
+      .filter((c) => {
+        if (
+          c.role === "door_left" ||
+          c.role === "door_right" ||
+          c.role === "door_sliding" ||
+          c.role === "door_lift" ||
+          c.role === "door_handle"
+        ) {
+          return cutZ >= overall.depth - 36;
+        }
+        const b = componentBounds(c);
+        return (
+          c.role.startsWith("carcass_") ||
+          c.role === "plinth" ||
+          c.role === "countertop" ||
+          c.role === "sub_divider" ||
+          (b.min.z <= cutZ + 45 && b.max.z >= cutZ - 45)
+        );
+      })
+      .map((c) => {
+        const bounds = componentBounds(c);
+        return {
+          id: c.id,
+          label: c.label,
+          x: bounds.min.x,
+          y: overall.height - bounds.max.y,
+          width: Math.max(4, bounds.max.x - bounds.min.x),
+          height: Math.max(4, bounds.max.y - bounds.min.y),
+          role: c.role,
+          isSelected: c.id === selectedComponentId,
+        };
+      });
+
+    const dimensionLines: DimensionLine2D[] = [
+      {
+        id: "dim_sec_width_x",
+        x1: 0,
+        y1: -30,
+        x2: overall.width,
+        y2: -30,
+        value: overall.width,
+        label: `B-B Boyuna Kesit Genişlik: ${overall.width} mm (Derinlik Z: ${cutZ} mm)`,
+        orientation: "horizontal",
+        offset: -30,
+      },
+      {
+        id: "dim_sec_height_x",
+        x1: -40,
+        y1: overall.height,
+        x2: -40,
+        y2: 0,
+        value: overall.height,
+        label: `Yükseklik: ${overall.height} mm`,
+        orientation: "vertical",
+        offset: -40,
+      },
+    ];
+
+    return {
+      viewBox: computeExpandedViewBox(overall.width, overall.height, elements, padding),
+      elements,
+      dimensionLines,
+      bayLines: [],
+    };
+  }
+
+  // Direction "Z": A-A Transverse Side Cross-Section (Enine Yan Kesit at Width X = cutCoordMm, projecting Depth Z vs Height Y)
+  const cutX =
+    typeof options?.cutCoordMm === "number"
+      ? Math.max(0, Math.min(overall.width, options.cutCoordMm))
+      : undefined;
+
+  // Filter components visible in depth cross-section at cutX
   const elements: Rect2D[] = components
-    .filter(
-      (c) =>
+    .filter((c) => {
+      const isAllowedRole =
         c.role === "carcass_bottom" ||
         c.role === "carcass_top" ||
         c.role === "plinth" ||
+        c.role === "countertop" ||
         c.role === "shelf" ||
+        c.role === "sub_divider" ||
+        c.role === "carcass_divider" ||
+        c.role === "hanging_rail" ||
         c.role === "drawer_box" ||
         c.role === "drawer_side_left" ||
         c.role === "drawer_bottom" ||
@@ -212,8 +298,23 @@ export function generateCrossSection2D(
         c.role === "door_right" ||
         c.role === "door_hinge" ||
         c.role === "special_fitting" ||
-        c.role === "carcass_back"
-    )
+        c.role === "carcass_back";
+      if (!isAllowedRole) return false;
+      if (
+        typeof cutX === "number" &&
+        (c.role === "shelf" ||
+          c.role === "sub_divider" ||
+          c.role === "carcass_divider" ||
+          c.role === "hanging_rail" ||
+          c.role.startsWith("drawer_") ||
+          c.role.startsWith("door_") ||
+          c.role === "special_fitting")
+      ) {
+        const b = componentBounds(c);
+        return cutX >= b.min.x - 24 && cutX <= b.max.x + 24;
+      }
+      return true;
+    })
     .map((c) => {
       const bounds = componentBounds(c);
       return {
@@ -221,8 +322,8 @@ export function generateCrossSection2D(
         label: c.label,
         x: bounds.min.z,
         y: overall.height - bounds.max.y,
-        width: bounds.max.z - bounds.min.z,
-        height: bounds.max.y - bounds.min.y,
+        width: Math.max(4, bounds.max.z - bounds.min.z),
+        height: Math.max(4, bounds.max.y - bounds.min.y),
         role: c.role,
         isSelected: c.id === selectedComponentId,
       };
