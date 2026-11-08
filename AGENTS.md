@@ -1,28 +1,35 @@
-# Birim Configurator — ajan başlangıç kuralları
+# Birim Configurator — L1 Ajan Önbelleği ve Çalışma Kuralları
 
-Bu dosya bu deponun tamamına uygulanır. Kullanıcının güncel talimatları önceliklidir.
+Bu depo (`birim-configurator`), mağaza müşterisi ve fabrika üretim planlamacısı için aynı deterministik 4-mekân parametrik modelinden 2D/3D CAD, BOM, CNC delik, plaka optimizasyonu ve fiyat üreten Next.js 15 + TypeScript monoreposudur (`apps/configurator`, `packages/*`).
 
-## Önce oku
+## 1. Oturum Başlangıç (Wake-up) ve Görev Sonu (Check-in) Protokolü
+1. **Oturum Başında (Zorunlu):** Yalnızca `AGENTS.md` ve `docs/ai-context/current-state.md` dosyasını oku. Ardından `git status --short` ve `git diff <Last_Verified_Commit>..HEAD --stat` çalıştır. Serena MCP aktifse `activate_project` çağır.
+2. **Akıllı Kod Erişimi (Zorunlu Sıra):**
+   - Önce `docs/ai-context/module-map.md` veya sembol/grep araması (`find_symbol`, `get_symbols_overview`, `git grep`) ile hedef dosya ve satır aralığını bul.
+   - Ardından `read_file` ile **yalnızca ilgili satır aralığını** (`StartLine`/`EndLine`) oku; kaynak dosyaları baştan sona yükleme.
+   - Gerekmeyen belgeleri otomatik yükleme; tüm repo içeriğini tek seferde modele gönderme.
+3. **Görev Sonunda (Check-in):** Sadece değişen kısımları (delta) `docs/ai-context/current-state.md` ve `docs/NEXT_AGENT_HANDOFF.md` içine kaydet, yeni mimari kararları `docs/ai-context/decisions.md` içine `#etiket`, göreli yol, commit hash ve `[VERIFIED]`/`[UNVERIFIED]` ile ekle.
 
-1. `docs/NEXT_AGENT_HANDOFF.md` — mevcut çalışma, kritik uyarılar ve ilk adımlar.
-2. `docs/V41_ACCEPTANCE_REPORT.md` — nelerin gerçekten kabul edildiği ve edilmediği.
-3. `docs/V42_PLUS_EXECUTION_ROADMAP.md` — bağımlılıklar, iş paketleri ve kabul koşulları.
-4. Yapacağın işle ilgili `docs/V41_BUG_REGISTER.md` ve ilgili V41 doğrulama raporu.
+## 2. L2 / L3 Bağlam Yönlendirme Tablosu (İhtiyaç Halinde Oku)
+| Durum / Görev Tipi | Okunacak Dosya (Göreli Yol) | Katman |
+| :--- | :--- | :--- |
+| Yeni oturum başlangıcı, son commit ve açık işler | `docs/ai-context/current-state.md` | **L2** |
+| Hangi özellik hangi pakette/dosyada? Sembol ve giriş noktaları | `docs/ai-context/module-map.md` | **L2** |
+| 4-Mekân geometri, 2D/3D render, BOM/CNC veri akışı | `docs/ai-context/architecture.md` | **L3** |
+| Geçmiş mimari kararlar, kısıtlar ve nedenleri (`grep #etiket`) | `docs/ai-context/decisions.md` | **L3** |
+| Store CPQ, ERP blueprint, Selco XML, DXF ve çoklu repo sınırları | `docs/ai-context/integrations.md` | **L3** |
+| Yeni bilgisayarda MCP (`uv`, `serena`, `basic-memory`) kurulumu | `docs/ai-context/setup.md` | **L3** |
+| Arşivlenmiş eski faz/V4.1-V4.5 geçmişi ve kabul raporları | `docs/ai-context/history/` ve `docs/V41_ACCEPTANCE_REPORT.md` | **L3** |
+| Hafıza yönetimi ve arşivleme otomasyon kuralları | `.agents/skills/memory-manager/SKILL.md` | **Skill** |
 
-## Çalışma sınırları
+## 3. Temel Komutlar
+- **Birim / Regresyon Testi:** `npm test` (Vitest)
+- **Tip Kontrolü:** `npm run lint` (`tsc --noEmit`)
+- **Geliştirme Sunucusu:** `npm run dev` (Port `3300` — çalışan sunucuyu körlemesine kapatma)
+- **İzole E2E Kabul:** `$env:BIRIM_AUDIT_BUILD='1'; npm run build; npm run test:e2e:v41` (Port `3311`, `.next-v41`)
 
-- Önce `git status --short`, mevcut dal ve son commitleri kontrol et. Önceki ajan değişikliklerinin commitlenmiş olduğunu varsayma. Var olan değişiklikleri silme, üzerine yazma veya körlemesine geri alma.
-- Yalnız `birim-configurator` deposunu değiştir. `birim-portal` ve `birim-store` depolarını değiştirme.
-- Ortak staging/production Supabase ortamlarına bağlanma veya yazma; gerçek müşteri/sipariş/üretim verisi kullanma. Production deployment yapma. Kullanıcı kapsamı açıkça değiştirmedikçe bu sınırlar geçerlidir.
-- Doğrulanmamış montaj ölçüsü, ürün kinematiği veya CNC kuralı uydurma. Kaynak, sürüm ve doğrulama kapsamı olmadan üretim onayı verme.
-- Mevcut `UNVERIFIED` üretim engelini, ERP kontrolünü veya Selco taslak statüsünü testi geçirmek için kaldırma. Yerel test fixture'ındaki doğrulama bayrağı gerçek fabrika onayı değildir.
-- V2/V3 rotalarını ve önceki tasarımların yüklenmesini koru. Şema değişikliklerinde açık sürüm ve geriye uyumlu migration kullan.
-
-## Doğrulama ve devamlılık
-
-- Raporlardaki sayılar tarihli kanıttır; güncel başarı kanıtı olarak tekrar kullanma. Değişikliğe uygun testleri çalıştır ve sonuçları tarih/kapsamıyla kaydet.
-- Geliştirme sunucusu 3300 portundadır. Tarayıcı kabulünde `BIRIM_AUDIT_BUILD=1` ile `.next-v41` derlemesini ve `playwright.v41.config.ts` üzerinden 3311 portunu kullan. Aynı `.next` klasöründe eşzamanlı dev/build çalıştırma; başka bir sunucuyu körlemesine kapatma.
-- Geometri/kulp/kapak değişikliklerinde model → state → 2D/3D → BOM/fiyat → kaydet/yükle zincirini denetle. Yalnız DOM etiketi veya buton varlığı yeterli değildir.
-- Bir işi test, kalıcılık ve ilgili veri doğrulaması olmadan `DONE` yapma. Görsel aday dosyalarını incelemeden onaylı referans sayma.
-- Her anlamlı çalışma sonunda yol haritasının ilerleme kaydını ve `NEXT_AGENT_HANDOFF.md` dosyasını güncelle: değişiklikler, çalıştırılan testler, kalan sorun, somut sonraki adım ve commitlenmemiş dosyalar. Tarihli V41 kanıtlarını yeni sonuçlarla sessizce değiştirme.
-
+## 4. Kesin Çalışma ve Güvenlik Sınırları
+- **Repo Sınırı:** Yalnızca `birim-configurator` deposunu değiştir; `birim-portal` ve `birim-store` depolarına, canlı/staging Supabase ortamlarına dokunma ve kullanıcı onayı olmadan `git push` veya production deploy yapma.
+- **Üretim Kapısı (Fail-Closed):** Fiziksel fabrika/CNC numune onayı (`physicalFactorySample`) olmayan şablonlarda `UNVERIFIED` üretim engelini, `productionGate` kontrolünü veya Selco taslak statüsünü testi geçirmek için kaldırma.
+- **Sırlar ve Yollar:** `.env`, token veya API anahtarlarını hafıza dosyalarına yazma; tüm belgelerde mutlak yol (`C:\...`) yerine proje köküne göre göreli yol (`packages/...`, `apps/...`) kullan.
+- **Tam Zincir Denetimi:** Geometri/kulp/kapak değişikliklerinde `model -> state -> 2D/3D -> BOM/fiyat -> kaydet/yükle` zincirini doğrula.

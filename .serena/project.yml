@@ -1,0 +1,12 @@
+project_name: birim-configurator
+language: typescript
+ignored_paths:
+  - node_modules
+  - .next
+  - .next-v41
+  - out
+  - build
+  - dist
+  - coverage
+  - playwright-report
+  - test-results
