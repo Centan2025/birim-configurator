@@ -79,7 +79,17 @@ Eğer mevcut ortamda Serena MCP henüz bağlanmamışsa ajan şu sırayı izleme
 
 ---
 
-## 4. Güvenlik ve Ortam Değişkenleri (`.env`)
+## 4. Basic Memory MCP Politikası ve İzolasyon Standardı
+
+- **Markdown SSOT:** Git deposundaki `docs/ai-context/*.md` dosyaları birincil tek doğruluk kaynağıdır (SSOT).
+- **Projeye Özel Ad Alanı (`birim-configurator`):** Basic Memory üzerinde işlem yapılırken daima projeye özgü ad alanı (`project="birim-configurator"`) hedeflenir.
+- **`main` Alanı Yasağı:** `main` alanı global/ortak sistem alanıdır; hiçbir projeye varsayılan yazma hedefi olarak **kullanılamaz**. `project` parametresi olmadan varsayılan yazma çağrıları yapılamaz.
+- **Salt-Okunur Öncelik:** Bağlantı kontrolleri yalnızca salt-okunur `bm_project(command="list")` ve `bm_find(project="birim-configurator")` ile yapılır. Kullanıcı onayı olmadan izinsiz proje oluşturulmaz, veri taşınmaz veya silinmez.
+- **Çift Yazma (Dual-Write) Yasağı:** Otomatik çift-yazma yapılmaz; başka projelerin notları bu projenin kararı gibi kullanılamaz.
+
+---
+
+## 5. Güvenlik ve Ortam Değişkenleri (`.env`)
 
 - `.env.local` ve `.env.*.local` dosyaları `.gitignore` içindedir; hiçbir zaman Git'e veya `docs/ai-context/` dosyalarına yazılmaz.
 - Canlı veya staging Supabase bağlantı bilgileri, API anahtarları veya token'lar hafıza belgelerine kaydedilemez.

@@ -19,3 +19,6 @@ test-results/
 .serena/*
 !.serena/project.yml
 !.serena/memories/
+
+# Local temporary AI handoff
+.handoff.local.md
