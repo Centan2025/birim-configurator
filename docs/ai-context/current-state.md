@@ -5,6 +5,21 @@
 - **Çalışma Ağacı Durumu:** AI Context V2.1 (Context Capsule, Evidence Index, Handoff, Serena Level A/B, Measurement) aktif.
 
 ## 1. Tamamlanan Son İşler (Delta Özeti)
+- **[VERIFIED] 3D/2D Seçili Çekmece Kartına Yükseklik (H) ve Kot (Y) Kontrolü (2026-11-10):**
+  - 3D/2D sahnede çekmece önü/gövdesi tıklandığında sağ altta açılan seçili parça kartına (`studio-selected-component-card`), ilgili çekmecenin `matchedDrawer` tespiti üzerinden:
+    - Hazır yükseklik presetleri (`140mm`, `180mm`, `240mm`, `300mm`),
+    - Sayısal Yükseklik (`H`, 100-420mm) ve Yerden Kot (`Y`, 0 - netInnerHeight) giriş alanları eklendi.
+  - Değişiklik doğrudan `setDrawerPlacement` çağrısını tetikleyerek anında geometri ve BOM'u senkronize eder.
+- **[VERIFIED] AutoCAD DXF AC1015 Desteği ve Delik/Parça Koordinat Hizalaması (2026-11-10):**
+  - DXF üreticisi (`packages/manufacturing/src/technical-outputs.ts`) AutoCAD 2000-2026 standardı olan `AC1015` formatına geçirildi.
+  - Eksik olan `*Active` VPORT ve `ACAD_LAYOUT` Model tablosu eklenerek AutoCAD'in açılışta donma/takılma sorunu giderildi.
+  - Parça dikdörtgen çiziminde X/Y ekseni (`widthMm` en ve `lengthMm` boy) ile delik koordinat motorunun (`drilling-engine.ts`) koordinat sistemi hizalandı. Boy dolabı yan panelleri ve kapaklardaki deliklerin (menteşe çanakları, minifiksler, raf delikleri) parça dışına taşarak havada kalması ve komşu parçaları delmesi önlendi.
+- **[VERIFIED] Kiler/Boy Dolap Dönüşümü, 2D Kot İndirme ve 3D Ctrl İkon İyileştirmesi (2026-11-10):**
+  - Üst dolaptan kiler/boy dolabına geçişte şablon ID eşleşmesi (`tpl_kt_01_pantry_shelved`, `tpl_kt_03_pantry_internal_drawers`) düzeltildi; `getV4TemplateById` içine alias eklendi.
+  - Şablon değiştirildiğinde kot (`position.y`) boy dolabı için otomatik olarak zemine (`0`) çekildi.
+  - 2D cephe görünüşünde seçili modülü yukarı/aşağı taşıma (kot Y desteği), gövdeden doğrudan sürükleme, araç çubuğuna Kot(Y) / "⬇ Zemine İndir" butonları eklendi.
+  - 2D cephe viewBox üst sınırı dinamik yapılarak yüksek veya havada kalan dolapların tavan üstü kırpılması (`computedElevVb`) önlendi.
+  - 3D sahnede `Ctrl` / `Cmd` basıldığında fare imlecinin `move` (dört yönlü taşıma) ve sürükleme esnasında `grabbing` ikonuna dönüşmesi sağlandı.
 - **[VERIFIED] AI Context V2.1 Yükseltmesi (2026-11-08):** `context-capsule.md`, `evidence-index.md`, `handoff.md`, `measurement.md` eklendi; `AGENTS.md` (39 satır) ve `SKILL.md` V2.1 protokolleriyle güncellendi; Serena ve Basic Memory MCP bağlantıları doğrulandı.
 - **[VERIFIED] Kalıcı L1/L2/L3 Hafıza Temeli (`09ff016`):** `AGENTS.md` (L1), `current-state.md` ve `module-map.md` (L2), `architecture.md`, `decisions.md`, `integrations.md`, `setup.md`, `history/` (L3) yerel olarak yapılandırıldı.
 - **[VERIFIED] V4.5 Çoklu Seçim, Fiyat Matrisi, CAD Ölçülendirme (`9169ec4`):** Çoklu modül seçimi, fiyat kırılım matrisi ve 2D/3D CAD ölçülendirme iyileştirmeleri tamamlandı.

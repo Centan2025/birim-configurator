@@ -1840,8 +1840,8 @@ export const V3UnifiedWorkspace: React.FC<{
         else if (quickFrontType === "open") targetTplId = "tpl_kw_03_open_shelf";
         else targetTplId = "tpl_kw_02_double_door";
       } else if (quickCabinetType === "tall") {
-        if (quickFrontType === "space_tower") targetTplId = "tpl_kt_03_space_tower";
-        else targetTplId = "tpl_kt_01_single_door_pantry";
+        if (quickFrontType === "space_tower") targetTplId = "tpl_kt_03_pantry_internal_drawers";
+        else targetTplId = "tpl_kt_01_pantry_shelved";
       } else if (quickCabinetType === "wardrobe") {
         if (quickFrontType === "single_door_left" || quickFrontType === "single_door_right")
           targetTplId = "tpl_wd_01_single_door";
@@ -7008,6 +7008,21 @@ export const V3UnifiedWorkspace: React.FC<{
                             {/* Contextual Selected Part Banner (Shown whenever a single door, shelf, divider, or countertop is clicked in 3D/2D) */}
               {selectedComponentId && (() => {
                 const matchedPart = activeBreakdown.components.find((c) => c.id === selectedComponentId);
+                let matchedDrawer: (typeof activeModule.bays)[0]["drawers"][0] | null = null;
+                let matchedDrawerBayIdx = -1;
+
+                for (let bIdx = 0; bIdx < activeModule.bays.length; bIdx++) {
+                  const bay = activeModule.bays[bIdx];
+                  const drw = bay.drawers.find(
+                    (d) => selectedComponentId === d.id || selectedComponentId.startsWith(`${d.id}_`)
+                  );
+                  if (drw) {
+                    matchedDrawer = drw;
+                    matchedDrawerBayIdx = bIdx;
+                    break;
+                  }
+                }
+
                 return (
                 <div
                   data-testid="studio-selected-component-card"
@@ -7047,6 +7062,92 @@ export const V3UnifiedWorkspace: React.FC<{
                       </button>
                     </div>
                   </div>
+
+                  {matchedDrawer && (
+                    <div className="pt-2 border-t border-blue-200/80 space-y-2">
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-xs font-semibold text-blue-950">
+                          <span>Çekmece Kapak Yüksekliği (H):</span>
+                          <span className="font-mono text-blue-700 font-bold">{matchedDrawer.height} mm</span>
+                        </div>
+                        <div className="grid grid-cols-4 gap-1">
+                          {[140, 180, 240, 300].map((presetH) => (
+                            <button
+                              key={presetH}
+                              type="button"
+                              data-testid={`studio-selected-drawer-preset-${presetH}`}
+                              onClick={() =>
+                                setDrawerPlacement(
+                                  matchedDrawerBayIdx,
+                                  matchedDrawer!.id,
+                                  undefined,
+                                  presetH
+                                )
+                              }
+                              className={`py-1 rounded-lg font-mono text-xs font-bold transition cursor-pointer ${
+                                matchedDrawer!.height === presetH
+                                  ? "bg-blue-600 text-white shadow-xs"
+                                  : "bg-white hover:bg-blue-100/70 border border-blue-200 text-blue-900"
+                              }`}
+                            >
+                              {presetH}mm
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <div className="flex items-center justify-between bg-white px-2 py-1 rounded-lg border border-blue-200">
+                          <span className="text-xs font-semibold text-stone-600">
+                            Yükseklik (H):
+                          </span>
+                          <input
+                            type="number"
+                            data-testid="studio-selected-drawer-height-input"
+                            min={100}
+                            max={420}
+                            step={10}
+                            value={matchedDrawer.height}
+                            onChange={(e) =>
+                              setDrawerPlacement(
+                                matchedDrawerBayIdx,
+                                matchedDrawer!.id,
+                                undefined,
+                                Number(e.target.value)
+                              )
+                            }
+                            className="w-14 font-mono text-xs font-bold text-stone-900 text-right bg-transparent outline-none focus:ring-1 focus:ring-blue-500 rounded px-1"
+                          />
+                          <span className="text-xs text-stone-400">mm</span>
+                        </div>
+
+                        <div className="flex items-center justify-between bg-white px-2 py-1 rounded-lg border border-blue-200">
+                          <span className="text-xs font-semibold text-stone-600">
+                            Yerden (Y):
+                          </span>
+                          <input
+                            type="number"
+                            data-testid="studio-selected-drawer-elev-input"
+                            min={0}
+                            max={Math.max(0, netInnerHeightMm - matchedDrawer.height)}
+                            step={10}
+                            value={matchedDrawer.elevationY}
+                            onChange={(e) =>
+                              setDrawerPlacement(
+                                matchedDrawerBayIdx,
+                                matchedDrawer!.id,
+                                Number(e.target.value),
+                                undefined
+                              )
+                            }
+                            className="w-14 font-mono text-xs font-bold text-stone-900 text-right bg-transparent outline-none focus:ring-1 focus:ring-blue-500 rounded px-1"
+                          />
+                          <span className="text-xs text-stone-400">mm</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   <V3PremiumDropdown
                     label="Yalnızca Bu Parçanın Malzemesi"
                     testId="studio-selected-component-material-dropdown"

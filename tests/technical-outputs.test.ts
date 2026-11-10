@@ -5,6 +5,7 @@ import {
   exportCutListToCSV,
   generateAssemblyInstructions,
   generatePanelDXF,
+  exportAllPanelsDXF,
   generateSelcoExportPackage,
 } from "@birim/manufacturing";
 
@@ -36,10 +37,40 @@ describe("Professional Technical Outputs (CSV, DXF, Assembly, Selco)", () => {
     const piece = bom.cutList[0];
     const dxf = generatePanelDXF(piece);
 
+    const allDxf = exportAllPanelsDXF(bom);
+    expect(allDxf).toContain("SECTION");
+    expect(allDxf).toContain("PANEL_CONTOUR");
+
     expect(dxf).toContain("SECTION");
+    expect(dxf).toContain("$ACADVER");
+    expect(dxf).toContain("AC1015");
+    expect(dxf).toContain("BLOCK_RECORD");
+    expect(dxf).toContain("*Model_Space");
     expect(dxf).toContain("LWPOLYLINE");
     expect(dxf).toContain("PANEL_CONTOUR");
+    expect(dxf).toContain("AcDbPolyline");
+    expect(dxf).toContain("OBJECTS");
+    expect(dxf).toContain("DICTIONARY");
     expect(dxf).toContain("EOF");
+
+    // Verify paired group codes
+    const lines = dxf.replace(/\r\n/g, "\n").trim().split("\n");
+    expect(lines.length % 2).toBe(0);
+    for (let i = 0; i < lines.length; i += 2) {
+      const code = parseInt(lines[i].trim(), 10);
+      expect(Number.isInteger(code)).toBe(true);
+    }
+
+    // Verify all holes are strictly bounded within piece dimensions
+    const sidePiece = bom.cutList.find((p) => p.holes && p.holes.length > 0);
+    if (sidePiece && sidePiece.holes) {
+      for (const h of sidePiece.holes) {
+        expect(h.x).toBeGreaterThanOrEqual(0);
+        expect(h.x).toBeLessThanOrEqual(sidePiece.widthMm);
+        expect(h.y).toBeGreaterThanOrEqual(0);
+        expect(h.y).toBeLessThanOrEqual(sidePiece.lengthMm);
+      }
+    }
   });
 
   it("prepares Selco WNT 600 export package with clear UNVERIFIED markers", () => {

@@ -478,5 +478,14 @@ export function getTemplatesByFamily(familyId: ModuleFamilyId): V4ModuleTemplate
 }
 
 export function getV4TemplateById(templateId: string): V4ModuleTemplateDefinition | undefined {
-  return V4_MODULE_TEMPLATES.find((t) => t.templateId === templateId);
+  const direct = V4_MODULE_TEMPLATES.find((t) => t.templateId === templateId);
+  if (direct) return direct;
+  // Aliases for legacy/shorthand template IDs
+  const aliasMap: Record<string, string> = {
+    tpl_kt_01_single_door_pantry: "tpl_kt_01_pantry_shelved",
+    tpl_kt_03_space_tower: "tpl_kt_03_pantry_internal_drawers",
+    tpl_kb_04_three_drawer: "tpl_kb_05_three_drawers",
+  };
+  const alias = aliasMap[templateId];
+  return alias ? V4_MODULE_TEMPLATES.find((t) => t.templateId === alias) : undefined;
 }

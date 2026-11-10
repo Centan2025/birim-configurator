@@ -573,6 +573,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
     const [dragDropSnapBanner, setDragDropSnapBanner] = useState<string | null>(null);
     const [hovered3DObjectLabel, setHovered3DObjectLabel] = useState<string | null>(null);
     const [dismissedBayPopover, setDismissedBayPopover] = useState<boolean>(false);
+    const [isCtrlPressed, setIsCtrlPressed] = useState<boolean>(false);
 
     useEffect(() => {
       setDismissedBayPopover(false);
@@ -588,9 +589,41 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           setDismissedBayPopover(true);
           setDragDropSnapBanner(null);
         }
+        if (ev.key === "Control" || ev.key === "Meta" || ev.ctrlKey || ev.metaKey) {
+          setIsCtrlPressed(true);
+          const canvas = mountRef.current?.querySelector("canvas");
+          if (canvas) {
+            canvas.style.cursor = "move";
+          }
+        }
       };
+
+      const onKeyUp = (ev: KeyboardEvent) => {
+        if (ev.key === "Control" || ev.key === "Meta" || (!ev.ctrlKey && !ev.metaKey)) {
+          setIsCtrlPressed(false);
+          const canvas = mountRef.current?.querySelector("canvas");
+          if (canvas) {
+            canvas.style.cursor = "grab";
+          }
+        }
+      };
+
+      const onBlur = () => {
+        setIsCtrlPressed(false);
+        const canvas = mountRef.current?.querySelector("canvas");
+        if (canvas) {
+          canvas.style.cursor = "grab";
+        }
+      };
+
       window.addEventListener("keydown", onKeyDown);
-      return () => window.removeEventListener("keydown", onKeyDown);
+      window.addEventListener("keyup", onKeyUp);
+      window.addEventListener("blur", onBlur);
+      return () => {
+        window.removeEventListener("keydown", onKeyDown);
+        window.removeEventListener("keyup", onKeyUp);
+        window.removeEventListener("blur", onBlur);
+      };
     }, []);
     const hemiLightRef = useRef<THREE.HemisphereLight | null>(null);
     const keyLightRef = useRef<THREE.DirectionalLight | null>(null);
@@ -1547,6 +1580,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             hasMoved: false,
           };
           curControls.enabled = false;
+          curRenderer.domElement.style.cursor = "grabbing";
           e.stopImmediatePropagation();
           return;
         }
@@ -1577,6 +1611,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           hasMoved: false,
         };
         curControls.enabled = false;
+        curRenderer.domElement.style.cursor = "grabbing";
         e.stopImmediatePropagation();
       };
 
@@ -1612,15 +1647,17 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       let currentHoveredMesh: THREE.Mesh | null = null;
 
       const handlePointerMove = (e: PointerEvent) => {
+        const curRenderer = rendererRef.current;
+        if (!curRenderer) return;
+
         if (!activeDrag3D) {
           const now = performance.now();
           if (now - lastHoverCheckTime < 24) return;
           lastHoverCheckTime = now;
 
-          const curRenderer = rendererRef.current;
           const curGroup = meshGroupRef.current;
           const curCam = (controlsRef.current?.object as THREE.Camera) || perspCamRef.current;
-          if (!curRenderer || !curGroup || !curCam) return;
+          if (!curGroup || !curCam) return;
 
           const rect = curRenderer.domElement.getBoundingClientRect();
           if (
@@ -1633,7 +1670,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               currentHoveredMesh = null;
               hoverOverlayGroup.visible = false;
               setHovered3DObjectLabel(null);
-              curRenderer.domElement.style.cursor = "grab";
+              curRenderer.domElement.style.cursor = (e.ctrlKey || e.metaKey || isCtrlPressed) ? "move" : "grab";
               needsRenderRef.current = true;
             }
             return;
@@ -1700,17 +1737,18 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                   ? `Bölme ${hitMesh.userData.bayIndex + 1} • `
                   : "";
               setHovered3DObjectLabel(`${bayTxt}${partLabel}${dimsTxt}`);
-              curRenderer.domElement.style.cursor = "pointer";
+              curRenderer.domElement.style.cursor = (e.ctrlKey || e.metaKey || isCtrlPressed) ? "move" : "pointer";
             } else {
               hoverOverlayGroup.visible = false;
               setHovered3DObjectLabel(null);
-              curRenderer.domElement.style.cursor = "grab";
+              curRenderer.domElement.style.cursor = (e.ctrlKey || e.metaKey || isCtrlPressed) ? "move" : "grab";
             }
             needsRenderRef.current = true;
           }
           return;
         }
         hoverOverlayGroup.visible = false;
+        curRenderer.domElement.style.cursor = "grabbing";
         const dxPx = e.clientX - activeDrag3D.startClientX;
         const dyPx = e.clientY - activeDrag3D.startClientY;
         if (!activeDrag3D.hasMoved && Math.hypot(dxPx, dyPx) < 4) return;
@@ -1970,6 +2008,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       };
 
       const handlePointerUp = (e: PointerEvent) => {
+        const curRenderer = rendererRef.current;
         const curControls = controlsRef.current;
         if (curControls) curControls.enabled = true;
 
@@ -1980,6 +2019,9 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           const dragStartX = activeDrag3D.startValueMm;
           activeDrag3D = null;
           setActive3DSnap(null);
+          if (curRenderer) {
+            curRenderer.domElement.style.cursor = (e.ctrlKey || e.metaKey || isCtrlPressed) ? "move" : "grab";
+          }
           if (dragKind === "module_3d" || dragKind === "obstacle_3d") {
             if (ghostSnapGroupRef.current) {
               ghostSnapGroupRef.current.clear();
@@ -2003,7 +2045,6 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         }
 
         if (Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y) > 16) return;
-        const curRenderer = rendererRef.current;
         const curGroup = meshGroupRef.current;
         if (!curRenderer || !curGroup) return;
 
@@ -4271,10 +4312,19 @@ const clear3DGhostPreview = useCallback(() => {
             <span>🎯 Seçilecek Obje: {hovered3DObjectLabel}</span>
           </div>
         )}
+        {isCtrlPressed && (
+          <div
+            data-testid="ctrl-move-part-badge"
+            className="absolute top-4 left-1/2 -translate-x-1/2 z-20 px-3.5 py-1.5 bg-amber-500/95 backdrop-blur-md text-stone-950 font-bold text-xs rounded-full shadow-lg flex items-center gap-2 pointer-events-none ring-2 ring-amber-300 animate-pulse select-none"
+          >
+            <span className="text-sm font-black">✥</span>
+            <span>İç Parça Taşıma Modu (Ctrl Aktif)</span>
+          </div>
+        )}
         <div
           ref={mountRef}
           data-testid="v3-three-canvas"
-          className="w-full h-full cursor-grab active:cursor-grabbing"
+          className={`w-full h-full ${isCtrlPressed ? "cursor-move" : "cursor-grab active:cursor-grabbing"}`}
         />
 
         {/* INTERACTIVE CLICK-TO-EDIT 3D DIMENSION CALLOUT PILLS & FLOATING POPOVER WINDOW */}

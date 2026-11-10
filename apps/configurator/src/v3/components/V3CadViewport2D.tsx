@@ -149,8 +149,11 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
     const [elevDraggingMod, setElevDraggingMod] = useState<{
       modIdx: number;
       startClientX: number;
+      startClientY: number;
       startModX: number;
+      startModY: number;
       mmPerPxX: number;
+      mmPerPxY: number;
     } | null>(null);
     const [elevResizingMod, setElevResizingMod] = useState<{
       modIdx: number;
@@ -6033,13 +6036,21 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       ...project.modules.map((m) => m.position.x + m.dimensions.width),
       ...spaceObstacles.map((o) => o.position.x + o.dimensions.width)
     );
+    const floorSvgY = breakdown.overall.height + activeModOffY;
+    const maxWorldTopY = Math.max(
+      ceilingH,
+      ...project.modules.map((m) => m.position.y + m.dimensions.height),
+      ...spaceObstacles.map((o) => o.position.y + o.dimensions.height)
+    );
+    const minSvgY = floorSvgY - maxWorldTopY - padY;
+    const totalElevH = maxWorldTopY + padY * 2;
     const computedElevVb =
       mode === "elevation" && showRoomContextInElev
         ? {
             x: -activeModOffX - padX,
-            y: breakdown.overall.height + activeModOffY - ceilingH - padY,
+            y: minSvgY,
             width: maxWallSpanX + padX * 2,
-            height: ceilingH + padY * 2,
+            height: totalElevH,
           }
         : {
             x: -padX,
@@ -6140,11 +6151,16 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       }
       if (elevDraggingMod) {
         const dxMm = (e.clientX - elevDraggingMod.startClientX) * elevDraggingMod.mmPerPxX;
+        const dyMm = -(e.clientY - elevDraggingMod.startClientY) * elevDraggingMod.mmPerPxY;
         const rawNextX = Math.max(0, elevDraggingMod.startModX + dxMm);
         const snappedX = magnetEnabled && !e.altKey ? Math.round(rawNextX / 10) * 10 : Math.round(rawNextX);
         const targetMod = project.modules[elevDraggingMod.modIdx];
         if (targetMod) {
-          setModulePosition(elevDraggingMod.modIdx, snappedX, targetMod.position.z, 1);
+          const ceilingH = project.space.ceilingHeight || 2600;
+          const maxY = Math.max(0, ceilingH - targetMod.dimensions.height);
+          const rawNextY = Math.max(0, Math.min(maxY, elevDraggingMod.startModY + dyMm));
+          const snappedY = magnetEnabled && !e.altKey ? Math.round(rawNextY / 10) * 10 : Math.round(rawNextY);
+          setModulePosition(elevDraggingMod.modIdx, snappedX, targetMod.position.z, 1, snappedY);
         }
         return;
       }
@@ -6737,6 +6753,33 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   >
                     ⇄ Sağla Değiştir
                   </button>
+                </div>
+              )}
+
+              {hasSceneModules && (
+                <div className="flex items-center gap-1.5 bg-white px-2 py-0.5 rounded-lg border border-stone-300 text-[11px]">
+                  <span className="font-bold text-stone-700">Kot (Y):</span>
+                  <input
+                    type="number"
+                    step={50}
+                    value={activeModule.position.y}
+                    onChange={(e) => {
+                      const newY = Math.max(0, Number(e.target.value) || 0);
+                      setModulePosition(activeModuleIndex, activeModule.position.x, activeModule.position.z, 1, newY);
+                    }}
+                    className="w-14 px-1 py-0.5 rounded bg-slate-50 border border-slate-300 text-stone-900 font-mono text-[11px] font-bold"
+                  />
+                  <span className="text-[10px] text-stone-500">mm</span>
+                  {activeModule.position.y > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setModulePosition(activeModuleIndex, activeModule.position.x, activeModule.position.z, 1, 0)}
+                      className="px-1.5 py-0.5 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[10px] font-bold cursor-pointer"
+                      title="Zemine İndir (Kot Y = 0)"
+                    >
+                      ⬇ Zemine İndir
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -7359,16 +7402,19 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       setElevDraggingMod({
                         modIdx: activeModuleIndex,
                         startClientX: e.clientX,
+                        startClientY: e.clientY,
                         startModX: activeModule.position.x,
+                        startModY: activeModule.position.y,
                         mmPerPxX: scale.x,
+                        mmPerPxY: scale.y,
                       });
                     }}
                     className="cursor-grab active:cursor-grabbing"
                   >
                     <rect
-                      x={breakdown.overall.width / 2 - 220}
+                      x={breakdown.overall.width / 2 - 240}
                       y={-125}
-                      width={440}
+                      width={480}
                       height={46}
                       rx={12}
                       fill="#B45309"
@@ -7384,7 +7430,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       fontWeight="900"
                       fontFamily="monospace"
                     >
-                      {`★ SEÇİLİ #${activeModuleIndex + 1}: ${activeModule.name} (✋ Taşı)`}
+                      {`★ SEÇİLİ #${activeModuleIndex + 1}: ${activeModule.name} (✋ Taşı: X & Kot Y)`}
                     </text>
                   </g>
                 </g>
@@ -7411,8 +7457,11 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         setElevDraggingMod({
                           modIdx: mIdx,
                           startClientX: e.clientX,
+                          startClientY: e.clientY,
                           startModX: m.position.x,
+                          startModY: m.position.y,
                           mmPerPxX: scale.x,
+                          mmPerPxY: scale.y,
                         });
                       }}
                       className="cursor-grab active:cursor-grabbing opacity-90 hover:opacity-100 transition-opacity"
@@ -7740,6 +7789,20 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       startValueMm: dragMeta.startVal,
                       startElevY: dragMeta.startElevY,
                       itemHeightMm: dragMeta.itemHeightMm,
+                    });
+                  } else if (!dragMeta && mode === "elevation" && e.button === 0 && !elevPanMode && !e.altKey) {
+                    e.stopPropagation();
+                    const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
+                    const scale = svgEl ? getElevScaleMmPerPx(svgEl) : { x: 4, y: 4 };
+                    beginHistoryTransaction();
+                    setElevDraggingMod({
+                      modIdx: activeModuleIndex,
+                      startClientX: e.clientX,
+                      startClientY: e.clientY,
+                      startModX: activeModule.position.x,
+                      startModY: activeModule.position.y,
+                      mmPerPxX: scale.x,
+                      mmPerPxY: scale.y,
                     });
                   }
                 }}

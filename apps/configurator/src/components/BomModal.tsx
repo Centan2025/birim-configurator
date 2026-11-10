@@ -406,7 +406,7 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
               <div className="p-3 bg-slate-950 border border-indigo-500/40 rounded-xl flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <span className="font-bold text-slate-100 block">
-                    📐 AutoCAD / CNC Parça Kesim ve Delik Çizimleri (.DXF — AC1009 / mm)
+                    📐 AutoCAD / CNC Parça Kesim ve Delik Çizimleri (.DXF — AutoCAD AC1015 / mm)
                   </span>
                   <span className="text-[11px] text-slate-400">
                     Her parçanın bitmiş ebadı (PANEL_CONTOUR), bant düşümlü net kesim ebadı (NET_CUT_CONTOUR), 8mm arkalık kanalı (BACK_GROOVE_8MM) ve delik eksenleri ayrı katmanlarda (LAYER) yer alır.

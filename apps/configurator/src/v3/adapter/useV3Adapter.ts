@@ -848,7 +848,7 @@ export function useV3Adapter() {
    * Move a specific module to an exact X, Z position in the room (with optional snap)
    */
   const setModulePosition = useCallback(
-    (modIdx: number, x: number, z: number, snapMm = 50) => {
+    (modIdx: number, x: number, z: number, snapMm = 50, y?: number) => {
       const snappedX = snapMm > 0 ? Math.round(x / snapMm) * snapMm : Math.round(x);
       const snappedZ = snapMm > 0 ? Math.round(z / snapMm) * snapMm : Math.round(z);
       const curState = useConfiguratorStore.getState();
@@ -865,12 +865,17 @@ export function useV3Adapter() {
         .reduce((maxW, m) => Math.max(maxW, m.dimensions.width), 0);
       const clampedX = Math.max(leftAttWidth, snappedX);
       const clampedZ = Math.max(0, snappedZ);
+      const clampedY =
+        typeof y === "number"
+          ? Math.max(0, snapMm > 0 ? Math.round(y / snapMm) * snapMm : Math.round(y))
+          : target.position.y;
       const dx = clampedX - target.position.x;
       const dz = clampedZ - target.position.z;
-      if (dx === 0 && dz === 0) return;
+      const dy = clampedY - target.position.y;
+      if (dx === 0 && dz === 0 && dy === 0) return;
       const nextMods = curProj.modules.map((m, idx) => {
         if (idx === modIdx) {
-          return { ...m, position: { ...m.position, x: clampedX, z: clampedZ } };
+          return { ...m, position: { ...m.position, x: clampedX, y: clampedY, z: clampedZ } };
         }
         if (m.category === "complementary" && m.id.startsWith(attachedPrefix)) {
           return {
@@ -878,6 +883,7 @@ export function useV3Adapter() {
             position: {
               ...m.position,
               x: Math.max(0, m.position.x + dx),
+              y: Math.max(0, m.position.y + dy),
               z: Math.max(0, m.position.z + dz),
             },
           };
@@ -1932,11 +1938,37 @@ export function useV3Adapter() {
     const state = useConfiguratorStore.getState();
     const curProj = state.project;
     const lastMod = curProj.modules[curProj.modules.length - 1];
-    const nextX = appendToProject && lastMod ? lastMod.position.x + lastMod.dimensions.width : 0;
     const newMod = tpl.createInstance(`mod_${Date.now()}`);
-    newMod.position = { ...newMod.position, x: nextX };
 
-    const nextModules = appendToProject ? [...curProj.modules, newMod] : [newMod];
+    let nextModules: ModuleInstance[];
+    let targetIndex = 0;
+
+    if (appendToProject || curProj.modules.length === 0) {
+      const nextX = lastMod ? lastMod.position.x + lastMod.dimensions.width : 0;
+      newMod.position = { ...newMod.position, x: nextX };
+      nextModules = [...curProj.modules, newMod];
+      targetIndex = nextModules.length - 1;
+    } else {
+      targetIndex = Math.max(0, Math.min(curProj.modules.length - 1, state.activeModuleIndex ?? 0));
+      const targetMod = curProj.modules[targetIndex];
+      newMod.id = targetMod.id;
+      // Retain horizontal X and Z placement, but determine Y (elevation) based on new template family:
+      // Wall cabinets sit at wall elevation (1450 or previous if already wall), base/tall/wardrobe sit on floor (0).
+      const newY =
+        tpl.familyId === "fam_kitchen_wall"
+          ? targetMod.moduleFamilyId === "fam_kitchen_wall"
+            ? targetMod.position.y
+            : 1450
+          : 0;
+      newMod.position = {
+        ...newMod.position,
+        x: targetMod.position.x,
+        y: newY,
+        z: targetMod.position.z,
+      };
+      nextModules = curProj.modules.map((m, idx) => (idx === targetIndex ? newMod : m));
+    }
+
     const nextProj = {
       ...curProj,
       version: (curProj.version || 1) + 1,
@@ -1951,7 +1983,7 @@ export function useV3Adapter() {
       history: [...state.history.slice(-15), curProj],
       future: [],
       project: nextProj,
-      activeModuleIndex: nextModules.length - 1,
+      activeModuleIndex: targetIndex,
       activeBayIndex: 0,
       doorOpenAngleDeg: 0,
       drawerOpenMm: 0,

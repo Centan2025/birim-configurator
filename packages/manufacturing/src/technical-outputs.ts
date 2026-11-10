@@ -4,6 +4,11 @@ import {
   ModuleInstance,
   createDefaultWardrobeModule,
 } from "@birim/core";
+import {
+  DXF_AC1015_HEADER,
+  DXF_AC1015_FOOTER,
+  DXF_MODEL_SPACE_OWNER_HANDLE,
+} from "./dxf-template";
 
 export interface AssemblyStep {
   stepNumber: number;
@@ -137,197 +142,237 @@ function sanitizeAsciiDxfText(input: string): string {
     .replace(/[^\x20-\x7E]/g, " ");
 }
 
-function buildDxfHeaderAndLayerTables(): string {
-  const layers: { name: string; color: number }[] = [
-    { name: "0", color: 7 },
-    { name: "PANEL_CONTOUR", color: 7 },
-    { name: "NET_CUT_CONTOUR", color: 3 },
-    { name: "BACK_GROOVE_8MM", color: 6 },
-    { name: "CUTOUT_SINK_HOB", color: 1 },
-    { name: "DRILLING", color: 4 },
-    { name: "BORE_35MM", color: 1 },
-    { name: "CAM_15MM", color: 2 },
-    { name: "DRILL_8MM", color: 3 },
-    { name: "DRILL_5MM", color: 5 },
-    { name: "HARDWARE_AXIS", color: 8 },
-    { name: "PART_LABELS", color: 2 },
-    { name: "SHEET_BORDER", color: 8 },
-  ];
+class DxfWriter {
+  private handle = 0x1000;
+  private entities: string[] = [];
 
-  const lines: string[] = [
-    "0",
-    "SECTION",
-    "2",
-    "HEADER",
-    "9",
-    "$ACADVER",
-    "1",
-    "AC1009",
-    "9",
-    "$INSUNITS",
-    "70",
-    "4",
-    "0",
-    "ENDSEC",
-    "0",
-    "SECTION",
-    "2",
-    "TABLES",
-    "0",
-    "TABLE",
-    "2",
-    "LTYPE",
-    "70",
-    "1",
-    "0",
-    "LTYPE",
-    "2",
-    "CONTINUOUS",
-    "70",
-    "0",
-    "3",
-    "Solid line",
-    "72",
-    "65",
-    "73",
-    "0",
-    "40",
-    "0.0",
-    "0",
-    "ENDTAB",
-    "0",
-    "TABLE",
-    "2",
-    "LAYER",
-    "70",
-    String(layers.length),
-  ];
+  nextHandle(): string {
+    return (this.handle++).toString(16).toUpperCase();
+  }
 
-  for (const lay of layers) {
-    lines.push(
-      "0",
-      "LAYER",
-      "2",
-      lay.name,
-      "70",
-      "0",
-      "62",
-      String(lay.color),
-      "6",
-      "CONTINUOUS"
+  addPolyline(layer: string, points: [number, number][], closed = true): void {
+    const h = this.nextHandle();
+    const lines = [
+      "  0",
+      "LWPOLYLINE",
+      "  5",
+      h,
+      "330",
+      DXF_MODEL_SPACE_OWNER_HANDLE,
+      "100",
+      "AcDbEntity",
+      "  8",
+      layer,
+      "100",
+      "AcDbPolyline",
+      " 90",
+      String(points.length),
+      " 70",
+      closed ? "1" : "0",
+    ];
+    for (const [x, y] of points) {
+      lines.push(" 10", Number(x.toFixed(2)).toString(), " 20", Number(y.toFixed(2)).toString());
+    }
+    this.entities.push(lines.join("\r\n") + "\r\n");
+  }
+
+  addRect(layer: string, x0: number, y0: number, w: number, h: number): void {
+    const x1 = Number(x0.toFixed(2));
+    const y1 = Number(y0.toFixed(2));
+    const x2 = Number((x0 + w).toFixed(2));
+    const y2 = Number((y0 + h).toFixed(2));
+    this.addPolyline(
+      layer,
+      [
+        [x1, y1],
+        [x2, y1],
+        [x2, y2],
+        [x1, y2],
+      ],
+      true
     );
   }
 
-  lines.push(
-    "0",
-    "ENDTAB",
-    "0",
-    "ENDSEC",
-    "0",
-    "SECTION",
-    "2",
-    "BLOCKS",
-    "0",
-    "ENDSEC",
-    "0",
-    "SECTION",
-    "2",
-    "ENTITIES"
-  );
+  addLine(layer: string, x1: number, y1: number, x2: number, y2: number): void {
+    const h = this.nextHandle();
+    const lines = [
+      "  0",
+      "LINE",
+      "  5",
+      h,
+      "330",
+      DXF_MODEL_SPACE_OWNER_HANDLE,
+      "100",
+      "AcDbEntity",
+      "  8",
+      layer,
+      "100",
+      "AcDbLine",
+      " 10",
+      Number(x1.toFixed(2)).toString(),
+      " 20",
+      Number(y1.toFixed(2)).toString(),
+      " 30",
+      "0.0",
+      " 11",
+      Number(x2.toFixed(2)).toString(),
+      " 21",
+      Number(y2.toFixed(2)).toString(),
+      " 31",
+      "0.0",
+    ];
+    this.entities.push(lines.join("\r\n") + "\r\n");
+  }
 
-  return lines.join("\r\n") + "\r\n";
+  addCircle(layer: string, cx: number, cy: number, radius: number): void {
+    const h = this.nextHandle();
+    const lines = [
+      "  0",
+      "CIRCLE",
+      "  5",
+      h,
+      "330",
+      DXF_MODEL_SPACE_OWNER_HANDLE,
+      "100",
+      "AcDbEntity",
+      "  8",
+      layer,
+      "100",
+      "AcDbCircle",
+      " 10",
+      Number(cx.toFixed(2)).toString(),
+      " 20",
+      Number(cy.toFixed(2)).toString(),
+      " 30",
+      "0.0",
+      " 40",
+      Number(radius.toFixed(2)).toString(),
+    ];
+    this.entities.push(lines.join("\r\n") + "\r\n");
+  }
+
+  addText(
+    layer: string,
+    x: number,
+    y: number,
+    heightMm: number,
+    text: string,
+    rotationDeg = 0
+  ): void {
+    const clean = sanitizeAsciiDxfText(text);
+    const h = this.nextHandle();
+    const lines = [
+      "  0",
+      "TEXT",
+      "  5",
+      h,
+      "330",
+      DXF_MODEL_SPACE_OWNER_HANDLE,
+      "100",
+      "AcDbEntity",
+      "  8",
+      layer,
+      "100",
+      "AcDbText",
+      " 10",
+      Number(x.toFixed(2)).toString(),
+      " 20",
+      Number(y.toFixed(2)).toString(),
+      " 30",
+      "0.0",
+      " 40",
+      Number(heightMm.toFixed(2)).toString(),
+      "  1",
+      clean,
+    ];
+    if (rotationDeg !== 0) {
+      lines.push(" 50", Number(rotationDeg.toFixed(2)).toString());
+    }
+    lines.push("100", "AcDbText");
+    this.entities.push(lines.join("\r\n") + "\r\n");
+  }
+
+  toDxf(): string {
+    const nextHex = (this.handle + 16).toString(16).toUpperCase();
+    const header = DXF_AC1015_HEADER.replace(
+      /\$HANDSEED\r?\n\s*5\r?\n[0-9A-Fa-f]+/,
+      `$HANDSEED\r\n  5\r\n${nextHex}`
+    );
+
+    return (
+      header +
+      this.entities.join("") +
+      "  0\r\nENDSEC\r\n" +
+      DXF_AC1015_FOOTER
+    );
+  }
 }
 
-function dxfRectEntities(
-  layer: string,
-  x0: number,
-  y0: number,
-  w: number,
-  h: number
-): string {
-  const x1 = Number(x0.toFixed(2));
-  const y1 = Number(y0.toFixed(2));
-  const x2 = Number((x0 + w).toFixed(2));
-  const y2 = Number((y0 + h).toFixed(2));
-
-  // Emit both LWPOLYLINE (for modern CAD/test parsers) AND 4 closed LINE segments (for strict R12 CNC postprocessors)
-  const segments = [
-    `0\r\nLWPOLYLINE\r\n8\r\n${layer}\r\n90\r\n4\r\n70\r\n1\r\n10\r\n${x1}\r\n20\r\n${y1}\r\n10\r\n${x2}\r\n20\r\n${y1}\r\n10\r\n${x2}\r\n20\r\n${y2}\r\n10\r\n${x1}\r\n20\r\n${y2}\r\n`,
-    `0\r\nLINE\r\n8\r\n${layer}\r\n10\r\n${x1}\r\n20\r\n${y1}\r\n30\r\n0.0\r\n11\r\n${x2}\r\n21\r\n${y1}\r\n31\r\n0.0\r\n`,
-    `0\r\nLINE\r\n8\r\n${layer}\r\n10\r\n${x2}\r\n20\r\n${y1}\r\n30\r\n0.0\r\n11\r\n${x2}\r\n21\r\n${y2}\r\n31\r\n0.0\r\n`,
-    `0\r\nLINE\r\n8\r\n${layer}\r\n10\r\n${x2}\r\n20\r\n${y2}\r\n30\r\n0.0\r\n11\r\n${x1}\r\n21\r\n${y2}\r\n31\r\n0.0\r\n`,
-    `0\r\nLINE\r\n8\r\n${layer}\r\n10\r\n${x1}\r\n20\r\n${y2}\r\n30\r\n0.0\r\n11\r\n${x1}\r\n21\r\n${y1}\r\n31\r\n0.0\r\n`,
-  ];
-  return segments.join("");
-}
-
-function dxfTextEntity(
-  layer: string,
-  x: number,
-  y: number,
-  heightMm: number,
-  text: string
-): string {
-  const clean = sanitizeAsciiDxfText(text);
-  return `0\r\nTEXT\r\n8\r\n${layer}\r\n10\r\n${Number(x.toFixed(2))}\r\n20\r\n${Number(
-    y.toFixed(2)
-  )}\r\n30\r\n0.0\r\n40\r\n${heightMm}\r\n1\r\n${clean}\r\n`;
-}
-
-function renderSinglePieceEntitiesAtOffset(
+function renderSinglePieceEntities(
+  writer: DxfWriter,
   piece: CutPiece,
   offsetX: number,
   offsetY: number
-): string {
-  const w = piece.lengthMm;
-  const h = piece.widthMm;
-  const netW = piece.netCutLengthMm ?? w;
-  const netH = piece.netCutWidthMm ?? h;
-
-  let dxf = "";
+): void {
+  // In the Parametric / Manufacturing coordinate system:
+  // piece.widthMm (En) is the horizontal dimension along the X-axis.
+  // piece.lengthMm (Boy) is the vertical dimension along the Y-axis.
+  // All hole coordinates (hole.x, hole.y) are calculated in this exact local coordinate system.
+  const w = piece.widthMm;
+  const h = piece.lengthMm;
+  const netW = piece.netCutWidthMm ?? w;
+  const netH = piece.netCutLengthMm ?? h;
 
   // 1. Finished panel perimeter rectangle (PANEL_CONTOUR)
-  dxf += dxfRectEntities("PANEL_CONTOUR", offsetX, offsetY, w, h);
+  writer.addRect("PANEL_CONTOUR", offsetX, offsetY, w, h);
 
   // 2. Saw net-cut perimeter if edge banding deduction applies (NET_CUT_CONTOUR)
   if (netW !== w || netH !== h) {
-    dxf += dxfRectEntities("NET_CUT_CONTOUR", offsetX, offsetY, netW, netH);
+    writer.addRect("NET_CUT_CONTOUR", offsetX, offsetY, netW, netH);
   }
 
   // 3. CNC Sink / Cooktop Cut-out (CUTOUT_SINK_HOB) on Countertop panels
-  if (piece.componentRole === "countertop" && w >= 600 && h >= 550) {
-    const cutW = Math.min(560, w - 120);
-    const cutH = Math.min(480, h - 100);
+  if (piece.componentRole === "countertop" && (w >= 550 || h >= 550)) {
+    const longDim = Math.max(w, h);
+    const shortDim = Math.min(w, h);
+    const cutLong = Math.min(560, longDim - 120);
+    const cutShort = Math.min(480, shortDim - 100);
+    const cutW = w >= h ? cutLong : cutShort;
+    const cutH = w >= h ? cutShort : cutLong;
     const cx0 = offsetX + Math.round((w - cutW) / 2);
     const cy0 = offsetY + Math.round((h - cutH) / 2);
-    dxf += dxfRectEntities("CUTOUT_SINK_HOB", cx0, cy0, cutW, cutH);
+    writer.addRect("CUTOUT_SINK_HOB", cx0, cy0, cutW, cutH);
   }
 
   // 4. 8mm back panel groove on carcass side/top/bottom panels (BACK_GROOVE_8MM)
   if (
     piece.componentRole === "carcass_side_left" ||
-    piece.componentRole === "carcass_side_right" ||
+    piece.componentRole === "carcass_side_right"
+  ) {
+    // Back groove on side panels runs vertically along the full height (h), 20mm from back edge
+    const grooveX = Math.max(12, w - 20);
+    writer.addRect("BACK_GROOVE_8MM", offsetX + grooveX, offsetY, 8, h);
+  } else if (
     piece.componentRole === "carcass_top" ||
     piece.componentRole === "carcass_bottom"
   ) {
-    const grooveOffset = Math.max(12, h - 20);
-    dxf += dxfRectEntities(
-      "BACK_GROOVE_8MM",
-      offsetX,
-      offsetY + grooveOffset,
-      w,
-      8
-    );
+    // Back groove on top/bottom panels runs horizontally along the full width (w), 20mm from back edge
+    const grooveY = Math.max(12, h - 20);
+    writer.addRect("BACK_GROOVE_8MM", offsetX, offsetY + grooveY, w, 8);
   }
 
   // 5. Part Name, ID, Net Cut Dimensions & Edge Banding Text Annotation (PART_LABELS)
-  const labelY = offsetY + Math.max(20, Math.min(h / 2, h - 35));
-  dxf += dxfTextEntity(
+  const isNarrow = w < 280 && h >= 400;
+  const labelX = isNarrow ? offsetX + Math.max(16, w / 2 - 4) : offsetX + 18;
+  const labelY = isNarrow ? offsetY + 40 : offsetY + Math.max(20, Math.min(h / 2, h - 35));
+  const rotationDeg = isNarrow ? 90 : 0;
+  writer.addText(
     "PART_LABELS",
-    offsetX + 18,
+    labelX,
     labelY,
-    Math.min(22, Math.max(10, Math.round(h * 0.045))),
-    `${piece.pieceName} [${piece.id}] - Bitmis: ${w}x${h}x${piece.thicknessMm}mm | Net Kesim: ${netW}x${netH}mm`
+    Math.min(20, Math.max(10, Math.round(Math.min(w, h) * 0.045))),
+    `${piece.pieceName} [${piece.id}] - Bitmis: ${piece.lengthMm}x${piece.widthMm}x${piece.thicknessMm}mm`,
+    rotationDeg
   );
 
   // 6. Drilling holes on both generic DRILLING layer and tool-specific CNC layer
@@ -345,59 +390,55 @@ function renderSinglePieceEntitiesAtOffset(
       const hy = Number((offsetY + hole.y).toFixed(2));
       const rad = Number((hole.diameter / 2).toFixed(2));
 
-      dxf += `0\r\nCIRCLE\r\n8\r\nDRILLING\r\n10\r\n${hx}\r\n20\r\n${hy}\r\n30\r\n0.0\r\n40\r\n${rad}\r\n`;
-      dxf += `0\r\nCIRCLE\r\n8\r\n${toolLayer}\r\n10\r\n${hx}\r\n20\r\n${hy}\r\n30\r\n0.0\r\n40\r\n${rad}\r\n`;
+      writer.addCircle("DRILLING", hx, hy, rad);
+      writer.addCircle(toolLayer, hx, hy, rad);
 
       if (hole.purpose === "hinge_cup" || hole.purpose === "hinge_mount") {
         const r = rad + 4;
-        dxf += `0\r\nLINE\r\n8\r\nHARDWARE_AXIS\r\n10\r\n${hx - r}\r\n20\r\n${hy}\r\n30\r\n0.0\r\n11\r\n${hx + r}\r\n21\r\n${hy}\r\n31\r\n0.0\r\n`;
-        dxf += `0\r\nLINE\r\n8\r\nHARDWARE_AXIS\r\n10\r\n${hx}\r\n20\r\n${hy - r}\r\n30\r\n0.0\r\n11\r\n${hx}\r\n21\r\n${hy + r}\r\n31\r\n0.0\r\n`;
+        writer.addLine("HARDWARE_AXIS", hx - r, hy, hx + r, hy);
+        writer.addLine("HARDWARE_AXIS", hx, hy - r, hx, hy + r);
       }
     });
   }
-
-  return dxf;
 }
 
 /**
- * Generates an AutoCAD R12/LT2 & CNC compatible 2D DXF contour ($INSUNITS = 4 mm) for a single panel
+ * Generates an AutoCAD (2000-2026/LT) & CNC compatible 2D DXF ($ACADVER = AC1015, $INSUNITS = 4 mm) for a single panel
  * with layered CNC drilling hole circles (`BORE_35MM`, `CAM_15MM`, `DRILL_8MM`, `DRILL_5MM`, `DRILLING`),
  * net saw-cut contour (`NET_CUT_CONTOUR`), back groove (`BACK_GROOVE_8MM`), and part label (`PART_LABELS`).
  */
 export function generatePanelDXF(piece: CutPiece): string {
-  let dxf = buildDxfHeaderAndLayerTables();
-  dxf += renderSinglePieceEntitiesAtOffset(piece, 0, 0);
-  dxf += "0\r\nENDSEC\r\n0\r\nEOF\r\n";
-  return dxf;
+  const writer = new DxfWriter();
+  renderSinglePieceEntities(writer, piece, 0, 0);
+  return writer.toDxf();
 }
 
 /**
  * Generates a combined multi-panel DXF cutlist & CNC drilling layout of all panels in the BOM.
  */
 export function exportAllPanelsDXF(bom: ManufacturingBOM): string {
-  let dxf = buildDxfHeaderAndLayerTables();
+  const writer = new DxfWriter();
 
   let cursorX = 0;
   let cursorY = 0;
   let rowMaxH = 0;
 
   bom.cutList.forEach((piece) => {
-    const w = piece.lengthMm;
-    const h = piece.widthMm;
+    const w = piece.widthMm;
+    const h = piece.lengthMm;
     if (cursorX > 0 && cursorX + w > 5600) {
       cursorX = 0;
       cursorY += rowMaxH + 180;
       rowMaxH = 0;
     }
 
-    dxf += renderSinglePieceEntitiesAtOffset(piece, cursorX, cursorY);
+    renderSinglePieceEntities(writer, piece, cursorX, cursorY);
 
     cursorX += w + 140;
     if (h > rowMaxH) rowMaxH = h;
   });
 
-  dxf += "0\r\nENDSEC\r\n0\r\nEOF\r\n";
-  return dxf;
+  return writer.toDxf();
 }
 
 /**
@@ -405,7 +446,7 @@ export function exportAllPanelsDXF(bom: ManufacturingBOM): string {
  * so the beam saw / panel sizing operator can open the exact board cutting layout in AutoCAD/CAD-CAM.
  */
 export function exportNestingSheetsDXF(bom: ManufacturingBOM): string {
-  let dxf = buildDxfHeaderAndLayerTables();
+  const writer = new DxfWriter();
   let sheetCursorY = 0;
 
   bom.nestingResults.forEach((nestRes) => {
@@ -414,8 +455,8 @@ export function exportNestingSheetsDXF(bom: ManufacturingBOM): string {
       const boardH = 2070;
 
       // Raw 2800x2070 sheet border
-      dxf += dxfRectEntities("SHEET_BORDER", 0, sheetCursorY, boardW, boardH);
-      dxf += dxfTextEntity(
+      writer.addRect("SHEET_BORDER", 0, sheetCursorY, boardW, boardH);
+      writer.addText(
         "PART_LABELS",
         20,
         sheetCursorY + boardH + 28,
@@ -428,8 +469,8 @@ export function exportNestingSheetsDXF(bom: ManufacturingBOM): string {
         const py = sheetCursorY + placed.y;
         const pw = placed.width;
         const pl = placed.length;
-        dxf += dxfRectEntities("PANEL_CONTOUR", px, py, pw, pl);
-        dxf += dxfTextEntity(
+        writer.addRect("PANEL_CONTOUR", px, py, pw, pl);
+        writer.addText(
           "PART_LABELS",
           px + 12,
           py + Math.max(16, Math.min(pl / 2, pl - 20)),
@@ -442,8 +483,7 @@ export function exportNestingSheetsDXF(bom: ManufacturingBOM): string {
     });
   });
 
-  dxf += "0\r\nENDSEC\r\n0\r\nEOF\r\n";
-  return dxf;
+  return writer.toDxf();
 }
 
 // ============================================================================
