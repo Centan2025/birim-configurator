@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo, startTransition } from "react";
 import dynamic from "next/dynamic";
 import {
   useV3Adapter,
@@ -1189,24 +1189,26 @@ export const V3UnifiedWorkspace: React.FC<{
   useEffect(() => {
     const onViewChange = (ev: Event) => {
       const detail = (ev as CustomEvent<string>).detail;
-      if (detail === "2d-elevation") {
-        setMode("studio");
-        setStudioView("2d");
-        setStudio2DMode("elevation");
-      } else if (detail === "2d-section") {
-        setMode("studio");
-        setStudioView("2d");
-        setStudio2DMode("section");
-      } else if (detail === "2d-plan") {
-        setMode("studio");
-        setStudioView("2d");
-        setStudio2DMode("plan");
-      } else if (detail === "3d") {
-        setMode("studio");
-        setStudioView("3d");
-      } else if (detail === "plan") {
-        setMode("plan");
-      }
+      startTransition(() => {
+        if (detail === "2d-elevation") {
+          setMode("studio");
+          setStudioView("2d");
+          setStudio2DMode("elevation");
+        } else if (detail === "2d-section") {
+          setMode("studio");
+          setStudioView("2d");
+          setStudio2DMode("section");
+        } else if (detail === "2d-plan") {
+          setMode("studio");
+          setStudioView("2d");
+          setStudio2DMode("plan");
+        } else if (detail === "3d") {
+          setMode("studio");
+          setStudioView("3d");
+        } else if (detail === "plan") {
+          setMode("plan");
+        }
+      });
     };
     const onToggleInterior = () => {
       toggleDoorOpen();
@@ -2053,8 +2055,10 @@ export const V3UnifiedWorkspace: React.FC<{
                   type="button"
                   data-testid="studio-view-3d"
                   onClick={() => {
-                    setStudioView("3d");
-                    setCameraPreset("iso");
+                    startTransition(() => {
+                      setStudioView("3d");
+                      setCameraPreset("iso");
+                    });
                   }}
                   className={`px-3.5 py-1.5 rounded-full font-semibold transition cursor-pointer ${
                     studioView === "3d"
@@ -2068,8 +2072,10 @@ export const V3UnifiedWorkspace: React.FC<{
                   type="button"
                   data-testid="studio-view-2d"
                   onClick={() => {
-                    setStudioView("2d");
-                    setStudio2DMode("elevation");
+                    startTransition(() => {
+                      setStudioView("2d");
+                      setStudio2DMode("elevation");
+                    });
                   }}
                   className={`px-3.5 py-1.5 rounded-full font-semibold transition cursor-pointer ${
                     studioView === "2d" && studio2DMode === "elevation"
@@ -2083,8 +2089,10 @@ export const V3UnifiedWorkspace: React.FC<{
                   type="button"
                   data-testid="studio-view-2d-section"
                   onClick={() => {
-                    setStudioView("2d");
-                    setStudio2DMode("section");
+                    startTransition(() => {
+                      setStudioView("2d");
+                      setStudio2DMode("section");
+                    });
                   }}
                   className={`px-3 py-1.5 rounded-full font-semibold transition cursor-pointer ${
                     studioView === "2d" && studio2DMode === "section"
@@ -2098,8 +2106,10 @@ export const V3UnifiedWorkspace: React.FC<{
                   type="button"
                   data-testid="studio-view-2d-plan"
                   onClick={() => {
-                    setStudioView("2d");
-                    setStudio2DMode("plan");
+                    startTransition(() => {
+                      setStudioView("2d");
+                      setStudio2DMode("plan");
+                    });
                   }}
                   className={`px-3 py-1.5 rounded-full font-semibold transition cursor-pointer ${
                     studioView === "2d" && studio2DMode === "plan"

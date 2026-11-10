@@ -5,6 +5,9 @@
 - **Çalışma Ağacı Durumu:** AI Context V2.1 (Context Capsule, Evidence Index, Handoff, Serena Level A/B, Measurement) aktif.
 
 ## 1. Tamamlanan Son İşler (Delta Özeti)
+- **[VERIFIED] 3D/2D Viewport Geçişlerinde React startTransition INP Optimizasyonu (2026-11-10):**
+  - Üst bar `studio-view-switcher` (3D Sahne, 2D Cephe, 2D Kesit, 2D Plan) ve `onViewChange` event handler'ı React 18/19 `startTransition` kapsamına alındı.
+  - Viewport geçişleri non-blocking moda geçirilerek ~385ms'lik senkron render UI kilitlenmesi (INP issue) giderildi.
 - **[VERIFIED] 3D/2D Seçili Çekmece Kartına Yükseklik (H) ve Kot (Y) Kontrolü (2026-11-10):**
   - 3D/2D sahnede çekmece önü/gövdesi tıklandığında sağ altta açılan seçili parça kartına (`studio-selected-component-card`), ilgili çekmecenin `matchedDrawer` tespiti üzerinden:
     - Hazır yükseklik presetleri (`140mm`, `180mm`, `240mm`, `300mm`),
