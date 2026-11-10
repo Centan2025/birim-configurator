@@ -1,6 +1,6 @@
 # Birim Configurator — Güncel Proje Durumu (L2 Cache)
 
-- **Last Verified Commit:** `8731dc9` (`main` dalı) — `[VERIFIED]`
+- **Last Verified Commit:** `fdd818f` (`main` dalı) — `[VERIFIED]`
 - **Son Güncelleme Tarihi:** `2026-11-08` (Europe/Istanbul)
 - **Çalışma Ağacı Durumu:** AI Context V2.1 (Context Capsule, Evidence Index, Handoff, Serena Level A/B, Measurement) aktif.
 

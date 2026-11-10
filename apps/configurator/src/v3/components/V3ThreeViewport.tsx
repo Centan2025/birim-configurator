@@ -183,6 +183,9 @@ interface DimensionAnchor {
   localMidpoint: THREE.Vector3;
 }
 
+const SHARED_CYLINDER_GEO = new THREE.CylinderGeometry(1, 1, 1, 8);
+const SHARED_CONE_GEO = new THREE.ConeGeometry(1, 1, 10);
+
 function add3DRod(
   group: THREE.Group,
   start: THREE.Vector3,
@@ -193,8 +196,8 @@ function add3DRod(
   const diff = new THREE.Vector3().subVectors(end, start);
   const len = diff.length();
   if (len < 1) return;
-  const geom = new THREE.CylinderGeometry(radius, radius, len, 8);
-  const mesh = new THREE.Mesh(geom, mat);
+  const mesh = new THREE.Mesh(SHARED_CYLINDER_GEO, mat);
+  mesh.scale.set(radius, len, radius);
   mesh.position.copy(start).add(end).multiplyScalar(0.5);
   mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), diff.clone().normalize());
   mesh.renderOrder = 998;
@@ -209,8 +212,8 @@ function add3DArrowCone(
 ) {
   const coneH = 34;
   const coneR = 12;
-  const geom = new THREE.ConeGeometry(coneR, coneH, 10);
-  const mesh = new THREE.Mesh(geom, mat);
+  const mesh = new THREE.Mesh(SHARED_CONE_GEO, mat);
+  mesh.scale.set(coneR, coneH, coneR);
   const norm = dirTowardTip.clone().normalize();
   mesh.position.copy(tip).addScaledVector(norm, -coneH * 0.5);
   mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), norm);
@@ -1244,7 +1247,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         powerPreference: "high-performance",
       });
       renderer.setSize(width, height);
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
       renderer.shadowMap.enabled = true;
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -1281,8 +1284,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       const keyLight = new THREE.DirectionalLight(0xffffff, 1.42);
       keyLight.position.set(2600, 4200, 3400);
       keyLight.castShadow = true;
-      keyLight.shadow.mapSize.width = 2048;
-      keyLight.shadow.mapSize.height = 2048;
+      keyLight.shadow.mapSize.width = 1024;
+      keyLight.shadow.mapSize.height = 1024;
       keyLight.shadow.camera.left = -4800;
       keyLight.shadow.camera.right = 4800;
       keyLight.shadow.camera.top = 4200;
@@ -1586,7 +1589,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         }
 
         if (!dragMeta) {
-          curControls.enabled = false;
+          // If no interior component is draggable, keep OrbitControls enabled so user can freely rotate camera around cabinet!
+          curControls.enabled = true;
           return;
         }
 
@@ -1944,12 +1948,14 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           }
 
           setDragDropSnapBanner(snapText);
-          state.setModulePosition(
-            activeDrag3D.modIdx,
-            nextX,
-            activeDrag3D.startSecondValueMm || 0,
-            1
-          );
+          if (dragMod && (nextX !== dragMod.position.x || (activeDrag3D.startSecondValueMm || 0) !== dragMod.position.z)) {
+            state.setModulePosition(
+              activeDrag3D.modIdx,
+              nextX,
+              activeDrag3D.startSecondValueMm || 0,
+              1
+            );
+          }
           return;
         }
 

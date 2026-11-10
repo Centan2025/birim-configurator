@@ -1623,7 +1623,9 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
 
         setActivePlanSnapX(snappedEdgeX);
         setPlanRowSnapBanner(activeSnapMsg);
-        setModulePosition(draggingModIdx, nextX, nextZ, useMagnet ? (activeSnapMsg ? 1 : 10) : 1);
+        if (dragMod && (nextX !== dragMod.position.x || nextZ !== dragMod.position.z)) {
+          setModulePosition(draggingModIdx, nextX, nextZ, useMagnet ? (activeSnapMsg ? 1 : 10) : 1);
+        }
       };
 
       const handleSvgPointerUp = () => {
