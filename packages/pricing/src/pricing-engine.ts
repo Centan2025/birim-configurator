@@ -1,6 +1,10 @@
-import { DEFAULT_MATERIALS, MaterialDefinition } from "@birim/core";
+import { DEFAULT_MATERIALS, MaterialDefinition, roundMm } from "@birim/core";
 import { ManufacturingBOM } from "@birim/manufacturing";
-import { PricingBreakdown, PricingParameters, MaterialAlternativeComparison } from "./types";
+import {
+  PricingBreakdown,
+  PricingParameters,
+  MaterialAlternativeComparison,
+} from "./types";
 
 export const DEFAULT_PRICING_PARAMS: PricingParameters = {
   wasteFactorPercent: 12,
@@ -8,32 +12,66 @@ export const DEFAULT_PRICING_PARAMS: PricingParameters = {
   estimatedHoursPerM2: 0.65,
   operationalOverheadPercent: 10,
   assemblyCostEur: 95,
-  cncCostPerHoleEur: 0.04, // 0.04 EUR per drilling operation
+  cncCostPerHoleEur: 0.04,
   packagingCostEur: 35,
   targetMarginPercent: 35,
   currency: "EUR",
   eurTryExchangeRate: 38.5,
 };
 
+function isExteriorVisibleRole(role: string | undefined): boolean {
+  if (!role) return false;
+  return (
+    role.startsWith("door") ||
+    role === "drawer_front" ||
+    role === "plinth" ||
+    role === "end_panel" ||
+    role === "wall_filler" ||
+    role === "fascia_panel"
+  );
+}
+
 export function calculateProjectPrice(
   bom: ManufacturingBOM,
   params: PricingParameters = DEFAULT_PRICING_PARAMS,
-  materialsMap: Map<string, MaterialDefinition> = new Map(DEFAULT_MATERIALS.map((m) => [m.id, m]))
+  materialsMap: Map<string, MaterialDefinition> = new Map(
+    DEFAULT_MATERIALS.map((m) => [m.id, m])
+  )
 ): PricingBreakdown {
   const materialLines: PricingBreakdown["details"]["materialLines"] = [];
   let totalMaterialCostEur = 0;
   let totalEdgeBandCostEur = 0;
 
-  // 1. Raw sheet material cost
+  const wasteMultiplier = 1 + Math.max(0, params.wasteFactorPercent) / 100;
+
+  // Map real 2D guillotine nesting gross board area (minus reusable stock remnants) when available
+  const nestedEffectiveAreaByMat = new Map<string, number>();
+  bom.nestingResults.forEach((nr) => {
+    const remnantArea = nr.sheets.reduce((acc, s) => acc + (s.usableRemnantAreaM2 || 0), 0);
+    const billableBoardArea = Math.max(nr.totalNetAreaM2, nr.totalGrossAreaM2 - remnantArea);
+    nestedEffectiveAreaByMat.set(
+      nr.materialId,
+      (nestedEffectiveAreaByMat.get(nr.materialId) || 0) + billableBoardArea
+    );
+  });
+
+  // 1. Raw sheet material cost (honors params.wasteFactorPercent & real nesting board count)
   bom.materialUsage.forEach((item) => {
     const mat = materialsMap.get(item.materialId) || DEFAULT_MATERIALS[0];
-    const lineCost = item.grossAreaM2 * mat.costPerM2;
+    const nestedArea = nestedEffectiveAreaByMat.get(item.materialId);
+    const paramGrossArea = roundMm(item.netAreaM2 * wasteMultiplier, 2);
+    const effectiveGrossAreaM2 =
+      nestedArea && params.wasteFactorPercent === DEFAULT_PRICING_PARAMS.wasteFactorPercent
+        ? roundMm(Math.min(nestedArea, item.netAreaM2 * 1.35), 2)
+        : paramGrossArea;
+
+    const lineCost = effectiveGrossAreaM2 * mat.costPerM2;
     totalMaterialCostEur += lineCost;
     materialLines.push({
       name: item.materialName,
-      grossAreaM2: item.grossAreaM2,
+      grossAreaM2: effectiveGrossAreaM2,
       rateEur: mat.costPerM2,
-      totalEur: Number(lineCost.toFixed(2)),
+      totalEur: roundMm(lineCost, 2),
     });
   });
 
@@ -52,7 +90,7 @@ export function calculateProjectPrice(
       name: hw.name,
       qty: hw.quantity,
       unitPriceEur: hw.unitPrice,
-      totalEur: Number(hw.totalPrice.toFixed(2)),
+      totalEur: roundMm(hw.totalPrice, 2),
     });
   });
 
@@ -60,23 +98,27 @@ export function calculateProjectPrice(
   const totalHolesCount = bom.summary.totalDrillingHolesCount || 0;
   const cncDrillingCost = totalHolesCount * params.cncCostPerHoleEur;
 
-  const rawMaterialsTotal = totalMaterialCostEur + totalEdgeBandCostEur + totalHardwareCostEur + cncDrillingCost;
+  const rawMaterialsTotal =
+    totalMaterialCostEur + totalEdgeBandCostEur + totalHardwareCostEur + cncDrillingCost;
 
-  // 5. Labor cost: based on total panel area & estimated hours
+  // 5. Labor cost
   const totalHours = bom.summary.totalPanelAreaM2 * params.estimatedHoursPerM2;
   const laborCost = totalHours * params.laborRatePerHourEur;
 
   // 6. Operational overhead
-  const operationalOverhead = (rawMaterialsTotal + laborCost) * (params.operationalOverheadPercent / 100);
+  const operationalOverhead =
+    (rawMaterialsTotal + laborCost) * (params.operationalOverheadPercent / 100);
 
   // 7. Net production cost
   const netProductionCost = rawMaterialsTotal + laborCost + operationalOverhead;
 
-  // 8. Fixed logistics (assembly & packaging)
-  const logisticsTotal = params.assemblyCostEur + params.packagingCostEur;
+  // 8. Fixed logistics (only charged when project actually has parts)
+  const logisticsTotal =
+    bom.cutList.length > 0 ? params.assemblyCostEur + params.packagingCostEur : 0;
 
   // 9. Margin
-  const marginAmount = (netProductionCost + logisticsTotal) * (params.targetMarginPercent / 100);
+  const marginAmount =
+    (netProductionCost + logisticsTotal) * (params.targetMarginPercent / 100);
 
   // 10. Net subtotal before VAT
   const subtotalNetEur = netProductionCost + logisticsTotal + marginAmount;
@@ -90,17 +132,44 @@ export function calculateProjectPrice(
   const totalWithVatEur = subtotalNetEur + vatAmountEur;
   const totalWithVatTry = subtotalNetTry + vatAmountTry;
 
-  // Compute Material Alternatives Comparison
-  const materialAlternatives: MaterialAlternativeComparison[] = DEFAULT_MATERIALS.map((altMat) => {
-    let altMatCostEur = 0;
-    bom.materialUsage.forEach((item) => {
-      altMatCostEur += item.grossAreaM2 * altMat.costPerM2;
-    });
+  // Separate structural carcass/back/drawer-box area from exterior visible fronts
+  // so luxury front alternatives do NOT falsely reprice hidden carcass/back panels!
+  let structuralCarcassCostEur = 0;
+  let exteriorNetAreaM2 = 0;
+  let exteriorEdgeBandMeters = 0;
+  let structuralEdgeBandCostEur = 0;
 
-    const altRaw = altMatCostEur + totalEdgeBandCostEur + totalHardwareCostEur + cncDrillingCost;
-    const altOverhead = (altRaw + laborCost) * (params.operationalOverheadPercent / 100);
+  bom.cutList.forEach((piece) => {
+    const pMat = materialsMap.get(piece.materialId) || DEFAULT_MATERIALS[0];
+    if (isExteriorVisibleRole(piece.componentRole)) {
+      exteriorNetAreaM2 += piece.areaM2;
+      exteriorEdgeBandMeters += piece.edgeBandMeters;
+    } else {
+      structuralCarcassCostEur += piece.areaM2 * wasteMultiplier * pMat.costPerM2;
+      structuralEdgeBandCostEur += piece.edgeBandMeters * (pMat.edgeBandCostPerM || 1.5);
+    }
+  });
+
+  const materialAlternatives: MaterialAlternativeComparison[] = DEFAULT_MATERIALS.filter(
+    (altMat) => altMat.id !== "mat_led_warm_3000k"
+  ).map((altMat) => {
+    const altExteriorMatCost =
+      exteriorNetAreaM2 > 0
+        ? exteriorNetAreaM2 * wasteMultiplier * altMat.costPerM2
+        : bom.summary.totalPanelAreaM2 * 0.35 * wasteMultiplier * altMat.costPerM2;
+    const altExteriorEbCost =
+      exteriorEdgeBandMeters * (altMat.edgeBandCostPerM || 1.5);
+
+    const altMatCostEur = structuralCarcassCostEur + altExteriorMatCost;
+    const altEbCostEur = structuralEdgeBandCostEur + altExteriorEbCost;
+
+    const altRaw =
+      altMatCostEur + altEbCostEur + totalHardwareCostEur + cncDrillingCost;
+    const altOverhead =
+      (altRaw + laborCost) * (params.operationalOverheadPercent / 100);
     const altNetProd = altRaw + laborCost + altOverhead;
-    const altMargin = (altNetProd + logisticsTotal) * (params.targetMarginPercent / 100);
+    const altMargin =
+      (altNetProd + logisticsTotal) * (params.targetMarginPercent / 100);
     const altSubtotalEur = altNetProd + logisticsTotal + altMargin;
     const altTotalVatEur = altSubtotalEur * 1.2;
 
@@ -110,37 +179,37 @@ export function calculateProjectPrice(
     return {
       materialId: altMat.id,
       materialName: altMat.name,
-      totalWithVatEur: Number(altTotalVatEur.toFixed(2)),
-      totalWithVatTry: Number((altTotalVatEur * params.eurTryExchangeRate).toFixed(2)),
-      diffEur: Number(diffEur.toFixed(2)),
-      diffPercent: Number(diffPercent.toFixed(1)),
+      totalWithVatEur: roundMm(altTotalVatEur, 2),
+      totalWithVatTry: roundMm(altTotalVatEur * params.eurTryExchangeRate, 2),
+      diffEur: roundMm(diffEur, 2),
+      diffPercent: roundMm(diffPercent, 1),
     };
   });
 
   return {
     currency: params.currency,
-    materialCost: Number(totalMaterialCostEur.toFixed(2)),
-    materialCostEur: Number(totalMaterialCostEur.toFixed(2)),
-    edgeBandCost: Number(totalEdgeBandCostEur.toFixed(2)),
-    edgeBandCostEur: Number(totalEdgeBandCostEur.toFixed(2)),
-    hardwareCost: Number(totalHardwareCostEur.toFixed(2)),
-    hardwareCostEur: Number(totalHardwareCostEur.toFixed(2)),
-    laborCostEur: Number(laborCost.toFixed(2)),
-    cncDrillingCost: Number(cncDrillingCost.toFixed(2)),
-    rawMaterialsTotal: Number(rawMaterialsTotal.toFixed(2)),
-    laborCost: Number(laborCost.toFixed(2)),
-    operationalOverhead: Number(operationalOverhead.toFixed(2)),
-    netProductionCost: Number(netProductionCost.toFixed(2)),
-    assemblyCost: Number(params.assemblyCostEur.toFixed(2)),
-    packagingCost: Number(params.packagingCostEur.toFixed(2)),
-    marginAmount: Number(marginAmount.toFixed(2)),
-    subtotalNetEur: Number(subtotalNetEur.toFixed(2)),
-    subtotalNetTry: Number(subtotalNetTry.toFixed(2)),
+    materialCost: roundMm(totalMaterialCostEur, 2),
+    materialCostEur: roundMm(totalMaterialCostEur, 2),
+    edgeBandCost: roundMm(totalEdgeBandCostEur, 2),
+    edgeBandCostEur: roundMm(totalEdgeBandCostEur, 2),
+    hardwareCost: roundMm(totalHardwareCostEur, 2),
+    hardwareCostEur: roundMm(totalHardwareCostEur, 2),
+    laborCostEur: roundMm(laborCost, 2),
+    cncDrillingCost: roundMm(cncDrillingCost, 2),
+    rawMaterialsTotal: roundMm(rawMaterialsTotal, 2),
+    laborCost: roundMm(laborCost, 2),
+    operationalOverhead: roundMm(operationalOverhead, 2),
+    netProductionCost: roundMm(netProductionCost, 2),
+    assemblyCost: roundMm(bom.cutList.length > 0 ? params.assemblyCostEur : 0, 2),
+    packagingCost: roundMm(bom.cutList.length > 0 ? params.packagingCostEur : 0, 2),
+    marginAmount: roundMm(marginAmount, 2),
+    subtotalNetEur: roundMm(subtotalNetEur, 2),
+    subtotalNetTry: roundMm(subtotalNetTry, 2),
     vatRatePercent,
-    vatAmountEur: Number(vatAmountEur.toFixed(2)),
-    vatAmountTry: Number(vatAmountTry.toFixed(2)),
-    totalWithVatEur: Number(totalWithVatEur.toFixed(2)),
-    totalWithVatTry: Number(totalWithVatTry.toFixed(2)),
+    vatAmountEur: roundMm(vatAmountEur, 2),
+    vatAmountTry: roundMm(vatAmountTry, 2),
+    totalWithVatEur: roundMm(totalWithVatEur, 2),
+    totalWithVatTry: roundMm(totalWithVatTry, 2),
     details: {
       materialLines,
       hardwareLines,

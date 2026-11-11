@@ -1,13 +1,59 @@
 import * as THREE from "three";
 import { calculateModulePlacement, ModuleInstance } from "@birim/core";
 import { ComponentGeometry } from "@birim/geometry";
+import {
+  markSharedGeometry,
+  markSharedMaterial,
+} from "../v3/materials/webglResourceGuard";
 
-const box = new THREE.BoxGeometry(1, 1, 1);
-const sphere = new THREE.SphereGeometry(0.5, 20, 14);
+const box = markSharedGeometry(new THREE.BoxGeometry(1, 1, 1));
+const sphere = markSharedGeometry(new THREE.SphereGeometry(0.5, 20, 14));
 const cylinder = new THREE.CylinderGeometry(0.5, 0.5, 1, 20);
 cylinder.rotateX(Math.PI / 2);
-const cylinderY = new THREE.CylinderGeometry(0.5, 0.5, 1, 20);
-const edges = new THREE.EdgesGeometry(box);
+markSharedGeometry(cylinder);
+const cylinderY = markSharedGeometry(new THREE.CylinderGeometry(0.5, 0.5, 1, 20));
+const edges = markSharedGeometry(new THREE.EdgesGeometry(box));
+
+const liftDoorDirectionGeo = (() => {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute(
+    "position",
+    new THREE.BufferAttribute(
+      new Float32Array([-0.46, -0.45, 0.52, 0.0, 0.45, 0.52, 0.0, 0.45, 0.52, 0.46, -0.45, 0.52]),
+      3
+    )
+  );
+  return markSharedGeometry(g);
+})();
+
+const leftDoorDirectionGeo = (() => {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute(
+    "position",
+    new THREE.BufferAttribute(
+      new Float32Array([-0.48, 0.46, 0.52, 0.45, 0.0, 0.52, 0.45, 0.0, 0.52, -0.48, -0.46, 0.52]),
+      3
+    )
+  );
+  return markSharedGeometry(g);
+})();
+
+const rightDoorDirectionGeo = (() => {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute(
+    "position",
+    new THREE.BufferAttribute(
+      new Float32Array([0.48, 0.46, 0.52, -0.45, 0.0, 0.52, -0.45, 0.0, 0.52, 0.48, -0.46, 0.52]),
+      3
+    )
+  );
+  return markSharedGeometry(g);
+})();
+
+const bevelFrustumCache = new Map<
+  string,
+  { frustumGeo: THREE.BufferGeometry; frustumEdges: THREE.EdgesGeometry }
+>();
 
 /**
  * Builds a true 3D 45°-Sloped Chamfered Frustum Geometry for 45°-beveled cabinet doors (bevel_45).
@@ -59,6 +105,37 @@ function createBevel45FrustumGeometry(w: number, h: number, d: number, bevelMm: 
   return geom;
 }
 
+function getCachedBevel45Frustum(
+  w: number,
+  h: number,
+  d: number,
+  bevelMm: number
+): { frustumGeo: THREE.BufferGeometry; frustumEdges: THREE.EdgesGeometry } {
+  const key = `${Math.round(w)}_${Math.round(h)}_${Math.round(d * 10)}_${Math.round(bevelMm)}`;
+  const cached = bevelFrustumCache.get(key);
+  if (cached) return cached;
+
+  if (bevelFrustumCache.size >= 96) {
+    const oldestKey = bevelFrustumCache.keys().next().value;
+    if (oldestKey) {
+      const evicted = bevelFrustumCache.get(oldestKey);
+      if (evicted) {
+        delete evicted.frustumGeo.userData.__birimSharedResource;
+        delete evicted.frustumEdges.userData.__birimSharedResource;
+        evicted.frustumGeo.dispose();
+        evicted.frustumEdges.dispose();
+      }
+      bevelFrustumCache.delete(oldestKey);
+    }
+  }
+
+  const frustumGeo = markSharedGeometry(createBevel45FrustumGeometry(w, h, d, bevelMm));
+  const frustumEdges = markSharedGeometry(new THREE.EdgesGeometry(frustumGeo, 12));
+  const entry = { frustumGeo, frustumEdges };
+  bevelFrustumCache.set(key, entry);
+  return entry;
+}
+
 const darkDamperMat = new THREE.MeshStandardMaterial({
   color: 0x1e293b,
   roughness: 0.32,
@@ -103,6 +180,42 @@ const doorDirectionLineMat = new THREE.LineBasicMaterial({
   opacity: 0.52,
 });
 
+const sharedSmokedGlassPaneMat = markSharedMaterial(
+  new THREE.MeshPhysicalMaterial({
+    color: 0x334155,
+    roughness: 0.08,
+    metalness: 0.15,
+    transparent: true,
+    opacity: 0.36,
+  })
+);
+const sharedBronzeMirrorPaneMat = markSharedMaterial(
+  new THREE.MeshStandardMaterial({
+    color: 0xc2b29f,
+    roughness: 0.03,
+    metalness: 0.95,
+  })
+);
+const sharedSilverMirrorPaneMat = markSharedMaterial(
+  new THREE.MeshStandardMaterial({
+    color: 0xe2e8f0,
+    roughness: 0.03,
+    metalness: 0.95,
+  })
+);
+
+[
+  darkDamperMat,
+  screwHeadMat,
+  chromeHardwareMat,
+  blumAccentMat,
+  darkCavityMat,
+  burnerRingMat,
+  handleAccentMat,
+  revealShadowMat,
+  doorDirectionLineMat,
+].forEach((m) => markSharedMaterial(m));
+
 const customAccentMaterials = new Set<THREE.Material>([
   darkDamperMat,
   screwHeadMat,
@@ -111,6 +224,9 @@ const customAccentMaterials = new Set<THREE.Material>([
   darkCavityMat,
   burnerRingMat,
   handleAccentMat,
+  sharedSmokedGlassPaneMat,
+  sharedBronzeMirrorPaneMat,
+  sharedSilverMirrorPaneMat,
 ]);
 
 function tagSubMesh(
@@ -988,32 +1104,12 @@ export function createComponentMesh(
     // Pointing from the top & bottom hinge corners toward the handle edge so door swing direction is unmistakable in 3D Perspective
     if (comp.role === "door_left" || comp.role === "door_right") {
       const isLiftDoor = comp.id.includes("lift_");
-      const faceZ = 0.52;
-      if (isLiftDoor) {
-        // Lift-up door: V-lines point from bottom left/right corners to top center hinge
-        const liftPts = new Float32Array([
-          -0.46, -0.45, faceZ,
-          0.0, 0.45, faceZ,
-          0.0, 0.45, faceZ,
-          0.46, -0.45, faceZ,
-        ]);
-        const liftGeo = new THREE.BufferGeometry();
-        liftGeo.setAttribute("position", new THREE.BufferAttribute(liftPts, 3));
-        mesh.add(new THREE.LineSegments(liftGeo, doorDirectionLineMat));
-      } else {
-        const isLeftHinged = comp.role === "door_left";
-        const hingeX = isLeftHinged ? -0.48 : 0.48;
-        const handleX = isLeftHinged ? 0.45 : -0.45;
-        const dirPts = new Float32Array([
-          hingeX, 0.46, faceZ,
-          handleX, 0.0, faceZ,
-          handleX, 0.0, faceZ,
-          hingeX, -0.46, faceZ,
-        ]);
-        const dirGeo = new THREE.BufferGeometry();
-        dirGeo.setAttribute("position", new THREE.BufferAttribute(dirPts, 3));
-        mesh.add(new THREE.LineSegments(dirGeo, doorDirectionLineMat));
-      }
+      const sharedDirGeo = isLiftDoor
+        ? liftDoorDirectionGeo
+        : comp.role === "door_left"
+        ? leftDoorDirectionGeo
+        : rightDoorDirectionGeo;
+      mesh.add(new THREE.LineSegments(sharedDirGeo, doorDirectionLineMat));
     }
   }
   group.add(mesh);
@@ -1022,9 +1118,6 @@ export function createComponentMesh(
   if (comp.role === "door_left" || comp.role === "door_right" || comp.role === "drawer_front") {
     const activeProfile =
       comp.crossSectionProfile ||
-      (typeof window !== "undefined"
-        ? (window as unknown as { __birimDoorCrossSection?: string }).__birimDoorCrossSection
-        : undefined) ||
       (comp.handleCategory === "decorative_bespoke" ? "shaker_frame" : "flat_slab");
     const w = comp.dimensions.width;
     const h = comp.dimensions.height;
@@ -1085,20 +1178,20 @@ export function createComponentMesh(
 
       const bevelDepth = Math.max(10, d * 0.68);
       const bevelSlopeW = 32;
-      const frustumGeo = createBevel45FrustumGeometry(w, h, bevelDepth, bevelSlopeW);
+      const { frustumGeo, frustumEdges } = getCachedBevel45Frustum(w, h, bevelDepth, bevelSlopeW);
       const frustumMesh = new THREE.Mesh(frustumGeo, material);
       frustumMesh.position.set(cx, cy, cz + d * 0.22);
-      frustumMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(frustumGeo, 12), revealShadowMat));
+      frustumMesh.add(new THREE.LineSegments(frustumEdges, revealShadowMat));
       tagSubMesh(frustumMesh, userData, comp);
       group.add(frustumMesh);
     } else if (activeProfile === "custom_cad_profile" && w > 140 && h > 140) {
       const poly = comp.customCadPolygon;
       const firstPtY = poly && poly.length >= 3 ? poly[1]?.y ?? 0.65 : 0.65;
       const bevelSlopeMm = Math.max(14, Math.min(44, Math.round(firstPtY * 34)));
-      const frustumGeo = createBevel45FrustumGeometry(w, h, 8, bevelSlopeMm);
+      const { frustumGeo, frustumEdges } = getCachedBevel45Frustum(w, h, 8, bevelSlopeMm);
       const outerBevel = new THREE.Mesh(frustumGeo, material);
       outerBevel.position.set(cx, cy, cz + d * 0.5 + 3);
-      outerBevel.add(new THREE.LineSegments(new THREE.EdgesGeometry(frustumGeo, 12), revealShadowMat));
+      outerBevel.add(new THREE.LineSegments(frustumEdges, revealShadowMat));
       tagSubMesh(outerBevel, userData, comp);
       group.add(outerBevel);
 
@@ -1141,15 +1234,7 @@ export function createComponentMesh(
         tagSubMesh(bar, userData, comp);
         group.add(bar);
       });
-      const glassMat = new THREE.MeshPhysicalMaterial({
-        color: 0x334155,
-        roughness: 0.08,
-        metalness: 0.15,
-        transparent: true,
-        opacity: 0.36,
-      });
-      customAccentMaterials.add(glassMat);
-      const glassPane = new THREE.Mesh(box, glassMat);
+      const glassPane = new THREE.Mesh(box, sharedSmokedGlassPaneMat);
       glassPane.scale.set(innerW, innerH, Math.max(6, d * 0.35));
       glassPane.position.set(cx, cy, cz);
       glassPane.add(new THREE.LineSegments(edges, revealShadowMat));
@@ -1160,16 +1245,13 @@ export function createComponentMesh(
       w > 140 &&
       h > 140
     ) {
-      // Full-Length Mirror Door (Aynalı Kapak): Outer slim border + high-gloss reflective mirror surface!
       const rimW = 24;
       const mirrorW = Math.max(40, w - 2 * rimW);
       const mirrorH = Math.max(40, h - 2 * rimW);
-      const mirrorMat = new THREE.MeshStandardMaterial({
-        color: comp.materialId === "mat_bronze_mirror" ? 0xc2b29f : 0xe2e8f0,
-        roughness: 0.03,
-        metalness: 0.95,
-      });
-      customAccentMaterials.add(mirrorMat);
+      const mirrorMat =
+        comp.materialId === "mat_bronze_mirror"
+          ? sharedBronzeMirrorPaneMat
+          : sharedSilverMirrorPaneMat;
       const mirrorPane = new THREE.Mesh(box, mirrorMat);
       mirrorPane.scale.set(mirrorW, mirrorH, 3.5);
       mirrorPane.position.set(cx, cy, cz + d * 0.5 + 1.5);

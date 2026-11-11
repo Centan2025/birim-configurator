@@ -4,24 +4,26 @@ import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Check, ChevronDown, AlertCircle, Info, Sparkles } from "lucide-react";
+import { useConfiguratorStore } from "../../store/useConfiguratorStore";
 
 // ---------------------------------------------------------------------------
 // 1. DESIGN SYSTEM TOKENS (Warm Cashmere & Espresso Monochrome Architectural Theme)
 // ---------------------------------------------------------------------------
 export const V3_TOKENS = {
   colors: {
-    canvasWarm: "#F8FAFC",
+    canvasWarm: "#F5F3EE",
     surfacePrimary: "#FFFFFF",
-    surfaceSecondary: "#FFFFFF",
-    surfaceMuted: "#F1F5F9",
-    borderSubtle: "#E2E8F0",
-    borderFocus: "#2C2A29",
-    textPrimary: "#1C1917",
+    surfaceSecondary: "#FAF9F6",
+    surfaceMuted: "#EFECE5",
+    borderSubtle: "#E4DFD5",
+    borderFocus: "#141413",
+    textPrimary: "#141413",
     textSecondary: "#44403C",
     textMuted: "#78716C",
-    accentPrimary: "#2C2A29",
-    accentHover: "#1C1917",
-    accentSoft: "#F8FAFC",
+    accentPrimary: "#141413",
+    accentHover: "#292524",
+    accentSoft: "#F5F3EE",
+    accentBronze: "#8C7A6B",
     statusSuccess: "#2E6F40",
     statusWarning: "#8C5A2B",
     statusError: "#9E2A2B",
@@ -206,24 +208,67 @@ export const V3DimensionControl: React.FC<V3DimensionControlProps> = ({
   onChange,
   testIdPrefix = "dim",
 }) => {
-  const clamp = (v: number) => Math.min(max, Math.max(min, v));
+  const clamp = (v: number) => Math.min(max, Math.max(min, Math.round(v)));
+  const [draftText, setDraftText] = React.useState<string>(String(value));
+  const [isFocused, setIsFocused] = React.useState<boolean>(false);
+  const [rangeHint, setRangeHint] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!isFocused) {
+      setDraftText(String(value));
+    }
+  }, [value, isFocused]);
+
+  const commitDraft = (rawStr: string) => {
+    const trimmed = rawStr.trim();
+    if (!trimmed) {
+      setDraftText(String(value));
+      setRangeHint(null);
+      return;
+    }
+    const parsed = Number(trimmed);
+    if (!Number.isFinite(parsed)) {
+      setDraftText(String(value));
+      setRangeHint(null);
+      return;
+    }
+    if (parsed < min || parsed > max) {
+      const clamped = clamp(parsed);
+      setRangeHint(`Üretim sınırı ${min}–${max} mm (${clamped} mm uygulandı)`);
+      setDraftText(String(clamped));
+      onChange(clamped);
+      return;
+    }
+    setRangeHint(null);
+    const rounded = clamp(parsed);
+    setDraftText(String(rounded));
+    onChange(rounded);
+  };
 
   return (
-    <div className="p-2.5 rounded-xl bg-[#FFFFFF] border border-[#E2E8F0] space-y-2">
+    <div className="p-3 rounded-xl bg-white border border-[#E4DFD5] space-y-2.5 transition-colors hover:border-[#CFC8BA]">
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <span className="w-6 h-6 rounded-lg bg-[#EBE6DC] border border-[#D6CFC2] text-[#2C2A29] font-mono text-xs font-extrabold flex items-center justify-center">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="w-6 h-6 rounded-lg bg-[#F5F3EE] border border-[#DED8CC] text-[#141413] font-mono text-xs font-bold flex items-center justify-center shrink-0">
             {code}
           </span>
-          <span className="text-xs font-bold text-[#1C1917]">{label}</span>
+          <div className="min-w-0">
+            <span className="text-xs font-semibold text-[#141413] block truncate">{label}</span>
+            <span className="text-[10px] text-[#78716C] block">
+              {(value / 10).toFixed(value % 10 === 0 ? 0 : 1)} cm
+            </span>
+          </div>
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 shrink-0">
           <button
             type="button"
             data-testid={`${testIdPrefix}-minus`}
-            onClick={() => onChange(clamp(value - step))}
-            className="w-7 h-7 rounded-lg bg-white hover:bg-[#F1F5F9] border border-[#CBD5E1] text-[#1C1917] font-extrabold text-sm flex items-center justify-center transition cursor-pointer"
+            onClick={() => {
+              setRangeHint(null);
+              onChange(clamp(value - step));
+            }}
+            className="w-7 h-7 rounded-lg bg-[#FAF9F6] hover:bg-[#EFECE5] border border-[#DED8CC] text-[#141413] font-bold text-sm flex items-center justify-center transition cursor-pointer"
             title={`-${step} mm`}
           >
             −
@@ -234,27 +279,67 @@ export const V3DimensionControl: React.FC<V3DimensionControlProps> = ({
             min={min}
             max={max}
             step={10}
-            value={value}
+            value={isFocused ? draftText : value}
+            onFocus={() => {
+              setIsFocused(true);
+              setDraftText(String(value));
+            }}
             onChange={(e) => {
-              const parsed = Number(e.target.value);
-              if (!Number.isNaN(parsed) && parsed >= min) {
-                onChange(clamp(parsed));
+              const raw = e.target.value;
+              setDraftText(raw);
+              const parsed = Number(raw);
+              if (raw.trim() !== "" && Number.isFinite(parsed)) {
+                if (parsed >= min && parsed <= max) {
+                  setRangeHint(null);
+                  onChange(Math.round(parsed));
+                } else {
+                  setRangeHint(`Geçerli aralık: ${min} – ${max} mm`);
+                }
               }
             }}
-            className="w-18 h-7 px-1.5 bg-white border border-[#CBD5E1] rounded-lg text-center font-mono text-xs font-extrabold text-[#1C1917] focus:outline-none focus:border-[#2C2A29]"
+            onBlur={(e) => {
+              setIsFocused(false);
+              commitDraft(e.target.value);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.currentTarget.blur();
+              } else if (e.key === "Escape") {
+                setIsFocused(false);
+                setDraftText(String(value));
+                setRangeHint(null);
+              }
+            }}
+            className={`w-18 h-7 px-1.5 bg-white border rounded-lg text-center font-mono text-xs font-bold text-[#141413] focus:outline-none ${
+              rangeHint
+                ? "border-amber-500 ring-1 ring-amber-400/40"
+                : "border-[#DED8CC] focus:border-[#141413]"
+            }`}
           />
           <button
             type="button"
             data-testid={`${testIdPrefix}-plus`}
-            onClick={() => onChange(clamp(value + step))}
-            className="w-7 h-7 rounded-lg bg-white hover:bg-[#F1F5F9] border border-[#CBD5E1] text-[#1C1917] font-extrabold text-sm flex items-center justify-center transition cursor-pointer"
+            onClick={() => {
+              setRangeHint(null);
+              onChange(clamp(value + step));
+            }}
+            className="w-7 h-7 rounded-lg bg-[#FAF9F6] hover:bg-[#EFECE5] border border-[#DED8CC] text-[#141413] font-bold text-sm flex items-center justify-center transition cursor-pointer"
             title={`+${step} mm`}
           >
             +
           </button>
-          <span className="text-[10px] font-mono font-semibold text-[#78716C]">mm</span>
+          <span className="text-[10px] font-mono font-medium text-[#78716C]">mm</span>
         </div>
       </div>
+
+      {rangeHint && (
+        <div
+          role="status"
+          className="text-[10px] font-medium text-[#8C5A2B] bg-[#FDF8F2] border border-[#EAD5BE] rounded-lg px-2 py-1"
+        >
+          {rangeHint}
+        </div>
+      )}
 
       <div className="flex items-center gap-1 flex-wrap">
         {presets.map((p) => {
@@ -264,11 +349,14 @@ export const V3DimensionControl: React.FC<V3DimensionControlProps> = ({
               key={p}
               type="button"
               data-testid={`${testIdPrefix}-preset-${p}`}
-              onClick={() => onChange(p)}
-              className={`flex-1 min-w-[44px] py-1 px-1.5 rounded-lg font-mono text-[10px] font-bold transition cursor-pointer ${
+              onClick={() => {
+                setRangeHint(null);
+                onChange(p);
+              }}
+              className={`flex-1 min-w-[44px] py-1 px-1.5 rounded-lg font-mono text-[10px] font-semibold transition cursor-pointer ${
                 isSelected
-                  ? "bg-[#EEF3F8] text-[#1C1917] border border-[#CBD5E1]"
-                  : "bg-white hover:bg-[#F1F5F9] text-[#57534E] border border-[#E2E8F0]"
+                  ? "bg-[#141413] text-white border border-[#141413]"
+                  : "bg-[#FAF9F6] hover:bg-[#EFECE5] text-[#44403C] border border-[#E4DFD5]"
               }`}
             >
               {p}
@@ -284,8 +372,20 @@ export const V3DimensionControl: React.FC<V3DimensionControlProps> = ({
         max={max}
         step={50}
         value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full accent-[#8C7A6B] h-1.5 bg-[#E2E8F0] rounded-lg cursor-pointer"
+        onPointerDown={() => {
+          useConfiguratorStore.getState().beginHistoryTransaction();
+        }}
+        onPointerUp={() => {
+          useConfiguratorStore.getState().commitHistoryTransaction();
+        }}
+        onPointerCancel={() => {
+          useConfiguratorStore.getState().commitHistoryTransaction();
+        }}
+        onChange={(e) => {
+          setRangeHint(null);
+          onChange(Number(e.target.value));
+        }}
+        className="w-full accent-[#141413] h-1.5 bg-[#E4DFD5] rounded-lg cursor-pointer"
       />
     </div>
   );

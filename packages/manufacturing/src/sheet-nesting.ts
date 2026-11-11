@@ -1,9 +1,10 @@
 import { CutPiece } from "./types";
+import { roundMm } from "@birim/core";
 
 export interface SheetDimension {
   name: string;
-  lengthMm: number; // e.g. 2800 mm
-  widthMm: number; // e.g. 2070 mm
+  lengthMm: number; // e.g. 2800 mm (X-axis along board grain)
+  widthMm: number; // e.g. 2070 mm (Y-axis across board grain)
   trimCutMm: number; // e.g. 15 mm perimeter trim
   kerfMm: number; // e.g. 4.4 mm saw blade thickness
 }
@@ -22,8 +23,8 @@ export interface PlacedPiece {
   materialName: string;
   x: number;
   y: number;
-  width: number; // X extent, along sheet length
-  length: number; // Y extent, along sheet width
+  width: number; // X extent, along sheet length (2800mm grain axis)
+  length: number; // Y extent, along sheet width (2070mm cross-grain axis)
   isRotated: boolean;
 }
 
@@ -67,18 +68,20 @@ interface FreeRect {
   h: number;
 }
 
-/**
- * 2D Guillotine Bin Packing Optimizer.
- * Places cut pieces onto minimum number of standard sheets considering kerf, trimming, grain direction,
- * and reusable offcut (remnant >= 300x300mm) consolidation.
- * Reference: doublesharp/bin-packing (MIT), tyschroed/guillotine-packer (MIT).
- */
 const nestingCache = new Map<string, NestingOptimizationResult[]>();
 
 function computeNestingKey(pieces: CutPiece[], sheetConfig: SheetDimension): string {
   return JSON.stringify([sheetConfig, pieces]);
 }
 
+/**
+ * 2D Guillotine Bin Packing Optimizer.
+ * - Uses saw net-cut dimensions (netCutLengthMm / netCutWidthMm) with edge-banding deducted.
+ * - Enforces board grain alignment:
+ *   - "lengthwise": piece netLength runs along 2800mm board X-axis (canRotate = false)
+ *   - "crosswise": piece netWidth runs along 2800mm board X-axis so grain runs horizontally across piece length (canRotate = false)
+ *   - "none": free 90° rotation allowed for maximum sheet yield
+ */
 export function optimizeSheetNesting(
   pieces: CutPiece[],
   sheetConfig: SheetDimension = STANDARD_SHEET_2800x2070
@@ -89,7 +92,6 @@ export function optimizeSheetNesting(
   const cached = nestingCache.get(cacheKey);
   if (cached) return cached;
 
-  // Group pieces by material + thickness
   const materialGroups = new Map<string, CutPiece[]>();
   pieces.forEach((p) => {
     const groupKey = `${p.materialId}::${p.thicknessMm}`;
@@ -108,15 +110,30 @@ export function optimizeSheetNesting(
     const kerf = sheetConfig.kerfMm;
     const fullSheetAreaM2 = (sheetConfig.lengthMm * sheetConfig.widthMm) / 1_000_000;
 
-    // Expand pieces by quantity and sort descending by area (First-Fit Decreasing)
-    const itemsToPlace: { piece: CutPiece; w: number; h: number; canRotate: boolean }[] = [];
+    const itemsToPlace: {
+      piece: CutPiece;
+      w: number;
+      h: number;
+      canRotate: boolean;
+      preRotatedCrosswise: boolean;
+    }[] = [];
+
     matPieces.forEach((p) => {
+      const netL = p.netCutLengthMm ?? p.lengthMm;
+      const netW = p.netCutWidthMm ?? p.widthMm;
+      const isCrosswise = p.grain === "crosswise";
+      // Board grain runs along X (2800mm). For crosswise grain, piece's widthMm runs along board X and lengthMm runs across board Y!
+      const itemW = isCrosswise ? netW : netL;
+      const itemH = isCrosswise ? netL : netW;
+      const canRotate = p.grain === "none";
+
       for (let q = 0; q < p.quantity; q++) {
         itemsToPlace.push({
           piece: p,
-          w: p.lengthMm,
-          h: p.widthMm,
-          canRotate: p.grain === "none",
+          w: itemW,
+          h: itemH,
+          canRotate,
+          preRotatedCrosswise: isCrosswise,
         });
       }
     });
@@ -126,24 +143,24 @@ export function optimizeSheetNesting(
     const sheets: OptimizedSheet[] = [];
     const unplaced: CutPiece[] = [];
 
-    const createNewSheet = (idx: number): { sheet: OptimizedSheet; freeRects: FreeRect[] } => {
-      return {
-        sheet: {
-          sheetIndex: idx + 1,
-          materialId: matId,
-          materialName: matName,
-          sheetDimension: sheetConfig,
-          placedPieces: [],
-          usableRemnants: [],
-          usableRemnantAreaM2: 0,
-          netUsedAreaM2: 0,
-          totalSheetAreaM2: fullSheetAreaM2,
-          wasteAreaM2: fullSheetAreaM2,
-          wastePercent: 100,
-        },
-        freeRects: [{ x: sheetConfig.trimCutMm, y: sheetConfig.trimCutMm, w: usableW, h: usableH }],
-      };
-    };
+    const createNewSheet = (idx: number): { sheet: OptimizedSheet; freeRects: FreeRect[] } => ({
+      sheet: {
+        sheetIndex: idx + 1,
+        materialId: matId,
+        materialName: matName,
+        sheetDimension: sheetConfig,
+        placedPieces: [],
+        usableRemnants: [],
+        usableRemnantAreaM2: 0,
+        netUsedAreaM2: 0,
+        totalSheetAreaM2: fullSheetAreaM2,
+        wasteAreaM2: fullSheetAreaM2,
+        wastePercent: 100,
+      },
+      freeRects: [
+        { x: sheetConfig.trimCutMm, y: sheetConfig.trimCutMm, w: usableW, h: usableH },
+      ],
+    });
 
     const activeSheets: { sheet: OptimizedSheet; freeRects: FreeRect[] }[] = [];
 
@@ -179,18 +196,18 @@ export function optimizeSheetNesting(
 
         if (bestRectIdx >= 0) {
           const rect = cur.freeRects[bestRectIdx];
-          const placeW = bestRotate ? item.h : item.w;
-          const placeH = bestRotate ? item.w : item.h;
+          const placeW = roundMm(bestRotate ? item.h : item.w, 1);
+          const placeH = roundMm(bestRotate ? item.w : item.h, 1);
 
           cur.sheet.placedPieces.push({
             pieceId: item.piece.id,
             pieceName: item.piece.pieceName,
             materialName: item.piece.materialName,
-            x: rect.x,
-            y: rect.y,
+            x: roundMm(rect.x, 1),
+            y: roundMm(rect.y, 1),
             width: placeW,
             length: placeH,
-            isRotated: bestRotate,
+            isRotated: item.preRotatedCrosswise ? true : bestRotate,
           });
 
           cur.sheet.netUsedAreaM2 += (placeW * placeH) / 1_000_000;
@@ -237,18 +254,18 @@ export function optimizeSheetNesting(
             item.canRotate &&
             item.h <= rect.w &&
             item.w <= rect.h;
-          const placeW = bestRotate ? item.h : item.w;
-          const placeH = bestRotate ? item.w : item.h;
+          const placeW = roundMm(bestRotate ? item.h : item.w, 1);
+          const placeH = roundMm(bestRotate ? item.w : item.h, 1);
 
           newEntry.sheet.placedPieces.push({
             pieceId: item.piece.id,
             pieceName: item.piece.pieceName,
             materialName: item.piece.materialName,
-            x: rect.x,
-            y: rect.y,
+            x: roundMm(rect.x, 1),
+            y: roundMm(rect.y, 1),
             width: placeW,
             length: placeH,
-            isRotated: bestRotate,
+            isRotated: item.preRotatedCrosswise ? true : bestRotate,
           });
 
           newEntry.sheet.netUsedAreaM2 += (placeW * placeH) / 1_000_000;
@@ -280,10 +297,9 @@ export function optimizeSheetNesting(
     let totalNetM2 = 0;
     activeSheets.forEach((entry) => {
       const s = entry.sheet;
-      s.netUsedAreaM2 = Number(s.netUsedAreaM2.toFixed(3));
-      s.wasteAreaM2 = Number(Math.max(0, s.totalSheetAreaM2 - s.netUsedAreaM2).toFixed(3));
-      s.wastePercent = Number(((s.wasteAreaM2 / s.totalSheetAreaM2) * 100).toFixed(1));
-      // Identify reusable stock remnants (>= 300mm x 300mm)
+      s.netUsedAreaM2 = roundMm(s.netUsedAreaM2, 3);
+      s.wasteAreaM2 = roundMm(Math.max(0, s.totalSheetAreaM2 - s.netUsedAreaM2), 3);
+      s.wastePercent = roundMm((s.wasteAreaM2 / s.totalSheetAreaM2) * 100, 1);
       const remnants = entry.freeRects
         .filter((r) => r.w >= 300 && r.h >= 300)
         .map((r) => ({
@@ -291,17 +307,22 @@ export function optimizeSheetNesting(
           y: Math.round(r.y),
           width: Math.round(r.w),
           length: Math.round(r.h),
-          areaM2: Number(((r.w * r.h) / 1_000_000).toFixed(3)),
+          areaM2: roundMm((r.w * r.h) / 1_000_000, 3),
         }));
       s.usableRemnants = remnants;
-      s.usableRemnantAreaM2 = Number(remnants.reduce((acc, rm) => acc + rm.areaM2, 0).toFixed(3));
+      s.usableRemnantAreaM2 = roundMm(
+        remnants.reduce((acc, rm) => acc + rm.areaM2, 0),
+        3
+      );
       totalNetM2 += s.netUsedAreaM2;
       sheets.push(s);
     });
 
-    const totalGrossM2 = Number((sheets.length * fullSheetAreaM2).toFixed(3));
+    const totalGrossM2 = roundMm(sheets.length * fullSheetAreaM2, 3);
     const overallWastePercent =
-      totalGrossM2 > 0 ? Number((((totalGrossM2 - totalNetM2) / totalGrossM2) * 100).toFixed(1)) : 0;
+      totalGrossM2 > 0
+        ? roundMm(((totalGrossM2 - totalNetM2) / totalGrossM2) * 100, 1)
+        : 0;
 
     results.push({
       materialId: matId,
@@ -309,7 +330,7 @@ export function optimizeSheetNesting(
       sheets,
       unplacedPieces: unplaced,
       totalSheetsCount: sheets.length,
-      totalNetAreaM2: Number(totalNetM2.toFixed(3)),
+      totalNetAreaM2: roundMm(totalNetM2, 3),
       totalGrossAreaM2: totalGrossM2,
       overallWastePercent,
     });

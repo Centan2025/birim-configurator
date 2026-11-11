@@ -81,6 +81,7 @@ export default function V3StudioPage() {
     loadLinearKitchen,
     applySmartSpan,
     approveProduction,
+    resetToDefault,
   } = useV3Adapter();
 
   const [leftOpen, setLeftOpen] = useState(true);
@@ -90,7 +91,32 @@ export default function V3StudioPage() {
   const [isBomModalOpen, setIsBomModalOpen] = useState(false);
   const [approvalBanner, setApprovalBanner] = useState<string | null>(null);
 
-  if (!activeModule) return null;
+  if (!activeModule) {
+    return (
+      <div
+        data-testid="v3-studio-root"
+        className="flex flex-col items-center justify-center h-screen w-screen bg-[#F5F3EE] text-[#141413] p-6"
+      >
+        <div className="max-w-md w-full bg-white border border-[#E4DFD5] rounded-2xl p-8 text-center shadow-sm space-y-4">
+          <V3BrandBadge subtitle="STUDIO" />
+          <h1 className="text-lg font-bold">Sahnede henüz bir modül yok</h1>
+          <p className="text-xs text-[#57534E] leading-relaxed">
+            Yeni bir Birim gardırop şablonu ile hemen başlayabilir veya son işleminizi geri alabilirsiniz.
+          </p>
+          <div className="flex items-center justify-center gap-2 pt-2">
+            {canUndo && (
+              <V3Button variant="outline" onClick={undo}>
+                Geri Al
+              </V3Button>
+            )}
+            <V3Button variant="primary" onClick={resetToDefault}>
+              Standart Gardırop Ekle
+            </V3Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
   const { width, height, depth } = activeModule.dimensions;
 
   const handleApprove = () => {

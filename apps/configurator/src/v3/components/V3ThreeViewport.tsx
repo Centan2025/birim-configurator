@@ -28,11 +28,20 @@ import {
   getV3PbrMaterial,
   getStudioEnvironmentTexture,
   getStudioPmremEnvironment,
+  disposeRendererPmremEnvironment,
   getArchitecturalFloorTexture,
   type ArchitecturalFloorStyle,
 } from "../materials/pbrMaterialSystem";
+import {
+  markSharedGeometry,
+  markSharedMaterial,
+  markSharedTexture,
+  disposeObject3DTree,
+  attachWebGLContextRecovery,
+} from "../materials/webglResourceGuard";
 import { Plus, Layers, RotateCw, Columns, Ruler } from "lucide-react";
 import { startAccessorySilhouetteDrag } from "../engine/kitchenSpatialEngine";
+import { useConfiguratorStore } from "../../store/useConfiguratorStore";
 
 
 let cachedContactAoTex: THREE.CanvasTexture | null = null;
@@ -51,67 +60,67 @@ function getContactAoShadowTexture(): THREE.CanvasTexture | null {
   grad.addColorStop(1, "rgba(28, 25, 23, 0.0)");
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, 256, 256);
-  const tex = new THREE.CanvasTexture(canvas);
+  const tex = markSharedTexture(new THREE.CanvasTexture(canvas));
   tex.needsUpdate = true;
   cachedContactAoTex = tex;
   return tex;
 }
 
-const ghostLockedMat = new THREE.MeshBasicMaterial({
+const ghostLockedMat = markSharedMaterial(new THREE.MeshBasicMaterial({
   color: 0x10b981,
   transparent: true,
   opacity: 0.28,
   depthWrite: false,
-});
-const ghostFreeMat = new THREE.MeshBasicMaterial({
+}));
+const ghostFreeMat = markSharedMaterial(new THREE.MeshBasicMaterial({
   color: 0x0ea5e9,
   transparent: true,
   opacity: 0.26,
   depthWrite: false,
-});
-const ghostLockedEdgeMat = new THREE.LineBasicMaterial({
+}));
+const ghostLockedEdgeMat = markSharedMaterial(new THREE.LineBasicMaterial({
   color: 0x047857,
   transparent: true,
   opacity: 0.95,
-});
-const ghostFreeEdgeMat = new THREE.LineBasicMaterial({
+}));
+const ghostFreeEdgeMat = markSharedMaterial(new THREE.LineBasicMaterial({
   color: 0x0369a1,
   transparent: true,
   opacity: 0.92,
-});
-const snapSlotActiveRodMat = new THREE.MeshBasicMaterial({
+}));
+const snapSlotActiveRodMat = markSharedMaterial(new THREE.MeshBasicMaterial({
   color: 0x10b981,
   transparent: true,
   opacity: 0.95,
   depthTest: false,
-});
-const snapSlotIdleRodMat = new THREE.MeshBasicMaterial({
+}));
+const snapSlotIdleRodMat = markSharedMaterial(new THREE.MeshBasicMaterial({
   color: 0xf59e0b,
   transparent: true,
   opacity: 0.78,
   depthTest: false,
-});
+}));
 
 const v3EdgeCache = new Map<string, THREE.LineBasicMaterial>();
 
-const cadTechnicalMat = new THREE.MeshBasicMaterial({
+const cadTechnicalMat = markSharedMaterial(new THREE.MeshBasicMaterial({
   color: 0xffffff,
   polygonOffset: true,
   polygonOffsetFactor: 1,
   polygonOffsetUnits: 1,
-});
-const cadSelectedMat = new THREE.MeshBasicMaterial({
+}));
+const cadSelectedMat = markSharedMaterial(new THREE.MeshBasicMaterial({
   color: 0xdbeafe,
   polygonOffset: true,
   polygonOffsetFactor: 1,
   polygonOffsetUnits: 1,
-});
-const hoverHighlightEdgeMat = new THREE.LineBasicMaterial({
+}));
+const hoverHighlightEdgeMat = markSharedMaterial(new THREE.LineBasicMaterial({
   color: 0x0284c7,
   linewidth: 2,
   opacity: 1,
   transparent: false,
-});
+}));
 
 function getCachedEdgeMaterial(
   isSelected: boolean,
@@ -142,6 +151,7 @@ function getCachedEdgeMaterial(
         : 0.44,
       transparent: isPhotoreal && !isSelected,
     });
+    markSharedMaterial(m);
     v3EdgeCache.set(key, m);
   }
   return m;
@@ -183,8 +193,8 @@ interface DimensionAnchor {
   localMidpoint: THREE.Vector3;
 }
 
-const SHARED_CYLINDER_GEO = new THREE.CylinderGeometry(1, 1, 1, 8);
-const SHARED_CONE_GEO = new THREE.ConeGeometry(1, 1, 10);
+const SHARED_CYLINDER_GEO = markSharedGeometry(new THREE.CylinderGeometry(1, 1, 1, 8));
+const SHARED_CONE_GEO = markSharedGeometry(new THREE.ConeGeometry(1, 1, 10));
 
 function add3DRod(
   group: THREE.Group,
@@ -210,8 +220,8 @@ function add3DArrowCone(
   dirTowardTip: THREE.Vector3,
   mat: THREE.Material
 ) {
-  const coneH = 34;
-  const coneR = 12;
+  const coneH = 22;
+  const coneR = 7.5;
   const mesh = new THREE.Mesh(SHARED_CONE_GEO, mat);
   mesh.scale.set(coneR, coneH, coneR);
   const norm = dirTowardTip.clone().normalize();
@@ -248,8 +258,8 @@ function addDimensionSegment(
   const d2 = p2.clone().addScaledVector(extDir, extLen);
   const tickOver = 24;
 
-  // Main thick dimension rod + arrowheads
-  add3DRod(group, d1, d2, 4.5, mat);
+  // Sleek architectural dimension rod + arrowheads
+  add3DRod(group, d1, d2, 2.3, mat);
   const segDir = new THREE.Vector3().subVectors(d2, d1);
   if (segDir.length() > 90) {
     add3DArrowCone(group, d1, segDir.clone().negate(), mat);
@@ -261,14 +271,14 @@ function addDimensionSegment(
     group,
     p1.clone().addScaledVector(extDir, 12),
     d1.clone().addScaledVector(extDir, tickOver),
-    3,
+    1.6,
     mat
   );
   add3DRod(
     group,
     p2.clone().addScaledVector(extDir, 12),
     d2.clone().addScaledVector(extDir, tickOver),
-    3,
+    1.6,
     mat
   );
 
@@ -361,6 +371,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       dropV4TemplateWithSnap,
     } = useV3Adapter();
 
+    const experienceTier = useConfiguratorStore((s) => s.userExperienceTier);
+    const isSimpleTier = experienceTier === "simple";
     const [editingBadge, setEditingBadge] = useState<null | "W" | "H" | "D" | "SOKET">(null);
     const [badgeDraftValue, setBadgeDraftValue] = useState<string>("");
     const [doorsHiddenIn3D, setDoorsHiddenIn3D] = useState<boolean>(false);
@@ -577,6 +589,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
     const [hovered3DObjectLabel, setHovered3DObjectLabel] = useState<string | null>(null);
     const [dismissedBayPopover, setDismissedBayPopover] = useState<boolean>(false);
     const [isCtrlPressed, setIsCtrlPressed] = useState<boolean>(false);
+    const [webglContextLost, setWebglContextLost] = useState<boolean>(false);
 
     useEffect(() => {
       setDismissedBayPopover(false);
@@ -728,36 +741,39 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         {
           id: "dim_W",
           tag: "Genişlik",
-          valueText: `${W} mm`,
-          borderColor: "#CBD5E1",
-          badgeBg: "#2B2927",
+          valueText: isSimpleTier ? `${W / 10} cm` : `${W} mm`,
+          borderColor: "#D6D0C4",
+          badgeBg: "#141413",
           localMidpoint: new THREE.Vector3(W * 0.5, H + 105, D * 0.65),
         },
         {
           id: "dim_H",
           tag: "Yükseklik",
-          valueText: `${H} mm`,
-          borderColor: "#BFDBFE",
-          badgeBg: "#2563EB",
+          valueText: isSimpleTier ? `${H / 10} cm` : `${H} mm`,
+          borderColor: "#D6D0C4",
+          badgeBg: "#141413",
           localMidpoint: new THREE.Vector3(W + 115, H * 0.52, D),
         },
         {
           id: "dim_D",
           tag: "Derinlik",
-          valueText: `${D} mm`,
-          borderColor: "#BBF7D0",
-          badgeBg: "#16A34A",
+          valueText: isSimpleTier ? `${D / 10} cm` : `${D} mm`,
+          borderColor: "#D6D0C4",
+          badgeBg: "#57534E",
           localMidpoint: new THREE.Vector3(W + 125, 18, D * 0.5),
         },
-        {
+      ];
+
+      if (!isSimpleTier) {
+        list.push({
           id: "dim_SOKET",
           tag: "Soket",
           valueText: `${soketW} mm`,
-          borderColor: "#CBD5E1",
-          badgeBg: "#2B2927",
+          borderColor: "#D6D0C4",
+          badgeBg: "#57534E",
           localMidpoint: new THREE.Vector3(W * 0.5, 8, D + 115),
-        },
-      ];
+        });
+      }
 
       if (mod.category !== "complementary" && mod.bays.length >= 1) {
         const fs = calculateFourSpaceDimensions(mod);
@@ -768,10 +784,10 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           const midX = curX + bw * 0.5;
           list.push({
             id: `dim_BAY_${bIdx}`,
-            tag: `Bölme ${bIdx + 1}`,
-            valueText: `${bw} mm`,
-            borderColor: "#93C5FD",
-            badgeBg: "#2563EB",
+            tag: `${bIdx + 1}. Bölme`,
+            valueText: isSimpleTier ? `${Math.round(bw / 10)} cm` : `${bw} mm`,
+            borderColor: "#D6D0C4",
+            badgeBg: "#141413",
             localMidpoint: new THREE.Vector3(midX, H + 28, D * 0.92),
           });
           curX += bw + T;
@@ -783,18 +799,19 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         const minX = Math.min(...mainMods.map((m) => m.position.x));
         const maxX = Math.max(...mainMods.map((m) => m.position.x + m.dimensions.width));
         const maxH = Math.max(...mainMods.map((m) => m.position.y + m.dimensions.height));
+        const spanMm = Math.round(maxX - minX);
         list.push({
           id: "dim_TOTAL_SPAN",
           tag: "Toplam Genişlik",
-          valueText: `${Math.round(maxX - minX)} mm`,
-          borderColor: "#CBD5E1",
-          badgeBg: "#2B2927",
+          valueText: isSimpleTier ? `${spanMm / 10} cm` : `${spanMm} mm`,
+          borderColor: "#D6D0C4",
+          badgeBg: "#141413",
           localMidpoint: new THREE.Vector3((minX + maxX) * 0.5, maxH + 260, 300),
         });
       }
 
       return list;
-    }, [project, activeModuleIndex, effectiveShowDimensions]);
+    }, [project, activeModuleIndex, effectiveShowDimensions, isSimpleTier]);
 
     const hwCallouts = useMemo(() => {
       const mod = project.modules[activeModuleIndex] || project.modules[0];
@@ -1267,14 +1284,30 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       controls.dampingFactor = 0.08;
       controls.maxDistance = 14000;
       controls.minDistance = 250;
+      controls.minPolarAngle = 0.04;
+      controls.maxPolarAngle = Math.PI * 0.495;
       controls.target.set(900, 1100, 300);
       controls.addEventListener("change", () => {
+        if (controls.target.y < 40) {
+          controls.target.y = 40;
+        }
         needsRenderRef.current = true;
       });
       controlsRef.current = controls;
 
       // Generate HDR Studio Lightformer PMREM prefiltered environment map for photorealistic reflections
       scene.environment = getStudioPmremEnvironment(renderer);
+
+      const detachContextRecovery = attachWebGLContextRecovery(renderer.domElement, {
+        onLost: () => {
+          setWebglContextLost(true);
+        },
+        onRestored: () => {
+          setWebglContextLost(false);
+          scene.environment = getStudioPmremEnvironment(renderer);
+          needsRenderRef.current = true;
+        },
+      });
 
       // Calibrated Architectural Daylight + Warm Softbox Lighting with full-room 2048x2048 shadow frustum
       const hemiLight = new THREE.HemisphereLight(0xffffff, 0xe2e8f0, 0.96);
@@ -1919,6 +1952,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           // Render live 3D Vertical Magnetic Snap Laser Lines in ghostSnapGroupRef while dragging module in 3D!
           if (ghostSnapGroupRef.current && dragMod) {
             const gGroup = ghostSnapGroupRef.current;
+            disposeObject3DTree(gGroup);
             gGroup.clear();
             const snapXs = [
               0,
@@ -2030,6 +2064,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           }
           if (dragKind === "module_3d" || dragKind === "obstacle_3d") {
             if (ghostSnapGroupRef.current) {
+              disposeObject3DTree(ghostSnapGroupRef.current);
               ghostSnapGroupRef.current.clear();
               needsRenderRef.current = true;
             }
@@ -2234,9 +2269,14 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       return () => {
         cancelAnimationFrame(animId);
         resizeObserver.disconnect();
+        detachContextRecovery();
         renderer.domElement.removeEventListener("pointerdown", handlePointerDown, { capture: true });
         window.removeEventListener("pointermove", handlePointerMove, { capture: true });
         window.removeEventListener("pointerup", handlePointerUp, { capture: true });
+        controls.dispose();
+        disposeObject3DTree(scene);
+        scene.clear();
+        disposeRendererPmremEnvironment(renderer);
         renderer.dispose();
         if (container.contains(renderer.domElement)) {
           container.removeChild(renderer.domElement);
@@ -2407,6 +2447,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       // Update 3D Blue Selection Frame using Oriented Bounding Box (OBB) so angled/open doors match 1-to-1!
       const selGroup = selectionFrameGroupRef.current;
       if (selGroup) {
+        disposeObject3DTree(selGroup);
         selGroup.clear();
         if (selectedComponentId) {
           let matchedMesh: THREE.Mesh | null = null;
@@ -2542,12 +2583,54 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         return;
       }
 
+      // Differential per-module cache: reuse unchanged module groups (e.g. multi-cabinet kitchens)
+      // and strictly dispose GPU buffers of invalidated or deleted module groups!
+      const reusableGroupsBySig = new Map<string, THREE.Object3D[]>();
+      for (const existingChild of [...meshGroup.children]) {
+        const sig = existingChild?.userData?.renderSig;
+        if (typeof sig === "string" && moduleSigs.includes(sig)) {
+          const list = reusableGroupsBySig.get(sig) || [];
+          list.push(existingChild);
+          reusableGroupsBySig.set(sig, list);
+        } else {
+          disposeObject3DTree(existingChild);
+        }
+      }
       meshGroup.clear();
       const matMap = new Map(DEFAULT_MATERIALS.map((m) => [m.id, m]));
       const isLight = theme !== "dark";
 
+      const fallbackStoneDef = {
+        id: "mat_stone_calacatta",
+        name: "Çimstone Calacatta Kuvars",
+        category: "stone" as const,
+        colorHex: "#f5f4f0",
+        roughness: 0.22,
+        metalness: 0.02,
+        pricePerSqm: 185,
+      };
+      const fallbackLedDef = {
+        id: "mat_led_warm_3000k",
+        name: "Häfele Loox5 3000K Sıcak LED",
+        category: "metal" as const,
+        colorHex: "#fff7d6",
+        roughness: 0.2,
+        metalness: 0.05,
+        pricePerSqm: 45,
+      };
+
       let activeSceneLedLights = 0;
       project.modules.forEach((mod, modIdx) => {
+        const reusableBucket = reusableGroupsBySig.get(moduleSigs[modIdx]);
+        if (reusableBucket && reusableBucket.length > 0) {
+          const reusedGroup = reusableBucket.shift()!;
+          const placementGroup = createModuleGroup(mod);
+          reusedGroup.position.copy(placementGroup.position);
+          reusedGroup.rotation.y = placementGroup.rotation.y;
+          meshGroup.add(reusedGroup);
+          return;
+        }
+
         const breakdown = generateModuleGeometry(mod, {
           doorOpenAngleDeg,
           drawerOpenMm,
@@ -2559,20 +2642,6 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         modContainer.userData = { moduleId: mod.id, renderSig: moduleSigs[modIdx] };
 
         breakdown.components.forEach((comp) => {
-          const fallbackStoneDef = {
-            id: "mat_stone_calacatta",
-            name: "Çimstone Calacatta Kuvars",
-            category: "stone" as const,
-            colorHex: "#f5f4f0",
-            costPerM2: 185,
-          };
-          const fallbackLedDef = {
-            id: "mat_led_warm_3000k",
-            name: "Häfele Loox5 3000K Sıcak LED",
-            category: "metal" as const,
-            colorHex: "#fff7d6",
-            costPerM2: 45,
-          };
           const matDef =
             matMap.get(comp.materialId) ||
             (comp.role === "countertop" || comp.materialId === "mat_stone_calacatta"
@@ -2753,8 +2822,10 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                   Math.max(120, innerH - 4),
                   Math.max(100, mod.dimensions.depth - T - 8)
                 );
+                const bayFrameEdgesGeo = new THREE.EdgesGeometry(bayFrameGeo);
+                bayFrameGeo.dispose();
                 const bayFrameLines = new THREE.LineSegments(
-                  new THREE.EdgesGeometry(bayFrameGeo),
+                  bayFrameEdgesGeo,
                   new THREE.LineBasicMaterial({
                     color: 0x0284c7,
                     transparent: true,
@@ -2774,8 +2845,10 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                   Math.max(120, innerH + 6),
                   12
                 );
+                const frontRectEdgesGeo = new THREE.EdgesGeometry(frontRectGeo);
+                frontRectGeo.dispose();
                 const frontRectLines = new THREE.LineSegments(
-                  new THREE.EdgesGeometry(frontRectGeo),
+                  frontRectEdgesGeo,
                   new THREE.LineBasicMaterial({
                     color: 0x2563eb,
                     transparent: true,
@@ -2814,7 +2887,9 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               (b) =>
                 b.door.type === "open" ||
                 b.door.doorSystemId === "open" ||
-                b.door.doorSubType?.includes("glass")
+                Boolean(b.door.isGlassFramed) ||
+                b.door.crossSectionProfile === "glass_frame" ||
+                String(b.door.doorMaterialId || "").includes("glass")
             ));
 
         if (shouldRenderProps && mod.bays.length >= 1) {
@@ -2986,8 +3061,10 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           const selH = mod.dimensions.height + 16;
           const selD = mod.dimensions.depth + 16;
           const selBoxGeo = new THREE.BoxGeometry(selW, selH, selD);
+          const selEdgesGeo = new THREE.EdgesGeometry(selBoxGeo);
+          selBoxGeo.dispose();
           const selEdges = new THREE.LineSegments(
-            new THREE.EdgesGeometry(selBoxGeo),
+            selEdgesGeo,
             new THREE.LineBasicMaterial({
               color: 0x2563eb,
               transparent: true,
@@ -3019,6 +3096,9 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
 
         meshGroup.add(modContainer);
       });
+      reusableGroupsBySig.forEach((leftovers) => {
+        leftovers.forEach((unusedGroup) => disposeObject3DTree(unusedGroup));
+      });
 
       if (rendererRef.current) publishSceneDiagnostics(rendererRef.current.domElement, meshGroup);
       requestRender();
@@ -3041,7 +3121,10 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
 
     // Separate useEffect for 3D Room Architecture so cabinet interior edits/drags never rebuild room walls/floors!
     useEffect(() => {
-      if (roomArchGroupRef.current) roomArchGroupRef.current.clear();
+      if (roomArchGroupRef.current) {
+        disposeObject3DTree(roomArchGroupRef.current);
+        roomArchGroupRef.current.clear();
+      }
       const isLight = theme !== "dark";
       // Render 3D Architectural Backdrop Wall & Obstacles (Window, Plumbing, Door, Column, Beam)
       if (showRoomArchitecture3D) {
@@ -3594,13 +3677,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       const dimGroup = dimGroupRef.current;
       if (!dimGroup) return;
 
-      // Dispose previous dimension resources
-      dimGroup.traverse((obj) => {
-        if (obj instanceof THREE.Mesh || obj instanceof THREE.LineSegments) {
-          obj.geometry.dispose();
-          if (obj.material instanceof THREE.Material) obj.material.dispose();
-        }
-      });
+      // Dispose previous dimension resources (including SpriteMaterial CanvasTextures)
+      disposeObject3DTree(dimGroup);
       dimGroup.clear();
       dimGroup.visible = effectiveShowDimensions;
 
@@ -3618,7 +3696,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       const localAnchors: DimensionAnchor[] = [];
 
       const soketW = Math.max(200, W - 2 * T);
-      // 1. Total Width (Genişlik) along top edge
+      // 1. Total Width (Genişlik) along top edge (Architectural Charcoal)
       addDimensionSegment(
         modDimContainer,
         localAnchors,
@@ -3629,12 +3707,12 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         95,
         "Genişlik",
         `${W} mm`,
-        0x2b2927,
-        "#CBD5E1",
-        "#2B2927"
+        0x1c1917,
+        "#D6D0C4",
+        "#141413"
       );
 
-      // 2. Total Height (Yükseklik) along right-front vertical edge (Blue)
+      // 2. Total Height (Yükseklik) along right-front vertical edge (Architectural Charcoal)
       addDimensionSegment(
         modDimContainer,
         localAnchors,
@@ -3645,12 +3723,12 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         95,
         "Yükseklik",
         `${H} mm`,
-        0x2563eb,
-        "#BFDBFE",
-        "#2563EB"
+        0x1c1917,
+        "#D6D0C4",
+        "#141413"
       );
 
-      // 3. Total Depth (Derinlik) along right-bottom floor edge (Green)
+      // 3. Total Depth (Derinlik) along right-bottom floor edge (Warm Bronze)
       addDimensionSegment(
         modDimContainer,
         localAnchors,
@@ -3661,28 +3739,30 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         95,
         "Derinlik",
         `${D} mm`,
-        0x16a34a,
-        "#BBF7D0",
-        "#16A34A"
+        0x78716c,
+        "#D6D0C4",
+        "#57534E"
       );
 
-      // 4. Soket (Plinth width) along front-bottom floor edge
-      addDimensionSegment(
-        modDimContainer,
-        localAnchors,
-        "dim_SOKET",
-        new THREE.Vector3(T, 0, D),
-        new THREE.Vector3(W - T, 0, D),
-        new THREE.Vector3(0, 0, 1),
-        95,
-        "Soket",
-        `${soketW} mm`,
-        0x2b2927,
-        "#CBD5E1",
-        "#2B2927"
-      );
+      // 4. Soket (Plinth width) shown only in Architect / Factory modes
+      if (!isSimpleTier) {
+        addDimensionSegment(
+          modDimContainer,
+          localAnchors,
+          "dim_SOKET",
+          new THREE.Vector3(T, 0, D),
+          new THREE.Vector3(W - T, 0, D),
+          new THREE.Vector3(0, 0, 1),
+          95,
+          "Soket",
+          `${soketW} mm`,
+          0x78716c,
+          "#D6D0C4",
+          "#57534E"
+        );
+      }
 
-      // 5. Per-Bay Net Width Segments along top-front edge (Bölme 1 600 mm | Bölme 2 600 mm | Bölme 3 600 mm)
+      // 5. Per-Bay Net Width Segments along top-front edge
       if (mod.category !== "complementary" && mod.bays.length >= 1) {
         const bayWidths = fourSpaces.usableInternal.bayClearWidthsMm;
         let curBayX = T;
@@ -3699,11 +3779,11 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             new THREE.Vector3(curBayX + bw, H, D * 0.92),
             new THREE.Vector3(0, 1, 0),
             26,
-            `Bölme ${bIdx + 1}`,
+            `${bIdx + 1}. Bölme`,
             `${bw} mm`,
-            isSelBay ? 0x2563eb : 0x64748b,
-            isSelBay ? "#2563EB" : "#CBD5E1",
-            isSelBay ? "#2563EB" : "#475569"
+            isSelBay ? 0x141413 : 0x8c7a6b,
+            isSelBay ? "#141413" : "#D6D0C4",
+            isSelBay ? "#141413" : "#78716C"
           );
           curBayX += bw + T;
         });
@@ -3788,6 +3868,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       activeModuleIndex,
       activeBayIndex,
       effectiveShowDimensions,
+      isSimpleTier,
       updateProjectedDimensionLabels,
       requestRender,
     ]);
@@ -3889,6 +3970,7 @@ const clear3DGhostPreview = useCallback(() => {
       setIsDraggingItemOver3D(false);
       lastGhostKeyRef.current = "";
       if (ghostSnapGroupRef.current) {
+        disposeObject3DTree(ghostSnapGroupRef.current);
         ghostSnapGroupRef.current.clear();
         requestRender();
       }
@@ -4037,6 +4119,7 @@ const clear3DGhostPreview = useCallback(() => {
         if (lastGhostKeyRef.current !== ghostKey && ghostSnapGroupRef.current) {
           lastGhostKeyRef.current = ghostKey;
           const gGroup = ghostSnapGroupRef.current;
+          disposeObject3DTree(gGroup);
           gGroup.clear();
 
           // Render Ghost Accessory Mesh
@@ -4153,6 +4236,7 @@ const clear3DGhostPreview = useCallback(() => {
       if (lastGhostKeyRef.current !== ghostKey && ghostSnapGroupRef.current) {
         lastGhostKeyRef.current = ghostKey;
         const gGroup = ghostSnapGroupRef.current;
+        disposeObject3DTree(gGroup);
         gGroup.clear();
 
         // A. Render ALL Magnetic Snap Target Slots along the wall (Vertical Laser Guides + Floor/Wall Target Pads)
@@ -4332,6 +4416,21 @@ const clear3DGhostPreview = useCallback(() => {
           data-testid="v3-three-canvas"
           className={`w-full h-full ${isCtrlPressed ? "cursor-move" : "cursor-grab active:cursor-grabbing"}`}
         />
+        {webglContextLost && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-[#141413]/75 backdrop-blur-sm p-6">
+            <div className="max-w-sm rounded-2xl bg-[#F5F3EE] border border-[#D8D3C8] px-6 py-5 text-center shadow-2xl">
+              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#8C7A6B] mb-1">
+                3D Grafik Motoru
+              </div>
+              <div className="text-sm font-bold text-[#141413] mb-1.5">
+                WebGL Bağlantısı Yeniden Kuruluyor
+              </div>
+              <p className="text-xs text-[#57534E] leading-relaxed">
+                Ekran kartı sürücüsü sıfırlandı. Tasarım verileriniz güvende, sahne otomatik olarak geri yükleniyor.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* INTERACTIVE CLICK-TO-EDIT 3D DIMENSION CALLOUT PILLS & FLOATING POPOVER WINDOW */}
         {effectiveShowDimensions && dimLabels.length > 0 && (
@@ -4405,28 +4504,28 @@ const clear3DGhostPreview = useCallback(() => {
                       ? `${item.tag} ölçüsünü doğrudan 3D sahnede düzenlemek için tıklayın`
                       : item.tag
                   }
-                  className={`absolute top-0 left-0 inline-flex items-center gap-1.5 px-3 py-1 rounded-full backdrop-blur-xs border shadow-md whitespace-nowrap transition-opacity duration-75 ${
+                  className={`absolute top-0 left-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md backdrop-blur-xs border shadow-xs whitespace-nowrap transition-opacity duration-75 ${
                     isActiveBayBadge
-                      ? "bg-[#2563EB] text-white border-[#1D4ED8] ring-2 ring-[#2563EB]/30 pointer-events-auto cursor-pointer"
+                      ? "bg-[#141413] text-[#FAF9F6] border-[#141413] pointer-events-auto cursor-pointer"
                       : isBayBadge
-                      ? "bg-white/95 hover:bg-[#EFF6FF] text-[#111827] border-[#CBD5E1] hover:border-[#2563EB] pointer-events-auto cursor-pointer"
+                      ? "bg-[#FAF9F6]/95 hover:bg-white text-[#141413] border-[#D6D0C4] hover:border-[#141413] pointer-events-auto cursor-pointer"
                       : isEditingThis
-                      ? "bg-[#EEF3F8] border-2 border-[#3B82F6] ring-2 ring-[#3B82F6]/30 pointer-events-auto cursor-pointer"
+                      ? "bg-white border-2 border-[#141413] pointer-events-auto cursor-pointer"
                       : badgeKey
-                      ? "bg-white/95 hover:bg-[#EEF3F8] hover:border-[#3B82F6] border-[#CBD5E1] pointer-events-auto cursor-pointer group"
-                      : "bg-white/95 pointer-events-none border-[#CBD5E1]"
+                      ? "bg-[#FAF9F6]/95 hover:bg-white hover:border-[#141413] border-[#D6D0C4] pointer-events-auto cursor-pointer group"
+                      : "bg-[#FAF9F6]/95 pointer-events-none border-[#D6D0C4]"
                   }`}
                 >
                   <span
-                    className={`text-[11px] font-bold leading-none ${
-                      isActiveBayBadge ? "text-white" : "text-[#111827]"
+                    className={`text-[10px] font-medium leading-none ${
+                      isActiveBayBadge ? "text-[#D6C7B2]" : "text-[#78716C]"
                     }`}
                   >
                     {item.tag}
                   </span>
                   <span
-                    className={`text-[11px] font-semibold leading-none font-mono ${
-                      isActiveBayBadge ? "text-blue-100" : "text-[#111827]"
+                    className={`text-[11px] font-bold leading-none font-mono ${
+                      isActiveBayBadge ? "text-[#FAF9F6]" : "text-[#141413]"
                     }`}
                   >
                     {item.valueText}
@@ -5707,7 +5806,11 @@ const clear3DGhostPreview = useCallback(() => {
         {/* LEFT VERTICAL VIEW & CAMERA PILL (Design Studio: 3D | 2D Plan | Ön | Yan | Üst | İç Görünüm | Fit) */}
         <div
           data-testid="viewport-3d-visual-quality-bar"
-          className="absolute left-4 top-4 z-20 flex flex-col items-center gap-1 bg-white/95 backdrop-blur-md p-1.5 rounded-2xl border border-[#E2E8F0] shadow-md text-[#2B2927] w-[58px]"
+          className={
+            isSimpleTier
+              ? "sr-only"
+              : "absolute left-3.5 top-3.5 z-20 flex flex-col items-center gap-1 bg-[#FAF9F6]/95 backdrop-blur-md p-1 rounded-xl border border-[#DED8CC] shadow-sm text-[#141413] w-[56px]"
+          }
         >
           {[
             {
@@ -6018,7 +6121,11 @@ const clear3DGhostPreview = useCallback(() => {
         {showInCanvasHud && (
           <div
             data-testid="in-canvas-direct-hud"
-            className="absolute top-3 left-2 right-2 mx-auto w-fit max-w-[calc(100%-16px)] z-20 flex flex-wrap items-center justify-center gap-1 bg-white/82 backdrop-blur-xl px-2.5 py-1.5 rounded-2xl border border-white/85 ring-1 ring-slate-900/10 shadow-[0_10px_30px_rgba(15,23,42,0.12)] text-[#0F172A]"
+            className={
+              isSimpleTier && !materialModeActive
+                ? "sr-only"
+                : "absolute top-3 left-2 right-2 mx-auto w-fit max-w-[calc(100%-16px)] z-20 flex flex-wrap items-center justify-center gap-1 bg-[#FAF9F6]/95 backdrop-blur-md px-2 py-1 rounded-xl border border-[#DED8CC] shadow-sm text-[#141413]"
+            }
           >
             {materialModeActive && (
               <>
@@ -6275,7 +6382,11 @@ const clear3DGhostPreview = useCallback(() => {
         {/* BOTTOM-LEFT 3D COORDINATE AXIS GIZMO (Z Blue, Y Green, X Red) */}
         <div
           data-testid="viewport-3d-axis-gizmo"
-          className="absolute left-5 bottom-5 z-10 pointer-events-none select-none"
+          className={
+            isSimpleTier
+              ? "hidden"
+              : "absolute left-5 bottom-5 z-10 pointer-events-none select-none opacity-75"
+          }
         >
           <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
             {/* Z Vertical Axis (Blue) */}
@@ -6299,58 +6410,47 @@ const clear3DGhostPreview = useCallback(() => {
           data-testid="viewport-3d-bottom-nav-bar"
           className="absolute bottom-3 left-2 right-2 mx-auto w-fit max-w-[calc(100%-16px)] z-20 flex flex-wrap items-center justify-center gap-2"
         >
-          <div className="bg-white/95 backdrop-blur-md px-2.5 py-1.5 rounded-2xl border border-[#E2E8F0] shadow-md flex items-center gap-1 text-[#2B2927]">
+          <div className="bg-[#FAF9F6]/95 backdrop-blur-md p-1 rounded-xl border border-[#DED8CC] shadow-sm flex items-center gap-1 text-[#141413]">
             <button
               type="button"
               onClick={() => setMoveObjectMode3D(false)}
-              className={`px-3 py-1 rounded-xl flex flex-col items-center gap-0.5 transition cursor-pointer ${
-                !moveObjectMode3D ? "bg-[#F1F5F9] text-[#1C1917] font-semibold" : "text-[#57534E] hover:bg-[#F8F6F2]"
+              className={`h-8 px-2.5 rounded-lg flex items-center gap-1.5 text-xs transition cursor-pointer ${
+                !moveObjectMode3D ? "bg-[#141413] text-[#FAF9F6] font-semibold" : "text-[#57534E] hover:bg-[#EFECE5]"
               }`}
-              title="Sahneyi Döndür (Orbit)"
+              title="Sahneyi Döndür"
             >
               <RotateCw className="w-3.5 h-3.5" />
-              <span className="text-[10px]">Orbit</span>
+              <span>{isSimpleTier ? "Çevir" : "Orbit"}</span>
             </button>
-            <div className="h-5 w-px bg-[#E2E8F0]" />
             <button
               type="button"
               onClick={() => setMoveObjectMode3D(true)}
-              className={`px-3 py-1 rounded-xl flex flex-col items-center gap-0.5 transition cursor-pointer ${
-                moveObjectMode3D ? "bg-[#F1F5F9] text-[#1C1917] font-semibold" : "text-[#57534E] hover:bg-[#F8F6F2]"
+              className={`h-8 px-2.5 rounded-lg flex items-center gap-1.5 text-xs transition cursor-pointer ${
+                moveObjectMode3D ? "bg-[#141413] text-[#FAF9F6] font-semibold" : "text-[#57534E] hover:bg-[#EFECE5]"
               }`}
-              title="Kaydır / Taşı (Pan)"
+              title="Dolabı Duvar Boyunca Taşı"
             >
               <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                 <path d="M18 11V6a2 2 0 00-2-2v0a2 2 0 00-2 2v0M14 10V4a2 2 0 00-2-2v0a2 2 0 00-2 2v6M10 10.5V6a2 2 0 00-2-2v0a2 2 0 00-2 2v8" />
                 <path d="M18 8a2 2 0 114 0v6a8 8 0 01-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 012.83-2.82L7 15" />
               </svg>
-              <span className="text-[10px]">Pan</span>
+              <span>{isSimpleTier ? "Taşı" : "Pan"}</span>
             </button>
-            <div className="h-5 w-px bg-[#E2E8F0]" />
+            <div className="h-4 w-px bg-[#DED8CC]" />
             <button
               type="button"
               onClick={() => {
-                const perspective = perspCamRef.current,
-                  controls = controlsRef.current;
-                if (perspective && controls) {
-                  const dir = new THREE.Vector3().subVectors(perspective.position, controls.target);
-                  const nextLen = dir.length() > 1350 ? dir.length() * 0.82 : dir.length() * 1.25;
-                  perspective.position.copy(controls.target).add(dir.normalize().multiplyScalar(nextLen));
-                  perspective.updateProjectionMatrix();
-                  controls.update();
-                  requestRender();
-                }
+                toggleDoorOpen();
               }}
-              className="px-3 py-1 rounded-xl flex flex-col items-center gap-0.5 text-[#57534E] hover:bg-[#F8F6F2] hover:text-[#1C1917] transition cursor-pointer"
-              title="Yakınlaştır / Uzaklaştır (Zoom)"
+              className={`h-8 px-2.5 rounded-lg flex items-center gap-1.5 text-xs transition cursor-pointer ${
+                doorOpenAngleDeg > 5
+                  ? "bg-[#141413] text-[#FAF9F6] font-semibold"
+                  : "text-[#57534E] hover:bg-[#EFECE5]"
+              }`}
+              title="Dolap Kapaklarını Aç / Kapat"
             >
-              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                <circle cx="11" cy="11" r="8" />
-                <path d="M21 21l-4.35-4.35M11 8v6M8 11h6" />
-              </svg>
-              <span className="text-[10px]">Zoom</span>
+              <span>{doorOpenAngleDeg > 5 ? "Kapağı Kapat" : "İçini Gör"}</span>
             </button>
-            <div className="h-5 w-px bg-[#E2E8F0]" />
             <button
               type="button"
               onClick={() => {
@@ -6373,19 +6473,16 @@ const clear3DGhostPreview = useCallback(() => {
                   }
                 }
               }}
-              className="px-3 py-1 rounded-xl flex flex-col items-center gap-0.5 text-[#57534E] hover:bg-[#F8F6F2] hover:text-[#1C1917] transition cursor-pointer"
+              className="h-8 px-2.5 rounded-lg flex items-center gap-1 text-xs text-[#57534E] hover:bg-[#EFECE5] hover:text-[#141413] transition cursor-pointer"
               title="Sahneye Sığdır"
             >
-              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
-              </svg>
-              <span className="text-[10px]">Sığdır</span>
+              <span>Sığdır</span>
             </button>
           </div>
 
-          {/* Görüntü ⌄ Hardware View Mode Selector Pill (Normal Görünüm | Donanımları Göster | Teknik Görünüm — Matches Birim_Tasarim_5_Donanim_Mekanizmalar.png) */}
+          {/* Görüntü ⌄ Hardware View Mode Selector Pill (Shown in Architect & Factory modes) */}
           {showInCanvasHud && (
-            <div className="relative">
+            <div className={isSimpleTier ? "sr-only" : "relative"}>
               <button
                 type="button"
                 data-testid="viewport-3d-hardware-view-mode-btn"
@@ -6469,8 +6566,8 @@ const clear3DGhostPreview = useCallback(() => {
             </div>
           )}
 
-          {/* 2-Yönlü 3D Canlı Kesit (X Boyuna & Z Enine Kesit) Pill & Frosted Popover */}
-          <div className="relative">
+          {/* 2-Yönlü 3D Canlı Kesit (Shown in Architect & Factory modes) */}
+          <div className={isSimpleTier ? "sr-only" : "relative"}>
             <button
               type="button"
               data-testid="viewport-3d-section-toggle-btn"
@@ -6548,29 +6645,29 @@ const clear3DGhostPreview = useCallback(() => {
             )}
           </div>
 
-          {/* Ölçüler Toggle Pill (Matches image_e719c6.jpg Bottom Bar) */}
+          {/* Ölçüler Toggle Pill (Birim Architectural Charcoal Switch) */}
           <button
             type="button"
             onClick={handleToggleDimensions}
-            className="bg-white/78 backdrop-blur-xl px-3.5 py-2 rounded-2xl border border-white/80 ring-1 ring-slate-900/10 shadow-lg flex items-center gap-2 text-xs font-semibold text-[#111827] hover:bg-white/90 transition cursor-pointer"
+            className="h-10 bg-[#FAF9F6]/95 backdrop-blur-md px-3 rounded-xl border border-[#DED8CC] shadow-sm flex items-center gap-2 text-xs font-semibold text-[#141413] hover:bg-white transition cursor-pointer"
           >
             <span>Ölçüler</span>
             <span
-              className={`w-8 h-4.5 rounded-full p-0.5 flex items-center transition ${
-                effectiveShowDimensions ? "bg-[#3B82F6] justify-end" : "bg-[#CBD5E1] justify-start"
+              className={`w-7 h-4 rounded-full p-0.5 flex items-center transition ${
+                effectiveShowDimensions ? "bg-[#141413] justify-end" : "bg-[#D6D0C4] justify-start"
               }`}
             >
-              <span className="w-3.5 h-3.5 rounded-full bg-white shadow-2xs" />
+              <span className="w-3 h-3 rounded-full bg-[#FAF9F6]" />
             </span>
           </button>
 
-          {/* Render Mode & Environment Selector Pill (Gerçekçi ⌄) */}
+          {/* Render Mode & Environment Selector Pill (Stüdyo & Zemin ⌄) */}
           <div className="relative">
             <button
               type="button"
               data-testid="viewport-3d-edge-mode-toggle"
               onClick={() => setRenderMenuOpen((v) => !v)}
-              className="bg-white/95 backdrop-blur-md px-3.5 py-2.5 rounded-2xl border border-[#E2E8F0] shadow-md flex items-center gap-2 text-xs font-semibold text-[#1C1917] hover:bg-[#FFFFFF] transition cursor-pointer"
+              className="h-10 bg-[#FAF9F6]/95 backdrop-blur-md px-3 rounded-xl border border-[#DED8CC] shadow-sm flex items-center gap-2 text-xs font-semibold text-[#141413] hover:bg-white transition cursor-pointer"
             >
               <svg className="w-4 h-4 text-[#57534E]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                 <rect x="3" y="3" width="18" height="18" rx="2" />

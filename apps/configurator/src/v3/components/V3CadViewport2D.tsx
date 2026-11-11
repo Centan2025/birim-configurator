@@ -651,9 +651,58 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       removeActiveModule,
     ]);
 
-    // Global keyboard shortcuts for Ctrl+Z, Ctrl+Y / Ctrl+Shift+Z, Delete/Backspace, and Escape
+    // Global safety net: if user releases mouse outside SVG or window loses focus during 2D drag/resize,
+    // always close batchStartProject so Undo/BOM never get stuck in an uncommitted transaction!
     useEffect(() => {
-      if (mode !== "plan" || !interactivePlan) return;
+      const hasActive2DGesture =
+        resizingPlanObject !== null ||
+        draggingWallId !== null ||
+        draggingObsId !== null ||
+        draggingModIdx !== null ||
+        elevResizingMod !== null ||
+        elevDraggingObs !== null ||
+        elevDraggingMod !== null ||
+        interiorDrag !== null;
+      if (!hasActive2DGesture) return;
+
+      const finishGlobal2DGesture = () => {
+        if (resizingPlanObject !== null) setResizingPlanObject(null);
+        if (draggingWallId !== null) setDraggingWallId(null);
+        if (draggingObsId !== null) setDraggingObsId(null);
+        if (draggingModIdx !== null) setDraggingModIdx(null);
+        if (elevResizingMod !== null) setElevResizingMod(null);
+        if (elevDraggingObs !== null) setElevDraggingObs(null);
+        if (elevDraggingMod !== null) setElevDraggingMod(null);
+        if (interiorDrag !== null) setInteriorDrag(null);
+        setActiveSnapTarget(null);
+        setActivePlanSnapX(null);
+        setActiveElevSnap(null);
+        setPlanRowSnapBanner(null);
+        commitHistoryTransaction();
+      };
+
+      window.addEventListener("pointerup", finishGlobal2DGesture);
+      window.addEventListener("mouseup", finishGlobal2DGesture);
+      window.addEventListener("blur", finishGlobal2DGesture);
+      return () => {
+        window.removeEventListener("pointerup", finishGlobal2DGesture);
+        window.removeEventListener("mouseup", finishGlobal2DGesture);
+        window.removeEventListener("blur", finishGlobal2DGesture);
+      };
+    }, [
+      resizingPlanObject,
+      draggingWallId,
+      draggingObsId,
+      draggingModIdx,
+      elevResizingMod,
+      elevDraggingObs,
+      elevDraggingMod,
+      interiorDrag,
+      commitHistoryTransaction,
+    ]);
+
+    // Global keyboard shortcuts for Ctrl+Z, Ctrl+Y / Ctrl+Shift+Z, Delete/Backspace, and Escape across ALL 2D modes
+    useEffect(() => {
       const onKeyDown = (ev: KeyboardEvent) => {
         const tag = (ev.target as HTMLElement | null)?.tagName;
         if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
@@ -683,11 +732,20 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
               setIsDrawingWall(false);
               setIsPlacingObstacle(false);
             }
+            return;
+          }
+          if (ev.key === "Escape") {
+            setSelectedComponentId(null);
+            setSelectedPlanObject(null);
           }
           return;
         }
-        if (ev.key === "Delete" || ev.key === "Backspace") {
+        if ((ev.key === "Delete" || ev.key === "Backspace") && mode === "plan" && interactivePlan) {
           if (selectedPlanObject) {
+            // Protect against accidental deletion of the sole remaining module unless another module exists
+            if (selectedPlanObject.kind === "module" && project.modules.length <= 1) {
+              return;
+            }
             ev.preventDefault();
             handleDeleteSelectedObject();
           }

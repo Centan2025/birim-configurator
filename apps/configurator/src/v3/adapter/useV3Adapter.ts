@@ -11,6 +11,8 @@ import {
   validateProject,
   calculateFourSpaceDimensions,
   evaluateProjectCompatibility,
+  computeCornerFillerAutoFix,
+  type PanelCutoutConfig,
   DoorSystemId,
   DoorOverlayType,
   HandleCategory,
@@ -48,6 +50,7 @@ import {
   exportNestingSheetsDXF,
 } from "@birim/manufacturing";
 import { calculateProjectPrice } from "@birim/pricing";
+import { computeNestingAsync } from "../../workers/manufacturing-worker-client";
 import {
   generateModuleGeometry,
   generateElevation2D,
@@ -213,7 +216,13 @@ export function computeRowSnapPreview(
 function commitAdapterState(patch: Partial<ReturnType<typeof useConfiguratorStore.getState>>) {
   const state = useConfiguratorStore.getState();
   if (!patch.project) { useConfiguratorStore.setState(patch); return; }
-  const project = { ...patch.project, status: "draft" as const, version: Math.max(state.project.version + 1, patch.project.version), updatedAt: new Date().toISOString() };
+  const project = {
+    ...patch.project,
+    status: "draft" as const,
+    version: Math.max(state.project.version + 1, patch.project.version),
+    revisionId: `rev_v${Math.max(state.project.version + 1, patch.project.version)}`,
+    updatedAt: new Date().toISOString(),
+  };
   // Fast-path during active 2D/3D drag or resize gesture: skip heavy BOM/2D sheet nesting/pricing/validation on 60Hz mousemove!
   // commitHistoryTransaction() automatically runs full recompute(project) once on mouseup.
   if (state.batchStartProject !== null && !patch.history) {
@@ -224,12 +233,37 @@ function commitAdapterState(patch: Partial<ReturnType<typeof useConfiguratorStor
     });
     return;
   }
-  const bom = generateBOMForProject(project);
+  const bom = patch.bom ?? generateBOMForProject(project);
+  const pricing = patch.pricing ?? calculateProjectPrice(bom);
+  const validationIssues = patch.validationIssues ?? validateProject(project);
   const active = project.modules[patch.activeModuleIndex ?? state.activeModuleIndex] ?? project.modules[0] ?? createDefaultWardrobeModule("empty_fallback");
-  useConfiguratorStore.setState({ ...patch, project, bom, pricing: calculateProjectPrice(bom), validationIssues: validateProject(project),
-    smartAdvice: analyzeAndAdviseSpan(active.dimensions.width, active.dimensions.height), autoSaveStatus: "unsaved",
-    history: patch.history ?? [...state.history.slice(-15), state.project], future: patch.future ?? [],
+  useConfiguratorStore.setState({
+    ...patch,
+    project,
+    bom,
+    pricing,
+    validationIssues,
+    smartAdvice: analyzeAndAdviseSpan(active.dimensions.width, active.dimensions.height),
+    autoSaveStatus: "unsaved",
+    history: patch.history ?? [...state.history.slice(-15), state.project],
+    future: patch.future ?? [],
   });
+  if (typeof window !== "undefined" && bom.cutList.length > 0) {
+    void computeNestingAsync(bom.cutList, project.version, undefined, {
+      projectId: project.id,
+      revisionId: project.revisionId,
+    }).then((workerSheets) => {
+      if (!workerSheets) return;
+      const latest = useConfiguratorStore.getState();
+      if (latest.project.id === project.id && latest.project.version === project.version) {
+        const refreshedBom = { ...latest.bom, nestingResults: workerSheets };
+        useConfiguratorStore.setState({
+          bom: refreshedBom,
+          pricing: calculateProjectPrice(refreshedBom),
+        });
+      }
+    });
+  }
 }
 
 /**
@@ -716,7 +750,24 @@ export function useV3Adapter() {
   }, [project.space]);
 
   const v4CompatibilityReport = useMemo(
-    () => (isDraggingActive ? { isCompatible: true, issues: [], checkedRulesCount: 0 } : evaluateProjectCompatibility(project)),
+    () =>
+      isDraggingActive
+        ? {
+            overallStatus: "COMPATIBLE" as const,
+            canApproveProduction: false,
+            checkedCategoriesCount: 0,
+            issues: [],
+            evidenceMatrix: {
+              projectId: project.id,
+              evaluatedAt: project.updatedAt,
+              totalCheckedCount: 0,
+              verifiedCompatibleCount: 0,
+              incompatibleCount: 0,
+              unverifiedPartOrOpCount: 0,
+              records: [],
+            },
+          }
+        : evaluateProjectCompatibility(project),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [isDraggingActive ? null : project]
   );
@@ -1456,10 +1507,29 @@ export function useV3Adapter() {
 
       const updatedMod = updater({
         ...targetMod,
-        carcass: { ...targetMod.carcass },
+        dimensions: { ...targetMod.dimensions },
+        position: { ...targetMod.position },
+        rotation: targetMod.rotation ? { ...targetMod.rotation } : { x: 0, y: 0, z: 0 },
+        componentMaterialOverrides: targetMod.componentMaterialOverrides
+          ? { ...targetMod.componentMaterialOverrides }
+          : undefined,
+        componentGrainOverrides: targetMod.componentGrainOverrides
+          ? { ...targetMod.componentGrainOverrides }
+          : undefined,
+        carcass: {
+          ...targetMod.carcass,
+          customCadPolygon: targetMod.carcass.customCadPolygon
+            ? targetMod.carcass.customCadPolygon.map((pt) => ({ ...pt }))
+            : undefined,
+        },
         bays: targetMod.bays.map((b) => ({
           ...b,
-          door: { ...b.door },
+          door: {
+            ...b.door,
+            customCadPolygon: b.door.customCadPolygon
+              ? b.door.customCadPolygon.map((pt) => ({ ...pt }))
+              : undefined,
+          },
           shelves: b.shelves.map((s) => ({ ...s })),
           drawers: b.drawers.map((d) => ({ ...d })),
           hangingRails: b.hangingRails.map((r) => ({ ...r })),
@@ -1805,9 +1875,7 @@ export function useV3Adapter() {
           history: [...state.history.slice(-15), curProj],
           future: [],
           project: nextProj,
-          validationIssues: validateProject(nextProj),
-          bom: generateBOMForProject(nextProj),
-          pricing: calculateProjectPrice(generateBOMForProject(nextProj)),
+
         });
         return {
           placedName: newMod.name,
@@ -2054,9 +2122,7 @@ export function useV3Adapter() {
           history: [...state.history.slice(-15), curProj],
           future: [],
           project: nextProj,
-          validationIssues: validateProject(nextProj),
-          bom: generateBOMForProject(nextProj),
-          pricing: calculateProjectPrice(generateBOMForProject(nextProj)),
+
         });
         return;
       }
@@ -2176,9 +2242,7 @@ export function useV3Adapter() {
         history: [...state.history.slice(-15), curProj],
         future: [],
         project: nextProj,
-        validationIssues: validateProject(nextProj),
-        bom: generateBOMForProject(nextProj),
-        pricing: calculateProjectPrice(generateBOMForProject(nextProj)),
+
       });
     },
     []
@@ -2540,8 +2604,8 @@ export function useV3Adapter() {
               nextDrawers =
                 bIdx === 0
                   ? [
-                      { id: `drw_${m.id}_${bIdx}_1`, bayIndex: bIdx, height: 192, elevationY: 0, frontMaterialId: chosenMats.door },
-                      { id: `drw_${m.id}_${bIdx}_2`, bayIndex: bIdx, height: 192, elevationY: 195, frontMaterialId: chosenMats.door },
+                      { id: `drw_${m.id}_${bIdx}_1`, bayIndex: bIdx, height: 192, elevationY: 0, slideType: "soft_close" as const, frontMaterialId: chosenMats.door },
+                      { id: `drw_${m.id}_${bIdx}_2`, bayIndex: bIdx, height: 192, elevationY: 195, slideType: "soft_close" as const, frontMaterialId: chosenMats.door },
                     ]
                   : [];
             } else {
@@ -2556,8 +2620,8 @@ export function useV3Adapter() {
                 nextDrawers = [];
               } else {
                 nextDrawers = [
-                  { id: `drw_${m.id}_${bIdx}_1`, bayIndex: bIdx, height: 192, elevationY: 0, frontMaterialId: chosenMats.door },
-                  { id: `drw_${m.id}_${bIdx}_2`, bayIndex: bIdx, height: 192, elevationY: 195, frontMaterialId: chosenMats.door },
+                  { id: `drw_${m.id}_${bIdx}_1`, bayIndex: bIdx, height: 192, elevationY: 0, slideType: "soft_close" as const, frontMaterialId: chosenMats.door },
+                  { id: `drw_${m.id}_${bIdx}_2`, bayIndex: bIdx, height: 192, elevationY: 195, slideType: "soft_close" as const, frontMaterialId: chosenMats.door },
                 ];
                 nextShelves = [
                   { id: `sh_${m.id}_${bIdx}_1`, bayIndex: bIdx, elevationY: 448, isAdjustable: true },
@@ -2583,7 +2647,7 @@ export function useV3Adapter() {
                 id: `fit_tr_${m.id}_${bIdx}`,
                 bayIndex: bIdx,
                 elevationY: 640,
-                type: "trouser_pullout",
+                type: "trouser_rack",
                 height: 85,
               });
             }
@@ -2612,15 +2676,66 @@ export function useV3Adapter() {
               bayIndex: bIdx,
               type: nextDoorType,
               doorSystemId: nextDoorSys,
-              doorMaterialId: chosenMats.door,
-              doorSubType:
-                wiz.doorStyle === "glass" ? "alu_frame_smoked_glass" : "flat_panel",
+              doorMaterialId: wiz.doorStyle === "glass" ? "mat_smoked_glass" : chosenMats.door,
+              isGlassFramed: wiz.doorStyle === "glass",
+              crossSectionProfile: wiz.doorStyle === "glass" ? "glass_frame" : "flat_18",
             },
           };
         });
 
         builtModules.push(m);
         curX += thisW;
+      }
+
+      // Add 90-degree return wing modules when L-Shape or U-Shape is selected (with 50mm corner clearance)
+      if (wiz.roomShape === "l_shape" || wiz.roomShape === "u_shape") {
+        const returnStartZ = effDepth + 50;
+        const returnModW = 1000;
+        const baseRef = builtModules[0];
+        if (baseRef) {
+          const leftWing: ModuleInstance = JSON.parse(JSON.stringify(baseRef));
+          leftWing.id = `mod_wiz_left_${Date.now()}`;
+          leftWing.name =
+            wiz.spaceCategory === "kitchen" ? "Sol Dönüş Dolabı" : "Sol Köşe Dönüş Ünitesi";
+          leftWing.dimensions = { width: returnModW, height: effHeight, depth: effDepth };
+          leftWing.position = { x: 0, y: 0, z: returnStartZ + returnModW };
+          leftWing.rotation = { x: 0, y: 90, z: 0 };
+          leftWing.bays = leftWing.bays.map((b, bIdx) => ({
+            ...b,
+            id: undefined,
+            door: { ...b.door, id: `door_${leftWing.id}_${bIdx}` },
+            shelves: b.shelves.map((s, sI) => ({ ...s, id: `sh_${leftWing.id}_${bIdx}_${sI}` })),
+            hangingRails: b.hangingRails.map((r, rI) => ({ ...r, id: `rl_${leftWing.id}_${bIdx}_${rI}` })),
+            drawers: b.drawers.map((d, dI) => ({ ...d, id: `drw_${leftWing.id}_${bIdx}_${dI}` })),
+            specialFittings: (b.specialFittings || []).map((f, fI) => ({
+              ...f,
+              id: `fit_${leftWing.id}_${bIdx}_${fI}`,
+            })),
+          })) as typeof leftWing.bays;
+          builtModules.push(leftWing);
+
+          if (wiz.roomShape === "u_shape") {
+            const rightWing: ModuleInstance = JSON.parse(JSON.stringify(baseRef));
+            rightWing.id = `mod_wiz_right_${Date.now()}`;
+            rightWing.name =
+              wiz.spaceCategory === "kitchen" ? "Sağ Dönüş Dolabı" : "Sağ Köşe Dönüş Ünitesi";
+            rightWing.dimensions = { width: returnModW, height: effHeight, depth: effDepth };
+            rightWing.position = { x: safeWallW, y: 0, z: returnStartZ };
+            rightWing.rotation = { x: 0, y: 270, z: 0 };
+            rightWing.bays = rightWing.bays.map((b, bIdx) => ({
+              ...b,
+              door: { ...b.door, id: `door_${rightWing.id}_${bIdx}` },
+              shelves: b.shelves.map((s, sI) => ({ ...s, id: `sh_${rightWing.id}_${bIdx}_${sI}` })),
+              hangingRails: b.hangingRails.map((r, rI) => ({ ...r, id: `rl_${rightWing.id}_${bIdx}_${rI}` })),
+              drawers: b.drawers.map((d, dI) => ({ ...d, id: `drw_${rightWing.id}_${bIdx}_${dI}` })),
+              specialFittings: (b.specialFittings || []).map((f, fI) => ({
+                ...f,
+                id: `fit_${rightWing.id}_${bIdx}_${fI}`,
+              })),
+            })) as typeof rightWing.bays;
+            builtModules.push(rightWing);
+          }
+        }
       }
 
       // Build clean room walls matching roomShape and safeWallW
@@ -2667,7 +2782,7 @@ export function useV3Adapter() {
 
       const nextSpace = {
         ...curProj.space,
-        type: wiz.spaceCategory === "kitchen" ? ("kitchen_linear" as const) : ("wardrobe_zone" as const),
+        type: wiz.spaceCategory === "kitchen" ? ("kitchen_straight" as const) : ("wardrobe_zone" as const),
         ceilingHeight: ceilH,
         walls: nextWalls,
         elements: [],
@@ -3014,7 +3129,7 @@ export function useV3Adapter() {
             isInternal,
             hardwareProductId: isInternal
               ? "hw_blum_legrabox_m40"
-              : "hw_blum_legrabox_c40",
+              : "hw_blum_legrabox_c70",
             nominalLengthMm: optNl,
           });
         } else if (
@@ -3516,7 +3631,7 @@ export function useV3Adapter() {
               id: `${mod.id}_b${bayIdx}_sh_${i}_${Date.now()}`,
               bayIndex: bayIdx,
               elevationY: Math.min(netH - 80, Math.max(80, i * step)),
-              isFixed: i === 2,
+              isAdjustable: i !== 2,
             });
           }
         } else if (presetId === "rail_double") {
@@ -3527,13 +3642,13 @@ export function useV3Adapter() {
               id: `${mod.id}_b${bayIdx}_sh_mid_${Date.now()}`,
               bayIndex: bayIdx,
               elevationY: midShelfY,
-              isFixed: true,
+              isAdjustable: false,
             },
             {
               id: `${mod.id}_b${bayIdx}_sh_top_${Date.now()}`,
               bayIndex: bayIdx,
               elevationY: topShelfY,
-              isFixed: false,
+              isAdjustable: true,
             }
           );
           bay.hangingRails.push(
@@ -3556,7 +3671,7 @@ export function useV3Adapter() {
               bayIndex: bayIdx,
               elevationY: i * drwH,
               height: drwH,
-              softClose: true,
+              slideType: "soft_close",
               hardwareProductId: "hw_blum_legrabox_m40",
             });
           }
@@ -3567,13 +3682,13 @@ export function useV3Adapter() {
               id: `${mod.id}_b${bayIdx}_sh_cov_${Date.now()}`,
               bayIndex: bayIdx,
               elevationY: coverShelfY,
-              isFixed: true,
+              isAdjustable: false,
             },
             {
               id: `${mod.id}_b${bayIdx}_sh_top_${Date.now()}`,
               bayIndex: bayIdx,
               elevationY: topShelfY,
-              isFixed: false,
+              isAdjustable: true,
             }
           );
           bay.hangingRails.push({
@@ -3589,13 +3704,13 @@ export function useV3Adapter() {
               id: `${mod.id}_b${bayIdx}_sh_mid_${Date.now()}`,
               bayIndex: bayIdx,
               elevationY: midShelfY,
-              isFixed: true,
+              isAdjustable: false,
             },
             {
               id: `${mod.id}_b${bayIdx}_sh_top_${Date.now()}`,
               bayIndex: bayIdx,
               elevationY: topShelfY,
-              isFixed: false,
+              isAdjustable: true,
             }
           );
           bay.hangingRails.push({
@@ -3632,7 +3747,7 @@ export function useV3Adapter() {
               id: `${mod.id}_b${bayIdx}_sh_shoe_${i}_${Date.now()}`,
               bayIndex: bayIdx,
               elevationY: Math.min(netH - 80, startShelfY + i * step),
-              isFixed: i === 1,
+              isAdjustable: i !== 1,
             });
           }
         } else if (presetId === "shirt_shelf") {
@@ -3644,25 +3759,25 @@ export function useV3Adapter() {
               id: `${mod.id}_b${bayIdx}_sh_shirt_1_${Date.now()}`,
               bayIndex: bayIdx,
               elevationY: Math.round(midShelfY * 0.35),
-              isFixed: false,
+              isAdjustable: true,
             },
             {
               id: `${mod.id}_b${bayIdx}_sh_shirt_2_${Date.now()}`,
               bayIndex: bayIdx,
               elevationY: Math.round(midShelfY * 0.68),
-              isFixed: false,
+              isAdjustable: true,
             },
             {
               id: `${mod.id}_b${bayIdx}_sh_shirt_3_${Date.now()}`,
               bayIndex: bayIdx,
               elevationY: midShelfY,
-              isFixed: true,
+              isAdjustable: false,
             },
             {
               id: `${mod.id}_b${bayIdx}_sh_shirt_top_${Date.now()}`,
               bayIndex: bayIdx,
               elevationY: topShelfY,
-              isFixed: false,
+              isAdjustable: true,
             }
           );
           bay.hangingRails.push({
@@ -3679,7 +3794,7 @@ export function useV3Adapter() {
               bayIndex: bayIdx,
               elevationY: i * drwH,
               height: drwH,
-              softClose: true,
+              slideType: "soft_close",
               hardwareProductId: "hw_blum_legrabox_m40",
             });
           }
@@ -3690,13 +3805,13 @@ export function useV3Adapter() {
               id: `${mod.id}_b${bayIdx}_sh_dress_cov_${Date.now()}`,
               bayIndex: bayIdx,
               elevationY: coverShelfY,
-              isFixed: true,
+              isAdjustable: false,
             },
             {
               id: `${mod.id}_b${bayIdx}_sh_dress_top_${Date.now()}`,
               bayIndex: bayIdx,
               elevationY: topShelfY,
-              isFixed: false,
+              isAdjustable: true,
             }
           );
           bay.hangingRails.push({
@@ -3712,7 +3827,7 @@ export function useV3Adapter() {
             bayIndex: bayIdx,
             elevationY: 0,
             height: drwH,
-            softClose: true,
+            slideType: "soft_close",
             hardwareProductId: "hw_blum_legrabox_m40",
           });
           const coverShelfY = drwH + 18;
@@ -3723,19 +3838,19 @@ export function useV3Adapter() {
               id: `${mod.id}_b${bayIdx}_sh_mix_cov_${Date.now()}`,
               bayIndex: bayIdx,
               elevationY: coverShelfY,
-              isFixed: true,
+              isAdjustable: false,
             },
             {
               id: `${mod.id}_b${bayIdx}_sh_mix_mid_${Date.now()}`,
               bayIndex: bayIdx,
               elevationY: midShelfY,
-              isFixed: true,
+              isAdjustable: false,
             },
             {
               id: `${mod.id}_b${bayIdx}_sh_mix_top_${Date.now()}`,
               bayIndex: bayIdx,
               elevationY: topShelfY,
-              isFixed: false,
+              isAdjustable: true,
             }
           );
           bay.hangingRails.push({
@@ -3868,7 +3983,7 @@ export function useV3Adapter() {
           bayIndex: bayIdx,
           elevationY: maxTop,
           height: clampedH,
-          softClose: true,
+          slideType: "soft_close",
           isInternal: true,
           hardwareProductId: "hw_blum_legrabox_m40",
         });
@@ -3882,7 +3997,7 @@ export function useV3Adapter() {
             bayIndex: bayIdx,
             elevationY: newCoverY,
             thickness: T_p,
-            isFixed: true,
+            isAdjustable: false,
           });
         }
         return mod;
@@ -5264,6 +5379,251 @@ export function useV3Adapter() {
     const curState = useConfiguratorStore.getState();
     return exportNestingSheetsDXF(curState.bom);
   }, []);
+  /**
+   * V4.6: Updates parametric CNC utility cutouts (sockets, grommets, plumbing, baseboard notches) on active module
+   */
+  const setModuleUtilityCutouts = useCallback(
+    (nextCutouts: PanelCutoutConfig[]) => {
+      commitActiveModuleUpdate((mod) => {
+        mod.utilityCutouts = nextCutouts.map((c) => ({ ...c }));
+        return mod;
+      }, true);
+    },
+    [commitActiveModuleUpdate]
+  );
+
+  /**
+   * V4.6: Resolves 90-degree corner door/drawer sweep collisions by shifting colliding runs >= 50mm
+   * and inserting parametric corner filler strips (`tpl_cm_04_wall_filler`).
+   */
+  const autoResolveCornerCollisions = useCallback(() => {
+    const state = useConfiguratorStore.getState();
+    const curProj = state.project;
+    const { adjustedModules, resolvedCount, insertedFillerSpecs } = computeCornerFillerAutoFix(
+      curProj.modules,
+      50
+    );
+    if (resolvedCount === 0) return 0;
+
+    const fillerTpl = getV4TemplateById("tpl_cm_04_wall_filler");
+    const fillerMods = insertedFillerSpecs.map((spec, idx) => {
+      const fMod = fillerTpl
+        ? fillerTpl.createInstance(`mod_corner_filler_${Date.now()}_${idx}`)
+        : createDefaultWardrobeModule(`mod_corner_filler_${Date.now()}_${idx}`);
+      fMod.name = `Köşe Kör Çıta (${spec.widthMm} mm)`;
+      fMod.category = "complementary";
+      fMod.complementaryRole = "wall_filler";
+      fMod.isOpenFront = true;
+      fMod.position = { ...spec.position };
+      fMod.rotation = { x: 0, y: spec.rotationY, z: 0 };
+      fMod.dimensions = {
+        width: spec.widthMm,
+        height: spec.heightMm,
+        depth: spec.depthMm,
+      };
+      return fMod;
+    });
+
+    commitAdapterState({
+      project: {
+        ...curProj,
+        modules: [...adjustedModules, ...fillerMods],
+      },
+    });
+    return resolvedCount;
+  }, []);
+
+  /**
+   * Atomically creates or replaces the active cabinet with given dimensions, bay count, door style,
+   * interior focus, and materials in a SINGLE history commit with zero setTimeout race conditions.
+   */
+  const applyQuickCabinetAtomic = useCallback(
+    (spec: {
+      templateId?: string;
+      width: number;
+      height: number;
+      depth: number;
+      bays: number;
+      doorType: "hinged" | "sliding" | "open";
+      interior: "balanced" | "hanging" | "shelves" | "drawers";
+      bodyMaterialId?: string;
+      doorMaterialId?: string;
+      replaceAll?: boolean;
+    }) => {
+      const state = useConfiguratorStore.getState();
+      const curProj = state.project;
+      const tpl = getV4TemplateById(spec.templateId || "tpl_wd_03_two_door_wardrobe") || V4_MODULE_TEMPLATES[0];
+      const baseMod = tpl ? tpl.createInstance(`mod_${Date.now()}`) : createDefaultWardrobeModule(`mod_${Date.now()}`);
+
+      const T = baseMod.carcass.panelThickness || 18;
+      const safeW = Math.max(300, Math.min(3600, Math.round(spec.width)));
+      const safeH = Math.max(400, Math.min(2800, Math.round(spec.height)));
+      const safeD = Math.max(250, Math.min(900, Math.round(spec.depth)));
+      const maxSafeBays = Math.max(1, Math.floor((safeW - T) / (120 + T)));
+      const safeBays = Math.max(1, Math.min(maxSafeBays, Math.round(spec.bays)));
+      const plinthH = baseMod.carcass.plinthHeight ?? 80;
+      const netH = Math.max(320, safeH - plinthH - 2 * T);
+
+      const bodyMat = spec.bodyMaterialId || baseMod.carcass.bodyMaterialId || "mat_melamine_white";
+      const doorMat = spec.doorMaterialId || baseMod.carcass.doorMaterialId || "mat_veneer_oak";
+
+      baseMod.dimensions = { width: safeW, height: safeH, depth: safeD };
+      baseMod.isOpenFront = spec.doorType === "open";
+      baseMod.bodyMaterialId = bodyMat;
+      baseMod.doorMaterialId = doorMat;
+      baseMod.carcass = {
+        ...baseMod.carcass,
+        bodyMaterialId: bodyMat,
+        doorMaterialId: doorMat,
+      };
+
+      const topShelfY = Math.max(256, Math.min(netH - 160, Math.round((netH - 340) / 32) * 32));
+      const nextBays: ModuleInstance["bays"] = [];
+
+      for (let bIdx = 0; bIdx < safeBays; bIdx++) {
+        const doorKind =
+          spec.doorType === "open"
+            ? ("open" as const)
+            : spec.doorType === "sliding"
+            ? ("sliding" as const)
+            : safeBays === 1 && safeW >= 750
+            ? ("double" as const)
+            : bIdx % 2 === 0
+            ? ("single_left" as const)
+            : ("single_right" as const);
+        const doorSys =
+          spec.doorType === "open"
+            ? ("open" as const)
+            : spec.doorType === "sliding"
+            ? ("sliding_top_hung" as const)
+            : doorKind === "double"
+            ? ("hinged_double" as const)
+            : ("hinged_single" as const);
+
+        const shelves: ModuleInstance["bays"][number]["shelves"] = [];
+        const drawers: ModuleInstance["bays"][number]["drawers"] = [];
+        const hangingRails: ModuleInstance["bays"][number]["hangingRails"] = [];
+
+        const modeForBay =
+          spec.interior === "balanced"
+            ? bIdx === 0
+              ? "hanging"
+              : bIdx === safeBays - 1 && safeBays >= 2
+              ? "drawers"
+              : "shelves"
+            : spec.interior;
+
+        if (modeForBay === "hanging") {
+          shelves.push({
+            id: `${baseMod.id}_b${bIdx}_sh_top`,
+            bayIndex: bIdx,
+            elevationY: topShelfY,
+            isAdjustable: false,
+          });
+          hangingRails.push({
+            id: `${baseMod.id}_b${bIdx}_rail_main`,
+            bayIndex: bIdx,
+            elevationY: Math.max(320, topShelfY - 64),
+          });
+        } else if (modeForBay === "shelves") {
+          const count = Math.max(2, Math.min(5, Math.floor(netH / 380)));
+          const step = Math.max(160, Math.floor(netH / (count + 1) / 32) * 32);
+          for (let s = 1; s <= count; s++) {
+            shelves.push({
+              id: `${baseMod.id}_b${bIdx}_sh_${s}`,
+              bayIndex: bIdx,
+              elevationY: Math.min(netH - 96, s * step),
+              isAdjustable: s !== Math.ceil(count / 2),
+            });
+          }
+        } else {
+          const drwCount = netH >= 900 ? 3 : 2;
+          const drwH = 192;
+          for (let d = 0; d < drwCount; d++) {
+            drawers.push({
+              id: `${baseMod.id}_b${bIdx}_drw_${d}`,
+              bayIndex: bIdx,
+              elevationY: d * (drwH + 3),
+              height: drwH,
+              slideType: "soft_close",
+              hardwareProductId: "hw_blum_legrabox_m40",
+              frontMaterialId: doorMat,
+            });
+          }
+          const coverY = drwCount * (drwH + 3) + 16;
+          if (coverY < netH - 160) {
+            shelves.push({
+              id: `${baseMod.id}_b${bIdx}_sh_cov`,
+              bayIndex: bIdx,
+              elevationY: coverY,
+              isAdjustable: false,
+            });
+          }
+          if (topShelfY > coverY + 280) {
+            shelves.push({
+              id: `${baseMod.id}_b${bIdx}_sh_top`,
+              bayIndex: bIdx,
+              elevationY: topShelfY,
+              isAdjustable: true,
+            });
+            hangingRails.push({
+              id: `${baseMod.id}_b${bIdx}_rail_up`,
+              bayIndex: bIdx,
+              elevationY: Math.max(coverY + 180, topShelfY - 64),
+            });
+          }
+        }
+
+        nextBays.push({
+          index: bIdx,
+          shelves,
+          drawers,
+          hangingRails,
+          specialFittings: [],
+          subDividers: [],
+          door: {
+            id: `${baseMod.id}_door_${bIdx}`,
+            bayIndex: bIdx,
+            type: doorKind,
+            doorSystemId: doorSys,
+            openingTechnology: "soft_close",
+            softClose: true,
+            handleCategory: "linear_bar",
+            doorMaterialId: doorMat,
+          },
+        });
+      }
+      baseMod.bays = nextBays;
+
+      let nextModules: ModuleInstance[];
+      let nextActiveIdx = 0;
+      if (spec.replaceAll || curProj.modules.length === 0) {
+        baseMod.position = { x: 0, y: 0, z: 0 };
+        nextModules = [baseMod];
+        nextActiveIdx = 0;
+      } else {
+        const curIdx = Math.min(state.activeModuleIndex, curProj.modules.length - 1);
+        const prevMod = curProj.modules[curIdx];
+        baseMod.position = prevMod ? { ...prevMod.position } : { x: 0, y: 0, z: 0 };
+        baseMod.rotation = prevMod?.rotation ? { ...prevMod.rotation } : { x: 0, y: 0, z: 0 };
+        nextModules = curProj.modules.map((m, idx) => (idx === curIdx ? baseMod : m));
+        nextActiveIdx = curIdx;
+      }
+
+      commitAdapterState({
+        project: {
+          ...curProj,
+          modules: nextModules,
+        },
+        activeModuleIndex: nextActiveIdx,
+        activeBayIndex: 0,
+        selectedComponentId: null,
+        selectedModuleIds: [baseMod.id],
+      });
+    },
+    []
+  );
+
 
   return {
     project,
@@ -5367,6 +5727,9 @@ export function useV3Adapter() {
     attachComplementaryToActiveModule,
     applyProjectSegmentPreset,
     applyGuidedWizardLayout,
+    applyQuickCabinetAtomic,
+    setModuleUtilityCutouts,
+    autoResolveCornerCollisions,
     addShelf,
     removeShelf,
     addHangingRail,

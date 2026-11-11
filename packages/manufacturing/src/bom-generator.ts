@@ -5,8 +5,11 @@ import {
   DEFAULT_MATERIALS,
   ParametricPart,
   calculateFourSpaceDimensions,
+  calculateRecommendedHingesPerLeaf,
   calculateShelfDeflection,
   inferDoorSystemIdFromType,
+  roundIntMm,
+  roundMm,
 } from "@birim/core";
 import {
   getHardwareProductById,
@@ -25,7 +28,7 @@ import { generateDrillingForPart } from "./drilling-engine";
 import { optimizeSheetNesting } from "./sheet-nesting";
 
 const STANDARD_SHEET_AREA_M2 = (2800 * 2070) / 1_000_000; // 5.796 m²
-const STANDARD_WASTE_FACTOR = 1.12; // Flat 12% comparison reference
+const STANDARD_WASTE_FACTOR = 1.12;
 
 const bomProjectCache = new Map<string, ManufacturingBOM>();
 
@@ -45,6 +48,70 @@ function formatEdgeBandCode(eb: EdgeBandingConfig): string {
   if (bCount > 0) parts.push(`${bCount}B`);
   if (eCount > 0) parts.push(`${eCount}E`);
   return `${parts.join("+")} ${eb.thickness}mm`;
+}
+
+function doesBayDoorHingeOnLeft(bay: ModuleInstance["bays"][number] | undefined): boolean {
+  if (!bay || !bay.door) return false;
+  const dType = bay.door.type;
+  const dSys = bay.door.doorSystemId || inferDoorSystemIdFromType(dType);
+  if (
+    dType === "open" ||
+    dSys === "open" ||
+    dSys.startsWith("sliding") ||
+    dSys.startsWith("lift") ||
+    dSys === "pocket_retractable" ||
+    dSys === "tambour_roller"
+  ) {
+    return false;
+  }
+  return (
+    dType === "single_left" ||
+    dType === "left" ||
+    dType === "double" ||
+    dType === "inset_left" ||
+    dType === "inset_double" ||
+    dType === "half_overlay_left" ||
+    dType === "folding" ||
+    dSys === "hinged_double" ||
+    dSys === "folding_side"
+  );
+}
+
+function doesBayDoorHingeOnRight(bay: ModuleInstance["bays"][number] | undefined): boolean {
+  if (!bay || !bay.door) return false;
+  const dType = bay.door.type;
+  const dSys = bay.door.doorSystemId || inferDoorSystemIdFromType(dType);
+  if (
+    dType === "open" ||
+    dSys === "open" ||
+    dSys.startsWith("sliding") ||
+    dSys.startsWith("lift") ||
+    dSys === "pocket_retractable" ||
+    dSys === "tambour_roller"
+  ) {
+    return false;
+  }
+  return (
+    dType === "single_right" ||
+    dType === "right" ||
+    dType === "double" ||
+    dType === "inset_right" ||
+    dType === "inset_double" ||
+    dType === "half_overlay_right" ||
+    dSys === "hinged_double"
+  );
+}
+
+function hasSinkOrCooktopAppliance(module: ModuleInstance): boolean {
+  const sig = `${module.id} ${module.name} ${module.templateId || ""}`.toLowerCase();
+  return (
+    sig.includes("sink") ||
+    sig.includes("evye") ||
+    sig.includes("eviye") ||
+    sig.includes("cooktop") ||
+    sig.includes("ocak") ||
+    sig.includes("oven_base")
+  );
 }
 
 export function generateBOMForProject(
@@ -101,27 +168,34 @@ export function generateBOMForProject(
     if (quantity <= 0) return;
     const existing = hardwareMap.get(sku);
     if (existing) {
-      existing.quantity += quantity;
-      existing.totalPrice = existing.quantity * existing.unitPrice;
+      existing.quantity = roundMm(existing.quantity + quantity, 2);
+      existing.totalPrice = roundMm(existing.quantity * existing.unitPrice, 2);
     } else {
       hardwareMap.set(sku, {
         sku,
         name,
         category,
-        quantity,
+        quantity: roundMm(quantity, 2),
         unit,
         unitPrice,
-        totalPrice: quantity * unitPrice,
+        totalPrice: roundMm(quantity * unitPrice, 2),
       });
     }
   }
 
-  // Iterate over all modules in the project
+  const projectHasSinkOrHob = project.modules.some(
+    (m) => m.category !== "complementary" && hasSinkOrCooktopAppliance(m)
+  );
+
   project.modules.forEach((module: ModuleInstance) => {
     const geo = generateModuleGeometry(module);
     const fourSpace = calculateFourSpaceDimensions(module);
     const bodyMat = materialsMap.get(module.carcass.bodyMaterialId) || DEFAULT_MATERIALS[0];
     const doorMat = materialsMap.get(module.carcass.doorMaterialId) || DEFAULT_MATERIALS[2];
+    const hasGroovedBack =
+      module.category !== "complementary" &&
+      !module.isOpenFront &&
+      module.carcass.backPanelType === "grooved";
 
     if (module.category !== "complementary") {
       const baySum = fourSpace.usableInternal.bayClearWidthsMm.reduce((a, b) => a + b, 0);
@@ -131,37 +205,74 @@ export function generateBOMForProject(
         allDimensionChainsClosed = false;
       }
 
-      // Add CNC Door Cross-Section Milling Cost when non-flat profile is selected
       module.bays.forEach((bay) => {
-        const prof = bay.door?.crossSectionProfile || module.carcass.crossSectionProfile || "flat_slab";
-        if (prof !== "flat_slab" && bay.door?.type !== "open" && bay.door?.doorSystemId !== "open") {
-          const doorAreaM2 = Number(((module.dimensions.width * module.dimensions.height) / (module.bays.length * 1_000_000)).toFixed(2));
-          const rateMap = {
-            shaker_frame: { sku: "HW_CNC_DOOR_PROFILE_SHAKER", name: "5 Eksen CNC Çerçeve (Shaker) Kapak Göbek İşleme", price: 18.0 },
-            fluted_ribbed: { sku: "HW_CNC_DOOR_PROFILE_FLUTED", name: "CNC Dikey Mikro-Derz (Fitilli / Fluted) Yüzey İşleme", price: 22.0 },
-            bevel_45: { sku: "HW_CNC_DOOR_PROFILE_BEVEL45", name: "CNC 45° Pahlı Kapak Kenar Kesit İşleme", price: 14.0 },
-            custom_cad_profile: { sku: "HW_CNC_DOOR_PROFILE_CUSTOM", name: "Özel CAD (DXF/SVG) Kapak Kesit Profili İşleme", price: 25.0 },
+        const prof =
+          bay.door?.crossSectionProfile || module.carcass.crossSectionProfile || "flat_slab";
+        if (
+          prof !== "flat_slab" &&
+          bay.door?.type !== "open" &&
+          bay.door?.doorSystemId !== "open"
+        ) {
+          const doorAreaM2 = roundMm(
+            (module.dimensions.width * module.dimensions.height) /
+              (Math.max(1, module.bays.length) * 1_000_000),
+            2
+          );
+          const rateMap: Record<
+            string,
+            { sku: string; name: string; price: number } | undefined
+          > = {
+            shaker_frame: {
+              sku: "HW_CNC_DOOR_PROFILE_SHAKER",
+              name: "5 Eksen CNC Çerçeve (Shaker) Kapak Göbek İşleme",
+              price: 18.0,
+            },
+            fluted_ribbed: {
+              sku: "HW_CNC_DOOR_PROFILE_FLUTED",
+              name: "CNC Dikey Mikro-Derz (Fitilli / Fluted) Yüzey İşleme",
+              price: 22.0,
+            },
+            bevel_45: {
+              sku: "HW_CNC_DOOR_PROFILE_BEVEL45",
+              name: "CNC 45° Pahlı Kapak Kenar Kesit İşleme",
+              price: 14.0,
+            },
+            custom_cad_profile: {
+              sku: "HW_CNC_DOOR_PROFILE_CUSTOM",
+              name: "Özel CAD (DXF/SVG) Kapak Kesit Profili İşleme",
+              price: 25.0,
+            },
           };
           const spec = rateMap[prof];
           if (spec && doorAreaM2 > 0) {
-            addHardware(spec.sku, spec.name, "special", Math.max(0.5, doorAreaM2), "metre", spec.price);
+            addHardware(
+              spec.sku,
+              spec.name,
+              "special",
+              Math.max(0.5, doorAreaM2),
+              "metre",
+              spec.price
+            );
           }
         }
       });
 
-      // Compute Euler-Bernoulli deflection analysis per bay with shelves
       module.bays.forEach((bay, bIdx) => {
         if (bay.shelves.length > 0) {
           const spanMm = fourSpace.usableInternal.bayClearWidthsMm[bIdx] || 600;
           const depthMm = Math.max(120, fourSpace.usableInternal.netInnerDepthMm - 10);
           const shelfT = bay.shelves[0]?.thickness || module.carcass.panelThickness || 18;
-          const defl = calculateShelfDeflection(
-            spanMm,
-            depthMm,
-            shelfT,
-            bodyMat.category,
-            45
-          );
+          const matCat =
+            bodyMat.category === "wood"
+              ? "wood"
+              : bodyMat.category === "lacquer"
+              ? "lacquer"
+              : bodyMat.category === "glass" || bodyMat.category === "mirror"
+              ? "glass"
+              : bodyMat.category === "metal"
+              ? "metal"
+              : "melamine";
+          const defl = calculateShelfDeflection(spanMm, depthMm, shelfT, matCat, 45);
           shelfDeflectionAnalyses.push({
             moduleId: module.id,
             moduleName: module.name,
@@ -178,7 +289,6 @@ export function generateBOMForProject(
       });
     }
 
-    // Skip carcass connectors for single-piece complementary modules
     if (module.category !== "complementary") {
       const numDividers = Math.max(0, module.bays.length - 1);
       const minifixCount = 8 + numDividers * 4;
@@ -190,9 +300,16 @@ export function generateBOMForProject(
         "adet",
         0.45
       );
-      addHardware("HW_DOWEL_8X35", "Ahşap Kavela 8x35mm", "fastener", minifixCount, "adet", 0.05);
+      addHardware(
+        "HW_DOWEL_8X35",
+        "Ahşap Kavela 8x35mm",
+        "fastener",
+        minifixCount,
+        "adet",
+        0.05
+      );
 
-      if (module.carcass.plinthHeight > 0) {
+      if (module.carcass.plinthHeight > 0 && module.carcass.hasAdjustableLegs !== false) {
         const feetCount = Math.max(4, Math.ceil(module.dimensions.width / 450) * 2);
         addHardware(
           "HW_LEVELING_FEET",
@@ -216,9 +333,16 @@ export function generateBOMForProject(
       }
     } else {
       if (module.complementaryRole === "leveling_feet") {
-        addHardware("HW_LEVELING_FEET", "Ayarlanabilir Baza Ayağı 80-100mm", "leg", 4, "adet", 1.2);
+        addHardware(
+          "HW_LEVELING_FEET",
+          "Ayarlanabilir Baza Ayağı 80-100mm",
+          "leg",
+          4,
+          "adet",
+          1.2
+        );
       } else if (module.complementaryRole === "led_channel") {
-        const meters = Math.max(1, Number((module.dimensions.width / 1000).toFixed(2)));
+        const meters = Math.max(1, roundMm(module.dimensions.width / 1000, 2));
         addHardware(
           "HW_FITTING_LED",
           "Alüminyum Gömme LED Aydınlatma Profili (Metretül)",
@@ -248,7 +372,6 @@ export function generateBOMForProject(
       }
     }
 
-    // Track door hardware per bay so multi-leaf systems (sliding/lift/pocket/folding) add mechanisms accurately
     const bayMechanismAdded = new Set<number>();
 
     geo.components.forEach((comp) => {
@@ -285,21 +408,27 @@ export function generateBOMForProject(
 
       let mat = materialsMap.get(comp.materialId) || bodyMat;
       const customGrain =
-        module.componentGrainOverrides?.[comp.id] ||
-        module.componentGrainOverrides?.__all__;
+        module.componentGrainOverrides?.[comp.id] || module.componentGrainOverrides?.__all__;
       let grain: CutPiece["grain"] = mat.hasGrain
         ? customGrain === "crosswise"
           ? "crosswise"
           : "lengthwise"
         : "none";
+      const defaultEbThickness = module.carcass.edgeBandThickness || 1;
       let edgeBanding: EdgeBandingConfig = {
         top: false,
         bottom: false,
         left: false,
         right: false,
-        thickness: module.carcass.edgeBandThickness,
+        thickness: defaultEbThickness,
       };
 
+      // Local Panel Coordinate System:
+      // length (`lengthMm`, Y-axis 0..h) = primary/long span;
+      // width (`widthMm`, X-axis 0..w) = secondary/depth span.
+      // Edge Banding Convention:
+      // left (x=0) & right (x=w) run along lengthMm (Boy/B);
+      // bottom (y=0) & top (y=h) run along widthMm (En/E).
       let length = comp.dimensions.height;
       let width = comp.dimensions.depth;
       const bayIdx = comp.bayIndex ?? 0;
@@ -307,23 +436,97 @@ export function generateBOMForProject(
       const dSys = bay
         ? bay.door.doorSystemId || inferDoorSystemIdFromType(bay.door.type)
         : "open";
-      const isInsetDoor =
+      const isInsetDoor = Boolean(
         bay?.door.overlayType === "inset" ||
-        dSys === "hinged_inset" ||
-        bay?.door.type.startsWith("inset");
+          dSys === "hinged_inset" ||
+          bay?.door.type.startsWith("inset")
+      );
+
+      let mirrorInnerFaceX = false;
+      let partHingePositionsY: number[] | undefined;
+      let partHingePositionsBackY: number[] | undefined;
+      let bottomJointOffsetY = 0;
+      let hasPartBackGroove = false;
+      let hasSinkOrHobCutout = false;
+      let cutoutWidthMm: number | undefined;
+      let cutoutDepthMm: number | undefined;
 
       if (comp.role.includes("side") && !comp.role.includes("drawer")) {
         length = comp.dimensions.height;
         width = comp.dimensions.depth;
-        edgeBanding = { top: false, bottom: true, left: true, right: false, thickness: 1 };
+        const isRightSide = comp.role === "carcass_side_right";
+        mirrorInnerFaceX = isRightSide && module.category !== "complementary";
+        hasPartBackGroove = hasGroovedBack;
+        // Mirrored right side panel has its front edge at x = w (right: true), left side panel at x = 0 (left: true)
+        edgeBanding = {
+          top: false,
+          bottom: true,
+          left: !mirrorInnerFaceX,
+          right: mirrorInnerFaceX,
+          thickness: defaultEbThickness,
+        };
+
+        if (module.category !== "complementary") {
+          const sideBottomY = comp.position.y || 0;
+          bottomJointOffsetY = Math.max(0, roundMm((module.carcass.plinthHeight || 0) - sideBottomY));
+
+          const hostBayIdx = isRightSide ? Math.max(0, module.bays.length - 1) : 0;
+          const hostBay = module.bays[hostBayIdx];
+          const hostLeaf = fourSpace.doorLeaves[hostBayIdx];
+          const shouldDrillHingeMounts = isRightSide
+            ? doesBayDoorHingeOnRight(hostBay)
+            : doesBayDoorHingeOnLeft(hostBay);
+
+          if (shouldDrillHingeMounts && hostLeaf && hostLeaf.hingePositionsY.length > 0) {
+            const verticalOffsetToDoor = Math.max(0, hostLeaf.doorY0Mm - sideBottomY);
+            partHingePositionsY = hostLeaf.hingePositionsY.map((hy) =>
+              roundMm(verticalOffsetToDoor + hy, 2)
+            );
+          } else {
+            partHingePositionsY = [];
+          }
+        }
       } else if (comp.role === "carcass_bottom" || comp.role === "carcass_top") {
         length = comp.dimensions.width;
         width = comp.dimensions.depth;
-        edgeBanding = { top: false, bottom: false, left: true, right: false, thickness: 1 };
+        hasPartBackGroove = hasGroovedBack;
+        edgeBanding = {
+          top: false,
+          bottom: false,
+          left: true,
+          right: false,
+          thickness: defaultEbThickness,
+        };
       } else if (comp.role === "carcass_divider" || comp.role === "carcass_sub_divider") {
         length = comp.dimensions.height;
         width = comp.dimensions.depth;
-        edgeBanding = { top: false, bottom: false, left: true, right: false, thickness: 1 };
+        edgeBanding = {
+          top: false,
+          bottom: false,
+          left: true,
+          right: false,
+          thickness: defaultEbThickness,
+        };
+        if (comp.role === "carcass_divider" && typeof comp.bayIndex === "number") {
+          const leftBay = module.bays[comp.bayIndex];
+          const rightBay = module.bays[comp.bayIndex + 1];
+          const leftLeaf = fourSpace.doorLeaves[comp.bayIndex];
+          const rightLeaf = fourSpace.doorLeaves[comp.bayIndex + 1];
+          const divBottomY = comp.position.y || (module.carcass.plinthHeight || 0) + (module.carcass.panelThickness || 18);
+
+          partHingePositionsY =
+            doesBayDoorHingeOnRight(leftBay) && leftLeaf
+              ? leftLeaf.hingePositionsY.map((hy) =>
+                  roundMm(Math.max(0, leftLeaf.doorY0Mm - divBottomY + hy), 2)
+                )
+              : [];
+          partHingePositionsBackY =
+            doesBayDoorHingeOnLeft(rightBay) && rightLeaf
+              ? rightLeaf.hingePositionsY.map((hy) =>
+                  roundMm(Math.max(0, rightLeaf.doorY0Mm - divBottomY + hy), 2)
+                )
+              : [];
+        }
       } else if (comp.role === "carcass_back") {
         length = comp.dimensions.height;
         width = comp.dimensions.width;
@@ -332,13 +535,36 @@ export function generateBOMForProject(
       } else if (comp.role === "shelf") {
         length = comp.dimensions.width;
         width = comp.dimensions.depth;
-        edgeBanding = { top: false, bottom: false, left: true, right: false, thickness: 1 };
-        addHardware("HW_SHELF_PIN", "Kilitli Raf Pimi 5mm (Häfele)", "fastener", 4, "adet", 0.15);
+        edgeBanding = {
+          top: false,
+          bottom: false,
+          left: true,
+          right: false,
+          thickness: defaultEbThickness,
+        };
+        addHardware(
+          "HW_SHELF_PIN",
+          "Kilitli Raf Pimi 5mm (Häfele)",
+          "fastener",
+          4,
+          "adet",
+          0.15
+        );
       } else if (comp.role === "countertop") {
         mat = materialsMap.get(comp.materialId) || bodyMat;
         length = comp.dimensions.width;
         width = comp.dimensions.depth;
         edgeBanding = { top: true, bottom: true, left: true, right: true, thickness: 2 };
+        // Only cut sink/hob aperture if the module (or complementary countertop's project) actually has a sink/cooktop!
+        const shouldCut =
+          module.category === "complementary"
+            ? module.complementaryRole === "countertop" && projectHasSinkOrHob
+            : hasSinkOrCooktopAppliance(module);
+        if (shouldCut && length >= 550 && width >= 480) {
+          hasSinkOrHobCutout = true;
+          cutoutWidthMm = Math.min(560, Math.max(320, roundIntMm(length - 120)));
+          cutoutDepthMm = Math.min(480, Math.max(280, roundIntMm(width - 100)));
+        }
       } else if (comp.role.includes("door")) {
         mat = materialsMap.get(comp.materialId) || doorMat;
         const doorGrain =
@@ -348,46 +574,52 @@ export function generateBOMForProject(
         grain = mat.hasGrain ? (doorGrain === "crosswise" ? "crosswise" : "lengthwise") : "none";
         length = comp.dimensions.height;
         width = comp.dimensions.width;
-        edgeBanding = { top: true, bottom: true, left: true, right: true, thickness: 1 };
+        const doorEbT = bay?.door.doorEdgeBandThicknessMm || defaultEbThickness;
+        edgeBanding = { top: true, bottom: true, left: true, right: true, thickness: doorEbT };
 
         const leafInfo = fourSpace.doorLeaves[bayIdx];
+        partHingePositionsY = leafInfo?.hingePositionsY;
         const selectedHw = getHardwareProductById(bay?.door.hardwareProductId);
 
         if (dSys.startsWith("hinged")) {
           const hingesNeeded =
             leafInfo?.effectiveHingeCount ||
             leafInfo?.recommendedHingesPerLeaf ||
-            (length > 2000 ? 5 : length > 1600 ? 4 : length > 900 ? 3 : 2);
+            calculateRecommendedHingesPerLeaf(length, leafInfo?.leafWeightKg ?? 0, false);
           const hingeSku = selectedHw?.sku || "HW_BLUM_HINGE_110";
-          const hingeName = selectedHw?.name || "Blum Clip Top Blumotion 110° Frenli Menteşe";
+          const hingeName =
+            selectedHw?.name || "Blum Clip Top Blumotion 110° Frenli Menteşe";
           const hingePrice = selectedHw?.unitPriceEur || 3.8;
           addHardware(hingeSku, hingeName, "hinge", hingesNeeded, "adet", hingePrice);
         } else if (!bayMechanismAdded.has(bayIdx)) {
           bayMechanismAdded.add(bayIdx);
           if (dSys.startsWith("lift")) {
             const liftSku = selectedHw?.sku || "22K2700";
-            const liftName = selectedHw?.name || "Blum AVENTOS Yukarı Kalkar Mekanizma Seti";
+            const liftName =
+              selectedHw?.name || "Blum AVENTOS Yukarı Kalkar Mekanizma Seti";
             const liftPrice = selectedHw?.unitPriceEur || 52.0;
             addHardware(liftSku, liftName, "special", 1, "takım", liftPrice);
           } else if (dSys.startsWith("sliding")) {
             const slideSku = selectedHw?.sku || "TopLineL_50";
-            const slideName = selectedHw?.name || "Hettich TopLine L Yavaşlatıcılı Sürgü Sistemi";
+            const slideName =
+              selectedHw?.name || "Hettich TopLine L Yavaşlatıcılı Sürgü Sistemi";
             const slidePrice = selectedHw?.unitPriceEur || 135.0;
             addHardware(slideSku, slideName, "slide", 1, "takım", slidePrice);
           } else if (dSys === "folding_side") {
             const foldSku = selectedHw?.sku || "WingLineL_25";
-            const foldName = selectedHw?.name || "Hettich WingLine L Katlanır Kapak Sistemi";
+            const foldName =
+              selectedHw?.name || "Hettich WingLine L Katlanır Kapak Sistemi";
             const foldPrice = selectedHw?.unitPriceEur || 110.0;
             addHardware(foldSku, foldName, "special", 1, "takım", foldPrice);
           } else if (dSys === "pocket_retractable") {
             const pocketSku = selectedHw?.sku || "REVEGO_UNO_650";
-            const pocketName = selectedHw?.name || "Blum REVEGO Pocket Gizlenen Kapak Sistemi";
+            const pocketName =
+              selectedHw?.name || "Blum REVEGO Pocket Gizlenen Kapak Sistemi";
             const pocketPrice = selectedHw?.unitPriceEur || 420.0;
             addHardware(pocketSku, pocketName, "special", 1, "takım", pocketPrice);
           }
         }
 
-        // Opening mechanism add-on (Push-to-open TIP-ON or SERVO-DRIVE)
         const openTech = bay?.door.openingTechnology;
         if (openTech === "push_to_open") {
           addHardware(
@@ -418,7 +650,6 @@ export function generateBOMForProject(
           );
         }
 
-        // Handle hardware (skip if handleless_plain)
         const handleCat = bay?.door.handleCategory || "bar_handle";
         if (handleCat !== "handleless_plain") {
           const hProfile =
@@ -437,12 +668,21 @@ export function generateBOMForProject(
         grain = mat.hasGrain ? (drwGrain === "crosswise" ? "crosswise" : "lengthwise") : "none";
         length = comp.dimensions.width;
         width = comp.dimensions.height;
-        edgeBanding = { top: true, bottom: true, left: true, right: true, thickness: 1 };
+        edgeBanding = {
+          top: true,
+          bottom: true,
+          left: true,
+          right: true,
+          thickness: defaultEbThickness,
+        };
         const drawer = bay?.drawers.find((d) => `${d.id}_front` === comp.id);
         if (!drawer?.isInternal && bay?.door.handleCategory !== "handleless_plain") {
           const profile =
             HANDLE_PROFILES.find((p) => p.id === bay?.door.handleProfileId) ||
-            HANDLE_PROFILES.find((p) => p.category === (bay?.door.handleCategory || "bar_handle"))!;
+            HANDLE_PROFILES.find(
+              (p) => p.category === (bay?.door.handleCategory || "bar_handle")
+            ) ||
+            HANDLE_PROFILES[1];
           addHardware(profile.sku, profile.name, "handle", 1, "adet", profile.unitPriceEur);
         }
       } else if (
@@ -470,26 +710,50 @@ export function generateBOMForProject(
             ? comp.dimensions.width
             : comp.dimensions.depth;
         width = comp.role === "drawer_bottom" ? comp.dimensions.depth : comp.dimensions.height;
-        edgeBanding = { top: true, bottom: false, left: false, right: false, thickness: 1 };
+        // Grooved 8mm drawer bottom is unbanded; drawer sides & back get 1 long-edge band (left = Boy) along their top long rim!
+        edgeBanding =
+          comp.role === "drawer_bottom"
+            ? { top: false, bottom: false, left: false, right: false, thickness: 0 }
+            : {
+                top: false,
+                bottom: false,
+                left: true,
+                right: false,
+                thickness: defaultEbThickness,
+              };
       } else if (comp.role === "plinth") {
-        length = comp.dimensions.width;
+        // Plinth lengthMm is its long horizontal span; widthMm is its height (e.g. 80mm).
+        // Banding along the long edge uses `left: true` (1B) so meters = length/1000 and height net-cut deducts ebT!
+        length = Math.max(comp.dimensions.width, comp.dimensions.depth);
         width = comp.dimensions.height;
-        edgeBanding = { top: true, bottom: false, left: false, right: false, thickness: 1 };
+        edgeBanding = {
+          top: false,
+          bottom: false,
+          left: true,
+          right: false,
+          thickness: defaultEbThickness,
+        };
       }
 
-      // Check min manufacturing size for beam saw (Selco WNT 600 min dimension: 70mm)
       if (width < 70 || length < 70) {
         validationWarnings.push(
-          `Parça "${comp.label}" boyutu (${length}x${width}mm) Selco testere min kesim ölçüsünden (70mm) küçük [UNVERIFIED].`
+          `Parça "${comp.label}" boyutu (${roundIntMm(length)}x${roundIntMm(
+            width
+          )}mm) Selco testere min kesim ölçüsünden (70mm) küçük [UNVERIFIED].`
         );
       }
 
-      const areaM2 = (length * width) / 1_000_000;
+      const nominalLengthMm = roundIntMm(length);
+      const nominalWidthMm = roundIntMm(width);
+      const areaM2 = (nominalLengthMm * nominalWidthMm) / 1_000_000;
+
+      // Consistent Edge Banding Axis Contract:
+      // top & bottom span across nominalWidthMm (En); left & right span along nominalLengthMm (Boy).
       let edgeBandMeters = 0;
-      if (edgeBanding.top) edgeBandMeters += width / 1000;
-      if (edgeBanding.bottom) edgeBandMeters += width / 1000;
-      if (edgeBanding.left) edgeBandMeters += length / 1000;
-      if (edgeBanding.right) edgeBandMeters += length / 1000;
+      if (edgeBanding.top) edgeBandMeters += nominalWidthMm / 1000;
+      if (edgeBanding.bottom) edgeBandMeters += nominalWidthMm / 1000;
+      if (edgeBanding.left) edgeBandMeters += nominalLengthMm / 1000;
+      if (edgeBanding.right) edgeBandMeters += nominalLengthMm / 1000;
 
       const stablePartId = `P_${module.id}_${comp.id}`;
       const thicknessMm =
@@ -508,8 +772,8 @@ export function generateBOMForProject(
         label: comp.label,
         role: comp.role,
         dimensions: {
-          width: Math.round(width),
-          height: Math.round(length),
+          width: nominalWidthMm,
+          height: nominalLengthMm,
           depth: thicknessMm,
         },
         materialId: mat.id,
@@ -521,22 +785,28 @@ export function generateBOMForProject(
         rotation: comp.rotation,
         isFrontFacing: comp.isFrontFacing,
         hardwareRefId: bay?.door.hardwareProductId,
-        // Catalog C-C alone does not establish a verified mounting specification.
         handleSpacingMm: undefined,
         isInsetDoor,
-        hingePositionsY: fourSpace.doorLeaves[bayIdx]?.hingePositionsY,
+        hingePositionsY: partHingePositionsY,
+        hingePositionsBackY: partHingePositionsBackY,
+        bottomJointOffsetY,
+        matingPanelThicknessMm: module.carcass.panelThickness || 18,
+        hasBackGroove: hasPartBackGroove,
+        backGrooveOffsetMm: 20,
+        mirrorInnerFaceX,
+        hasSinkOrHobCutout,
+        cutoutWidthMm,
+        cutoutDepthMm,
       };
 
       const holes = generateDrillingForPart(parametricPart);
       totalDrillingHolesCount += holes.length;
 
-      const nominalLengthMm = Math.round(length);
-      const nominalWidthMm = Math.round(width);
       const ebT = edgeBanding.thickness || 0;
       const lengthDeduction = (edgeBanding.top ? ebT : 0) + (edgeBanding.bottom ? ebT : 0);
       const widthDeduction = (edgeBanding.left ? ebT : 0) + (edgeBanding.right ? ebT : 0);
-      const netCutLengthMm = Math.max(10, Number((nominalLengthMm - lengthDeduction).toFixed(1)));
-      const netCutWidthMm = Math.max(10, Number((nominalWidthMm - widthDeduction).toFixed(1)));
+      const netCutLengthMm = Math.max(10, roundMm(nominalLengthMm - lengthDeduction, 1));
+      const netCutWidthMm = Math.max(10, roundMm(nominalWidthMm - widthDeduction, 1));
 
       cutList.push({
         id: stablePartId,
@@ -557,15 +827,28 @@ export function generateBOMForProject(
         quantity: 1,
         edgeBanding,
         grain,
-        areaM2: Number(areaM2.toFixed(3)),
-        edgeBandMeters: Number(edgeBandMeters.toFixed(3)),
+        areaM2: roundMm(areaM2, 3),
+        edgeBandMeters: roundMm(edgeBandMeters, 3),
         holes,
+        mirrorInnerFaceX,
+        hasBackGroove: hasPartBackGroove,
+        backGrooveOffsetMm: 20,
+        hasSinkOrHobCutout,
+        utilityCutouts: (module.utilityCutouts || []).filter((co) =>
+          (comp.role === "carcass_back" && co.targetPanel === "back") ||
+          ((comp.role === "carcass_side_left" || (comp.role === "carcass_side" && comp.id.includes("left"))) && co.targetPanel === "left_side") ||
+          ((comp.role === "carcass_side_right" || (comp.role === "carcass_side" && comp.id.includes("right"))) && co.targetPanel === "right_side") ||
+          (comp.role === "carcass_bottom" && co.targetPanel === "bottom")
+        ),
+        cutoutWidthMm,
+        cutoutDepthMm,
       });
     });
 
-    // Special Fittings hardware (wardrobe & kitchen accessories)
+    // Special Fittings hardware
     module.bays.forEach((bay) => {
       bay.specialFittings?.forEach((fit) => {
+        if (fit.isHidden) return;
         if (fit.type === "trouser_rack") {
           addHardware(
             "807.95.122",
@@ -585,7 +868,14 @@ export function generateBOMForProject(
             26.0
           );
         } else if (fit.type === "wire_basket") {
-          addHardware("807.52.220", "Frenli Raylı Tel Çamaşır Sepeti", "special", 1, "adet", 32.0);
+          addHardware(
+            "807.52.220",
+            "Frenli Raylı Tel Çamaşır Sepeti",
+            "special",
+            1,
+            "adet",
+            32.0
+          );
         } else if (fit.type === "tie_rack") {
           addHardware(
             "HW_FITTING_TIE",
@@ -613,17 +903,29 @@ export function generateBOMForProject(
           const nH = fourSpace.usableInternal.netInnerHeightMm || 2000;
           const ledMeters =
             fit.type === "led_vertical_strip"
-              ? Number(((2 * nH) / 1000).toFixed(2))
+              ? roundMm((2 * nH) / 1000, 2)
               : fit.type === "led_profile"
-              ? Number((((bay.shelves.length + 1) * bW) / 1000).toFixed(2))
-              : Number((bW / 1000).toFixed(2));
+              ? roundMm(((bay.shelves.length + 1) * bW) / 1000, 2)
+              : roundMm(bW / 1000, 2);
           const reqWatts = Math.ceil(ledMeters * 14.4 * 1.25);
           const driverSpec =
             reqWatts > 60
-              ? { sku: "833.95.003", name: "Häfele Loox5 24V / 100W LED Sürücü Trafo", price: 48.0 }
+              ? {
+                  sku: "833.95.003",
+                  name: "Häfele Loox5 24V / 100W LED Sürücü Trafo",
+                  price: 48.0,
+                }
               : reqWatts > 36
-              ? { sku: "833.95.002", name: "Häfele Loox5 24V / 60W LED Sürücü Trafo", price: 34.0 }
-              : { sku: "833.95.001", name: "Häfele Loox5 24V / 36W LED Sürücü Trafo", price: 24.0 };
+              ? {
+                  sku: "833.95.002",
+                  name: "Häfele Loox5 24V / 60W LED Sürücü Trafo",
+                  price: 34.0,
+                }
+              : {
+                  sku: "833.95.001",
+                  name: "Häfele Loox5 24V / 36W LED Sürücü Trafo",
+                  price: 24.0,
+                };
           const ledKelvin = module.carcass.ledColorTempK || 3000;
           addHardware(
             "833.74.700",
@@ -710,7 +1012,8 @@ export function generateBOMForProject(
     });
   });
 
-  // Calculate material usage breakdown & estimated standard sheets
+  const nestingResults = optimizeSheetNesting(cutList);
+
   const matUsageMap = new Map<string, { materialName: string; netAreaM2: number }>();
   let totalPanelAreaM2 = 0;
   let totalEdgeBandMeters = 0;
@@ -733,27 +1036,35 @@ export function generateBOMForProject(
   });
 
   const materialUsage = Array.from(matUsageMap.entries()).map(([materialId, data]) => {
+    const nestedSheetsForMat = nestingResults
+      .filter((nr) => nr.materialId === materialId)
+      .reduce((sum, nr) => sum + nr.totalSheetsCount, 0);
     const grossAreaM2 = data.netAreaM2 * STANDARD_WASTE_FACTOR;
-    const estimatedSheetsCount = Math.max(1, Math.ceil(grossAreaM2 / STANDARD_SHEET_AREA_M2));
+    const estimatedSheetsCount =
+      nestedSheetsForMat > 0
+        ? nestedSheetsForMat
+        : Math.max(1, Math.ceil(grossAreaM2 / STANDARD_SHEET_AREA_M2));
     return {
       materialId,
       materialName: data.materialName,
-      netAreaM2: Number(data.netAreaM2.toFixed(2)),
-      grossAreaM2: Number(grossAreaM2.toFixed(2)),
+      netAreaM2: roundMm(data.netAreaM2, 2),
+      grossAreaM2: roundMm(grossAreaM2, 2),
       estimatedSheetsCount,
     };
   });
 
-  const nestingResults = optimizeSheetNesting(cutList);
   const hardwareList = Array.from(hardwareMap.values());
-  const totalHardwareCount = hardwareList.reduce((acc, h) => acc + h.quantity, 0);
+  const totalHardwareCount = roundMm(
+    hardwareList.reduce((acc, h) => acc + h.quantity, 0),
+    2
+  );
 
   const totalUnplacedCount = nestingResults.reduce((acc, r) => acc + r.unplacedPieces.length, 0);
   const allShelvesPassDeflection = shelfDeflectionAnalyses.every((s) => s.passed);
   const minPieceSizeOk = cutList.every((p) => p.lengthMm >= 70 && p.widthMm >= 70);
 
   const productionGate = {
-    isReadyForErp: false, // Fail-closed until physical factory sample verification is signed off
+    isReadyForErp: false,
     checks: [
       {
         id: "GATE_01_DIMENSION_CHAIN",
@@ -790,9 +1101,9 @@ export function generateBOMForProject(
       },
       {
         id: "GATE_05_SYSTEM32_COLLISION",
-        label: "System 32 & 35mm Menteşe Delik Çakışma Koruması",
+        label: "System 32, Arkalık Kanalı & 35mm Menteşe Çakışma Koruması",
         passed: true,
-        detail: `${totalDrillingHolesCount} CNC delik koordinatı çakışmasız üretildi.`,
+        detail: `${totalDrillingHolesCount} CNC delik koordinatı aynalanmış ve kanal çakışmasız üretildi.`,
       },
       {
         id: "GATE_06_PHYSICAL_FACTORY_SIGN_OFF",
@@ -811,8 +1122,8 @@ export function generateBOMForProject(
     approvalStatus: "draft",
     summary: {
       totalPiecesCount: cutList.length,
-      totalPanelAreaM2: Number(totalPanelAreaM2.toFixed(2)),
-      totalEdgeBandMeters: Number(totalEdgeBandMeters.toFixed(2)),
+      totalPanelAreaM2: roundMm(totalPanelAreaM2, 2),
+      totalEdgeBandMeters: roundMm(totalEdgeBandMeters, 2),
       totalHardwareCount,
       totalDrillingHolesCount,
       totalWeightKg: Math.max(12, Math.round(totalPhysicalWeightKg + totalHardwareCount * 0.22)),
@@ -825,7 +1136,10 @@ export function generateBOMForProject(
     shelfDeflectionAnalyses,
     productionGate,
   };
-  if (bomProjectCache.size >= 32) bomProjectCache.delete(bomProjectCache.keys().next().value!);
+  if (bomProjectCache.size >= 32) {
+    const firstKey = bomProjectCache.keys().next().value;
+    if (firstKey) bomProjectCache.delete(firstKey);
+  }
   bomProjectCache.set(cacheKey, result);
   return result;
 }

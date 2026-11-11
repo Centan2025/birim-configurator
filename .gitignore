@@ -22,3 +22,10 @@ test-results/
 
 # Local temporary AI handoff
 .handoff.local.md
+
+# Temporary bundles & helper scripts
+*.zip
+dist-test/
+*.sh
+*.bat
+

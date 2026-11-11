@@ -5,6 +5,12 @@
 - **Çalışma Ağacı Durumu:** AI Context V2.1 (Context Capsule, Evidence Index, Handoff, Serena Level A/B, Measurement) aktif.
 
 ## 1. Tamamlanan Son İşler (Delta Özeti)
+- **[VERIFIED] V4.6 Ticari Uzantılar, AR Oda Önizleme, Panel Cutouts ve CNC Postprocessors (2026-11-11):**
+  - AR Oda Önizleme (`ArRoomPreviewModal.tsx`, USDZ/GLTF exporter), Tap-to-Place (`TapToPlaceController.tsx`) ve Guided Wizard Live Preview eklendi.
+  - Panel priz/boru boşaltma ve delik motoru (`panel-cutouts.ts`), süpürme çakışma dedektörü (`sweep-collision.ts`) entegre edildi.
+  - Biesse bSolid ve Homag woodWOP / MPR CNC postprocessor motoru (`cnc-postprocessors.ts`) eklendi.
+  - Vercel dağıtım yapılandırması (`vercel.json`), teklif QR paylaşım motoru (`quote-codec.ts`, `/p/[code]`) eklendi.
+  - Tüm ticari uzantı testleri (`tests/v46-commercial-extensions.test.ts`) 5/5 PASS ile doğrulandı.
 - **[VERIFIED] 3D/2D Viewport Geçişlerinde React startTransition INP Optimizasyonu (2026-11-10):**
   - Üst bar `studio-view-switcher` (3D Sahne, 2D Cephe, 2D Kesit, 2D Plan) ve `onViewChange` event handler'ı React 18/19 `startTransition` kapsamına alındı.
   - Viewport geçişleri non-blocking moda geçirilerek ~385ms'lik senkron render UI kilitlenmesi (INP issue) giderildi.

@@ -9,6 +9,9 @@ import {
   DesignProjectSchema,
   evaluateProjectCompatibility,
   migrateV3ProjectToV4,
+  parseAndMigrateProject,
+  getMaxSafeBayCount,
+  roundIntMm,
   inferDoorSystemIdFromType,
   HandleCategory,
   SUPPORTED_PROJECT_SCHEMA_VERSION,
@@ -32,6 +35,9 @@ import {
 
 export type ViewMode = "3d" | "2d_elevation" | "2d_plan" | "2d_section";
 export type CameraPreset = "front" | "side" | "top" | "iso";
+export type UserExperienceTier = "simple" | "architect" | "factory";
+
+const sessionUnderlayDataCache = new Map<string, string>();
 
 export interface SavedProjectMeta {
   id: string;
@@ -74,6 +80,7 @@ interface ConfiguratorState {
   isOrthographic: boolean;
   cameraPreset: CameraPreset;
   uiMode: "simple" | "technical";
+  userExperienceTier: UserExperienceTier;
   activeBayIndex: number;
   autoSaveStatus: "saved" | "saving" | "unsaved";
   validationIssues: ValidationIssue[];
@@ -88,6 +95,7 @@ interface ConfiguratorState {
 
   // Actions
   setUiMode: (mode: "simple" | "technical") => void;
+  setUserExperienceTier: (tier: UserExperienceTier) => void;
   setActiveBayIndex: (idx: number) => void;
   setAutoSaveStatus: (status: "saved" | "saving" | "unsaved") => void;
   setViewMode: (mode: ViewMode) => void;
@@ -161,6 +169,8 @@ interface ConfiguratorState {
     obstacleId: string,
     patch: {
       name?: string;
+      rotationY?: number;
+      doorSwing?: ArchitecturalElement["doorSwing"];
       position?: Partial<ArchitecturalElement["position"]>;
       dimensions?: Partial<ArchitecturalElement["dimensions"]>;
     }
@@ -231,10 +241,27 @@ function cloneProject(project: DesignProject): DesignProject {
       ...m,
       dimensions: { ...m.dimensions },
       position: { ...m.position },
-      carcass: { ...m.carcass },
+      rotation: m.rotation ? { ...m.rotation } : { x: 0, y: 0, z: 0 },
+      componentMaterialOverrides: m.componentMaterialOverrides
+        ? { ...m.componentMaterialOverrides }
+        : undefined,
+      componentGrainOverrides: m.componentGrainOverrides
+        ? { ...m.componentGrainOverrides }
+        : undefined,
+      carcass: {
+        ...m.carcass,
+        customCadPolygon: m.carcass.customCadPolygon
+          ? m.carcass.customCadPolygon.map((pt) => ({ ...pt }))
+          : undefined,
+      },
       bays: m.bays.map((b) => ({
         ...b,
-        door: { ...b.door },
+        door: {
+          ...b.door,
+          customCadPolygon: b.door.customCadPolygon
+            ? b.door.customCadPolygon.map((pt) => ({ ...pt }))
+            : undefined,
+        },
         shelves: b.shelves.map((s) => ({ ...s })),
         drawers: b.drawers.map((d) => ({ ...d })),
         hangingRails: b.hangingRails.map((r) => ({ ...r })),
@@ -280,6 +307,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   isOrthographic: false,
   cameraPreset: "iso",
   uiMode: "simple",
+  userExperienceTier: "simple",
   activeBayIndex: 0,
   autoSaveStatus: "unsaved",
   validationIssues: initIssues,
@@ -292,7 +320,16 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   batchStartProject: null,
   selectedModuleIds: initialProj.modules[0] ? [initialProj.modules[0].id] : [],
 
-  setUiMode: (uiMode) => set({ uiMode }),
+  setUiMode: (uiMode) =>
+    set({
+      uiMode,
+      userExperienceTier: uiMode === "technical" ? "architect" : "simple",
+    }),
+  setUserExperienceTier: (userExperienceTier) =>
+    set({
+      userExperienceTier,
+      uiMode: userExperienceTier === "simple" ? "simple" : "technical",
+    }),
   setActiveBayIndex: (activeBayIndex) => set({ activeBayIndex }),
   setAutoSaveStatus: (autoSaveStatus) => set({ autoSaveStatus }),
   setViewMode: (viewMode) => set({ viewMode }),
@@ -441,18 +478,36 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     const limits = template?.dimensionLimits;
     const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
     const next = {
-      width: mod.isFixedWidth ? mod.dimensions.width : clamp(width, limits?.minW ?? 200, limits?.maxW ?? 3600),
-      height: clamp(height, limits?.minH ?? 300, limits?.maxH ?? 2800),
-      depth: clamp(depth, limits?.minD ?? 200, limits?.maxD ?? 950),
+      width: roundIntMm(mod.isFixedWidth ? mod.dimensions.width : clamp(width, limits?.minW ?? 200, limits?.maxW ?? 3600)),
+      height: roundIntMm(clamp(height, limits?.minH ?? 300, limits?.maxH ?? 2800)),
+      depth: roundIntMm(clamp(depth, limits?.minD ?? 200, limits?.maxD ?? 950)),
     };
+    const maxSafeBays = getMaxSafeBayCount(next.width, mod.carcass.panelThickness);
+    if (mod.bays.length > maxSafeBays) {
+      mod.bays = mod.bays.slice(0, maxSafeBays).map((b, idx) => ({ ...b, index: idx }));
+    }
     const oldInner = Math.max(1, mod.dimensions.height - mod.carcass.plinthHeight - 2 * mod.carcass.panelThickness);
     const newInner = Math.max(1, next.height - mod.carcass.plinthHeight - 2 * mod.carcass.panelThickness);
     if (next.height !== mod.dimensions.height) mod.bays.forEach((b) => {
-      b.shelves.forEach((s) => { s.elevationY = clamp(s.elevationY * newInner / oldInner, 0, Math.max(0, newInner - (s.thickness ?? mod.carcass.panelThickness))); });
-      b.hangingRails.forEach((r) => { r.elevationY = clamp(r.elevationY * newInner / oldInner, 0, Math.max(0, newInner - 25)); });
+      b.shelves.forEach((s) => {
+        s.elevationY = roundIntMm(clamp((s.elevationY * newInner) / oldInner, 0, Math.max(0, newInner - (s.thickness ?? mod.carcass.panelThickness))));
+      });
+      b.drawers.forEach((d) => {
+        d.elevationY = roundIntMm(clamp((d.elevationY * newInner) / oldInner, 0, Math.max(0, newInner - d.height)));
+      });
+      b.hangingRails.forEach((r) => {
+        r.elevationY = roundIntMm(clamp((r.elevationY * newInner) / oldInner, 0, Math.max(0, newInner - 25)));
+      });
     });
     mod.dimensions = next;
     updated.updatedAt = new Date().toISOString();
+    if (batchStartProject) {
+      set({
+        project: updated,
+        autoSaveStatus: "unsaved",
+      });
+      return;
+    }
     const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
 
     set({
@@ -1101,7 +1156,18 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       const existing = JSON.parse(localStorage.getItem("birim_saved_projects") || "[]");
       if (!Array.isArray(existing)) throw new Error("Kayıt listesi bozuk; JSON dışa aktarımını kullanın.");
       existing.unshift(saveEntry);
-      localStorage.setItem("birim_saved_projects", JSON.stringify(existing.slice(0, 30)));
+      try {
+        localStorage.setItem("birim_saved_projects", JSON.stringify(existing.slice(0, 30)));
+      } catch {
+        // QuotaExceededError fallback: cache oversized base64 underlay in session memory and compact history
+        const compactProject = structuredClone(saveEntry.project);
+        if (compactProject.space?.floorPlanUnderlay?.dataUrl && compactProject.space.floorPlanUnderlay.dataUrl.length > 150_000) {
+          sessionUnderlayDataCache.set(saveId, compactProject.space.floorPlanUnderlay.dataUrl);
+          compactProject.space.floorPlanUnderlay.dataUrl = undefined;
+        }
+        existing[0] = { ...saveEntry, project: compactProject };
+        localStorage.setItem("birim_saved_projects", JSON.stringify(existing.slice(0, 12)));
+      }
     } catch (error) {
       set({ autoSaveStatus: "unsaved" });
       throw new Error(error instanceof Error ? `Kayıt başarısız: ${error.message}` : "Kayıt başarısız.");
@@ -1115,12 +1181,13 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       const list = JSON.parse(localStorage.getItem("birim_saved_projects") || "[]");
       const found = list.find((item: { id: string; project: DesignProject }) => item.id === id);
       if (found && found.project) {
-        if (typeof found.project.schemaVersion === "number" && found.project.schemaVersion > SUPPORTED_PROJECT_SCHEMA_VERSION) {
-          return false;
+        const parsedRes = parseAndMigrateProject(found.project);
+        if (!parsedRes.success) return false;
+        const migrated = migrateV3ProjectToV4({ ...parsedRes.data, status: "draft" } as DesignProject);
+        const cachedDataUrl = sessionUnderlayDataCache.get(id);
+        if (cachedDataUrl && migrated.space?.floorPlanUnderlay && !migrated.space.floorPlanUnderlay.dataUrl) {
+          migrated.space.floorPlanUnderlay.dataUrl = cachedDataUrl;
         }
-        const validated = DesignProjectSchema.safeParse(found.project);
-        if (!validated.success) return false;
-        const migrated = migrateV3ProjectToV4({ ...validated.data, status: "draft" } as DesignProject);
         const { validationIssues, bom, pricing, smartAdvice } = recompute(migrated);
         set({
           project: migrated,
@@ -1173,17 +1240,11 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   importProjectJSON: (jsonStr: string) => {
     try {
       const parsed = JSON.parse(jsonStr);
-      if (typeof parsed?.schemaVersion === "number" && parsed.schemaVersion > SUPPORTED_PROJECT_SCHEMA_VERSION) {
-        return {
-          success: false,
-          error: `Desteklenmeyen ileri şema sürümü: v${parsed.schemaVersion}. Maksimum desteklenen sürüm: v${SUPPORTED_PROJECT_SCHEMA_VERSION}.`,
-        };
+      const parsedRes = parseAndMigrateProject(parsed);
+      if (!parsedRes.success) {
+        return { success: false, error: parsedRes.error };
       }
-      const val = DesignProjectSchema.safeParse(parsed);
-      if (!val.success) {
-        return { success: false, error: "Geçersiz Birim Proje JSON formatı." };
-      }
-      const validProject = migrateV3ProjectToV4({ ...val.data, status: "draft" } as DesignProject);
+      const validProject = migrateV3ProjectToV4({ ...parsedRes.data, status: "draft" } as DesignProject);
       const { validationIssues, bom, pricing, smartAdvice } = recompute(validProject);
       set({
         project: validProject,
@@ -1762,7 +1823,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
         project: updated,
         autoSaveStatus: "unsaved",
       });
-      return;
+      return obstacleId;
     }
     const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
     set({

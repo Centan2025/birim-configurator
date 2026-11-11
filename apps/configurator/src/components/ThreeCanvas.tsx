@@ -1,16 +1,22 @@
 "use client";
 
-import React, { useEffect, useRef, useCallback } from "react";
+import React, { useEffect, useRef, useCallback, useState } from "react";
 import * as THREE from "three";
 import { createComponentMesh, publishSceneDiagnostics, createModuleGroup } from "./componentMesh";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { useConfiguratorStore } from "../store/useConfiguratorStore";
 import { generateModuleGeometry } from "@birim/geometry";
 import { DEFAULT_MATERIALS, MaterialDefinition } from "@birim/core";
+import {
+  attachWebGLContextRecovery,
+  disposeObject3DTree,
+  markSharedGeometry,
+  markSharedMaterial,
+} from "../v3/materials/webglResourceGuard";
 
 // 1. Shared Unit Geometries (Never recreated, GPU buffer persists across life of app)
-const UNIT_BOX_GEO = new THREE.BoxGeometry(1, 1, 1);
-const UNIT_EDGES_GEO = new THREE.EdgesGeometry(UNIT_BOX_GEO);
+const UNIT_BOX_GEO = markSharedGeometry(new THREE.BoxGeometry(1, 1, 1));
+const UNIT_EDGES_GEO = markSharedGeometry(new THREE.EdgesGeometry(UNIT_BOX_GEO));
 
 // 2. Shared Material Caches (Avoids shader compilation and GPU memory leaks)
 const materialCache = new Map<string, THREE.MeshStandardMaterial>();
@@ -37,6 +43,7 @@ function getPanelMaterial(matDef: MaterialDefinition, isSelected: boolean, isRai
       emissive: isSelected ? new THREE.Color(0x2563eb) : new THREE.Color(0x000000),
       emissiveIntensity: isSelected ? 0.35 : 0.0,
     });
+    markSharedMaterial(m);
     materialCache.set(key, m);
   }
   return m;
@@ -52,6 +59,7 @@ function getEdgeMaterial(isSelected: boolean): THREE.LineBasicMaterial {
       opacity: isSelected ? 0.9 : 0.2,
       transparent: true,
     });
+    markSharedMaterial(m);
     edgeMaterialCache.set(key, m);
   }
   return m;
@@ -76,6 +84,7 @@ export default function ThreeCanvas() {
   const controlsRef = useRef<OrbitControls | null>(null);
   const meshGroupRef = useRef<THREE.Group | null>(null);
   const needsRenderRef = useRef<boolean>(true);
+  const [contextLost, setContextLost] = useState(false);
 
   const requestRender = useCallback(() => {
     needsRenderRef.current = true;
@@ -124,8 +133,10 @@ export default function ThreeCanvas() {
     controls.dampingFactor = 0.08;
     controls.maxDistance = 15000;
     controls.minDistance = 200;
+    controls.maxPolarAngle = Math.PI / 2 - 0.02;
     controls.target.set(1000, 1100, 300);
     controls.addEventListener("change", () => {
+      if (controls.target.y < 0) controls.target.y = 0;
       needsRenderRef.current = true;
     });
     controlsRef.current = controls;
@@ -167,7 +178,16 @@ export default function ThreeCanvas() {
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
 
+    let pointerDownPos: { x: number; y: number } | null = null;
+    const handlePointerDown = (e: PointerEvent) => {
+      pointerDownPos = { x: e.clientX, y: e.clientY };
+    };
+
     const handleClick = (e: MouseEvent) => {
+      if (pointerDownPos) {
+        const moveDist = Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y);
+        if (moveDist > 5) return;
+      }
       const activeRenderer = rendererRef.current;
       const currentMeshGroup = meshGroupRef.current;
       if (!activeRenderer || !currentMeshGroup) return;
@@ -191,7 +211,15 @@ export default function ThreeCanvas() {
       }
     };
 
+    renderer.domElement.addEventListener("pointerdown", handlePointerDown);
     renderer.domElement.addEventListener("click", handleClick);
+    const detachContextRecovery = attachWebGLContextRecovery(renderer.domElement, {
+      onContextLost: () => setContextLost(true),
+      onContextRestored: () => {
+        setContextLost(false);
+        needsRenderRef.current = true;
+      },
+    });
 
     // On-demand rendering loop: Only renders when camera moves or scene is flagged dirty
     let animId: number;
@@ -238,8 +266,12 @@ export default function ThreeCanvas() {
 
     return () => {
       cancelAnimationFrame(animId);
+      detachContextRecovery();
       window.removeEventListener("resize", handleResize);
+      renderer.domElement.removeEventListener("pointerdown", handlePointerDown);
       renderer.domElement.removeEventListener("click", handleClick);
+      controls.dispose();
+      disposeObject3DTree(scene);
       renderer.dispose();
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
@@ -358,8 +390,8 @@ export default function ThreeCanvas() {
     const meshGroup = meshGroupRef.current;
     if (!meshGroup) return;
 
-    // Fast clear without disposing shared unit geometries or materials
-    meshGroup.clear();
+    // Dispose transient geometries/materials while preserving shared cached resources
+    disposeObject3DTree(meshGroup);
 
     const matMap = new Map(DEFAULT_MATERIALS.map((m) => [m.id, m]));
 
@@ -397,6 +429,11 @@ export default function ThreeCanvas() {
   return (
     <div className="relative w-full h-full">
       <div ref={mountRef} className="w-full h-full cursor-grab active:cursor-grabbing" />
+      {contextLost && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-stone-950/75 text-stone-100 text-xs font-semibold">
+          3D grafik bağlamı yeniden başlatılıyor...
+        </div>
+      )}
 
       {/* 3D Viewport Top HUD Controls */}
       <div className="absolute top-4 left-4 flex gap-2 bg-slate-900/85 backdrop-blur-md px-3 py-1.5 rounded-lg border border-slate-700/60 text-xs">

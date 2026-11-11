@@ -2,7 +2,11 @@ import { ManufacturingBOM, CutPiece } from "./types";
 import {
   DesignProject,
   ModuleInstance,
+  calculateFourSpaceDimensions,
+  calculateNetInnerHeight,
   createDefaultWardrobeModule,
+  roundIntMm,
+  roundMm,
 } from "@birim/core";
 import {
   DXF_AC1015_HEADER,
@@ -23,57 +27,65 @@ export function generateAssemblyInstructions(
   project: DesignProject,
   bom: ManufacturingBOM
 ): AssemblyStep[] {
-  const steps: AssemblyStep[] = [];
+  void project;
+  void bom;
+  return [
+    {
+      stepNumber: 1,
+      title: "Saha Hazırlığı ve Baza Montajı",
+      description:
+        "Zemin terazisini su terazisi ile kontrol ediniz. Baza ayaklarını alt tablanın altına vidalayınız ve yükseklik ayarını yapınız.",
+      requiredParts: ["Baza Ön", "Baza Arka"],
+      requiredHardware: ["HW_LEVELING_FEET"],
+      safetyNotes: "Zemin eğimi 5mm'den fazlaysa ayak ayarını teraziye göre sabitleyiniz.",
+    },
+    {
+      stepNumber: 2,
+      title: "Gövde Karkas Kurulumu (Minifix & Kavela)",
+      description:
+        "Sol yan paneli alt tablaya 90° açıyla yerleştirip minifix millerini kavelalar ile birlikte sıkınız. Ardından ara dikmeleri ve üst tablayı kilitleyiniz.",
+      requiredParts: ["Sol Yan Panel", "Sağ Yan Panel", "Alt Panel", "Üst Panel", "Ara Dikmeler"],
+      requiredHardware: ["HW_MINIFIX_SET", "HW_DOWEL_8X35"],
+      safetyNotes:
+        "Minifix kamlarını aşırı tork ile sıkmayınız, 180° tam kilitlenme yeterlidir.",
+    },
+    {
+      stepNumber: 3,
+      title: "Arkalık Montajı",
+      description:
+        "Gövde köşegenlerini metre ile ölçerek tam gönyede olduğunu doğrulayınız. 8mm arkalık panelini oluk yuvalarına kaydırıp sabitleyiniz.",
+      requiredParts: ["Arkalık Paneli"],
+      requiredHardware: [],
+      safetyNotes: "Köşegen farkı 2mm'yi geçmemelidir.",
+    },
+    {
+      stepNumber: 4,
+      title: "İç Donanım ve Ray Montajı",
+      description:
+        "Tandembox çekmece raylarını System 32 deliklerine vidalayınız. Raf pimlerini ve askı borusu flanşlarını yerleştiriniz.",
+      requiredParts: ["Raflar", "Çekmece Kasaları"],
+      requiredHardware: ["HW_BLUM_TANDEM_BOX", "HW_SHELF_PIN", "HW_HANGING_RAIL"],
+    },
+    {
+      stepNumber: 5,
+      title: "Kapak ve Klapa Montajı & İnce Ayar",
+      description:
+        "Blum 110° menteşeleri kapaklara takıp gövde tabanlarına klipsleyiniz. Kapaklar arası 2mm çevre çalışma boşluğunu 3D menteşe vidasından ayarlayınız.",
+      requiredParts: ["Kapaklar", "Çekmece Önleri"],
+      requiredHardware: ["HW_BLUM_HINGE_110", "HW_HANDLE_BAR"],
+    },
+  ];
+}
 
-  steps.push({
-    stepNumber: 1,
-    title: "Saha Hazırlığı ve Baza Montajı",
-    description:
-      "Zemin terazisini su terazisi ile kontrol ediniz. Baza ayaklarını alt tablanın altına vidalayınız ve yükseklik ayarını yapınız.",
-    requiredParts: ["Baza Ön", "Baza Arka"],
-    requiredHardware: ["HW_LEVELING_FEET"],
-    safetyNotes: "Zemin eğimi 5mm'den fazlaysa ayak ayarını teraziye göre sabitleyiniz.",
-  });
-
-  steps.push({
-    stepNumber: 2,
-    title: "Gövde Karkas Kurulumu (Minifix & Kavela)",
-    description:
-      "Sol yan paneli alt tablaya 90° açıyla yerleştirip minifix millerini kavelalar ile birlikte sıkınız. Ardından ara dikmeleri ve üst tablayı kilitleyiniz.",
-    requiredParts: ["Sol Yan Panel", "Sağ Yan Panel", "Alt Panel", "Üst Panel", "Ara Dikmeler"],
-    requiredHardware: ["HW_MINIFIX_SET", "HW_DOWEL_8X35"],
-    safetyNotes: "Minifix kamlarını aşırı tork ile sıkmayınız, 180° tam kilitlenme yeterlidir.",
-  });
-
-  steps.push({
-    stepNumber: 3,
-    title: "Arkalık Montajı",
-    description:
-      "Gövde köşegenlerini metre ile ölçerek tam gönyede olduğunu doğrulayınız. 8mm arkalık panelini oluk yuvalarına kaydırıp sabitleyiniz.",
-    requiredParts: ["Arkalık Paneli"],
-    requiredHardware: [],
-    safetyNotes: "Köşegen farkı 2mm'yi geçmemelidir.",
-  });
-
-  steps.push({
-    stepNumber: 4,
-    title: "İç Donanım ve Ray Montajı",
-    description:
-      "Tandembox çekmece raylarını System 32 deliklerine vidalayınız. Raf pimlerini ve askı borusu flanşlarını yerleştiriniz.",
-    requiredParts: ["Raflar", "Çekmece Kasaları"],
-    requiredHardware: ["HW_BLUM_TANDEM_BOX", "HW_SHELF_PIN", "HW_HANGING_RAIL"],
-  });
-
-  steps.push({
-    stepNumber: 5,
-    title: "Kapak ve Klapa Montajı & İnce Ayar",
-    description:
-      "Blum 110° menteşeleri kapaklara takıp gövde tabanlarına klipsleyiniz. Kapaklar arası 2mm çevre çalışma boşluğunu 3D menteşe vidasından ayarlayınız.",
-    requiredParts: ["Kapaklar", "Çekmece Önleri"],
-    requiredHardware: ["HW_BLUM_HINGE_110", "HW_HANDLE_BAR"],
-  });
-
-  return steps;
+/**
+ * Escapes CSV cell values against double-quote breakage, semicolon splitting,
+ * and spreadsheet formula injection (=, +, -, @, \t, \r).
+ */
+function sanitizeCsvCell(val: string | number | undefined | null): string {
+  const raw = String(val ?? "");
+  const formulaSafe = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
+  const escaped = formulaSafe.replace(/"/g, '""');
+  return `"${escaped}"`;
 }
 
 export function exportCutListToCSV(bom: ManufacturingBOM): string {
@@ -100,22 +112,22 @@ export function exportCutListToCSV(bom: ManufacturingBOM): string {
   ];
 
   const rows = bom.cutList.map((p) => [
-    p.id,
-    `"${p.pieceName}"`,
-    `"${p.moduleName}"`,
-    `"${p.materialName}"`,
+    sanitizeCsvCell(p.id),
+    sanitizeCsvCell(p.pieceName),
+    sanitizeCsvCell(p.moduleName),
+    sanitizeCsvCell(p.materialName),
     p.lengthMm,
     p.widthMm,
     p.netCutLengthMm ?? p.lengthMm,
     p.netCutWidthMm ?? p.widthMm,
     p.thicknessMm,
     p.quantity,
-    `"${p.edgeBandCode || ""}"`,
+    sanitizeCsvCell(p.edgeBandCode || ""),
     p.edgeBanding.top ? "1" : "0",
     p.edgeBanding.bottom ? "1" : "0",
     p.edgeBanding.left ? "1" : "0",
     p.edgeBanding.right ? "1" : "0",
-    p.grain,
+    sanitizeCsvCell(p.grain),
     p.areaM2,
     p.edgeBandMeters,
     p.holes ? p.holes.length : 0,
@@ -171,7 +183,12 @@ class DxfWriter {
       closed ? "1" : "0",
     ];
     for (const [x, y] of points) {
-      lines.push(" 10", Number(x.toFixed(2)).toString(), " 20", Number(y.toFixed(2)).toString());
+      lines.push(
+        " 10",
+        Number(x.toFixed(2)).toString(),
+        " 20",
+        Number(y.toFixed(2)).toString()
+      );
     }
     this.entities.push(lines.join("\r\n") + "\r\n");
   }
@@ -299,12 +316,7 @@ class DxfWriter {
       `$HANDSEED\r\n  5\r\n${nextHex}`
     );
 
-    return (
-      header +
-      this.entities.join("") +
-      "  0\r\nENDSEC\r\n" +
-      DXF_AC1015_FOOTER
-    );
+    return header + this.entities.join("") + "  0\r\nENDSEC\r\n" + DXF_AC1015_FOOTER;
   }
 }
 
@@ -314,51 +326,79 @@ function renderSinglePieceEntities(
   offsetX: number,
   offsetY: number
 ): void {
-  // In the Parametric / Manufacturing coordinate system:
-  // piece.widthMm (En) is the horizontal dimension along the X-axis.
-  // piece.lengthMm (Boy) is the vertical dimension along the Y-axis.
-  // All hole coordinates (hole.x, hole.y) are calculated in this exact local coordinate system.
+  // Local coordinate system:
+  // w = piece.widthMm (En — X-axis 0..w)
+  // h = piece.lengthMm (Boy — Y-axis 0..h)
   const w = piece.widthMm;
   const h = piece.lengthMm;
   const netW = piece.netCutWidthMm ?? w;
   const netH = piece.netCutLengthMm ?? h;
+  const eb = piece.edgeBanding;
+  const ebT = eb?.thickness || 0;
 
   // 1. Finished panel perimeter rectangle (PANEL_CONTOUR)
   writer.addRect("PANEL_CONTOUR", offsetX, offsetY, w, h);
 
-  // 2. Saw net-cut perimeter if edge banding deduction applies (NET_CUT_CONTOUR)
+  // 2. Saw net-cut perimeter properly inset by left & bottom edge-banding thickness (NET_CUT_CONTOUR)
   if (netW !== w || netH !== h) {
-    writer.addRect("NET_CUT_CONTOUR", offsetX, offsetY, netW, netH);
+    const insetLeft = eb?.left ? ebT : 0;
+    const insetBottom = eb?.bottom ? ebT : 0;
+    writer.addRect(
+      "NET_CUT_CONTOUR",
+      roundMm(offsetX + insetLeft, 2),
+      roundMm(offsetY + insetBottom, 2),
+      netW,
+      netH
+    );
   }
 
-  // 3. CNC Sink / Cooktop Cut-out (CUTOUT_SINK_HOB) on Countertop panels
-  if (piece.componentRole === "countertop" && (w >= 550 || h >= 550)) {
-    const longDim = Math.max(w, h);
-    const shortDim = Math.min(w, h);
-    const cutLong = Math.min(560, longDim - 120);
-    const cutShort = Math.min(480, shortDim - 100);
+  // 3. Explicit CNC Sink / Cooktop Cut-out ONLY when piece.hasSinkOrHobCutout === true!
+  if (piece.componentRole === "countertop" && piece.hasSinkOrHobCutout) {
+    const cutLong = piece.cutoutWidthMm || Math.min(560, Math.max(w, h) - 120);
+    const cutShort = piece.cutoutDepthMm || Math.min(480, Math.min(w, h) - 100);
     const cutW = w >= h ? cutLong : cutShort;
     const cutH = w >= h ? cutShort : cutLong;
-    const cx0 = offsetX + Math.round((w - cutW) / 2);
-    const cy0 = offsetY + Math.round((h - cutH) / 2);
-    writer.addRect("CUTOUT_SINK_HOB", cx0, cy0, cutW, cutH);
+    if (cutW > 100 && cutH > 100 && cutW < w - 40 && cutH < h - 40) {
+      const cx0 = offsetX + Math.round((w - cutW) / 2);
+      const cy0 = offsetY + Math.round((h - cutH) / 2);
+      writer.addRect("CUTOUT_SINK_HOB", cx0, cy0, cutW, cutH);
+    }
   }
 
-  // 4. 8mm back panel groove on carcass side/top/bottom panels (BACK_GROOVE_8MM)
-  if (
-    piece.componentRole === "carcass_side_left" ||
-    piece.componentRole === "carcass_side_right"
-  ) {
-    // Back groove on side panels runs vertically along the full height (h), 20mm from back edge
-    const grooveX = Math.max(12, w - 20);
+  // 3b. Parametric Socket / Cable Grommet / Plumbing / Baseboard Notch Cutouts
+  if (piece.utilityCutouts && piece.utilityCutouts.length > 0) {
+    for (const co of piece.utilityCutouts) {
+      const layerName = co.shape === "corner_notch" ? "NOTCH_BASEBOARD" : "CUTOUT_UTILITY";
+      if (co.shape === "circle") {
+        const rad = roundMm((co.diameterMm ?? co.widthMm) / 2, 2);
+        writer.addCircle(layerName, roundMm(offsetX + co.centerXMm, 2), roundMm(offsetY + co.centerYMm, 2), rad);
+      } else {
+        const rx = roundMm(offsetX + Math.max(0, co.centerXMm - co.widthMm / 2), 2);
+        const ry = roundMm(offsetY + Math.max(0, co.centerYMm - co.heightMm / 2), 2);
+        writer.addRect(layerName, rx, ry, co.widthMm, co.heightMm);
+      }
+    }
+  }
+
+  // 4. 8mm back panel groove (BACK_GROOVE_8MM)
+  // On ALL carcass panels (side_left, side_right, carcass_top, carcass_bottom),
+  // X is depth (0..w) and Y is length/span (0..h), so the back groove ALWAYS runs along Y (0..h)!
+  // - Left side / Top / Bottom: rear edge is at x = w -> groove spans [w - 20, w - 12]
+  // - Mirrored Right side (mirrorInnerFaceX = true): rear edge is at x = 0 -> groove spans [12, 20]
+  const grooveActive =
+    piece.hasBackGroove !== undefined
+      ? piece.hasBackGroove
+      : piece.componentRole === "carcass_side_left" ||
+        piece.componentRole === "carcass_side_right" ||
+        piece.componentRole === "carcass_top" ||
+        piece.componentRole === "carcass_bottom";
+
+  if (grooveActive && w >= 100) {
+    const grooveOffset = piece.backGrooveOffsetMm ?? 20;
+    const grooveX = piece.mirrorInnerFaceX
+      ? Math.max(8, grooveOffset - 8) // [12..20] from x = 0 rear edge
+      : Math.max(12, w - grooveOffset); // [w - 20 .. w - 12] from x = w rear edge
     writer.addRect("BACK_GROOVE_8MM", offsetX + grooveX, offsetY, 8, h);
-  } else if (
-    piece.componentRole === "carcass_top" ||
-    piece.componentRole === "carcass_bottom"
-  ) {
-    // Back groove on top/bottom panels runs horizontally along the full width (w), 20mm from back edge
-    const grooveY = Math.max(12, h - 20);
-    writer.addRect("BACK_GROOVE_8MM", offsetX, offsetY + grooveY, w, 8);
   }
 
   // 5. Part Name, ID, Net Cut Dimensions & Edge Banding Text Annotation (PART_LABELS)
@@ -371,26 +411,40 @@ function renderSinglePieceEntities(
     labelX,
     labelY,
     Math.min(20, Math.max(10, Math.round(Math.min(w, h) * 0.045))),
-    `${piece.pieceName} [${piece.id}] - Bitmis: ${piece.lengthMm}x${piece.widthMm}x${piece.thicknessMm}mm`,
+    `${piece.pieceName} [${piece.id}] - Net: ${netH}x${netW}x${piece.thicknessMm}mm`,
     rotationDeg
   );
 
-  // 6. Drilling holes on both generic DRILLING layer and tool-specific CNC layer
+  // 6. Drilling holes: SINGLE circle per hole on its dedicated CNC tool/face layer (zero duplicate circles!)
   if (piece.holes) {
     piece.holes.forEach((hole) => {
+      const hx = roundMm(offsetX + hole.x, 2);
+      const hy = roundMm(offsetY + hole.y, 2);
+      const rad = roundMm(hole.diameter / 2, 2);
+
+      if (hole.direction.startsWith("edge_")) {
+        // Horizontal edge bore represented as an axis line into the panel edge on EDGE_DRILL_8MM
+        const boreLen = Math.min(hole.depth || 30, Math.min(w, h) * 0.4);
+        let x2 = hx;
+        let y2 = hy;
+        if (hole.direction === "edge_bottom") y2 = roundMm(hy + boreLen, 2);
+        else if (hole.direction === "edge_top") y2 = roundMm(hy - boreLen, 2);
+        else if (hole.direction === "edge_left") x2 = roundMm(hx + boreLen, 2);
+        else if (hole.direction === "edge_right") x2 = roundMm(hx - boreLen, 2);
+        writer.addLine("EDGE_DRILL_8MM", hx, hy, x2, y2);
+        return;
+      }
+
+      const backSuffix = hole.direction === "face_back" ? "_BACK" : "";
       const toolLayer =
         hole.diameter >= 35
-          ? "BORE_35MM"
+          ? `BORE_35MM${backSuffix}`
           : hole.diameter >= 15
-          ? "CAM_15MM"
+          ? `CAM_15MM${backSuffix}`
           : hole.diameter >= 8
-          ? "DRILL_8MM"
-          : "DRILL_5MM";
-      const hx = Number((offsetX + hole.x).toFixed(2));
-      const hy = Number((offsetY + hole.y).toFixed(2));
-      const rad = Number((hole.diameter / 2).toFixed(2));
+          ? `DRILL_8MM${backSuffix}`
+          : `DRILL_5MM${backSuffix}`;
 
-      writer.addCircle("DRILLING", hx, hy, rad);
       writer.addCircle(toolLayer, hx, hy, rad);
 
       if (hole.purpose === "hinge_cup" || hole.purpose === "hinge_mount") {
@@ -402,20 +456,12 @@ function renderSinglePieceEntities(
   }
 }
 
-/**
- * Generates an AutoCAD (2000-2026/LT) & CNC compatible 2D DXF ($ACADVER = AC1015, $INSUNITS = 4 mm) for a single panel
- * with layered CNC drilling hole circles (`BORE_35MM`, `CAM_15MM`, `DRILL_8MM`, `DRILL_5MM`, `DRILLING`),
- * net saw-cut contour (`NET_CUT_CONTOUR`), back groove (`BACK_GROOVE_8MM`), and part label (`PART_LABELS`).
- */
 export function generatePanelDXF(piece: CutPiece): string {
   const writer = new DxfWriter();
   renderSinglePieceEntities(writer, piece, 0, 0);
   return writer.toDxf();
 }
 
-/**
- * Generates a combined multi-panel DXF cutlist & CNC drilling layout of all panels in the BOM.
- */
 export function exportAllPanelsDXF(bom: ManufacturingBOM): string {
   const writer = new DxfWriter();
 
@@ -441,27 +487,22 @@ export function exportAllPanelsDXF(bom: ManufacturingBOM): string {
   return writer.toDxf();
 }
 
-/**
- * Generates a 2D Sheet Nesting Cut-Layout DXF (2800x2070mm raw boards with guillotine cut parts)
- * so the beam saw / panel sizing operator can open the exact board cutting layout in AutoCAD/CAD-CAM.
- */
 export function exportNestingSheetsDXF(bom: ManufacturingBOM): string {
   const writer = new DxfWriter();
   let sheetCursorY = 0;
 
   bom.nestingResults.forEach((nestRes) => {
     nestRes.sheets.forEach((sheet) => {
-      const boardW = 2800;
-      const boardH = 2070;
+      const boardW = sheet.sheetDimension.lengthMm || 2800;
+      const boardH = sheet.sheetDimension.widthMm || 2070;
 
-      // Raw 2800x2070 sheet border
       writer.addRect("SHEET_BORDER", 0, sheetCursorY, boardW, boardH);
       writer.addText(
         "PART_LABELS",
         20,
         sheetCursorY + boardH + 28,
         28,
-        `PLAKA #${sheet.sheetIndex} (${nestRes.materialName}) - 2800x2070mm | Fire: %${sheet.wastePercent}`
+        `PLAKA #${sheet.sheetIndex} (${nestRes.materialName}) - ${boardW}x${boardH}mm | Fire: %${sheet.wastePercent}`
       );
 
       sheet.placedPieces.forEach((placed) => {
@@ -469,13 +510,23 @@ export function exportNestingSheetsDXF(bom: ManufacturingBOM): string {
         const py = sheetCursorY + placed.y;
         const pw = placed.width;
         const pl = placed.length;
-        writer.addRect("PANEL_CONTOUR", px, py, pw, pl);
+        writer.addRect("NET_CUT_CONTOUR", px, py, pw, pl);
         writer.addText(
           "PART_LABELS",
           px + 12,
           py + Math.max(16, Math.min(pl / 2, pl - 20)),
           16,
-          `${placed.pieceName} (${placed.length}x${placed.width}mm)`
+          `${placed.pieceName} (${placed.width}x${placed.length}mm)`
+        );
+      });
+
+      (sheet.usableRemnants || []).forEach((rem) => {
+        writer.addRect(
+          "USABLE_REMNANT",
+          rem.x,
+          sheetCursorY + rem.y,
+          rem.width,
+          rem.length
         );
       });
 
@@ -535,62 +586,33 @@ export interface BlumCabinetEngineeringSummary {
   drawers: BlumDrawerCuttingSpec[];
 }
 
+/**
+ * Uses @birim/core's single source of truth (`calculateFourSpaceDimensions`)
+ * so Blum engineering summary, BOM hinge counts, and CNC hole counts match 100%.
+ */
 export function calculateBlumEngineeringSummary(
   mod: ModuleInstance
 ): BlumCabinetEngineeringSummary {
-  const KB = mod.dimensions.width;
-  const KH = mod.dimensions.height;
-  const KT = mod.dimensions.depth;
+  const fourSpace = calculateFourSpaceDimensions(mod);
+  const KB = fourSpace.externalCarcass.widthMm;
+  const KH = fourSpace.externalCarcass.heightMm;
+  const KT = fourSpace.externalCarcass.depthMm;
   const T = mod.carcass.panelThickness || 18;
-  const backT = mod.carcass.backPanelThickness || 8;
-  const grooveOffset = mod.carcass.backPanelType === "grooved" ? 10 : 0;
-  const plinthH = mod.carcass.plinthHeight || 0;
+  const grooveOffset = mod.carcass.backPanelType === "grooved" ? 12 : 0;
   const fuge = mod.carcass.doorPerimeterGap || 2;
 
-  const dividerCount = Math.max(0, mod.bays.length - 1);
-  const totalInnerW = Math.max(150, KB - 2 * T - dividerCount * T);
-  const defaultBayLw = Math.round(totalInnerW / Math.max(1, mod.bays.length));
-  const LH = Math.max(150, KH - plinthH - 2 * T);
-  const LT = Math.max(150, KT - backT - grooveOffset);
+  const bayWidths = fourSpace.usableInternal.bayClearWidthsMm;
+  const defaultBayLw = bayWidths[0] || Math.max(120, KB - 2 * T);
+  const LH = fourSpace.usableInternal.netInnerHeightMm;
+  const LT = fourSpace.usableInternal.netInnerDepthMm;
 
   const collisionWarnings: string[] = [];
   const doors: BlumDoorEngineeringMetric[] = [];
   const drawers: BlumDrawerCuttingSpec[] = [];
 
-  const doorT = mod.carcass.doorThickness || 18;
-  const densityKgPerM3 =
-    mod.carcass.doorMaterialId.includes("glass") ||
-    mod.carcass.doorMaterialId.includes("mirror")
-      ? 920
-      : mod.carcass.doorMaterialId.includes("lacquer")
-      ? 760
-      : 720;
-
   mod.bays.forEach((bay, bIdx) => {
-    const bayLw = bay.customWidth || defaultBayLw;
-    const isDouble =
-      bay.door.type === "double" ||
-      bay.door.type === "inset_double" ||
-      bay.door.doorSystemId === "hinged_double";
-    const leafCount =
-      bay.door.type === "open" || bay.door.doorSystemId === "open"
-        ? 0
-        : isDouble
-        ? 2
-        : 1;
-    const leafW =
-      leafCount === 2
-        ? Math.round((bayLw + T - fuge * 2) / 2)
-        : Math.max(150, bayLw + T - fuge * 2);
-    const leafH = Math.max(200, KH - plinthH - fuge * 2);
-
-    const volumeM3 = (leafW / 1000) * (leafH / 1000) * (doorT / 1000);
-    const weightKg = Number((volumeM3 * densityKgPerM3 + 0.35).toFixed(2));
-
-    let recHinges = 2;
-    if (leafH > 2400 || weightKg > 22) recHinges = 5;
-    else if (leafH > 1900 || weightKg > 15) recHinges = 4;
-    else if (leafH > 1000 || weightKg > 8) recHinges = 3;
+    const bayLw = bayWidths[bIdx] || defaultBayLw;
+    const leafInfo = fourSpace.doorLeaves[bIdx];
 
     const hasInternalDrawer = bay.drawers.some((d) => d.isInternal);
     const curHingeId = bay.door.hardwareProductId || "hw_blum_71b3550";
@@ -607,35 +629,36 @@ export function calculateBlumEngineeringSummary(
       );
     }
 
-    const aventosLf = Math.round(leafH * weightKg);
-    let recommendedAventosModel: string | null = null;
-    if (bay.door.doorSystemId?.startsWith("lift_") || leafH <= 1040) {
-      if (aventosLf <= 2600) {
-        recommendedAventosModel = "AVENTOS HK top 22K2300 (LF 420–2600)";
-      } else if (aventosLf <= 5350) {
-        recommendedAventosModel = "AVENTOS HF top 22F2510 (LF 2700–5350)";
-      } else if (aventosLf <= 9000) {
-        recommendedAventosModel = "AVENTOS HF top 22F2510 Çift Güç Ünitesi (LF 5350–9000)";
-      } else if (aventosLf <= 13500) {
-        recommendedAventosModel = "AVENTOS HF top 22F2800 Ağır Kapak (LF 9000–13500)";
-      } else {
-        recommendedAventosModel = "LF Sınırı Aşıldı (>13500) — Menteşeli Kapak Önerilir";
-        if (bay.door.doorSystemId?.startsWith("lift_")) {
-          collisionWarnings.push(
-            `Bölme ${bIdx + 1}: AVENTOS Güç Faktörü (LF = ${aventosLf}) maksimum 13500 sınırını aşıyor.`
-          );
+    if (leafInfo && leafInfo.leafCount > 0) {
+      const aventosLf = leafInfo.powerFactorLf;
+      let recommendedAventosModel: string | null = null;
+      if (bay.door.doorSystemId?.startsWith("lift_") || leafInfo.leafHeightMm <= 1040) {
+        if (aventosLf <= 2600) {
+          recommendedAventosModel = "AVENTOS HK top 22K2300 (LF 420–2600)";
+        } else if (aventosLf <= 5350) {
+          recommendedAventosModel = "AVENTOS HF top 22F2510 (LF 2700–5350)";
+        } else if (aventosLf <= 9000) {
+          recommendedAventosModel = "AVENTOS HF top 22F2510 Çift Güç Ünitesi (LF 5350–9000)";
+        } else if (aventosLf <= 13500) {
+          recommendedAventosModel = "AVENTOS HF top 22F2800 Ağır Kapak (LF 9000–13500)";
+        } else {
+          recommendedAventosModel = "LF Sınırı Aşıldı (>13500) — Menteşeli Kapak Önerilir";
+          if (bay.door.doorSystemId?.startsWith("lift_")) {
+            collisionWarnings.push(
+              `Bölme ${bIdx + 1}: AVENTOS Güç Faktörü (LF = ${aventosLf}) maksimum 13500 sınırını aşıyor.`
+            );
+          }
         }
       }
-    }
 
-    if (leafCount > 0) {
       doors.push({
         bayIndex: bIdx,
-        doorWidthMm: leafW,
-        doorHeightMm: leafH,
-        doorThicknessMm: doorT,
-        estimatedWeightKg: weightKg,
-        recommendedHingeCount: recHinges,
+        doorWidthMm: leafInfo.leafWidthMm,
+        doorHeightMm: leafInfo.leafHeightMm,
+        doorThicknessMm: leafInfo.leafThicknessMm,
+        estimatedWeightKg: leafInfo.leafWeightKg,
+        recommendedHingeCount:
+          leafInfo.effectiveHingeCount || leafInfo.recommendedHingesPerLeaf,
         hingeSku: uses155 ? "71B7550" : "71B3550",
         hingeName: uses155
           ? "Blum CLIP top BLUMOTION 155° Sıfır Çıkıntı"
@@ -688,8 +711,7 @@ export function calculateBlumEngineeringSummary(
         woodenBottomDepthMm: Math.max(200, woodenBottomDepthMm),
         woodenBackWidthMm: Math.max(120, woodenBackWidthMm),
         woodenBackHeightMm,
-        easystickSideHoleXCoordsMm:
-          nl >= 450 ? [37, 165, 261, 389] : [37, 165, 229],
+        easystickSideHoleXCoordsMm: nl >= 450 ? [37, 165, 261, 389] : [37, 165, 229],
         easystickElevationYMm: drw.elevationY + 37,
       });
     });
@@ -710,16 +732,14 @@ export function calculateBlumEngineeringSummary(
   };
 }
 
-export function generateBlumBxfXml(
-  project: DesignProject,
-  bom: ManufacturingBOM
-): string {
+export function generateBlumBxfXml(project: DesignProject, bom: ManufacturingBOM): string {
   const esc = (s: string | number) =>
     String(s)
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&apos;");
 
   const cabinetSummaries = project.modules
     .filter((m) => m.category !== "complementary")
@@ -812,12 +832,20 @@ export function parseBlumBxfXml(xmlContent: string): {
 } | null {
   if (!xmlContent || typeof xmlContent !== "string") return null;
 
+  const unescapeXml = (val: string): string =>
+    val
+      .replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&amp;/g, "&");
+
   const extractAttr = (tagPattern: RegExp, attrName: string): string | null => {
     const tagMatch = xmlContent.match(tagPattern);
     if (!tagMatch) return null;
     const attrRegex = new RegExp(`${attrName}\\s*=\\s*["']([^"']+)["']`, "i");
     const m = tagMatch[0].match(attrRegex);
-    return m ? m[1] : null;
+    return m ? unescapeXml(m[1]) : null;
   };
 
   const kbAttr =
@@ -833,9 +861,9 @@ export function parseBlumBxfXml(xmlContent: string): {
     extractAttr(/<Cabinet[^>]*>/i, "depth") ||
     (xmlContent.match(/<(?:CorpusDepth|Depth|KT)>(\d+(?:\.\d+)?)<\//i)?.[1] ?? null);
 
-  const widthMm = Math.max(300, Math.min(3600, Math.round(Number(kbAttr) || 1200)));
-  const heightMm = Math.max(350, Math.min(2800, Math.round(Number(khAttr) || 2200)));
-  const depthMm = Math.max(250, Math.min(900, Math.round(Number(ktAttr) || 600)));
+  const widthMm = Math.max(300, Math.min(3600, roundIntMm(Number(kbAttr) || 1200)));
+  const heightMm = Math.max(350, Math.min(2800, roundIntMm(Number(khAttr) || 2200)));
+  const depthMm = Math.max(250, Math.min(900, roundIntMm(Number(ktAttr) || 600)));
 
   const panelTAttr =
     extractAttr(/<Construction[^>]*>/i, "panelThicknessMm") ||
@@ -847,15 +875,20 @@ export function parseBlumBxfXml(xmlContent: string): {
   const fugeAttr = extractAttr(/<Construction[^>]*>/i, "frontGapFugeMm");
   const frontGapMm = Number(fugeAttr) > 0 ? Number(fugeAttr) : 2;
 
-  const cabName =
+  const rawCabName =
     extractAttr(/<Cabinet[^>]*>/i, "name") ||
-    (xmlContent.match(/<(?:CabinetName|Commission)>([^<]+)<\//i)?.[1] ?? null) ||
-    `Blum BXF Gövde (${widthMm}×${heightMm}×${depthMm})`;
+    (xmlContent.match(/<(?:CabinetName|Commission)>([^<]+)<\//i)?.[1] ?? null);
+  const cabName = rawCabName
+    ? unescapeXml(rawCabName).slice(0, 120)
+    : `Blum BXF Gövde (${widthMm}×${heightMm}×${depthMm})`;
 
   const frontMatches = xmlContent.match(/<Front\b[^>]*>/gi) || [];
   const drawerMatches = xmlContent.match(/<Drawer\b[^>]*>/gi) || [];
-  const bayCount = Math.max(1, Math.min(6, frontMatches.length || Math.round(widthMm / 600)));
-  const drawerCount = Math.min(6, drawerMatches.length);
+  const maxSafeBays = Math.max(1, Math.floor((widthMm - panelThicknessMm) / (150 + panelThicknessMm)));
+  const bayCount = Math.max(
+    1,
+    Math.min(maxSafeBays, Math.min(6, frontMatches.length || Math.round(widthMm / 600)))
+  );
 
   const hingeSku =
     extractAttr(/<Front[^>]*>/i, "hingeArticle") ||
@@ -866,43 +899,83 @@ export function parseBlumBxfXml(xmlContent: string): {
 
   const mod = createDefaultWardrobeModule(`mod_bxf_${Date.now()}`);
   mod.name = cabName;
+  mod.category = heightMm <= 920 ? (depthMm <= 420 ? "kitchen_wall" : "kitchen_base") : "wardrobe";
   mod.dimensions = { width: widthMm, height: heightMm, depth: depthMm };
   mod.carcass.panelThickness = panelThicknessMm;
   mod.carcass.doorPerimeterGap = frontGapMm;
+  if (heightMm <= 920 && depthMm <= 420) {
+    mod.carcass.plinthHeight = 0;
+  }
 
-  mod.bays = Array.from({ length: bayCount }, (_, bIdx) => ({
-    index: bIdx,
-    shelves: [
-      { id: `${mod.id}_s_${bIdx}_1`, bayIndex: bIdx, elevationY: 500, isAdjustable: true },
-      { id: `${mod.id}_s_${bIdx}_2`, bayIndex: bIdx, elevationY: 1400, isAdjustable: true },
-    ],
-    hangingRails:
-      heightMm >= 1600
-        ? [{ id: `${mod.id}_r_${bIdx}_1`, bayIndex: bIdx, elevationY: heightMm - 320 }]
-        : [],
-    drawers:
-      bIdx === 0 && drawerCount > 0
-        ? Array.from({ length: drawerCount }, (__, dIdx) => ({
-            id: `${mod.id}_drw_${bIdx}_${dIdx}`,
-            bayIndex: bIdx,
-            elevationY: dIdx * 200,
-            height: 180,
-            slideType: "soft_close" as const,
-            hardwareProductId: runnerSku.startsWith("750")
-              ? "hw_blum_legrabox_m40"
-              : "hw_blum_tandembox_m30",
-          }))
-        : [],
-    specialFittings: [],
-    door: {
-      id: `${mod.id}_door_${bIdx}`,
-      bayIndex: bIdx,
-      type: widthMm / bayCount >= 750 ? "double" : "single_left",
-      doorSystemId: widthMm / bayCount >= 750 ? "hinged_double" : "hinged_single",
-      hardwareProductId: hingeSku === "71B7550" ? "hw_blum_71b7550" : "hw_blum_71b3550",
-      softClose: true,
-    },
-  }));
+  const netH = Math.max(200, calculateNetInnerHeight(mod));
+  const snap32 = (y: number) =>
+    Math.max(64, Math.min(Math.max(96, netH - 64), Math.round(y / 32) * 32));
+  const maxFitDrawers = Math.min(6, Math.floor((netH - 40) / 190));
+  const drawerCount = Math.min(maxFitDrawers, drawerMatches.length);
+
+  mod.bays = Array.from({ length: bayCount }, (_, bIdx) => {
+    const shelves =
+      netH >= 1100
+        ? [
+            {
+              id: `${mod.id}_s_${bIdx}_1`,
+              bayIndex: bIdx,
+              elevationY: snap32(netH * 0.34),
+              isAdjustable: true,
+            },
+            {
+              id: `${mod.id}_s_${bIdx}_2`,
+              bayIndex: bIdx,
+              elevationY: snap32(netH * 0.68),
+              isAdjustable: true,
+            },
+          ]
+        : [
+            {
+              id: `${mod.id}_s_${bIdx}_1`,
+              bayIndex: bIdx,
+              elevationY: snap32(netH * 0.5),
+              isAdjustable: true,
+            },
+          ];
+
+    return {
+      index: bIdx,
+      shelves: bIdx === 0 && drawerCount > 0 && netH < 900 ? [] : shelves,
+      hangingRails:
+        netH >= 1400
+          ? [
+              {
+                id: `${mod.id}_r_${bIdx}_1`,
+                bayIndex: bIdx,
+                elevationY: Math.max(160, netH - 220),
+              },
+            ]
+          : [],
+      drawers:
+        bIdx === 0 && drawerCount > 0
+          ? Array.from({ length: drawerCount }, (__, dIdx) => ({
+              id: `${mod.id}_drw_${bIdx}_${dIdx}`,
+              bayIndex: bIdx,
+              elevationY: dIdx * 185,
+              height: 180,
+              slideType: "soft_close" as const,
+              hardwareProductId: runnerSku.startsWith("750")
+                ? "hw_blum_legrabox_m40"
+                : "hw_blum_tandembox_m30",
+            }))
+          : [],
+      specialFittings: [],
+      door: {
+        id: `${mod.id}_door_${bIdx}`,
+        bayIndex: bIdx,
+        type: widthMm / bayCount >= 750 ? "double" : "single_left",
+        doorSystemId: widthMm / bayCount >= 750 ? "hinged_double" : "hinged_single",
+        hardwareProductId: hingeSku === "71B7550" ? "hw_blum_71b7550" : "hw_blum_71b3550",
+        softClose: true,
+      },
+    };
+  });
 
   return {
     name: cabName,

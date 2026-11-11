@@ -2,14 +2,14 @@ import { OptimizedSheet } from "./sheet-nesting";
 
 export interface SelcoMachineConfig {
   machineModel: "Biesse_Selco_WNT_600";
-  sawBladeKerfMm: number; // 4.4mm (UNVERIFIED: confirm blade specs from factory)
-  minGripperCutWidthMm: number; // 70mm (UNVERIFIED: verify clamp gripper depth on physical machine)
-  trimCutLeftMm: number; // 15mm
-  trimCutRightMm: number; // 15mm
-  trimCutTopMm: number; // 15mm
-  trimCutBottomMm: number; // 15mm
-  scoringBladeKerfMm: number; // 3.2mm çizici bıçak (UNVERIFIED)
-  feedSpeedMPerMin: number; // 60 m/min (UNVERIFIED)
+  sawBladeKerfMm: number;
+  minGripperCutWidthMm: number;
+  trimCutLeftMm: number;
+  trimCutRightMm: number;
+  trimCutTopMm: number;
+  trimCutBottomMm: number;
+  scoringBladeKerfMm: number;
+  feedSpeedMPerMin: number;
   controllerFormat: "OSAI_OPEN_XML" | "BIESSE_CIX_OPT";
 }
 
@@ -53,6 +53,15 @@ export interface SelcoExportPackage {
   unverifiedNotes: string[];
 }
 
+function escapeXmlAttr(value: string | number | boolean): string {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
 export function generateSelcoExportPackage(
   optimizedSheets: OptimizedSheet[],
   config: SelcoMachineConfig = DEFAULT_SELCO_CONFIG
@@ -82,14 +91,27 @@ export function generateSelcoExportPackage(
     })),
   }));
 
-  // Generate XML draft for Selco controller
   let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
-  xml += `<BiesseProductionBatch id="${batchId}" machine="${config.machineModel}" status="UNVERIFIED_DRAFT">\n`;
-  xml += `  <MachineParameters kerf="${config.sawBladeKerfMm}" minGripper="${config.minGripperCutWidthMm}" feedSpeed="${config.feedSpeedMPerMin}"/>\n`;
+  xml += `<BiesseProductionBatch id="${escapeXmlAttr(batchId)}" machine="${escapeXmlAttr(
+    config.machineModel
+  )}" status="UNVERIFIED_DRAFT">\n`;
+  xml += `  <MachineParameters kerf="${escapeXmlAttr(
+    config.sawBladeKerfMm
+  )}" minGripper="${escapeXmlAttr(config.minGripperCutWidthMm)}" feedSpeed="${escapeXmlAttr(
+    config.feedSpeedMPerMin
+  )}"/>\n`;
   sawingPatterns.forEach((p) => {
-    xml += `  <SheetPattern sheetIndex="${p.sheetIndex}" material="${p.material}" length="${p.sheetLength}" width="${p.sheetWidth}">\n`;
+    xml += `  <SheetPattern sheetIndex="${escapeXmlAttr(
+      p.sheetIndex
+    )}" material="${escapeXmlAttr(p.material)}" length="${escapeXmlAttr(
+      p.sheetLength
+    )}" width="${escapeXmlAttr(p.sheetWidth)}">\n`;
     p.cuts.forEach((c) => {
-      xml += `    <Part pieceId="${c.partId}" label="${c.partLabel}" x="${c.x}" y="${c.y}" length="${c.length}" width="${c.width}" rotated="${c.rotated}"/>\n`;
+      xml += `    <Part pieceId="${escapeXmlAttr(c.partId)}" label="${escapeXmlAttr(
+        c.partLabel
+      )}" x="${escapeXmlAttr(c.x)}" y="${escapeXmlAttr(c.y)}" length="${escapeXmlAttr(
+        c.length
+      )}" width="${escapeXmlAttr(c.width)}" rotated="${escapeXmlAttr(c.rotated)}"/>\n`;
     });
     xml += `  </SheetPattern>\n`;
   });

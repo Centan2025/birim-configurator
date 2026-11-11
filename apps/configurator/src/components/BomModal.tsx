@@ -22,37 +22,74 @@ import {
   exportNestingSheetsDXF,
   generateBlumBxfXml,
   calculateBlumEngineeringSummary,
+  generateProjectCncPostProcessorBundle,
+  type CncPieceInput,
   CutPiece,
 } from "@birim/manufacturing";
 
 interface BomModalProps {
   isOpen: boolean;
   onClose: () => void;
-  initialTab?: "cutlist" | "hardware" | "nesting" | "validation" | "assembly" | "selco" | "quote" | "blum_bxf";
+  initialTab?: "cutlist" | "hardware" | "nesting" | "validation" | "assembly" | "selco" | "cnc_mpr_cix" | "quote" | "blum_bxf";
+}
+
+function escapeHtml(raw: unknown): string {
+  return String(raw ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: BomModalProps) {
   const [activeTab, setActiveTab] = useState<
-    "cutlist" | "hardware" | "nesting" | "validation" | "assembly" | "selco" | "quote" | "blum_bxf"
+    "cutlist" | "hardware" | "nesting" | "validation" | "assembly" | "selco" | "cnc_mpr_cix" | "quote" | "blum_bxf"
   >(initialTab);
+  const [exportStatusBanner, setExportStatusBanner] = useState<string | null>(null);
 
   React.useEffect(() => {
     if (isOpen && initialTab) {
       setActiveTab(initialTab);
     }
   }, [isOpen, initialTab]);
+
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isOpen, onClose]);
+
   const bom = useConfiguratorStore((s) => s.bom);
   const project = useConfiguratorStore((s) => s.project);
   const pricing = useConfiguratorStore((s) => s.pricing);
 
+  const blumBxfXml = React.useMemo(
+    () => (isOpen && activeTab === "blum_bxf" ? generateBlumBxfXml(project, bom) : ""),
+    [isOpen, activeTab, project, bom]
+  );
+  const blumCabinetSummaries = React.useMemo(
+    () =>
+      isOpen && activeTab === "blum_bxf"
+        ? project.modules
+            .filter((m) => m.category !== "complementary")
+            .map((m) => calculateBlumEngineeringSummary(m))
+        : [],
+    [isOpen, activeTab, project.modules]
+  );
+
   if (!isOpen) return null;
 
   const downloadCustomerQuoteHtml = () => {
+    const safeTitle = escapeHtml(project.title);
     const html = `<!DOCTYPE html>
 <html lang="tr">
 <head>
 <meta charset="utf-8" />
-<title>Birim Mobilya - Müşteri Teklif ve Teknik Sunum Föyü (${project.title})</title>
+<title>Birim Mobilya - Müşteri Teklif ve Teknik Sunum Föyü (${safeTitle})</title>
 <style>
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #1c1917; margin: 32px; background: #fafaf9; }
   .header { display: flex; justify-content: space-between; border-bottom: 3px solid #b45309; padding-bottom: 16px; margin-bottom: 24px; }
@@ -66,7 +103,7 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
   <div class="header">
     <div>
       <h1 style="margin:0;font-size:22px;">BİRİM MOBİLYA — MÜŞTERİ TEKLİF & TEKNİK SUNUM FÖYÜ</h1>
-      <p style="margin:4px 0 0;font-size:13px;color:#57534e;">Proje: ${project.title} • Versiyon: v${project.version} • Tarih: ${new Date().toLocaleDateString("tr-TR")}</p>
+      <p style="margin:4px 0 0;font-size:13px;color:#57534e;">Proje: ${safeTitle} • Versiyon: v${escapeHtml(project.version)} • Tarih: ${new Date().toLocaleDateString("tr-TR")}</p>
     </div>
     <div style="text-align:right;font-size:13px;">
       <strong>Toplam Modül:</strong> ${project.modules.length} Adet<br/>
@@ -77,14 +114,14 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
   <table>
     <thead><tr><th>#</th><th>Modül Adı</th><th>Ölçüler (G×Y×D)</th><th>Gövde Malzemesi</th><th>Kapak Malzemesi</th></tr></thead>
     <tbody>
-      ${project.modules.map((m, i) => `<tr><td>${i + 1}</td><td>${m.name}</td><td>${m.dimensions.width}×${m.dimensions.height}×${m.dimensions.depth} mm</td><td>${m.carcass.bodyMaterialId}</td><td>${m.carcass.doorMaterialId}</td></tr>`).join("")}
+      ${project.modules.map((m, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(m.name)}</td><td>${escapeHtml(m.dimensions.width)}×${escapeHtml(m.dimensions.height)}×${escapeHtml(m.dimensions.depth)} mm</td><td>${escapeHtml(m.carcass.bodyMaterialId)}</td><td>${escapeHtml(m.carcass.doorMaterialId)}</td></tr>`).join("")}
     </tbody>
   </table>
   <h3>2. Dünya Markaları Donanım, Aksesuar ve LED Aydınlatma Listesi</h3>
   <table>
     <thead><tr><th>Katalog Kodu (SKU)</th><th>Donanım / Aksesuar Açıklaması</th><th>Miktar</th><th>Birim Fiyat (€)</th><th>Toplam (€)</th></tr></thead>
     <tbody>
-      ${bom.hardwareList.map((h) => `<tr><td><code>${h.sku}</code></td><td>${h.name}</td><td>${h.quantity} ${h.unit}</td><td>€${(h.unitPrice ?? 0).toFixed(2)}</td><td>€${(h.totalPrice ?? 0).toFixed(2)}</td></tr>`).join("")}
+      ${bom.hardwareList.map((h) => `<tr><td><code>${escapeHtml(h.sku)}</code></td><td>${escapeHtml(h.name)}</td><td>${escapeHtml(h.quantity)} ${escapeHtml(h.unit)}</td><td>€${(h.unitPrice ?? 0).toFixed(2)}</td><td>€${(h.totalPrice ?? 0).toFixed(2)}</td></tr>`).join("")}
     </tbody>
   </table>
   <div class="total-box">
@@ -107,12 +144,9 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
   };
 
 
-  const blumBxfXml = generateBlumBxfXml(project, bom);
-  const blumCabinetSummaries = project.modules
-    .filter((m) => m.category !== "complementary")
-    .map((m) => calculateBlumEngineeringSummary(m));
-
   const downloadFile = (content: string, filename: string, mimeType: string) => {
+    setExportStatusBanner(`${filename} indirildi`);
+    setTimeout(() => setExportStatusBanner(null), 3500);
     const blob = new Blob([content], { type: mimeType });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -127,8 +161,9 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
   };
 
   const downloadBlumBxf = () => {
+    const xmlOut = blumBxfXml || generateBlumBxfXml(project, bom);
     downloadFile(
-      blumBxfXml,
+      xmlOut,
       `Blum_Easystick_${project.id}_v${project.version}.bxf`,
       "application/xml;charset=utf-8"
     );
@@ -200,6 +235,11 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
                 v{project.version} (
                 {bom.approvalStatus === "production_approved" ? "ONAYLANDI" : "TASLAK"})
               </span>
+              {exportStatusBanner && (
+                <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 font-medium">
+                  ✓ {exportStatusBanner}
+                </span>
+              )}
             </h2>
             <p className="text-xs text-slate-400">
               Parametrik modelden türetilmiş bitmiş & bant düşümlü net kesim, System 32 delik
@@ -395,6 +435,18 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
           >
             <Cpu className="w-3.5 h-3.5 inline mr-1" />
             Selco WNT 600 Postprocessor
+          </button>
+          <button
+            onClick={() => setActiveTab("cnc_mpr_cix")}
+            data-testid="bom-tab-cnc-mpr-cix"
+            className={`pb-2.5 border-b-2 transition-colors cursor-pointer shrink-0 ${
+              activeTab === "cnc_mpr_cix"
+                ? "border-amber-500 text-amber-400 font-semibold"
+                : "border-transparent text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <Cpu className="w-3.5 h-3.5 inline mr-1" />
+            Çift Yüzeyli CNC (.MPR / .CIX)
           </button>
         </div>
 
@@ -1161,6 +1213,101 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
               </div>
             </div>
           )}
+          {activeTab === "cnc_mpr_cix" && (() => {
+            const cncInputs: CncPieceInput[] = bom.cutList.map((cp) => ({
+              id: cp.id,
+              moduleId: cp.moduleId,
+              moduleName: cp.moduleName,
+              partRole: cp.componentRole,
+              pieceName: cp.pieceName,
+              thicknessMm: cp.thicknessMm,
+              lengthMm: cp.lengthMm,
+              widthMm: cp.widthMm,
+              netCutLengthMm: cp.netCutLengthMm,
+              netCutWidthMm: cp.netCutWidthMm,
+              mirrorInnerFaceX: cp.mirrorInnerFaceX,
+              hasBackGroove: cp.hasBackGroove,
+              backGrooveOffsetMm: cp.backGrooveOffsetMm,
+              hasSinkOrHobCutout: cp.hasSinkOrHobCutout,
+              cutoutWidthMm: cp.cutoutWidthMm,
+              cutoutDepthMm: cp.cutoutDepthMm,
+              utilityCutouts: cp.utilityCutouts,
+              drillingOperations: (cp.holes || []).map((h) => ({
+                x: h.x,
+                y: h.y,
+                diameter: h.diameter,
+                depth: h.depth,
+                face:
+                  h.direction === "face_back"
+                    ? "bottom"
+                    : h.direction.startsWith("edge_")
+                    ? (h.direction as CncPieceInput["drillingOperations"][number]["face"])
+                    : "top",
+                type: h.purpose || "drill",
+              })),
+            }));
+            const bundle = generateProjectCncPostProcessorBundle(cncInputs);
+            return (
+              <div className="space-y-4 text-xs text-slate-200">
+                <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-xl bg-slate-950 border border-slate-800">
+                  <div>
+                    <h3 className="text-sm font-bold text-white">
+                      Homag WoodWOP 5.0 (.MPR) &amp; BiesseWorks (.CIX) Çift Yüzeyli CNC Çıktısı
+                    </h3>
+                    <p className="text-slate-400 mt-0.5">
+                      Ara dikme gibi çift yüzeyli parçalar otomatik olarak Setup-1 (Üst) ve Setup-2 (X-Simetrik Flip) programlarına ayrılır.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const allMpr = bundle.homagMprFiles
+                          .map((f) => `; === ${f.fileName} ===\r\n${f.content}`)
+                          .join("\r\n\r\n");
+                        downloadFile(allMpr, `Homag_WoodWOP_${project.id}_v${project.version}.mpr`, "text/plain;charset=utf-8");
+                      }}
+                      className="px-3.5 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold cursor-pointer"
+                    >
+                      Homag .MPR Paketi İndir ({bundle.homagMprFiles.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const allCix = bundle.biesseCixFiles
+                          .map((f) => `// === ${f.fileName} ===\r\n${f.content}`)
+                          .join("\r\n\r\n");
+                        downloadFile(allCix, `Biesse_Works_${project.id}_v${project.version}.cix`, "text/plain;charset=utf-8");
+                      }}
+                      className="px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold cursor-pointer"
+                    >
+                      Biesse .CIX Paketi İndir ({bundle.biesseCixFiles.length})
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
+                    <div className="font-bold text-amber-400 mb-2">
+                      Örnek Homag .MPR Önizleme ({bundle.homagMprFiles[0]?.fileName || "-"})
+                    </div>
+                    <pre className="max-h-80 overflow-auto text-[11px] font-mono text-slate-300 whitespace-pre-wrap">
+                      {bundle.homagMprFiles[0]?.content || "Parça yok"}
+                    </pre>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
+                    <div className="font-bold text-blue-400 mb-2">
+                      Örnek Biesse .CIX Önizleme ({bundle.biesseCixFiles[0]?.fileName || "-"})
+                    </div>
+                    <pre className="max-h-80 overflow-auto text-[11px] font-mono text-slate-300 whitespace-pre-wrap">
+                      {bundle.biesseCixFiles[0]?.content || "Parça yok"}
+                    </pre>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
         </div>
       </div>
     </div>

@@ -1,3 +1,5 @@
+import type { PanelCutoutConfig } from "./panel-cutouts";
+
 export type UnitLength = number; // in millimeters (mm)
 
 export type OpeningDirection =
@@ -143,7 +145,15 @@ export interface DrillingHole {
   y: UnitLength;
   z: UnitLength; // surface face: 0 for front, thickness for back, or edge
   direction: "face_front" | "face_back" | "edge_top" | "edge_bottom" | "edge_left" | "edge_right";
-  purpose: "minifix_cam" | "minifix_bolt" | "dowel" | "hinge_cup" | "hinge_mount" | "shelf_pin" | "slide_mount" | "handle";
+  purpose:
+    | "minifix_cam"
+    | "minifix_bolt"
+    | "dowel"
+    | "hinge_cup"
+    | "hinge_mount"
+    | "shelf_pin"
+    | "slide_mount"
+    | "handle";
 }
 
 export interface ParametricPart {
@@ -152,7 +162,7 @@ export interface ParametricPart {
   bayIndex?: number;
   label: string;
   role: string;
-  dimensions: Dimensions3D; // width, height, thickness (net dimensions)
+  dimensions: Dimensions3D; // width, height, depth/thickness (panel local coordinates)
   materialId: string;
   grain: GrainDirection;
   edgeBanding: EdgeBandingSpec;
@@ -164,7 +174,25 @@ export interface ParametricPart {
   hardwareRefId?: string;
   handleSpacingMm?: UnitLength;
   isInsetDoor?: boolean;
+  /** Hinge cup/mount Y positions relative to this part's bottom edge (mm) */
   hingePositionsY?: UnitLength[];
+  /** Secondary face (back face of middle divider) hinge mount Y positions (mm) */
+  hingePositionsBackY?: UnitLength[];
+  /** Vertical offset from bottom of floor-standing upright to bottom carcass panel (e.g. plinthHeight on wardrobes) */
+  bottomJointOffsetY?: UnitLength;
+  /** Top carcass panel thickness for accurate upper Minifix bolt positioning */
+  matingPanelThicknessMm?: UnitLength;
+  /** Back groove X offset from rear edge (default 20mm -> groove spans [width - 20, width - 12]) */
+  backGrooveOffsetMm?: UnitLength;
+  /** Whether back groove routing applies to this part */
+  hasBackGroove?: boolean;
+  /** Whether a vertical side panel is mirrored so its inner face is referenced consistently on CNC */
+  mirrorInnerFaceX?: boolean;
+  /** Explicit sink/hob CNC cutout metadata for countertops */
+  hasSinkOrHobCutout?: boolean;
+  cutoutWidthMm?: UnitLength;
+  cutoutDepthMm?: UnitLength;
+  cutoutCenterXMm?: UnitLength;
 }
 
 export interface ShelfConfig {
@@ -189,7 +217,12 @@ export interface DrawerConfig {
   bayIndex: number;
   elevationY: UnitLength;
   height: UnitLength;
-  slideType: "soft_close" | "push_to_open" | "standard" | "push_to_open_soft_close" | "servo_electric";
+  slideType:
+    | "soft_close"
+    | "push_to_open"
+    | "standard"
+    | "push_to_open_soft_close"
+    | "servo_electric";
   isInternal?: boolean; // İç çekmece (behind door)
   frontMaterialId?: string;
   hardwareProductId?: string;
@@ -279,6 +312,16 @@ export interface DoorConfig {
   doorEdgeBandThicknessMm?: UnitLength;
 }
 
+export interface SubDividerConfig {
+  id: string;
+  bayIndex: number;
+  offsetX: UnitLength;
+  elevationY: UnitLength;
+  height: UnitLength;
+  thickness?: UnitLength;
+  isHidden?: boolean;
+}
+
 export interface BayConfig {
   index: number;
   widthRatio?: number;
@@ -287,14 +330,7 @@ export interface BayConfig {
   hangingRails: HangingRailConfig[];
   drawers: DrawerConfig[];
   specialFittings: SpecialFittingConfig[];
-  subDividers?: {
-    id: string;
-    bayIndex: number;
-    offsetX: UnitLength;
-    elevationY: UnitLength;
-    height: UnitLength;
-    thickness?: UnitLength;
-  }[];
+  subDividers?: SubDividerConfig[];
   door: DoorConfig;
 }
 
@@ -321,6 +357,7 @@ export interface CarcassConfig {
   hingeDrillingTemplateId?: string;
   drawerDrillingSetId?: string;
   cncProductionNote?: string;
+  ledLightingEnabled?: boolean;
   ledColorTempK?: 3000 | 4000;
   ledSensorType?: "ir_door" | "pir_motion" | "manual_switch";
 }
@@ -361,11 +398,22 @@ export interface ModuleInstance {
   componentGrainOverrides?: Record<string, "lengthwise" | "crosswise" | "custom">;
   surfaceFinishOverride?: "matte" | "satin" | "gloss";
   edgeBandMaterialId?: string;
+  utilityCutouts?: PanelCutoutConfig[];
 }
 
 export interface ArchitecturalElement {
   id: string;
-  type: "door" | "window" | "column" | "beam" | "plumbing" | "electrical" | "ventilation" | "niche" | "protrusion" | "partition";
+  type:
+    | "door"
+    | "window"
+    | "column"
+    | "beam"
+    | "plumbing"
+    | "electrical"
+    | "ventilation"
+    | "niche"
+    | "protrusion"
+    | "partition";
   name: string;
   position: Position3D;
   dimensions: Dimensions3D;
@@ -442,7 +490,12 @@ export interface DesignProject {
   title: string;
   customerName?: string;
   branchId: string;
-  status: "draft" | "technically_validated" | "quoted" | "production_approved" | "exported_to_erp";
+  status:
+    | "draft"
+    | "technically_validated"
+    | "quoted"
+    | "production_approved"
+    | "exported_to_erp";
   space: SpaceDefinition;
   modules: ModuleInstance[];
   verificationSnapshot?: ProjectVerificationSnapshot;

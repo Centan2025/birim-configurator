@@ -31,6 +31,24 @@ import {
 } from "../design-system";
 import { V3CadViewport2D } from "./V3CadViewport2D";
 import type { V4ModuleTemplate } from "@birim/catalog";
+import { useConfiguratorStore } from "../../store/useConfiguratorStore";
+import { WorkspaceTopBar } from "./workspace/WorkspaceTopBar";
+import { EmptyStageRecoveryCard } from "./workspace/EmptyStageRecoveryCard";
+import { SimpleCustomerInspector } from "./workspace/SimpleCustomerInspector";
+import { TapToPlaceController, type TapToPlaceItemSpec } from "./workspace/TapToPlaceController";
+import { ArRoomPreviewModal } from "./workspace/ArRoomPreviewModal";
+import { PanelCutoutInspector } from "./workspace/PanelCutoutInspector";
+import { GuidedWizardLivePreview } from "./workspace/GuidedWizardLivePreview";
+import type { ExportBoxPart } from "@birim/geometry";
+
+function escapeHtmlPrint(raw: unknown): string {
+  return String(raw ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
 interface CadProfilePoint2D {
   /** Normalized width coordinate across profile cross-section [0..1] */
@@ -943,11 +961,19 @@ export const V3UnifiedWorkspace: React.FC<{
     loadUKitchen,
     applySmartSpan,
     approveProduction,
+    resetToDefault,
+    beginHistoryTransaction,
+    commitHistoryTransaction,
+    setModuleUtilityCutouts,
+    autoResolveCornerCollisions,
   } = useV3Adapter();
+
+  const experienceTier = useConfiguratorStore((s) => s.userExperienceTier);
+  const setExperienceTier = useConfiguratorStore((s) => s.setUserExperienceTier);
 
   const [mode, setMode] = useState<V3WorkspaceMode>(initialMode);
   const [canvasTheme, setCanvasTheme] = useState<"warm-light" | "dark">("warm-light");
-  const [leftOpen, setLeftOpen] = useState(true);
+  const [leftOpen, setLeftOpen] = useState(false);
   const [leftTab, setLeftTab] = useState<
     "quick_wizard" | "templates" | "interior" | "materials" | "accessories" | "hardware"
   >("quick_wizard");
@@ -967,7 +993,14 @@ export const V3UnifiedWorkspace: React.FC<{
     | "space_tower"
     | "open"
   >("double_door");
-  const [isSimpleBlumMode, setIsSimpleBlumMode] = useState<boolean>(true);
+  const [quickLiveSync, setQuickLiveSync] = useState<boolean>(true);
+  const isSimpleBlumMode = experienceTier === "simple";
+  const setIsSimpleBlumMode = useCallback(
+    (simple: boolean) => {
+      setExperienceTier(simple ? "simple" : "architect");
+    },
+    [setExperienceTier]
+  );
 
   useEffect(() => {
     const onGlobalKeyDown = (ev: KeyboardEvent) => {
@@ -1015,7 +1048,7 @@ export const V3UnifiedWorkspace: React.FC<{
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [isBomModalOpen, setIsBomModalOpen] = useState(false);
   const [bomModalInitialTab, setBomModalInitialTab] = useState<
-    "cutlist" | "hardware" | "nesting" | "validation" | "assembly" | "selco" | "quote" | "blum_bxf"
+    "cutlist" | "hardware" | "nesting" | "validation" | "assembly" | "selco" | "cnc_mpr_cix" | "quote" | "blum_bxf"
   >("cutlist");
   const [approvalBanner, setApprovalBanner] = useState<{
     text: string;
@@ -1027,7 +1060,7 @@ export const V3UnifiedWorkspace: React.FC<{
   const [newDraftHeight, setNewDraftHeight] = useState<number>(720);
   const [newDraftDepth, setNewDraftDepth] = useState<number>(580);
   const [newDraftDoorSys, setNewDraftDoorSys] = useState<DoorSystemId>("hinged_double");
-  const [studioLeftWidthPx, setStudioLeftWidthPx] = useState<number>(450);
+  const [studioLeftWidthPx, setStudioLeftWidthPx] = useState<number>(348);
   const [isVisualCatalogOpen, setIsVisualCatalogOpen] = useState<boolean>(false);
   const [catalogSearchQuery, setCatalogSearchQuery] = useState<string>("");
   const [catalogWidthFilter, setCatalogWidthFilter] = useState<"all" | "narrow" | "medium" | "wide">("all");
@@ -1101,7 +1134,7 @@ export const V3UnifiedWorkspace: React.FC<{
       componentMaterialOverrides?: Record<string, string>;
     };
   }>(null);
-  const [studioRightWidthPx, setStudioRightWidthPx] = useState<number>(428);
+  const [studioRightWidthPx, setStudioRightWidthPx] = useState<number>(356);
   const [planLeftWidthPx, setPlanLeftWidthPx] = useState<number>(330);
   const [planSplitRatioPct, setPlanSplitRatioPct] = useState<number>(58);
   const [resizingPanel, setResizingPanel] = useState<
@@ -1217,7 +1250,7 @@ export const V3UnifiedWorkspace: React.FC<{
       setDrawerOpenMm(drawerOpenMm > 10 ? 0 : 280);
     };
     const onDeleteActive = () => {
-      if (!removeSelectedInteriorComponent() && project.modules.length >= 1) {
+      if (!removeSelectedInteriorComponent() && project.modules.length > 1) {
         removeActiveModule();
       }
     };
@@ -1309,7 +1342,7 @@ export const V3UnifiedWorkspace: React.FC<{
         redo();
       } else if (ev.key === "Delete" || ev.key === "Backspace") {
         ev.preventDefault();
-        if (!removeSelectedInteriorComponent() && project.modules.length >= 1) {
+        if (!removeSelectedInteriorComponent() && project.modules.length > 1) {
           removeActiveModule();
         }
       }
@@ -1327,6 +1360,8 @@ export const V3UnifiedWorkspace: React.FC<{
 
   // V4 Showroom Hızlı Satış, Oto-Dizilim, 3'lü Bütçe Paketi ve Müşteri Teklif Föyü Durumları
   const [showQuickSellModal, setShowQuickSellModal] = useState(false);
+  const [showArAnd3DModal, setShowArAnd3DModal] = useState(false);
+  const [armedTapItem, setArmedTapItem] = useState<TapToPlaceItemSpec | null>(null);
 
   // V4 5-Adımda Kolay Tasarım Sihirbazı (Step-by-Step Guided Wizard) Durumları
   const [showStepWizardModal, setShowStepWizardModal] = useState(false);
@@ -1349,55 +1384,62 @@ export const V3UnifiedWorkspace: React.FC<{
   const [activeConceptTier, setActiveConceptTier] = useState<"eco" | "smart" | "signature">("smart");
   const [copiedWhatsappQuote, setCopiedWhatsappQuote] = useState(false);
 
-  // Canlı Müşteri Depolama Kapasitesi ve Fabrika Plaka / Kenar Bandı Özeti
+  // Canlı Müşteri Depolama Kapasitesi ve Gerçek BOM/Nesting Plaka & Kenar Bandı Özeti
   const liveCustomerAndFactoryStats = useMemo(() => {
     let hangerWidthMm = 0;
     let shelfAreaM2 = 0;
     let drawerCount = 0;
-    let totalPanelAreaM2 = 0;
-    let edgeBandingMeters = 0;
 
     project.modules.forEach((m) => {
+      if (m.category === "complementary") return;
       const w = m.dimensions.width;
-      const h = m.dimensions.height;
       const d = m.dimensions.depth;
+      const T = m.carcass?.panelThickness || 18;
       const bays = m.bays || [];
       const bayCount = Math.max(1, bays.length);
-      const bayW = (w - (bayCount + 1) * 18) / bayCount;
-      const hasDoors = bays.some((b) => b.door && b.door.type !== "none");
-      const modArea = ((2 * h * d + 2 * w * d + w * h + (hasDoors ? w * h : 0)) / 1_000_000) * 1.12;
-      totalPanelAreaM2 += modArea;
-      edgeBandingMeters += ((4 * h + 4 * w + 8 * d) / 1000) * Math.max(1, bayCount * 0.75);
+      const bayW = Math.max(120, (w - (bayCount + 1) * T) / bayCount);
 
       bays.forEach((b) => {
         const rails = b.hangingRails?.length || 0;
         const shelves = b.shelves?.length || 0;
         const drawers = b.drawers?.length || 0;
-        if (rails > 0) {
-          hangerWidthMm += rails * bayW;
-        } else if (h >= 1800) {
-          hangerWidthMm += bayW * 0.65;
-        }
-        shelfAreaM2 += (Math.max(2, shelves) * bayW * d) / 1_000_000;
+        hangerWidthMm += rails * bayW;
+        shelfAreaM2 += ((shelves + 1) * bayW * Math.max(200, d - T)) / 1_000_000;
         drawerCount += drawers;
       });
     });
 
-    const hangingGarments = Math.max(0, Math.round(hangerWidthMm / 32));
-    const foldedGarments = Math.max(0, Math.round(shelfAreaM2 * 24));
+    const hangingGarments = Math.max(0, Math.round(hangerWidthMm / 34));
+    const foldedGarments = Math.max(0, Math.round(shelfAreaM2 * 22));
     const shoePairs = Math.max(
       0,
-      Math.round((project.modules.reduce((s, m) => s + m.dimensions.width, 0) / 220) * 2)
+      Math.round(
+        (project.modules
+          .filter((m) => m.category !== "complementary")
+          .reduce((s, m) => s + m.dimensions.width, 0) /
+          240) *
+          2
+      )
     );
-    const sheetCount2800x2070 = project.modules.length === 0 ? 0 : Math.max(1, Math.ceil(totalPanelAreaM2 / 4.75));
+
+    const realPanelAreaM2 = bom?.summary?.totalPanelAreaM2 ?? 0;
+    const realEdgeBandMeters = bom?.summary?.totalEdgeBandMeters ?? 0;
+    const realNestedSheets =
+      bom?.nestingResults && bom.nestingResults.length > 0
+        ? bom.nestingResults.reduce((sum, nr) => sum + (nr.totalSheetsCount || 0), 0)
+        : project.modules.length === 0
+        ? 0
+        : Math.max(1, Math.ceil(realPanelAreaM2 / 4.8));
+
     const mainWallLen = spaceWalls[0]?.length || 3600;
-    const usedWallLen = project.modules.reduce(
+    const mainModules = project.modules.filter((m) => m.category !== "complementary");
+    const usedWallLen = mainModules.reduce(
       (acc, m) => Math.max(acc, (m.position?.x || 0) + m.dimensions.width),
       0
     );
-    const totalModWidth = project.modules.reduce((acc, m) => acc + m.dimensions.width, 0);
+    const totalModWidth = mainModules.reduce((acc, m) => acc + m.dimensions.width, 0);
     const remainingWallGapMm = Math.max(0, Math.round(mainWallLen - totalModWidth));
-    const leftFillerMm = Math.min(100, Math.max(0, Math.round(project.modules[0]?.position?.x ?? 50)));
+    const leftFillerMm = Math.min(100, Math.max(0, Math.round(mainModules[0]?.position?.x ?? 0)));
     const rightFillerMm = Math.max(0, Math.round(mainWallLen - usedWallLen));
 
     return {
@@ -1405,16 +1447,16 @@ export const V3UnifiedWorkspace: React.FC<{
       foldedGarments,
       drawerCount,
       shoePairs,
-      totalPanelAreaM2: Math.round(totalPanelAreaM2 * 10) / 10,
-      sheetCount2800x2070,
-      edgeBandingMeters: Math.round(edgeBandingMeters),
+      totalPanelAreaM2: Math.round(realPanelAreaM2 * 10) / 10,
+      sheetCount2800x2070: realNestedSheets,
+      edgeBandingMeters: Math.round(realEdgeBandMeters),
       mainWallLen,
       totalModWidth,
       remainingWallGapMm,
       leftFillerMm,
       rightFillerMm,
     };
-  }, [project.modules, spaceWalls]);
+  }, [project.modules, spaceWalls, bom]);
 
   // 30 Saniyede Akıllı Duvar Otomatik Doldurma (%100 Çakışmasız Atomik Yerleşim)
   const handleSmartWallAutoFill = useCallback(
@@ -1541,7 +1583,7 @@ export const V3UnifiedWorkspace: React.FC<{
         return `
           <g>
             <rect x="${mx}" y="${mz}" width="${mw}" height="${md}" rx="8" fill="#F8FAFC" stroke="#141413" stroke-width="6" />
-            <text x="${mx + mw / 2}" y="${mz + md * 0.45}" text-anchor="middle" fill="#141413" font-size="44" font-weight="800" font-family="sans-serif">#${idx + 1} ${m.name.replace(/\s*Modülü/gi, "")}</text>
+            <text x="${mx + mw / 2}" y="${mz + md * 0.45}" text-anchor="middle" fill="#141413" font-size="44" font-weight="800" font-family="sans-serif">#${idx + 1} ${escapeHtmlPrint(m.name.replace(/\s*Modülü/gi, ""))}</text>
             <text x="${mx + mw / 2}" y="${mz + md * 0.72}" text-anchor="middle" fill="#475569" font-size="38" font-weight="700" font-family="monospace">${mw}×${md} (H:${m.dimensions.height})</text>
             <path d="M ${mx + 8} ${mz + md} A ${leafW} ${leafW} 0 0 1 ${mx + 8} ${mz + md + leafW}" fill="none" stroke="#64748B" stroke-width="4" stroke-dasharray="14 8" />
           </g>
@@ -1568,7 +1610,7 @@ export const V3UnifiedWorkspace: React.FC<{
 <html lang="tr">
 <head>
 <meta charset="utf-8" />
-<title>B1R1M — Özel Tasarım Mimari Sunum & Teklif Föyü (${project.title})</title>
+<title>B1R1M — Özel Tasarım Mimari Sunum & Teklif Föyü (${escapeHtmlPrint(project.title)})</title>
 <style>
   @page { size: A4 portrait; margin: 14mm; }
   * { box-sizing: border-box; }
@@ -1594,8 +1636,8 @@ export const V3UnifiedWorkspace: React.FC<{
       <div class="sub">Mimari Tasarım Stüdyosu • Özel Üretim Sunum & Teklif Föyü</div>
     </div>
     <div style="text-align:right;font-size:11px;color:#44403C;">
-      <strong>Proje:</strong> ${project.title}<br/>
-      <strong>Konsept:</strong> ${tierLabel}<br/>
+      <strong>Proje:</strong> ${escapeHtmlPrint(project.title)}<br/>
+      <strong>Konsept:</strong> ${escapeHtmlPrint(tierLabel)}<br/>
       <strong>Tarih:</strong> ${new Date().toLocaleDateString("tr-TR")}
     </div>
   </div>
@@ -1638,10 +1680,10 @@ export const V3UnifiedWorkspace: React.FC<{
           (m, i) => `
         <tr>
           <td><strong>#${i + 1}</strong></td>
-          <td><strong>${m.name}</strong></td>
-          <td style="font-family:monospace;font-weight:700;">${m.dimensions.width} × ${m.dimensions.height} × ${m.dimensions.depth} mm</td>
-          <td>${m.bays?.length || 1} Bölme</td>
-          <td>${m.carcass.bodyMaterialId} / ${m.carcass.doorMaterialId}</td>
+          <td><strong>${escapeHtmlPrint(m.name)}</strong></td>
+          <td style="font-family:monospace;font-weight:700;">${escapeHtmlPrint(m.dimensions.width)} × ${escapeHtmlPrint(m.dimensions.height)} × ${escapeHtmlPrint(m.dimensions.depth)} mm</td>
+          <td>${escapeHtmlPrint(m.bays?.length || 1)} Bölme</td>
+          <td>${escapeHtmlPrint(m.carcass.bodyMaterialId)} / ${escapeHtmlPrint(m.carcass.doorMaterialId)}</td>
         </tr>`
         )
         .join("")}
@@ -1760,8 +1802,22 @@ export const V3UnifiedWorkspace: React.FC<{
     () => (activeModule ? generateModuleGeometry(activeModule, { doorOpenAngleDeg: 0 }) : null),
     [activeModule]
   );
-
-  if (!activeModule || !activeBreakdown) return null;
+  if (!activeModule || !activeBreakdown) {
+    return (
+      <EmptyStageRecoveryCard
+        canUndo={canUndo}
+        onUndo={undo}
+        onCreateDefaultWardrobe={resetToDefault}
+        onOpenStepWizard={() => {
+          resetToDefault();
+          setWizardStep(1);
+          setShowStepWizardModal(true);
+        }}
+        onLoadKitchen={loadLinearKitchen}
+        onApplyWalkIn={() => applyTemplate("tpl_wardrobe_walkin_open")}
+      />
+    );
+  }
   const { width, height, depth } = activeModule.dimensions;
   const currentBayWidthMm = activeBreakdown.bayWidths[activeBayIndex] || 0;
   const netInnerHeightMm = activeBreakdown.netInnerHeight || Math.max(400, height - 116);
@@ -1855,41 +1911,36 @@ export const V3UnifiedWorkspace: React.FC<{
           quickCabinetHeight > 1500 ? "tpl_wd_13_corner_wardrobe" : "tpl_kb_14_l_corner";
       }
 
-      // 1. Apply the base V4 template
+      // Single atomic history transaction: zero setTimeout race conditions and single Undo step!
+      beginHistoryTransaction();
       applyV4Template(targetTplId, isAppend);
+      setDimensions(quickCabinetWidth, quickCabinetHeight, quickCabinetDepth);
+      if (quickFrontType === "double_door") {
+        setBayDoorType(0, "double");
+        setBayV4DoorConfig(0, { doorSystemId: "hinged_double" });
+      } else if (quickFrontType === "single_door_left") {
+        setBayDoorType(0, "single_left");
+        setBayV4DoorConfig(0, { doorSystemId: "hinged_single" });
+      } else if (quickFrontType === "single_door_right") {
+        setBayDoorType(0, "single_right");
+        setBayV4DoorConfig(0, { doorSystemId: "hinged_single" });
+      } else if (quickFrontType === "open") {
+        setBayDoorType(0, "open");
+        setBayV4DoorConfig(0, { doorSystemId: "open" });
+      } else if (quickFrontType === "space_tower") {
+        applyBlumQuickWizardPreset("blum_space_tower");
+      } else if (quickFrontType === "aventos_hf") {
+        applyBlumQuickWizardPreset("blum_aventos_wall");
+      } else if (quickFrontType === "drawers_3") {
+        applyBlumQuickWizardPreset("blum_legrabox_base");
+      }
+      commitHistoryTransaction();
 
-      // 2. Apply exact dimensions and explicit door/front configuration deterministically
-      setTimeout(() => {
-        setDimensions(quickCabinetWidth, quickCabinetHeight, quickCabinetDepth);
-
-        setTimeout(() => {
-          if (quickFrontType === "double_door") {
-            setBayDoorType(0, "double");
-            setBayV4DoorConfig(0, { doorSystemId: "hinged_double" });
-          } else if (quickFrontType === "single_door_left") {
-            setBayDoorType(0, "single_left");
-            setBayV4DoorConfig(0, { doorSystemId: "hinged_single" });
-          } else if (quickFrontType === "single_door_right") {
-            setBayDoorType(0, "single_right");
-            setBayV4DoorConfig(0, { doorSystemId: "hinged_single" });
-          } else if (quickFrontType === "open") {
-            setBayDoorType(0, "open");
-            setBayV4DoorConfig(0, { doorSystemId: "open" });
-          } else if (quickFrontType === "space_tower") {
-            applyBlumQuickWizardPreset("blum_space_tower");
-          } else if (quickFrontType === "aventos_hf") {
-            applyBlumQuickWizardPreset("blum_aventos_wall");
-          } else if (quickFrontType === "drawers_3") {
-            applyBlumQuickWizardPreset("blum_legrabox_base");
-          }
-
-          setApprovalBanner({
-            ok: true,
-            text: `✓ Hızlı Gövde Uygulandı: ${quickCabinetWidth}×${quickCabinetHeight}×${quickCabinetDepth} mm`,
-          });
-          setTimeout(() => setApprovalBanner(null), 3000);
-        }, 25);
-      }, 25);
+      setApprovalBanner({
+        ok: true,
+        text: `✓ Hızlı Gövde Uygulandı: ${quickCabinetWidth}×${quickCabinetHeight}×${quickCabinetDepth} mm`,
+      });
+      setTimeout(() => setApprovalBanner(null), 3000);
     },
     [
       quickCabinetType,
@@ -1897,6 +1948,8 @@ export const V3UnifiedWorkspace: React.FC<{
       quickCabinetHeight,
       quickCabinetDepth,
       quickFrontType,
+      beginHistoryTransaction,
+      commitHistoryTransaction,
       applyV4Template,
       setDimensions,
       setBayDoorType,
@@ -1905,305 +1958,238 @@ export const V3UnifiedWorkspace: React.FC<{
     ]
   );
 
+  // Instant Live Sync helper so clicking options in Hızlı Gövde Sihirbazı immediately updates the 3D cabinet on the right!
+  const syncQuickCabinetTo3D = useCallback(
+    (next: {
+      type: "base" | "wall" | "tall" | "wardrobe" | "drawers_3" | "corner";
+      w: number;
+      h: number;
+      d: number;
+      front:
+        | "single_door_left"
+        | "single_door_right"
+        | "double_door"
+        | "drawers_2"
+        | "drawers_3"
+        | "aventos_hf"
+        | "space_tower"
+        | "open";
+    }) => {
+      if (!quickLiveSync) return;
+      let targetTplId = "tpl_kb_02_double_door";
+      if (next.type === "base") {
+        if (next.front === "single_door_left" || next.front === "single_door_right")
+          targetTplId = "tpl_kb_01_single_door";
+        else if (next.front === "drawers_2") targetTplId = "tpl_kb_04_two_drawers";
+        else if (next.front === "drawers_3") targetTplId = "tpl_kb_05_three_drawers";
+        else if (next.front === "open") targetTplId = "tpl_kb_16_open_shelf";
+        else targetTplId = "tpl_kb_02_double_door";
+      } else if (next.type === "drawers_3") {
+        targetTplId = "tpl_kb_05_three_drawers";
+      } else if (next.type === "wall") {
+        if (next.front === "aventos_hf") targetTplId = "tpl_kw_06_lift_bifold";
+        else if (next.front === "single_door_left" || next.front === "single_door_right")
+          targetTplId = "tpl_kw_01_single_door";
+        else if (next.front === "open") targetTplId = "tpl_kw_03_open_shelf";
+        else targetTplId = "tpl_kw_02_double_door";
+      } else if (next.type === "tall") {
+        targetTplId =
+          next.front === "space_tower"
+            ? "tpl_kt_03_pantry_internal_drawers"
+            : "tpl_kt_01_pantry_shelved";
+      } else if (next.type === "wardrobe") {
+        if (next.front === "single_door_left" || next.front === "single_door_right")
+          targetTplId = "tpl_wd_01_single_door";
+        else if (next.w >= 1600) targetTplId = "tpl_wd_04_four_door";
+        else if (next.w >= 1200) targetTplId = "tpl_wd_03_three_door";
+        else targetTplId = "tpl_wd_02_two_door";
+      } else if (next.type === "corner") {
+        targetTplId = next.h > 1500 ? "tpl_wd_13_corner_wardrobe" : "tpl_kb_14_l_corner";
+      }
+
+      beginHistoryTransaction();
+      applyV4Template(targetTplId, false);
+      setDimensions(next.w, next.h, next.d);
+      if (next.front === "double_door") {
+        setBayDoorType(0, "double");
+        setBayV4DoorConfig(0, { doorSystemId: "hinged_double" });
+      } else if (next.front === "single_door_left") {
+        setBayDoorType(0, "single_left");
+        setBayV4DoorConfig(0, { doorSystemId: "hinged_single" });
+      } else if (next.front === "single_door_right") {
+        setBayDoorType(0, "single_right");
+        setBayV4DoorConfig(0, { doorSystemId: "hinged_single" });
+      } else if (next.front === "open") {
+        setBayDoorType(0, "open");
+        setBayV4DoorConfig(0, { doorSystemId: "open" });
+      } else if (next.front === "space_tower") {
+        applyBlumQuickWizardPreset("blum_space_tower");
+      } else if (next.front === "aventos_hf") {
+        applyBlumQuickWizardPreset("blum_aventos_wall");
+      } else if (next.front === "drawers_3") {
+        applyBlumQuickWizardPreset("blum_legrabox_base");
+      }
+      commitHistoryTransaction();
+    },
+    [
+      quickLiveSync,
+      beginHistoryTransaction,
+      commitHistoryTransaction,
+      applyV4Template,
+      setDimensions,
+      setBayDoorType,
+      setBayV4DoorConfig,
+      applyBlumQuickWizardPreset,
+    ]
+  );
+
+  // Live synthesized ModuleInstance for Hızlı Gövde Sihirbazı preview icon
+  const quickWizardPreviewModule = useMemo(() => {
+    const clone = JSON.parse(JSON.stringify(activeModule)) as typeof activeModule;
+    clone.dimensions = {
+      width: quickCabinetWidth,
+      height: quickCabinetHeight,
+      depth: quickCabinetDepth,
+    };
+    clone.isCorner = quickCabinetType === "corner";
+    clone.category =
+      quickCabinetType === "wall"
+        ? "kitchen_wall"
+        : quickCabinetType === "base" || quickCabinetType === "drawers_3"
+        ? "kitchen_base"
+        : "wardrobe";
+    clone.moduleFamilyId =
+      quickCabinetType === "wall"
+        ? "fam_kitchen_wall"
+        : quickCabinetType === "base" || quickCabinetType === "drawers_3"
+        ? "fam_kitchen_base"
+        : quickCabinetType === "corner"
+        ? "fam_special_corner"
+        : "fam_wardrobe";
+    clone.isOpenFront = quickFrontType === "open";
+    const targetBays = quickCabinetType === "wardrobe" && quickCabinetWidth >= 1200 ? 2 : 1;
+    clone.bays = Array.from({ length: targetBays }).map((_, idx) => {
+      const baseBay = clone.bays[0] || activeModule.bays[0];
+      const drawerCount =
+        quickFrontType === "drawers_3"
+          ? 3
+          : quickFrontType === "drawers_2"
+          ? 2
+          : quickFrontType === "space_tower"
+          ? 4
+          : 0;
+      return {
+        ...baseBay,
+        index: idx,
+        customWidth: undefined,
+        shelves:
+          drawerCount > 0 && quickFrontType !== "space_tower"
+            ? []
+            : [
+                { id: `qp_sh_${idx}_1`, bayIndex: idx, elevationY: Math.round(quickCabinetHeight * 0.35), isAdjustable: true },
+                { id: `qp_sh_${idx}_2`, bayIndex: idx, elevationY: Math.round(quickCabinetHeight * 0.68), isAdjustable: true },
+              ],
+        hangingRails:
+          quickCabinetType === "wardrobe"
+            ? [{ id: `qp_rl_${idx}`, bayIndex: idx, elevationY: Math.round(quickCabinetHeight * 0.76) }]
+            : [],
+        drawers: Array.from({ length: drawerCount }).map((__, dI) => ({
+          id: `qp_drw_${idx}_${dI}`,
+          bayIndex: idx,
+          height: 180,
+          elevationY: dI * 190,
+          isInternal: quickFrontType === "space_tower",
+          slideType: "soft_close" as const,
+        })),
+        door: {
+          ...baseBay.door,
+          type:
+            quickFrontType === "open"
+              ? "open"
+              : quickFrontType === "single_door_left"
+              ? "single_left"
+              : quickFrontType === "single_door_right"
+              ? "single_right"
+              : "double",
+          doorSystemId:
+            quickFrontType === "open"
+              ? "open"
+              : quickFrontType === "aventos_hf"
+              ? "lift_bifold"
+              : quickFrontType === "single_door_left" || quickFrontType === "single_door_right"
+              ? "hinged_single"
+              : "hinged_double",
+        },
+      };
+    });
+    return clone;
+  }, [
+    activeModule,
+    quickCabinetType,
+    quickCabinetWidth,
+    quickCabinetHeight,
+    quickCabinetDepth,
+    quickFrontType,
+  ]);
+
   return (
     <div
       data-testid="v3-unified-root"
       data-active-mode={mode}
-      className="flex flex-col h-screen w-screen overflow-hidden bg-[#F8FAFC] text-stone-900 font-sans select-none"
+      className="flex flex-col h-screen w-screen overflow-hidden bg-[#F5F3EE] text-[#141413] font-sans select-none"
     >
-      {/* 1. DESIGN STUDIO TOP HEADER BAR (Matches Reference Design 1-to-1) */}
+      {/* 1. BİRİM ARCHITECTURAL STUDIO TOP BAR (3-Persona Progressive Disclosure) */}
       {!(mode === "showroom" && zenMode) && (
-        <header className="h-13 bg-white text-[#111827] border-b border-[#E2E8F0] flex items-center justify-between px-4 shrink-0 z-30 shadow-xs">
-          {/* Left: BİRİM Logo | Konfigüratör | Project Breadcrumb Pill */}
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="flex items-center gap-2.5 shrink-0">
-              <V3BrandBadge subtitle="Konfigüratör" dark={false} />
-            </div>
-
-            <div className="hidden md:flex items-center gap-1.5 bg-[#F1F5F9] hover:bg-[#E2E8F0] px-3 py-1.5 rounded-full text-xs text-[#334155] border border-[#CBD5E1] transition">
-              <svg className="w-3.5 h-3.5 text-stone-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                <path d="M3 10.5L12 3l9 7.5V20a1 1 0 01-1 1h-5v-6H9v6H4a1 1 0 01-1-1v-9.5z" />
-              </svg>
-              <span className="text-stone-500">›</span>
-              <span className="text-[#475569] font-medium">Veli İstanbul Villa</span>
-              <span className="text-stone-500">›</span>
-              <span
-                data-testid="v3-project-title"
-                className="font-semibold text-[#111827] truncate max-w-[190px]"
-              >
-                {project.title.includes("-")
-                  ? project.title.split("-")[1].trim()
-                  : project.title}
-              </span>
-              <button
-                type="button"
-                onClick={() => setIsProjectModalOpen(true)}
-                title="Proje Adını Düzenle / Kayıtlı Projeler"
-                className="ml-1 text-stone-400 hover:text-white cursor-pointer"
-              >
-                ✎
-              </button>
-            </div>
-          </div>
-
-          {/* Center-Right: B1R1M Architectural Studio Mode Switcher & Showroom Actions */}
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              data-testid="open-step-wizard-btn"
-              onClick={() => {
-                setWizardStep(1);
-                setShowStepWizardModal(true);
-              }}
-              className="h-9 px-4 rounded-full font-bold text-xs flex items-center gap-1.5 bg-[#2563EB] hover:bg-[#1D4ED8] text-white shadow-xs transition active:scale-[0.98] cursor-pointer"
-              title="4 Adımda Görsel ve Kolay Tasarım Sihirbazını Başlat"
-            >
-              <Wand2 className="w-3.5 h-3.5 text-white" />
-              <span>Kolay Sihirbaz</span>
-            </button>
-
-            <button
-              type="button"
-              data-testid="open-quick-sell-header-btn"
-              onClick={() => setShowQuickSellModal(true)}
-              className="h-9 px-3.5 rounded-full font-semibold text-xs flex items-center gap-1.5 bg-[#141413] hover:bg-[#292524] text-white border border-[#141413] shadow-2xs transition active:scale-[0.98] cursor-pointer"
-              title="30 Saniyede Oto-Dizilim, 3'lü Bütçe/Konsept Seçici, Kapasite & Fabrika Özeti ve Görsel Müşteri Teklif Föyü"
-            >
-              <Wand2 className="w-3.5 h-3.5 text-amber-300" />
-              <span>Showroom & Oto-Dizilim</span>
-            </button>
-
-            <button
-              type="button"
-              data-testid="toggle-simple-blum-mode-btn"
-              onClick={() => {
-                const next = !isSimpleBlumMode;
-                setIsSimpleBlumMode(next);
-                if (next) {
-                  setLeftTab("quick_wizard");
-                  setLeftOpen(true);
-                }
-              }}
-              className={`h-9 px-3.5 rounded-full font-semibold text-xs flex items-center gap-1.5 border transition active:scale-[0.98] cursor-pointer ${
-                isSimpleBlumMode
-                  ? "bg-[#F5F3EF] text-[#141413] border-[#D6D3D1] shadow-2xs"
-                  : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
-              }`}
-              title="Hızlı Sihirbaz (Sade) veya Mühendislik (Detaylı) Arayüz Geçişi"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-              <span>{isSimpleBlumMode ? "Sade Stüdyo" : "Mühendislik Modu"}</span>
-            </button>
-            
-            <nav
-              aria-label="Design Studio Çalışma Modu"
-              data-testid="v3-mode-switcher"
-              className="inline-flex items-center p-1 rounded-full bg-[#F5F3EF] border border-[#E5E0D8] text-xs"
-            >
-              <button
-                type="button"
-                data-testid="v3-mode-studio"
-                onClick={() => {
-                  setMode("studio");
-                  setStudioView("3d");
-                  setZenMode(false);
-                }}
-                className={`px-4 py-1.5 rounded-full font-semibold transition cursor-pointer ${
-                  mode === "studio"
-                    ? "bg-[#141413] text-white shadow-2xs"
-                    : "text-[#57534E] hover:text-[#141413]"
-                }`}
-              >
-                3D Tasarım
-              </button>
-              <button
-                type="button"
-                data-testid="v3-mode-plan"
-                onClick={() => {
-                  setMode("plan");
-                  setZenMode(false);
-                }}
-                className={`px-4 py-1.5 rounded-full font-semibold transition cursor-pointer ${
-                  mode === "plan"
-                    ? "bg-[#141413] text-white shadow-2xs"
-                    : "text-[#57534E] hover:text-[#141413]"
-                }`}
-              >
-                2D Mimari Plan
-              </button>
-              <button
-                type="button"
-                data-testid="v3-mode-showroom"
-                onClick={() => setMode("showroom")}
-                className={`px-4 py-1.5 rounded-full font-semibold transition cursor-pointer ${
-                  mode === "showroom"
-                    ? "bg-[#141413] text-white shadow-2xs"
-                    : "text-[#57534E] hover:text-[#141413]"
-                }`}
-              >
-                Showroom Sunum
-              </button>
-            </nav>
-
-            {/* Visible 3D / 2D Karşıdan Cephe Çizimi Switcher in Studio Mode */}
-            {mode === "studio" && (
-              <div
-                data-testid="studio-view-switcher"
-                className="inline-flex items-center p-1 rounded-full bg-[#F1F5F9] border border-[#E2E8F0] text-xs gap-0.5"
-              >
-                <button
-                  type="button"
-                  data-testid="studio-view-3d"
-                  onClick={() => {
-                    startTransition(() => {
-                      setStudioView("3d");
-                      setCameraPreset("iso");
-                    });
-                  }}
-                  className={`px-3.5 py-1.5 rounded-full font-semibold transition cursor-pointer ${
-                    studioView === "3d"
-                      ? "bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1] shadow-2xs" : "text-[#475569] hover:text-[#111827]"
-                  }`}
-                  title="3D Perspektif Sahnesi"
-                >
-                  🧊 3D Sahne
-                </button>
-                <button
-                  type="button"
-                  data-testid="studio-view-2d"
-                  onClick={() => {
-                    startTransition(() => {
-                      setStudioView("2d");
-                      setStudio2DMode("elevation");
-                    });
-                  }}
-                  className={`px-3.5 py-1.5 rounded-full font-semibold transition cursor-pointer ${
-                    studioView === "2d" && studio2DMode === "elevation"
-                      ? "bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1] shadow-2xs" : "text-[#475569] hover:text-[#111827]"
-                  }`}
-                  title="Tam Karşıdan 2D Cephe Çizimi (Raf, Çekmece, Dikme, Modül ve Pencere/Kapı Taşıma)"
-                >
-                  📐 2D Cephe (Çizim)
-                </button>
-                <button
-                  type="button"
-                  data-testid="studio-view-2d-section"
-                  onClick={() => {
-                    startTransition(() => {
-                      setStudioView("2d");
-                      setStudio2DMode("section");
-                    });
-                  }}
-                  className={`px-3 py-1.5 rounded-full font-semibold transition cursor-pointer ${
-                    studioView === "2d" && studio2DMode === "section"
-                      ? "bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1] shadow-2xs" : "text-[#475569] hover:text-[#111827]"
-                  }`}
-                  title="2D Yan Kesit Çizimi"
-                >
-                  ✂️ 2D Kesit
-                </button>
-                <button
-                  type="button"
-                  data-testid="studio-view-2d-plan"
-                  onClick={() => {
-                    startTransition(() => {
-                      setStudioView("2d");
-                      setStudio2DMode("plan");
-                    });
-                  }}
-                  className={`px-3 py-1.5 rounded-full font-semibold transition cursor-pointer ${
-                    studioView === "2d" && studio2DMode === "plan"
-                      ? "bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1] shadow-2xs" : "text-[#475569] hover:text-[#111827]"
-                  }`}
-                  title="2D Üst Plan Çizimi"
-                >
-                  🗺️ 2D Üst Plan
-                </button>
-                {/* Keep camera & dimension hooks for tests */}
-                <button type="button" data-testid="studio-view-3d-front" className="hidden" onClick={() => { setStudioView("3d"); setCameraPreset("front"); }}>Ön</button>
-                <button type="button" data-testid="studio-view-3d-side" className="hidden" onClick={() => { setStudioView("3d"); setCameraPreset("side"); }}>Yan</button>
-                <button type="button" data-testid="studio-view-3d-top" className="hidden" onClick={() => { setStudioView("3d"); setCameraPreset("top"); }}>Üst</button>
-                <button type="button" data-testid="studio-toggle-dimensions" className="hidden" onClick={() => setShow3DDimensions((prev) => !prev)}>Ölçü</button>
-              </div>
-            )}
-          </div>
-
-          {/* Right Utility Icons: Undo / Redo | Fullscreen / Camera / Rules / Profile */}
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              data-testid="v3-undo-btn"
-              onClick={undo}
-              disabled={!canUndo}
-              title="Geri Al (Ctrl+Z)"
-              className="p-2 rounded-lg text-[#475569] hover:text-[#111827] hover:bg-[#F1F5F9] disabled:opacity-35 transition cursor-pointer"
-            >
-              <Undo className="w-4 h-4" />
-            </button>
-            <button
-              type="button"
-              data-testid="v3-redo-btn"
-              onClick={redo}
-              disabled={!canRedo}
-              title="İleri Al (Ctrl+Y)"
-              className="p-2 rounded-lg text-[#475569] hover:text-[#111827] hover:bg-[#F1F5F9] disabled:opacity-35 transition cursor-pointer"
-            >
-              <Redo className="w-4 h-4" />
-            </button>
-
-            <div className="h-4 w-px bg-stone-700 mx-1" />
-
-            <button
-              type="button"
-              data-testid="showroom-zen-toggle"
-              onClick={() => {
-                setMode("showroom");
-                setZenMode(true);
-              }}
-              title="Tam Ekran Sunum"
-              className="p-2 rounded-lg text-[#475569] hover:text-[#111827] hover:bg-[#F1F5F9] transition cursor-pointer"
-            >
-              <Maximize2 className="w-4 h-4" />
-            </button>
-
-            <button
-              type="button"
-              data-testid="v4-header-catalog-btn"
-              onClick={() => setIsVisualCatalogOpen(true)}
-              title="Tam Ekran Modül Vitrinini Aç"
-              className="p-2 rounded-lg text-[#475569] hover:text-[#111827] hover:bg-[#F1F5F9] transition cursor-pointer"
-            >
-              <Camera className="w-4 h-4" />
-            </button>
-
-            {!isSimpleBlumMode && (
-            <button
-              type="button"
-              data-testid="v3-engineering-badge"
-              onClick={() => setShowRulesModal(true)}
-              title="Hangi üretim kurallarının doğrulanmadığını ve üretime etkisini görüntüleyin"
-              className={`px-2.5 py-1.5 rounded-full border text-[11px] font-semibold flex items-center gap-1.5 transition cursor-pointer ${
-                !v4CompatibilityReport.canApproveProduction
-                  ? "bg-[#EEF3F8] hover:bg-[#E4ECF4] text-[#111827] border-[#CBD5E1]"
-                  : "bg-emerald-50 hover:bg-emerald-100 text-[#111827] border-emerald-200"
-              }`}
-            >
-              <AlertTriangle className="w-3.5 h-3.5 text-[#475569] shrink-0" />
-              <span className="hidden xl:inline">{humanCompatStatusLabel}</span>
-            </button>
-            )}
-
-            <button
-              type="button"
-              data-testid="v4-library-admin-btn"
-              onClick={() => setShowAdminModal(true)}
-              title="Kütüphane Yönetimi & Kullanıcı Profili"
-              className="ml-1 w-8 h-8 rounded-full bg-[#EEF3F8] hover:bg-[#E4ECF4] border border-[#CBD5E1] text-xs font-bold text-[#111827] flex items-center justify-center cursor-pointer"
-            >
-              CT
-            </button>
-          </div>
-        </header>
+        <WorkspaceTopBar
+          projectTitle={project.title}
+          mode={mode}
+          studioView={studioView}
+          studio2DMode={studio2DMode}
+          experienceTier={experienceTier}
+          canUndo={canUndo}
+          canRedo={canRedo}
+          canApproveProduction={v4CompatibilityReport.canApproveProduction}
+          humanCompatStatusLabel={humanCompatStatusLabel}
+          onOpenProjectModal={() => setIsProjectModalOpen(true)}
+          onOpenStepWizard={() => {
+            setWizardStep(1);
+            setShowStepWizardModal(true);
+          }}
+          onOpenQuickSell={() => setShowQuickSellModal(true)}
+          onOpenBomModal={() => setIsBomModalOpen(true)}
+          onOpenVisualCatalog={() => setIsVisualCatalogOpen(true)}
+          onOpenArAnd3DModal={() => setShowArAnd3DModal(true)}
+          onOpenRulesModal={() => setShowRulesModal(true)}
+          onOpenAdminModal={() => setShowAdminModal(true)}
+          onChangeExperienceTier={(tier) => {
+            setExperienceTier(tier);
+            if (tier === "factory") {
+              setStudioRightOpen(true);
+              setStudioInspectorTab("all");
+            } else if (tier === "architect") {
+              setStudioRightOpen(true);
+            }
+          }}
+          onSetMode={(nextMode) => {
+            setMode(nextMode);
+            if (nextMode === "studio") setStudioView("3d");
+            if (nextMode !== "showroom") setZenMode(false);
+          }}
+          onSetStudioView={(v, m2d) => {
+            startTransition(() => {
+              setStudioView(v);
+              if (m2d) setStudio2DMode(m2d);
+            });
+          }}
+          onSetCameraPreset={setCameraPreset}
+          onToggleDimensions={() => setShow3DDimensions((prev) => !prev)}
+          onEnterZenShowroom={() => {
+            setMode("showroom");
+            setZenMode(true);
+          }}
+          onUndo={undo}
+          onRedo={redo}
+        />
       )}
 
             {/* Approval / Validation Notification Banner */}
@@ -3183,25 +3169,25 @@ export const V3UnifiedWorkspace: React.FC<{
               />
             )}
 
-            {/* FAR-LEFT 8-ITEM VERTICAL NAVIGATION RAIL (Blum Sade & Hızlı Mod Destekli) */}
-            <div className="w-[72px] bg-[#F8FAFC] border-r border-[#E2E8F0] py-3 px-1.5 flex flex-col items-center justify-between shrink-0 select-none">
-              <div className="w-full space-y-1.5 flex flex-col items-center">
+            {/* FAR-LEFT VERTICAL NAVIGATION RAIL (B1R1M Architectural Stone & Charcoal Grammar) */}
+            <div className="w-[68px] bg-[#FAF9F6] border-r border-[#DED8CC] py-3 px-1.5 flex flex-col items-center justify-between shrink-0 select-none">
+              <div className="w-full space-y-1 flex flex-col items-center">
                 <button
                   type="button"
                   data-testid="studio-tab-quick-wizard"
                   onClick={() => {
                     setLeftTab("quick_wizard");
-                    setLeftOpen(true);
+                    setLeftOpen((prev) => (leftTab === "quick_wizard" ? !prev : true));
                   }}
-                  className={`w-full py-2.5 px-1 rounded-xl flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
-                    leftTab === "quick_wizard"
-                      ? "bg-blue-600 text-white font-bold shadow-sm"
-                      : "text-[#475569] hover:bg-[#F1F5F9] hover:text-[#111827] font-semibold"
+                  className={`w-full py-2 px-1 rounded-lg flex flex-col items-center justify-center gap-1 transition cursor-pointer border ${
+                    leftOpen && leftTab === "quick_wizard"
+                      ? "bg-[#141413] text-[#FAF9F6] border-[#141413] font-semibold"
+                      : "text-[#57534E] hover:bg-[#EFECE5] hover:text-[#141413] border-transparent font-medium"
                   }`}
-                  title="Blum Tarzı Hızlı ve Sade Gövde Sihirbazı"
+                  title="Hızlı Gövde Sihirbazı"
                 >
-                  <Sparkles className={`w-5 h-5 ${leftTab === "quick_wizard" ? "text-amber-300" : "text-blue-600"}`} />
-                  <span className="text-[10px] leading-tight text-center">Hızlı Gövde</span>
+                  <Sparkles className={`w-4 h-4 ${leftOpen && leftTab === "quick_wizard" ? "text-[#D6C7B2]" : "text-[#8C7A6B]"}`} />
+                  <span className="text-[10px] leading-tight text-center">Sihirbaz</span>
                 </button>
 
                 <button
@@ -3212,13 +3198,13 @@ export const V3UnifiedWorkspace: React.FC<{
                     setStudioInspectorTab("dimensions");
                     setLeftOpen(true);
                   }}
-                  className={`w-full py-2.5 px-1 rounded-xl flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
-                    leftTab === "templates" && studioInspectorTab !== "interior" && studioInspectorTab !== "material" && studioInspectorTab !== "all"
-                      ? "bg-[#EEF3F8] text-[#111827] border border-[#94A3B8] font-bold shadow-2xs"
-                      : "text-[#475569] hover:bg-[#F1F5F9] hover:text-[#111827] font-semibold"
+                  className={`w-full py-2 px-1 rounded-lg flex flex-col items-center justify-center gap-1 transition cursor-pointer border ${
+                    leftOpen && leftTab === "templates" && studioInspectorTab !== "interior" && studioInspectorTab !== "material" && studioInspectorTab !== "all"
+                      ? "bg-[#141413] text-[#FAF9F6] border-[#141413] font-semibold"
+                      : "text-[#57534E] hover:bg-[#EFECE5] hover:text-[#141413] border-transparent font-medium"
                   }`}
                 >
-                  <Package className="w-5 h-5" />
+                  <Package className="w-4 h-4" />
                   <span className="text-[10px] leading-tight text-center">Modüller</span>
                 </button>
 
@@ -3233,14 +3219,14 @@ export const V3UnifiedWorkspace: React.FC<{
                       setDoorOpenAngleDeg(85);
                     }
                   }}
-                  className={`w-full py-2.5 px-1 rounded-xl flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
-                    leftTab === "interior" || studioInspectorTab === "interior"
-                      ? "bg-[#EEF3F8] text-[#111827] border border-[#94A3B8] font-bold shadow-2xs"
-                      : "text-[#475569] hover:bg-[#F1F5F9] hover:text-[#111827] font-semibold"
+                  className={`w-full py-2 px-1 rounded-lg flex flex-col items-center justify-center gap-1 transition cursor-pointer border ${
+                    leftOpen && (leftTab === "interior" || studioInspectorTab === "interior")
+                      ? "bg-[#141413] text-[#FAF9F6] border-[#141413] font-semibold"
+                      : "text-[#57534E] hover:bg-[#EFECE5] hover:text-[#141413] border-transparent font-medium"
                   }`}
                   title="Raf, Çekmece, Askılık ve Bölme Kütüphanesi"
                 >
-                  <Layers className="w-5 h-5" />
+                  <Layers className="w-4 h-4" />
                   <span className="text-[10px] leading-tight text-center">İç Düzen</span>
                 </button>
 
@@ -3252,13 +3238,13 @@ export const V3UnifiedWorkspace: React.FC<{
                     setStudioInspectorTab("material");
                     setLeftOpen(true);
                   }}
-                  className={`w-full py-2.5 px-1 rounded-xl flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
-                    leftTab === "materials" || studioInspectorTab === "material"
-                      ? "bg-[#EEF3F8] text-[#111827] border border-[#94A3B8] font-bold shadow-2xs"
-                      : "text-[#475569] hover:bg-[#F1F5F9] hover:text-[#111827] font-semibold"
+                  className={`w-full py-2 px-1 rounded-lg flex flex-col items-center justify-center gap-1 transition cursor-pointer border ${
+                    leftOpen && (leftTab === "materials" || studioInspectorTab === "material")
+                      ? "bg-[#141413] text-[#FAF9F6] border-[#141413] font-semibold"
+                      : "text-[#57534E] hover:bg-[#EFECE5] hover:text-[#141413] border-transparent font-medium"
                   }`}
                 >
-                  <Palette className="w-5 h-5" />
+                  <Palette className="w-4 h-4" />
                   <span className="text-[10px] leading-tight text-center">Malzeme</span>
                 </button>
 
@@ -3270,24 +3256,28 @@ export const V3UnifiedWorkspace: React.FC<{
                     setStudioInspectorTab("all");
                     setLeftOpen(true);
                   }}
-                  className={`w-full py-2.5 px-1 rounded-xl flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
-                    leftTab === "hardware" || studioInspectorTab === "all"
-                      ? "bg-[#EEF3F8] text-[#111827] border border-[#94A3B8] font-bold shadow-2xs"
-                      : "text-[#475569] hover:bg-[#F1F5F9] hover:text-[#111827] font-semibold"
+                  className={`${
+                    isSimpleBlumMode ? "sr-only" : "w-full py-2 px-1 rounded-lg flex flex-col items-center justify-center gap-1 transition cursor-pointer border"
+                  } ${
+                    leftOpen && (leftTab === "hardware" || studioInspectorTab === "all")
+                      ? "bg-[#141413] text-[#FAF9F6] border-[#141413] font-semibold"
+                      : "text-[#57534E] hover:bg-[#EFECE5] hover:text-[#141413] border-transparent font-medium"
                   }`}
                   title="Blum & Donanım Kütüphanesi"
                 >
-                  <Wrench className="w-5 h-5" />
+                  <Wrench className="w-4 h-4" />
                   <span className="text-[10px] leading-tight text-center">Donanım</span>
                 </button>
+
+                <div className="w-8 h-px bg-[#DED8CC] my-1" />
 
                 <button
                   type="button"
                   data-testid="v4-open-floating-catalog-btn"
                   onClick={() => setIsVisualCatalogOpen(true)}
-                  className="w-full py-2.5 px-1 rounded-xl flex flex-col items-center justify-center gap-1 text-[#475569] hover:bg-[#F1F5F9] hover:text-[#111827] font-semibold transition cursor-pointer"
+                  className="w-full py-2 px-1 rounded-lg flex flex-col items-center justify-center gap-1 text-[#57534E] hover:bg-[#EFECE5] hover:text-[#141413] font-medium transition cursor-pointer"
                 >
-                  <Maximize2 className="w-5 h-5" />
+                  <Maximize2 className="w-4 h-4" />
                   <span className="text-[10px] leading-tight text-center">Katalog</span>
                 </button>
 
@@ -3295,9 +3285,9 @@ export const V3UnifiedWorkspace: React.FC<{
                   type="button"
                   data-testid="v3-open-projects-btn"
                   onClick={() => setIsProjectModalOpen(true)}
-                  className="w-full py-2.5 px-1 rounded-xl flex flex-col items-center justify-center gap-1 text-[#475569] hover:bg-[#F1F5F9] hover:text-[#111827] font-semibold transition cursor-pointer"
+                  className="w-full py-2 px-1 rounded-lg flex flex-col items-center justify-center gap-1 text-[#57534E] hover:bg-[#EFECE5] hover:text-[#141413] font-medium transition cursor-pointer"
                 >
-                  <FolderOpen className="w-5 h-5" />
+                  <FolderOpen className="w-4 h-4" />
                   <span className="text-[10px] leading-tight text-center">Projeler</span>
                 </button>
               </div>
@@ -3308,114 +3298,142 @@ export const V3UnifiedWorkspace: React.FC<{
                   data-testid="studio-toggle-left"
                   onClick={() => setLeftOpen(!leftOpen)}
                   title={leftOpen ? "Sol Paneli Daralt" : "Sol Paneli Aç"}
-                  className="p-1.5 rounded-lg text-[#475569] hover:text-[#111827] hover:bg-[#E2E8F0] transition cursor-pointer"
+                  className="w-8 h-8 rounded-lg flex items-center justify-center text-[#57534E] hover:text-[#141413] hover:bg-[#EFECE5] border border-transparent hover:border-[#DED8CC] transition cursor-pointer"
                 >
-                  {leftOpen ? <ChevronLeft className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
+                  {leftOpen ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                 </button>
               </div>
             </div>
 
-            {/* MAIN LEFT LIBRARY CONTENT AREA (Responsive: Docked on Desktop, Frosted Slide-Over Drawer on <1180px) */}
+            {/* MAIN LEFT LIBRARY CONTENT AREA */}
             {leftOpen && (
               <div
                 className={`flex-1 flex flex-col min-w-0 min-h-0 ${
                   isCompactViewport
-                    ? "fixed left-[72px] top-[52px] bottom-[60px] w-[340px] max-w-[calc(100vw-84px)] z-40 bg-white/94 backdrop-blur-xl border-r border-white/90 ring-1 ring-slate-900/10 rounded-r-2xl shadow-[14px_0_38px_rgba(15,23,42,0.2)]"
-                    : "bg-white"
+                    ? "fixed left-[68px] top-[52px] bottom-[56px] w-[340px] max-w-[calc(100vw-80px)] z-40 bg-[#FAF9F6]/98 backdrop-blur-xl border-r border-[#DED8CC] rounded-r-xl shadow-xl"
+                    : "bg-white border-r border-[#DED8CC]"
                 }`}
               >
 
                 {(() => {
                   if (leftTab === "quick_wizard") {
                     return (
-                      /* ✨ HIZLI GÖVDE SİHİRBAZI (BLUM TARZI SADE MOD) */
+                      /* HIZLI GÖVDE SİHİRBAZI (CANLI ÖNİZLEME + ANINDA 3D SENKRONİZASYON) */
                   <div
                     data-testid="quick-cabinet-wizard-panel"
                     className="flex-1 flex flex-col min-h-0 bg-white"
                   >
                     {/* Header */}
-                    <div className="px-4 py-3 border-b border-[#E2E8F0] bg-gradient-to-r from-blue-50/70 to-indigo-50/40">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
-                            <Sparkles className="w-4 h-4 text-amber-300" />
+                    <div className="px-4 py-3 border-b border-[#EFECE5] bg-[#FAF9F6]">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <h2 className="text-xs font-bold uppercase tracking-wider text-[#141413]">
+                            Hızlı Gövde Sihirbazı
+                          </h2>
+                          <p className="text-[11px] text-[#78716C] mt-0.5">
+                            Seçimleriniz anında sağdaki 3D modele yansır
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setQuickLiveSync((v) => !v)}
+                          className={`px-2 py-1 rounded-md border text-[10px] font-semibold transition cursor-pointer ${
+                            quickLiveSync
+                              ? "bg-[#141413] text-[#FAF9F6] border-[#141413]"
+                              : "bg-white text-[#57534E] border-[#DED8CC]"
+                          }`}
+                          title="Seçimleri tıkladığınız anda sağdaki 3D sahneye uygular"
+                        >
+                          {quickLiveSync ? "Canlı 3D: Açık" : "Canlı 3D: Kapalı"}
+                        </button>
+                      </div>
+
+                      {/* Live Isometric Preview Card inside Wizard */}
+                      <div className="mt-2.5 p-2.5 rounded-xl bg-white border border-[#DED8CC] flex items-center gap-3">
+                        <V3IsometricModuleIcon module={quickWizardPreviewModule} size="md" />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-bold text-[#141413] truncate">
+                            {quickCabinetWidth / 10} × {quickCabinetHeight / 10} × {quickCabinetDepth / 10} cm
                           </div>
-                          <div>
-                            <h2 className="text-sm font-extrabold text-[#111827]">
-                              Hızlı Gövde Sihirbazı
-                            </h2>
-                            <p className="text-[11px] text-[#475569]">
-                              Blum standartlarında 3 adımda hatasız gövde
-                            </p>
+                          <div className="text-[10px] font-mono text-[#78716C] mt-0.5">
+                            {quickCabinetWidth}×{quickCabinetHeight}×{quickCabinetDepth} mm
+                          </div>
+                          <div className="text-[10px] font-semibold text-[#8C7A6B] mt-0.5">
+                            {quickFrontType === "double_door"
+                              ? "Çift Kapak • Frenli 110°"
+                              : quickFrontType === "single_door_left"
+                              ? "Sol Tek Kapak • 110°"
+                              : quickFrontType === "single_door_right"
+                              ? "Sağ Tek Kapak • 110°"
+                              : quickFrontType === "drawers_3"
+                              ? "3 Çekmeceli • LEGRABOX"
+                              : quickFrontType === "drawers_2"
+                              ? "2 Derin Çekmece"
+                              : quickFrontType === "aventos_hf"
+                              ? "AVENTOS HF Katlanır Kalkar"
+                              : quickFrontType === "space_tower"
+                              ? "SPACE TOWER 4 İç Çekmece"
+                              : "Kapaksız Açık Raf"}
                           </div>
                         </div>
-                        <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 text-[10px] font-bold">
-                          Sade Mod
-                        </span>
                       </div>
                     </div>
 
                     {/* Content (Scrollable) */}
-                    <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
+                    <div className="flex-1 overflow-y-auto p-3.5 space-y-4 text-xs">
                       {/* ADIM 1: GÖVDE TİPİ */}
                       <div className="space-y-2">
                         <div className="flex items-center justify-between">
-                          <span className="font-extrabold text-slate-900 text-xs flex items-center gap-1.5">
-                            <span className="w-4 h-4 rounded-full bg-blue-600 text-white text-[10px] flex items-center justify-center font-bold">1</span>
+                          <span className="font-bold text-[#141413] text-xs flex items-center gap-1.5">
+                            <span className="w-4 h-4 rounded-xs bg-[#141413] text-white text-[10px] flex items-center justify-center font-bold">1</span>
                             Gövde Tipi
                           </span>
-                          <span className="text-[11px] text-slate-500 font-medium">Standart Kategori</span>
+                          <span className="text-[10px] text-[#78716C]">Standart Modül</span>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-2">
+                        <div className="grid grid-cols-2 gap-1.5">
                           {[
                             {
-                              id: "base",
+                              id: "base" as const,
                               title: "Alt Dolap",
-                              sub: "Tezgâh Altı (H: 720 mm)",
-                              icon: "🗄️",
+                              sub: "Tezgâh Altı • 72 cm",
                               defW: 600, defH: 720, defD: 580,
-                              defFront: "double_door",
+                              defFront: "double_door" as const,
                             },
                             {
-                              id: "drawers_3",
+                              id: "drawers_3" as const,
                               title: "3 Çekmeceli Alt",
-                              sub: "1+2 Derin LEGRABOX",
-                              icon: "📑",
+                              sub: "1+2 Derin Çekmece",
                               defW: 600, defH: 720, defD: 580,
-                              defFront: "drawers_3",
+                              defFront: "drawers_3" as const,
                             },
                             {
-                              id: "wall",
+                              id: "wall" as const,
                               title: "Üst Dolap",
-                              sub: "Duvara Asma (H: 720 mm)",
-                              icon: "📦",
+                              sub: "Duvara Asma • 72 cm",
                               defW: 600, defH: 720, defD: 350,
-                              defFront: "double_door",
+                              defFront: "double_door" as const,
                             },
                             {
-                              id: "tall",
+                              id: "tall" as const,
                               title: "Boy Dolap / Kiler",
-                              sub: "Yüksek (H: 2100 mm)",
-                              icon: "🚪",
+                              sub: "Yüksek • 210 cm",
                               defW: 600, defH: 2100, defD: 580,
-                              defFront: "single_door_left",
+                              defFront: "single_door_left" as const,
                             },
                             {
-                              id: "wardrobe",
+                              id: "wardrobe" as const,
                               title: "Gardırop",
-                              sub: "Giyinme (H: 2200 mm)",
-                              icon: "👔",
+                              sub: "Giyinme • 220 cm",
                               defW: 1000, defH: 2200, defD: 600,
-                              defFront: "double_door",
+                              defFront: "double_door" as const,
                             },
                             {
-                              id: "corner",
+                              id: "corner" as const,
                               title: "Köşe Dolap",
-                              sub: "L Dönüş (900×900 mm)",
-                              icon: "📐",
+                              sub: "90° L Dönüş • 90 cm",
                               defW: 900, defH: 720, defD: 900,
-                              defFront: "single_door_left",
+                              defFront: "single_door_left" as const,
                             },
                           ].map((c) => {
                             const isSelected = quickCabinetType === c.id;
@@ -3425,27 +3443,33 @@ export const V3UnifiedWorkspace: React.FC<{
                                 type="button"
                                 data-testid={`quick-type-${c.id}`}
                                 onClick={() => {
-                                  setQuickCabinetType(c.id as any);
+                                  setQuickCabinetType(c.id);
                                   setQuickCabinetWidth(c.defW);
                                   setQuickCabinetHeight(c.defH);
                                   setQuickCabinetDepth(c.defD);
-                                  setQuickFrontType(c.defFront as any);
+                                  setQuickFrontType(c.defFront);
+                                  syncQuickCabinetTo3D({
+                                    type: c.id,
+                                    w: c.defW,
+                                    h: c.defH,
+                                    d: c.defD,
+                                    front: c.defFront,
+                                  });
                                 }}
-                                className={`p-3 rounded-2xl border text-left flex flex-col justify-between transition cursor-pointer relative ${
+                                className={`p-2.5 rounded-lg border text-left flex flex-col justify-between transition cursor-pointer ${
                                   isSelected
-                                    ? "bg-blue-50/80 border-2 border-blue-600 shadow-xs ring-1 ring-blue-500/20"
-                                    : "bg-white hover:bg-slate-50 border-slate-200 hover:border-slate-300"
+                                    ? "bg-[#141413] text-[#FAF9F6] border-[#141413]"
+                                    : "bg-[#FAF9F6] hover:bg-[#EFECE5] text-[#141413] border-[#DED8CC]"
                                 }`}
                               >
                                 <div className="flex items-center justify-between w-full">
-                                  <span className="text-xl">{c.icon}</span>
+                                  <span className="font-bold text-xs leading-tight">{c.title}</span>
                                   {isSelected && (
-                                    <span className="w-4 h-4 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] font-bold">✓</span>
+                                    <span className="text-[10px] font-bold text-[#D6C7B2]">✓</span>
                                   )}
                                 </div>
-                                <div className="mt-2">
-                                  <div className="font-bold text-slate-900 text-xs leading-tight">{c.title}</div>
-                                  <div className="text-[11px] text-slate-500 mt-0.5">{c.sub}</div>
+                                <div className={`text-[10px] mt-1 ${isSelected ? "text-[#D6C7B2]" : "text-[#78716C]"}`}>
+                                  {c.sub}
                                 </div>
                               </button>
                             );
@@ -3454,105 +3478,104 @@ export const V3UnifiedWorkspace: React.FC<{
                       </div>
 
                       {/* ADIM 2: STANDART EBATLAR */}
-                      <div className="space-y-2 pt-2 border-t border-slate-100">
+                      <div className="space-y-2 pt-2 border-t border-[#EFECE5]">
                         <div className="flex items-center justify-between">
-                          <span className="font-extrabold text-slate-900 text-xs flex items-center gap-1.5">
-                            <span className="w-4 h-4 rounded-full bg-blue-600 text-white text-[10px] flex items-center justify-center font-bold">2</span>
-                            Standart Modüler Genişlik
+                          <span className="font-bold text-[#141413] text-xs flex items-center gap-1.5">
+                            <span className="w-4 h-4 rounded-xs bg-[#141413] text-white text-[10px] flex items-center justify-center font-bold">2</span>
+                            Modüler Genişlik
                           </span>
-                          <span className="text-[11px] text-blue-600 font-bold">{quickCabinetWidth} mm</span>
+                          <span className="text-[11px] font-mono font-bold text-[#141413]">
+                            {quickCabinetWidth / 10} cm ({quickCabinetWidth} mm)
+                          </span>
                         </div>
 
-                        <div className="flex flex-wrap gap-1.5">
-                          {[300, 450, 600, 800, 900, 1000, 1200].map((w) => (
+                        <div className="flex flex-wrap gap-1">
+                          {[300, 450, 600, 800, 900, 1000, 1200, 1600].map((w) => (
                             <button
                               key={w}
                               type="button"
                               data-testid={`quick-width-${w}`}
-                              onClick={() => setQuickCabinetWidth(w)}
-                              className={`px-3 py-1.5 rounded-xl font-bold text-xs transition cursor-pointer border ${
+                              onClick={() => {
+                                setQuickCabinetWidth(w);
+                                syncQuickCabinetTo3D({
+                                  type: quickCabinetType,
+                                  w,
+                                  h: quickCabinetHeight,
+                                  d: quickCabinetDepth,
+                                  front: quickFrontType,
+                                });
+                              }}
+                              className={`h-7 px-2.5 rounded-lg font-mono font-semibold text-xs transition cursor-pointer border ${
                                 quickCabinetWidth === w
-                                  ? "bg-blue-600 text-white border-blue-600 shadow-xs"
-                                  : "bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200"
+                                  ? "bg-[#141413] text-white border-[#141413]"
+                                  : "bg-[#FAF9F6] hover:bg-[#EFECE5] text-[#44403C] border-[#DED8CC]"
                               }`}
                             >
                               {w / 10} cm
                             </button>
                           ))}
                         </div>
-
-                        {/* Yükseklik ve Derinlik Hızlı Bilgisi */}
-                        <div className="grid grid-cols-2 gap-2 pt-1">
-                          <div className="p-2 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
-                            <span className="text-[11px] text-slate-500">Yükseklik:</span>
-                            <span className="font-bold text-slate-800 text-xs">{quickCabinetHeight} mm</span>
-                          </div>
-                          <div className="p-2 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
-                            <span className="text-[11px] text-slate-500">Derinlik:</span>
-                            <span className="font-bold text-slate-800 text-xs">{quickCabinetDepth} mm</span>
-                          </div>
-                        </div>
                       </div>
 
                       {/* ADIM 3: ÖN CEPHE & DONANIM */}
-                      <div className="space-y-2 pt-2 border-t border-slate-100">
+                      <div className="space-y-2 pt-2 border-t border-[#EFECE5]">
                         <div className="flex items-center justify-between">
-                          <span className="font-extrabold text-slate-900 text-xs flex items-center gap-1.5">
-                            <span className="w-4 h-4 rounded-full bg-blue-600 text-white text-[10px] flex items-center justify-center font-bold">3</span>
-                            Ön Cephe & Fonksiyon
+                          <span className="font-bold text-[#141413] text-xs flex items-center gap-1.5">
+                            <span className="w-4 h-4 rounded-xs bg-[#141413] text-white text-[10px] flex items-center justify-center font-bold">3</span>
+                            Ön Cephe &amp; Fonksiyon
                           </span>
-                          <span className="text-[11px] text-slate-500 font-medium">Blum Standart</span>
+                          <span className="text-[10px] text-[#78716C]">Blum Standart</span>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-2">
+                        <div className="grid grid-cols-2 gap-1.5">
                           {[
                             {
-                              id: "single_door_left",
+                              id: "single_door_left" as const,
                               title: "Tek Kapak (Sol)",
-                              sub: "Blum 110° Menteşe",
+                              sub: "Blum 110° Frenli",
                               badge: "CLIP top",
                             },
                             {
-                              id: "single_door_right",
+                              id: "single_door_right" as const,
                               title: "Tek Kapak (Sağ)",
-                              sub: "Blum 110° Menteşe",
+                              sub: "Blum 110° Frenli",
                               badge: "CLIP top",
                             },
                             {
-                              id: "double_door",
+                              id: "double_door" as const,
                               title: "Çift Kapak",
                               sub: "2 Kapaklı Eşit Açılım",
                               badge: "CLIP top",
                             },
                             {
-                              id: "drawers_3",
+                              id: "drawers_3" as const,
                               title: "3 Çekmece",
                               sub: "1 Çatal-Kaşık + 2 Derin",
                               badge: "LEGRABOX",
                             },
                             {
-                              id: "drawers_2",
+                              id: "drawers_2" as const,
                               title: "2 Derin Çekmece",
                               sub: "Tencere/Kiler Çekmecesi",
                               badge: "LEGRABOX",
                             },
                             {
-                              id: "aventos_hf",
+                              id: "aventos_hf" as const,
                               title: "AVENTOS HF",
-                              sub: "İki Parçalı Katlanır Kalkar",
+                              sub: "İki Parçalı Kalkar Kapak",
                               badge: "AVENTOS",
                             },
                             {
-                              id: "space_tower",
+                              id: "space_tower" as const,
                               title: "SPACE TOWER",
                               sub: "4 İç Çekmeceli Kiler",
-                              badge: "155° Sıfır Çıkıntı",
+                              badge: "155°",
                             },
                             {
-                              id: "open",
+                              id: "open" as const,
                               title: "Açık Gövde",
                               sub: "Kapaksız Raf Ünitesi",
-                              badge: "Dekoratif",
+                              badge: "Açık",
                             },
                           ].map((f) => {
                             const isSelected = quickFrontType === f.id;
@@ -3561,54 +3584,66 @@ export const V3UnifiedWorkspace: React.FC<{
                                 key={f.id}
                                 type="button"
                                 data-testid={`quick-front-${f.id}`}
-                                onClick={() => setQuickFrontType(f.id as any)}
-                                className={`p-2.5 rounded-2xl border text-left flex flex-col justify-between transition cursor-pointer relative ${
+                                onClick={() => {
+                                  setQuickFrontType(f.id);
+                                  syncQuickCabinetTo3D({
+                                    type: quickCabinetType,
+                                    w: quickCabinetWidth,
+                                    h: quickCabinetHeight,
+                                    d: quickCabinetDepth,
+                                    front: f.id,
+                                  });
+                                }}
+                                className={`p-2.5 rounded-lg border text-left flex flex-col justify-between transition cursor-pointer ${
                                   isSelected
-                                    ? "bg-indigo-50/80 border-2 border-indigo-600 shadow-xs ring-1 ring-indigo-500/20"
-                                    : "bg-white hover:bg-slate-50 border-slate-200"
+                                    ? "bg-[#141413] text-[#FAF9F6] border-[#141413]"
+                                    : "bg-[#FAF9F6] hover:bg-[#EFECE5] text-[#141413] border-[#DED8CC]"
                                 }`}
                               >
-                                <div className="flex items-center justify-between">
-                                  <span className="font-bold text-slate-900 text-xs">{f.title}</span>
-                                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-100 font-semibold text-slate-600">
+                                <div className="flex items-center justify-between gap-1">
+                                  <span className="font-bold text-[11px] truncate">{f.title}</span>
+                                  <span
+                                    className={`text-[9px] px-1.5 py-0.5 rounded-xs font-semibold shrink-0 ${
+                                      isSelected
+                                        ? "bg-[#292524] text-[#D6C7B2]"
+                                        : "bg-white text-[#57534E] border border-[#DED8CC]"
+                                    }`}
+                                  >
                                     {f.badge}
                                   </span>
                                 </div>
-                                <div className="text-[10px] text-slate-500 mt-1 leading-tight">{f.sub}</div>
+                                <div
+                                  className={`text-[10px] mt-1 leading-tight ${
+                                    isSelected ? "text-[#D6C7B2]" : "text-[#78716C]"
+                                  }`}
+                                >
+                                  {f.sub}
+                                </div>
                               </button>
                             );
                           })}
                         </div>
                       </div>
-
-                      {/* BLUM GÜVENCESİ BİLGİ KUTUSU */}
-                      <div className="p-3 rounded-2xl bg-blue-50/60 border border-blue-200/80 flex items-start gap-2.5">
-                        <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
-                        <div className="text-[11px] text-blue-900 leading-snug">
-                          <span className="font-bold">Otomatik Mühendislik: </span>
-                          18 mm gövde, 2 mm kapak fugası, arka kanal ve Blum EASYSTICK delik eksenleri otomatik kilitlenir.
-                        </div>
-                      </div>
                     </div>
 
                     {/* Footer Action Buttons */}
-                    <div className="p-4 border-t border-[#E2E8F0] bg-slate-50/80 space-y-2">
+                    <div className="p-3.5 border-t border-[#EFECE5] bg-[#FAF9F6] space-y-1.5">
                       <button
                         type="button"
                         data-testid="quick-wizard-apply-btn"
                         onClick={() => handleApplyQuickCabinet(false)}
-                        className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow transition cursor-pointer"
+                        className="w-full h-9 px-4 rounded-lg bg-[#141413] hover:bg-[#292524] text-[#FAF9F6] font-semibold text-xs flex items-center justify-center gap-2 transition cursor-pointer"
                       >
-                        <CheckCircle className="w-4 h-4" />
-                        <span>Seçili Modüle Uygula (Dönüştür)</span>
+                        <CheckCircle className="w-3.5 h-3.5 text-[#D6C7B2]" />
+                        <span>Seçili Modüle Uygula</span>
                       </button>
                       <button
                         type="button"
                         data-testid="quick-wizard-add-new-btn"
                         onClick={() => handleApplyQuickCabinet(true)}
-                        className="w-full py-2 px-4 rounded-xl bg-white hover:bg-slate-100 text-slate-800 font-semibold text-xs flex items-center justify-center gap-1.5 border border-slate-300 transition cursor-pointer"
+                        className="w-full h-8 px-4 rounded-lg bg-white hover:bg-[#EFECE5] text-[#141413] font-semibold text-xs flex items-center justify-center gap-1.5 border border-[#DED8CC] transition cursor-pointer"
                       >
-                        <Plus className="w-3.5 h-3.5 text-blue-600" />
+                        <Plus className="w-3.5 h-3.5 text-[#8C7A6B]" />
                         <span>Yanına Yeni Modül Olarak Ekle</span>
                       </button>
                     </div>
@@ -6368,15 +6403,26 @@ export const V3UnifiedWorkspace: React.FC<{
                   <Box className="w-4 h-4" />
                 </div>
                 <div className="min-w-0">
-                  <div className="text-sm font-bold text-[#1C1917] truncate leading-tight">
+                  <div className="text-sm font-bold text-[#141413] truncate leading-tight">
                     {activeModule.name}
                   </div>
-                  <div
-                    data-testid="studio-active-module-id"
-                    className="text-[13px] font-mono text-[#475569] mt-0.5 truncate"
-                  >
-                    ID: {activeModule.id} • MOD-{activeModule.bays.length}K-{width}
-                  </div>
+                  {isSimpleBlumMode ? (
+                    <>
+                      <div className="text-[11px] font-medium text-[#78716C] mt-0.5 truncate">
+                        {width / 10} × {height / 10} × {depth / 10} cm • {activeModule.bays.length} Bölmeli Tasarım
+                      </div>
+                      <span data-testid="studio-active-module-id" className="sr-only">
+                        ID: {activeModule.id} • MOD-{activeModule.bays.length}K-{width}
+                      </span>
+                    </>
+                  ) : (
+                    <div
+                      data-testid="studio-active-module-id"
+                      className="text-[11px] font-mono text-[#57534E] mt-0.5 truncate"
+                    >
+                      ID: {activeModule.id} • MOD-{activeModule.bays.length}K-{width}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -6463,8 +6509,9 @@ export const V3UnifiedWorkspace: React.FC<{
               )}
             </div>
 
-            {/* 6 ICON-DRIVEN TABS: Ölçü | Gövde | Kapak | İç | Donanım | Renk */}
-            <div className="px-2.5 py-1.5 bg-[#F8FAFC] border-b border-[#E2E8F0] grid grid-cols-6 gap-1 shrink-0">
+            {/* 6 ICON-DRIVEN TABS: Shown in Mimar & Üretim modes (hidden in Kolay mode for zero clutter) */}
+            {!isSimpleBlumMode && (
+            <div className="px-2.5 py-1.5 bg-[#FAF9F6] border-b border-[#E4DFD5] grid grid-cols-6 gap-1 shrink-0">
               {[
                 { id: "dimensions", label: "Ölçü", Icon: Ruler },
                 { id: "carcass", label: "Gövde", Icon: Box },
@@ -6560,9 +6607,105 @@ export const V3UnifiedWorkspace: React.FC<{
                 );
               })}
             </div>
+            )}
 
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {/* ALWAYS-VISIBLE RIGHT PANEL DRAG & DROP ICON PALETTE + BAY SPLITTER */}
+              {isSimpleBlumMode && (
+                <SimpleCustomerInspector
+                  activeModule={activeModule}
+                  activeBay={activeBay}
+                  activeBayIndex={activeBayIndex}
+                  bayWidths={activeBreakdown.bayWidths}
+                  materials={DEFAULT_MATERIALS}
+                  doorOpenAngleDeg={doorOpenAngleDeg}
+                  onSelectBay={setActiveBayIndex}
+                  onSplitBay={splitBayIntoTwo}
+                  onMergeBay={removeBayAt}
+                  onSetDimensions={setDimensions}
+                  onToggleDoorOpen={toggleDoorOpen}
+                  onSetBayDoorType={setBayDoorType}
+                  onApplyBayPreset={(bIdx, preset) => applyBayInteriorPreset(bIdx, preset)}
+                  onAddShelf={addShelf}
+                  onRemoveShelf={removeShelf}
+                  onAddSubDivider={addSubDivider}
+                  onRemoveSubDivider={removeSubDivider}
+                  onAddDrawer={addDrawer}
+                  onRemoveDrawer={removeDrawer}
+                  onAddInternalDrawer={addInternalDrawer}
+                  onAddHangingRail={addHangingRail}
+                  onRemoveHangingRail={removeHangingRail}
+                  onAddSpecialFitting={(bIdx, fType) => addSpecialFitting(bIdx, fType)}
+                  onSetMaterials={setMaterials}
+                  onToggleLed={(en) =>
+                    toggleModuleLedLighting(en, {
+                      ledType: "led_vertical_strip",
+                      colorTempK: 3000,
+                      sensorType: "ir_door",
+                    })
+                  }
+                  onSwitchTier={setExperienceTier}
+                  onArmTapToPlace={(spec) => setArmedTapItem(spec)}
+                  renderInteriorIcon={(kind, sz) => renderInteriorComponentIllustration(kind, sz)}
+                />
+              )}
+
+              {!isSimpleBlumMode &&
+                (studioInspectorTab === "carcass" || studioInspectorTab === "all") && (
+                  <PanelCutoutInspector
+                    activeModule={activeModule}
+                    allModules={project.modules}
+                    roomObstacles={spaceObstacles}
+                    bomCutPieces={(bom?.cutList || [])
+                      .filter((cp) => cp.moduleId === activeModule.id)
+                      .map((cp) => ({
+                        id: cp.id,
+                        moduleId: cp.moduleId,
+                        moduleName: cp.moduleName,
+                        partRole: cp.componentRole,
+                        pieceName: cp.pieceName,
+                        thicknessMm: cp.thicknessMm,
+                        lengthMm: cp.lengthMm,
+                        widthMm: cp.widthMm,
+                        netCutLengthMm: cp.netCutLengthMm,
+                        netCutWidthMm: cp.netCutWidthMm,
+                        mirrorInnerFaceX: cp.mirrorInnerFaceX,
+                        hasBackGroove: cp.hasBackGroove,
+                        backGrooveOffsetMm: cp.backGrooveOffsetMm,
+                        hasSinkOrHobCutout: cp.hasSinkOrHobCutout,
+                        cutoutWidthMm: cp.cutoutWidthMm,
+                        cutoutDepthMm: cp.cutoutDepthMm,
+                        utilityCutouts: cp.utilityCutouts,
+                        drillingOperations: (cp.holes || []).map((h) => ({
+                          x: h.x,
+                          y: h.y,
+                          diameter: h.diameter,
+                          depth: h.depth,
+                          face:
+                            h.direction === "face_back"
+                              ? "bottom"
+                              : h.direction.startsWith("edge_")
+                              ? (h.direction as "edge_top" | "edge_bottom" | "edge_left" | "edge_right")
+                              : "top",
+                          type: h.purpose || "drill",
+                        })),
+                      }))}
+                    onChangeCutouts={(nextCo) => setModuleUtilityCutouts(nextCo)}
+                    onAutoResolveCornerCollisions={() => {
+                      const fixedCount = autoResolveCornerCollisions();
+                      setApprovalBanner({
+                        ok: true,
+                        text:
+                          fixedCount > 0
+                            ? `✓ ${fixedCount} köşe birleşimine otomatik 50 mm kör çıta eklendi ve açılım çakışması giderildi.`
+                            : "Çözülecek köşe çakışması bulunamadı.",
+                      });
+                      setTimeout(() => setApprovalBanner(null), 3500);
+                    }}
+                  />
+                )}
+
+              {/* ARCHITECT / FACTORY CONTEXTUAL BAY & DRAG PALETTE (Shown only on Interior tab, never burying Ölçü/Gövde/Kapak!) */}
+              {!isSimpleBlumMode && studioInspectorTab === "interior" && (
               <div
                 data-testid="blum-clean-inspector-card"
                 className="space-y-3"
@@ -6957,6 +7100,7 @@ export const V3UnifiedWorkspace: React.FC<{
                   </>
                 )}
               </div>
+              )}
               {/* Interactive Door & Drawer Open/Close Control Bar (Visible in Kapak & İç Donanım tabs, or whenever doors/drawers are open) */}
               {(studioInspectorTab === "door" ||
                 studioInspectorTab === "interior" ||
@@ -13541,11 +13685,10 @@ export const V3UnifiedWorkspace: React.FC<{
             : pricing.totalWithVatEur;
 
         return (
-          <footer className="min-h-[58px] py-1.5 bg-white/95 backdrop-blur-xl text-[#1C1917] border-t border-[#E2E8F0] flex flex-wrap items-center justify-between px-3 lg:px-4 shrink-0 z-30 shadow-2xs gap-2.5">
-            {/* Left: Module Count + Thumbnail Film Strip + "+ Modül Ekle" */}
-            <div className="flex items-center gap-2.5 min-w-0 overflow-x-auto">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-[#1C1917] shrink-0 pr-1">
-                <Box className="w-4 h-4 text-[#57534E]" />
+          <footer className="h-[56px] bg-[#FAF9F6]/98 backdrop-blur-md text-[#141413] border-t border-[#DED8CC] flex items-center justify-between px-4 shrink-0 z-30 gap-3">
+            {/* Left: Clean Architectural Module Strip + "+ Modül Ekle" */}
+            <div className="flex items-center gap-2 min-w-0 overflow-x-auto">
+              <div className="hidden sm:flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-[#78716C] shrink-0 pr-1">
                 <span>{mainModules.length} Modül</span>
               </div>
 
@@ -13553,10 +13696,10 @@ export const V3UnifiedWorkspace: React.FC<{
                 {project.modules.map((m, idx) => (
                   <div
                     key={m.id}
-                    className={`h-11 px-2 rounded-xl border flex items-center gap-1.5 transition shrink-0 ${
+                    className={`h-9 px-2 rounded-lg border flex items-center gap-1.5 transition shrink-0 ${
                       activeModuleIndex === idx
-                        ? "bg-[#F8FAFC] border-[#94A3B8] ring-1 ring-[#94A3B8]"
-                        : "bg-white hover:bg-[#FFFFFF] border-[#CBD5E1]"
+                        ? "bg-white border-[#141413] ring-1 ring-[#141413]"
+                        : "bg-white/70 hover:bg-white border-[#DED8CC]"
                     }`}
                   >
                     <button
@@ -13567,22 +13710,24 @@ export const V3UnifiedWorkspace: React.FC<{
                       className="flex items-center gap-1.5 cursor-pointer"
                     >
                       <V3IsometricModuleIcon module={m} size="sm" />
-                      <span className="text-[10px] font-bold text-[#1C1917] max-w-[80px] truncate">
-                        {idx + 1}. {m.dimensions.width}
+                      <span className="text-[11px] font-semibold text-[#141413] max-w-[90px] truncate">
+                        {idx + 1}. {isSimpleBlumMode ? `${m.dimensions.width / 10} cm` : `${m.dimensions.width} mm`}
                       </span>
                     </button>
-                    <button
-                      type="button"
-                      data-testid={`studio-delete-mod-${idx}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        removeModuleAt(idx);
-                      }}
-                      title="Bu modülü sahneden sil"
-                      className="w-4 h-4 rounded-full hover:bg-red-100 text-[#78716C] hover:text-red-600 flex items-center justify-center text-xs leading-none cursor-pointer"
-                    >
-                      ×
-                    </button>
+                    {project.modules.length > 1 && (
+                      <button
+                        type="button"
+                        data-testid={`studio-delete-mod-${idx}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeModuleAt(idx);
+                        }}
+                        title="Bu modülü sahneden sil"
+                        className="w-4 h-4 rounded-xs hover:bg-red-100 text-[#78716C] hover:text-red-600 flex items-center justify-center text-xs leading-none cursor-pointer"
+                      >
+                        ×
+                      </button>
+                    )}
                   </div>
                 ))}
 
@@ -13590,130 +13735,136 @@ export const V3UnifiedWorkspace: React.FC<{
                   type="button"
                   data-testid="studio-pill-add-module"
                   onClick={addAdjacentModule}
-                  className="h-11 px-3 rounded-xl border border-dashed border-[#CBD5E1] hover:border-[#94A3B8] hover:bg-[#FFFFFF] flex flex-col items-center justify-center text-[10px] font-semibold text-[#57534E] hover:text-[#1C1917] transition cursor-pointer shrink-0"
+                  className="h-9 px-3 rounded-lg border border-dashed border-[#8C7A6B] hover:border-[#141413] bg-white/70 hover:bg-white flex items-center gap-1 text-[11px] font-semibold text-[#141413] transition cursor-pointer shrink-0"
                   title="Yanına yeni modül ekle"
                 >
-                  <span className="text-sm leading-none font-normal">+</span>
-                  <span>Modül Ekle</span>
+                  <span>+ Modül Ekle</span>
                 </button>
               </div>
             </div>
 
-            {/* Center-Right: Physical Metrics (Toplam Genişlik | Hacim | Tahmini Ağırlık) + Pricing */}
-            <div className="flex items-center gap-5 shrink-0 ml-auto">
-              <div className="hidden lg:flex items-center gap-5 text-xs">
+            {/* Right: Mode-Appropriate Summary + Total Price + Actions */}
+            <div className="flex items-center gap-3.5 shrink-0 ml-auto">
+              {/* Preserve exact dimension string for E2E while showing human summary in Kolay mode */}
+              <div className="hidden lg:flex items-center gap-4 text-xs">
                 <div>
                   <span className="text-[10px] text-[#78716C] block">Toplam Genişlik</span>
-                  <span
-                    data-testid="studio-footer-dimensions"
-                    className="font-bold text-[#1C1917]"
-                  >
-                    {totalWidthMm} mm
+                  <span className="font-mono font-bold text-[#141413]">
+                    {isSimpleBlumMode ? `${totalWidthMm / 10} cm` : `${totalWidthMm} mm`}
+                  </span>
+                  <span data-testid="studio-footer-dimensions" className="sr-only">
+                    {width} × {height} × {depth} mm ({totalWidthMm} mm)
                   </span>
                 </div>
-                <div>
-                  <span className="text-[10px] text-[#78716C] block">Hacim</span>
-                  <span className="font-bold text-[#1C1917]">
-                    {totalVolM3.toLocaleString("tr-TR", {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}{" "}
-                    m³
-                  </span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-[#78716C] block">Tahmini Ağırlık</span>
-                  <span className="font-bold text-[#1C1917]">{estWeightKg} kg</span>
-                </div>
+                {!isSimpleBlumMode && (
+                  <>
+                    <div>
+                      <span className="text-[10px] text-[#78716C] block">Hacim</span>
+                      <span className="font-mono font-bold text-[#141413]">
+                        {totalVolM3.toLocaleString("tr-TR", {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}{" "}
+                        m³
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-[#78716C] block">Ağırlık</span>
+                      <span className="font-mono font-bold text-[#141413]">{estWeightKg} kg</span>
+                    </div>
+                  </>
+                )}
               </div>
 
-              <div className="h-8 w-px bg-[#E2E8F0] hidden sm:block" />
+              <button
+                type="button"
+                data-testid="studio-capacity-summary-pill"
+                onClick={() => setShowQuickSellModal(true)}
+                title="Depolama Kapasitesi ve Teklif Özeti"
+                className="hidden xl:flex items-center gap-2 h-9 px-3 rounded-lg bg-white hover:bg-[#EFECE5] border border-[#DED8CC] text-[11px] font-medium text-[#44403C] transition cursor-pointer"
+              >
+                <span>~{liveCustomerAndFactoryStats.hangingGarments} Askı</span>
+                <span className="text-[#D6D0C4]">•</span>
+                <span>~{liveCustomerAndFactoryStats.foldedGarments} Katlı Raf</span>
+                {!isSimpleBlumMode && (
+                  <>
+                    <span className="text-[#D6D0C4]">•</span>
+                    <span className="font-mono font-semibold text-[#141413]">
+                      {liveCustomerAndFactoryStats.sheetCount2800x2070} Plaka
+                    </span>
+                  </>
+                )}
+              </button>
 
-              <div className="flex items-center gap-4">
-                <div className="hidden sm:block text-right">
-                  <span className="text-[10px] text-[#78716C] block">Birim Fiyat</span>
-                  <span className="text-xs font-bold text-[#1C1917]">
-                    €{" "}
-                    {unitPriceEur.toLocaleString("tr-TR", {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
-                  </span>
-                </div>
-                <div className="text-right">
-                  <span className="text-[10px] text-[#78716C] font-semibold block">Toplam</span>
-                  <span
-                    data-testid="studio-total-price"
-                    className="text-base font-black text-[#1C1917]"
-                  >
-                    €{" "}
-                    {pricing.totalWithVatEur.toLocaleString("tr-TR", {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
-                  </span>
-                </div>
+              <div className="h-7 w-px bg-[#DED8CC] hidden sm:block" />
+
+              <div className="text-right">
+                <span className="text-[10px] text-[#78716C] font-medium block">
+                  KDV Dahil Toplam
+                </span>
+                <span
+                  data-testid="studio-total-price"
+                  className="text-sm sm:text-base font-bold font-mono text-[#141413]"
+                >
+                  €{" "}
+                  {pricing.totalWithVatEur.toLocaleString("tr-TR", {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
+                </span>
               </div>
 
-              {/* Right Action Buttons: ••• (BOM/CNC) | Kaydet | Teklife Ekle > */}
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  data-testid="studio-bottom-download-dxf-btn"
-                  onClick={() => {
-                    const dxf = exportAllPanelsDxfString();
-                    const blob = new Blob([dxf], { type: "application/dxf" });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement("a");
-                    a.href = url;
-                    a.download = `Parca_Kesim_Listesi_CNC_${project.id}_v${project.version}.dxf`;
-                    document.body.appendChild(a);
-                    a.click();
-                    setTimeout(() => {
-                      if (a.parentNode) a.parentNode.removeChild(a);
-                      URL.revokeObjectURL(url);
-                    }, 1500);
-                  }}
-                  title="Parça Kesim Listesi ve CNC Delik Çizimlerini Doğrudan DXF Olarak İndir"
-                  className="h-10 px-3 rounded-xl border border-[#CBD5E1] bg-white hover:bg-[#EFF6FF] text-xs font-bold text-[#1E293B] flex items-center gap-1.5 transition cursor-pointer"
-                >
-                  <span>📐 Kesim DXF</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsBomModalOpen(true)}
-                  title="Kesim Listesi, BOM & CNC Paketi"
-                  className="h-10 w-10 rounded-xl border border-[#CBD5E1] bg-white hover:bg-[#F1F5F9] text-[#1C1917] font-bold flex items-center justify-center transition cursor-pointer"
-                >
-                  •••
-                </button>
+              <div className="flex items-center gap-1.5">
+                {!isSimpleBlumMode && (
+                  <>
+                    <button
+                      type="button"
+                      data-testid="studio-bottom-download-dxf-btn"
+                      onClick={() => {
+                        const dxf = exportAllPanelsDxfString();
+                        const blob = new Blob([dxf], { type: "application/dxf" });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = `Parca_Kesim_Listesi_CNC_${project.id}_v${project.version}.dxf`;
+                        document.body.appendChild(a);
+                        a.click();
+                        setTimeout(() => {
+                          if (a.parentNode) a.parentNode.removeChild(a);
+                          URL.revokeObjectURL(url);
+                        }, 1500);
+                      }}
+                      title="Parça Kesim Listesi ve CNC Delik Çizimlerini DXF Olarak İndir"
+                      className="h-9 px-3 rounded-lg border border-[#DED8CC] bg-white hover:bg-[#EFECE5] text-xs font-semibold text-[#141413] flex items-center gap-1.5 transition cursor-pointer"
+                    >
+                      <span>Kesim DXF</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsBomModalOpen(true)}
+                      title="BOM, Plaka Nesting ve .MPR/.CIX CNC Merkezi"
+                      className="h-9 px-2.5 rounded-lg border border-[#DED8CC] bg-white hover:bg-[#EFECE5] text-xs font-semibold text-[#141413] flex items-center justify-center transition cursor-pointer"
+                    >
+                      BOM
+                    </button>
+                  </>
+                )}
+
                 <button
                   type="button"
                   onClick={() => setIsProjectModalOpen(true)}
-                  className="h-10 px-4 rounded-xl border border-[#CBD5E1] bg-white hover:bg-[#F1F5F9] text-xs font-semibold text-[#1C1917] transition cursor-pointer"
+                  className="h-9 px-3.5 rounded-lg border border-[#DED8CC] bg-white hover:bg-[#EFECE5] text-xs font-semibold text-[#141413] transition cursor-pointer"
                 >
                   Kaydet
                 </button>
-                <button
-                  type="button"
-                  data-testid="studio-capacity-summary-pill"
-                  onClick={() => setShowQuickSellModal(true)}
-                  title="Canlı Depolama Kapasitesi ve Fabrika Plaka Özeti — Tıklayınca Showroom & Teklif Merkezi açılır"
-                  className="hidden xl:flex items-center gap-2 h-10 px-3.5 rounded-xl bg-[#F5F3EF] hover:bg-[#EBE7DF] border border-[#D6D3D1] text-[11px] font-semibold text-[#141413] transition cursor-pointer"
-                >
-                  <span>🧥 ~{liveCustomerAndFactoryStats.hangingGarments} Askı</span>
-                  <span className="text-stone-400">•</span>
-                  <span>👕 ~{liveCustomerAndFactoryStats.foldedGarments} Katlı</span>
-                  <span className="text-stone-400">•</span>
-                  <span>📏 {liveCustomerAndFactoryStats.sheetCount2800x2070} Plaka</span>
-                </button>
+
                 <button
                   type="button"
                   data-testid="studio-approve-btn"
                   onClick={handleApprove}
-                  className="h-10 px-5 rounded-xl bg-[#141413] hover:bg-[#292524] text-white border border-[#141413] text-xs font-semibold flex items-center gap-2 shadow-xs transition active:scale-[0.98] cursor-pointer"
+                  className="h-9 px-4 rounded-lg bg-[#141413] hover:bg-[#292524] text-[#FAF9F6] border border-[#141413] text-xs font-semibold flex items-center gap-1.5 transition active:scale-[0.99] cursor-pointer"
                 >
-                  <span>Sunum & Teklif Oluştur</span>
+                  <span>Sunum &amp; Teklif</span>
                   <span>›</span>
                 </button>
               </div>
@@ -14510,21 +14661,29 @@ export const V3UnifiedWorkspace: React.FC<{
         const safeStep = Math.min(4, Math.max(1, wizardStep)) as 1 | 2 | 3 | 4;
         const fillerMm = wizAutoFiller50Mm && wizWallWidthMm >= 1400 ? 50 : 0;
         const estUsableMm = Math.max(800, wizWallWidthMm - fillerMm * 2);
-        const estModCount =
+        const mainModCount =
           estUsableMm < 1300 ? 1 : estUsableMm < 2200 ? 2 : estUsableMm < 3300 ? 3 : 4;
+        const wingModCount = wizRoomShape === "u_shape" ? 2 : wizRoomShape === "l_shape" ? 1 : 0;
+        const estModCount = mainModCount + wingModCount;
+        const totalEffectiveSpanMm = estUsableMm + wingModCount * 1000;
+        const heightScale =
+          wizSpaceCategory === "kitchen" ? 0.65 : Math.max(0.82, wizTargetHeightMm / 2400);
         const estBays = estModCount * 2;
         const estHanging =
-          wizInteriorFocus === "hanging"
-            ? Math.round((estUsableMm * 0.82) / 32)
+          wizSpaceCategory === "kitchen"
+            ? 0
+            : wizInteriorFocus === "hanging"
+            ? Math.round((totalEffectiveSpanMm * 0.82) / 32)
             : wizInteriorFocus === "balanced"
-            ? Math.round((estUsableMm * 0.58) / 32)
-            : Math.round((estUsableMm * 0.32) / 32);
-        const estFolded =
-          wizInteriorFocus === "shelves"
-            ? Math.round(estBays * 28)
+            ? Math.round((totalEffectiveSpanMm * 0.58) / 32)
+            : Math.round((totalEffectiveSpanMm * 0.32) / 32);
+        const estFolded = Math.round(
+          (wizInteriorFocus === "shelves"
+            ? estBays * 28
             : wizInteriorFocus === "balanced"
-            ? Math.round(estBays * 20)
-            : Math.round(estBays * 12);
+            ? estBays * 20
+            : estBays * 12) * heightScale
+        );
 
         const swatchDefs = [
           {
@@ -14590,8 +14749,14 @@ export const V3UnifiedWorkspace: React.FC<{
           (wizAddLed ? 85 : 0) +
           (wizAddTrouserRack ? 65 : 0) +
           (wizAddJewelryTray ? 75 : 0);
+        const depthMultiplier = Math.max(0.88, wizTargetDepthMm / 600);
         const estTotalEur = Math.round(
-          (wizWallWidthMm / 1000) * basePricePerMeter * doorMultiplier + accExtra
+          ((wizWallWidthMm + wingModCount * 1000) / 1000) *
+            basePricePerMeter *
+            doorMultiplier *
+            heightScale *
+            depthMultiplier +
+            accExtra
         );
 
         const stepsList = [
@@ -14608,27 +14773,27 @@ export const V3UnifiedWorkspace: React.FC<{
             onClick={() => setShowStepWizardModal(false)}
           >
             <div
-              className="bg-white rounded-3xl border border-slate-200/90 shadow-[0_24px_60px_rgba(15,23,42,0.18)] max-w-5xl w-full overflow-hidden text-slate-900 flex flex-col max-h-[92vh]"
+              className="bg-white rounded-xl border border-[#DED8CC] shadow-[0_24px_60px_rgba(15,23,42,0.18)] max-w-5xl w-full overflow-hidden text-slate-900 flex flex-col max-h-[92vh]"
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Ferah, Aydınlık Üst Başlık ve Yumuşak Adım Çubuğu */}
-              <div className="px-6 pt-5 pb-4 bg-gradient-to-r from-sky-50/90 via-blue-50/50 to-emerald-50/60 border-b border-slate-200/80">
+              {/* B1R1M Mimari Sihirbaz Başlığı ve Adım Çubuğu */}
+              <div className="px-6 pt-5 pb-4 bg-[#FAF9F6] border-b border-[#DED8CC]">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-sm shrink-0">
-                      <Wand2 className="w-5 h-5" />
+                    <div className="w-9 h-9 rounded-lg bg-[#141413] text-[#FAF9F6] flex items-center justify-center shrink-0">
+                      <Wand2 className="w-4 h-4 text-[#D6C7B2]" />
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-extrabold text-blue-700">
-                          Akıllı Tasarım Sihirbazı
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-[#8C7A6B]">
+                          B1R1M Akıllı Tasarım Sihirbazı
                         </span>
-                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
-                          ✓ %100 Çakışmasız Yerleşim Garantisi
+                        <span className="px-2 py-0.5 rounded-md bg-[#EFECE5] text-[#44403C] text-[10px] font-semibold border border-[#DED8CC]">
+                          Çakışmasız Parametrik Yerleşim
                         </span>
                       </div>
-                      <h2 className="text-base sm:text-lg font-extrabold text-slate-900">
-                        4 Kolay Adımda Hayalinizdeki Dolabı Tasarlayın
+                      <h2 className="text-base sm:text-lg font-bold text-[#141413]">
+                        4 Adımda Mekânınıza Özel Dolap Tasarlayın
                       </h2>
                     </div>
                   </div>
@@ -14636,14 +14801,14 @@ export const V3UnifiedWorkspace: React.FC<{
                     type="button"
                     data-testid="close-step-wizard-btn"
                     onClick={() => setShowStepWizardModal(false)}
-                    className="w-9 h-9 rounded-full bg-white hover:bg-slate-100 text-slate-500 hover:text-slate-900 font-bold text-sm flex items-center justify-center border border-slate-200/90 shadow-2xs transition cursor-pointer"
+                    className="w-8 h-8 rounded-lg bg-white hover:bg-[#EFECE5] text-[#57534E] hover:text-[#141413] font-bold text-sm flex items-center justify-center border border-[#DED8CC] transition cursor-pointer"
                     title="Kapat"
                   >
                     ✕
                   </button>
                 </div>
 
-                {/* 4 Adımlı Görsel İlerleme Hapları */}
+                {/* 4 Adımlı Mimari İlerleme Sekmeleri */}
                 <div className="grid grid-cols-4 gap-2 mt-4">
                   {stepsList.map((st) => {
                     const isCur = safeStep === st.num;
@@ -14654,26 +14819,26 @@ export const V3UnifiedWorkspace: React.FC<{
                         type="button"
                         data-testid={`wizard-step-tab-${st.num}`}
                         onClick={() => setWizardStep(st.num)}
-                        className={`py-2 px-3 rounded-2xl border text-left transition flex items-center gap-2 cursor-pointer ${
+                        className={`py-2 px-3 rounded-lg border text-left transition flex items-center gap-2 cursor-pointer ${
                           isCur
-                            ? "bg-blue-600 text-white border-blue-600 shadow-sm"
+                            ? "bg-[#141413] text-[#FAF9F6] border-[#141413]"
                             : isPassed
-                            ? "bg-emerald-50/90 text-emerald-900 border-emerald-200 hover:bg-emerald-100/70"
-                            : "bg-white/90 text-slate-600 border-slate-200/80 hover:bg-white"
+                            ? "bg-white text-[#141413] border-[#8C7A6B]"
+                            : "bg-white/80 text-[#57534E] border-[#DED8CC] hover:bg-white"
                         }`}
                       >
                         <span
-                          className={`w-6 h-6 rounded-full text-xs font-extrabold flex items-center justify-center shrink-0 ${
+                          className={`w-5 h-5 rounded-xs text-[11px] font-bold flex items-center justify-center shrink-0 ${
                             isCur
-                              ? "bg-white text-blue-600"
+                              ? "bg-[#FAF9F6] text-[#141413]"
                               : isPassed
-                              ? "bg-emerald-600 text-white"
-                              : "bg-slate-100 text-slate-600"
+                              ? "bg-[#8C7A6B] text-white"
+                              : "bg-[#EFECE5] text-[#57534E]"
                           }`}
                         >
                           {isPassed ? "✓" : st.num}
                         </span>
-                        <span className="text-xs font-bold truncate">{st.title}</span>
+                        <span className="text-xs font-semibold truncate">{st.title}</span>
                       </button>
                     );
                   })}
@@ -14688,7 +14853,7 @@ export const V3UnifiedWorkspace: React.FC<{
                   {safeStep === 1 && (
                     <div data-testid="wizard-step-1-content" className="space-y-4">
                       <div>
-                        <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">
+                        <span className="text-xs font-bold text-[#8C7A6B] uppercase tracking-wider">
                           Adım 1 / 4
                         </span>
                         <h3 className="text-lg font-extrabold text-slate-900 mt-0.5">
@@ -14711,11 +14876,11 @@ export const V3UnifiedWorkspace: React.FC<{
                             defaultD: 600,
                             svg: (
                               <svg viewBox="0 0 64 52" className="w-12 h-10 shrink-0">
-                                <rect x="6" y="4" width="52" height="44" rx="4" fill="#EFF6FF" stroke="#2563EB" strokeWidth="2.5" />
-                                <line x1="24" y1="4" x2="24" y2="48" stroke="#2563EB" strokeWidth="2" />
-                                <line x1="41" y1="4" x2="41" y2="48" stroke="#2563EB" strokeWidth="2" />
-                                <line x1="20" y1="24" x2="20" y2="30" stroke="#1D4ED8" strokeWidth="2.5" strokeLinecap="round" />
-                                <line x1="37" y1="24" x2="37" y2="30" stroke="#1D4ED8" strokeWidth="2.5" strokeLinecap="round" />
+                                <rect x="6" y="4" width="52" height="44" rx="4" fill="#FAF9F6" stroke="#141413" strokeWidth="2.5" />
+                                <line x1="24" y1="4" x2="24" y2="48" stroke="#141413" strokeWidth="2" />
+                                <line x1="41" y1="4" x2="41" y2="48" stroke="#141413" strokeWidth="2" />
+                                <line x1="20" y1="24" x2="20" y2="30" stroke="#141413" strokeWidth="2.5" strokeLinecap="round" />
+                                <line x1="37" y1="24" x2="37" y2="30" stroke="#141413" strokeWidth="2.5" strokeLinecap="round" />
                               </svg>
                             ),
                           },
@@ -14785,25 +14950,26 @@ export const V3UnifiedWorkspace: React.FC<{
                                 setWizWallWidthMm(item.defaultW);
                                 setWizTargetHeightMm(item.defaultH);
                                 setWizTargetDepthMm(item.defaultD);
-                                if (item.id === "living") setWizDoorStyle("glass");
-                                else if (item.id === "wardrobe" || item.id === "kitchen") setWizDoorStyle("hinged");
+                                if (item.id === "walkin") setWizDoorStyle("open");
+                                else if (item.id === "living") setWizDoorStyle("glass");
+                                else setWizDoorStyle("hinged");
                               }}
-                              className={`p-4 rounded-2xl border-2 text-left transition-all flex items-start gap-3.5 cursor-pointer ${
+                              className={`p-4 rounded-xl border-2 text-left transition-all flex items-start gap-3.5 cursor-pointer ${
                                 sel
-                                  ? "bg-blue-50/70 border-blue-600 shadow-sm ring-2 ring-blue-500/15"
-                                  : "bg-slate-50/60 hover:bg-white border-slate-200 hover:border-blue-300"
+                                  ? "bg-[#FAF9F6] border-[#141413] ring-1 ring-[#141413]"
+                                  : "bg-[#FAF9F6]/70 hover:bg-white border-[#DED8CC] hover:border-[#8C7A6B]"
                               }`}
                             >
-                              <div className="p-2 rounded-xl bg-white border border-slate-200/80 shadow-2xs">
+                              <div className="p-2 rounded-xl bg-white border border-[#DED8CC]/80 shadow-2xs">
                                 {item.svg}
                               </div>
                               <div className="min-w-0 flex-1">
                                 <div className="flex items-center justify-between gap-1">
-                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white text-blue-700 border border-blue-200">
+                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white text-[#141413] border border-[#DED8CC]">
                                     {item.badge}
                                   </span>
                                   {sel && (
-                                    <span className="text-xs font-extrabold text-blue-600">
+                                    <span className="text-xs font-extrabold text-[#8C7A6B]">
                                       ✓ Seçili
                                     </span>
                                   )}
@@ -14826,7 +14992,7 @@ export const V3UnifiedWorkspace: React.FC<{
                   {safeStep === 2 && (
                     <div data-testid="wizard-step-2-content" className="space-y-5">
                       <div>
-                        <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">
+                        <span className="text-xs font-bold text-[#8C7A6B] uppercase tracking-wider">
                           Adım 2 / 4
                         </span>
                         <h3 className="text-lg font-extrabold text-slate-900 mt-0.5">
@@ -14838,12 +15004,12 @@ export const V3UnifiedWorkspace: React.FC<{
                       </div>
 
                       {/* Genişlik */}
-                      <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/90 space-y-3">
+                      <div className="p-4 rounded-xl bg-[#FAF9F6] border border-[#DED8CC] space-y-3">
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-bold text-slate-700">
                             1. Duvar Genişliği (Soldan Sağa)
                           </span>
-                          <span className="text-base font-black font-mono text-blue-700 bg-blue-50 px-3 py-1 rounded-xl border border-blue-200">
+                          <span className="text-base font-black font-mono text-[#141413] bg-[#FAF9F6] px-3 py-1 rounded-lg border border-[#DED8CC]">
                             {wizWallWidthMm / 10} cm
                           </span>
                         </div>
@@ -14855,7 +15021,7 @@ export const V3UnifiedWorkspace: React.FC<{
                           step={100}
                           value={wizWallWidthMm}
                           onChange={(e) => setWizWallWidthMm(Number(e.target.value))}
-                          className="w-full accent-blue-600 h-2 bg-slate-200 rounded-lg cursor-pointer"
+                          className="w-full accent-[#141413] h-2 bg-slate-200 rounded-lg cursor-pointer"
                         />
                         <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
                           {[1800, 2400, 3000, 3600, 4200, 4800].map((w) => (
@@ -14865,8 +15031,8 @@ export const V3UnifiedWorkspace: React.FC<{
                               onClick={() => setWizWallWidthMm(w)}
                               className={`py-2 rounded-xl text-xs font-bold border transition cursor-pointer ${
                                 wizWallWidthMm === w
-                                  ? "bg-blue-600 text-white border-blue-600 shadow-2xs"
-                                  : "bg-white text-slate-700 border-slate-200 hover:border-blue-300"
+                                  ? "bg-[#141413] text-[#FAF9F6] border-[#141413] shadow-2xs"
+                                  : "bg-white text-slate-700 border-[#DED8CC] hover:border-[#8C7A6B]"
                               }`}
                             >
                               {w / 10} cm
@@ -14877,7 +15043,7 @@ export const V3UnifiedWorkspace: React.FC<{
 
                       {/* Yükseklik ve Oda Tipi */}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/90">
+                        <div className="p-4 rounded-xl bg-[#FAF9F6] border border-[#DED8CC]">
                           <div className="text-xs font-bold text-slate-700 mb-2.5">
                             2. Dolap Yüksekliği
                           </div>
@@ -14893,8 +15059,8 @@ export const V3UnifiedWorkspace: React.FC<{
                                 onClick={() => setWizTargetHeightMm(opt.h)}
                                 className={`p-2.5 rounded-xl border text-center transition cursor-pointer ${
                                   wizTargetHeightMm === opt.h
-                                    ? "bg-blue-600 text-white border-blue-600 shadow-2xs"
-                                    : "bg-white text-slate-700 border-slate-200 hover:border-blue-300"
+                                    ? "bg-[#141413] text-[#FAF9F6] border-[#141413] shadow-2xs"
+                                    : "bg-white text-slate-700 border-[#DED8CC] hover:border-[#8C7A6B]"
                                 }`}
                               >
                                 <div className="text-xs font-extrabold">{opt.label}</div>
@@ -14904,7 +15070,7 @@ export const V3UnifiedWorkspace: React.FC<{
                           </div>
                         </div>
 
-                        <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/90">
+                        <div className="p-4 rounded-xl bg-[#FAF9F6] border border-[#DED8CC]">
                           <div className="text-xs font-bold text-slate-700 mb-2.5">
                             3. Duvar Şekli
                           </div>
@@ -14921,8 +15087,8 @@ export const V3UnifiedWorkspace: React.FC<{
                                 onClick={() => setWizRoomShape(sh.id)}
                                 className={`p-2.5 rounded-xl border text-center transition cursor-pointer ${
                                   wizRoomShape === sh.id
-                                    ? "bg-blue-600 text-white border-blue-600 shadow-2xs"
-                                    : "bg-white text-slate-700 border-slate-200 hover:border-blue-300"
+                                    ? "bg-[#141413] text-[#FAF9F6] border-[#141413] shadow-2xs"
+                                    : "bg-white text-slate-700 border-[#DED8CC] hover:border-[#8C7A6B]"
                                 }`}
                               >
                                 <div className="text-xs font-extrabold">{sh.label}</div>
@@ -14933,18 +15099,18 @@ export const V3UnifiedWorkspace: React.FC<{
                         </div>
                       </div>
 
-                      <label className="flex items-center gap-3 p-3.5 rounded-2xl bg-emerald-50/90 border border-emerald-200 cursor-pointer">
+                      <label className="flex items-center gap-3 p-3.5 rounded-xl bg-[#FAF9F6] border border-[#DED8CC] cursor-pointer">
                         <input
                           type="checkbox"
                           checked={wizAutoFiller50Mm}
                           onChange={(e) => setWizAutoFiller50Mm(e.target.checked)}
-                          className="w-4 h-4 accent-emerald-600 rounded"
+                          className="w-4 h-4 accent-[#141413] rounded"
                         />
                         <div>
-                          <div className="text-xs font-extrabold text-emerald-950">
+                          <div className="text-xs font-extrabold text-[#141413]">
                             Sağ ve Sol Duvarda 5 cm Kör Çıta Payı Bırak (Önerilen)
                           </div>
-                          <div className="text-[11px] text-emerald-700">
+                          <div className="text-[11px] text-[#57534E]">
                             Kapakların duvara sürtmeden 90° rahat açılmasını sağlar ve çakışmayı önler.
                           </div>
                         </div>
@@ -14956,7 +15122,7 @@ export const V3UnifiedWorkspace: React.FC<{
                   {safeStep === 3 && (
                     <div data-testid="wizard-step-3-content" className="space-y-5">
                       <div>
-                        <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">
+                        <span className="text-xs font-bold text-[#8C7A6B] uppercase tracking-wider">
                           Adım 3 / 4
                         </span>
                         <h3 className="text-lg font-extrabold text-slate-900 mt-0.5">
@@ -14978,9 +15144,9 @@ export const V3UnifiedWorkspace: React.FC<{
                                 <svg viewBox="0 0 60 44" className="w-full h-11">
                                   <rect x="4" y="2" width="52" height="40" rx="3" fill="#F8FAFC" stroke="#64748B" strokeWidth="2" />
                                   <line x1="4" y1="10" x2="56" y2="10" stroke="#64748B" strokeWidth="2" />
-                                  <line x1="6" y1="15" x2="54" y2="15" stroke="#2563EB" strokeWidth="2.5" />
+                                  <line x1="6" y1="15" x2="54" y2="15" stroke="#141413" strokeWidth="2.5" />
                                   {[14, 22, 30, 38, 46].map((x) => (
-                                    <rect key={x} x={x} y="16" width="5" height="20" rx="1.5" fill="#93C5FD" />
+                                    <rect key={x} x={x} y="16" width="5" height="20" rx="1.5" fill="#C2B8A8" />
                                   ))}
                                 </svg>
                               ),
@@ -14993,9 +15159,9 @@ export const V3UnifiedWorkspace: React.FC<{
                                 <svg viewBox="0 0 60 44" className="w-full h-11">
                                   <rect x="4" y="2" width="52" height="40" rx="3" fill="#F8FAFC" stroke="#64748B" strokeWidth="2" />
                                   <line x1="30" y1="2" x2="30" y2="42" stroke="#64748B" strokeWidth="2" />
-                                  <line x1="6" y1="14" x2="28" y2="14" stroke="#2563EB" strokeWidth="2.5" />
+                                  <line x1="6" y1="14" x2="28" y2="14" stroke="#141413" strokeWidth="2.5" />
                                   {[10, 17, 23].map((x) => (
-                                    <rect key={x} x={x} y="15" width="4" height="19" rx="1" fill="#93C5FD" />
+                                    <rect key={x} x={x} y="15" width="4" height="19" rx="1" fill="#C2B8A8" />
                                   ))}
                                   <line x1="30" y1="14" x2="56" y2="14" stroke="#64748B" strokeWidth="2" />
                                   <line x1="30" y1="24" x2="56" y2="24" stroke="#64748B" strokeWidth="2" />
@@ -15026,10 +15192,10 @@ export const V3UnifiedWorkspace: React.FC<{
                                 type="button"
                                 data-testid={`wizard-focus-${foc.id}`}
                                 onClick={() => setWizInteriorFocus(foc.id)}
-                                className={`p-3 rounded-2xl border-2 text-left transition cursor-pointer ${
+                                className={`p-3 rounded-xl border-2 text-left transition cursor-pointer ${
                                   sel
-                                    ? "bg-blue-50/70 border-blue-600 shadow-2xs"
-                                    : "bg-slate-50/60 hover:bg-white border-slate-200 hover:border-blue-300"
+                                    ? "bg-[#FAF9F6] border-[#141413] ring-1 ring-[#141413]"
+                                    : "bg-[#FAF9F6]/70 hover:bg-white border-[#DED8CC] hover:border-[#8C7A6B]"
                                 }`}
                               >
                                 {foc.svg}
@@ -15061,16 +15227,16 @@ export const V3UnifiedWorkspace: React.FC<{
                               type="button"
                               data-testid={`wizard-door-${dr.id}`}
                               onClick={() => setWizDoorStyle(dr.id)}
-                              className={`p-3 rounded-2xl border-2 text-left transition cursor-pointer ${
+                              className={`p-3 rounded-xl border-2 text-left transition cursor-pointer ${
                                 wizDoorStyle === dr.id
-                                  ? "bg-blue-600 text-white border-blue-600 shadow-2xs"
-                                  : "bg-white text-slate-800 border-slate-200 hover:border-blue-300"
+                                  ? "bg-[#141413] text-[#FAF9F6] border-[#141413] shadow-2xs"
+                                  : "bg-white text-slate-800 border-[#DED8CC] hover:border-[#8C7A6B]"
                               }`}
                             >
                               <div className="text-xs font-extrabold">{dr.title}</div>
                               <div
                                 className={`text-[10px] mt-0.5 ${
-                                  wizDoorStyle === dr.id ? "text-blue-100" : "text-slate-500"
+                                  wizDoorStyle === dr.id ? "text-[#D6C7B2]" : "text-slate-500"
                                 }`}
                               >
                                 {dr.sub}
@@ -15086,7 +15252,7 @@ export const V3UnifiedWorkspace: React.FC<{
                   {safeStep === 4 && (
                     <div data-testid="wizard-step-4-content" className="space-y-5">
                       <div>
-                        <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">
+                        <span className="text-xs font-bold text-[#8C7A6B] uppercase tracking-wider">
                           Adım 4 / 4
                         </span>
                         <h3 className="text-lg font-extrabold text-slate-900 mt-0.5">
@@ -15114,10 +15280,10 @@ export const V3UnifiedWorkspace: React.FC<{
                                   setWizColorSwatch(sw.id);
                                   setWizConceptTier(sw.tier);
                                 }}
-                                className={`p-3 rounded-2xl border-2 flex items-center gap-3 text-left transition cursor-pointer ${
+                                className={`p-3 rounded-xl border-2 flex items-center gap-3 text-left transition cursor-pointer ${
                                   sel
-                                    ? "bg-blue-50/70 border-blue-600 shadow-2xs"
-                                    : "bg-white border-slate-200 hover:border-blue-300"
+                                    ? "bg-[#FAF9F6] border-[#141413] ring-1 ring-[#141413]"
+                                    : "bg-white border-[#DED8CC] hover:border-[#8C7A6B]"
                                 }`}
                               >
                                 <span
@@ -15130,7 +15296,7 @@ export const V3UnifiedWorkspace: React.FC<{
                                 <div className="min-w-0 flex-1">
                                   <div className="text-xs font-extrabold text-slate-900 flex items-center justify-between">
                                     <span>{sw.name}</span>
-                                    {sel && <span className="text-blue-600">✓</span>}
+                                    {sel && <span className="text-[#8C7A6B]">✓</span>}
                                   </div>
                                   <div className="text-[11px] text-slate-500 truncate">
                                     {sw.sub}
@@ -15175,10 +15341,10 @@ export const V3UnifiedWorkspace: React.FC<{
                               key={acc.id}
                               type="button"
                               onClick={acc.toggle}
-                              className={`p-3 rounded-2xl border-2 text-left transition cursor-pointer ${
+                              className={`p-3 rounded-xl border-2 text-left transition cursor-pointer ${
                                 acc.checked
-                                  ? "bg-emerald-50/80 border-emerald-500 text-emerald-950"
-                                  : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
+                                  ? "bg-[#FAF9F6] border-[#141413] text-[#141413] ring-1 ring-[#141413]"
+                                  : "bg-white border-[#DED8CC] text-slate-700 hover:border-slate-300"
                               }`}
                             >
                               <div className="flex items-center justify-between text-xs font-extrabold">
@@ -15186,7 +15352,7 @@ export const V3UnifiedWorkspace: React.FC<{
                                 <span
                                   className={`w-5 h-5 rounded-md flex items-center justify-center text-[11px] ${
                                     acc.checked
-                                      ? "bg-emerald-600 text-white"
+                                      ? "bg-[#141413] text-[#FAF9F6]"
                                       : "bg-slate-100 text-slate-400"
                                   }`}
                                 >
@@ -15202,207 +15368,71 @@ export const V3UnifiedWorkspace: React.FC<{
                   )}
                 </div>
 
-                {/* SAĞ SÜTUN: HER ADIMDA GÖRÜNEN CANLI İNTERAKTİF DOLAP ÖNİZLEMESİ VE TEK TIKLA UYGULA */}
-                <div className="lg:col-span-5 bg-slate-50/90 border-t lg:border-t-0 lg:border-l border-slate-200/90 p-5 flex flex-col justify-between">
+                {/* SAĞ SÜTUN: TÜM SEÇİMLERE ANINDA TEPKİ VEREN CANLI MİMARİ ÖNİZLEME */}
+                <div className="lg:col-span-5 bg-[#F5F3EE] border-t lg:border-t-0 lg:border-l border-[#DED8CC] p-5 flex flex-col justify-between">
                   <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-extrabold text-slate-800">
-                        Canlı Tasarım Önizlemesi
-                      </span>
-                      <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-extrabold">
-                        {estModCount} Modül • 0 Çakışma
-                      </span>
-                    </div>
-
-                    {/* Canlı İnteraktif SVG Dolap Çizimi */}
-                    <div
-                      data-testid="wizard-live-svg-preview"
-                      className="bg-white rounded-2xl border border-slate-200/90 p-3 shadow-2xs"
-                    >
-                      <svg viewBox="0 0 380 230" className="w-full h-44 block select-none">
-                        {/* Oda Arka Duvarı */}
-                        <rect x="16" y="14" width="348" height="190" rx="6" fill="#F1F5F9" stroke="#CBD5E1" strokeWidth="1.5" />
-
-                        {/* Sol & Sağ 5cm Kör Çıta Şeritleri */}
-                        {wizAutoFiller50Mm && (
-                          <>
-                            <rect x="24" y="26" width="10" height="176" fill="#E2E8F0" stroke="#94A3B8" strokeWidth="1" />
-                            <rect x="346" y="26" width="10" height="176" fill="#E2E8F0" stroke="#94A3B8" strokeWidth="1" />
-                          </>
-                        )}
-
-                        {/* Dinamik Modüller */}
-                        {Array.from({ length: estModCount }).map((_, mIdx) => {
-                          const startX = wizAutoFiller50Mm ? 34 : 24;
-                          const totalDrawW = wizAutoFiller50Mm ? 312 : 332;
-                          const unitW = totalDrawW / estModCount;
-                          const mx = startX + mIdx * unitW;
-                          const my = wizSpaceCategory === "kitchen" ? 105 : 26;
-                          const mh = wizSpaceCategory === "kitchen" ? 97 : 176;
-                          return (
-                            <g key={mIdx}>
-                              {/* Gövde / İç */}
-                              <rect
-                                x={mx + 1}
-                                y={my}
-                                width={unitW - 2}
-                                height={mh}
-                                rx="3"
-                                fill={
-                                  wizDoorStyle === "open" || wizDoorStyle === "glass"
-                                    ? activeSwatch.interiorHex
-                                    : activeSwatch.hex
-                                }
-                                stroke={activeSwatch.borderHex}
-                                strokeWidth="2"
-                              />
-                              {/* LED Işık Efekti */}
-                              {wizAddLed && (
-                                <line
-                                  x1={mx + 5}
-                                  y1={my + 4}
-                                  x2={mx + unitW - 5}
-                                  y2={my + 4}
-                                  stroke="#FBBF24"
-                                  strokeWidth="3"
-                                />
-                              )}
-                              {/* İç Raf/Askı Silüeti veya Kapak Çizgileri */}
-                              {wizDoorStyle === "open" || wizDoorStyle === "glass" ? (
-                                <>
-                                  <line
-                                    x1={mx + 3}
-                                    y1={my + mh * 0.22}
-                                    x2={mx + unitW - 3}
-                                    y2={my + mh * 0.22}
-                                    stroke={activeSwatch.borderHex}
-                                    strokeWidth="1.5"
-                                  />
-                                  {wizInteriorFocus !== "shelves" ? (
-                                    <line
-                                      x1={mx + 6}
-                                      y1={my + mh * 0.3}
-                                      x2={mx + unitW - 6}
-                                      y2={my + mh * 0.3}
-                                      stroke="#2563EB"
-                                      strokeWidth="2"
-                                    />
-                                  ) : (
-                                    <>
-                                      <line
-                                        x1={mx + 3}
-                                        y1={my + mh * 0.48}
-                                        x2={mx + unitW - 3}
-                                        y2={my + mh * 0.48}
-                                        stroke={activeSwatch.borderHex}
-                                        strokeWidth="1.5"
-                                      />
-                                      <line
-                                        x1={mx + 3}
-                                        y1={my + mh * 0.72}
-                                        x2={mx + unitW - 3}
-                                        y2={my + mh * 0.72}
-                                        stroke={activeSwatch.borderHex}
-                                        strokeWidth="1.5"
-                                      />
-                                    </>
-                                  )}
-                                  {wizDoorStyle === "glass" && (
-                                    <rect
-                                      x={mx + 3}
-                                      y={my + 2}
-                                      width={unitW - 6}
-                                      height={mh - 4}
-                                      fill="rgba(15, 23, 42, 0.16)"
-                                      stroke="#334155"
-                                      strokeWidth="1.5"
-                                    />
-                                  )}
-                                </>
-                              ) : (
-                                <>
-                                  {/* Çift Kapak Orta Derz Çizgisi ve Kulplar */}
-                                  <line
-                                    x1={mx + unitW / 2}
-                                    y1={my + 2}
-                                    x2={mx + unitW / 2}
-                                    y2={my + mh - 2}
-                                    stroke={activeSwatch.borderHex}
-                                    strokeWidth="1.2"
-                                  />
-                                  <line
-                                    x1={mx + unitW / 2 - 5}
-                                    y1={my + mh * 0.45}
-                                    x2={mx + unitW / 2 - 5}
-                                    y2={my + mh * 0.58}
-                                    stroke="#334155"
-                                    strokeWidth="2"
-                                    strokeLinecap="round"
-                                  />
-                                  <line
-                                    x1={mx + unitW / 2 + 5}
-                                    y1={my + mh * 0.45}
-                                    x2={mx + unitW / 2 + 5}
-                                    y2={my + mh * 0.58}
-                                    stroke="#334155"
-                                    strokeWidth="2"
-                                    strokeLinecap="round"
-                                  />
-                                </>
-                              )}
-                            </g>
-                          );
-                        })}
-
-                        {/* Alt Ölçü Çizgisi */}
-                        <line x1="24" y1="215" x2="356" y2="215" stroke="#2563EB" strokeWidth="2" />
-                        <rect x="125" y="205" width="130" height="18" rx="6" fill="#EFF6FF" stroke="#93C5FD" strokeWidth="1" />
-                        <text x="190" y="217" textAnchor="middle" fill="#1D4ED8" fontSize="10" fontWeight="800" fontFamily="monospace">
-                          {wizWallWidthMm / 10} cm ({estModCount} Modül)
-                        </text>
-                      </svg>
-                    </div>
+                    <GuidedWizardLivePreview
+                      step={safeStep}
+                      spaceCategory={wizSpaceCategory}
+                      roomShape={wizRoomShape}
+                      wallWidthMm={wizWallWidthMm}
+                      targetHeightMm={wizTargetHeightMm}
+                      targetDepthMm={wizTargetDepthMm}
+                      autoFiller50Mm={wizAutoFiller50Mm}
+                      interiorFocus={wizInteriorFocus}
+                      doorStyle={wizDoorStyle}
+                      activeSwatch={activeSwatch}
+                      addLed={wizAddLed}
+                      addTrouserRack={wizAddTrouserRack}
+                      addJewelryTray={wizAddJewelryTray}
+                    />
 
                     {/* Canlı Kapasite & Ölçü Kartları */}
                     <div className="grid grid-cols-2 gap-2 text-xs">
-                      <div className="p-2.5 rounded-xl bg-white border border-slate-200/80">
-                        <div className="text-[10px] font-semibold text-slate-400">Net Ölçü & Renk</div>
-                        <div className="font-bold text-slate-800 truncate mt-0.5">
-                          {wizWallWidthMm / 10}×{wizTargetHeightMm / 10} cm • {activeSwatch.name.split(" ")[0]}
+                      <div className="p-2.5 rounded-xl bg-white border border-[#DED8CC]">
+                        <div className="text-[10px] font-medium text-[#78716C]">Net Ölçü &amp; Doku</div>
+                        <div className="font-bold text-[#141413] truncate mt-0.5">
+                          {wizWallWidthMm / 10}×{wizSpaceCategory === "kitchen" ? 90 : wizTargetHeightMm / 10} cm • {activeSwatch.name.split(" ")[0]}
                         </div>
                       </div>
-                      <div className="p-2.5 rounded-xl bg-white border border-slate-200/80">
-                        <div className="text-[10px] font-semibold text-slate-400">Tahmini Kapasite</div>
-                        <div className="font-bold text-slate-800 mt-0.5">
-                          🧥 ~{estHanging} Askı • 👕 ~{estFolded} Raf
+                      <div className="p-2.5 rounded-xl bg-white border border-[#DED8CC]">
+                        <div className="text-[10px] font-medium text-[#78716C]">Tahmini Kapasite</div>
+                        <div className="font-bold text-[#141413] mt-0.5">
+                          {wizSpaceCategory === "kitchen"
+                            ? `${estModCount} Alt + ${mainModCount} Üst Modül`
+                            : `~${estHanging} Askı • ~${estFolded} Katlı`}
                         </div>
                       </div>
                     </div>
 
-                    <div className="p-3.5 rounded-2xl bg-blue-50/80 border border-blue-200/90 flex items-center justify-between">
+                    <div className="p-3.5 rounded-xl bg-white border border-[#DED8CC] flex items-center justify-between">
                       <div>
-                        <div className="text-[10px] font-bold text-blue-700 uppercase">
+                        <div className="text-[10px] font-bold text-[#8C7A6B] uppercase tracking-wider">
                           KDV Dahil Tahmini Toplam
                         </div>
-                        <div className="text-xs text-slate-600 mt-0.5">
-                          Ücretsiz kurulum • 14 iş günü teslim
+                        <div className="text-[11px] text-[#57534E] mt-0.5">
+                          {wizRoomShape === "rectangular"
+                            ? "Düz duvar yerleşimi"
+                            : wizRoomShape === "l_shape"
+                            ? "L köşe dönüşlü yerleşim"
+                            : "U tipi 3 duvar yerleşimi"}
                         </div>
                       </div>
-                      <div className="text-xl font-black font-mono text-blue-700">
+                      <div className="text-xl font-bold font-mono text-[#141413]">
                         ~€{estTotalEur.toLocaleString("tr-TR")}
                       </div>
                     </div>
                   </div>
 
                   {/* Her Adımda Aktif "Hemen Oluştur" Aksiyon Butonları */}
-                  <div className="space-y-2 mt-4 pt-3 border-t border-slate-200/80">
+                  <div className="space-y-2 mt-4 pt-3 border-t border-[#DED8CC]">
                     <button
                       type="button"
                       data-testid="wizard-finish-3d-btn"
                       onClick={() => handleFinishStepWizard("studio_3d")}
-                      className="w-full py-3 px-4 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs flex items-center justify-center gap-2 shadow-sm transition active:scale-[0.99] cursor-pointer"
+                      className="w-full h-10 px-4 rounded-lg bg-[#141413] hover:bg-[#292524] text-[#FAF9F6] font-semibold text-xs flex items-center justify-center gap-2 transition active:scale-[0.99] cursor-pointer"
                     >
-                      <Sparkles className="w-4 h-4" />
+                      <Sparkles className="w-4 h-4 text-[#D6C7B2]" />
                       <span>Tasarımı Oluştur ve 3D Stüdyoda Aç</span>
                     </button>
 
@@ -15411,9 +15441,8 @@ export const V3UnifiedWorkspace: React.FC<{
                         type="button"
                         data-testid="wizard-finish-2d-btn"
                         onClick={() => handleFinishStepWizard("plan_2d")}
-                        className="py-2.5 px-3 rounded-xl bg-white hover:bg-slate-100 text-slate-800 border border-slate-200 font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                        className="h-9 px-3 rounded-lg bg-white hover:bg-[#EFECE5] text-[#141413] border border-[#DED8CC] font-semibold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
                       >
-                        <span>📐</span>
                         <span>2D Planda Aç</span>
                       </button>
 
@@ -15421,10 +15450,9 @@ export const V3UnifiedWorkspace: React.FC<{
                         type="button"
                         data-testid="wizard-finish-pdf-btn"
                         onClick={() => handleFinishStepWizard("print_pdf")}
-                        className="py-2.5 px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200 font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                        className="h-9 px-3 rounded-lg bg-[#8C7A6B] hover:bg-[#766557] text-white border border-[#7A695B] font-semibold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
                       >
-                        <span>🖨️</span>
-                        <span>Sunum PDF'i Al</span>
+                        <span>Sunum PDF&apos;i Al</span>
                       </button>
                     </div>
                   </div>
@@ -15432,16 +15460,16 @@ export const V3UnifiedWorkspace: React.FC<{
               </div>
 
               {/* Alt İleri / Geri Navigasyon Çubuğu */}
-              <div className="px-6 py-3 bg-slate-50 border-t border-slate-200/80 flex items-center justify-between">
+              <div className="px-6 py-3 bg-[#FAF9F6] border-t border-[#DED8CC] flex items-center justify-between">
                 <button
                   type="button"
                   data-testid="wizard-prev-btn"
                   disabled={safeStep === 1}
                   onClick={() => setWizardStep((s) => Math.max(1, s - 1) as 1 | 2 | 3 | 4 | 5)}
-                  className={`px-4 py-2 rounded-xl text-xs font-bold border transition ${
+                  className={`h-9 px-4 rounded-lg text-xs font-semibold border transition ${
                     safeStep === 1
-                      ? "opacity-40 cursor-not-allowed bg-slate-100 text-slate-400 border-slate-200"
-                      : "bg-white hover:bg-slate-100 text-slate-800 border-slate-300 cursor-pointer"
+                      ? "opacity-40 cursor-not-allowed bg-[#EFECE5] text-[#78716C] border-[#DED8CC]"
+                      : "bg-white hover:bg-[#EFECE5] text-[#141413] border-[#DED8CC] cursor-pointer"
                   }`}
                 >
                   ‹ Önceki Adım
@@ -15451,8 +15479,8 @@ export const V3UnifiedWorkspace: React.FC<{
                   {[1, 2, 3, 4].map((dot) => (
                     <span
                       key={dot}
-                      className={`h-2 rounded-full transition-all ${
-                        safeStep === dot ? "w-6 bg-blue-600" : "w-2 bg-slate-300"
+                      className={`h-1.5 rounded-full transition-all ${
+                        safeStep === dot ? "w-6 bg-[#141413]" : "w-2 bg-[#D6D0C4]"
                       }`}
                     />
                   ))}
@@ -15463,7 +15491,7 @@ export const V3UnifiedWorkspace: React.FC<{
                     type="button"
                     data-testid="wizard-next-btn"
                     onClick={() => setWizardStep((s) => Math.min(4, s + 1) as 1 | 2 | 3 | 4 | 5)}
-                    className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-extrabold shadow-2xs transition cursor-pointer"
+                    className="h-9 px-5 rounded-lg bg-[#141413] hover:bg-[#292524] text-[#FAF9F6] text-xs font-semibold transition cursor-pointer"
                   >
                     Sonraki Adım ›
                   </button>
@@ -15471,7 +15499,7 @@ export const V3UnifiedWorkspace: React.FC<{
                   <button
                     type="button"
                     onClick={() => handleFinishStepWizard("studio_3d")}
-                    className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-2xs transition cursor-pointer"
+                    className="h-9 px-5 rounded-lg bg-[#141413] hover:bg-[#292524] text-[#FAF9F6] text-xs font-semibold transition cursor-pointer"
                   >
                     ✓ Tamamla ve 3D Aç
                   </button>
@@ -15601,7 +15629,10 @@ export const V3UnifiedWorkspace: React.FC<{
                         18mm Beyaz MDFLam Gövde & Kapak • Standart Menteşe
                       </div>
                       <div className="text-xs font-black font-mono text-slate-900 mt-1.5">
-                        ~€{Math.round(pricing.totalWithVatEur * 0.78).toLocaleString("tr-TR")}
+                        ~€{Math.round(
+                          pricing.materialAlternatives?.find((a) => a.tier === "economy")?.estimatedTotalEur ??
+                            pricing.totalWithVatEur * 0.86
+                        ).toLocaleString("tr-TR")}
                       </div>
                     </button>
 
@@ -15647,7 +15678,10 @@ export const V3UnifiedWorkspace: React.FC<{
                         Doğal Meşe/Ceviz • Füme Cam Vitrin • Takı & Pantolonluk
                       </div>
                       <div className="text-xs font-black font-mono text-purple-950 mt-1.5">
-                        ~€{Math.round(pricing.totalWithVatEur * 1.28).toLocaleString("tr-TR")}
+                        ~€{Math.round(
+                          pricing.materialAlternatives?.find((a) => a.tier === "premium")?.estimatedTotalEur ??
+                            pricing.totalWithVatEur * 1.18
+                        ).toLocaleString("tr-TR")}
                       </div>
                     </button>
                   </div>
@@ -15928,6 +15962,75 @@ export const V3UnifiedWorkspace: React.FC<{
         onClose={() => setIsProjectModalOpen(false)}
       />
       <BomModal isOpen={isBomModalOpen} onClose={() => setIsBomModalOpen(false)} initialTab={bomModalInitialTab} />
+      <TapToPlaceController
+        armedItem={armedTapItem}
+        bayCount={activeModule.bays.length}
+        bayWidthsMm={activeBreakdown.bayWidths}
+        netInnerHeightMm={netInnerHeightMm}
+        onCancel={() => setArmedTapItem(null)}
+        onAppendModuleTemplate={(tplId) => applyV4Template(tplId, true)}
+        onPlaceInBay={(item, bayIdx, zone) => {
+          setActiveBayIndex(bayIdx);
+          if (item.kind === "carcass_divider") {
+            splitBayIntoTwo(bayIdx);
+            return;
+          }
+          if (item.kind === "sub_divider") {
+            addSubDivider(bayIdx);
+            return;
+          }
+          const targetElev =
+            zone === "low"
+              ? Math.round(netInnerHeightMm * 0.16)
+              : zone === "high"
+              ? Math.round(netInnerHeightMm * 0.8)
+              : Math.round(netInnerHeightMm * 0.48);
+          addInteriorItemAtElevation(bayIdx, item.id, targetElev);
+        }}
+      />
+
+      {showArAnd3DModal && (() => {
+        const exportParts: ExportBoxPart[] = [];
+        project.modules.forEach((m) => {
+          const geo = generateModuleGeometry(m, { doorOpenAngleDeg: 0 });
+          const rotDeg = ((m.rotation?.y ?? 0) % 360 + 360) % 360;
+          const rad = (rotDeg * Math.PI) / 180;
+          const cos = Math.cos(rad);
+          const sin = Math.sin(rad);
+          geo.components.forEach((c) => {
+            const lx = c.position.x + c.dimensions.width / 2;
+            const ly = c.position.y + c.dimensions.height / 2;
+            const lz = c.position.z + c.dimensions.depth / 2;
+            exportParts.push({
+              id: c.id,
+              name: c.label || c.role,
+              role: c.role,
+              moduleId: m.id,
+              moduleName: m.name,
+              materialId: c.materialId,
+              positionMm: {
+                x: m.position.x + lx * cos + lz * sin,
+                y: m.position.y + ly,
+                z: m.position.z - lx * sin + lz * cos,
+              },
+              dimensionsMm: { ...c.dimensions },
+              rotationYDeg: rotDeg,
+            });
+          });
+        });
+        return (
+          <ArRoomPreviewModal
+            isOpen={showArAnd3DModal}
+            onClose={() => setShowArAnd3DModal(false)}
+            project={project}
+            materials={DEFAULT_MATERIALS}
+            parts={exportParts}
+            discountPercent={quoteDiscountPct}
+            installments={quoteInstallments}
+            clientTotalEur={pricing.totalWithVatEur}
+          />
+        );
+      })()}
     </div>
   );
 };

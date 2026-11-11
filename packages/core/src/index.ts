@@ -6,3 +6,5 @@ export * from "./v4-profiles";
 export * from "./v4-source-registry";
 export * from "./v4-compatibility";
 export * from "./floorplan-parser";
+export * from "./sweep-collision";
+export * from "./panel-cutouts";

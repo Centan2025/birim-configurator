@@ -2059,7 +2059,32 @@ export function generateModuleGeometry(
       const poly =
         bayObj?.door?.customCadPolygon || module.carcass.customCadPolygon;
       if (prof) c.crossSectionProfile = prof;
-      if (poly) c.customCadPolygon = poly;
+      if (poly && poly.length >= 3) {
+        const cleanPoly = poly.filter(
+          (pt) => Number.isFinite(pt.x) && Number.isFinite(pt.y)
+        );
+        let deduped: { x: number; y: number }[] = [];
+        for (const pt of cleanPoly) {
+          const prev = deduped[deduped.length - 1];
+          if (!prev || Math.hypot(pt.x - prev.x, pt.y - prev.y) > 1e-4) {
+            deduped.push({
+              x: Math.max(0, Math.min(1, Number(pt.x.toFixed(4)))),
+              y: Math.max(0, Math.min(1, Number(pt.y.toFixed(4)))),
+            });
+          }
+        }
+        if (deduped.length >= 3) {
+          let signedArea2 = 0;
+          for (let i = 0; i < deduped.length; i++) {
+            const a = deduped[i];
+            const b = deduped[(i + 1) % deduped.length];
+            signedArea2 += a.x * b.y - b.x * a.y;
+          }
+          if (Math.abs(signedArea2) > 1e-4) {
+            c.customCadPolygon = deduped;
+          }
+        }
+      }
     }
     const ov = module.componentMaterialOverrides?.[c.id];
     if (ov) c.materialId = ov;
@@ -2072,8 +2097,9 @@ export function generateModuleGeometry(
     netInnerHeight: netInnerH,
     netInnerDepth: netInnerD,
   };
-  if (moduleGeometryCache.size > 400) {
-    moduleGeometryCache.clear();
+  if (moduleGeometryCache.size >= 400) {
+    const oldestKey = moduleGeometryCache.keys().next().value;
+    if (oldestKey) moduleGeometryCache.delete(oldestKey);
   }
   moduleGeometryCache.set(cacheKey, result);
   return result;

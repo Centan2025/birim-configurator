@@ -63,6 +63,9 @@ export default function V3PlanPage() {
     loadLinearKitchen,
     loadLKitchen,
     loadUKitchen,
+    canUndo,
+    undo,
+    resetToDefault,
   } = useV3Adapter();
 
   const [layoutMode, setLayoutMode] = useState<"split" | "plan_only" | "3d_only">("split");
@@ -70,7 +73,32 @@ export default function V3PlanPage() {
   const [snapMm, setSnapMm] = useState<number>(50);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
 
-  if (!activeModule) return null;
+  if (!activeModule) {
+    return (
+      <div
+        data-testid="v3-plan-root"
+        className="flex flex-col items-center justify-center h-screen w-screen bg-[#F5F3EE] text-[#141413] p-6"
+      >
+        <div className="max-w-md w-full bg-white border border-[#E4DFD5] rounded-2xl p-8 text-center shadow-sm space-y-4">
+          <V3BrandBadge subtitle="PLAN & CAD" />
+          <h1 className="text-lg font-bold">Mekânda yerleşik modül bulunmuyor</h1>
+          <p className="text-xs text-[#57534E] leading-relaxed">
+            Yeni bir dolap veya hazır mutfak yerleşimi seçerek 2D/3D mimari plana devam edebilirsiniz.
+          </p>
+          <div className="flex items-center justify-center gap-2 pt-2">
+            {canUndo && (
+              <V3Button variant="outline" onClick={undo}>
+                Geri Al
+              </V3Button>
+            )}
+            <V3Button variant="primary" onClick={resetToDefault}>
+              Yeni Modül Ekle
+            </V3Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
   const { width, height, depth } = activeModule.dimensions;
   const mainWall = project.space.walls[0] || { length: 3600, height: 2700 };
   const usedSpanMm = project.modules.reduce(

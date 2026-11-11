@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { MaterialDefinition } from "@birim/core";
+import { markSharedMaterial, markSharedTexture } from "./webglResourceGuard";
 
 interface CachedTextureSet {
   colorMap?: THREE.CanvasTexture;
@@ -374,29 +375,36 @@ export function getArchitecturalFloorTexture(
  * so glass, anodized metal, silk lacquer, and wood clearcoat reflect realistic architectural softboxes.
  */
 let cachedStudioEnvTexture: THREE.DataTexture | null = null;
-let cachedPmremEnvTexture: THREE.Texture | null = null;
+const pmremTargetByRenderer = new WeakMap<THREE.WebGLRenderer, THREE.WebGLRenderTarget>();
+
+export function disposeRendererPmremEnvironment(renderer: THREE.WebGLRenderer | null | undefined): void {
+  if (!renderer) return;
+  const target = pmremTargetByRenderer.get(renderer);
+  if (target) {
+    target.dispose();
+    pmremTargetByRenderer.delete(renderer);
+  }
+}
 
 /**
- * Generates a prefiltered, mipmapped GGX radiance environment map (PMREM) from a virtual
- * architectural studio scene with high-dynamic-range softbox lightformers and window panels.
- * Computed once on GPU (< 4ms) for zero per-frame overhead and photorealistic reflections.
+ * Generates a prefiltered, mipmapped GGX radiance environment map (PMREM) keyed per active
+ * WebGLRenderer instance so remounting or switching routes never binds a dead context texture.
  */
 export function getStudioPmremEnvironment(renderer: THREE.WebGLRenderer): THREE.Texture {
-  if (cachedPmremEnvTexture) return cachedPmremEnvTexture;
+  const existingTarget = pmremTargetByRenderer.get(renderer);
+  if (existingTarget) return existingTarget.texture;
   try {
     const pmremGenerator = new THREE.PMREMGenerator(renderer);
     pmremGenerator.compileCubemapShader();
 
     const envScene = new THREE.Scene();
 
-    // Enclosing soft warm architectural studio room shell
     const roomBox = new THREE.Mesh(
       new THREE.BoxGeometry(36, 24, 36),
       new THREE.MeshBasicMaterial({ color: new THREE.Color(0.76, 0.75, 0.72), side: THREE.BackSide })
     );
     envScene.add(roomBox);
 
-    // Warm oak floor bounce card
     const floorBounce = new THREE.Mesh(
       new THREE.PlaneGeometry(32, 32),
       new THREE.MeshBasicMaterial({ color: new THREE.Color(0.95, 0.88, 0.78), side: THREE.DoubleSide })
@@ -405,7 +413,6 @@ export function getStudioPmremEnvironment(renderer: THREE.WebGLRenderer): THREE.
     floorBounce.position.set(0, -11.5, 0);
     envScene.add(floorBounce);
 
-    // Helper to add HDR emissive studio lightformer panels (RGB > 1.0 for crisp specular reflections)
     const addLightformer = (
       w: number,
       h: number,
@@ -426,23 +433,25 @@ export function getStudioPmremEnvironment(renderer: THREE.WebGLRenderer): THREE.
       envScene.add(m);
     };
 
-    // 1. Overhead large diffused skylight softbox
     addLightformer(22, 16, [0, 11.8, 2], [Math.PI / 2, 0, 0], [4.2, 4.15, 4.0]);
-    // 2. Left tall architectural window lightformer (creates natural vertical reflections on cabinet doors)
     addLightformer(14, 18, [-17.5, 2.5, 6], [0, Math.PI / 2, 0], [5.8, 5.6, 5.2]);
-    // 3. Right warm fill softbox
     addLightformer(12, 15, [17.5, 3.0, 5], [0, -Math.PI / 2, 0], [3.6, 3.3, 2.9]);
-    // 4. Front-top grazing highlight strip (accentuates Gola channels, handles, and countertop bevels)
     addLightformer(20, 5, [0, 7.5, 17.5], [0, Math.PI, 0], [3.9, 3.85, 3.75]);
 
     const renderTarget = pmremGenerator.fromScene(envScene, 0.035);
-    cachedPmremEnvTexture = renderTarget.texture;
-    roomBox.geometry.dispose();
-    (roomBox.material as THREE.Material).dispose();
-    floorBounce.geometry.dispose();
-    (floorBounce.material as THREE.Material).dispose();
+    markSharedTexture(renderTarget.texture);
+    pmremTargetByRenderer.set(renderer, renderTarget);
+
+    // Dispose ALL temporary scene meshes (roomBox, floorBounce, and all 4 lightformers!)
+    envScene.traverse((obj) => {
+      if (obj instanceof THREE.Mesh) {
+        obj.geometry.dispose();
+        if (obj.material instanceof THREE.Material) obj.material.dispose();
+      }
+    });
+    envScene.clear();
     pmremGenerator.dispose();
-    return cachedPmremEnvTexture;
+    return renderTarget.texture;
   } catch {
     return getStudioEnvironmentTexture();
   }
@@ -489,6 +498,7 @@ export function getStudioEnvironmentTexture(): THREE.DataTexture {
   tex.mapping = THREE.EquirectangularReflectionMapping;
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.needsUpdate = true;
+  markSharedTexture(tex);
   cachedStudioEnvTexture = tex;
   return tex;
 }
@@ -520,6 +530,7 @@ export function getV3PbrMaterial(
       metalness: 0.05,
       clearcoat: 0.9,
     });
+    markSharedMaterial(ledMat);
     pbrMaterialCache.set(key, ledMat);
     return ledMat;
   }
@@ -538,6 +549,7 @@ export function getV3PbrMaterial(
       emissive,
       emissiveIntensity,
     });
+    markSharedMaterial(mat);
     pbrMaterialCache.set(key, mat);
     return mat;
   }
@@ -560,6 +572,7 @@ export function getV3PbrMaterial(
       emissive,
       emissiveIntensity,
     });
+    markSharedMaterial(mat);
     pbrMaterialCache.set(key, mat);
     return mat;
   }
@@ -572,15 +585,29 @@ export function getV3PbrMaterial(
     let bumpTex = maps.bumpMap || null;
     if (colorTex && grainDirection !== "lengthwise") {
       const rotRad = grainDirection === "crosswise" ? Math.PI / 2 : Math.PI / 4;
-      colorTex = colorTex.clone();
-      colorTex.center.set(0.5, 0.5);
-      colorTex.rotation = rotRad;
-      colorTex.needsUpdate = true;
+      const rotColorKey = `${matDef.id}_color_rot_${grainDirection}`;
+      let cachedRotColor = textureCache.get(rotColorKey);
+      if (!cachedRotColor) {
+        cachedRotColor = colorTex.clone();
+        cachedRotColor.center.set(0.5, 0.5);
+        cachedRotColor.rotation = rotRad;
+        cachedRotColor.needsUpdate = true;
+        markSharedTexture(cachedRotColor);
+        textureCache.set(rotColorKey, cachedRotColor);
+      }
+      colorTex = cachedRotColor;
       if (bumpTex) {
-        bumpTex = bumpTex.clone();
-        bumpTex.center.set(0.5, 0.5);
-        bumpTex.rotation = rotRad;
-        bumpTex.needsUpdate = true;
+        const rotBumpKey = `${matDef.id}_bump_rot_${grainDirection}`;
+        let cachedRotBump = textureCache.get(rotBumpKey);
+        if (!cachedRotBump) {
+          cachedRotBump = bumpTex.clone();
+          cachedRotBump.center.set(0.5, 0.5);
+          cachedRotBump.rotation = rotRad;
+          cachedRotBump.needsUpdate = true;
+          markSharedTexture(cachedRotBump);
+          textureCache.set(rotBumpKey, cachedRotBump);
+        }
+        bumpTex = cachedRotBump;
       }
     }
     const roughVal =
@@ -610,6 +637,7 @@ export function getV3PbrMaterial(
       emissive,
       emissiveIntensity,
     });
+    markSharedMaterial(mat);
     pbrMaterialCache.set(key, mat);
     return mat;
   }
@@ -630,6 +658,7 @@ export function getV3PbrMaterial(
       emissive,
       emissiveIntensity,
     });
+    markSharedMaterial(mat);
     pbrMaterialCache.set(key, mat);
     return mat;
   }
@@ -654,6 +683,7 @@ export function getV3PbrMaterial(
       emissive,
       emissiveIntensity,
     });
+    markSharedMaterial(mat);
     pbrMaterialCache.set(key, mat);
     return mat;
   }
@@ -676,6 +706,8 @@ export function getV3PbrMaterial(
     emissive,
     emissiveIntensity,
   });
+  markSharedMaterial(mat);
+    markSharedMaterial(mat);
   pbrMaterialCache.set(key, mat);
   return mat;
 }

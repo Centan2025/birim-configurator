@@ -30,7 +30,19 @@ let latestSequenceByProject = new Map<string, number>();
 let activeProjectId = "default_project";
 let currentJob: AsyncNestingJob | null = null;
 let activeBrowserWorker: Worker | null = null;
+let activeWorkerBlobUrl: string | null = null;
 const listeners = new Set<(job: AsyncNestingJob) => void>();
+
+function terminateActiveWorkerAndBlob(): void {
+  if (activeBrowserWorker) {
+    activeBrowserWorker.terminate();
+    activeBrowserWorker = null;
+  }
+  if (activeWorkerBlobUrl && typeof URL !== "undefined" && typeof URL.revokeObjectURL === "function") {
+    URL.revokeObjectURL(activeWorkerBlobUrl);
+    activeWorkerBlobUrl = null;
+  }
+}
 
 const INLINE_NESTING_WORKER_SOURCE = `
 self.onmessage = function(e) {
@@ -67,11 +79,15 @@ self.onmessage = function(e) {
       var itemsToPlace = [];
       for (var j = 0; j < matPieces.length; j++) {
         var piece = matPieces[j];
+        var netL = typeof piece.netCutLengthMm === "number" ? piece.netCutLengthMm : piece.lengthMm;
+        var netW = typeof piece.netCutWidthMm === "number" ? piece.netCutWidthMm : piece.widthMm;
+        var itemW = piece.grain === "crosswise" ? netW : netL;
+        var itemH = piece.grain === "crosswise" ? netL : netW;
         for (var q = 0; q < piece.quantity; q++) {
           itemsToPlace.push({
             piece: piece,
-            w: piece.lengthMm,
-            h: piece.widthMm,
+            w: itemW,
+            h: itemH,
             canRotate: piece.grain === "none"
           });
         }
@@ -88,6 +104,8 @@ self.onmessage = function(e) {
             materialName: matName,
             sheetDimension: sheetConfig,
             placedPieces: [],
+            usableRemnants: [],
+            usableRemnantAreaM2: 0,
             netUsedAreaM2: 0,
             totalSheetAreaM2: fullSheetAreaM2,
             wasteAreaM2: fullSheetAreaM2,
@@ -169,12 +187,33 @@ self.onmessage = function(e) {
         }
       }
       var totalMatNetAreaM2 = 0;
+      var totalUsableRemnantAreaM2 = 0;
       for (var m = 0; m < activeSheets.length; m++) {
         var s = activeSheets[m];
+        var usableRemnants = [];
+        var sheetRemArea = 0;
+        for (var frIdx = 0; frIdx < s.freeRects.length; frIdx++) {
+          var fr = s.freeRects[frIdx];
+          if (fr.w >= 300 && fr.h >= 300) {
+            var areaM2 = Number(((fr.w * fr.h) / 1000000).toFixed(3));
+            sheetRemArea += areaM2;
+            usableRemnants.push({
+              id: "rem_" + matId + "_s" + s.sheet.sheetIndex + "_" + (frIdx + 1),
+              x: Math.round(fr.x),
+              y: Math.round(fr.y),
+              width: Math.round(fr.w),
+              length: Math.round(fr.h),
+              areaM2: areaM2
+            });
+          }
+        }
+        s.sheet.usableRemnants = usableRemnants;
+        s.sheet.usableRemnantAreaM2 = Number(sheetRemArea.toFixed(3));
         s.sheet.netUsedAreaM2 = Number(s.sheet.netUsedAreaM2.toFixed(3));
         s.sheet.wasteAreaM2 = Number(Math.max(0, s.sheet.totalSheetAreaM2 - s.sheet.netUsedAreaM2).toFixed(3));
         s.sheet.wastePercent = Number(((s.sheet.wasteAreaM2 / s.sheet.totalSheetAreaM2) * 100).toFixed(1));
         totalMatNetAreaM2 += s.sheet.netUsedAreaM2;
+        totalUsableRemnantAreaM2 += s.sheet.usableRemnantAreaM2;
         sheets.push(s.sheet);
       }
       var totalGrossAreaM2 = sheets.length * fullSheetAreaM2;
@@ -189,6 +228,7 @@ self.onmessage = function(e) {
         totalSheetsCount: sheets.length,
         totalNetAreaM2: Number(totalMatNetAreaM2.toFixed(2)),
         totalGrossAreaM2: Number(totalGrossAreaM2.toFixed(2)),
+        usableRemnantAreaM2: Number(totalUsableRemnantAreaM2.toFixed(2)),
         overallWastePercent: overallWastePercent
       });
     });
@@ -213,10 +253,7 @@ function notify(job: AsyncNestingJob) {
 }
 
 export function resetNestingWorkerState(): void {
-  if (activeBrowserWorker) {
-    activeBrowserWorker.terminate();
-    activeBrowserWorker = null;
-  }
+  terminateActiveWorkerAndBlob();
   activeSequenceId = 0;
   latestSequenceByProject = new Map();
   activeProjectId = "default_project";
@@ -228,8 +265,8 @@ export function resetNestingWorkerState(): void {
  * WP-12 Contract:
  * - Tracks `projectId + revisionId + jobId + sequenceId`.
  * - Executes inside an isolated browser Web Worker thread when `Worker` + `Blob` are available,
- *   immediately terminating any superseded in-flight worker, and falls back to async scheduling
- *   in non-Worker environments (such as Node/Vitest).
+ *   immediately terminating any superseded in-flight worker and revoking its Blob URL, and falls
+ *   back to async scheduling in non-Worker environments (such as Node/Vitest).
  */
 export async function computeNestingAsync(
   pieces: CutPiece[],
@@ -237,10 +274,7 @@ export async function computeNestingAsync(
   sheetConfig: SheetDimension = STANDARD_SHEET_2800x2070,
   options: NestingWorkerRequestOptions = {}
 ): Promise<NestingOptimizationResult[] | null> {
-  if (activeBrowserWorker) {
-    activeBrowserWorker.terminate();
-    activeBrowserWorker = null;
-  }
+  terminateActiveWorkerAndBlob();
 
   const sequenceId = ++activeSequenceId;
   const projectId = options.projectId || "default_project";
@@ -277,19 +311,23 @@ export async function computeNestingAsync(
 
   if (hasBrowserWorker) {
     return new Promise((resolve) => {
-      let blobUrl: string | null = null;
+      let localBlobUrl: string | null = null;
       try {
         const blob = new Blob([INLINE_NESTING_WORKER_SOURCE], {
           type: "application/javascript",
         });
-        blobUrl = URL.createObjectURL(blob);
-        const worker = new Worker(blobUrl);
+        localBlobUrl = URL.createObjectURL(blob);
+        activeWorkerBlobUrl = localBlobUrl;
+        const worker = new Worker(localBlobUrl);
         activeBrowserWorker = worker;
 
         const cleanup = () => {
-          if (blobUrl) {
-            URL.revokeObjectURL(blobUrl);
-            blobUrl = null;
+          if (localBlobUrl) {
+            URL.revokeObjectURL(localBlobUrl);
+            if (activeWorkerBlobUrl === localBlobUrl) {
+              activeWorkerBlobUrl = null;
+            }
+            localBlobUrl = null;
           }
           if (activeBrowserWorker === worker) {
             activeBrowserWorker = null;
@@ -327,7 +365,6 @@ export async function computeNestingAsync(
 
         worker.onerror = () => {
           cleanup();
-          // Fallback to main-thread async execution if CSP blocks blob worker
           const result = optimizeSheetNesting(pieces, sheetConfig);
           const durationMs = Number((performance.now() - t0).toFixed(2));
           if (isStale()) {
@@ -347,7 +384,12 @@ export async function computeNestingAsync(
 
         worker.postMessage({ pieces, sheetConfig });
       } catch {
-        if (blobUrl) URL.revokeObjectURL(blobUrl);
+        if (localBlobUrl) {
+          URL.revokeObjectURL(localBlobUrl);
+          if (activeWorkerBlobUrl === localBlobUrl) {
+            activeWorkerBlobUrl = null;
+          }
+        }
         setTimeout(() => {
           if (isStale()) {
             notify({ ...job, status: "cancelled" });

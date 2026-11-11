@@ -4,6 +4,7 @@ import {
   HandleCategory,
   ModuleInstance,
   OpeningTechnology,
+  roundIntMm,
   UnitLength,
 } from "@birim/core";
 import { getV4TemplateById } from "./v4-module-taxonomy";
@@ -67,7 +68,7 @@ export interface SmartWallLayoutProposal {
 }
 
 /**
- * FAZ 08 — Smart Wall Span Layout Generator
+ * Smart Wall Span Layout Generator
  * Given a target wall length (e.g. 3600mm), proposes engineering-valid 4-carcass, 3-carcass,
  * and mixed-width layouts including automatic left/right wall filler strips.
  */
@@ -78,18 +79,18 @@ export function generateSmartWallLayouts(
   mode: "wardrobe" | "kitchen" = "wardrobe"
 ): SmartWallLayoutProposal[] {
   const proposals: SmartWallLayoutProposal[] = [];
-  const safeSpan = Math.max(800, Math.min(6000, Math.round(wallSpanMm)));
+  const safeSpan = Math.max(800, Math.min(6000, roundIntMm(wallSpanMm)));
 
-  // Standard 30mm left & right wall filler strips for door swing & wall plumb tolerance
   const fillerEach = safeSpan >= 1400 ? 30 : 0;
   const usableSpan = safeSpan - 2 * fillerEach;
 
   if (mode === "wardrobe") {
-    // Option 1: 4-Carcass Layout (for spans >= 2400mm)
     const count4 = safeSpan >= 2400 ? 4 : 2;
     const w4Base = Math.floor(usableSpan / count4);
     const w4Rem = usableSpan - w4Base * count4;
-    const widths4 = Array.from({ length: count4 }, (_, i) => (i === 0 ? w4Base + w4Rem : w4Base));
+    const widths4 = Array.from({ length: count4 }, (_, i) =>
+      i === 0 ? w4Base + w4Rem : w4Base
+    );
 
     proposals.push({
       id: "smart_layout_4_equal",
@@ -115,7 +116,6 @@ export function generateSmartWallLayouts(
       },
     });
 
-    // Option 2: 3-Carcass Layout (for spans >= 1800mm)
     if (safeSpan >= 1800) {
       const w3Base = Math.floor(usableSpan / 3);
       const w3Rem = usableSpan - w3Base * 3;
@@ -135,7 +135,10 @@ export function generateSmartWallLayouts(
           let curX = fillerEach;
           return widths3.map((w, idx) => {
             const tpl = idx === 1 ? tplMix : tplAsk;
-            const m = tpl.createInstance(`mod_w3_${idx + 1}`, idx === 1 ? "Orta Master Kule" : `Yan Askı Gövde ${idx + 1}`);
+            const m = tpl.createInstance(
+              `mod_w3_${idx + 1}`,
+              idx === 1 ? "Orta Master Kule" : `Yan Askı Gövde ${idx + 1}`
+            );
             m.position = { x: curX, y: 0, z: 0 };
             m.dimensions = { width: w, height: heightMm, depth: depthMm };
             curX += w;
@@ -145,7 +148,6 @@ export function generateSmartWallLayouts(
       });
     }
 
-    // Option 3: Mixed Width Functional Layout (Askı + Pantolonluk/Çekmece + Vitrin + Ayakkabılık)
     if (safeSpan >= 2400) {
       const wLeft = Math.round(usableSpan * 0.3);
       const wMid = Math.round(usableSpan * 0.28);
@@ -180,18 +182,18 @@ export function generateSmartWallLayouts(
       });
     }
   } else {
-    // Kitchen wall span layout: Fixed 600mm Oven + Fixed 600mm Dishwasher + Sink + Drawers
     const fixedOven = 600;
     const fixedDw = 600;
     const remaining = Math.max(800, usableSpan - fixedOven - fixedDw);
-    const sinkW = Math.min(900, Math.max(600, Math.round(remaining * 0.45)));
+    const sinkW = Math.min(900, Math.max(400, Math.round(remaining * 0.5)));
     const drawerW = Math.max(400, remaining - sinkW);
     const kWidths = [sinkW, fixedDw, drawerW, fixedOven];
 
     proposals.push({
       id: "smart_layout_kitchen_run",
       title: `Akıllı Mutfak Dizilimi (${kWidths.join(" + ")} mm)`,
-      subtitle: "Evye + Bulaşık Makinesi (600 Sabit) + 3 Çekmeceli Hazırlık + Ankastre Fırın (600 Sabit)",
+      subtitle:
+        "Evye + Bulaşık Makinesi (600 Sabit) + 3 Çekmeceli Hazırlık + Ankastre Fırın (600 Sabit)",
       carcassCount: 4,
       moduleWidthsMm: kWidths,
       leftFillerMm: fillerEach,
@@ -219,9 +221,7 @@ export function generateSmartWallLayouts(
 }
 
 /**
- * FAZ 08 — Equal & Fixed/Flexible Width Distribution Across Wall Span
- * Respects `isFixedWidth: true` modules (like 600mm ovens) and distributes remaining space
- * evenly across flexible modules, returning remaining filler gap.
+ * Equal & Fixed/Flexible Width Distribution Across Wall Span
  */
 export function distributeModulesAlongWall(
   modules: ModuleInstance[],
@@ -229,26 +229,38 @@ export function distributeModulesAlongWall(
   reserveWallFillerMm = 30
 ): { updatedModules: ModuleInstance[]; leftFillerMm: UnitLength; rightFillerMm: UnitLength } {
   const baseModules = modules.filter(
-    (m) => m.category !== "kitchen_wall" && m.category !== "complementary" && (m.rotation?.y || 0) === 0
+    (m) =>
+      m.category !== "kitchen_wall" &&
+      m.category !== "complementary" &&
+      (m.rotation?.y || 0) === 0
   );
   if (baseModules.length === 0) {
     return { updatedModules: modules, leftFillerMm: 0, rightFillerMm: 0 };
   }
 
-  const usableSpan = Math.max(400, wallLengthMm - 2 * reserveWallFillerMm);
+  const effectiveFiller =
+    wallLengthMm >= baseModules.length * 320 + 2 * reserveWallFillerMm
+      ? reserveWallFillerMm
+      : 0;
+  const usableSpan = Math.max(300, wallLengthMm - 2 * effectiveFiller);
   const fixedTotal = baseModules
     .filter((m) => m.isFixedWidth)
     .reduce((sum, m) => sum + m.dimensions.width, 0);
   const flexMods = baseModules.filter((m) => !m.isFixedWidth);
-  const remainingForFlex = Math.max(flexMods.length * 300, usableSpan - fixedTotal);
+  const remainingForFlex = Math.max(flexMods.length * 250, usableSpan - fixedTotal);
   const flexUnitW = flexMods.length > 0 ? Math.floor(remainingForFlex / flexMods.length) : 0;
-  const flexRemainder = flexMods.length > 0 ? remainingForFlex - flexUnitW * flexMods.length : 0;
+  const flexRemainder =
+    flexMods.length > 0 ? remainingForFlex - flexUnitW * flexMods.length : 0;
 
-  let curX = reserveWallFillerMm;
+  let curX = effectiveFiller;
   let flexSeen = 0;
 
   const updatedModules = modules.map((mod) => {
-    if (mod.category === "kitchen_wall" || mod.category === "complementary" || (mod.rotation?.y || 0) !== 0) {
+    if (
+      mod.category === "kitchen_wall" ||
+      mod.category === "complementary" ||
+      (mod.rotation?.y || 0) !== 0
+    ) {
       return mod;
     }
     const nextW = mod.isFixedWidth
@@ -259,23 +271,23 @@ export function distributeModulesAlongWall(
 
     const updated: ModuleInstance = {
       ...mod,
-      position: { ...mod.position, x: curX },
-      dimensions: { ...mod.dimensions, width: nextW },
+      position: { ...mod.position, x: roundIntMm(curX) },
+      dimensions: { ...mod.dimensions, width: roundIntMm(nextW) },
     };
     curX += nextW;
     return updated;
   });
 
-  const rightGap = Math.max(0, wallLengthMm - curX);
+  const rightGap = Math.max(0, roundIntMm(wallLengthMm - curX));
   return {
     updatedModules,
-    leftFillerMm: reserveWallFillerMm,
+    leftFillerMm: effectiveFiller,
     rightFillerMm: rightGap,
   };
 }
 
 /**
- * FAZ 08 — Multi-Module Batch Property Updater
+ * Multi-Module Batch Property Updater
  */
 export function batchUpdateModules(
   modules: ModuleInstance[],
@@ -321,17 +333,17 @@ export function batchUpdateModules(
 }
 
 /**
- * FAZ 09 — Wardrobe Interior Layout Wizard
- * Automatically scales shelves, drawers, hanging rails, trouser racks, shoe racks, and LED profiles
- * to the module's actual net inner height and bay width.
+ * Wardrobe Interior Layout Wizard
+ * Dynamically scales shelves, drawers, rails, and fittings to any module height without overflow.
  */
 export function applyWardrobeInteriorWizard(
   module: ModuleInstance,
   wizardId: WardrobeInteriorWizardId,
   targetBayIndex?: number
 ): ModuleInstance {
-  const netH = calculateNetInnerHeight(module);
-  const snap32 = (y: number) => Math.max(64, Math.min(netH - 64, Math.round(y / 32) * 32));
+  const netH = Math.max(320, calculateNetInnerHeight(module));
+  const snap32 = (y: number) =>
+    Math.max(64, Math.min(Math.max(96, netH - 64), Math.round(y / 32) * 32));
 
   const updatedBays = module.bays.map((bay, idx) => {
     if (typeof targetBayIndex === "number" && idx !== targetBayIndex) {
@@ -344,22 +356,48 @@ export function applyWardrobeInteriorWizard(
       return {
         ...bay,
         shelves: [
-          { id: `sh_${module.id}_${idx}_top`, bayIndex: idx, elevationY: topShelfY, isAdjustable: false },
-          { id: `sh_${module.id}_${idx}_mid`, bayIndex: idx, elevationY: midShelfY, isAdjustable: false },
+          {
+            id: `sh_${module.id}_${idx}_top`,
+            bayIndex: idx,
+            elevationY: topShelfY,
+            isAdjustable: false,
+          },
+          {
+            id: `sh_${module.id}_${idx}_mid`,
+            bayIndex: idx,
+            elevationY: midShelfY,
+            isAdjustable: false,
+          },
         ],
         hangingRails: [
-          { id: `rl_${module.id}_${idx}_lift`, bayIndex: idx, elevationY: topShelfY - 70, isLiftMechanism: true },
-          { id: `rl_${module.id}_${idx}_bot`, bayIndex: idx, elevationY: midShelfY - 70, isLiftMechanism: false },
+          {
+            id: `rl_${module.id}_${idx}_lift`,
+            bayIndex: idx,
+            elevationY: Math.max(120, topShelfY - 70),
+            isLiftMechanism: true,
+          },
+          {
+            id: `rl_${module.id}_${idx}_bot`,
+            bayIndex: idx,
+            elevationY: Math.max(96, midShelfY - 70),
+            isLiftMechanism: false,
+          },
         ],
         drawers: [],
         specialFittings: [
-          { id: `fit_${module.id}_${idx}_lift`, bayIndex: idx, elevationY: topShelfY - 120, type: "wardrobe_lift" as const, height: 120 },
+          {
+            id: `fit_${module.id}_${idx}_lift`,
+            bayIndex: idx,
+            elevationY: Math.max(96, topShelfY - 120),
+            type: "wardrobe_lift" as const,
+            height: 120,
+          },
         ],
       };
     }
 
     if (wizardId === "wiz_shelf_heavy") {
-      const count = netH >= 1900 ? 5 : 4;
+      const count = netH >= 1900 ? 5 : netH >= 1100 ? 4 : 2;
       const shelves = Array.from({ length: count }, (_, sIdx) => ({
         id: `sh_${module.id}_${idx}_${sIdx}`,
         bayIndex: idx,
@@ -376,7 +414,8 @@ export function applyWardrobeInteriorWizard(
     }
 
     if (wizardId === "wiz_drawer_heavy") {
-      const drawers = [0, 1, 2, 3].map((dIdx) => ({
+      const maxDrawers = netH >= 1100 ? 4 : netH >= 750 ? 3 : 2;
+      const drawers = Array.from({ length: maxDrawers }, (_, dIdx) => ({
         id: `drw_${module.id}_${idx}_${dIdx}`,
         bayIndex: idx,
         elevationY: dIdx * 185,
@@ -385,39 +424,59 @@ export function applyWardrobeInteriorWizard(
         isInternal: bay.door.type !== "open",
         hardwareProductId: "hw_blum_legrabox_m40",
       }));
-      const coverShelfY = snap32(4 * 185 + 20);
+      const coverShelfY = snap32(maxDrawers * 185 + 20);
       const upperShelfY = snap32((coverShelfY + netH) / 2);
       return {
         ...bay,
-        shelves: [
-          { id: `sh_${module.id}_${idx}_cov`, bayIndex: idx, elevationY: coverShelfY, isAdjustable: false },
-          { id: `sh_${module.id}_${idx}_up`, bayIndex: idx, elevationY: upperShelfY, isAdjustable: true },
-        ],
+        shelves:
+          netH > maxDrawers * 185 + 180
+            ? [
+                {
+                  id: `sh_${module.id}_${idx}_cov`,
+                  bayIndex: idx,
+                  elevationY: coverShelfY,
+                  isAdjustable: false,
+                },
+                {
+                  id: `sh_${module.id}_${idx}_up`,
+                  bayIndex: idx,
+                  elevationY: upperShelfY,
+                  isAdjustable: true,
+                },
+              ]
+            : [],
         hangingRails: [],
         drawers,
         specialFittings: [],
         door: {
           ...bay.door,
-          hardwareProductId: bay.door.type !== "open" ? "hw_blum_71b7550" : bay.door.hardwareProductId,
+          hardwareProductId:
+            bay.door.type !== "open" ? "hw_blum_71b7550" : bay.door.hardwareProductId,
         },
       };
     }
 
     if (wizardId === "wiz_shoe_tower") {
-      const shoeFittings = [0, 1, 2, 3].map((fIdx) => ({
+      const shoeCount = netH >= 1200 ? 4 : 2;
+      const shoeFittings = Array.from({ length: shoeCount }, (_, fIdx) => ({
         id: `fit_${module.id}_${idx}_shoe_${fIdx}`,
         bayIndex: idx,
         elevationY: 120 + fIdx * 180,
         type: "shoe_rack" as const,
         height: 100,
       }));
+      const shoeTop = 120 + shoeCount * 180 + 40;
+      const remSpan = Math.max(120, netH - shoeTop);
+      const bagShelfCount = netH >= 1600 ? 3 : netH >= 1100 ? 2 : 1;
+      const bagShelves = Array.from({ length: bagShelfCount }, (_, bIdx) => ({
+        id: `sh_${module.id}_${idx}_bag${bIdx + 1}`,
+        bayIndex: idx,
+        elevationY: snap32(shoeTop + ((bIdx + 1) * remSpan) / (bagShelfCount + 1)),
+        isAdjustable: true,
+      }));
       return {
         ...bay,
-        shelves: [
-          { id: `sh_${module.id}_${idx}_bag1`, bayIndex: idx, elevationY: snap32(950), isAdjustable: true },
-          { id: `sh_${module.id}_${idx}_bag2`, bayIndex: idx, elevationY: snap32(1350), isAdjustable: true },
-          { id: `sh_${module.id}_${idx}_bag3`, bayIndex: idx, elevationY: snap32(1750), isAdjustable: true },
-        ],
+        shelves: bagShelves,
         hangingRails: [],
         drawers: [],
         specialFittings: shoeFittings,
@@ -429,17 +488,59 @@ export function applyWardrobeInteriorWizard(
       return {
         ...bay,
         shelves: [
-          { id: `sh_${module.id}_${idx}_top`, bayIndex: idx, elevationY: topY, isAdjustable: false },
-          { id: `sh_${module.id}_${idx}_mid`, bayIndex: idx, elevationY: snap32(580), isAdjustable: false },
+          {
+            id: `sh_${module.id}_${idx}_top`,
+            bayIndex: idx,
+            elevationY: topY,
+            isAdjustable: false,
+          },
+          {
+            id: `sh_${module.id}_${idx}_mid`,
+            bayIndex: idx,
+            elevationY: snap32(Math.min(580, netH * 0.45)),
+            isAdjustable: false,
+          },
         ],
-        hangingRails: [{ id: `rl_${module.id}_${idx}_main`, bayIndex: idx, elevationY: topY - 70 }],
+        hangingRails: [
+          {
+            id: `rl_${module.id}_${idx}_main`,
+            bayIndex: idx,
+            elevationY: Math.max(120, topY - 70),
+          },
+        ],
         drawers: [
-          { id: `drw_${module.id}_${idx}_0`, bayIndex: idx, elevationY: 0, height: 180, slideType: "soft_close" as const, hardwareProductId: "hw_blum_legrabox_m40" },
-          { id: `drw_${module.id}_${idx}_1`, bayIndex: idx, elevationY: 185, height: 140, slideType: "soft_close" as const, hardwareProductId: "hw_blum_legrabox_m40" },
+          {
+            id: `drw_${module.id}_${idx}_0`,
+            bayIndex: idx,
+            elevationY: 0,
+            height: 180,
+            slideType: "soft_close" as const,
+            hardwareProductId: "hw_blum_legrabox_m40",
+          },
+          {
+            id: `drw_${module.id}_${idx}_1`,
+            bayIndex: idx,
+            elevationY: 185,
+            height: 140,
+            slideType: "soft_close" as const,
+            hardwareProductId: "hw_blum_legrabox_m40",
+          },
         ],
         specialFittings: [
-          { id: `fit_${module.id}_${idx}_jwl`, bayIndex: idx, elevationY: 200, type: "jewelry_tray" as const, height: 60 },
-          { id: `fit_${module.id}_${idx}_led`, bayIndex: idx, elevationY: topY - 10, type: "led_profile" as const, height: 20 },
+          {
+            id: `fit_${module.id}_${idx}_jwl`,
+            bayIndex: idx,
+            elevationY: 200,
+            type: "jewelry_tray" as const,
+            height: 60,
+          },
+          {
+            id: `fit_${module.id}_${idx}_led`,
+            bayIndex: idx,
+            elevationY: Math.max(96, topY - 10),
+            type: "led_profile" as const,
+            height: 20,
+          },
         ],
       };
     }
@@ -449,10 +550,26 @@ export function applyWardrobeInteriorWizard(
     return {
       ...bay,
       shelves: [
-        { id: `sh_${module.id}_${idx}_top`, bayIndex: idx, elevationY: topShelfY, isAdjustable: false },
-        { id: `sh_${module.id}_${idx}_low`, bayIndex: idx, elevationY: snap32(560), isAdjustable: false },
+        {
+          id: `sh_${module.id}_${idx}_top`,
+          bayIndex: idx,
+          elevationY: topShelfY,
+          isAdjustable: false,
+        },
+        {
+          id: `sh_${module.id}_${idx}_low`,
+          bayIndex: idx,
+          elevationY: snap32(Math.min(560, netH * 0.45)),
+          isAdjustable: false,
+        },
       ],
-      hangingRails: [{ id: `rl_${module.id}_${idx}_0`, bayIndex: idx, elevationY: topShelfY - 70 }],
+      hangingRails: [
+        {
+          id: `rl_${module.id}_${idx}_0`,
+          bayIndex: idx,
+          elevationY: Math.max(120, topShelfY - 70),
+        },
+      ],
       drawers: [
         {
           id: `drw_${module.id}_${idx}_0`,
@@ -474,11 +591,18 @@ export function applyWardrobeInteriorWizard(
         },
       ],
       specialFittings: [
-        { id: `fit_${module.id}_${idx}_tr`, bayIndex: idx, elevationY: 420, type: "trouser_rack" as const, height: 90 },
+        {
+          id: `fit_${module.id}_${idx}_tr`,
+          bayIndex: idx,
+          elevationY: Math.min(420, Math.max(380, netH - 220)),
+          type: "trouser_rack" as const,
+          height: 90,
+        },
       ],
       door: {
         ...bay.door,
-        hardwareProductId: bay.door.type !== "open" ? "hw_blum_71b7550" : bay.door.hardwareProductId,
+        hardwareProductId:
+          bay.door.type !== "open" ? "hw_blum_71b7550" : bay.door.hardwareProductId,
       },
     };
   });
@@ -490,9 +614,7 @@ export function applyWardrobeInteriorWizard(
 }
 
 /**
- * FAZ 09 — Kitchen Automatic Complementary Parts Generator
- * Automatically creates continuous Countertop (Tezgâh), Backsplash (Tezgâh Arası),
- * Wall Filler (Kör Parça), End Panel (Yan Bitiş Paneli), and Top Infill for a kitchen project.
+ * Kitchen Automatic Complementary Parts Generator
  */
 export function generateKitchenComplementaryModules(
   existingModules: ModuleInstance[],
@@ -512,28 +634,36 @@ export function generateKitchenComplementaryModules(
     const minX = Math.min(...baseCabinets.map((m) => m.position.x));
     const maxX = Math.max(...baseCabinets.map((m) => m.position.x + m.dimensions.width));
     const spanW = Math.max(600, maxX - minX);
-    const topOfBaseY = baseCabinets[0].dimensions.height; // 720mm
+    const topOfBaseY = baseCabinets[0].dimensions.height;
 
     const tplCountertop = getV4TemplateById("tpl_cm_09_countertop")!;
-    const countertop = tplCountertop.createInstance("comp_auto_countertop", `Otomatik Çimstone/Belenco Kuvars Tezgâh (${spanW}mm)`);
+    const countertop = tplCountertop.createInstance(
+      "comp_auto_countertop",
+      `Otomatik Çimstone/Belenco Kuvars Tezgâh (${spanW}mm)`
+    );
     countertop.position = { x: minX, y: topOfBaseY, z: 0 };
     countertop.dimensions = { width: spanW, height: 40, depth: 600 };
     generated.push(countertop);
 
     const tplBacksplash = getV4TemplateById("tpl_cm_11_backsplash")!;
-    const backsplash = tplBacksplash.createInstance("comp_auto_backsplash", `Otomatik Tezgâh Arası Panel (${spanW}mm)`);
+    const backsplash = tplBacksplash.createInstance(
+      "comp_auto_backsplash",
+      `Otomatik Tezgâh Arası Panel (${spanW}mm)`
+    );
     backsplash.position = { x: minX, y: topOfBaseY + 40, z: 0 };
     backsplash.dimensions = { width: spanW, height: 600, depth: 18 };
     generated.push(backsplash);
   }
 
   const tplEndPanel = getV4TemplateById("tpl_cm_05_end_panel")!;
-  const endPanel = tplEndPanel.createInstance("comp_auto_end_panel", "Otomatik Yan Bitiş Paneli");
+  const endPanel = tplEndPanel.createInstance(
+    "comp_auto_end_panel",
+    "Otomatik Yan Bitiş Paneli"
+  );
   endPanel.position = { x: maxAllX, y: 0, z: 0 };
   endPanel.dimensions = { width: 18, height: maxH, depth: 600 };
   generated.push(endPanel);
 
-  // Automatic Left/Right Wall Filler Panels (Kör Kapama) when wall gap is 20..350mm
   const tplFiller = getV4TemplateById("tpl_cm_04_wall_filler") || tplEndPanel;
   if (minAllX >= 20 && minAllX <= 350) {
     const leftFiller = tplFiller.createInstance(

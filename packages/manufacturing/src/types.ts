@@ -19,8 +19,8 @@ export interface CutPiece {
   componentRole: string;
   materialId: string;
   materialName: string;
-  lengthMm: UnitLength; // Nominal finished length (Boy)
-  widthMm: UnitLength; // Nominal finished width (En)
+  lengthMm: UnitLength; // Nominal finished length (Boy — Y axis in panel DXF)
+  widthMm: UnitLength; // Nominal finished width (En — X axis in panel DXF)
   nominalLengthMm?: UnitLength; // Bitmiş / Anma Boy (mm)
   nominalWidthMm?: UnitLength; // Bitmiş / Anma En (mm)
   netCutLengthMm?: UnitLength; // Testere Net Kesim Boyu (Bant kalınlığı düşülmüş, mm)
@@ -34,6 +34,18 @@ export interface CutPiece {
   edgeBandMeters: number;
   holes?: DrillingHole[];
   notes?: string;
+  /** True when right side panel is mirrored in X so inner face is referenced upward on CNC */
+  mirrorInnerFaceX?: boolean;
+  /** Back groove routing active on this panel */
+  hasBackGroove?: boolean;
+  /** Back groove distance from rear edge (default 20mm -> groove occupies [rear - 20, rear - 12]) */
+  backGrooveOffsetMm?: UnitLength;
+  /** Explicit sink/cooktop CNC cutout metadata (prevents false cutouts on plain countertops) */
+  hasSinkOrHobCutout?: boolean;
+  cutoutWidthMm?: UnitLength;
+  cutoutDepthMm?: UnitLength;
+  cutoutCenterXMm?: UnitLength;
+  utilityCutouts?: import("@birim/core").PanelCutoutConfig[];
 }
 
 export interface HardwareBOMItem {
@@ -87,11 +99,11 @@ export interface ManufacturingBOM {
   materialUsage: {
     materialId: string;
     materialName: string;
-    grossAreaM2: number; // Flat 12% standard fallback
+    grossAreaM2: number;
     netAreaM2: number;
     estimatedSheetsCount: number;
   }[];
-  nestingResults: NestingOptimizationResult[]; // Real 2D Guillotine Bin Packing Results
+  nestingResults: NestingOptimizationResult[];
   validationWarnings: string[];
   shelfDeflectionAnalyses?: ShelfDeflectionBOMEntry[];
   productionGate?: ProductionGateSummary;

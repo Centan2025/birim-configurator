@@ -59,6 +59,9 @@ export default function V3ShowroomPage() {
     addShelf,
     applyTemplate,
     loadLinearKitchen,
+    canUndo,
+    undo,
+    resetToDefault,
   } = useV3Adapter();
 
   const [zenMode, setZenMode] = useState(false);
@@ -68,7 +71,40 @@ export default function V3ShowroomPage() {
   );
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
 
-  if (!activeModule) return null;
+  if (!activeModule) {
+    return (
+      <div
+        data-testid="v3-showroom-root"
+        className="flex flex-col items-center justify-center h-screen w-screen bg-[#EBE7DF] text-[#141413] p-6"
+      >
+        <div className="max-w-md w-full bg-white/95 border border-[#E4DFD5] rounded-2xl p-8 text-center shadow-md space-y-4">
+          <V3BrandBadge subtitle="SHOWROOM" />
+          <h1 className="text-lg font-bold">Showroom sahnesi boş</h1>
+          <p className="text-xs text-[#57534E] leading-relaxed">
+            Sunuma devam etmek için varsayılan koleksiyon modülünü yükleyin veya geri alın.
+          </p>
+          <div className="flex items-center justify-center gap-2 pt-2">
+            {canUndo && (
+              <button
+                type="button"
+                onClick={undo}
+                className="px-4 py-2 rounded-xl border border-stone-300 text-xs font-semibold hover:bg-stone-100 cursor-pointer"
+              >
+                Geri Al
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={resetToDefault}
+              className="px-4 py-2 rounded-xl bg-[#141413] text-white text-xs font-semibold hover:bg-stone-800 cursor-pointer"
+            >
+              Koleksiyon Modülü Yükle
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
   const { width, height, depth } = activeModule.dimensions;
 
   return (
@@ -78,10 +114,13 @@ export default function V3ShowroomPage() {
     >
       {/* 1. FULL-BLEED 3D OR 2D STAGE */}
       <div className="absolute inset-0">
-        {!show2DOverlay ? (
+        <div className={show2DOverlay ? "hidden" : "w-full h-full"}>
           <V3ThreeViewport theme="showroom-neutral" showGrid={!zenMode} />
-        ) : (
-          <V3CadViewport2D mode="elevation" />
+        </div>
+        {show2DOverlay && (
+          <div className="w-full h-full">
+            <V3CadViewport2D mode="elevation" />
+          </div>
         )}
       </div>
 
