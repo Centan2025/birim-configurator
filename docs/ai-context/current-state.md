@@ -1,19 +1,14 @@
 # Birim Configurator — Güncel Proje Durumu (L2 Cache)
 
-- **Last Verified Commit:** `0d66690` (`main` dalı) — `[VERIFIED]`
+- **Last Verified Commit:** `fdd818f` (`main` dalı) — `[VERIFIED]`
 - **Son Güncelleme Tarihi:** `2026-11-08` (Europe/Istanbul)
 - **Çalışma Ağacı Durumu:** AI Context V2.1 (Context Capsule, Evidence Index, Handoff, Serena Level A/B, Measurement) aktif.
 
 ## 1. Tamamlanan Son İşler (Delta Özeti)
-- **[VERIFIED] Vercel Monorepo Build ve Root Directory Uyumsuzluğu Düzeltildi (2026-11-11):**
-  - Vercel'in projeyi `apps/configurator` dizininden derlemesi durumunda oluşan `No workspaces found: --workspace=apps/configurator` hatası giderildi.
-  - `vercel.json` (kök) ve `apps/configurator/vercel.json` dinamik dizin tespiti (`node -e "if(existsSync('apps/configurator'))..."`) ile hem kökten hem alt dizinden bağımsız derlenebilir hale getirildi.
-- **[VERIFIED] V4.6 Ticari Uzantılar, AR Oda Önizleme, Panel Cutouts ve CNC Postprocessors (2026-11-11):**
-  - AR Oda Önizleme (`ArRoomPreviewModal.tsx`, USDZ/GLTF exporter), Tap-to-Place (`TapToPlaceController.tsx`) ve Guided Wizard Live Preview eklendi.
-  - Panel priz/boru boşaltma ve delik motoru (`panel-cutouts.ts`), süpürme çakışma dedektörü (`sweep-collision.ts`) entegre edildi.
-  - Biesse bSolid ve Homag woodWOP / MPR CNC postprocessor motoru (`cnc-postprocessors.ts`) eklendi.
-  - Vercel dağıtım yapılandırması (`vercel.json`), teklif QR paylaşım motoru (`quote-codec.ts`, `/p/[code]`) eklendi.
-  - Tüm ticari uzantı testleri (`tests/v46-commercial-extensions.test.ts`) 5/5 PASS ile doğrulandı.
+- **[VERIFIED] PresentationQuoteModal ve 2D/3D Etkileşim İyileştirmeleri (2026-11-11):**
+  - Müşteri ve bayi için canlı teklif sunum modalı (`PresentationQuoteModal.tsx`) eklendi.
+  - 2D CAD ve 3D Three.js viewport etkileşimleri, PBR materyal sistemi ve BOM üretici entegrasyonu güncellendi.
+  - Regresyon ve ticari uzantı testleri doğrulandı (`10/10 PASS`).
 - **[VERIFIED] 3D/2D Viewport Geçişlerinde React startTransition INP Optimizasyonu (2026-11-10):**
   - Üst bar `studio-view-switcher` (3D Sahne, 2D Cephe, 2D Kesit, 2D Plan) ve `onViewChange` event handler'ı React 18/19 `startTransition` kapsamına alındı.
   - Viewport geçişleri non-blocking moda geçirilerek ~385ms'lik senkron render UI kilitlenmesi (INP issue) giderildi.

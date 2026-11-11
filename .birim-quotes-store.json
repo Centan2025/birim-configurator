@@ -1,0 +1,21 @@
+[
+  {
+    "code": "BRM-TEST99",
+    "projectId": "proj_1",
+    "projectTitle": "Test Proje",
+    "version": 1,
+    "createdAt": "2026-11-11T00:00:00.000Z",
+    "expiresAt": "2026-11-25T00:00:00.000Z",
+    "discountPercent": 10,
+    "installments": 6,
+    "serverVerifiedSubtotalEur": 1000,
+    "serverVerifiedTotalWithVatEur": 1200,
+    "serverVerifiedDiscountedTotalEur": 1080,
+    "serverVerifiedTotalWithVatTry": 43200,
+    "cutPiecesCount": 18,
+    "totalSheetsCount": 4,
+    "canApproveProduction": true,
+    "projectSnapshot": {},
+    "hmacSignature": "11450c975d7d00a39d2942bb3045c2dee94315e2d5bb5b130739917d5b547bc4"
+  }
+]

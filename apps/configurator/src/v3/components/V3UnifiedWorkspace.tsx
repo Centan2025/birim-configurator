@@ -39,6 +39,7 @@ import { TapToPlaceController, type TapToPlaceItemSpec } from "./workspace/TapTo
 import { ArRoomPreviewModal } from "./workspace/ArRoomPreviewModal";
 import { PanelCutoutInspector } from "./workspace/PanelCutoutInspector";
 import { GuidedWizardLivePreview } from "./workspace/GuidedWizardLivePreview";
+import { PresentationQuoteModal } from "./workspace/PresentationQuoteModal";
 import type { ExportBoxPart } from "@birim/geometry";
 
 function escapeHtmlPrint(raw: unknown): string {
@@ -1526,10 +1527,10 @@ export const V3UnifiedWorkspace: React.FC<{
       }
       const label =
         tier === "eco"
-          ? "🟢 Ekonomik Paket (18mm Beyaz MDFLam + Standart Donanım)"
+          ? "Essential Seri (18mm MDFLam + Standart Donanım)"
           : tier === "smart"
-            ? "🔵 Smart Paket (AGT Soft-Touch + Blum Frenli + Sensörlü İç LED)"
-            : "🟣 Signature Paket (Doğal Meşe/Ceviz + Füme Cam + Tam Donanım)";
+            ? "Studio Seri (Supramat İpek Mat + Blum Frenli + 3000K İç LED)"
+            : "Signature Seri (Doğal Meşe/Ceviz Kaplama + Füme Cam + Tam Donanım)";
       setApprovalBanner({ text: `${label} tüm modüllere uygulandı.`, ok: true });
       setTimeout(() => setApprovalBanner(null), 4000);
     },
@@ -1540,164 +1541,211 @@ export const V3UnifiedWorkspace: React.FC<{
   const handleFix32mmHingeShelfCollisions = useCallback(() => {
     equalizeBaysAndShelves();
     setApprovalBanner({
-      text: "🔧 Tüm iç raf ve çekmece kotları 32mm delik sistemine hizalandı ve menteşe tas yuvalarından kurtarıldı.",
+      text: "Tüm iç raf ve çekmece kotları System 32 delik aksına hizalandı.",
       ok: true,
     });
     setTimeout(() => setApprovalBanner(null), 4000);
   }, [equalizeBaysAndShelves]);
 
-  // Tek Sayfa Görsel Müşteri Sunum & Teklif PDF'i (3D Sahne + 2D Mimari Plan + Kapasite + İskontolu Fiyat)
-  const handlePrintVisualCustomerPresentation = useCallback(() => {
-    if (typeof window === "undefined") return;
-    let snapshot3DDataUrl = "";
-    try {
-      const canvasEl = document.querySelector("canvas") as HTMLCanvasElement | null;
-      if (canvasEl) {
-        snapshot3DDataUrl = canvasEl.toDataURL("image/png");
+  // Tek Sayfa Görsel Müşteri Sunum & Teklif PDF'i (3D Stüdyo + 2D Tüm-Modül İç Cephe Şeması + Gerçek Malzeme Adları)
+  const handlePrintVisualCustomerPresentation = useCallback(
+    (meta?: { clientName?: string; projectNote?: string }) => {
+      if (typeof window === "undefined") return;
+      let snapshot3DDataUrl = "";
+      try {
+        const canvasEl = document.querySelector("canvas") as HTMLCanvasElement | null;
+        if (canvasEl) {
+          snapshot3DDataUrl = canvasEl.toDataURL("image/png");
+        }
+      } catch {
+        // ignore cross-origin or context loss
       }
-    } catch {
-      // ignore cross-origin or context loss
-    }
 
-    const wallLen = spaceWalls[0]?.length || 3600;
-    const netTotal = (pricing.totalWithVatEur * (1 - quoteDiscountPct / 100)).toLocaleString("tr-TR", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
-    const monthlyPay = (
-      (pricing.totalWithVatEur * (1 - quoteDiscountPct / 100)) /
-      Math.max(1, quoteInstallments)
-    ).toLocaleString("tr-TR", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
+      const matNameById = new Map(DEFAULT_MATERIALS.map((m) => [m.id, m.name.split(" (")[0]]));
+      const mainMods = project.modules.filter((m) => m.category !== "complementary");
+      const maxH = mainMods.length > 0 ? Math.max(...mainMods.map((m) => m.dimensions.height)) : 2200;
+      const spanW = Math.max(
+        liveCustomerAndFactoryStats.totalModWidth + 160,
+        ...mainMods.map((m) => (m.position?.x || 0) + m.dimensions.width + 80),
+        1200
+      );
 
-    const svgModulesMarkup = project.modules
-      .map((m, idx) => {
-        const mx = m.position?.x || 0;
-        const mz = m.position?.z || 0;
-        const mw = m.dimensions.width;
-        const md = m.dimensions.depth;
-        const bayCount = Math.max(1, m.bays?.length || 1);
-        const leafW = Math.round(mw / bayCount);
-        return `
-          <g>
-            <rect x="${mx}" y="${mz}" width="${mw}" height="${md}" rx="8" fill="#F8FAFC" stroke="#141413" stroke-width="6" />
-            <text x="${mx + mw / 2}" y="${mz + md * 0.45}" text-anchor="middle" fill="#141413" font-size="44" font-weight="800" font-family="sans-serif">#${idx + 1} ${escapeHtmlPrint(m.name.replace(/\s*Modülü/gi, ""))}</text>
-            <text x="${mx + mw / 2}" y="${mz + md * 0.72}" text-anchor="middle" fill="#475569" font-size="38" font-weight="700" font-family="monospace">${mw}×${md} (H:${m.dimensions.height})</text>
-            <path d="M ${mx + 8} ${mz + md} A ${leafW} ${leafW} 0 0 1 ${mx + 8} ${mz + md + leafW}" fill="none" stroke="#64748B" stroke-width="4" stroke-dasharray="14 8" />
-          </g>
-        `;
-      })
-      .join("");
+      const netTotal = (pricing.totalWithVatEur * (1 - quoteDiscountPct / 100)).toLocaleString(
+        "tr-TR",
+        { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+      );
+      const monthlyPay = (
+        (pricing.totalWithVatEur * (1 - quoteDiscountPct / 100)) /
+        Math.max(1, quoteInstallments)
+      ).toLocaleString("tr-TR", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      });
 
-    const planSvgMarkup = `
-      <svg viewBox="-160 -220 ${wallLen + 360} 1950" style="width:100%;height:210px;background:#F5F3EF;border-radius:12px;border:1px solid #D6D3D1;">
-        <rect x="0" y="-140" width="${wallLen}" height="140" fill="#A8A29E" stroke="#141413" stroke-width="5" />
-        <text x="${wallLen / 2}" y="-165" text-anchor="middle" fill="#141413" font-size="48" font-weight="800" font-family="monospace">ANA DUVAR: ${wallLen} mm</text>
-        ${svgModulesMarkup}
-      </svg>
-    `;
+      const elevModulesSvg = mainMods
+        .map((m, idx) => {
+          const mx = m.position?.x || 0;
+          const mw = m.dimensions.width;
+          const mh = m.dimensions.height;
+          const my = maxH - (m.position?.y || 0) - mh;
+          const T = m.carcass.panelThickness || 18;
+          const plinthH = m.carcass.plinthHeight ?? 80;
+          const innerBottomY = my + mh - plinthH - T;
+          const innerH = Math.max(200, mh - plinthH - 2 * T);
+          const bayCount = Math.max(1, m.bays?.length || 1);
+          const bw = Math.round((mw - (bayCount + 1) * T) / bayCount);
+          const baysMarkup = (m.bays || [])
+            .map((bay, bIdx) => {
+              const bx = mx + T + bIdx * (bw + T);
+              const divLine =
+                bIdx > 0
+                  ? `<rect x="${bx - T}" y="${my + T}" width="${T}" height="${innerH}" fill="#E5E0D5" stroke="#44403C" stroke-width="2" />`
+                  : "";
+              const shelves = (bay.shelves || [])
+                .map(
+                  (sh) =>
+                    `<rect x="${bx}" y="${innerBottomY - sh.elevationY - T}" width="${bw}" height="${T}" fill="#D6C7B2" stroke="#57534E" stroke-width="2" />`
+                )
+                .join("");
+              const rails = (bay.hangingRails || [])
+                .map(
+                  (rl) =>
+                    `<line x1="${bx + 8}" y1="${innerBottomY - rl.elevationY}" x2="${bx + bw - 8}" y2="${innerBottomY - rl.elevationY}" stroke="#78716C" stroke-width="6" />`
+                )
+                .join("");
+              const drawers = (bay.drawers || [])
+                .map(
+                  (dr) =>
+                    `<rect x="${bx + 3}" y="${innerBottomY - dr.elevationY - dr.height + 2}" width="${Math.max(20, bw - 6)}" height="${Math.max(20, dr.height - 4)}" fill="#F4F1EA" stroke="#57534E" stroke-width="2.5" />`
+                )
+                .join("");
+              return `${divLine}${shelves}${rails}${drawers}`;
+            })
+            .join("");
 
-    const tierLabel =
-      activeConceptTier === "eco"
-        ? "Ekonomik Seri (18mm MDFLam + Standart Donanım)"
-        : activeConceptTier === "signature"
-        ? "Signature Lüks Seri (Doğal Kaplama + Füme Cam + Tam Aksesuar)"
-        : "Smart Seri (AGT Soft-Touch + Blum Frenli + Sensörlü 3000K İç LED)";
+          return `
+            <g>
+              <rect x="${mx}" y="${my}" width="${mw}" height="${mh}" fill="#FFFFFF" stroke="#141413" stroke-width="5" />
+              ${plinthH > 0 ? `<rect x="${mx + T}" y="${my + mh - plinthH}" width="${Math.max(40, mw - 2 * T)}" height="${plinthH}" fill="#ECE8DF" stroke="#57534E" stroke-width="2.5" />` : ""}
+              ${baysMarkup}
+              <text x="${mx + mw / 2}" y="${my - 28}" text-anchor="middle" fill="#141413" font-size="38" font-weight="700" font-family="monospace">${Math.round(mw / 10)} cm</text>
+              <text x="${mx + mw / 2}" y="${my + mh + 52}" text-anchor="middle" fill="#57534E" font-size="34" font-weight="600" font-family="sans-serif">#0${idx + 1}</text>
+            </g>`;
+        })
+        .join("");
 
-    const printHtml = `<!DOCTYPE html>
+      const elevSvgMarkup = `
+        <svg viewBox="-80 -110 ${spanW + 140} ${maxH + 220}" style="width:100%;height:215px;background:#F7F5F0;border-radius:10px;border:1px solid #E5E0D5;">
+          <line x1="-40" y1="${maxH}" x2="${spanW}" y2="${maxH}" stroke="#78716C" stroke-width="5" />
+          ${elevModulesSvg}
+        </svg>
+      `;
+
+      const tierLabel =
+        activeConceptTier === "eco"
+          ? "Essential Seri"
+          : activeConceptTier === "signature"
+          ? "Signature Seri"
+          : "Studio Seri";
+
+      const printHtml = `<!DOCTYPE html>
 <html lang="tr">
 <head>
 <meta charset="utf-8" />
-<title>B1R1M — Özel Tasarım Mimari Sunum & Teklif Föyü (${escapeHtmlPrint(project.title)})</title>
+<title>B1R1M — Mimari Sunum & Teklif Föyü (${escapeHtmlPrint(project.title)})</title>
 <style>
-  @page { size: A4 portrait; margin: 14mm; }
+  @page { size: A4 portrait; margin: 13mm; }
   * { box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif; color: #141413; background: #FFFFFF; margin: 0; padding: 0; }
-  .header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid #141413; padding-bottom: 12px; margin-bottom: 16px; }
-  .brand { font-size: 26px; font-weight: 900; letter-spacing: 0.12em; color: #141413; }
-  .sub { font-size: 11px; color: #57534E; text-transform: uppercase; letter-spacing: 0.08em; margin-top: 2px; }
-  .visual-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px; }
-  .card { border: 1px solid #E5E0D8; border-radius: 14px; padding: 12px; background: #FAF9F6; }
-  .card-title { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; color: #57534E; margin-bottom: 8px; }
-  .cap-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 16px; }
-  .cap-pill { border: 1px solid #E5E0D8; border-radius: 10px; padding: 8px 10px; background: #F5F3EF; font-size: 11px; font-weight: 700; }
-  table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 11px; }
-  th, td { border-bottom: 1px solid #E5E0D8; padding: 8px 10px; text-align: left; }
-  th { background: #F5F3EF; font-weight: 800; text-transform: uppercase; font-size: 10px; letter-spacing: 0.05em; color: #44403C; }
-  .quote-footer { display: flex; justify-content: space-between; align-items: center; background: #141413; color: #FFFFFF; padding: 16px 20px; border-radius: 14px; }
+  .header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 1.5px solid #141413; padding-bottom: 12px; margin-bottom: 16px; }
+  .brand { font-size: 24px; font-weight: 900; letter-spacing: 0.2em; color: #141413; }
+  .sub { font-size: 10px; color: #78716C; text-transform: uppercase; letter-spacing: 0.14em; margin-top: 3px; }
+  .visual-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+  .card { border: 1px solid #E5E0D5; border-radius: 10px; padding: 10px; background: #FAF9F6; }
+  .card-title { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: #78716C; margin-bottom: 7px; }
+  .cap-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px; }
+  .cap-pill { border: 1px solid #E5E0D5; border-radius: 8px; padding: 8px 10px; background: #FAF9F6; }
+  .cap-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.1em; color: #78716C; }
+  .cap-val { font-size: 12px; font-weight: 700; color: #141413; margin-top: 2px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 10.5px; }
+  th, td { border-bottom: 1px solid #EAE6DC; padding: 7px 8px; text-align: left; }
+  th { background: #F4F1EA; font-weight: 700; text-transform: uppercase; font-size: 9.5px; letter-spacing: 0.08em; color: #57534E; }
+  .quote-footer { display: flex; justify-content: space-between; align-items: center; background: #141413; color: #FAF9F6; padding: 16px 20px; border-radius: 10px; }
 </style>
 </head>
 <body>
   <div class="header">
     <div>
       <div class="brand">B1R1M</div>
-      <div class="sub">Mimari Tasarım Stüdyosu • Özel Üretim Sunum & Teklif Föyü</div>
+      <div class="sub">Mimari Tasarım &amp; Özel Üretim Teklif Föyü</div>
     </div>
-    <div style="text-align:right;font-size:11px;color:#44403C;">
-      <strong>Proje:</strong> ${escapeHtmlPrint(project.title)}<br/>
-      <strong>Konsept:</strong> ${escapeHtmlPrint(tierLabel)}<br/>
+    <div style="text-align:right;font-size:10.5px;color:#44403C;line-height:1.45;">
+      ${meta?.clientName ? `<strong>Müşteri:</strong> ${escapeHtmlPrint(meta.clientName)}<br/>` : ""}
+      <strong>Proje:</strong> ${escapeHtmlPrint(project.title)} • <strong>Seri:</strong> ${escapeHtmlPrint(tierLabel)}<br/>
       <strong>Tarih:</strong> ${new Date().toLocaleDateString("tr-TR")}
     </div>
   </div>
 
   <div class="visual-grid">
     <div class="card">
-      <div class="card-title">1. 3D Mimari Görünüm</div>
+      <div class="card-title">01 • 3D Stüdyo Görünümü</div>
       ${
         snapshot3DDataUrl
-          ? `<img src="${snapshot3DDataUrl}" style="width:100%;height:210px;object-fit:contain;background:#F5F3EF;border-radius:10px;border:1px solid #D6D3D1;" />`
-          : `<div style="height:210px;display:flex;align-items:center;justify-content:center;background:#F5F3EF;border-radius:10px;font-size:12px;color:#57534E;">3D Stüdyo Görünümü</div>`
+          ? `<img src="${snapshot3DDataUrl}" style="width:100%;height:215px;object-fit:contain;background:#EDEAE4;border-radius:8px;border:1px solid #E5E0D5;" />`
+          : `<div style="height:215px;display:flex;align-items:center;justify-content:center;background:#EDEAE4;border-radius:8px;font-size:11px;color:#57534E;">3D Stüdyo Görünümü</div>`
       }
     </div>
     <div class="card">
-      <div class="card-title">2. 2D Teknik Yerleşim Planı (1:25)</div>
-      ${planSvgMarkup}
+      <div class="card-title">02 • 2D Tüm-Modül İç Cephe Şeması</div>
+      ${elevSvgMarkup}
     </div>
   </div>
 
   <div class="cap-strip">
-    <div class="cap-pill">🧥 ~${liveCustomerAndFactoryStats.hangingGarments} Askılı Kıyafet</div>
-    <div class="cap-pill">👕 ~${liveCustomerAndFactoryStats.foldedGarments} Katlı Kıyafet</div>
-    <div class="cap-pill">🗄 ${liveCustomerAndFactoryStats.drawerCount} Frenli Çekmece</div>
-    <div class="cap-pill">📏 ${liveCustomerAndFactoryStats.sheetCount2800x2070} Plaka (${liveCustomerAndFactoryStats.totalPanelAreaM2}m²)</div>
+    <div class="cap-pill"><div class="cap-label">Toplam Uzunluk</div><div class="cap-val">${Math.round(liveCustomerAndFactoryStats.totalModWidth / 10)} cm (${mainMods.length} Modül)</div></div>
+    <div class="cap-pill"><div class="cap-label">Askı Kapasitesi</div><div class="cap-val">~${liveCustomerAndFactoryStats.hangingGarments} Askılı Kıyafet</div></div>
+    <div class="cap-pill"><div class="cap-label">Raf &amp; Çekmece</div><div class="cap-val">~${liveCustomerAndFactoryStats.foldedGarments} Katlı • ${liveCustomerAndFactoryStats.drawerCount} Çekmece</div></div>
+    <div class="cap-pill"><div class="cap-label">Donanım Standartı</div><div class="cap-val">Blum Frenli • System 32</div></div>
   </div>
 
   <table>
     <thead>
       <tr>
-        <th>#</th>
+        <th>Kod</th>
         <th>Modül Tanımı</th>
         <th>Ölçüler (G×Y×D)</th>
         <th>Bölme</th>
-        <th>Gövde / Kapak Dekoru</th>
+        <th>Gövde / Kapak Yüzeyi</th>
       </tr>
     </thead>
     <tbody>
       ${project.modules
-        .map(
-          (m, i) => `
+        .map((m, i) => {
+          const bName = matNameById.get(m.carcass.bodyMaterialId) || "Beyaz Melamin";
+          const dName = matNameById.get(m.carcass.doorMaterialId) || "Özel Yüzey";
+          return `
         <tr>
-          <td><strong>#${i + 1}</strong></td>
+          <td style="font-family:monospace;"><strong>${String(i + 1).padStart(2, "0")}</strong></td>
           <td><strong>${escapeHtmlPrint(m.name)}</strong></td>
-          <td style="font-family:monospace;font-weight:700;">${escapeHtmlPrint(m.dimensions.width)} × ${escapeHtmlPrint(m.dimensions.height)} × ${escapeHtmlPrint(m.dimensions.depth)} mm</td>
+          <td style="font-family:monospace;font-weight:600;">${Math.round(m.dimensions.width / 10)} × ${Math.round(m.dimensions.height / 10)} × ${Math.round(m.dimensions.depth / 10)} cm</td>
           <td>${escapeHtmlPrint(m.bays?.length || 1)} Bölme</td>
-          <td>${escapeHtmlPrint(m.carcass.bodyMaterialId)} / ${escapeHtmlPrint(m.carcass.doorMaterialId)}</td>
-        </tr>`
-        )
+          <td>${escapeHtmlPrint(bName)} / ${escapeHtmlPrint(dName)}</td>
+        </tr>`;
+        })
         .join("")}
     </tbody>
   </table>
 
+  ${meta?.projectNote ? `<div style="font-size:10.5px;color:#44403C;margin-bottom:12px;padding:8px 12px;background:#FAF9F6;border:1px solid #E5E0D5;border-radius:8px;"><strong>Proje Notu:</strong> ${escapeHtmlPrint(meta.projectNote)}</div>` : ""}
+
   <div class="quote-footer">
     <div>
-      <div style="font-size:11px;color:#A8A29E;">Liste Fiyatı: <span style="text-decoration:line-through;">€${pricing.totalWithVatEur.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span> • Mağaza İskontosu: %${quoteDiscountPct}</div>
-      <div style="font-size:12px;color:#E7E5E4;margin-top:4px;">Taksit Planı: <strong>${quoteInstallments === 1 ? "Peşin Ödeme" : `${quoteInstallments} × €${monthlyPay} / ay`}</strong> • Teslimat: 14 İş Günü (Ücretsiz Kurulum)</div>
+      ${quoteDiscountPct > 0 ? `<div style="font-size:10.5px;color:#A8A29E;">Liste Toplamı: <span style="text-decoration:line-through;">€${pricing.totalWithVatEur.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span> • Proje İskontosu: %${quoteDiscountPct}</div>` : ""}
+      <div style="font-size:11.5px;color:#E7E5E4;margin-top:3px;">Ödeme Planı: <strong>${quoteInstallments === 1 ? "Peşin" : `${quoteInstallments} × €${monthlyPay} / ay`}</strong> • Teslimat: 14 İş Günü (Birim Uzman Montaj Dahil)</div>
     </div>
     <div style="text-align:right;">
-      <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#A8A29E;">KDV Dahil Net Teklif</div>
-      <div style="font-size:24px;font-weight:900;color:#34D399;font-family:monospace;">€${netTotal}</div>
+      <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.12em;color:#D6C7B2;">KDV Dahil Net Teklif</div>
+      <div style="font-size:22px;font-weight:800;color:#FAF9F6;font-family:monospace;">€${netTotal}</div>
     </div>
   </div>
 </body>
@@ -6127,7 +6175,7 @@ export const V3UnifiedWorkspace: React.FC<{
             </div>
           )}
 
-          {/* SHOWROOM FLOATING OVERLAYS */}
+          {/* B1R1M GALLERY SHOWROOM FLOATING PRESENTATION HUD */}
           {mode === "showroom" && (
             <>
               {zenMode ? (
@@ -6136,17 +6184,45 @@ export const V3UnifiedWorkspace: React.FC<{
                     type="button"
                     data-testid="showroom-exit-zen"
                     onClick={() => setZenMode(false)}
-                    className="px-4 py-2.5 rounded-2xl bg-[#EEF3F8]/85 hover:bg-[#EEF3F8] text-[#111827] backdrop-blur-md text-xs font-semibold shadow-lg flex items-center gap-2 cursor-pointer"
+                    className="h-9 px-4 rounded-lg bg-[#FAF9F6]/95 hover:bg-white text-[#141413] border border-[#DED8CC] backdrop-blur-md text-xs font-semibold shadow-md flex items-center gap-2 cursor-pointer"
                   >
-                    <Eye className="w-3.5 h-3.5 text-[#1C1917]" />
-                    <span>Sunum Modundan Çık</span>
+                    <Eye className="w-3.5 h-3.5 text-[#141413]" />
+                    <span>Tam Ekrandan Çık</span>
                   </button>
                 </div>
               ) : (
                 <>
-                  <div className="absolute right-6 top-1/2 -translate-y-1/2 z-20 flex flex-col gap-2 bg-white/90 backdrop-blur-md p-2.5 rounded-2xl border border-stone-200/90 shadow-lg">
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-stone-400 text-center">
-                      Kamera
+                  <div className="absolute top-5 left-6 z-20 bg-[#FAF9F6]/95 backdrop-blur-md px-4 py-3 rounded-xl border border-[#DED8CC] shadow-sm flex items-center gap-4">
+                    <div>
+                      <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#8C7A6B]">
+                        B1R1M Sunum Stüdyosu
+                      </div>
+                      <div className="text-sm font-bold text-[#141413]">{project.title}</div>
+                      <div className="text-[11px] font-mono text-[#57534E] mt-0.5">
+                        {project.modules.length} Modül • {(liveCustomerAndFactoryStats.totalModWidth / 10).toFixed(0)} cm
+                      </div>
+                    </div>
+                    <div className="h-8 w-px bg-[#DED8CC]" />
+                    <div>
+                      <div className="text-[10px] uppercase tracking-[0.1em] text-[#78716C]">
+                        KDV Dahil Toplam
+                      </div>
+                      <div className="text-sm font-bold font-mono text-[#141413]">
+                        €{pricing.totalWithVatEur.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowQuickSellModal(true)}
+                      className="h-9 px-3.5 rounded-lg bg-[#141413] hover:bg-[#292524] text-[#FAF9F6] text-xs font-semibold transition cursor-pointer"
+                    >
+                      Teklif Föyü Oluştur
+                    </button>
+                  </div>
+
+                  <div className="absolute right-6 top-1/2 -translate-y-1/2 z-20 flex flex-col gap-1.5 bg-[#FAF9F6]/95 backdrop-blur-md p-2.5 rounded-xl border border-[#DED8CC] shadow-md w-40">
+                    <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#78716C] px-1">
+                      Kamera Açısı
                     </div>
                     {[
                       { id: "iso", label: "Perspektif" },
@@ -6161,27 +6237,27 @@ export const V3UnifiedWorkspace: React.FC<{
                         onClick={() =>
                           setCameraPreset(cam.id as "iso" | "front" | "side" | "top")
                         }
-                        className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-2 transition cursor-pointer ${
                           cameraPreset === cam.id
-                            ? "bg-[#EEF3F8] text-[#111827] shadow-xs"
-                            : "text-stone-700 hover:bg-stone-100"
+                            ? "bg-[#141413] text-[#FAF9F6]"
+                            : "text-[#44403C] hover:bg-[#EFECE5]"
                         }`}
                       >
-                        <Camera className="w-3.5 h-3.5 text-[#57534E]" />
+                        <Camera className="w-3.5 h-3.5 shrink-0" />
                         <span>{cam.label}</span>
                       </button>
                     ))}
 
-                    <div className="h-px bg-stone-200 my-1" />
+                    <div className="h-px bg-[#E5E0D5] my-1" />
 
                     <button
                       type="button"
                       data-testid="showroom-door-toggle"
                       onClick={toggleDoorOpen}
-                      className={`px-3 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                      className={`px-2.5 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 border transition cursor-pointer ${
                         doorOpenAngleDeg > 0
-                          ? "bg-[#EEF3F8] text-[#1C1917] border border-[#CBD5E1]"
-                          : "bg-stone-100 hover:bg-stone-200 text-stone-800"
+                          ? "bg-[#141413] text-[#FAF9F6] border-[#141413]"
+                          : "bg-white hover:bg-[#EFECE5] text-[#141413] border-[#DED8CC]"
                       }`}
                     >
                       {doorOpenAngleDeg > 0 ? (
@@ -6192,15 +6268,15 @@ export const V3UnifiedWorkspace: React.FC<{
                       ) : (
                         <>
                           <DoorOpen className="w-3.5 h-3.5" />
-                          <span>Kapakları Aç</span>
+                          <span>İç Düzeni Göster</span>
                         </>
                       )}
                     </button>
 
-                    <div className="px-2 py-1 space-y-1">
-                      <div className="flex justify-between text-[10px] text-stone-500 font-medium">
+                    <div className="px-1 pt-1 space-y-0.5">
+                      <div className="flex justify-between text-[10px] text-[#57534E]">
                         <span>Kapak</span>
-                        <span className="font-mono font-bold text-stone-800">
+                        <span className="font-mono font-semibold text-[#141413]">
                           {doorOpenAngleDeg}°
                         </span>
                       </div>
@@ -6210,15 +6286,15 @@ export const V3UnifiedWorkspace: React.FC<{
                         max={90}
                         value={doorOpenAngleDeg}
                         onChange={(e) => setDoorOpenAngleDeg(Number(e.target.value))}
-                        className="w-28 accent-[#64748B] h-1.5 bg-stone-200 rounded-lg cursor-pointer"
+                        className="w-full accent-[#141413] h-1.5 bg-[#E5E0D5] rounded-lg cursor-pointer"
                       />
                     </div>
 
-                    <div className="px-2 py-1 space-y-1">
-                      <div className="flex justify-between text-[10px] text-stone-500 font-medium">
+                    <div className="px-1 pt-0.5 space-y-0.5">
+                      <div className="flex justify-between text-[10px] text-[#57534E]">
                         <span>Çekmece</span>
-                        <span className="font-mono font-bold text-stone-800">
-                          {drawerOpenMm}mm
+                        <span className="font-mono font-semibold text-[#141413]">
+                          {drawerOpenMm} mm
                         </span>
                       </div>
                       <input
@@ -6230,18 +6306,18 @@ export const V3UnifiedWorkspace: React.FC<{
                         step={25}
                         value={drawerOpenMm}
                         onChange={(e) => setDrawerOpenMm(Number(e.target.value))}
-                        className="w-28 accent-[#64748B] h-1.5 bg-stone-200 rounded-lg cursor-pointer"
+                        className="w-full accent-[#141413] h-1.5 bg-[#E5E0D5] rounded-lg cursor-pointer"
                       />
                     </div>
                   </div>
 
-                  <div className="absolute bottom-5 left-6 right-6 z-20 flex flex-wrap items-center justify-between gap-4 pointer-events-none">
-                    <div className="pointer-events-auto flex items-center gap-2 bg-white/95 backdrop-blur-md px-4 py-2 rounded-2xl border border-stone-200/90 shadow-lg overflow-x-auto max-w-full">
-                      <div className="flex items-center gap-1.5 pr-2 border-r border-stone-200 text-xs font-bold text-stone-700 shrink-0">
-                        <Palette className="w-3.5 h-3.5 text-[#57534E]" />
-                        <span>PBR Yüzey:</span>
+                  <div className="absolute bottom-5 left-6 right-6 z-20 flex flex-wrap items-center justify-between gap-3 pointer-events-none">
+                    <div className="pointer-events-auto flex items-center gap-2 bg-[#FAF9F6]/95 backdrop-blur-md px-3.5 py-2 rounded-xl border border-[#DED8CC] shadow-md overflow-x-auto max-w-full">
+                      <div className="flex items-center gap-1.5 pr-2.5 border-r border-[#E5E0D5] text-xs font-semibold text-[#44403C] shrink-0">
+                        <Palette className="w-3.5 h-3.5 text-[#8C7A6B]" />
+                        <span>Yüzey Seçimi</span>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5">
                         {DEFAULT_MATERIALS.map((mat) => {
                           const isSelected =
                             activeModule.carcass.doorMaterialId === mat.id;
@@ -6265,27 +6341,16 @@ export const V3UnifiedWorkspace: React.FC<{
                                   snapshot: savedSnap,
                                 });
                               }}
-                              className={`flex items-center gap-2 px-2.5 py-1.5 rounded-xl border text-xs transition shrink-0 cursor-pointer ${
+                              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs transition shrink-0 cursor-pointer ${
                                 isSelected
-                                  ? "bg-[#F8FAFC] border-amber-700 text-stone-900 font-bold shadow-2xs"
-                                  : "bg-white hover:bg-stone-50 border-stone-200 text-stone-600"
+                                  ? "bg-white border-[#141413] text-[#141413] font-semibold"
+                                  : "bg-white/70 hover:bg-white border-[#E5E0D5] text-[#57534E]"
                               }`}
                             >
                               <span
-                                className="w-5 h-5 rounded-full border border-stone-300 flex items-center justify-center shrink-0"
+                                className="w-4 h-4 rounded-full border border-[#D6D0C4] flex items-center justify-center shrink-0"
                                 style={{ backgroundColor: mat.colorHex }}
-                              >
-                                {isSelected && (
-                                  <Check
-                                    className={`w-3 h-3 ${
-                                      mat.colorHex.toLowerCase() === "#f3f4f6" ||
-                                      mat.colorHex.toLowerCase() === "#ede8d0"
-                                        ? "text-stone-900"
-                                        : "text-white"
-                                    }`}
-                                  />
-                                )}
-                              </span>
+                              />
                               <span className="hidden xl:inline">
                                 {mat.name.split(" (")[0]}
                               </span>
@@ -6298,23 +6363,23 @@ export const V3UnifiedWorkspace: React.FC<{
                     {showroomMaterialPreview && (
                       <div
                         data-testid="showroom-material-preview-bar"
-                        className="pointer-events-auto flex items-center gap-2.5 bg-[#EFF6FF]/95 backdrop-blur-md px-4 py-2 rounded-2xl border-2 border-[#2563EB] shadow-lg text-xs"
+                        className="pointer-events-auto flex items-center gap-2.5 bg-[#FAF9F6]/95 backdrop-blur-md px-3.5 py-2 rounded-xl border border-[#141413] shadow-md text-xs"
                       >
                         <div>
-                          <span className="font-bold text-[#1D4ED8] block">
-                            👁️ Sunum Önizlemesi: {showroomMaterialPreview.label}
+                          <span className="font-semibold text-[#141413] block">
+                            Önizleme: {showroomMaterialPreview.label}
                           </span>
-                          <span className="text-[#475569] text-[11px]">
-                            Onaylamadan teklif veya BOM malzemesi kalıcı değişmez
+                          <span className="text-[#57534E] text-[11px]">
+                            Kalıcı olarak uygulansın mı?
                           </span>
                         </div>
                         <button
                           type="button"
                           data-testid="showroom-confirm-material-btn"
                           onClick={() => setShowroomMaterialPreview(null)}
-                          className="px-3 py-1.5 rounded-xl bg-[#2563EB] text-white font-bold cursor-pointer"
+                          className="px-3 py-1.5 rounded-lg bg-[#141413] text-[#FAF9F6] font-semibold cursor-pointer"
                         >
-                          ✓ Projeye Uygula
+                          Uygula
                         </button>
                         <button
                           type="button"
@@ -6323,9 +6388,9 @@ export const V3UnifiedWorkspace: React.FC<{
                             restoreModuleMaterialSnapshot(showroomMaterialPreview.snapshot);
                             setShowroomMaterialPreview(null);
                           }}
-                          className="px-2.5 py-1.5 rounded-xl bg-white border border-[#CBD5E1] text-[#475569] font-semibold cursor-pointer"
+                          className="px-2.5 py-1.5 rounded-lg bg-white border border-[#DED8CC] text-[#44403C] font-medium cursor-pointer"
                         >
-                          ✕ Geri Al
+                          Geri Al
                         </button>
                       </div>
                     )}
@@ -15510,452 +15575,50 @@ export const V3UnifiedWorkspace: React.FC<{
         );
       })()}
 
-            {showQuickSellModal && (
-        <div
-          data-testid="v4-quick-sell-modal"
-          className="fixed inset-0 z-[120] bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto"
-          onClick={() => setShowQuickSellModal(false)}
-        >
-          <div
-            className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-5xl w-full max-h-[92vh] overflow-y-auto p-6 text-slate-900"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Üst Başlık */}
-            <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-200">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-black uppercase tracking-wider">
-                    Birim V4 Showroom & Üretim Merkezi
-                  </span>
-                  <span className="text-xs font-semibold text-slate-500">
-                    Proje: {project.title} • {project.modules.length} Modül
-                  </span>
-                </div>
-                <h2 className="text-xl font-black text-slate-900 mt-1">
-                  💎 30 Saniyede Oto-Dizilim, Konsept Karşılaştırma & Müşteri Teklif Föyü
-                </h2>
-              </div>
-              <button
-                type="button"
-                data-testid="close-quick-sell-modal-btn"
-                onClick={() => setShowQuickSellModal(false)}
-                className="w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-sm flex items-center justify-center cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 mt-5">
-              {/* Sol Kolon (7 birim): 1) Oto-Dizilim, 2) 3'lü Bütçe/Konsept, 3) Tek Tıkla Upsell, 4) Müşteri & Fabrika Özeti */}
-              <div className="lg:col-span-7 space-y-4">
-                {/* 1. 30 Saniyede Duvarı Otomatik Doldur (Kör Çıta Paylı) */}
-                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/90">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-black uppercase tracking-wider text-slate-700">
-                      ⚡ 1. Duvarı 30 Saniyede Otomatik Doldur (Ana Duvar: {liveCustomerAndFactoryStats.mainWallLen}mm)
-                    </span>
-                    <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                      Sol/Sağ 50mm Kör Çıta Otomatik
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    <button
-                      type="button"
-                      data-testid="autofill-wardrobe-max-btn"
-                      onClick={() => handleSmartWallAutoFill("wardrobe_max")}
-                      className="p-2.5 rounded-xl bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-300 text-left transition cursor-pointer"
-                    >
-                      <div className="text-xs font-extrabold text-slate-900">👔 Ebeveyn Gardırobu</div>
-                      <div className="text-[10px] text-slate-500 mt-0.5">Bol askılı & çekmeceli tam duvar</div>
-                    </button>
-                    <button
-                      type="button"
-                      data-testid="autofill-his-hers-btn"
-                      onClick={() => handleSmartWallAutoFill("his_hers")}
-                      className="p-2.5 rounded-xl bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-300 text-left transition cursor-pointer"
-                    >
-                      <div className="text-xs font-extrabold text-slate-900">👗 His & Hers Sürme</div>
-                      <div className="text-[10px] text-slate-500 mt-0.5">Çift kişilik simetrik giyinme</div>
-                    </button>
-                    <button
-                      type="button"
-                      data-testid="autofill-kitchen-smart-btn"
-                      onClick={() => handleSmartWallAutoFill("kitchen_smart")}
-                      className="p-2.5 rounded-xl bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-300 text-left transition cursor-pointer"
-                    >
-                      <div className="text-xs font-extrabold text-slate-900">🍳 Akıllı Mutfak</div>
-                      <div className="text-[10px] text-slate-500 mt-0.5">Eviye + Ankastre + Kiler dizilimi</div>
-                    </button>
-                    <button
-                      type="button"
-                      data-testid="autofill-zero-gap-btn"
-                      onClick={() => handleSmartWallAutoFill("zero_gap_filler")}
-                      className="p-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-300 text-left transition cursor-pointer"
-                    >
-                      <div className="text-xs font-extrabold text-amber-950">📏 Boşluğu Sıfırla</div>
-                      <div className="text-[10px] text-amber-800 mt-0.5">
-                        Kalan {liveCustomerAndFactoryStats.remainingWallGapMm}mm boşluğu kapat
-                      </div>
-                    </button>
-                  </div>
-                </div>
-
-                {/* 2. 3'lü Bütçe & İç Mimari Konsept Seçici */}
-                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/90">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-black uppercase tracking-wider text-slate-700">
-                      🎨 2. Tek Tıkla Bütçe & İç Mimari Konsept Karşılaştır
-                    </span>
-                    <span className="text-[11px] text-slate-500 font-semibold">
-                      Anlık malzeme + donanım + fiyat geçişi
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                    <button
-                      type="button"
-                      data-testid="concept-tier-eco-btn"
-                      onClick={() => handleApplyConceptTier("eco")}
-                      className={`p-3 rounded-xl border text-left transition cursor-pointer ${
-                        activeConceptTier === "eco"
-                          ? "bg-emerald-50 border-emerald-500 ring-2 ring-emerald-500/20"
-                          : "bg-white border-slate-200 hover:bg-slate-100/70"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-black text-slate-900">🟢 Ekonomik</span>
-                        <span className="text-[11px] font-bold text-emerald-700">~%22 Avantaj</span>
-                      </div>
-                      <div className="text-[11px] text-slate-600 mt-1">
-                        18mm Beyaz MDFLam Gövde & Kapak • Standart Menteşe
-                      </div>
-                      <div className="text-xs font-black font-mono text-slate-900 mt-1.5">
-                        ~€{Math.round(
-                          pricing.materialAlternatives?.find((a) => a.tier === "economy")?.estimatedTotalEur ??
-                            pricing.totalWithVatEur * 0.86
-                        ).toLocaleString("tr-TR")}
-                      </div>
-                    </button>
-
-                    <button
-                      type="button"
-                      data-testid="concept-tier-smart-btn"
-                      onClick={() => handleApplyConceptTier("smart")}
-                      className={`p-3 rounded-xl border text-left transition cursor-pointer ${
-                        activeConceptTier === "smart"
-                          ? "bg-blue-50 border-blue-600 ring-2 ring-blue-500/20"
-                          : "bg-white border-slate-200 hover:bg-slate-100/70"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-black text-slate-900">🔵 Smart (Önerilen)</span>
-                        <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-blue-600 text-white">
-                          En Çok Satan
-                        </span>
-                      </div>
-                      <div className="text-[11px] text-slate-600 mt-1">
-                        AGT Soft-Touch Kaşmir • Blum Frenli • Sensörlü İç LED
-                      </div>
-                      <div className="text-xs font-black font-mono text-blue-900 mt-1.5">
-                        €{Math.round(pricing.totalWithVatEur).toLocaleString("tr-TR")}
-                      </div>
-                    </button>
-
-                    <button
-                      type="button"
-                      data-testid="concept-tier-signature-btn"
-                      onClick={() => handleApplyConceptTier("signature")}
-                      className={`p-3 rounded-xl border text-left transition cursor-pointer ${
-                        activeConceptTier === "signature"
-                          ? "bg-purple-50 border-purple-600 ring-2 ring-purple-500/20"
-                          : "bg-white border-slate-200 hover:bg-slate-100/70"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-black text-slate-900">🟣 Signature Lüks</span>
-                        <span className="text-[11px] font-bold text-purple-700">+Premium</span>
-                      </div>
-                      <div className="text-[11px] text-slate-600 mt-1">
-                        Doğal Meşe/Ceviz • Füme Cam Vitrin • Takı & Pantolonluk
-                      </div>
-                      <div className="text-xs font-black font-mono text-purple-950 mt-1.5">
-                        ~€{Math.round(
-                          pricing.materialAlternatives?.find((a) => a.tier === "premium")?.estimatedTotalEur ??
-                            pricing.totalWithVatEur * 1.18
-                        ).toLocaleString("tr-TR")}
-                      </div>
-                    </button>
-                  </div>
-                </div>
-
-                {/* 3. Satışçı İçin Tek Tıkla Sepet Büyütme (Upsell) & CNC Koruma */}
-                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/90">
-                  <div className="text-xs font-black uppercase tracking-wider text-slate-700 mb-2">
-                    ✨ 3. Tek Tıkla Aksesuar Ekle (Upsell) & Üretim Garantisi
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      data-testid="upsell-led-btn"
-                      onClick={() => {
-                        toggleModuleLedLighting(!activeModule.carcass.ledLightingEnabled, {
-                          ledType: "led_vertical_strip",
-                          colorTempK: 3000,
-                          sensorType: "ir_door",
-                        });
-                      }}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
-                        activeModule.carcass.ledLightingEnabled
-                          ? "bg-amber-500 text-white border-amber-600"
-                          : "bg-white text-slate-800 border-slate-300 hover:bg-amber-50"
-                      }`}
-                    >
-                      💡 Sensörlü 3000K İç LED (+€85)
-                    </button>
-
-                    <button
-                      type="button"
-                      data-testid="upsell-trouser-btn"
-                      onClick={() => addSpecialFitting(activeBayIndex, "trouser_pullout")}
-                      className="px-3 py-1.5 rounded-xl text-xs font-bold border bg-white text-slate-800 border-slate-300 hover:bg-blue-50 transition cursor-pointer"
-                    >
-                      👖 +Teleskopik Pantolonluk (+€65)
-                    </button>
-
-                    <button
-                      type="button"
-                      data-testid="upsell-jewelry-btn"
-                      onClick={() => addSpecialFitting(activeBayIndex, "jewelry_tray")}
-                      className="px-3 py-1.5 rounded-xl text-xs font-bold border bg-white text-slate-800 border-slate-300 hover:bg-purple-50 transition cursor-pointer"
-                    >
-                      💍 +Kadife Takı Çekmecesi (+€75)
-                    </button>
-
-                    <button
-                      type="button"
-                      data-testid="upsell-glass-door-btn"
-                      onClick={() => {
-                        setBayV4DoorConfig(activeBayIndex, {
-                          doorSubType: "alu_frame_smoked_glass",
-                        });
-                        copyDoorConfigToAllBays(activeBayIndex);
-                      }}
-                      className="px-3 py-1.5 rounded-xl text-xs font-bold border bg-white text-slate-800 border-slate-300 hover:bg-slate-100 transition cursor-pointer"
-                    >
-                      🪞 +Alüminyum Çerçeve Füme Cam (+€110)
-                    </button>
-
-                    <button
-                      type="button"
-                      data-testid="fix-32mm-hinge-shelf-btn"
-                      onClick={handleFix32mmHingeShelfCollisions}
-                      className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 transition cursor-pointer"
-                    >
-                      🔧 32mm Menteşe-Raf Çakışmalarını Otomatik Düzelt
-                    </button>
-                  </div>
-                </div>
-
-                {/* 4. Müşteri Yaşam Kapasitesi & Fabrika Üretim Özeti */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="p-3.5 rounded-2xl bg-emerald-50/70 border border-emerald-200">
-                    <div className="text-[11px] font-black uppercase tracking-wider text-emerald-900">
-                      👗 Müşteri Depolama Kapasitesi
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 mt-2 text-xs font-bold text-emerald-950">
-                      <div>🧥 ~{liveCustomerAndFactoryStats.hangingGarments} Askılı Kıyafet</div>
-                      <div>👕 ~{liveCustomerAndFactoryStats.foldedGarments} Katlı Kıyafet</div>
-                      <div>🗄 {liveCustomerAndFactoryStats.drawerCount} Çekmece Ünitesi</div>
-                      <div>👞 ~{liveCustomerAndFactoryStats.shoePairs} Çift Ayakkabı/Kutu</div>
-                    </div>
-                  </div>
-
-                  <div className="p-3.5 rounded-2xl bg-blue-50/70 border border-blue-200">
-                    <div className="text-[11px] font-black uppercase tracking-wider text-blue-900">
-                      🏭 Fabrika & CNC Kesim Özeti (2800×2070mm)
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 mt-2 text-xs font-bold text-blue-950">
-                      <div>📏 {liveCustomerAndFactoryStats.sheetCount2800x2070} Adet Plaka ({liveCustomerAndFactoryStats.totalPanelAreaM2}m²)</div>
-                      <div>🎗 ~{liveCustomerAndFactoryStats.edgeBandingMeters} mt PVC Bant</div>
-                      <div>🪵 Kör Çıta: Sol {liveCustomerAndFactoryStats.leftFillerMm} / Sağ {liveCustomerAndFactoryStats.rightFillerMm}mm</div>
-                      <div>🔩 CNC Durumu: {v4CompatibilityReport.overallStatus === "INCOMPATIBLE" ? "⚠️ Uyarı Var" : "✅ Üretime Hazır"}</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Sağ Kolon (5 birim): Canlı İskonto, Taksit ve Müşteri Teklif Föyü */}
-              <div className="lg:col-span-5 flex flex-col justify-between p-5 rounded-2xl bg-slate-900 text-white border border-slate-800">
-                <div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-black uppercase tracking-wider text-emerald-400">
-                      📄 Showroom Müşteri Teklif Föyü
-                    </span>
-                    <span className="text-[11px] font-mono text-slate-400">
-                      {project.modules.length} Modül • {liveCustomerAndFactoryStats.totalModWidth}mm
-                    </span>
-                  </div>
-
-                  {/* Modül Listesi Özeti */}
-                  <div className="mt-3 space-y-1.5 max-h-40 overflow-y-auto pr-1">
-                    {project.modules.map((m, i) => (
-                      <div
-                        key={m.id}
-                        className="flex items-center justify-between text-xs py-1.5 px-2.5 rounded-lg bg-slate-800/90 border border-slate-700/80"
-                      >
-                        <span className="font-bold truncate max-w-[210px]">
-                          #{i + 1} {m.name} ({m.dimensions.width}×{m.dimensions.height}×{m.dimensions.depth})
-                        </span>
-                        <span className="font-mono text-emerald-300 font-bold">
-                          {m.bays?.length || 1} Bölme
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Showroom İskonto & Taksit Kontrolleri */}
-                  <div className="grid grid-cols-2 gap-3 mt-4 pt-3 border-t border-slate-800">
-                    <div>
-                      <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">
-                        Mağaza İskontosu (%)
-                      </label>
-                      <div className="flex items-center gap-1">
-                        {[0, 5, 10, 15].map((pct) => (
-                          <button
-                            key={pct}
-                            type="button"
-                            onClick={() => setQuoteDiscountPct(pct)}
-                            className={`flex-1 py-1 rounded-lg text-xs font-bold border transition cursor-pointer ${
-                              quoteDiscountPct === pct
-                                ? "bg-emerald-500 text-slate-950 border-emerald-400"
-                                : "bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700"
-                            }`}
-                          >
-                            %{pct}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">
-                        Taksit Seçeneği
-                      </label>
-                      <div className="flex items-center gap-1">
-                        {[1, 3, 6, 9].map((inst) => (
-                          <button
-                            key={inst}
-                            type="button"
-                            onClick={() => setQuoteInstallments(inst)}
-                            className={`flex-1 py-1 rounded-lg text-xs font-bold border transition cursor-pointer ${
-                              quoteInstallments === inst
-                                ? "bg-blue-500 text-white border-blue-400"
-                                : "bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700"
-                            }`}
-                          >
-                            {inst === 1 ? "Peşin" : `${inst}x`}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Fiyat Hesaplama Tablosu */}
-                  <div className="mt-4 p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1.5 text-xs">
-                    <div className="flex justify-between text-slate-400">
-                      <span>Liste Fiyatı (KDV Dahil):</span>
-                      <span className="font-mono line-through">
-                        €{pricing.totalWithVatEur.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-emerald-400 font-semibold">
-                      <span>Showroom İskontosu (%{quoteDiscountPct}):</span>
-                      <span className="font-mono">
-                        -€{((pricing.totalWithVatEur * quoteDiscountPct) / 100).toLocaleString("tr-TR", { minimumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-base font-black text-white pt-1.5 border-t border-slate-800">
-                      <span>Net Kampanyalı Toplam:</span>
-                      <span data-testid="quick-sell-net-total" className="font-mono text-emerald-400">
-                        €{(pricing.totalWithVatEur * (1 - quoteDiscountPct / 100)).toLocaleString("tr-TR", { minimumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-[11px] text-blue-300 font-bold">
-                      <span>{quoteInstallments === 1 ? "Peşin Ödeme:" : `${quoteInstallments} Taksit Aylık Ödeme:`}</span>
-                      <span className="font-mono">
-                        €{((pricing.totalWithVatEur * (1 - quoteDiscountPct / 100)) / quoteInstallments).toLocaleString("tr-TR", { minimumFractionDigits: 2 })} / ay
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-[11px] text-slate-400 pt-1">
-                      <span>Tahmini Teslim & Montaj:</span>
-                      <span className="text-amber-300 font-bold">14 İş Günü (Ücretsiz Kurulum)</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Alt Aksiyon Butonları (Görsel Sunum PDF + WhatsApp + 2D Plaka Nesting + BOM) */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-4">
-                  <button
-                    type="button"
-                    data-testid="print-visual-customer-pdf-btn"
-                    onClick={handlePrintVisualCustomerPresentation}
-                    className="sm:col-span-2 py-2.5 px-4 rounded-xl bg-white hover:bg-stone-100 text-[#141413] font-black text-xs flex items-center justify-center gap-2 shadow-sm transition cursor-pointer"
-                  >
-                    <span>🖨️</span>
-                    <span>Tek Sayfa Görsel Müşteri Sunum PDF'i İndir / Yazdır (3D + 2D Plan)</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    data-testid="copy-whatsapp-quote-btn"
-                    onClick={() => {
-                      const netTotal = (pricing.totalWithVatEur * (1 - quoteDiscountPct / 100)).toFixed(2);
-                      const monthly = ((pricing.totalWithVatEur * (1 - quoteDiscountPct / 100)) / quoteInstallments).toFixed(2);
-                      const summaryText = `📐 *B1R1M MOBİLYA - ÖZEL TASARIM TEKLİF ÖZETİ*\n• Proje: ${project.title}\n• Modül Sayısı: ${project.modules.length} Adet (${liveCustomerAndFactoryStats.totalModWidth}mm)\n• Kapasite: ~${liveCustomerAndFactoryStats.hangingGarments} Askı + ~${liveCustomerAndFactoryStats.foldedGarments} Katlı Kıyafet\n• Net Tutar (%${quoteDiscountPct} İskontolu): €${netTotal}\n• Taksit Planı: ${quoteInstallments}x €${monthly}/ay\n• Teslimat: 14 İş Günü (Montaj Dahil)`;
-                      if (typeof navigator !== "undefined" && navigator.clipboard) {
-                        navigator.clipboard.writeText(summaryText).catch(() => {});
-                      }
-                      setCopiedWhatsappQuote(true);
-                      setTimeout(() => setCopiedWhatsappQuote(false), 3500);
-                    }}
-                    className="py-2 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
-                  >
-                    <span>💬</span>
-                    <span>{copiedWhatsappQuote ? "✅ Kopyalandı!" : "WhatsApp Teklif Kopyala"}</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    data-testid="open-nesting-from-quicksell-btn"
-                    onClick={() => {
-                      setShowQuickSellModal(false);
-                      setBomModalInitialTab("nesting");
-                      setIsBomModalOpen(true);
-                    }}
-                    className="py-2 px-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
-                  >
-                    <span>📏</span>
-                    <span>2800×2070 Plaka Nesting Şeması</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    data-testid="open-bom-from-quicksell-btn"
-                    onClick={() => {
-                      setShowQuickSellModal(false);
-                      setBomModalInitialTab("cutlist");
-                      setIsBomModalOpen(true);
-                    }}
-                    className="sm:col-span-2 py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
-                  >
-                    <span>🏭</span>
-                    <span>Detaylı BOM, U1-U2-K1-K2 Kenar Bandı & CNC Delik Portalı</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <PresentationQuoteModal
+        isOpen={showQuickSellModal}
+        onClose={() => setShowQuickSellModal(false)}
+        project={project}
+        materials={DEFAULT_MATERIALS}
+        pricing={pricing}
+        stats={liveCustomerAndFactoryStats}
+        activeConceptTier={activeConceptTier}
+        onApplyConceptTier={handleApplyConceptTier}
+        onSmartWallAutoFill={handleSmartWallAutoFill}
+        quoteDiscountPct={quoteDiscountPct}
+        onChangeDiscountPct={setQuoteDiscountPct}
+        quoteInstallments={quoteInstallments}
+        onChangeInstallments={setQuoteInstallments}
+        ledEnabled={Boolean(activeModule.carcass.ledLightingEnabled)}
+        onToggleLedUpsell={() =>
+          toggleModuleLedLighting(!activeModule.carcass.ledLightingEnabled, {
+            ledType: "led_vertical_strip",
+            colorTempK: 3000,
+            sensorType: "ir_door",
+          })
+        }
+        onAddTrouserUpsell={() => addSpecialFitting(activeBayIndex, "trouser_pullout")}
+        onAddJewelryUpsell={() => addSpecialFitting(activeBayIndex, "jewelry_tray")}
+        onApplyGlassDoorUpsell={() => {
+          setBayV4DoorConfig(activeBayIndex, {
+            doorSubType: "alu_frame_smoked_glass",
+          });
+          copyDoorConfigToAllBays(activeBayIndex);
+        }}
+        onFix32mmCollisions={handleFix32mmHingeShelfCollisions}
+        compatibilityStatus={v4CompatibilityReport.overallStatus}
+        onPrintVisualPdf={(meta) => handlePrintVisualCustomerPresentation(meta)}
+        onOpenNestingModal={() => {
+          setShowQuickSellModal(false);
+          setBomModalInitialTab("nesting");
+          setIsBomModalOpen(true);
+        }}
+        onOpenBomModal={() => {
+          setShowQuickSellModal(false);
+          setBomModalInitialTab("cutlist");
+          setIsBomModalOpen(true);
+        }}
+      />
 
             <V3ProjectModal
         isOpen={isProjectModalOpen}

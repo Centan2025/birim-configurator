@@ -114,9 +114,14 @@ function hasSinkOrCooktopAppliance(module: ModuleInstance): boolean {
   );
 }
 
+export interface GenerateBOMOptions {
+  skipSyncNesting?: boolean;
+}
+
 export function generateBOMForProject(
   project: DesignProject,
-  materialsMap: Map<string, MaterialDefinition> = new Map(DEFAULT_MATERIALS.map((m) => [m.id, m]))
+  materialsMap: Map<string, MaterialDefinition> = new Map(DEFAULT_MATERIALS.map((m) => [m.id, m])),
+  options?: GenerateBOMOptions
 ): ManufacturingBOM {
   if (!project || !project.modules || project.modules.length === 0) {
     return {
@@ -144,7 +149,8 @@ export function generateBOMForProject(
     };
   }
 
-  const cacheKey = computeProjectBOMKey(project, materialsMap);
+  const skipSyncNesting = Boolean(options?.skipSyncNesting);
+  const cacheKey = `${computeProjectBOMKey(project, materialsMap)}_sn:${skipSyncNesting ? 1 : 0}`;
   const cached = bomProjectCache.get(cacheKey);
   if (cached) return cached;
 
@@ -1012,7 +1018,7 @@ export function generateBOMForProject(
     });
   });
 
-  const nestingResults = optimizeSheetNesting(cutList);
+  const nestingResults = skipSyncNesting ? [] : optimizeSheetNesting(cutList);
 
   const matUsageMap = new Map<string, { materialName: string; netAreaM2: number }>();
   let totalPanelAreaM2 = 0;
@@ -1059,7 +1065,11 @@ export function generateBOMForProject(
     2
   );
 
-  const totalUnplacedCount = nestingResults.reduce((acc, r) => acc + r.unplacedPieces.length, 0);
+  const totalUnplacedCount = skipSyncNesting
+    ? cutList.filter(
+        (p) => Math.max(p.lengthMm, p.widthMm) > 2770 || Math.min(p.lengthMm, p.widthMm) > 2040
+      ).length
+    : nestingResults.reduce((acc, r) => acc + r.unplacedPieces.length, 0);
   const allShelvesPassDeflection = shelfDeflectionAnalyses.every((s) => s.passed);
   const minPieceSizeOk = cutList.every((p) => p.lengthMm >= 70 && p.widthMm >= 70);
 

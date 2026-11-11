@@ -170,14 +170,14 @@ const handleAccentMat = new THREE.MeshStandardMaterial({
   metalness: 0.88,
 });
 const revealShadowMat = new THREE.LineBasicMaterial({
-  color: 0x1c1917,
+  color: 0x292524,
   transparent: true,
-  opacity: 0.65,
+  opacity: 0.18,
 });
 const doorDirectionLineMat = new THREE.LineBasicMaterial({
-  color: 0xd97706,
+  color: 0x64748b,
   transparent: true,
-  opacity: 0.52,
+  opacity: 0.55,
 });
 
 const sharedSmokedGlassPaneMat = markSharedMaterial(
@@ -1087,8 +1087,10 @@ export function createComponentMesh(
   tagSubMesh(mesh, userData, comp);
 
   if (!comp.primitive || comp.primitive === "box") {
-    mesh.add(new THREE.LineSegments(edges, edgeMaterial));
-    // Add crisp dark shadow reveal outline on doors, drawer fronts, and countertops so seams are always distinct
+    const primaryEdgeLines = new THREE.LineSegments(edges, edgeMaterial);
+    primaryEdgeLines.userData.isPrimaryEdge = true;
+    mesh.add(primaryEdgeLines);
+    // Subtle physical 2mm shadow seam on doors, drawer fronts, and countertops
     if (
       comp.role === "door_left" ||
       comp.role === "door_right" ||
@@ -1096,12 +1098,12 @@ export function createComponentMesh(
       comp.role === "countertop"
     ) {
       const revealFrame = new THREE.LineSegments(edges, revealShadowMat);
-      revealFrame.scale.set(1.002, 1.002, 1.002);
+      revealFrame.scale.set(1.0015, 1.0015, 1.0015);
+      revealFrame.userData.isRevealSeam = true;
       mesh.add(revealFrame);
     }
 
-    // Add architectural Opening-Direction V-Lines on Hinged Cabinet Doors (door_left / door_right)
-    // Pointing from the top & bottom hinge corners toward the handle edge so door swing direction is unmistakable in 3D Perspective
+    // Technical CAD Opening-Direction V-Lines on Hinged Cabinet Doors (shown ONLY in Technical CAD mode!)
     if (comp.role === "door_left" || comp.role === "door_right") {
       const isLiftDoor = comp.id.includes("lift_");
       const sharedDirGeo = isLiftDoor
@@ -1109,7 +1111,10 @@ export function createComponentMesh(
         : comp.role === "door_left"
         ? leftDoorDirectionGeo
         : rightDoorDirectionGeo;
-      mesh.add(new THREE.LineSegments(sharedDirGeo, doorDirectionLineMat));
+      const swingLines = new THREE.LineSegments(sharedDirGeo, doorDirectionLineMat);
+      swingLines.userData.isCadSwingLine = true;
+      swingLines.visible = false;
+      mesh.add(swingLines);
     }
   }
   group.add(mesh);

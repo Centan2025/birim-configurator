@@ -22,6 +22,7 @@ import {
 } from "@birim/core";
 import { generateBOMForProject, ManufacturingBOM } from "@birim/manufacturing";
 import { calculateProjectPrice, PricingBreakdown } from "@birim/pricing";
+import { computeNestingAsync } from "../workers/manufacturing-worker-client";
 import {
   WARDROBE_TEMPLATES,
   getV4TemplateById,
@@ -272,6 +273,33 @@ function cloneProject(project: DesignProject): DesignProject {
   };
 }
 
+let storeNestingDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleBackgroundStoreNesting(project: DesignProject, bom: ManufacturingBOM) {
+  if (typeof window === "undefined" || bom.cutList.length === 0) return;
+  if (storeNestingDebounceTimer) clearTimeout(storeNestingDebounceTimer);
+  const targetProjectId = project.id;
+  const targetVersion = project.version;
+  const targetRev = project.revisionId;
+  storeNestingDebounceTimer = setTimeout(() => {
+    storeNestingDebounceTimer = null;
+    void computeNestingAsync(bom.cutList, targetVersion, undefined, {
+      projectId: targetProjectId,
+      revisionId: targetRev,
+    }).then((workerSheets) => {
+      if (!workerSheets) return;
+      const latest = useConfiguratorStore.getState();
+      if (latest.project.id === targetProjectId && latest.project.version === targetVersion) {
+        const refreshedBom = { ...latest.bom, nestingResults: workerSheets };
+        useConfiguratorStore.setState({
+          bom: refreshedBom,
+          pricing: calculateProjectPrice(refreshedBom),
+        });
+      }
+    });
+  }, 180);
+}
+
 function recompute(project: DesignProject) {
   const validationIssues = validateProject(project);
   const compat = evaluateProjectCompatibility(project);
@@ -281,10 +309,14 @@ function recompute(project: DesignProject) {
     unverifiedCount: compat.evidenceMatrix.unverifiedPartOrOpCount,
     evaluatedAt: compat.evidenceMatrix.evaluatedAt,
   };
-  const bom = generateBOMForProject(project);
+  const isBrowser = typeof window !== "undefined";
+  const bom = generateBOMForProject(project, undefined, { skipSyncNesting: isBrowser });
   const pricing = calculateProjectPrice(bom);
   const activeMod = project.modules[0] || createDefaultWardrobeModule();
   const smartAdvice = analyzeAndAdviseSpan(activeMod.dimensions.width, activeMod.dimensions.height);
+  if (isBrowser) {
+    scheduleBackgroundStoreNesting(project, bom);
+  }
   return { validationIssues, bom, pricing, smartAdvice };
 }
 

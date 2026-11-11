@@ -189,6 +189,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
     } | null>(null);
     const lockedPlanVbRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
     const lockedElevVbRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
+    const lockedElevModIdRef = useRef<string | null>(null);
     const [isPlacingObstacle, setIsPlacingObstacle] = useState<boolean>(false);
     const [obstaclePreviewPos, setObstaclePreviewPos] = useState<{ x: number; z: number } | null>(
       null
@@ -6123,8 +6124,13 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       Boolean(elevDraggingObs) ||
       Boolean(elevDraggingMod) ||
       Boolean(elevResizingMod);
-    if (!isAnyElevDragActive || !lockedElevVbRef.current) {
+    if (
+      !isAnyElevDragActive ||
+      !lockedElevVbRef.current ||
+      lockedElevModIdRef.current !== activeModule.id
+    ) {
       lockedElevVbRef.current = computedElevVb;
+      lockedElevModIdRef.current = activeModule.id;
     }
     const vb = lockedElevVbRef.current;
 
@@ -6584,31 +6590,31 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
           }
         }}
         onDrop={handleElevDrop}
-        className="relative w-full h-full bg-[#E2DED5] overflow-hidden select-none flex flex-col"
+        className="relative w-full h-full bg-[#F0EDE6] overflow-hidden select-none flex flex-col"
       >
         {planRowSnapBanner && (
           <div
             data-testid="elev-row-snap-banner"
-            className="absolute top-14 left-1/2 -translate-x-1/2 z-30 pointer-events-none px-4 py-1.5 rounded-xl bg-emerald-800 text-white border-2 border-emerald-300 shadow-lg font-mono text-xs font-extrabold"
+            className="absolute top-14 left-1/2 -translate-x-1/2 z-30 pointer-events-none px-4 py-1.5 rounded-lg bg-[#141413] text-[#FAF9F6] border border-[#D8D3C8]/40 shadow-lg font-mono text-xs font-semibold"
           >
             {planRowSnapBanner}
           </div>
         )}
-        {/* Top Header Bar (Non-overlapping with SVG drawing!) */}
-        <div className="h-11 px-4 bg-[#D8D3C8] border-b border-stone-300 flex flex-wrap items-center justify-between gap-2 shrink-0 z-10">
-          <div className="flex items-center gap-2">
-            <span className="px-2.5 py-1 rounded-lg bg-[#EEF3F8] text-[#111827] text-xs font-bold">
+        {/* Top Architectural Header Bar */}
+        <div className="min-h-[44px] px-4 py-1.5 bg-[#FAF9F6] border-b border-[#DED8CC] flex flex-wrap items-center justify-between gap-2 shrink-0 z-10">
+          <div className="flex items-center gap-2.5">
+            <span className="px-2.5 py-1 rounded-lg bg-[#141413] text-[#FAF9F6] text-xs font-semibold tracking-tight">
               {mode === "elevation"
-                ? "2D Ön Cephe & İç Düzen Editörü"
+                ? "2D Cephe — Tüm Modüller Açık İç Görünüm"
                 : mode === "plan"
                 ? "2D Üst Plan Kesiti"
                 : sectionDirection2D === "Z"
-                ? `2D A-A Enine Yan Kesit (X: ${sectionCutCoordMm} mm)`
-                : `2D B-B Boyuna Cephe Kesit (Z: ${sectionCutCoordMm} mm)`}
+                ? `2D A-A Yan Kesit (X: ${sectionCutCoordMm} mm)`
+                : `2D B-B Boyuna Kesit (Z: ${sectionCutCoordMm} mm)`}
             </span>
             {mode === "elevation" && (
-              <span className="text-xs font-semibold text-stone-800 hidden lg:inline">
-                Raf, çekmece, askı ve ara dikmeleri fareyle sürükleyerek veya sağ panelden ölçüyle taşıyabilirsiniz
+              <span className="text-xs font-medium text-[#57534E] hidden xl:inline">
+                Tüm dolapların iç düzeni aynı anda açıktır; herhangi bir modüldeki raf, çekmece veya askıyı doğrudan sürükleyebilirsiniz
               </span>
             )}
             {mode === "section" && (
@@ -6847,28 +6853,26 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 type="button"
                 data-testid="cad-elevation-toggle-room"
                 onClick={() => setShowRoomContextInElev((v) => !v)}
-                className={`px-3 py-1 rounded-lg border text-xs font-bold transition cursor-pointer ${
+                className={`px-3 py-1 rounded-lg border text-xs font-semibold transition cursor-pointer ${
                   showRoomContextInElev
-                    ? "bg-[#2563EB] text-white border-[#1D4ED8] shadow-2xs"
-                    : "bg-white hover:bg-stone-100 border-stone-300 text-stone-800"
+                    ? "bg-[#141413] text-[#FAF9F6] border-[#141413]"
+                    : "bg-white hover:bg-[#EFECE5] border-[#DED8CC] text-[#141413]"
                 }`}
-                title="Duvar sınırını, pencereyi, kapıyı, kolonu, su/gider tesisatını ve tüm modülleri cephe görünüşünde göster/gizle"
+                title="Duvar sınırını ve tüm komşu modülleri eşzamanlı göster veya sadece seçili modüle odaklan"
               >
-                {showRoomContextInElev
-                  ? "🏠 Mekân Cephesi: Açık (Tesisat/Pencere/Kapı)"
-                  : "📦 Sadece Seçili Modül"}
+                {showRoomContextInElev ? "Tüm Modüller & Duvar: Açık" : "Tek Modül Odağı"}
               </button>
               <button
                 type="button"
                 data-testid="cad-elevation-toggle-doors"
-              onClick={() => setShowDoorsIn2D((v) => !v)}
-              className={`px-3 py-1 rounded-lg border text-xs font-bold transition cursor-pointer ${
-                showDoorsIn2D
-                  ? "bg-amber-600 text-white border-amber-700 shadow-2xs"
-                  : "bg-white hover:bg-stone-100 border-stone-300 text-stone-800"
-              }`}
-            >
-              {showDoorsIn2D ? "Kapakları Gizle (İç Düzen)" : "Kapak Çizgisini Göster"}
+                onClick={() => setShowDoorsIn2D((v) => !v)}
+                className={`px-3 py-1 rounded-lg border text-xs font-semibold transition cursor-pointer ${
+                  showDoorsIn2D
+                    ? "bg-[#8C7A6B] text-white border-[#786759]"
+                    : "bg-white hover:bg-[#EFECE5] border-[#DED8CC] text-[#141413]"
+                }`}
+              >
+                {showDoorsIn2D ? "Kapak Çizgisi: Açık" : "İç Düzen Görünümü (Kapaksız)"}
               </button>
             </div>
           )}
@@ -7496,93 +7500,332 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 </g>
                 )}
 
-                {/* Neighboring Modules in Room Wall Elevation (clickable & horizontally draggable + CAD dimensions!) */}
+                {/* ALL Modules Simultaneous Interior Elevation (Every cabinet stays open & directly interactive!) */}
                 {project.modules.map((m, mIdx) => {
                   if (mIdx === activeModuleIndex) return null;
                   const mx = wallLeftSvgX + m.position.x;
                   const my = floorSvgY - (m.position.y + m.dimensions.height);
                   const mw = m.dimensions.width;
                   const mh = m.dimensions.height;
-                  const dimY = my - 36;
+                  const dimY = -38;
+
+                  const nBreakdown = generateModuleGeometry(m, { doorOpenAngleDeg: 0 });
+                  const nElevData = generateElevation2D(nBreakdown, selectedComponentId || undefined);
+                  const nRails = nBreakdown.components.filter((c) => c.role === "hanging_rail");
+                  const nElements = nElevData.elements.filter((el) => {
+                    if (!showDoorsIn2D && el.role.startsWith("door") && el.role !== "door_hinge") {
+                      return false;
+                    }
+                    if (
+                      el.role.startsWith("drawer_") &&
+                      el.role !== "drawer_front" &&
+                      el.role !== "drawer_handle"
+                    ) {
+                      return false;
+                    }
+                    return true;
+                  });
+
+                  const startNeighborModMove = (e: React.MouseEvent<SVGGElement>) => {
+                    if (elevPanMode || e.button !== 0 || e.altKey) return;
+                    e.stopPropagation();
+                    setActiveModuleIndex(mIdx);
+                    const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
+                    const scale = svgEl ? getElevScaleMmPerPx(svgEl) : { x: 4, y: 4 };
+                    beginHistoryTransaction();
+                    setElevDraggingMod({
+                      modIdx: mIdx,
+                      startClientX: e.clientX,
+                      startClientY: e.clientY,
+                      startModX: m.position.x,
+                      startModY: m.position.y,
+                      mmPerPxX: scale.x,
+                      mmPerPxY: scale.y,
+                    });
+                  };
+
                   return (
                     <g
                       key={m.id}
                       data-testid={`elev-neighbor-mod-${mIdx}`}
-                      onMouseDown={(e) => {
-                        e.stopPropagation();
-                        setActiveModuleIndex(mIdx);
-                        const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
-                        const scale = svgEl ? getElevScaleMmPerPx(svgEl) : { x: 4, y: 4 };
-                        beginHistoryTransaction();
-                        setElevDraggingMod({
-                          modIdx: mIdx,
-                          startClientX: e.clientX,
-                          startClientY: e.clientY,
-                          startModX: m.position.x,
-                          startModY: m.position.y,
-                          mmPerPxX: scale.x,
-                          mmPerPxY: scale.y,
-                        });
-                      }}
-                      className="cursor-grab active:cursor-grabbing opacity-90 hover:opacity-100 transition-opacity"
+                      transform={`translate(${mx}, ${my})`}
                     >
+                      {/* Clean Interior Cavity Background (Never opaque gray — always open!) */}
                       <rect
-                        x={mx}
-                        y={my}
+                        x={0}
+                        y={0}
                         width={mw}
                         height={mh}
-                        fill="#E7E5E4"
-                        fillOpacity={0.82}
-                        stroke="#44403C"
-                        strokeWidth="4"
+                        fill="#FAF9F6"
+                        stroke="#292524"
+                        strokeWidth="3"
+                        onMouseDown={startNeighborModMove}
+                        className="cursor-grab active:cursor-grabbing"
                       />
-                      {/* Top Width Dimension Line for Neighbor Module */}
-                      <line x1={mx} y1={dimY - 14} x2={mx} y2={dimY + 14} stroke="#44403C" strokeWidth="3" />
-                      <line x1={mx + mw} y1={dimY - 14} x2={mx + mw} y2={dimY + 14} stroke="#44403C" strokeWidth="3" />
-                      <line x1={mx} y1={dimY} x2={mx + mw} y2={dimY} stroke="#44403C" strokeWidth="3" />
-                      <rect
-                        x={mx + mw / 2 - 90}
-                        y={dimY - 22}
-                        width={180}
-                        height={42}
-                        rx={8}
-                        fill="#FFFFFF"
-                        stroke="#44403C"
-                        strokeWidth="2.5"
-                      />
-                      <text
-                        x={mx + mw / 2}
-                        y={dimY + 7}
-                        textAnchor="middle"
-                        fill="#1C1917"
-                        fontSize="24"
-                        fontWeight="800"
-                        fontFamily="monospace"
+
+                      {/* Neighbor Module Carcass, Dividers, Shelves, Drawers & Special Fittings */}
+                      {nElements.map((el) => {
+                        const isHinge = el.role === "door_hinge";
+                        const isSpecialFitting = el.role === "special_fitting";
+                        const isDoor = el.role.startsWith("door") && !isHinge;
+                        const isDrawer = el.role.startsWith("drawer");
+                        const isShelf = el.role === "shelf";
+                        const isDivider = el.role === "carcass_divider";
+                        const isSubDivider = el.role === "carcass_sub_divider";
+                        const isDrawerHandle = el.role === "drawer_handle";
+                        const dragMeta = findDraggableInteriorComponent(
+                          m,
+                          el.id,
+                          nBreakdown.bayWidths
+                        );
+
+                        let fill = "#FFFFFF";
+                        let stroke = "#1C1917";
+                        if (isDoor) {
+                          fill = "#F5F5F4";
+                          stroke = "#57534E";
+                        } else if (isDrawerHandle) {
+                          fill = "#44403C";
+                          stroke = "#1C1917";
+                        } else if (isDrawer) {
+                          fill = "#FEF3C7";
+                          stroke = "#9A3412";
+                        } else if (isShelf) {
+                          fill = "#FDE68A";
+                          stroke = "#B45309";
+                        } else if (isDivider) {
+                          fill = "#E7E5E4";
+                          stroke = "#1C1917";
+                        } else if (isSubDivider) {
+                          fill = "#FDBA74";
+                          stroke = "#9A3412";
+                        } else if (isHinge) {
+                          fill = "#0284C7";
+                          stroke = "#0F172A";
+                        } else if (isSpecialFitting) {
+                          fill = "#A7F3D0";
+                          stroke = "#047857";
+                        }
+
+                        const elevMm =
+                          dragMeta && (dragMeta.kind === "shelf" || dragMeta.kind === "drawer")
+                            ? dragMeta.startVal
+                            : null;
+
+                        return (
+                          <g
+                            key={el.id}
+                            data-testid={`cad-el-${el.id}`}
+                            onMouseDown={(e) => {
+                              if (elevPanMode || e.button !== 0 || e.altKey) return;
+                              e.stopPropagation();
+                              setActiveModuleIndex(mIdx);
+                              setSelectedComponentId(el.id);
+                              if (dragMeta) {
+                                beginHistoryTransaction();
+                                setActiveBayIndex(dragMeta.bayIdx);
+                                setInteriorDrag({
+                                  kind: dragMeta.kind,
+                                  bayIdx: dragMeta.bayIdx,
+                                  targetId: dragMeta.targetId,
+                                  startClientX: e.clientX,
+                                  startClientY: e.clientY,
+                                  startValueMm: dragMeta.startVal,
+                                  startElevY: dragMeta.startElevY,
+                                  itemHeightMm: dragMeta.itemHeightMm,
+                                });
+                              } else {
+                                startNeighborModMove(e);
+                              }
+                            }}
+                            className={
+                              elevPanMode
+                                ? "cursor-grab"
+                                : dragMeta
+                                ? dragMeta.kind === "sub_divider"
+                                  ? "cursor-move"
+                                  : dragMeta.kind === "divider"
+                                  ? "cursor-ew-resize"
+                                  : "cursor-ns-resize"
+                                : "cursor-grab"
+                            }
+                          >
+                            {dragMeta && (
+                              <rect
+                                x={el.x - (isDivider || isSubDivider ? 28 : 0)}
+                                y={el.y - (isShelf || isSubDivider ? 22 : 0)}
+                                width={Math.max(1, el.width + (isDivider || isSubDivider ? 56 : 0))}
+                                height={Math.max(1, el.height + (isShelf || isSubDivider ? 44 : 0))}
+                                fill="transparent"
+                              />
+                            )}
+                            <rect
+                              x={el.x}
+                              y={el.y}
+                              width={Math.max(1, el.width)}
+                              height={Math.max(1, el.height)}
+                              fill={fill}
+                              stroke={stroke}
+                              strokeWidth={el.isSelected ? 5 : 2.8}
+                              opacity={isDoor ? 0.34 : 0.98}
+                            />
+                            {(isShelf || (isDrawer && el.role === "drawer_front")) && el.width > 200 && (
+                              <g className="pointer-events-none">
+                                <rect
+                                  x={el.x + el.width / 2 - 175}
+                                  y={isShelf ? el.y - 42 : el.y + el.height / 2 - 20}
+                                  width={350}
+                                  height={38}
+                                  rx={9}
+                                  fill="#1C1917"
+                                  opacity={0.88}
+                                />
+                                <text
+                                  x={el.x + el.width / 2}
+                                  y={isShelf ? el.y - 17 : el.y + el.height / 2 + 5}
+                                  textAnchor="middle"
+                                  fill="#FFFFFF"
+                                  fontSize="22"
+                                  fontWeight="700"
+                                  fontFamily="monospace"
+                                >
+                                  {isShelf
+                                    ? `↕ Raf (Y:${elevMm}mm)`
+                                    : `↕ Çekmece (Y:${elevMm}mm)`}
+                                </text>
+                              </g>
+                            )}
+                            {isSpecialFitting && el.width > 120 && (
+                              <g className="pointer-events-none">
+                                <rect
+                                  x={el.x + el.width / 2 - 180}
+                                  y={el.y + el.height / 2 - 18}
+                                  width={360}
+                                  height={36}
+                                  rx={8}
+                                  fill="#064E3B"
+                                  opacity={0.9}
+                                />
+                                <text
+                                  x={el.x + el.width / 2}
+                                  y={el.y + el.height / 2 + 6}
+                                  textAnchor="middle"
+                                  fill="#ECFDF5"
+                                  fontSize="18"
+                                  fontWeight="700"
+                                  fontFamily="monospace"
+                                >
+                                  {el.label}
+                                </text>
+                              </g>
+                            )}
+                          </g>
+                        );
+                      })}
+
+                      {/* Neighbor Module Hanging Rails (Directly draggable!) */}
+                      {nRails.map((rail) => {
+                        const rSvgY = nBreakdown.overall.height - (rail.position.y + rail.dimensions.height);
+                        const bIdx = rail.bayIndex ?? 0;
+                        const rCfg = m.bays[bIdx]?.hangingRails.find((r) => r.id === rail.id);
+                        const rElevY = rCfg?.elevationY ?? 1700;
+                        return (
+                          <g
+                            key={rail.id}
+                            data-testid={`cad-el-${rail.id}`}
+                            onMouseDown={(e) => {
+                              if (elevPanMode || e.button !== 0 || e.altKey) return;
+                              e.stopPropagation();
+                              setActiveModuleIndex(mIdx);
+                              setSelectedComponentId(rail.id);
+                              setActiveBayIndex(bIdx);
+                              beginHistoryTransaction();
+                              setInteriorDrag({
+                                kind: "rail",
+                                bayIdx: bIdx,
+                                targetId: rail.id,
+                                startClientX: e.clientX,
+                                startClientY: e.clientY,
+                                startValueMm: rElevY,
+                              });
+                            }}
+                            className="cursor-ns-resize"
+                          >
+                            <rect
+                              x={rail.position.x}
+                              y={rSvgY - 20}
+                              width={rail.dimensions.width}
+                              height={60}
+                              fill="transparent"
+                            />
+                            <rect
+                              x={rail.position.x + 4}
+                              y={rSvgY}
+                              width={Math.max(10, rail.dimensions.width - 8)}
+                              height={22}
+                              rx={7}
+                              fill="#94A3B8"
+                              stroke="#111827"
+                              strokeWidth="2.8"
+                            />
+                            {rail.dimensions.width > 180 && (
+                              <g className="pointer-events-none">
+                                <rect
+                                  x={rail.position.x + rail.dimensions.width / 2 - 130}
+                                  y={rSvgY - 40}
+                                  width={260}
+                                  height={36}
+                                  rx={9}
+                                  fill="#0F172A"
+                                  opacity={0.86}
+                                />
+                                <text
+                                  x={rail.position.x + rail.dimensions.width / 2}
+                                  y={rSvgY - 16}
+                                  textAnchor="middle"
+                                  fill="#FFFFFF"
+                                  fontSize="21"
+                                  fontWeight="700"
+                                  fontFamily="monospace"
+                                >
+                                  {`↕ Askı (Y:${rElevY}mm)`}
+                                </text>
+                              </g>
+                            )}
+                          </g>
+                        );
+                      })}
+
+                      {/* Neighbor Module Top Dimension Line & Draggable Header Pill */}
+                      <line x1={0} y1={dimY - 12} x2={0} y2={dimY + 12} stroke="#44403C" strokeWidth="2.8" />
+                      <line x1={mw} y1={dimY - 12} x2={mw} y2={dimY + 12} stroke="#44403C" strokeWidth="2.8" />
+                      <line x1={0} y1={dimY} x2={mw} y2={dimY} stroke="#44403C" strokeWidth="2.8" />
+                      <g
+                        onMouseDown={startNeighborModMove}
+                        className="cursor-grab active:cursor-grabbing"
                       >
-                        {`W: ${mw}mm`}
-                      </text>
-                      <text
-                        x={mx + mw / 2}
-                        y={my + mh / 2 - 10}
-                        textAnchor="middle"
-                        fill="#1C1917"
-                        fontSize="26"
-                        fontWeight="800"
-                        fontFamily="monospace"
-                      >
-                        {`${mIdx + 1}. ${m.name}`}
-                      </text>
-                      <text
-                        x={mx + mw / 2}
-                        y={my + mh / 2 + 26}
-                        textAnchor="middle"
-                        fill="#7C2D12"
-                        fontSize="23"
-                        fontWeight="800"
-                        fontFamily="monospace"
-                      >
-                        {`W:${mw} × H:${mh}mm (X:${m.position.x})`}
-                      </text>
+                        <rect
+                          x={mw / 2 - 195}
+                          y={-118}
+                          width={390}
+                          height={44}
+                          rx={10}
+                          fill="#FFFFFF"
+                          stroke="#44403C"
+                          strokeWidth="2.8"
+                        />
+                        <text
+                          x={mw / 2}
+                          y={-89}
+                          textAnchor="middle"
+                          fill="#141413"
+                          fontSize="21"
+                          fontWeight="800"
+                          fontFamily="monospace"
+                        >
+                          {`#${mIdx + 1} ${m.name} (${mw}mm)`}
+                        </text>
+                      </g>
                     </g>
                   );
                 })}

@@ -212,6 +212,32 @@ export function computeRowSnapPreview(
 }
 
 
+let adapterNestingTimer: ReturnType<typeof setTimeout> | null = null;
+const cachedCompatByProject = new WeakMap<
+  DesignProject,
+  ReturnType<typeof evaluateProjectCompatibility>
+>();
+const cachedSpatialByProject = new WeakMap<
+  DesignProject,
+  ReturnType<typeof validateSpatialAndKitchenEngineering>
+>();
+
+function getMemoizedProjectCompatibility(project: DesignProject) {
+  const hit = cachedCompatByProject.get(project);
+  if (hit) return hit;
+  const computed = evaluateProjectCompatibility(project);
+  cachedCompatByProject.set(project, computed);
+  return computed;
+}
+
+function getMemoizedSpatialValidation(project: DesignProject) {
+  const hit = cachedSpatialByProject.get(project);
+  if (hit) return hit;
+  const computed = validateSpatialAndKitchenEngineering(project);
+  cachedSpatialByProject.set(project, computed);
+  return computed;
+}
+
 /** One transaction for adapter edits; derived manufacturing state cannot lag geometry. */
 function commitAdapterState(patch: Partial<ReturnType<typeof useConfiguratorStore.getState>>) {
   const state = useConfiguratorStore.getState();
@@ -233,7 +259,9 @@ function commitAdapterState(patch: Partial<ReturnType<typeof useConfiguratorStor
     });
     return;
   }
-  const bom = patch.bom ?? generateBOMForProject(project);
+  const isBrowser = typeof window !== "undefined";
+  const bom =
+    patch.bom ?? generateBOMForProject(project, undefined, { skipSyncNesting: isBrowser });
   const pricing = patch.pricing ?? calculateProjectPrice(bom);
   const validationIssues = patch.validationIssues ?? validateProject(project);
   const active = project.modules[patch.activeModuleIndex ?? state.activeModuleIndex] ?? project.modules[0] ?? createDefaultWardrobeModule("empty_fallback");
@@ -248,21 +276,25 @@ function commitAdapterState(patch: Partial<ReturnType<typeof useConfiguratorStor
     history: patch.history ?? [...state.history.slice(-15), state.project],
     future: patch.future ?? [],
   });
-  if (typeof window !== "undefined" && bom.cutList.length > 0) {
-    void computeNestingAsync(bom.cutList, project.version, undefined, {
-      projectId: project.id,
-      revisionId: project.revisionId,
-    }).then((workerSheets) => {
-      if (!workerSheets) return;
-      const latest = useConfiguratorStore.getState();
-      if (latest.project.id === project.id && latest.project.version === project.version) {
-        const refreshedBom = { ...latest.bom, nestingResults: workerSheets };
-        useConfiguratorStore.setState({
-          bom: refreshedBom,
-          pricing: calculateProjectPrice(refreshedBom),
-        });
-      }
-    });
+  if (isBrowser && bom.cutList.length > 0) {
+    if (adapterNestingTimer) clearTimeout(adapterNestingTimer);
+    adapterNestingTimer = setTimeout(() => {
+      adapterNestingTimer = null;
+      void computeNestingAsync(bom.cutList, project.version, undefined, {
+        projectId: project.id,
+        revisionId: project.revisionId,
+      }).then((workerSheets) => {
+        if (!workerSheets) return;
+        const latest = useConfiguratorStore.getState();
+        if (latest.project.id === project.id && latest.project.version === project.version) {
+          const refreshedBom = { ...latest.bom, nestingResults: workerSheets };
+          useConfiguratorStore.setState({
+            bom: refreshedBom,
+            pricing: calculateProjectPrice(refreshedBom),
+          });
+        }
+      });
+    }, 180);
   }
 }
 
@@ -767,7 +799,7 @@ export function useV3Adapter() {
               records: [],
             },
           }
-        : evaluateProjectCompatibility(project),
+        : getMemoizedProjectCompatibility(project),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [isDraggingActive ? null : project]
   );
@@ -784,7 +816,7 @@ export function useV3Adapter() {
     [spaceSignature]
   );
   const spatialIssues = useMemo(
-    () => (isDraggingActive ? [] : validateSpatialAndKitchenEngineering(project)),
+    () => (isDraggingActive ? [] : getMemoizedSpatialValidation(project)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [isDraggingActive ? null : project]
   );
