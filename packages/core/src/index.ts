@@ -8,3 +8,4 @@ export * from "./v4-compatibility";
 export * from "./floorplan-parser";
 export * from "./sweep-collision";
 export * from "./panel-cutouts";
+export * from "./parametric-spec-engine";

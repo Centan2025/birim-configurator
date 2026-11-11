@@ -55,7 +55,7 @@ export class MockERPAdapter implements IERPAdapter {
     }
 
     const compatibility = evaluateProjectCompatibility(project);
-    if (compatibility.overallStatus === "INCOMPATIBLE") {
+    if (compatibility.overallStatus === "INCOMPATIBLE" || compatibility.overallStatus === "UNVERIFIED") {
       throw new Error(
         `Üretim engeli (${compatibility.overallStatus}): Tasarım uyumsuz kurallar içeriyor, ERP/CNC'ye aktarılamaz.`
       );

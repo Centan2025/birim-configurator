@@ -1,3 +1,4 @@
+import { solveAngledWallSnapForModule, originToModulePosition } from "../engine/angledWallSnapEngine";
 import { useMemo, useCallback } from "react";
 import { useConfiguratorStore } from "../../store/useConfiguratorStore";
 import {
@@ -13,11 +14,14 @@ import {
   evaluateProjectCompatibility,
   computeCornerFillerAutoFix,
   type PanelCutoutConfig,
+  type BayConfig,
+  computeContinuousKitchenLayers,
   DoorSystemId,
   SlidingMountingType,
   DoorOverlayType,
   HandleCategory,
   OpeningTechnology,
+  calculateModulePlacement,
 } from "@birim/core";
 import {
   analyzeAndAdviseSpan,
@@ -27,8 +31,10 @@ import {
   V4_MODULE_TEMPLATES,
   DOOR_SYSTEM_DEFINITIONS,
   HANDLE_PROFILES,
+  getAllHandleProfiles,
   OPENING_MECHANISM_DEFINITIONS,
   V4_HARDWARE_CATALOG,
+  getAllHardwareProducts,
   HARDWARE_DRILLING_TEMPLATES,
   getHardwareProductById,
   getDrillingTemplateForHardware,
@@ -49,6 +55,11 @@ import {
   parseBlumBxfXml,
   exportAllPanelsDXF,
   exportNestingSheetsDXF,
+  exportIndustrialCamZipArchive,
+  exportOptiCutCutListCsv,
+  exportHardwareBomCsv,
+  generateNestingDiagramSvg,
+  generateThermalPartLabelsHtml,
   buildBirimErpNestingBundle,
   type BirimErpNestingBuildOptions,
   type BirimErpNestingExportBundle,
@@ -203,6 +214,8 @@ export function computeRowSnapPreview(
     isActive: c.x === chosen.x && isSnappedToSlot,
   }));
 
+
+
   return {
     templateId,
     previewModule,
@@ -277,7 +290,7 @@ function commitAdapterState(patch: Partial<ReturnType<typeof useConfiguratorStor
     validationIssues,
     smartAdvice: analyzeAndAdviseSpan(active.dimensions.width, active.dimensions.height),
     autoSaveStatus: "unsaved",
-    history: patch.history ?? [...state.history.slice(-15), state.project],
+    history: patch.history ?? [...state.history.slice(-50), state.project],
     future: patch.future ?? [],
   });
   if (isBrowser && bom.cutList.length > 0) {
@@ -414,6 +427,13 @@ export function useV3Adapter() {
   const drawerOpenMm = useConfiguratorStore((s) => s.drawerOpenMm);
   const explodedFactor = useConfiguratorStore((s) => s.explodedFactor);
   const isOrthographic = useConfiguratorStore((s) => s.isOrthographic);
+  const cncXrayMode = useConfiguratorStore((s) => s.cncXrayMode);
+  const setCncXrayMode = useConfiguratorStore((s) => s.setCncXrayMode);
+  const toggleCncXrayMode = useConfiguratorStore((s) => s.toggleCncXrayMode);
+  const studioSplitView = useConfiguratorStore((s) => s.studioSplitView);
+  const setStudioSplitView = useConfiguratorStore((s) => s.setStudioSplitView);
+  const toggleStudioSplitView = useConfiguratorStore((s) => s.toggleStudioSplitView);
+  const autoFixProjectIssues = useConfiguratorStore((s) => s.autoFixProjectIssues);
   const cameraPreset = useConfiguratorStore((s) => s.cameraPreset);
   const baseValidationIssues = useConfiguratorStore((s) => s.validationIssues);
   const bom = useConfiguratorStore((s) => s.bom);
@@ -464,7 +484,7 @@ export function useV3Adapter() {
         };
       });
       commitAdapterState({
-        history: [...state.history.slice(-15), curProj],
+        history: [...state.history.slice(-50), curProj],
         future: [],
         project: {
           ...curProj,
@@ -480,6 +500,160 @@ export function useV3Adapter() {
    * Change the Countertop / Backsplash / Waterfall material (Neolith, Dekton, Belenco, Çimstone, Natural Marble)
    * across all kitchen base/corner cabinets and attached worktop/backsplash/waterfall modules!
    */
+  /**
+   * Applies a material either to:
+   * - `"single"`: only the targeted component (`componentMaterialOverrides[compId]`),
+   * - `"module_similar"`: all components of the same functional family (all doors, all drawer fronts, all shelves, all dividers, all carcass panels, all plinths, or all end panels) in the active module,
+   * - `"project_similar"`: all components of that same functional family across EVERY module in the project!
+   */
+  const applyMaterialToSimilarComponents = useCallback(
+    (
+      materialId: string | null,
+      explicitComponentId?: string | null,
+      scope: "single" | "module_similar" | "project_similar" = "single"
+    ) => {
+      const state = useConfiguratorStore.getState();
+      const curProj = state.project;
+      const compId = explicitComponentId ?? state.selectedComponentId;
+      if (!compId) return;
+
+      if (scope === "single") {
+        setSelectedComponentMaterial(materialId, compId);
+        return;
+      }
+
+      const activeMod = curProj.modules[state.activeModuleIndex] || curProj.modules[0];
+      if (!activeMod) return;
+      const activeGeo = generateModuleGeometry(activeMod, { doorOpenAngleDeg: 0 });
+      const targetComp =
+        activeGeo.components.find((c) => c.id === compId) ||
+        curProj.modules
+          .flatMap((m) => generateModuleGeometry(m, { doorOpenAngleDeg: 0 }).components)
+          .find((c) => c.id === compId);
+
+      const inferFamily = (role: string, idStr: string) => {
+        if (role.startsWith("door") || idStr.includes("_leaf_") || idStr.includes("_door")) return "doors";
+        if (role === "drawer_front" || idStr.endsWith("_front")) return "drawer_fronts";
+        if (role === "shelf") return "shelves";
+        if (role === "carcass_divider" || role === "carcass_sub_divider" || role === "sub_divider") return "dividers";
+        if (role === "plinth") return "plinths";
+        if (role === "end_panel") return "end_panels";
+        if (role === "countertop") return "countertops";
+        return "carcass";
+      };
+
+      const family = inferFamily(targetComp?.role || "", compId);
+      const nextModules = curProj.modules.map((m, idx) => {
+        if (scope === "module_similar" && idx !== state.activeModuleIndex && !compId.startsWith(m.id)) {
+          return m;
+        }
+        const mGeo = generateModuleGeometry(m, { doorOpenAngleDeg: 0 });
+        const nextOverrides = { ...(m.componentMaterialOverrides || {}) };
+        const matchingCompIds = mGeo.components
+          .filter((c) => inferFamily(c.role, c.id) === family)
+          .map((c) => c.id);
+
+        if (family === "doors") {
+          matchingCompIds.forEach((cid) => {
+            delete nextOverrides[cid];
+          });
+          return {
+            ...m,
+            carcass: {
+              ...m.carcass,
+              doorMaterialId: materialId || m.carcass.doorMaterialId,
+            },
+            bays: m.bays.map((b) => ({
+              ...b,
+              door: {
+                ...b.door,
+                doorMaterialId: materialId || undefined,
+              },
+            })),
+            componentMaterialOverrides: nextOverrides,
+          };
+        }
+
+        if (family === "drawer_fronts") {
+          matchingCompIds.forEach((cid) => {
+            if (materialId === null) delete nextOverrides[cid];
+            else nextOverrides[cid] = materialId;
+          });
+          return {
+            ...m,
+            bays: m.bays.map((b) => ({
+              ...b,
+              drawers: b.drawers.map((d) => ({
+                ...d,
+                frontMaterialId: materialId || undefined,
+              })),
+            })),
+            componentMaterialOverrides: nextOverrides,
+          };
+        }
+
+        if (family === "carcass") {
+          matchingCompIds.forEach((cid) => {
+            delete nextOverrides[cid];
+          });
+          return {
+            ...m,
+            carcass: {
+              ...m.carcass,
+              bodyMaterialId: materialId || m.carcass.bodyMaterialId,
+            },
+            componentMaterialOverrides: nextOverrides,
+          };
+        }
+
+        if (family === "plinths") {
+          matchingCompIds.forEach((cid) => {
+            delete nextOverrides[cid];
+          });
+          return {
+            ...m,
+            carcass: {
+              ...m.carcass,
+              plinthMaterialId: materialId || undefined,
+            },
+            componentMaterialOverrides: nextOverrides,
+          };
+        }
+
+        if (family === "countertops" && materialId) {
+          return {
+            ...m,
+            carcass: {
+              ...m.carcass,
+              countertopMaterialId: materialId,
+            },
+          };
+        }
+
+        // Shelves, dividers, or end_panels: apply override across all matching parts!
+        matchingCompIds.forEach((cid) => {
+          if (materialId === null) delete nextOverrides[cid];
+          else nextOverrides[cid] = materialId;
+        });
+        return {
+          ...m,
+          componentMaterialOverrides: nextOverrides,
+        };
+      });
+
+      commitAdapterState({
+        history: [...state.history.slice(-50), curProj],
+        future: [],
+        project: {
+          ...curProj,
+          modules: nextModules,
+          updatedAt: new Date().toISOString(),
+        },
+      });
+    },
+    [setSelectedComponentMaterial]
+  );
+
   const setDoorCrossSectionProfile = useCallback(
     (
       profile: import("@birim/core").DoorCrossSectionProfile,
@@ -492,18 +666,49 @@ export function useV3Adapter() {
       if (!mod) return;
       const nextModules = curProj.modules.map((m, idx) => {
         if (idx !== state.activeModuleIndex) return m;
+        const isSolidProfile =
+          profile === "flat_slab" ||
+          profile === "shaker_frame" ||
+          profile === "fluted_ribbed" ||
+          profile === "bevel_45" ||
+          profile === "custom_cad_profile";
+        const curDoorMat = m.carcass.doorMaterialId;
+        const nextDoorMat =
+          isSolidProfile && (curDoorMat === "mat_smoked_glass" || curDoorMat === "mat_bronze_mirror")
+            ? "mat_veneer_oak"
+            : curDoorMat;
+        const cleanedOverrides = { ...(m.componentMaterialOverrides || {}) };
+        if (isSolidProfile) {
+          Object.keys(cleanedOverrides).forEach((k) => {
+            if (
+              cleanedOverrides[k] === "mat_smoked_glass" ||
+              cleanedOverrides[k] === "mat_bronze_mirror"
+            ) {
+              delete cleanedOverrides[k];
+            }
+          });
+        }
         return {
           ...m,
           carcass: {
             ...m.carcass,
+            doorMaterialId: nextDoorMat,
             crossSectionProfile: profile,
             customCadProfileName: customCadProfileName ?? m.carcass.customCadProfileName,
             customCadPolygon: customCadPolygon ?? m.carcass.customCadPolygon,
           },
+          componentMaterialOverrides: cleanedOverrides,
           bays: m.bays.map((b) => ({
             ...b,
             door: {
               ...b.door,
+              isGlassFramed: profile === "glass_frame",
+              doorMaterialId:
+                isSolidProfile &&
+                (b.door.doorMaterialId === "mat_smoked_glass" ||
+                  b.door.doorMaterialId === "mat_bronze_mirror")
+                  ? undefined
+                  : b.door.doorMaterialId,
               crossSectionProfile: profile,
               customCadProfileName: customCadProfileName ?? b.door.customCadProfileName,
               customCadPolygon: customCadPolygon ?? b.door.customCadPolygon,
@@ -512,7 +717,7 @@ export function useV3Adapter() {
         };
       });
       commitAdapterState({
-        history: [...state.history.slice(-15), curProj],
+        history: [...state.history.slice(-50), curProj],
         future: [],
         project: {
           ...curProj,
@@ -547,7 +752,7 @@ export function useV3Adapter() {
         };
       });
       commitAdapterState({
-        history: [...state.history.slice(-15), curProj],
+        history: [...state.history.slice(-50), curProj],
         future: [],
         project: {
           ...curProj,
@@ -578,7 +783,7 @@ export function useV3Adapter() {
         : m
     );
     commitAdapterState({
-      history: [...state.history.slice(-15), curProj],
+      history: [...state.history.slice(-50), curProj],
       future: [],
       project: {
         ...curProj,
@@ -604,7 +809,7 @@ export function useV3Adapter() {
         : m
     );
     commitAdapterState({
-      history: [...state.history.slice(-15), curProj],
+      history: [...state.history.slice(-50), curProj],
       future: [],
       project: {
         ...curProj,
@@ -636,7 +841,7 @@ export function useV3Adapter() {
       };
     });
     commitAdapterState({
-      history: [...state.history.slice(-15), curProj],
+      history: [...state.history.slice(-50), curProj],
       future: [],
       project: {
         ...curProj,
@@ -687,7 +892,7 @@ export function useV3Adapter() {
         updatedAt: new Date().toISOString(),
       };
       commitAdapterState({
-        history: [...state.history.slice(-15), curProj],
+        history: [...state.history.slice(-50), curProj],
         future: [],
         project: nextProj,
       });
@@ -953,6 +1158,222 @@ export function useV3Adapter() {
   /**
    * Rotate active module by 90 degrees (for L / U corner return cabinets)
    */
+  const snapModuleToAngledWall = useCallback((targetModIdx?: number, forceWallId?: string) => {
+    const state = useConfiguratorStore.getState();
+    const curProj = state.project;
+    const idx = typeof targetModIdx === "number" ? targetModIdx : state.activeModuleIndex;
+    const mod = curProj.modules[idx];
+    if (!mod) return null;
+    const walls = getEffectiveSpaceWalls(curProj);
+    const sol = solveAngledWallSnapForModule({
+      mod,
+      modIdx: idx,
+      candidatePosX: mod.position.x,
+      candidatePosZ: mod.position.z,
+      walls,
+      allModules: curProj.modules,
+      maxPerpSnapDistMm: 99999,
+      forceWallId,
+    });
+    if (!sol) return null;
+    const nextMods = curProj.modules.map((m, i) =>
+      i === idx
+        ? {
+            ...m,
+            position: { ...m.position, x: sol.snappedPositionX, z: sol.snappedPositionZ },
+            rotation: { x: 0, y: sol.moduleRotationYDeg, z: 0 },
+          }
+        : m
+    );
+    commitAdapterState({
+      history: [...state.history.slice(-50), curProj],
+      future: [],
+      activeModuleIndex: idx,
+      project: { ...curProj, modules: nextMods, updatedAt: new Date().toISOString() },
+    });
+    return sol;
+  }, []);
+
+  const addKitchenIslandUnit = useCallback(
+    (spec: {
+      widthMm: number;
+      depthMm: number;
+      heightMm: number;
+      aisleClearanceMm: number;
+      barOverhangMm: number;
+      waterfallLeft: boolean;
+      waterfallRight: boolean;
+      countertopMaterialId: string;
+    }) => {
+      const state = useConfiguratorStore.getState();
+      const curProj = state.project;
+      const baseMods = curProj.modules.filter((m) => m.category !== "complementary" && m.category !== "kitchen_island");
+      const frontRowDepth = baseMods.length > 0 ? Math.max(...baseMods.map((m) => m.position.z + m.dimensions.depth)) : 600;
+      const centerRowX =
+        baseMods.length > 0
+          ? Math.round(
+              (Math.min(...baseMods.map((m) => m.position.x)) +
+                Math.max(...baseMods.map((m) => m.position.x + m.dimensions.width)) -
+                spec.widthMm) *
+                0.5
+            )
+          : 600;
+      const bayCnt = Math.max(2, Math.min(4, Math.round(spec.widthMm / 600)));
+      const refMod = baseMods[0] || createDefaultWardrobeModule("isl_seed");
+      const islId = `mod_island_${Date.now().toString().slice(-5)}`;
+      const islandMod: ModuleInstance = {
+        ...structuredClone(refMod),
+        id: islId,
+        name: `Şelale Tezgâhlı Ada Mutfak (${Math.round(spec.widthMm / 10)}×${Math.round(spec.depthMm / 10)} cm)`,
+        category: "kitchen_island",
+        moduleFamilyId: "fam_kitchen_base",
+        position: {
+          x: Math.max(100, centerRowX),
+          y: 0,
+          z: frontRowDepth + Math.max(850, spec.aisleClearanceMm),
+        },
+        rotation: { x: 0, y: 0, z: 0 },
+        dimensions: {
+          width: spec.widthMm,
+          height: spec.heightMm,
+          depth: spec.depthMm,
+        },
+        carcass: {
+          ...structuredClone(refMod.carcass),
+          plinthHeight: 100,
+          topConstruction: "stretcher_90mm",
+          countertopMaterialId: spec.countertopMaterialId,
+        },
+        islandCountertopConfig: {
+          barOverhangMm: spec.barOverhangMm,
+          waterfallLeft: spec.waterfallLeft,
+          waterfallRight: spec.waterfallRight,
+          countertopMaterialId: spec.countertopMaterialId,
+        },
+        bays: Array.from({ length: bayCnt }, (_, bIdx) => ({
+          index: bIdx,
+          shelves: [{ id: `${islId}_sh_${bIdx}`, bayIndex: bIdx, elevationY: 340, isFixed: false }],
+          drawers:
+            bIdx === 0
+              ? [
+                  { id: `${islId}_drw_${bIdx}_0`, bayIndex: bIdx, elevationY: 0, height: 280 },
+                  { id: `${islId}_drw_${bIdx}_1`, bayIndex: bIdx, elevationY: 284, height: 280 },
+                ]
+              : [],
+          hangingRails: [],
+          specialFittings: [],
+          door: {
+            id: `${islId}_door_${bIdx}`,
+            type: bIdx === 0 ? "open" : "single_left",
+            doorSystemId: bIdx === 0 ? "open" : "hinged_single",
+            softClose: true,
+            handleCategory: "gola_profile",
+          },
+        })),
+      };
+      const nextMods = [...curProj.modules, islandMod];
+      commitAdapterState({
+        history: [...state.history.slice(-50), curProj],
+        future: [],
+        activeModuleIndex: nextMods.length - 1,
+        project: { ...curProj, modules: nextMods, updatedAt: new Date().toISOString() },
+      });
+    },
+    []
+  );
+
+  const addOrUpdateAttachedTable = useCallback(
+    (spec: {
+      anchorModuleIndex: number;
+      attachSide: "right_end" | "left_end" | "front_center_t" | "front_right_corner";
+      angleDeg: number;
+      lengthMm: number;
+      widthMm: number;
+      tableHeightMm: number;
+      legStyle: "waterfall_slab" | "metal_u_frame" | "pedestal_column";
+      topMaterialId: string;
+    }) => {
+      const state = useConfiguratorStore.getState();
+      const curProj = state.project;
+      const anchor = curProj.modules[spec.anchorModuleIndex] || curProj.modules[state.activeModuleIndex] || curProj.modules[0];
+      if (!anchor) return;
+
+      const anchorPlace = calculateModulePlacement(anchor);
+      const aRotRad = anchorPlace.rotationYRad;
+      const cosA = Math.cos(aRotRad);
+      const sinA = Math.sin(aRotRad);
+      const toWorld = (lx: number, lz: number) => ({
+        x: anchorPlace.origin.x + lx * cosA + lz * sinA,
+        z: anchorPlace.origin.z - lx * sinA + lz * cosA,
+      });
+
+      let pivotLocal = { x: anchor.dimensions.width - 40, z: anchor.dimensions.depth * 0.5 };
+      let baseDirDeg = 0;
+      if (spec.attachSide === "left_end") {
+        pivotLocal = { x: 40, z: anchor.dimensions.depth * 0.5 };
+        baseDirDeg = 180;
+      } else if (spec.attachSide === "front_center_t") {
+        pivotLocal = { x: anchor.dimensions.width * 0.5, z: anchor.dimensions.depth - 40 };
+        baseDirDeg = -90;
+      } else if (spec.attachSide === "front_right_corner") {
+        pivotLocal = { x: anchor.dimensions.width - 60, z: anchor.dimensions.depth - 60 };
+        baseDirDeg = 0;
+      }
+
+      const pivotWorld = toWorld(pivotLocal.x, pivotLocal.z);
+      const totalModRotDeg = ((((anchor.rotation?.y || 0) + baseDirDeg - spec.angleDeg) % 360) + 360) % 360;
+      const betaRad = (totalModRotDeg * Math.PI) / 180;
+      const originX = pivotWorld.x - (spec.widthMm * 0.5) * Math.sin(betaRad);
+      const originZ = pivotWorld.z - (spec.widthMm * 0.5) * Math.cos(betaRad);
+      const tblPos = originToModulePosition(
+        spec.lengthMm,
+        spec.widthMm,
+        totalModRotDeg,
+        originX,
+        originZ
+      );
+
+      const existingTableId = `comp_table_${anchor.id}`;
+      const refCarcass = structuredClone(anchor.carcass);
+      const tableMod: ModuleInstance = {
+        id: existingTableId,
+        name: `Açılı Masa (${spec.angleDeg}° • ${Math.round(spec.lengthMm / 10)}×${Math.round(spec.widthMm / 10)} cm)`,
+        category: "complementary",
+        complementaryRole: "attached_table",
+        position: { x: tblPos.x, y: 0, z: tblPos.z },
+        rotation: { x: 0, y: totalModRotDeg, z: 0 },
+        dimensions: {
+          width: spec.lengthMm,
+          height: spec.tableHeightMm,
+          depth: spec.widthMm,
+        },
+        bays: [],
+        carcass: {
+          ...refCarcass,
+          countertopMaterialId: spec.topMaterialId,
+          doorMaterialId: spec.topMaterialId,
+          bodyMaterialId: spec.topMaterialId,
+        },
+        attachedTableConfig: {
+          anchorModuleId: anchor.id,
+          angleDeg: spec.angleDeg,
+          legStyle: spec.legStyle,
+          topThicknessMm: 40,
+        },
+      };
+
+      const filtered = curProj.modules.filter((m) => m.id !== existingTableId);
+      const nextMods = [...filtered, tableMod];
+      commitAdapterState({
+        history: [...state.history.slice(-50), curProj],
+        future: [],
+        activeModuleIndex: nextMods.length - 1,
+        project: { ...curProj, modules: nextMods, updatedAt: new Date().toISOString() },
+      });
+    },
+    []
+  );
+
   const rotateActiveModule90 = useCallback((deltaDeg = 90) => {
     const state = useConfiguratorStore.getState();
     const curProj = state.project;
@@ -972,7 +1393,7 @@ export function useV3Adapter() {
         : m
     );
     commitAdapterState({
-      history: [...state.history.slice(-15), curProj],
+      history: [...state.history.slice(-50), curProj],
       future: [],
       project: { ...curProj, modules: nextMods, updatedAt: new Date().toISOString() },
     });
@@ -1434,7 +1855,7 @@ export function useV3Adapter() {
       nextMods[neighborEntry.idx] = tempMod;
 
       commitAdapterState({
-        history: [...curState.history.slice(-15), curProj],
+        history: [...curState.history.slice(-50), curProj],
         future: [],
         activeModuleIndex: neighborEntry.idx,
         project: { ...curProj, modules: nextMods, updatedAt: new Date().toISOString() },
@@ -1567,7 +1988,7 @@ export function useV3Adapter() {
         : el
     );
     commitAdapterState({
-      history: state.batchStartProject ? state.history : [...state.history.slice(-15), curProj],
+      history: state.batchStartProject ? state.history : [...state.history.slice(-50), curProj],
       future: state.batchStartProject ? state.future : [],
       project: {
         ...curProj,
@@ -1662,7 +2083,7 @@ export function useV3Adapter() {
       const nextPricing = calculateProjectPrice(nextBom);
 
       commitAdapterState({
-        history: pushHistory ? [...state.history.slice(-15), curProj] : state.history,
+        history: pushHistory ? [...state.history.slice(-50), curProj] : state.history,
         future: pushHistory ? [] : state.future,
         project: nextProj,
         validationIssues: nextIssues,
@@ -1762,7 +2183,7 @@ export function useV3Adapter() {
         }
         if (updates.doorSystemId) {
           if (updates.doorSystemId === "hinged_double") nextDoor.type = "double";
-          else if (updates.doorSystemId === "hinged_single") nextDoor.type = "single_left";
+          else if (updates.doorSystemId === "hinged_single") nextDoor.type = bay.door.type === "single_right" ? "single_right" : "single_left";
           else if (
             updates.doorSystemId === "sliding_top_hung" ||
             updates.doorSystemId === "sliding_bottom_rolling"
@@ -1820,6 +2241,28 @@ export function useV3Adapter() {
             overlayType: srcDoor.overlayType,
           },
         }));
+        if (srcDoor.crossSectionProfile) {
+          const isSolid =
+            srcDoor.crossSectionProfile !== "glass_frame" &&
+            srcDoor.crossSectionProfile !== "mirror_door";
+          if (
+            isSolid &&
+            (mod.carcass.doorMaterialId === "mat_smoked_glass" ||
+              mod.carcass.doorMaterialId === "mat_bronze_mirror")
+          ) {
+            mod.carcass.doorMaterialId = "mat_veneer_oak";
+          }
+          if (isSolid) {
+            mod.bays.forEach((bayItem) => {
+              if (
+                bayItem.door.doorMaterialId === "mat_smoked_glass" ||
+                bayItem.door.doorMaterialId === "mat_bronze_mirror"
+              ) {
+                delete bayItem.door.doorMaterialId;
+              }
+            });
+          }
+        }
         if (srcDoor.crossSectionProfile) {
           mod.carcass.crossSectionProfile = srcDoor.crossSectionProfile;
         }
@@ -1955,7 +2398,7 @@ export function useV3Adapter() {
           modules: nextModules,
         };
         commitAdapterState({
-          history: [...state.history.slice(-15), curProj],
+          history: [...state.history.slice(-50), curProj],
           future: [],
           project: nextProj,
 
@@ -2060,7 +2503,7 @@ export function useV3Adapter() {
       const nextPricing = calculateProjectPrice(nextBom);
 
       commitAdapterState({
-        history: [...state.history.slice(-15), curProj],
+        history: [...state.history.slice(-50), curProj],
         future: [],
         project: nextProj,
         activeModuleIndex: nextModules.length - 1,
@@ -2131,7 +2574,7 @@ export function useV3Adapter() {
     const nextPricing = calculateProjectPrice(nextBom);
 
     commitAdapterState({
-      history: [...state.history.slice(-15), curProj],
+      history: [...state.history.slice(-50), curProj],
       future: [],
       project: nextProj,
       activeModuleIndex: targetIndex,
@@ -2202,7 +2645,7 @@ export function useV3Adapter() {
           modules: nextModules,
         };
         commitAdapterState({
-          history: [...state.history.slice(-15), curProj],
+          history: [...state.history.slice(-50), curProj],
           future: [],
           project: nextProj,
 
@@ -2322,7 +2765,7 @@ export function useV3Adapter() {
         modules: nextModules,
       };
       commitAdapterState({
-        history: [...state.history.slice(-15), curProj],
+        history: [...state.history.slice(-50), curProj],
         future: [],
         project: nextProj,
 
@@ -2369,7 +2812,7 @@ export function useV3Adapter() {
     const nextPricing = calculateProjectPrice(nextBom);
 
     commitAdapterState({
-      history: [...state.history.slice(-15), curProj],
+      history: [...state.history.slice(-50), curProj],
       future: [],
       project: nextProj,
       activeModuleIndex: 0,
@@ -2399,7 +2842,7 @@ export function useV3Adapter() {
     const nextPricing = calculateProjectPrice(nextBom);
 
     commitAdapterState({
-      history: [...state.history.slice(-15), curProj],
+      history: [...state.history.slice(-50), curProj],
       future: [],
       project: nextProj,
       validationIssues: nextIssues,
@@ -2427,7 +2870,7 @@ export function useV3Adapter() {
     const nextPricing = calculateProjectPrice(nextBom);
 
     commitAdapterState({
-      history: [...state.history.slice(-15), curProj],
+      history: [...state.history.slice(-50), curProj],
       future: [],
       project: nextProj,
       validationIssues: nextIssues,
@@ -2885,7 +3328,7 @@ export function useV3Adapter() {
       const nextPricing = calculateProjectPrice(nextBom);
 
       commitAdapterState({
-        history: [...state.history.slice(-15), curProj],
+        history: [...state.history.slice(-50), curProj],
         future: [],
         project: nextProj,
         activeModuleIndex: 0,
@@ -5403,7 +5846,7 @@ export function useV3Adapter() {
     }
 
     commitAdapterState({
-      history: [...curState.history.slice(-15), curProj],
+      history: [...curState.history.slice(-50), curProj],
       future: [],
       project: { ...curProj, modules: nextMods, updatedAt: new Date().toISOString() },
     });
@@ -5589,7 +6032,7 @@ export function useV3Adapter() {
       };
 
       commitAdapterState({
-        history: [...curState.history.slice(-15), curProj],
+        history: [...curState.history.slice(-50), curProj],
         future: [],
         project: nextProj,
         validationIssues: validateProject(nextProj),
@@ -5645,7 +6088,7 @@ export function useV3Adapter() {
       };
 
       commitAdapterState({
-        history: [...curState.history.slice(-15), curProj],
+        history: [...curState.history.slice(-50), curProj],
         future: [],
         project: nextProj,
         validationIssues: validateProject(nextProj),
@@ -5703,7 +6146,7 @@ export function useV3Adapter() {
       };
       const nextBom = generateBOMForProject(nextProj);
       commitAdapterState({
-        history: [...curState.history.slice(-15), curProj],
+        history: [...curState.history.slice(-50), curProj],
         future: [],
         project: nextProj,
         activeModuleIndex: appendToProject ? nextModules.length - 1 : curState.activeModuleIndex,
@@ -6128,6 +6571,32 @@ export function useV3Adapter() {
   );
 
 
+  const continuousKitchenLayers = useMemo(
+    () => computeContinuousKitchenLayers(project),
+    [project]
+  );
+
+  const exportCamZipBytes = useCallback(
+    () => exportIndustrialCamZipArchive(project, bom),
+    [project, bom]
+  );
+  const exportOptiCutCsvString = useCallback(() => {
+    const matMap = new Map(DEFAULT_MATERIALS.map((m) => [m.id, m]));
+    return exportOptiCutCutListCsv(bom, matMap);
+  }, [bom]);
+  const exportHardwareBomCsvString = useCallback(
+    () => exportHardwareBomCsv(bom),
+    [bom]
+  );
+  const exportNestingSvgString = useCallback(
+    () => generateNestingDiagramSvg(bom),
+    [bom]
+  );
+  const exportThermalLabelsHtmlString = useCallback(() => {
+    const matMap = new Map(DEFAULT_MATERIALS.map((m) => [m.id, m]));
+    return generateThermalPartLabelsHtml(project, bom, matMap);
+  }, [project, bom]);
+
   return {
     project,
     activeBlumEngineering,
@@ -6176,9 +6645,9 @@ export function useV3Adapter() {
     v4ModuleFamilies: V4_MODULE_FAMILIES,
     v4ModuleTemplates: V4_MODULE_TEMPLATES,
     doorSystemDefinitions: DOOR_SYSTEM_DEFINITIONS,
-    handleProfiles: HANDLE_PROFILES,
+    handleProfiles: getAllHandleProfiles(),
     openingMechanisms: OPENING_MECHANISM_DEFINITIONS,
-    hardwareCatalog: V4_HARDWARE_CATALOG,
+    hardwareCatalog: getAllHardwareProducts(),
     drillingTemplates: HARDWARE_DRILLING_TEMPLATES,
     wardrobeWizards: WARDROBE_INTERIOR_WIZARDS,
     libraryAdminStore: defaultLibraryAdminStore,
@@ -6194,6 +6663,19 @@ export function useV3Adapter() {
     setExplodedFactor,
     toggleDoorOpen,
     setOrthographic,
+    cncXrayMode,
+    setCncXrayMode,
+    toggleCncXrayMode,
+    studioSplitView,
+    setStudioSplitView,
+    toggleStudioSplitView,
+    autoFixProjectIssues,
+    continuousKitchenLayers,
+    exportCamZipBytes,
+    exportOptiCutCsvString,
+    exportHardwareBomCsvString,
+    exportNestingSvgString,
+    exportThermalLabelsHtmlString,
     updateProjectTitle,
     setDimensions: (w: number, h: number, d: number) => {
       const st = useConfiguratorStore.getState();
@@ -6202,6 +6684,7 @@ export function useV3Adapter() {
     setPlinthHeight,
     setMaterials,
     setSelectedComponentMaterial,
+    applyMaterialToSimilarComponents,
     setCountertopMaterial,
     setPlinthMaterial,
     setDoorCrossSectionProfile,
@@ -6271,6 +6754,9 @@ export function useV3Adapter() {
     setFloorPlanUnderlay,
     importWallsFromUnderlay,
     rotateActiveModule90,
+    snapModuleToAngledWall,
+    addKitchenIslandUnit,
+    addOrUpdateAttachedTable,
     setModulePosition,
     resizeModuleParametric,
     swapModuleWithNeighbor,

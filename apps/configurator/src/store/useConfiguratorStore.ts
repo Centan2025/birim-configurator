@@ -3,6 +3,7 @@ import {
   DesignProject,
   createInitialProject,
   validateProject,
+  autoFixModuleIssues,
   ValidationIssue,
   createDefaultWardrobeModule,
   ModuleInstance,
@@ -79,6 +80,8 @@ interface ConfiguratorState {
   drawerOpenMm: number;
   explodedFactor: number;
   isOrthographic: boolean;
+  cncXrayMode: boolean;
+  studioSplitView: boolean;
   cameraPreset: CameraPreset;
   uiMode: "simple" | "technical";
   userExperienceTier: UserExperienceTier;
@@ -109,6 +112,11 @@ interface ConfiguratorState {
   toggleDoorOpen: () => void;
   toggleOrthographic: () => void;
   setOrthographic: (isOrthographic: boolean) => void;
+  setCncXrayMode: (enabled: boolean) => void;
+  toggleCncXrayMode: () => void;
+  setStudioSplitView: (enabled: boolean) => void;
+  toggleStudioSplitView: () => void;
+  autoFixProjectIssues: () => number;
 
   // Project & Module actions
   updateProjectTitle: (title: string) => void;
@@ -325,7 +333,7 @@ function recompute(project: DesignProject, options?: { syncInitial?: boolean }) 
 
 function nextHistory(history: DesignProject[], current: DesignProject, batchStartProject: DesignProject | null): DesignProject[] {
   if (batchStartProject) return history;
-  return [...history.slice(-15), current];
+  return [...history.slice(-50), current];
 }
 
 const initialProj = createInitialProject();
@@ -340,6 +348,8 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   drawerOpenMm: 0,
   explodedFactor: 0,
   isOrthographic: false,
+  cncXrayMode: false,
+  studioSplitView: false,
   cameraPreset: "iso",
   uiMode: "simple",
   userExperienceTier: "simple",
@@ -393,6 +403,33 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   setExplodedFactor: (explodedFactor) => set({ explodedFactor }),
   toggleOrthographic: () => set((s) => ({ isOrthographic: !s.isOrthographic })),
   setOrthographic: (isOrthographic) => set({ isOrthographic }),
+  setCncXrayMode: (cncXrayMode) => set({ cncXrayMode }),
+  toggleCncXrayMode: () => set((st) => ({ cncXrayMode: !st.cncXrayMode })),
+  setStudioSplitView: (studioSplitView) => set({ studioSplitView }),
+  toggleStudioSplitView: () => set((st) => ({ studioSplitView: !st.studioSplitView })),
+  autoFixProjectIssues: () => {
+    const { project, history, batchStartProject } = get();
+    const next = cloneProject(project);
+    let fixedTotal = 0;
+    next.modules = next.modules.map((mod) => {
+      const res = autoFixModuleIssues(mod, next.space.ceilingHeight);
+      fixedTotal += res.appliedFixes.length;
+      return res.module;
+    });
+    if (fixedTotal === 0) return 0;
+    const { validationIssues, bom, pricing, smartAdvice } = recompute(next);
+    set({
+      project: next,
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+      autoSaveStatus: 'unsaved',
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+    });
+    return fixedTotal;
+  },
   toggleDoorOpen: () => {
     const cur = get().doorOpenAngleDeg;
     set({ doorOpenAngleDeg: cur > 0 ? 0 : 75 });
@@ -416,7 +453,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     }
     const { validationIssues, bom, pricing, smartAdvice } = recompute(project);
     set({
-      history: [...history.slice(-15), batchStartProject],
+      history: [...history.slice(-50), batchStartProject],
       future: [],
       batchStartProject: null,
       validationIssues,
@@ -450,7 +487,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     const restored = structuredClone(target.project);
     const { validationIssues, bom, pricing, smartAdvice } = recompute(restored);
     set({
-      history: [...history.slice(-15), project],
+      history: [...history.slice(-50), project],
       future: [],
       project: restored,
       autoSaveStatus: "unsaved",
@@ -1482,7 +1519,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
 
     set({
-      history: [...history.slice(-15), project],
+      history: [...history.slice(-50), project],
       future: [],
       batchStartProject: null,
       project: updated,
@@ -1502,7 +1539,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     const { validationIssues, bom, pricing, smartAdvice } = recompute(kitchenProj);
 
     set({
-      history: [...history.slice(-15), project],
+      history: [...history.slice(-50), project],
       future: [],
       batchStartProject: null,
       project: kitchenProj,
@@ -1520,7 +1557,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     const lProj = createKitchenLProject();
     const { validationIssues, bom, pricing, smartAdvice } = recompute(lProj);
     set({
-      history: [...history.slice(-15), project],
+      history: [...history.slice(-50), project],
       future: [],
       batchStartProject: null,
       project: lProj,
@@ -1538,7 +1575,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     const uProj = createKitchenUProject();
     const { validationIssues, bom, pricing, smartAdvice } = recompute(uProj);
     set({
-      history: [...history.slice(-15), project],
+      history: [...history.slice(-50), project],
       future: [],
       batchStartProject: null,
       project: uProj,

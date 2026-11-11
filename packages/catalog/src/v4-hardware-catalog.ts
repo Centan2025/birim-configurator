@@ -1080,3 +1080,109 @@ export function selectOptimalRunnerLengthMm(usableInnerDepthMm: UnitLength): Uni
   }
   return 270;
 }
+
+
+// ============================================================================
+// CUSTOM PROJECT HANDLE & HARDWARE REGISTRY (Persisted in Browser LocalStorage)
+// ============================================================================
+const CUSTOM_HANDLES_STORAGE_KEY = "birim_custom_handles_v1";
+const CUSTOM_HARDWARE_STORAGE_KEY = "birim_custom_hardware_v1";
+
+let runtimeCustomHandles: (HandleProfileDefinition & {
+  totalLengthMm?: number;
+  defaultFinishMaterialId?: string;
+})[] = [];
+let runtimeCustomHardware: HardwareProductRecord[] = [];
+let customCatalogHydrated = false;
+
+function hydrateCustomCatalogIfNeeded() {
+  if (customCatalogHydrated || typeof localStorage === "undefined") return;
+  customCatalogHydrated = true;
+  try {
+    const rawH = localStorage.getItem(CUSTOM_HANDLES_STORAGE_KEY);
+    if (rawH) {
+      const parsed = JSON.parse(rawH);
+      if (Array.isArray(parsed)) runtimeCustomHandles = parsed;
+    }
+    const rawHw = localStorage.getItem(CUSTOM_HARDWARE_STORAGE_KEY);
+    if (rawHw) {
+      const parsedHw = JSON.parse(rawHw);
+      if (Array.isArray(parsedHw)) runtimeCustomHardware = parsedHw;
+    }
+  } catch {
+    // ignore storage restrictions
+  }
+}
+
+function persistCustomCatalog() {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(CUSTOM_HANDLES_STORAGE_KEY, JSON.stringify(runtimeCustomHandles));
+    localStorage.setItem(CUSTOM_HARDWARE_STORAGE_KEY, JSON.stringify(runtimeCustomHardware));
+  } catch {
+    // ignore quota/sandbox
+  }
+}
+
+export function getCustomHandleProfiles() {
+  hydrateCustomCatalogIfNeeded();
+  return [...runtimeCustomHandles];
+}
+
+export function getAllHandleProfiles(): HandleProfileDefinition[] {
+  hydrateCustomCatalogIfNeeded();
+  return [...HANDLE_PROFILES, ...runtimeCustomHandles];
+}
+
+export function findHandleProfileByIdOrSku(idOrSku?: string | null) {
+  if (!idOrSku) return undefined;
+  hydrateCustomCatalogIfNeeded();
+  return (
+    runtimeCustomHandles.find((h) => h.id === idOrSku || h.sku === idOrSku) ||
+    HANDLE_PROFILES.find((h) => h.id === idOrSku || h.sku === idOrSku)
+  );
+}
+
+export function registerCustomHandleProfile(
+  profile: HandleProfileDefinition & { totalLengthMm?: number; defaultFinishMaterialId?: string }
+) {
+  hydrateCustomCatalogIfNeeded();
+  runtimeCustomHandles = [
+    ...runtimeCustomHandles.filter((h) => h.id !== profile.id && h.sku !== profile.sku),
+    profile,
+  ];
+  persistCustomCatalog();
+  return profile;
+}
+
+export function removeCustomHandleProfile(idOrSku: string) {
+  hydrateCustomCatalogIfNeeded();
+  runtimeCustomHandles = runtimeCustomHandles.filter((h) => h.id !== idOrSku && h.sku !== idOrSku);
+  persistCustomCatalog();
+}
+
+export function getCustomHardwareProducts(): HardwareProductRecord[] {
+  hydrateCustomCatalogIfNeeded();
+  return [...runtimeCustomHardware];
+}
+
+export function getAllHardwareProducts(): HardwareProductRecord[] {
+  hydrateCustomCatalogIfNeeded();
+  return [...V4_HARDWARE_CATALOG, ...runtimeCustomHardware];
+}
+
+export function registerCustomHardwareProduct(product: HardwareProductRecord) {
+  hydrateCustomCatalogIfNeeded();
+  runtimeCustomHardware = [
+    ...runtimeCustomHardware.filter((p) => p.id !== product.id && p.sku !== product.sku),
+    product,
+  ];
+  persistCustomCatalog();
+  return product;
+}
+
+export function removeCustomHardwareProduct(idOrSku: string) {
+  hydrateCustomCatalogIfNeeded();
+  runtimeCustomHardware = runtimeCustomHardware.filter((p) => p.id !== idOrSku && p.sku !== idOrSku);
+  persistCustomCatalog();
+}

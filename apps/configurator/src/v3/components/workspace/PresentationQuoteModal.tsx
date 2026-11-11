@@ -1,8 +1,11 @@
 "use client";
 
+import { BirimLogo } from "../../design-system";
+
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { DesignProject, MaterialDefinition, calculateBayWidths } from "@birim/core";
 import { PricingBreakdown } from "@birim/pricing";
+import { startZeroLagModalDrag } from "../../design-system/zeroLagDrag";
 import {
   Check,
   ChevronDown,
@@ -287,11 +290,12 @@ export const PresentationQuoteModal: React.FC<PresentationQuoteModalProps> = ({
       onClick={onClose}
     >
       <div
-        className="bg-[#FAF9F6] rounded-2xl border border-[#DED8CC] shadow-[0_32px_80px_-20px_rgba(20,20,19,0.42)] max-w-6xl w-full max-h-[93vh] flex flex-col overflow-hidden text-[#141413]"
+        data-draggable-shell="quote"
+        className="birim-ice-modal rounded-[28px] max-w-6xl w-full max-h-[93vh] flex flex-col overflow-hidden text-[#141413]"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Minimalist B1R1M Architectural Header */}
-        <div className="px-6 py-4 bg-white border-b border-[#E5E0D5] flex items-center justify-between gap-4 shrink-0">
+        {/* Minimalist B1R1M Architectural Header (Zero-Lag Draggable) */}
+        <div onPointerDown={(e) => startZeroLagModalDrag(e)} title="Taşımak için sürükleyin" className="px-6 py-4 birim-ice-shell-header flex items-center justify-between gap-4 shrink-0 cursor-grab active:cursor-grabbing select-none">
           <div className="flex items-center gap-4 min-w-0">
             <div className="flex items-center gap-2 shrink-0">
               <span className="text-base font-black tracking-[0.2em] text-[#141413]">B1R1M</span>

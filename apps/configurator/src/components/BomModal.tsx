@@ -14,6 +14,8 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { DEFAULT_MATERIALS } from "@birim/core";
+import { BirimLogo } from "../v3/design-system";
+import { startZeroLagModalDrag } from "../v3/design-system/zeroLagDrag";
 import {
   exportCutListToCSV,
   buildBirimErpNestingBundle,
@@ -23,6 +25,11 @@ import {
   generatePanelDXF,
   exportAllPanelsDXF,
   exportNestingSheetsDXF,
+  exportIndustrialCamZipArchive,
+  exportOptiCutCutListCsv,
+  exportHardwareBomCsv,
+  generateNestingDiagramSvg,
+  generateThermalPartLabelsHtml,
   generateBlumBxfXml,
   calculateBlumEngineeringSummary,
   generateProjectCncPostProcessorBundle,
@@ -197,6 +204,62 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
     }, 1500);
   };
 
+
+  const downloadCamZipArchive = () => {
+    const zipBytes = exportIndustrialCamZipArchive(bom);
+    const blob = new Blob([zipBytes], { type: "application/zip" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `CAM_DXF_Paketi_${project.id}_v${project.version}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    setExportStatusBanner(`CAM_DXF_Paketi_${project.id}_v${project.version}.zip indirildi`);
+    setTimeout(() => {
+      if (a.parentNode) a.parentNode.removeChild(a);
+      URL.revokeObjectURL(url);
+      setExportStatusBanner(null);
+    }, 2500);
+  };
+
+  const downloadOptiCutCsv = () => {
+    const matMap = new Map(DEFAULT_MATERIALS.map((m) => [m.id, m]));
+    const csvOut = exportOptiCutCutListCsv(bom, matMap);
+    downloadFile(
+      csvOut,
+      `OptiCut_17Sutun_Kesim_${project.id}_v${project.version}.csv`,
+      "text/csv;charset=utf-8"
+    );
+  };
+
+  const downloadHardwareBomCsv = () => {
+    const csvOut = exportHardwareBomCsv(bom);
+    downloadFile(
+      csvOut,
+      `Donanim_BOM_${project.id}_v${project.version}.csv`,
+      "text/csv;charset=utf-8"
+    );
+  };
+
+  const downloadNestingSvg = () => {
+    const svgOut = generateNestingDiagramSvg(bom);
+    downloadFile(
+      svgOut,
+      `Plaka_Nesting_${project.id}_v${project.version}.svg`,
+      "image/svg+xml;charset=utf-8"
+    );
+  };
+
+  const downloadThermalLabelsHtml = () => {
+    const matMap = new Map(DEFAULT_MATERIALS.map((m) => [m.id, m]));
+    const htmlOut = generateThermalPartLabelsHtml(project, bom, matMap);
+    downloadFile(
+      htmlOut,
+      `Termal_Barkod_Etiketler_100x50_${project.id}_v${project.version}.html`,
+      "text/html;charset=utf-8"
+    );
+  };
+
   const downloadBlumBxf = () => {
     const xmlOut = blumBxfXml || generateBlumBxfXml(project, bom);
     downloadFile(
@@ -288,10 +351,17 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
   const shelfDeflections = bom.shelfDeflectionAnalyses || [];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-2xl p-4">
-      <div className="flex flex-col w-full max-w-6xl h-[88vh] birim-ice-dark-bar border border-white/20 rounded-3xl overflow-hidden shadow-2xl">
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 bg-slate-950/60 backdrop-blur-2xl border-b border-white/10">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 backdrop-blur-md p-4">
+      <div
+        data-draggable-shell="bom"
+        className="flex flex-col w-full max-w-6xl h-[88vh] birim-ice-dark-bar rounded-[28px] overflow-hidden"
+      >
+        {/* Header (Zero-Lag Draggable) */}
+        <div
+          onPointerDown={(e) => startZeroLagModalDrag(e)}
+          title="Pencereyi taşımak için basılı tutup sürükleyin"
+          className="flex flex-wrap items-center justify-between gap-2 px-5 py-3.5 bg-slate-950/45 backdrop-blur-xl border-b border-white/15 cursor-grab active:cursor-grabbing select-none"
+        >
           <div>
             <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
               <span>BOM & İmalat Mühendisliği Portalı</span>
@@ -311,6 +381,51 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={downloadCamZipArchive}
+              data-testid="bom-download-cam-zip-btn"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl bg-sky-600 hover:bg-sky-500 text-white shadow transition cursor-pointer"
+              title="Her parça için ayrı endüstriyel katmanlı CNC .DXF dosyaları içeren .ZIP paketini indir"
+            >
+              <Download className="w-3.5 h-3.5" />
+              CAM .ZIP
+            </button>
+            <button
+              onClick={downloadOptiCutCsv}
+              data-testid="bom-download-opticut-csv-btn"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl bg-teal-600 hover:bg-teal-500 text-white shadow transition cursor-pointer"
+              title="17 sütunlu OptiCut / Kesim Optimizasyon CSV listesini indir"
+            >
+              <Download className="w-3.5 h-3.5" />
+              OptiCut CSV
+            </button>
+            <button
+              onClick={downloadHardwareBomCsv}
+              data-testid="bom-download-hw-csv-btn"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl bg-cyan-700 hover:bg-cyan-600 text-white shadow transition cursor-pointer"
+              title="Aksesuar ve Hırdavat Malzeme İhtiyaç Listesi (BOM CSV)"
+            >
+              <ListOrdered className="w-3.5 h-3.5" />
+              Hırdavat CSV
+            </button>
+            <button
+              onClick={downloadNestingSvg}
+              data-testid="bom-download-nesting-svg-btn"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl bg-fuchsia-700 hover:bg-fuchsia-600 text-white shadow transition cursor-pointer"
+              title="2800×2070 mm Plaka Kesim ve Yerleşim Şemasını (.SVG) indir"
+            >
+              <Cpu className="w-3.5 h-3.5" />
+              Nest SVG
+            </button>
+            <button
+              onClick={downloadThermalLabelsHtml}
+              data-testid="bom-download-thermal-labels-btn"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl bg-orange-600 hover:bg-orange-500 text-white shadow transition cursor-pointer"
+              title="100×50 mm Barkodlu, Kenar Bant Şemalı Termal Parça Etiketlerini Yazdır / İndir"
+            >
+              <Download className="w-3.5 h-3.5" />
+              Etiket 100×50
+            </button>
             <button
               onClick={downloadErpNestingJson}
               data-testid="bom-download-erp-nesting-json-btn"
@@ -697,7 +812,7 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
-                      <span>Birim Portal ERP — CNC Panel Nesting & Kesim Motoru</span>
+                      <BirimLogo className="h-4 w-auto text-white" dark={true} /><span>Portal ERP — CNC Panel Nesting & Kesim Motoru</span>
                       <span className="px-2 py-0.5 rounded-full bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 font-mono text-[10px]">
                         {erpNestingBundle.schema_version}
                       </span>

@@ -5,6 +5,10 @@ import {
   calculateNetInnerDepth,
   calculateFourSpaceDimensions,
   inferDoorSystemIdFromType,
+  isBuiltInDishwasherModule,
+  isBuiltInOvenOrFridgeTower,
+  isSinkModule,
+  isCooktopModule,
 } from "@birim/core";
 import { ComponentGeometry, ModuleGeometryBreakdown } from "./types";
 import { generateHandleGeometry } from "./handle-geometry";
@@ -36,9 +40,210 @@ export function generateModuleGeometry(
     doorPerimeterGap,
   } = module.carcass;
 
+  // Handle Fully Integrated Built-In Dishwasher (Checklist #12: Carcassless 600mm slot + exterior furniture door + continuous countertop & plinth!)
+  if (isBuiltInDishwasherModule(module)) {
+    const dshComponents: ComponentGeometry[] = [];
+    const T_door = module.carcass.doorThickness || 18;
+    const dshDoorH = Math.max(120, height - plinthHeight - 2 * doorPerimeterGap);
+    const dshDoorW = Math.max(120, width - 2 * doorPerimeterGap);
+    const rad = (doorOpenAngleDeg * Math.PI) / 180;
+    const bay0 = module.bays[0];
+    const dMatId = bay0?.door?.doorMaterialId || doorMaterialId;
+
+    // 1. Continuous Lower Plinth Front Strip (no side legs inside appliance slot!)
+    if (plinthHeight > 0) {
+      const pSetback = module.carcass.plinthSetbackMm ?? 55;
+      dshComponents.push({
+        id: `${module.id}_plinth_front`,
+        role: "plinth",
+        label: `Ankastre Bulaşık Makinesi Ön Baza Bandı (H:${plinthHeight}mm)`,
+        dimensions: { width, height: plinthHeight, depth: T },
+        position: { x: 0, y: 0, z: Math.max(40, depth - pSetback - T) },
+        materialId: module.carcass.plinthMaterialId || dMatId,
+        isFrontFacing: true,
+        isManufacturablePanel: true,
+        thicknessAxis: "z",
+      });
+    }
+
+    // 2. Appliance Stainless Body Preview (Non-manufacturable appliance volume inside 600mm niche)
+    dshComponents.push({
+      id: `${module.id}_builtin_dishwasher_body`,
+      role: "special_fitting",
+      label: "Tam Ankastre Bulaşık Makinesi Gövdesi (Ahşap Karkassız 600mm Boşluk)",
+      dimensions: { width: Math.max(100, width - 4), height: Math.max(200, height - 6), depth: Math.max(200, depth - 15) },
+      position: { x: 2, y: 0, z: 15 },
+      materialId: "mat_anodized_metal",
+      isManufacturablePanel: false,
+    });
+
+    // 3. Exterior Furniture Door Panel (pivots downward around bottom edge like a real dishwasher!)
+    const dshDoor: ComponentGeometry = {
+      id: `${bay0?.door?.id || module.id}_dsh_door`,
+      role: "door_left",
+      label: "Tam Ankastre Bulaşık Makinesi Mobilya Kapağı",
+      bayIndex: 0,
+      dimensions: { width: dshDoorW, height: dshDoorH, depth: T_door },
+      position: { x: doorPerimeterGap, y: plinthHeight + doorPerimeterGap, z: depth },
+      rotation: [rad * 0.85, 0, 0],
+      pivot: { x: doorPerimeterGap, y: plinthHeight + doorPerimeterGap, z: depth },
+      materialId: dMatId,
+      isFrontFacing: true,
+      isManufacturablePanel: true,
+      thicknessAxis: "z",
+    };
+    dshComponents.push(dshDoor);
+
+    if (bay0?.door) {
+      const hCat = bay0.door.handleCategory || "bar_handle";
+      dshComponents.push(
+        ...generateHandleGeometry(dshDoor, hCat, {
+          moduleCategory: module.category,
+          moduleElevationY: module.position.y,
+          moduleHeight: module.dimensions.height,
+          handleOrientation: "horizontal",
+          handleProfileId: bay0.door.handleProfileId,
+          handleMaterialId: bay0.door.handleMaterialId,
+        })
+      );
+    }
+
+    // 4. Continuous Upper Countertop Slab above Dishwasher Niche
+    dshComponents.push({
+      id: `${module.id}_auto_countertop`,
+      role: "countertop",
+      label: "Bulaşık Makinesi Üstü Kesintisiz Kuvars Tezgâh (38mm)",
+      dimensions: { width, height: 38, depth: depth + 26 },
+      position: { x: 0, y: height, z: 0 },
+      materialId: module.carcass.countertopMaterialId || "mat_neolith_calacatta_luxe",
+      isFrontFacing: true,
+      isManufacturablePanel: false,
+    });
+
+    const dshRes: ModuleGeometryBreakdown = {
+      moduleId: module.id,
+      overall: module.dimensions,
+      components: dshComponents,
+      bayWidths: [width],
+      netInnerHeight: height - plinthHeight,
+      netInnerDepth: depth,
+    };
+    moduleGeometryCache.set(cacheKey, dshRes);
+    return dshRes;
+  }
+
   // Handle complementary single-piece modules cleanly (Countertop, Backsplash, End Panel, Wall Filler, Leveling Feet, Wall Bracket)
   if (module.category === "complementary") {
     const cRole = module.complementaryRole || "end_panel";
+    if (cRole === "attached_table") {
+      const topT = module.attachedTableConfig?.topThicknessMm || 40;
+      const legStyle = module.attachedTableConfig?.legStyle || "metal_u_frame";
+      const topMat = module.carcass.countertopMaterialId || doorMaterialId || bodyMaterialId;
+      const legH = Math.max(120, height - topT);
+      const tblComps: ComponentGeometry[] = [
+        {
+          id: `${module.id}_table_top`,
+          role: "countertop",
+          label: `${module.name} Tablası (${width}×${depth}×${topT}mm)`,
+          dimensions: { width, height: topT, depth },
+          position: { x: 0, y: legH, z: 0 },
+          materialId: topMat,
+          isFrontFacing: true,
+          isManufacturablePanel: true,
+          thicknessAxis: "y",
+        },
+        {
+          id: `${module.id}_cantilever_bracket`,
+          role: "special_fitting",
+          label: "Tezgâh / Ada Çelik Konsol Bağlantı Plakası",
+          dimensions: { width: Math.min(240, width * 0.25), height: 14, depth: Math.max(180, depth * 0.56) },
+          position: { x: 0, y: legH - 14, z: (depth - Math.max(180, depth * 0.56)) * 0.5 },
+          materialId: "mat_handle_matte_black",
+          isFrontFacing: false,
+          isManufacturablePanel: false,
+        },
+      ];
+
+      if (legStyle === "waterfall_slab") {
+        const wfT = 40;
+        tblComps.push({
+          id: `${module.id}_waterfall_leg`,
+          role: "countertop",
+          label: `Masa Şelale Yan İniş Plakası (${legH}×${depth}×${wfT}mm)`,
+          dimensions: { width: wfT, height: legH, depth },
+          position: { x: Math.max(0, width - wfT), y: 0, z: 0 },
+          materialId: topMat,
+          isFrontFacing: true,
+          isManufacturablePanel: true,
+          thicknessAxis: "x",
+        });
+      } else if (legStyle === "pedestal_column") {
+        const colDiam = Math.min(180, Math.max(110, Math.round(depth * 0.22)));
+        tblComps.push({
+          id: `${module.id}_pedestal_col`,
+          role: "special_fitting",
+          label: "Heykelsi Silindirik Masa Sütun Ayağı",
+          dimensions: { width: colDiam, height: legH, depth: colDiam },
+          position: { x: Math.max(120, width - 260 - colDiam * 0.5), y: 0, z: (depth - colDiam) * 0.5 },
+          primitive: "cylinder",
+          materialId: "mat_handle_matte_black",
+          isFrontFacing: true,
+          isManufacturablePanel: false,
+        });
+      } else {
+        const barW = 50;
+        const barThick = 24;
+        const insetZ = 45;
+        const spanZ = Math.max(160, depth - insetZ * 2);
+        const legX = Math.max(80, width - 110);
+        tblComps.push(
+          {
+            id: `${module.id}_uframe_front`,
+            role: "special_fitting",
+            label: "Mimari U-Profil Ön Dikme Ayak",
+            dimensions: { width: barW, height: legH, depth: barThick },
+            position: { x: legX, y: 0, z: depth - insetZ - barThick },
+            materialId: "mat_handle_matte_black",
+            isManufacturablePanel: false,
+          },
+          {
+            id: `${module.id}_uframe_rear`,
+            role: "special_fitting",
+            label: "Mimari U-Profil Arka Dikme Ayak",
+            dimensions: { width: barW, height: legH, depth: barThick },
+            position: { x: legX, y: 0, z: insetZ },
+            materialId: "mat_handle_matte_black",
+            isManufacturablePanel: false,
+          },
+          {
+            id: `${module.id}_uframe_bottom_runner`,
+            role: "special_fitting",
+            label: "Mimari U-Profil Alt Kayıt",
+            dimensions: { width: barW, height: 18, depth: spanZ },
+            position: { x: legX, y: 0, z: insetZ },
+            materialId: "mat_handle_matte_black",
+            isManufacturablePanel: false,
+          }
+        );
+      }
+
+      if (module.componentMaterialOverrides) {
+        tblComps.forEach((c) => {
+          const ov = module.componentMaterialOverrides?.[c.id];
+          if (ov) c.materialId = ov;
+        });
+      }
+      const tblRes: ModuleGeometryBreakdown = {
+        moduleId: module.id,
+        overall: module.dimensions,
+        components: tblComps,
+        bayWidths: [width],
+        netInnerHeight: height,
+        netInnerDepth: depth,
+      };
+      moduleGeometryCache.set(cacheKey, tblRes);
+      return tblRes;
+    }
     const nonPanelRoles = new Set([
       "leveling_feet",
       "led_channel",
@@ -817,7 +1022,7 @@ export function generateModuleGeometry(
         {
           id: `${module.id}_plinth_side_left`,
           role: "plinth",
-          label: `Kutu Baza Sol Yan Dönüşü`,
+          label: `Kutu Baza Sol Dönüş Bandı`,
           dimensions: { width: T, height: boardH, depth: sideReturnDepth },
           position: { x: sideReveal - explodeX * 0.45, y: baseExpY + sealH, z: rearRailZ },
           materialId: plinthMatId,
@@ -827,7 +1032,7 @@ export function generateModuleGeometry(
         {
           id: `${module.id}_plinth_side_right`,
           role: "plinth",
-          label: `Kutu Baza Sağ Yan Dönüşü`,
+          label: `Kutu Baza Sağ Dönüş Bandı`,
           dimensions: { width: T, height: boardH, depth: sideReturnDepth },
           position: {
             x: width - sideReveal - T + explodeX * 0.45,
@@ -972,7 +1177,7 @@ export function generateModuleGeometry(
         {
           id: `${module.id}_plinth_side_left`,
           role: "plinth",
-          label: `Klipsli Sol Yan Baza Dönüş Bandı`,
+          label: `Klipsli Sol Dönüş Baza Bandı`,
           dimensions: { width: T, height: boardH, depth: sideRetDepth },
           position: { x: sideReturnInset - explodeX * 0.5, y: baseExpY + sealH, z: rearRailZ },
           materialId: plinthMatId,
@@ -982,7 +1187,7 @@ export function generateModuleGeometry(
         {
           id: `${module.id}_plinth_side_right`,
           role: "plinth",
-          label: `Klipsli Sağ Yan Baza Dönüş Bandı`,
+          label: `Klipsli Sağ Dönüş Baza Bandı`,
           dimensions: { width: T, height: boardH, depth: sideRetDepth },
           position: {
             x: width - sideReturnInset - T + explodeX * 0.5,
@@ -1102,14 +1307,46 @@ export function generateModuleGeometry(
     }
   }
 
-  // 2. Left & Right Side Panels — extend to floor ONLY in "gable_rails"; sit cleanly atop plinth in "pedestal_box" & "adjustable_legs_clip"!
-  const sideRunsToFloor = plinthHeight > 0 && effPlinthType === "gable_rails";
-  const sideH = sideRunsToFloor ? height : height - plinthHeight;
-  const sideY = sideRunsToFloor ? 0 : plinthHeight;
+  // Plinth Drawer Option (Checklist #18 / Section 5.2: Süpürgelik / Baza Çekmecesi)
+  if (module.carcass.hasPlinthDrawer && plinthHeight >= 80) {
+    const pDrawerW = Math.max(120, width - 2 * T - 26);
+    const pDrawerD = Math.max(200, Math.min(450, depth - 90));
+    components.push({
+      id: `${module.id}_plinth_drawer_box`,
+      role: "drawer_bottom",
+      label: `Baza Gizli Çekmece Kasası (${pDrawerW}×${pDrawerD}mm)`,
+      dimensions: { width: pDrawerW, height: Math.max(45, plinthHeight - 24), depth: pDrawerD },
+      position: { x: T + 13, y: 12, z: depth - pDrawerD - 55 + drawerOpenMm * 0.6 },
+      materialId: bodyMaterialId,
+      isManufacturablePanel: true,
+      thicknessAxis: "y",
+    });
+  }
+
+  // 2 & 3. Left & Right Side Panels — Supports Tip A (sides_through), Tip B (top_bottom_through), Tip C (miter_45), Tip D (kitchen_stretchers)
+  const joineryTopology =
+    module.carcass.carcassJoineryTopology ||
+    (module.category === "kitchen_base" || module.category === "kitchen_island"
+      ? "kitchen_stretchers"
+      : "sides_through");
+  const sideRunsToFloor = plinthHeight > 0 && effPlinthType === "gable_rails" && joineryTopology !== "top_bottom_through";
+  const sideH =
+    joineryTopology === "top_bottom_through"
+      ? Math.max(80, height - plinthHeight - 2 * T)
+      : sideRunsToFloor
+      ? height
+      : height - plinthHeight;
+  const sideY =
+    joineryTopology === "top_bottom_through"
+      ? plinthHeight + T
+      : sideRunsToFloor
+      ? 0
+      : plinthHeight;
+
   components.push({
     id: `${module.id}_side_left`,
     role: "carcass_side_left",
-    label: "Sol Yan Panel",
+    label: joineryTopology === "miter_45" ? "Sol Yan Panel (45° Gönye)" : "Sol Yan Panel",
     dimensions: { width: T, height: sideH, depth },
     position: { x: explodeX > 0 ? -explodeX : 0, y: sideY, z: 0 },
     materialId: bodyMaterialId,
@@ -1117,11 +1354,10 @@ export function generateModuleGeometry(
     thicknessAxis: "x",
   });
 
-  // 3. Right Side Panel
   components.push({
     id: `${module.id}_side_right`,
     role: "carcass_side_right",
-    label: "Sağ Yan Panel",
+    label: joineryTopology === "miter_45" ? "Sağ Yan Panel (45° Gönye)" : "Sağ Yan Panel",
     dimensions: { width: T, height: sideH, depth },
     position: { x: width - T + explodeX, y: sideY, z: 0 },
     materialId: bodyMaterialId,
@@ -1129,43 +1365,208 @@ export function generateModuleGeometry(
     thicknessAxis: "x",
   });
 
-  // 4. Bottom Panel
+  // Applied Decorative End Panels (Checklist #19: D_carcass + T_door + 2mm covering front door reveal!)
+  const T_door_ext = module.carcass.doorThickness || 18;
+  const endPanelDepth = depth + T_door_ext + 2;
+  if (module.carcass.appliedEndPanelLeft && module.carcass.appliedEndPanelLeft !== "none") {
+    const epFloor = module.carcass.appliedEndPanelLeft === "floor_to_top";
+    components.push({
+      id: `${module.id}_applied_end_left`,
+      role: "end_panel",
+      label: epFloor ? "Sol Görünen Yan Panel (Zemine İnen, Cumba Örten)" : "Sol Görünen Yan Panel (Gövde Boyu, Cumba Örten)",
+      dimensions: { width: T, height: epFloor ? height : height - plinthHeight, depth: endPanelDepth },
+      position: { x: -T, y: epFloor ? 0 : plinthHeight, z: 0 },
+      materialId: doorMaterialId,
+      isFrontFacing: true,
+      isManufacturablePanel: true,
+      thicknessAxis: "x",
+    });
+  }
+  if (module.carcass.appliedEndPanelRight && module.carcass.appliedEndPanelRight !== "none") {
+    const epFloor = module.carcass.appliedEndPanelRight === "floor_to_top";
+    components.push({
+      id: `${module.id}_applied_end_right`,
+      role: "end_panel",
+      label: epFloor ? "Sağ Görünen Yan Panel (Zemine İnen, Cumba Örten)" : "Sağ Görünen Yan Panel (Gövde Boyu, Cumba Örten)",
+      dimensions: { width: T, height: epFloor ? height : height - plinthHeight, depth: endPanelDepth },
+      position: { x: width, y: epFloor ? 0 : plinthHeight, z: 0 },
+      materialId: doorMaterialId,
+      isFrontFacing: true,
+      isManufacturablePanel: true,
+      thicknessAxis: "x",
+    });
+  }
+
+  // Island Decorative Back Cladding (MD Spec Section 7.3)
+  if (module.category === "kitchen_island" || module.carcass.islandBackCladding) {
+    components.push({
+      id: `${module.id}_island_back_cladding`,
+      role: "end_panel",
+      label: "Ada Mutfak Dekoratif Arka Kapama Paneli",
+      dimensions: { width, height, depth: T },
+      position: { x: 0, y: 0, z: -T },
+      materialId: doorMaterialId,
+      isFrontFacing: true,
+      isManufacturablePanel: true,
+      thicknessAxis: "z",
+    });
+  }
+
+  // 4. Bottom Panel (Tip B & Tip C run full outer width; Tip A & D sit between side panels)
+  const horizPanelW =
+    joineryTopology === "top_bottom_through" || joineryTopology === "miter_45" ? width : innerSpanW;
+  const horizPanelX =
+    joineryTopology === "top_bottom_through" || joineryTopology === "miter_45" ? 0 : T;
   components.push({
     id: `${module.id}_bottom`,
     role: "carcass_bottom",
-    label: "Alt Panel",
-    dimensions: { width: innerSpanW, height: T, depth },
-    position: { x: T, y: plinthHeight - explodeY * 0.5, z: 0 },
+    label: joineryTopology === "miter_45" ? "Alt Panel (45° Gönye)" : "Alt Panel",
+    dimensions: { width: horizPanelW, height: T, depth },
+    position: { x: horizPanelX, y: plinthHeight - explodeY * 0.5, z: 0 },
     materialId: bodyMaterialId,
     isManufacturablePanel: true,
     thicknessAxis: "y",
   });
 
-  // 5. Top Panel
-  components.push({
-    id: `${module.id}_top`,
-    role: "carcass_top",
-    label: "Üst Panel",
-    dimensions: { width: innerSpanW, height: T, depth },
-    position: { x: T, y: height - T + explodeY, z: 0 },
-    materialId: bodyMaterialId,
-    isManufacturablePanel: true,
-    thicknessAxis: "y",
-  });
+  // 5. Top Construction: Tip D Kitchen Base Stretchers (Checklist #10!) vs Full Top Panel
+  const isSinkMod = isSinkModule(module);
+  const isCooktopMod = isCooktopModule(module);
+  if (joineryTopology === "kitchen_stretchers") {
+    const stretcherW = 90; // Standard 90mm rail width (80-100mm per MD Spec Section 3.1 Tip D)
+    const stretcherMode =
+      module.carcass.kitchenTopStretcherMode ||
+      (isSinkMod
+        ? "vertical_sink"
+        : isCooktopMod && width >= 900
+        ? "aluminum_reinforced"
+        : "horizontal");
 
-  // 6. Back Panel
-  const backW = innerSpanW + 16;
-  const backH = netInnerH + 16;
-  components.push({
-    id: `${module.id}_back`,
-    role: "carcass_back",
-    label: "Arkalık",
-    dimensions: { width: backW, height: backH, depth: T_back },
-    position: { x: T - 8, y: plinthHeight + T - 8, z: 12 - explodeZ * 0.8 },
-    materialId: bodyMaterialId,
-    isManufacturablePanel: true,
-    thicknessAxis: "z",
-  });
+    if (stretcherMode === "vertical_sink") {
+      // Vertical Front Apron Stretcher (Ön Dikey Alın Kaydı) for sink bowl & mixer tap clearance; rear rail omitted for plumbing!
+      components.push({
+        id: `${module.id}_top_stretcher_front_vert`,
+        role: "carcass_top",
+        label: "Eviye Altı Dikey Ön Alın Kaydı (90mm)",
+        dimensions: { width: innerSpanW, height: stretcherW, depth: T },
+        position: { x: T, y: height - stretcherW + explodeY, z: depth - T },
+        materialId: bodyMaterialId,
+        isManufacturablePanel: true,
+        thicknessAxis: "z",
+      });
+    } else if (stretcherMode === "aluminum_reinforced") {
+      // Extruded Aluminum Structural Front Rail for wide (900-1200mm) cooktop cabinets + wooden rear stretcher
+      components.push(
+        {
+          id: `${module.id}_top_stretcher_front_alu`,
+          role: "special_fitting",
+          label: "Ocak Altı Alüminyum Mukavemet Ön Kaydı (Isı & Sehim Korumalı)",
+          dimensions: { width: innerSpanW, height: 35, depth: 35 },
+          position: { x: T, y: height - 35 + explodeY, z: depth - 35 },
+          materialId: "mat_anodized_metal",
+          isManufacturablePanel: false,
+        },
+        {
+          id: `${module.id}_top_stretcher_rear`,
+          role: "carcass_top",
+          label: "Üst Arka Bağlantı Kaydı (90mm)",
+          dimensions: { width: innerSpanW, height: T, depth: stretcherW },
+          position: { x: T, y: height - T + explodeY, z: 26 },
+          materialId: bodyMaterialId,
+          isManufacturablePanel: true,
+          thicknessAxis: "y",
+        }
+      );
+    } else {
+      // Standard Horizontal Front & Rear Top Stretchers (90mm)
+      components.push(
+        {
+          id: `${module.id}_top_stretcher_front`,
+          role: "carcass_top",
+          label: "Üst Ön Kayıt (90mm)",
+          dimensions: { width: innerSpanW, height: T, depth: stretcherW },
+          position: { x: T, y: height - T + explodeY, z: depth - stretcherW },
+          materialId: bodyMaterialId,
+          isManufacturablePanel: true,
+          thicknessAxis: "y",
+        },
+        {
+          id: `${module.id}_top_stretcher_rear`,
+          role: "carcass_top",
+          label: "Üst Arka Kayıt (90mm)",
+          dimensions: { width: innerSpanW, height: T, depth: stretcherW },
+          position: { x: T, y: height - T + explodeY, z: 26 },
+          materialId: bodyMaterialId,
+          isManufacturablePanel: true,
+          thicknessAxis: "y",
+        }
+      );
+    }
+  } else {
+    components.push({
+      id: `${module.id}_top`,
+      role: "carcass_top",
+      label: joineryTopology === "miter_45" ? "Üst Panel (45° Gönye)" : "Üst Panel",
+      dimensions: { width: horizPanelW, height: T, depth },
+      position: { x: horizPanelX, y: height - T + explodeY, z: 0 },
+      materialId: bodyMaterialId,
+      isManufacturablePanel: true,
+      thicknessAxis: "y",
+    });
+  }
+
+  // 6. Back Panel — All 5 Modes Supported (Checklist #2: grooved, rebated, nailed, flush, none; auto-omitted on sink base!)
+  const effBackType = isSinkMod && !module.carcass.backPanelType ? "none" : isSinkMod ? "none" : (module.carcass.backPanelType || "grooved");
+  if (effBackType !== "none" && !module.isOpenFront) {
+    if (effBackType === "nailed") {
+      components.push({
+        id: `${module.id}_back`,
+        role: "carcass_back",
+        label: `Arkadan Çakma Arkalık (${T_back}mm)`,
+        dimensions: { width: Math.max(80, width - 2), height: Math.max(80, height - plinthHeight - 2), depth: T_back },
+        position: { x: 1, y: plinthHeight + 1, z: -T_back - explodeZ * 0.8 },
+        materialId: bodyMaterialId,
+        isManufacturablePanel: true,
+        thicknessAxis: "z",
+      });
+    } else if (effBackType === "rebated") {
+      components.push({
+        id: `${module.id}_back`,
+        role: "carcass_back",
+        label: `Lambalı Geçme Arkalık (${T_back}mm)`,
+        dimensions: { width: innerSpanW + 20, height: netInnerH + 20, depth: T_back },
+        position: { x: T - 10, y: plinthHeight + T - 10, z: 0 - explodeZ * 0.8 },
+        materialId: bodyMaterialId,
+        isManufacturablePanel: true,
+        thicknessAxis: "z",
+      });
+    } else if (effBackType === "flush") {
+      const flushT = Math.max(18, T_back);
+      components.push({
+        id: `${module.id}_back`,
+        role: "carcass_back",
+        label: `Tam Kalınlık Yapısal Arkalık (${flushT}mm)`,
+        dimensions: { width: innerSpanW, height: netInnerH, depth: flushT },
+        position: { x: T, y: plinthHeight + T, z: 0 - explodeZ * 0.8 },
+        materialId: bodyMaterialId,
+        isManufacturablePanel: true,
+        thicknessAxis: "z",
+      });
+    } else {
+      const dOffset = module.carcass.backOffsetMm ?? (isWardrobe ? 12 : 18);
+      const backW = innerSpanW + 16;
+      const backH = netInnerH + 16;
+      components.push({
+        id: `${module.id}_back`,
+        role: "carcass_back",
+        label: `Kanallı Arkalık (${T_back}mm, Offset:${dOffset}mm)`,
+        dimensions: { width: backW, height: backH, depth: T_back },
+        position: { x: T - 8, y: plinthHeight + T - 8, z: dOffset - explodeZ * 0.8 },
+        materialId: bodyMaterialId,
+        isManufacturablePanel: true,
+        thicknessAxis: "z",
+      });
+    }
+  }
 
   // 6b. WP-05 Special Carcass Topology for Blind Corner, L-Corner & Built-in Appliance Housing
   const lowerName = module.name.toLowerCase();
@@ -1273,36 +1674,82 @@ export function generateModuleGeometry(
     tplLower.includes("_kb_") ||
     tplLower.includes("_kc_");
 
-  // Automatic 38mm Calacatta Quartz Countertop Slab + 45mm Rear Backsplash Strip on all Kitchen Base & Corner Cabinets
-  const ctopThickness = isKitchenBaseOrCorner ? 38 : 0;
-  if (isKitchenBaseOrCorner) {
+  const isSinkBase = isSinkModule(module);
+  const isCooktopBase = isCooktopModule(module);
+
+  // Automatic 38mm Calacatta Quartz Countertop Slab (WITH TRUE 3D CSG/POLYGON APERTURE OVER SINK & COOKTOP!) + Waterfall Options
+  const ctopThickness = isKitchenBaseOrCorner || module.category === "kitchen_island" ? 38 : 0;
+  if (ctopThickness > 0) {
+    const rearOverhang = module.carcass.islandOverhangRearMm ?? (module.category === "kitchen_island" ? 280 : 0);
+    const ctopDepth = depth + 40 + rearOverhang; // +40mm front drip overhang (20mm door + 20mm drip)
+    const ctopMatId = module.carcass.countertopMaterialId || "mat_neolith_calacatta_luxe";
+    const holeW = isSinkBase
+      ? Math.min(560, Math.max(320, width - 80))
+      : isCooktopBase
+      ? Math.min(580, Math.max(320, width - 80))
+      : 0;
+    const holeD = isSinkBase
+      ? Math.min(460, Math.max(280, depth - 110))
+      : isCooktopBase
+      ? Math.min(500, Math.max(280, depth - 100))
+      : 0;
+
     components.push({
       id: `${module.id}_auto_countertop`,
       role: "countertop",
-      label: `Çimstone Calacatta Kuvars Tezgâh (38mm)`,
-      dimensions: { width, height: ctopThickness, depth: depth + 26 },
-      position: { x: 0, y: height, z: 0 },
-      materialId: module.carcass.countertopMaterialId || "mat_neolith_calacatta_luxe",
+      label: `Çimstone Calacatta Kuvars Tezgâh (38mm${holeW > 0 ? ", Boşaltmalı" : ""})`,
+      dimensions: { width, height: ctopThickness, depth: ctopDepth },
+      position: { x: 0, y: height, z: -rearOverhang },
+      cutoutHole:
+        holeW > 0
+          ? {
+              centerXMm: width / 2,
+              centerZMm: rearOverhang + depth / 2 + 10,
+              widthMm: holeW,
+              depthMm: holeD,
+            }
+          : undefined,
+      materialId: ctopMatId,
       isFrontFacing: true,
       isManufacturablePanel: false,
     });
-    components.push({
-      id: `${module.id}_auto_backsplash_strip`,
-      role: "countertop",
-      label: `Tezgâh Arka Süpürgelik Çıtası (45×18mm)`,
-      dimensions: { width, height: 45, depth: 18 },
-      position: { x: 0, y: height + ctopThickness, z: 0 },
-      materialId: module.carcass.countertopMaterialId || "mat_neolith_calacatta_luxe",
-      isFrontFacing: true,
-      isManufacturablePanel: false,
-    });
+    if (module.category !== "kitchen_island") {
+      components.push({
+        id: `${module.id}_auto_backsplash_strip`,
+        role: "countertop",
+        label: `Tezgâh Arka Süpürgelik Çıtası (45×18mm)`,
+        dimensions: { width, height: 45, depth: 18 },
+        position: { x: 0, y: height + ctopThickness, z: 0 },
+        materialId: ctopMatId,
+        isFrontFacing: true,
+        isManufacturablePanel: false,
+      });
+    }
+    if (module.carcass.hasWaterfallLeft) {
+      components.push({
+        id: `${module.id}_waterfall_left`,
+        role: "countertop",
+        label: "Sol Şelale Tezgâh Yan İnişi (45° Gönye, 38mm)",
+        dimensions: { width: 38, height: height + ctopThickness, depth: ctopDepth },
+        position: { x: -38, y: 0, z: -rearOverhang },
+        materialId: ctopMatId,
+        isFrontFacing: true,
+        isManufacturablePanel: false,
+      });
+    }
+    if (module.carcass.hasWaterfallRight) {
+      components.push({
+        id: `${module.id}_waterfall_right`,
+        role: "countertop",
+        label: "Sağ Şelale Tezgâh Yan İnişi (45° Gönye, 38mm)",
+        dimensions: { width: 38, height: height + ctopThickness, depth: ctopDepth },
+        position: { x: width, y: 0, z: -rearOverhang },
+        materialId: ctopMatId,
+        isFrontFacing: true,
+        isManufacturablePanel: false,
+      });
+    }
   }
-
-  const isSinkBase = tplLower.includes("sink") || nameLower.includes("evye");
-  const isCooktopBase =
-    tplLower.includes("cooktop") ||
-    tplLower.includes("oven_base") ||
-    nameLower.includes("ocak");
   if (isSinkBase) {
     const cutW = Math.min(560, Math.max(320, width - 80));
     const cutD = Math.min(460, Math.max(280, depth - 110));
@@ -1513,19 +1960,35 @@ export function generateModuleGeometry(
       }
     }
 
-    // Shelves (2mm per-side clearance so shelves never overlap flush 1.6mm recessed side-panel LEDs!)
+    // Shelves:
+    // - Pocket door bay narrows internal shelf width by 75mm (Section 6.3)
+    // - Oven/Fridge tower leaves mandatory 50mm rear ventilation chimney behind fixed/movable shelves (Checklist #13)
+    // - Vertical LED channel enforces >=25mm front setback (Section 4.2)
+    const isPocketBay = bay.door?.doorSystemId === "pocket_retractable" || bay.door?.type === "pocket";
+    const pocketClearOffset = isPocketBay ? 75 : 0;
+    const isApplianceChimneyMod = isBuiltInOvenOrFridgeTower(module);
+    const rearChimneyMm = isApplianceChimneyMod ? 50 : 0;
+    const shelfRearZ = (effBackType === "grooved" ? (module.carcass.backOffsetMm ?? (isWardrobe ? 12 : 18)) + T_back : effBackType === "none" || effBackType === "nailed" ? 0 : T_back) + rearChimneyMm;
+
     bay.shelves.forEach((shelf, sIdx) => {
       if (shelf.isHidden) return;
       const shelfT = shelf.thickness || T;
+      const frontSetback = shelf.frontSetbackMm ?? (moduleHasVertLed ? 26 : shelf.isAdjustable ? 15 : 4);
+      const effShelfD = Math.max(100, netInnerD - rearChimneyMm - frontSetback);
+      const effShelfW = Math.max(80, bayW - pocketClearOffset - (shelf.isAdjustable ? 4 : 0));
       components.push({
         id: shelf.id || `${module.id}_bay_${bayIdx}_shelf_${sIdx}`,
         role: "shelf",
-        label: `Raf B${bayIdx + 1}-${sIdx + 1} (${shelf.isAdjustable ? "Hareketli" : "Sabit"})`,
+        label: `Raf B${bayIdx + 1}-${sIdx + 1} (${shelf.isAdjustable ? "Hareketli" : "Sabit"}${rearChimneyMm > 0 ? ", 50mm Baca Boşluklu" : ""})`,
         bayIndex: bayIdx,
-        dimensions: { width: bayW - 4, height: shelfT, depth: netInnerD - 10 },
-        position: { x: bayStartX + 2, y: plinthHeight + T + Math.max(24, Math.min(Math.max(48, netInnerH - shelfT - 16), shelf.elevationY)), z: 20 },
-        materialId: bodyMaterialId,
-        isManufacturablePanel: true,
+        dimensions: { width: effShelfW, height: shelfT, depth: effShelfD },
+        position: {
+          x: bayStartX + pocketClearOffset + (shelf.isAdjustable ? 2 : 0),
+          y: plinthHeight + T + Math.max(24, Math.min(Math.max(48, netInnerH - shelfT - 16), shelf.elevationY)),
+          z: shelfRearZ,
+        },
+        materialId: shelf.isGlass ? "mat_smoked_glass" : bodyMaterialId,
+        isManufacturablePanel: !shelf.isGlass,
         thicknessAxis: "y",
       });
     });
@@ -1854,69 +2317,134 @@ export function generateModuleGeometry(
         ? (bayLeafSpec?.doorZ0Mm ?? depth) + pulledZ + explodeZ
         : depth - T + pulledZ + explodeZ - 24;
       const hwId = drawer.hardwareProductId || "";
-      const isAvanTech = hwId === "hw_hettich_avantech_m";
-      const isLegrabox = hwId.includes("legrabox");
-      const isMovento = hwId.includes("movento");
-      const isTandembox = hwId.includes("tandembox");
+      const boxSys =
+        drawer.boxSystemType ||
+        (hwId === "hw_hettich_avantech_m"
+          ? "metal_box_avantech"
+          : hwId.includes("legrabox")
+          ? "metal_box_legrabox"
+          : hwId.includes("tandembox")
+          ? "metal_box_tandembox"
+          : "wooden_undermount");
+      const isAvanTech = boxSys === "metal_box_avantech";
+      const isLegrabox = boxSys === "metal_box_legrabox";
+      const isTandembox = boxSys === "metal_box_tandembox";
+      const isMetalBoxSystem = isAvanTech || isLegrabox || isTandembox;
+      const isBallBearingSide = boxSys === "ball_bearing_side";
+      const isMovento = hwId.includes("movento") || boxSys === "wooden_undermount";
+
+      // Internal drawer behind hinged door: add 25mm Spacer Block when spacer_block_25mm is chosen or non-155° hinge
+      const needsInternalSpacer =
+        Boolean(drawer.isInternal) &&
+        bay.door?.type !== "open" &&
+        module.carcass.internalDrawerHingeSolution === "spacer_block_25mm";
+      const spacerLeftMm = needsInternalSpacer && (bay.door.type === "single_left" || bay.door.type === "double") ? 25 : 0;
+      const spacerRightMm = needsInternalSpacer && (bay.door.type === "single_right" || bay.door.type === "double") ? 25 : 0;
+      const effCellW = Math.max(100, bayW - spacerLeftMm - spacerRightMm);
+      const effCellStartX = bayStartX + spacerLeftMm;
+
+      if (spacerLeftMm > 0) {
+        components.push({
+          id: `${drawer.id}_spacer_left`,
+          role: "carcass_sub_divider",
+          label: `İç Çekmece Sol Menteşe Besleme Çıtası (25mm) B${bayIdx + 1}-${dIdx + 1}`,
+          bayIndex: bayIdx,
+          dimensions: { width: spacerLeftMm, height: Math.max(70, drawer.height - 8), depth: Math.min(480, netInnerD - 25) },
+          position: { x: bayStartX, y: drawerY0 + 4, z: 24 },
+          materialId: bodyMaterialId,
+          isManufacturablePanel: true,
+          thicknessAxis: "x",
+        });
+      }
+      if (spacerRightMm > 0) {
+        components.push({
+          id: `${drawer.id}_spacer_right`,
+          role: "carcass_sub_divider",
+          label: `İç Çekmece Sağ Menteşe Besleme Çıtası (25mm) B${bayIdx + 1}-${dIdx + 1}`,
+          bayIndex: bayIdx,
+          dimensions: { width: spacerRightMm, height: Math.max(70, drawer.height - 8), depth: Math.min(480, netInnerD - 25) },
+          position: { x: bayStartX + bayW - spacerRightMm, y: drawerY0 + 4, z: 24 },
+          materialId: bodyMaterialId,
+          isManufacturablePanel: true,
+          thicknessAxis: "x",
+        });
+      }
+
+      // Horizontal C-Gola gap between stacked external drawers (35mm finger recess vs 3mm standard fuga)
+      const isGolaDrawer = isExtDrawer && bay.door?.handleCategory === "gola_profile";
+      const effFrontH = isGolaDrawer && !isTopAtCabinetCeiling ? Math.max(40, frontH - 32) : frontH;
+      const effFrontW = isExtDrawer ? frontW : Math.max(60, effCellW - 4);
+      const effFrontX = isExtDrawer ? frontX : effCellStartX + 2;
+
       const lengthDeductionMm = isTandembox ? 24 : isAvanTech ? 21 : 10;
+      // Grooved 8mm wooden drawer bottom slots 6mm deep into BOTH left & right 16mm wooden sides (+12mm over SKW!):
+      // - Blum MOVENTO/TANDEM: SKW = LW - 42mm -> Grooved bottom cut width = (LW - 42) + 2*6 = LW - 30mm (Back stays LW - 42mm)
+      // - Ball-bearing side mount: Inner clear = LW - 58mm -> Grooved bottom cut width = (LW - 58) + 2*6 = LW - 46mm
       const bottomWidthDeductionMm = isTandembox
         ? 75
-        : isMovento
-        ? 42
-        : isLegrabox
-        ? 35
-        : isAvanTech
-        ? 24
-        : 68;
-      const backWidthDeductionMm = isTandembox
-        ? 87
-        : isMovento
-        ? 42
         : isLegrabox
         ? 38
         : isAvanTech
         ? 24
-        : 68;
+        : isBallBearingSide
+        ? 26 + 32 - 12
+        : 30;
+      const backWidthDeductionMm = isTandembox
+        ? 87
+        : isLegrabox
+        ? 38
+        : isAvanTech
+        ? 24
+        : isBallBearingSide
+        ? 26 + 32
+        : 42;
 
       const maxBoxD = Math.max(120, frontZ - pulledZ - explodeZ - 24);
       const boxD = Math.min(
         maxBoxD,
         drawer.nominalLengthMm
           ? Math.min(netInnerD - 10, drawer.nominalLengthMm - lengthDeductionMm)
-          : Math.min(500, Math.max(260, netInnerD - 50))
+          : Math.min(500, Math.max(260, netInnerD - 34))
       );
-      const boxH = Math.max(70, Math.min(220, drawer.height - 38));
-      const boxT = isAvanTech || isLegrabox ? 13 : 16;
-      const bottomT = isTandembox || isLegrabox || isAvanTech ? 16 : 8;
-      // Respect manufacturer width deduction (24mm AvanTech, 35mm LEGRABOX, 42mm MOVENTO, 75mm TANDEMBOX)
+      const profileCode = drawer.boxSideProfileCode || (drawer.height >= 220 ? "C" : drawer.height >= 150 ? "K" : "M");
+      const metalBackProfileH =
+        profileCode === "F" ? 181 : profileCode === "C" ? 116 : profileCode === "K" ? 69 : 39;
+      const boxH = isMetalBoxSystem
+        ? Math.min(metalBackProfileH, Math.max(39, drawer.height - 32))
+        : Math.max(70, Math.min(220, drawer.height - (isGolaDrawer ? 48 : 38)));
+      const boxT = isMetalBoxSystem ? 13 : 16;
+      const bottomT = isMetalBoxSystem ? 16 : 8;
       const sideClearance = isTandembox
         ? 21.5
-        : isMovento
-        ? 21
         : isLegrabox
-        ? 17.5
+        ? 19
         : isAvanTech
         ? 12
-        : 18;
-      const boxX0 = bayStartX + sideClearance;
-      const boxW = Math.max(100, bayW - 2 * sideClearance);
-      const bottomBoardW = hwId
-        ? Math.max(80, bayW - bottomWidthDeductionMm)
-        : Math.max(68, boxW - 2 * boxT);
-      const backBoardW = hwId
-        ? Math.max(80, bayW - backWidthDeductionMm)
-        : Math.max(68, boxW - 2 * boxT);
+        : isBallBearingSide
+        ? 13
+        : 21;
+      const boxX0 = effCellStartX + sideClearance;
+      const boxW = Math.max(100, effCellW - 2 * sideClearance);
+      const bottomBoardW = Math.max(68, effCellW - bottomWidthDeductionMm);
+      const backBoardW = Math.max(68, effCellW - backWidthDeductionMm);
       const boxZ0 = frontZ - boxD;
+      const hasSiphonCut = Boolean(drawer.hasSiphonCutout || isSinkBase);
+      const siphonSpec = hasSiphonCut
+        ? {
+            widthMm: drawer.siphonCutoutWidthMm || Math.min(220, Math.round(bottomBoardW * 0.35)),
+            depthMm: drawer.siphonCutoutDepthMm || Math.min(220, Math.round(boxD * 0.45)),
+          }
+        : undefined;
 
       // 1. Front Panel
       components.push({
         id: `${drawer.id}_front`,
         role: "drawer_front",
-        label: `Çekmece Önü B${bayIdx + 1}-${dIdx + 1}`,
+        label: `Çekmece Önü B${bayIdx + 1}-${dIdx + 1}${drawer.isInternal ? " (İç)" : ""}`,
         bayIndex: bayIdx,
-        dimensions: { width: frontW, height: frontH, depth: T },
+        dimensions: { width: effFrontW, height: effFrontH, depth: T },
         position: {
-          x: frontX,
+          x: effFrontX,
           y: frontY,
           z: frontZ,
         },
@@ -1926,53 +2454,58 @@ export function generateModuleGeometry(
         thicknessAxis: "z",
       });
 
-      // 3. Left Side Panel of Box
+      // 3 & 4. Left & Right Side Panels of Box (Metal Box Systems -> NON-manufacturable anodized steel!)
       components.push({
         id: `${drawer.id}_side_left`,
         role: "drawer_side_left",
-        label: `Çekmece Sol Kasa B${bayIdx + 1}-${dIdx + 1}`,
+        label: isMetalBoxSystem
+          ? `Metal Çekmece Sol Yanak (${profileCode}) B${bayIdx + 1}-${dIdx + 1}`
+          : `Çekmece Sol Ahşap Kasa B${bayIdx + 1}-${dIdx + 1}`,
         bayIndex: bayIdx,
         dimensions: { width: boxT, height: boxH, depth: boxD },
         position: { x: boxX0, y: drawerY0 + 8, z: boxZ0 },
-        materialId: bodyMaterialId,
-        isManufacturablePanel: true,
+        materialId: isMetalBoxSystem ? "mat_anodized_metal" : bodyMaterialId,
+        isManufacturablePanel: !isMetalBoxSystem,
         thicknessAxis: "x",
       });
 
-      // 4. Right Side Panel of Box
       components.push({
         id: `${drawer.id}_side_right`,
         role: "drawer_side_right",
-        label: `Çekmece Sağ Kasa B${bayIdx + 1}-${dIdx + 1}`,
+        label: isMetalBoxSystem
+          ? `Metal Çekmece Sağ Yanak (${profileCode}) B${bayIdx + 1}-${dIdx + 1}`
+          : `Çekmece Sağ Ahşap Kasa B${bayIdx + 1}-${dIdx + 1}`,
         bayIndex: bayIdx,
         dimensions: { width: boxT, height: boxH, depth: boxD },
         position: { x: boxX0 + boxW - boxT, y: drawerY0 + 8, z: boxZ0 },
-        materialId: bodyMaterialId,
-        isManufacturablePanel: true,
+        materialId: isMetalBoxSystem ? "mat_anodized_metal" : bodyMaterialId,
+        isManufacturablePanel: !isMetalBoxSystem,
         thicknessAxis: "x",
       });
 
-      // 5. Back Panel of Box
+      // 5. Back Panel of Box (16mm wooden back for both metal-box & wooden systems)
       components.push({
         id: `${drawer.id}_back`,
         role: "drawer_back",
-        label: `Çekmece Arka Kasa B${bayIdx + 1}-${dIdx + 1}`,
+        label: `Çekmece Arka Sırt B${bayIdx + 1}-${dIdx + 1}${hasSiphonCut ? " (U-Sifon Kesimli)" : ""}`,
         bayIndex: bayIdx,
-        dimensions: { width: backBoardW, height: boxH, depth: boxT },
-        position: { x: bayStartX + (bayW - backBoardW) / 2, y: drawerY0 + 8, z: boxZ0 },
+        dimensions: { width: backBoardW, height: boxH, depth: 16 },
+        position: { x: effCellStartX + (effCellW - backBoardW) / 2, y: drawerY0 + 8, z: boxZ0 },
+        siphonCutout: siphonSpec,
         materialId: bodyMaterialId,
         isManufacturablePanel: true,
         thicknessAxis: "z",
       });
 
-      // 6. Bottom Floor Board of Box
+      // 6. Bottom Floor Board of Box (16mm on metal box systems; 8mm grooved 13mm above side bottom & +6mm into front groove on wooden systems)
       components.push({
         id: `${drawer.id}_bottom`,
         role: "drawer_bottom",
-        label: `Çekmece Tabanı B${bayIdx + 1}-${dIdx + 1}`,
+        label: `Çekmece Tabanı (${bottomT}mm${isMetalBoxSystem ? "" : ", Kanala Geçmeli"}) B${bayIdx + 1}-${dIdx + 1}${hasSiphonCut ? " (U-Sifon Boşluklu)" : ""}`,
         bayIndex: bayIdx,
-        dimensions: { width: bottomBoardW, height: bottomT, depth: hwId ? boxD : boxD - boxT },
-        position: { x: bayStartX + (bayW - bottomBoardW) / 2, y: drawerY0 + 8, z: boxZ0 + boxT },
+        dimensions: { width: bottomBoardW, height: bottomT, depth: isMetalBoxSystem ? boxD : boxD - 10 },
+        position: { x: effCellStartX + (effCellW - bottomBoardW) / 2, y: drawerY0 + 8 + (isMetalBoxSystem ? 0 : 13), z: boxZ0 + (isMetalBoxSystem ? 0 : 16) },
+        siphonCutout: siphonSpec,
         materialId: bodyMaterialId,
         isManufacturablePanel: true,
         thicknessAxis: "y",
@@ -2106,8 +2639,8 @@ export function generateModuleGeometry(
           baseClosedX = Math.round(
             T + bayIdx * ((innerClearSpanW - effDoorW) / Math.max(1, totalBays - 1))
           );
-          effDoorY = plinth + T + 12; // 12mm bottom recessed track clearance
-          effDoorH = Math.max(160, height - plinth - 2 * T - 24); // 12mm top + 12mm bottom track clearance
+          effDoorY = plinthHeight + T + 12; // 12mm bottom recessed track clearance
+          effDoorH = Math.max(160, height - plinthHeight - 2 * T - 24); // 12mm top + 12mm bottom track clearance
           leafZ = isFrontTrack ? depth - T_door - 4 : depth - 2 * T_door - 12;
         } else if (mountKind === "coplanar_flush") {
           // 4. COPLANAR FLUSH (Hettich InLine XL / Cinetto PS48):
@@ -2115,8 +2648,8 @@ export function generateModuleGeometry(
           const popProgress = Math.min(1, openRatio * 3.5);
           const slideProgress = Math.max(0, (openRatio - 0.22) / 0.78);
           const popZ = isFrontTrack ? popProgress * 48 : 0;
-          effDoorY = plinth + 4;
-          effDoorH = Math.max(160, height - plinth - 6);
+          effDoorY = plinthHeight + 4;
+          effDoorH = Math.max(160, height - plinthHeight - 6);
           leafZ = depth + 4 + popZ;
           const coplanarSlideOffset = isFrontTrack ? slideProgress * (bayW * 0.84) * slideDir : 0;
           baseClosedX = Math.max(0, Math.min(width - effDoorW, doorX0));
@@ -2157,8 +2690,8 @@ export function generateModuleGeometry(
           baseClosedX = Math.round(
             bayIdx * ((width - effDoorW) / Math.max(1, totalBays - 1))
           );
-          effDoorY = plinth + 4;
-          effDoorH = Math.max(160, height - plinth - 4);
+          effDoorY = plinthHeight + 4;
+          effDoorH = Math.max(160, height - plinthHeight - 4);
           leafZ = isFrontTrack ? depth + 34 : depth + 8;
         }
 
@@ -2546,7 +3079,7 @@ export function generateModuleGeometry(
         role: "special_fitting",
         label: "Alt Çift Kanallı Gömme Alüminyum Taşıyıcı Ray (SlideLine M / Slido)",
         dimensions: { width: trackSpanW, height: 12, depth: 54 },
-        position: { x: T, y: plinth + T, z: depth - 58 },
+        position: { x: T, y: plinthHeight + T, z: depth - 58 },
         materialId: "mat_metal_chrome",
       });
     } else if (mountKind === "coplanar_flush") {
@@ -2564,7 +3097,7 @@ export function generateModuleGeometry(
         role: "special_fitting",
         label: "InLine XL Alt Gizli Koplanar Kılavuz Rayı",
         dimensions: { width: width - 24, height: 14, depth: 52 },
-        position: { x: 12, y: Math.max(0, plinth - 14), z: depth - 46 },
+        position: { x: 12, y: Math.max(0, plinthHeight - 14), z: depth - 46 },
         materialId: "mat_metal_chrome",
       });
     } else {
@@ -2582,7 +3115,7 @@ export function generateModuleGeometry(
         role: "special_fitting",
         label: "STB 19 Alt Tabla Altı Gizli Sürgü Kılavuz Profili",
         dimensions: { width: width - 16, height: 12, depth: 48 },
-        position: { x: 8, y: Math.max(0, plinth - 12), z: depth + 4 },
+        position: { x: 8, y: Math.max(0, plinthHeight - 12), z: depth + 4 },
         materialId: "mat_metal_chrome",
       });
 
@@ -2707,6 +3240,70 @@ export function generateModuleGeometry(
         });
       });
     }
+  }
+
+  if (module.category === "kitchen_island" && module.islandCountertopConfig) {
+    const ic = module.islandCountertopConfig;
+    const topThick = 40;
+    const wfT = 40;
+    const overhangRear = Math.max(0, ic.barOverhangMm ?? 240);
+    const overhangFront = 20;
+    const wfL = ic.waterfallLeft !== false;
+    const wfR = ic.waterfallRight !== false;
+    const topMat = ic.countertopMaterialId || module.carcass.countertopMaterialId || "mat_quartz_calacatta";
+    const totalTopW = width + (wfL ? wfT : 20) + (wfR ? wfT : 20);
+    const topStartX = wfL ? -wfT : -20;
+    const totalTopD = depth + overhangRear + overhangFront;
+
+    components.push({
+      id: `${module.id}_island_countertop`,
+      role: "countertop",
+      label: `Ada Mutfak Tezgâh Tablası (${totalTopW}×${totalTopD}×${topThick}mm)`,
+      dimensions: { width: totalTopW, height: topThick, depth: totalTopD },
+      position: { x: topStartX, y: height, z: -overhangRear },
+      materialId: topMat,
+      isFrontFacing: true,
+      isManufacturablePanel: true,
+      thicknessAxis: "y",
+    });
+
+    if (wfL) {
+      components.push({
+        id: `${module.id}_island_waterfall_left`,
+        role: "countertop",
+        label: `Ada Sol Şelale Taş İniş Paneli (${height}×${totalTopD}mm)`,
+        dimensions: { width: wfT, height, depth: totalTopD },
+        position: { x: -wfT, y: 0, z: -overhangRear },
+        materialId: topMat,
+        isFrontFacing: true,
+        isManufacturablePanel: true,
+        thicknessAxis: "x",
+      });
+    }
+    if (wfR) {
+      components.push({
+        id: `${module.id}_island_waterfall_right`,
+        role: "countertop",
+        label: `Ada Sağ Şelale Taş İniş Paneli (${height}×${totalTopD}mm)`,
+        dimensions: { width: wfT, height, depth: totalTopD },
+        position: { x: width, y: 0, z: -overhangRear },
+        materialId: topMat,
+        isFrontFacing: true,
+        isManufacturablePanel: true,
+        thicknessAxis: "x",
+      });
+    }
+    components.push({
+      id: `${module.id}_island_rear_cladding`,
+      role: "end_panel",
+      label: `Ada Mutfak Arka Kaplama Paneli (${width}×${height - plinthHeight}mm)`,
+      dimensions: { width, height: Math.max(120, height - plinthHeight), depth: T },
+      position: { x: 0, y: plinthHeight, z: -T },
+      materialId: doorMaterialId || bodyMaterialId,
+      isFrontFacing: false,
+      isManufacturablePanel: true,
+      thicknessAxis: "z",
+    });
   }
 
   components.forEach((c) => {

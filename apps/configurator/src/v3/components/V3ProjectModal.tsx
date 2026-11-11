@@ -1,9 +1,12 @@
 "use client";
 
+import { BirimLogo } from "../design-system";
+
 import React, { useState, useEffect } from "react";
 import { useV3Adapter } from "../adapter/useV3Adapter";
 import { SavedProjectMeta } from "../../store/useConfiguratorStore";
 import { FolderOpen, Save, Trash2, Check, X } from "lucide-react";
+import { startZeroLagModalDrag } from "../design-system/zeroLagDrag";
 
 export const V3ProjectModal: React.FC<{
   isOpen: boolean;
@@ -69,10 +72,10 @@ export const V3ProjectModal: React.FC<{
   return (
     <div
       data-testid="v3-project-modal"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 backdrop-blur-2xl p-4 select-none"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/40 backdrop-blur-xs p-4 select-none"
     >
-      <div className="birim-ice-popover rounded-3xl max-w-lg w-full overflow-hidden text-stone-900 border border-white/85 shadow-2xl">
-        <div className="px-5 py-4 border-b border-white/70 flex items-center justify-between bg-white/40 backdrop-blur-xl">
+      <div data-draggable-shell="project" className="birim-ice-modal rounded-[28px] max-w-lg w-full overflow-hidden text-stone-900">
+        <div onPointerDown={(e) => startZeroLagModalDrag(e)} title="Taşımak için sürükleyin" className="px-5 py-4 birim-ice-shell-header flex items-center justify-between cursor-grab active:cursor-grabbing select-none">
           <div className="flex items-center gap-2">
             <FolderOpen className="w-4 h-4 text-amber-700" />
             <h2 className="text-sm font-bold">Proje Kayıt & Yükleme</h2>

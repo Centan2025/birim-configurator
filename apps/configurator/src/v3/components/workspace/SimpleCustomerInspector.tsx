@@ -1,5 +1,7 @@
 "use client";
 
+import { getMaterialSwatchStyle } from "../../materials/pbrMaterialSystem";
+
 import React, { useState, useEffect } from "react";
 import type {
   BayConfig,
@@ -144,7 +146,7 @@ const DimensionField: React.FC<{
   };
 
   return (
-    <div className="p-2.5 rounded-2xl bg-white/40 backdrop-blur-2xl border border-white/85 shadow-2xs flex items-center justify-between gap-2">
+    <div className="p-2.5 rounded-2xl bg-white/52 backdrop-blur-md border border-white/75 shadow-2xs flex items-center justify-between gap-2">
       <div>
         <span className="text-xs font-bold text-[#141413] block">{label}</span>
         <span className="text-[10px] text-[#78716C]">
@@ -360,7 +362,7 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
   return (
     <div data-testid="blum-clean-inspector-card" className="space-y-3.5 pb-4">
       {/* 1. INTERACTIVE VISUAL CABINET SUMMARY CARD + QUICK INTERIOR VIEW BUTTON */}
-      <div className="p-2.5 rounded-2xl birim-ice-pill flex items-center justify-between gap-2.5">
+      <div className="p-3.5 rounded-[24px] birim-ice-card flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <svg viewBox="0 0 88 64" className="w-16 h-12 shrink-0 select-none">
             {(() => {
@@ -527,6 +529,21 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
           </div>
         </div>
 
+        <div className="flex items-center gap-1.5 shrink-0">
+        <button
+          type="button"
+          data-testid="simple-toggle-interior-props-btn"
+          onClick={() => {
+            if (typeof window !== "undefined") {
+              window.dispatchEvent(new CustomEvent("birim:toggle-interior-props"));
+            }
+          }}
+          data-tooltip="İç Eşyaları (Giysi, Kutu, Ayakkabı) Göster / Gizle"
+          className="shrink-0 w-9 h-9 rounded-xl inline-flex items-center justify-center birim-ice-btn text-[#141413] transition cursor-pointer"
+        >
+          <span className="text-sm leading-none">👔</span>
+          <span className="sr-only">İç Eşyalar</span>
+        </button>
         <button
           type="button"
           onClick={onToggleDoorOpen}
@@ -549,11 +566,12 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
             </>
           )}
         </button>
+        </div>
       </div>
 
       {/* 2. SPACIOUS 5-STEP SEGMENTED NAVIGATION BAR (Eliminates Cramped Endless Scrolling!) */}
       <div className="space-y-1.5">
-        <div className="p-1 rounded-2xl birim-ice-pill grid grid-cols-5 gap-1">
+        <div className="p-1.5 rounded-[24px] birim-ice-card grid grid-cols-5 gap-1.5">
           {STEP_ORDER.map((step) => {
             const IconComp = step.Icon;
             const isAct = !showAllSteps && activeStep === step.id;
@@ -568,10 +586,10 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
                   setShowAllSteps(false);
                   setActiveStep(step.id);
                 }}
-                className={`h-10 px-1 rounded-xl flex flex-col items-center justify-center gap-0.5 transition cursor-pointer relative ${
+                className={`h-11 px-1 rounded-[18px] flex flex-col items-center justify-center gap-0.5 transition cursor-pointer relative ${
                   isAct
-                    ? "birim-ice-btn-active font-bold"
-                    : "text-[#44403C] hover:text-[#141413] hover:bg-white/65 font-medium"
+                    ? "birim-ice-charcoal-pill font-bold"
+                    : "text-[#44403C] hover:text-[#141413] hover:bg-white/70 font-medium"
                 }`}
               >
                 {hasLedDot && (
@@ -618,7 +636,7 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
           STEP 1: DOLAP DIŞ ÖLÇÜLERİ (Spacious Single-Column Stepper Inputs)
          ======================================================================== */}
       {(showAllSteps || activeStep === "dimensions") && (
-        <section className="p-3.5 rounded-2xl bg-white/44 backdrop-blur-2xl border border-white/85 shadow-sm space-y-3">
+        <section className="p-3.5 rounded-[24px] birim-ice-card space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-[#141413]">Dolap Dış Ölçüsü</span>
             <div className="inline-flex rounded-lg bg-[#EFECE5] p-0.5 border border-[#DED8CC]">
@@ -859,7 +877,7 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
           STEP 2: BÖLMELER & İÇ DÜZEN (Spacious 2-Column Cards — Zero Squeezed Text!)
          ======================================================================== */}
       {(showAllSteps || activeStep === "interior") && (
-        <section className="p-3.5 rounded-2xl bg-white/44 backdrop-blur-2xl border border-white/85 shadow-sm space-y-3.5">
+        <section className="p-3.5 rounded-[24px] birim-ice-card space-y-3.5">
           {/* Compartment Selector Pills */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -888,7 +906,7 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
                   }
                 }}
                 onClick={() => onSplitBay(activeBayIndex)}
-                className="px-3 py-1.5 rounded-xl bg-[#141413] hover:bg-[#292524] text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
+                className="px-3.5 py-1.5 rounded-full birim-ice-charcoal-pill text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
                 title="Seçili bölmeyi ortadan ikiye böler"
               >
                 + Bölme Ekle
@@ -904,10 +922,10 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
                     key={b.index}
                     type="button"
                     onClick={() => onSelectBay(idx)}
-                    className={`py-2 px-3 rounded-xl border flex items-center justify-between transition cursor-pointer ${
+                    className={`py-2.5 px-3.5 rounded-2xl border flex items-center justify-between transition cursor-pointer ${
                       isAct
-                        ? "bg-[#141413] text-white border-[#141413]"
-                        : "bg-[#FAF9F6] hover:bg-[#EFECE5] text-[#141413] border-[#DED8CC]"
+                        ? "birim-ice-charcoal-pill"
+                        : "birim-ice-btn text-[#141413]"
                     }`}
                   >
                     <span className="text-xs font-bold">{idx + 1}. Bölme</span>
@@ -1244,7 +1262,7 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
           STEP 3: KAPAK SİSTEMİ, SÜRGÜ MONTAJ MEKANİZMALARI & KULP (Spacious 2-Col!)
          ======================================================================== */}
       {(showAllSteps || activeStep === "door") && (
-        <section className="p-3.5 rounded-2xl bg-white/44 backdrop-blur-2xl border border-white/85 shadow-sm space-y-3.5">
+        <section className="p-3.5 rounded-[24px] birim-ice-card space-y-3.5">
           <div className="space-y-2">
             <div className="text-xs font-bold text-[#141413]">
               Kapak Açılma Sistemi ({activeBayIndex + 1}. Bölme)
@@ -1460,7 +1478,7 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
       {(showAllSteps || activeStep === "led") && (
         <section
           data-testid="customer-led-studio-section"
-          className="p-3.5 rounded-2xl bg-white/58 backdrop-blur-xl border border-white/75 shadow-2xs space-y-3.5"
+          className="p-3.5 rounded-[24px] birim-ice-card space-y-3.5"
         >
           {/* Master Toggle Card */}
           <div
@@ -2069,7 +2087,7 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
           STEP 5: MALZEME & RENK KARTELASI (Spacious 2-Column Untruncated Cards!)
          ======================================================================== */}
       {(showAllSteps || activeStep === "material") && (
-        <section className="p-3.5 rounded-2xl bg-white/44 backdrop-blur-2xl border border-white/85 shadow-sm space-y-3">
+        <section className="p-3.5 rounded-[24px] birim-ice-card space-y-3">
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs font-bold text-[#141413]">Yüzey Seçimi</span>
             <div className="inline-flex rounded-xl bg-[#EFECE5] p-0.5 border border-[#DED8CC]">
@@ -2121,8 +2139,9 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
                   }`}
                 >
                   <span
+                    data-material-swatch="true"
                     className="w-8 h-8 rounded-lg border border-black/15 shrink-0 flex items-center justify-center relative overflow-hidden"
-                    style={{ backgroundColor: mat.colorHex }}
+                    style={getMaterialSwatchStyle(mat)}
                   >
                     {isSelected && (
                       <Check

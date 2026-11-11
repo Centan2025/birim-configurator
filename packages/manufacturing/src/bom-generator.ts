@@ -8,12 +8,17 @@ import {
   calculateRecommendedHingesPerLeaf,
   calculateShelfDeflection,
   inferDoorSystemIdFromType,
+  isBuiltInDishwasherModule,
+  isBuiltInOvenOrFridgeTower,
+  computeGolaSidePanelNotches,
+  computeDividerTJunctionYs,
   roundIntMm,
   roundMm,
 } from "@birim/core";
 import {
   getHardwareProductById,
   HANDLE_PROFILES,
+  getAllHandleProfiles,
   selectOptimalRunnerLengthMm,
 } from "@birim/catalog";
 import { generateModuleGeometry } from "@birim/geometry";
@@ -192,6 +197,19 @@ export function generateBOMForProject(
   const projectHasSinkOrHob = project.modules.some(
     (m) => m.category !== "complementary" && hasSinkOrCooktopAppliance(m)
   );
+  const mainCabinetCount = project.modules.filter(
+    (m) => m.category !== "complementary" && !isBuiltInDishwasherModule(m)
+  ).length;
+  if (mainCabinetCount > 1) {
+    addHardware(
+      "HW_CABINET_CONN_M4",
+      "M4×34mm Kovanlı Yan Yana Kabin Birleştirme Civatası (Sistem 32 Ø5 Uyumlu)",
+      "connector",
+      (mainCabinetCount - 1) * 4,
+      "adet",
+      0.35
+    );
+  }
 
   project.modules.forEach((module: ModuleInstance) => {
     const geo = generateModuleGeometry(module);
@@ -295,27 +313,118 @@ export function generateBOMForProject(
       });
     }
 
-    if (module.category !== "complementary") {
+    const isDishwasherSlot = isBuiltInDishwasherModule(module);
+    if (module.category !== "complementary" && !isDishwasherSlot) {
+      const modJoinery =
+        module.carcass.carcassJoineryTopology ||
+        (module.category === "kitchen_base" || module.category === "kitchen_island"
+          ? "kitchen_stretchers"
+          : "sides_through");
+      const effBackMode =
+        hasSinkOrCooktopAppliance(module) && module.name.toLowerCase().includes("eviye")
+          ? "none"
+          : module.carcass.backPanelType || "grooved";
       const numDividers = Math.max(0, module.bays.length - 1);
-      const minifixCount = 8 + numDividers * 4;
-      addHardware(
-        "HW_MINIFIX_SET",
-        "Häfele Minifix 15 + Mil Bağlantı Elemanı",
-        "connector",
-        minifixCount,
-        "adet",
-        0.45
-      );
-      addHardware(
-        "HW_DOWEL_8X35",
-        "Ahşap Kavela 8x35mm",
-        "fastener",
-        minifixCount,
-        "adet",
-        0.05
-      );
+      const perJointMinifix = module.dimensions.depth > 500 ? 3 : 2;
+      const perJointDowel = module.dimensions.depth < 250 ? 0 : perJointMinifix;
+      const minifixCount = 4 * perJointMinifix + numDividers * 2 * perJointMinifix;
+      const dowelCount = 4 * perJointDowel + numDividers * 2 * perJointDowel;
+      if (modJoinery === "miter_45") {
+        addHardware(
+          "HW_LAMELLO_CLAMEX_P14",
+          "Lamello Clamex P-14 Sökülebilir 45° Gönye Bağlantı Elemanı",
+          "connector",
+          8 + numDividers * 4,
+          "adet",
+          2.1
+        );
+      } else {
+        addHardware(
+          "HW_MINIFIX_SET",
+          "Häfele Minifix 15 + Mil Bağlantı Elemanı",
+          "connector",
+          minifixCount,
+          "adet",
+          0.45
+        );
+      }
+      if (effBackMode === "rebated" || effBackMode === "nailed") {
+        addHardware(
+          "HW_BACK_SCREW_35X25",
+          "Arkalık Sabitleme Vidası & Köşe Gönye Klipsi 3.5×25mm",
+          "fastener",
+          12,
+          "adet",
+          0.08
+        );
+      } else if (effBackMode === "flush") {
+        addHardware(
+          "HW_MINIFIX_SET",
+          "Häfele Minifix 15 + Mil Bağlantı Elemanı",
+          "connector",
+          4,
+          "adet",
+          0.45
+        );
+      } else if (effBackMode === "grooved" && modJoinery === "kitchen_stretchers") {
+        addHardware(
+          "HW_BACK_SCREW_35X25",
+          "Üst Arka Kayıt Arkalık Sabitleme Vidası 3.5×25mm",
+          "fastener",
+          4,
+          "adet",
+          0.08
+        );
+      }
+      if (dowelCount > 0) {
+        addHardware(
+          "HW_DOWEL_8X35",
+          "Ahşap Kavela 8x35mm",
+          "fastener",
+          dowelCount,
+          "adet",
+          0.05
+        );
+      }
 
-      if (module.carcass.plinthHeight > 0) {
+      let totalTJunctions = 0;
+      for (let divI = 0; divI < numDividers; divI++) {
+        totalTJunctions += computeDividerTJunctionYs(module, divI).length;
+      }
+      if (totalTJunctions > 0) {
+        addHardware(
+          "HW_MINIFIX_DOUBLE_BOLT",
+          "Häfele Çift Taraflı Ara Dikme Bağlantı Mili (T-Birleşim)",
+          "connector",
+          totalTJunctions * 2,
+          "adet",
+          0.75
+        );
+      }
+
+      if (isBuiltInOvenOrFridgeTower(module)) {
+        addHardware(
+          "HW_VENT_GRILLE_200CM2",
+          "Alüminyum Ankastre Baza Havalandırma Menfezi (Min 200cm²)",
+          "special",
+          1,
+          "adet",
+          8.5
+        );
+      }
+
+      if (module.carcass.wallSuspensionType === "concealed_camar_807") {
+        addHardware(
+          "HW_CAMAR_807_CONCEALED",
+          "Camar 807 Gizli Çelik Askı Elemanı + Duvar Rayı",
+          "connector",
+          2,
+          "adet",
+          6.8
+        );
+      }
+
+      if (module.carcass.plinthHeight > 0 && !isDishwasherSlot) {
         const isWardrobeMod =
           module.category === "wardrobe" ||
           module.category === "vestiyer" ||
@@ -550,14 +659,17 @@ export function generateBOMForProject(
           }
         }
       } else if (comp.role === "carcass_bottom" || comp.role === "carcass_top") {
+        const isVertStretcher = comp.thicknessAxis === "z";
+        const isStretcherStrip = comp.id.includes("_top_stretcher_");
         length = comp.dimensions.width;
-        width = comp.dimensions.depth;
-        hasPartBackGroove = hasGroovedBack;
+        width = isVertStretcher ? comp.dimensions.height : comp.dimensions.depth;
+        // Front or vertical kitchen stretchers NEVER receive a rear back-panel groove!
+        hasPartBackGroove = hasGroovedBack && !isStretcherStrip;
         edgeBanding = {
           top: false,
           bottom: false,
           left: true,
-          right: false,
+          right: isStretcherStrip && !isVertStretcher,
           thickness: defaultEbThickness,
         };
       } else if (comp.role === "carcass_divider" || comp.role === "carcass_sub_divider") {
@@ -605,14 +717,28 @@ export function generateBOMForProject(
           right: false,
           thickness: defaultEbThickness,
         };
-        addHardware(
-          "HW_SHELF_PIN",
-          "Kilitli Raf Pimi 5mm (Häfele)",
-          "fastener",
-          4,
-          "adet",
-          0.15
-        );
+        const isFixedOrApplianceShelf =
+          comp.label.includes("Sabit") || comp.label.includes("Taşıyıcı Tabla");
+        if (isFixedOrApplianceShelf) {
+          addHardware(
+            "HW_MINIFIX_SET",
+            "Häfele Minifix 15 + Mil Bağlantı Elemanı",
+            "connector",
+            4,
+            "adet",
+            0.45
+          );
+          addHardware("HW_DOWEL_8X35", "Ahşap Kavela 8x35mm", "fastener", 4, "adet", 0.05);
+        } else {
+          addHardware(
+            "HW_SHELF_PIN",
+            "Kilitli Raf Pimi 5mm (Häfele)",
+            "fastener",
+            4,
+            "adet",
+            0.15
+          );
+        }
       } else if (comp.role === "countertop") {
         mat = materialsMap.get(comp.materialId) || bodyMat;
         length = comp.dimensions.width;
@@ -649,25 +775,47 @@ export function generateBOMForProject(
             leafInfo?.effectiveHingeCount ||
             leafInfo?.recommendedHingesPerLeaf ||
             calculateRecommendedHingesPerLeaf(length, leafInfo?.leafWeightKg ?? 0, false);
-          const hingeSku = selectedHw?.sku || "HW_BLUM_HINGE_110";
-          const hingeName =
-            selectedHw?.name || "Blum Clip Top Blumotion 110° Frenli Menteşe";
-          const hingePrice = selectedHw?.unitPriceEur || 3.8;
+          const isExplicitNonDefaultHw =
+            selectedHw && selectedHw.id !== "hw_blum_71b3550";
+          const crankType = leafInfo?.hingeCrankType || "straight_full_overlay";
+          let hingeSku = selectedHw?.sku || "HW_BLUM_HINGE_110";
+          let hingeName = selectedHw?.name || "Blum Clip Top Blumotion 110° Frenli Düz Menteşe";
+          let hingePrice = selectedHw?.unitPriceEur || 3.8;
+
+          if (!isExplicitNonDefaultHw && leafInfo?.overlayType === "inset") {
+            hingeSku = "71B3750";
+            hingeName = "Blum CLIP top BLUMOTION 110° Tam Deveboynu (İçerlek / Inset) Menteşe";
+            hingePrice = 4.35;
+          } else if (!isExplicitNonDefaultHw && leafInfo?.overlayType === "half_overlay") {
+            hingeSku = "71B3650";
+            hingeName = "Blum CLIP top BLUMOTION 110° Yarım Deveboynu (Orta Dikme) Menteşe";
+            hingePrice = 4.15;
+          } else if (!selectedHw && crankType === "half_cranked_middle") {
+            hingeSku = "71B3650";
+            hingeName = "Blum CLIP top BLUMOTION 110° Yarım Deveboynu (Orta Dikme) Menteşe";
+            hingePrice = 4.15;
+          }
           addHardware(hingeSku, hingeName, "hinge", hingesNeeded, "adet", hingePrice);
         } else if (!bayMechanismAdded.has(bayIdx)) {
           bayMechanismAdded.add(bayIdx);
           if (dSys.startsWith("lift")) {
-            const liftSku = selectedHw?.sku || "22K2700";
+            const lf = leafInfo?.powerFactorLf || 1800;
+            const autoHkSku =
+              lf <= 1500 ? "20K2300" : lf <= 2500 ? "20K2500" : lf <= 4800 ? "22K2700" : "20K2900";
+            const liftSku = selectedHw?.sku || autoHkSku;
+            const needsThirdPowerUnit = lf > 9000 || module.dimensions.width >= 1200;
+            const liftQty = needsThirdPowerUnit ? 1.5 : 1;
             const liftName =
-              selectedHw?.name || "Blum AVENTOS Yukarı Kalkar Mekanizma Seti";
+              (selectedHw?.name || `Blum AVENTOS Güç Ünitesi (LF=${lf})`) +
+              (needsThirdPowerUnit ? " [Geniş Kapak 3 Güç Üniteli]" : "");
             const liftPrice = selectedHw?.unitPriceEur || 52.0;
-            addHardware(liftSku, liftName, "special", 1, "takım", liftPrice);
+            addHardware(liftSku, liftName, "special", liftQty, "takım", liftPrice);
           } else if (dSys.startsWith("sliding") || bay?.door.type === "sliding" || bay?.door.type === "sliding_bottom") {
             const sMount =
               bay?.door.slidingMountingType ||
               (dSys === "sliding_bottom_rolling" ? "inset_inside" : dSys === "sliding_coplanar" ? "coplanar_flush" : "top_hung_pelmet");
             if (bayIdx === 0) {
-              const trackMeters = Number((mod.dimensions.width / 1000).toFixed(2));
+              const trackMeters = Number((module.dimensions.width / 1000).toFixed(2));
               if (sMount === "inset_inside") {
                 addHardware(
                   "HT_SLIDELINE_M_SET",
@@ -716,7 +864,7 @@ export function generateBOMForProject(
                     "HF_SLIDO_FASCIA_CLIP",
                     "Häfele Slido Üst Alın Kapama (Valans) Montaj Klips Takımı",
                     "special",
-                    Math.max(4, Math.ceil(mod.dimensions.width / 450)),
+                    Math.max(4, Math.ceil(module.dimensions.width / 450)),
                     "adet",
                     2.8
                   );
@@ -771,8 +919,8 @@ export function generateBOMForProject(
         const handleCat = bay?.door.handleCategory || "bar_handle";
         if (handleCat !== "handleless_plain") {
           const hProfile =
-            HANDLE_PROFILES.find((hp) => hp.id === bay?.door.handleProfileId) ||
-            HANDLE_PROFILES.find((hp) => hp.category === handleCat) ||
+            getAllHandleProfiles().find((hp) => hp.id === bay?.door.handleProfileId) ||
+            getAllHandleProfiles().find((hp) => hp.category === handleCat) ||
             HANDLE_PROFILES[1];
           addHardware(hProfile.sku, hProfile.name, "handle", 1, "adet", hProfile.unitPriceEur);
         }
@@ -796,13 +944,32 @@ export function generateBOMForProject(
         const drawer = bay?.drawers.find((d) => `${d.id}_front` === comp.id);
         if (!drawer?.isInternal && bay?.door.handleCategory !== "handleless_plain") {
           const profile =
-            HANDLE_PROFILES.find((p) => p.id === bay?.door.handleProfileId) ||
-            HANDLE_PROFILES.find(
+            getAllHandleProfiles().find((p) => p.id === bay?.door.handleProfileId) ||
+            getAllHandleProfiles().find(
               (p) => p.category === (bay?.door.handleCategory || "bar_handle")
             ) ||
             HANDLE_PROFILES[1];
           addHardware(profile.sku, profile.name, "handle", 1, "adet", profile.unitPriceEur);
         }
+      } else if (comp.role === "end_panel") {
+        mat = materialsMap.get(comp.materialId) || doorMat;
+        length = comp.dimensions.height;
+        width = Math.max(comp.dimensions.depth, comp.dimensions.width);
+        edgeBanding = {
+          top: true,
+          bottom: true,
+          left: true,
+          right: true,
+          thickness: defaultEbThickness,
+        };
+        addHardware(
+          "HW_PANEL_JOIN_SCREW_4X30",
+          "Görünen Yan Panel İçten Gizli Montaj Vidası 4.0×30mm",
+          "fastener",
+          6,
+          "adet",
+          0.09
+        );
       } else if (
         comp.role === "drawer_box" ||
         comp.role === "drawer_side_left" ||
@@ -810,8 +977,8 @@ export function generateBOMForProject(
         comp.role === "drawer_back" ||
         comp.role === "drawer_bottom"
       ) {
-        if (comp.role === "drawer_side_left") {
-          const drawerCfg = bay?.drawers.find((d) => `${d.id}_side_left` === comp.id);
+        if (comp.role === "drawer_bottom" && !comp.id.endsWith("_plinth_drawer_box")) {
+          const drawerCfg = bay?.drawers.find((d) => `${d.id}_bottom` === comp.id);
           const drHw = getHardwareProductById(drawerCfg?.hardwareProductId);
           const optimalNl =
             drawerCfg?.nominalLengthMm ||
@@ -822,6 +989,48 @@ export function generateBOMForProject(
             : `Blum Antaro / Tandembox Çekmece Rayı Frenli ${optimalNl}mm`;
           const runnerPrice = drHw?.unitPriceEur || 28.0;
           addHardware(runnerSku, runnerName, "slide", 1, "takım", runnerPrice);
+          const isWoodenUndermountRunner =
+            drawerCfg?.boxSystemType === "wooden_undermount" ||
+            Boolean(drHw && (drHw.sku.startsWith("760H") || drHw.sku.startsWith("560H")));
+          if (isWoodenUndermountRunner) {
+            addHardware(
+              "T51.1700",
+              "Blum MOVENTO / TANDEM Gizli Ray Ön Mandal Seti (Sağ+Sol)",
+              "connector",
+              1,
+              "takım",
+              3.9
+            );
+          }
+          if (comp.siphonCutout || drawerCfg?.hasSiphonCutout) {
+            addHardware(
+              "HW_SIPHON_TRIM_U",
+              "Eviye Altı Çekmece U-Sifon Dönüş Aparatı",
+              "special",
+              1,
+              "takım",
+              9.5
+            );
+          }
+          if (drawerCfg?.hasCooktopHeatShield) {
+            addHardware(
+              "HW_HEAT_SHIELD_COOKTOP",
+              "Ocak Altı Çekmece İndüksiyon Isı Koruma Sacı",
+              "special",
+              1,
+              "adet",
+              16.0
+            );
+          }
+        } else if (comp.id.endsWith("_plinth_drawer_box")) {
+          addHardware(
+            "HW_PLINTH_DRAWER_RUNNER",
+            "Baza Çekmecesi Tekerlekli Gizli Ray Seti",
+            "slide",
+            1,
+            "takım",
+            22.0
+          );
         }
         length =
           comp.role === "drawer_bottom" || comp.role === "drawer_back"
@@ -871,12 +1080,22 @@ export function generateBOMForProject(
         );
       }
 
-      const nominalLengthMm = roundIntMm(length);
-      const nominalWidthMm = roundIntMm(width);
+      const rawLengthMm = roundIntMm(length);
+      const rawWidthMm = roundIntMm(width);
+      const swapAxesForCrossGrain = grain === "crosswise" && mat.hasGrain;
+      const nominalLengthMm = swapAxesForCrossGrain ? rawWidthMm : rawLengthMm;
+      const nominalWidthMm = swapAxesForCrossGrain ? rawLengthMm : rawWidthMm;
+      if (swapAxesForCrossGrain) {
+        edgeBanding = {
+          top: edgeBanding.left,
+          bottom: edgeBanding.right,
+          left: edgeBanding.top,
+          right: edgeBanding.bottom,
+          thickness: edgeBanding.thickness,
+        };
+      }
       const areaM2 = (nominalLengthMm * nominalWidthMm) / 1_000_000;
 
-      // Consistent Edge Banding Axis Contract:
-      // top & bottom span across nominalWidthMm (En); left & right span along nominalLengthMm (Boy).
       let edgeBandMeters = 0;
       if (edgeBanding.top) edgeBandMeters += nominalWidthMm / 1000;
       if (edgeBanding.bottom) edgeBandMeters += nominalWidthMm / 1000;
@@ -893,6 +1112,150 @@ export function generateBOMForProject(
           ? comp.dimensions.depth
           : Math.min(comp.dimensions.width, comp.dimensions.height, comp.dimensions.depth);
 
+      const dOffsetGroove = module.carcass.backOffsetMm ?? (module.category?.startsWith("wardrobe") ? 12 : 18);
+      const grooveWidthMm = roundMm((module.carcass.backPanelThickness || 8) + 0.5, 1);
+
+      const isSideOrDiv =
+        comp.role === "carcass_side_left" ||
+        comp.role === "carcass_side_right" ||
+        comp.role === "carcass_divider";
+      const golaNotches = isSideOrDiv
+        ? computeGolaSidePanelNotches(module, comp.position.y || 0, rawLengthMm)
+        : undefined;
+      const tJunctionFixedShelfYs =
+        comp.role === "carcass_divider" && typeof comp.bayIndex === "number"
+          ? computeDividerTJunctionYs(module, comp.bayIndex)
+          : undefined;
+
+      const hasPartVertLed =
+        Boolean(module.carcass.ledLightingEnabled) &&
+        (module.carcass.ledPlacementMode === "vertical_sides" ||
+          module.carcass.ledPlacementMode === "full_showcase") &&
+        (comp.role === "carcass_side_left" || comp.role === "carcass_side_right");
+      const hasPartShelfLed =
+        Boolean(module.carcass.ledLightingEnabled) &&
+        (module.carcass.ledPlacementMode === "shelf_underside" ||
+          module.carcass.ledPlacementMode === "top_and_shelves" ||
+          module.carcass.ledPlacementMode === "full_showcase") &&
+        (comp.role === "shelf" || comp.role === "carcass_top");
+      const ledGrooveSpec =
+        hasPartVertLed || hasPartShelfLed
+          ? {
+              enabled: true,
+              offsetFromFrontMm: module.carcass.ledFrontSetbackMm ?? 75,
+              widthMm: module.carcass.ledChannelWidthMm ?? 12,
+              depthMm: module.carcass.ledChannelDepthMm ?? 8,
+              cableExitHole: true,
+            }
+          : undefined;
+
+      const baseboardCutouts =
+        module.carcass.baseboardNotch?.enabled &&
+        (comp.role === "carcass_side_left" || comp.role === "carcass_side_right")
+          ? [
+              {
+                id: `bb_${comp.id}`,
+                targetPanel: (comp.role === "carcass_side_left" ? "left_side" : "right_side") as "left_side" | "right_side",
+                kind: "baseboard_notch" as const,
+                shape: "corner_notch" as const,
+                centerXMm: mirrorInnerFaceX
+                  ? module.carcass.baseboardNotch.depthMm / 2
+                  : rawWidthMm - module.carcass.baseboardNotch.depthMm / 2,
+                centerYMm: module.carcass.baseboardNotch.heightMm / 2,
+                widthMm: module.carcass.baseboardNotch.depthMm,
+                heightMm: module.carcass.baseboardNotch.heightMm,
+                label: "Süpürgelik Kertmesi",
+              },
+            ]
+          : [];
+
+      const partJoineryTopology =
+        module.carcass.carcassJoineryTopology ||
+        (module.category === "kitchen_base" || module.category === "kitchen_island"
+          ? "kitchen_stretchers"
+          : "sides_through");
+      const partStretcherMode =
+        module.carcass.kitchenTopStretcherMode ||
+        (hasSinkOrCooktopAppliance(module) && module.name.toLowerCase().includes("eviye")
+          ? "vertical_sink"
+          : hasSinkOrCooktopAppliance(module) && module.dimensions.width >= 900
+          ? "aluminum_reinforced"
+          : "horizontal");
+      const partBackMode =
+        hasSinkOrCooktopAppliance(module) && module.name.toLowerCase().includes("eviye")
+          ? "none"
+          : module.carcass.backPanelType || "grooved";
+      const isWallCab = module.category === "kitchen_wall" || (module.position?.y || 0) >= 1000;
+
+      // Compute fixed & appliance-carrier shelf Y offsets on outer side panels so Minifix/Dowel rows are drilled accurately!
+      const sideFixedShelfYs =
+        comp.role === "carcass_side_left" || comp.role === "carcass_side_right"
+          ? (() => {
+              const sideBaseY = comp.position.y || 0;
+              const adjBay =
+                comp.role === "carcass_side_right"
+                  ? module.bays[Math.max(0, module.bays.length - 1)]
+                  : module.bays[0];
+              const shelfYs = (adjBay?.shelves || [])
+                .filter((s) => s.isFixed)
+                .map((s) => roundMm((module.carcass.plinthHeight || 0) + (module.carcass.panelThickness || 18) + s.elevationY - sideBaseY, 2));
+              const carrierComp = geo.components.find((gc) => gc.id === `${module.id}_appliance_shelf`);
+              if (carrierComp) {
+                shelfYs.push(roundMm(carrierComp.position.y + carrierComp.dimensions.height / 2 - sideBaseY, 2));
+              }
+              return shelfYs;
+            })()
+          : undefined;
+
+      // Resolve real CNC handle spacing (`160mm`, `128mm`, `1` for single knob, `undefined` for Gola/J-pull/push-to-open)
+      const resolvedHandleSpacingMm = (() => {
+        if (!comp.role.includes("door") && comp.role !== "drawer_front") return undefined;
+        if (comp.role === "drawer_front") {
+          const drObj = bay?.drawers.find((d) => `${d.id}_front` === comp.id);
+          if (drObj?.isInternal) return undefined;
+        }
+        const hCat = bay?.door?.handleCategory || "bar_handle";
+        if (
+          hCat === "handleless_plain" ||
+          hCat === "gola_profile" ||
+          hCat === "j_pull_milled" ||
+          bay?.door?.openingTechnology === "push_to_open"
+        ) {
+          return undefined;
+        }
+        if (hCat === "knob") return 1;
+        const hp =
+          getAllHandleProfiles().find((p) => p.id === bay?.door?.handleProfileId) ||
+          getAllHandleProfiles().find((p) => p.category === hCat);
+        return hp?.centerToCenterMm && hp.centerToCenterMm > 0 ? hp.centerToCenterMm : 160;
+      })();
+
+      // Detect wooden drawer components (16mm wooden sides + 8mm grooved bottom)
+      const isWoodenDrawerComponent = (() => {
+        if (
+          comp.role !== "drawer_side_left" &&
+          comp.role !== "drawer_side_right" &&
+          comp.role !== "drawer_back" &&
+          comp.role !== "drawer_front"
+        ) {
+          return false;
+        }
+        const prefix = comp.id.replace(/_(side_left|side_right|back|front)$/, "");
+        const botComp = geo.components.find((gc) => gc.id === `${prefix}_bottom`);
+        return Boolean(botComp && Math.min(botComp.dimensions.height, botComp.dimensions.depth) <= 10);
+      })();
+
+      const hasDrawerBottomGroove =
+        isWoodenDrawerComponent &&
+        (comp.role === "drawer_side_left" ||
+          comp.role === "drawer_side_right" ||
+          comp.role === "drawer_front");
+
+      const wallHangerCornerNotches =
+        isWallCab && comp.role === "carcass_back" && partBackMode === "grooved"
+          ? { widthMm: 45, heightMm: 65 }
+          : undefined;
+
       const parametricPart: ParametricPart = {
         id: stablePartId,
         moduleId: module.id,
@@ -900,8 +1263,8 @@ export function generateBOMForProject(
         label: comp.label,
         role: comp.role,
         dimensions: {
-          width: nominalWidthMm,
-          height: nominalLengthMm,
+          width: rawWidthMm,
+          height: rawLengthMm,
           depth: thicknessMm,
         },
         materialId: mat.id,
@@ -913,28 +1276,57 @@ export function generateBOMForProject(
         rotation: comp.rotation,
         isFrontFacing: comp.isFrontFacing,
         hardwareRefId: bay?.door.hardwareProductId,
-        handleSpacingMm: undefined,
+        handleSpacingMm: resolvedHandleSpacingMm,
         isInsetDoor,
         hingePositionsY: partHingePositionsY,
         hingePositionsBackY: partHingePositionsBackY,
+        tJunctionFixedShelfYs,
+        fixedShelfJointYs: sideFixedShelfYs && sideFixedShelfYs.length > 0 ? sideFixedShelfYs : undefined,
         bottomJointOffsetY,
         matingPanelThicknessMm: module.carcass.panelThickness || 18,
         hasBackGroove: hasPartBackGroove,
-        backGrooveOffsetMm: 20,
+        backGrooveOffsetMm: dOffsetGroove + 8,
+        backGrooveWidthMm: grooveWidthMm,
+        ledGrooveSpec,
+        golaNotches: golaNotches && golaNotches.length > 0 ? golaNotches : undefined,
+        useDepthBasedConnectorRule: module.carcass.useDepthBasedConnectors !== false,
         mirrorInnerFaceX,
         hasSinkOrHobCutout,
         cutoutWidthMm,
         cutoutDepthMm,
+        carcassJoineryTopology: partJoineryTopology,
+        kitchenStretcherMode: partStretcherMode,
+        backPanelMode: partBackMode,
+        hasDrawerBottomGroove,
+        drawerBottomGrooveOffsetMm: 13,
+        drawerBottomGrooveWidthMm: 8.5,
+        drawerBottomGrooveDepthMm: 6,
+        isWoodenDrawerBox: isWoodenDrawerComponent,
+        isWallCabinet: isWallCab,
       };
 
       const holes = generateDrillingForPart(parametricPart);
       totalDrillingHolesCount += holes.length;
 
       const ebT = edgeBanding.thickness || 0;
-      const lengthDeduction = (edgeBanding.top ? ebT : 0) + (edgeBanding.bottom ? ebT : 0);
-      const widthDeduction = (edgeBanding.left ? ebT : 0) + (edgeBanding.right ? ebT : 0);
+      const preMillMm = Math.max(0, module.carcass.preMillingMm ?? 0);
+      const netEbDeductionPerEdge = Math.max(0, ebT - preMillMm);
+      const lengthDeduction =
+        (edgeBanding.top ? netEbDeductionPerEdge : 0) +
+        (edgeBanding.bottom ? netEbDeductionPerEdge : 0);
+      const widthDeduction =
+        (edgeBanding.left ? netEbDeductionPerEdge : 0) +
+        (edgeBanding.right ? netEbDeductionPerEdge : 0);
       const netCutLengthMm = Math.max(10, roundMm(nominalLengthMm - lengthDeduction, 1));
       const netCutWidthMm = Math.max(10, roundMm(nominalWidthMm - widthDeduction, 1));
+
+      const drawerMatchForGrain =
+        comp.role === "drawer_front"
+          ? bay?.drawers.find((d) => `${d.id}_front` === comp.id)
+          : undefined;
+      const grainGroupId =
+        drawerMatchForGrain?.grainGroupId ||
+        (comp.role.includes("door") ? bay?.door?.grainGroupId : undefined);
 
       cutList.push({
         id: stablePartId,
@@ -950,26 +1342,40 @@ export function generateBOMForProject(
         nominalWidthMm,
         netCutLengthMm,
         netCutWidthMm,
+        preMillingMm: preMillMm,
         edgeBandCode: formatEdgeBandCode(edgeBanding),
         thicknessMm,
         quantity: 1,
         edgeBanding,
         grain,
+        grainGroupId,
+        cncFileName: `${stablePartId}.dxf`,
         areaM2: roundMm(areaM2, 3),
         edgeBandMeters: roundMm(edgeBandMeters, 3),
         holes,
         mirrorInnerFaceX,
         hasBackGroove: hasPartBackGroove,
-        backGrooveOffsetMm: 20,
+        backGrooveOffsetMm: dOffsetGroove + 8,
+        backGrooveWidthMm: grooveWidthMm,
+        ledGrooveSpec,
+        golaNotches: golaNotches && golaNotches.length > 0 ? golaNotches : undefined,
+        siphonCutout: comp.siphonCutout,
         hasSinkOrHobCutout,
         utilityCutouts: (module.utilityCutouts || []).filter((co) =>
           (comp.role === "carcass_back" && co.targetPanel === "back") ||
           ((comp.role === "carcass_side_left" || (comp.role === "carcass_side" && comp.id.includes("left"))) && co.targetPanel === "left_side") ||
           ((comp.role === "carcass_side_right" || (comp.role === "carcass_side" && comp.id.includes("right"))) && co.targetPanel === "right_side") ||
           (comp.role === "carcass_bottom" && co.targetPanel === "bottom")
-        ),
+        ).concat(baseboardCutouts),
         cutoutWidthMm,
         cutoutDepthMm,
+        carcassJoineryTopology: partJoineryTopology,
+        backPanelMode: partBackMode,
+        hasDrawerBottomGroove,
+        drawerBottomGrooveOffsetMm: hasDrawerBottomGroove ? 13 : undefined,
+        drawerBottomGrooveWidthMm: hasDrawerBottomGroove ? 8.5 : undefined,
+        drawerBottomGrooveDepthMm: hasDrawerBottomGroove ? 6 : undefined,
+        wallHangerCornerNotches,
       });
     });
 
@@ -1142,9 +1548,70 @@ export function generateBOMForProject(
             "adet",
             34.0
           );
+        } else if (fit.type === "dish_drainer") {
+          addHardware("544.11.280", "Üst Dolap İçi Alüminyum Paslanmaz Bulaşıklık + Damla Tepsisi", "special", 1, "takım", 56.0);
+        } else if (fit.type === "imove_pull_down") {
+          addHardware("504.68.932", "Kesseböhmer iMove Asansörlü Üst Dolap Rafı", "special", 1, "takım", 148.0);
+        } else if (fit.type === "magic_corner") {
+          addHardware("546.17.241", "Kesseböhmer Magic Corner Comfort Kör Köşe", "special", 1, "takım", 310.0);
+        } else if (fit.type === "foldable_ironing_board") {
+          addHardware("568.60.710", "Häfele IRONFIX Dolap İçi Katlanır Ütü Masası", "special", 1, "takım", 165.0);
+        } else if (fit.type === "swivel_mirror") {
+          addHardware("806.25.710", "Häfele Raylı 90° Döner Dolap İçi Boy Aynası", "special", 1, "adet", 112.0);
         }
       });
     });
+
+    const hasExplicitLedFit = module.bays.some((b) =>
+      (b.specialFittings || []).some((f) => !f.isHidden && f.type.startsWith("led_"))
+    );
+    if (module.carcass.ledLightingEnabled && !hasExplicitLedFit) {
+      const netH = fourSpace.usableInternal.netInnerHeightMm || 2000;
+      const totShelfMeters = module.bays.reduce((acc, b, idx) => {
+        const bw = fourSpace.usableInternal.bayClearWidthsMm[idx] || 600;
+        return acc + ((b.shelves.length + 1) * bw) / 1000;
+      }, 0);
+      const mode = module.carcass.ledPlacementMode || "full_showcase";
+      const ledMeters = roundMm(
+        mode === "vertical_sides"
+          ? (module.bays.length * 2 * netH) / 1000
+          : mode === "full_showcase"
+          ? (module.bays.length * 2 * netH) / 1000 + totShelfMeters
+          : totShelfMeters,
+        2
+      );
+      const reqWatts = Math.ceil(ledMeters * 14.4 * 1.2);
+      const driverSpec =
+        reqWatts > 100
+          ? { sku: "833.95.004", name: "Häfele Loox5 24V / 150W İnce LED Trafo", price: 64.0 }
+          : reqWatts > 60
+          ? { sku: "833.95.003", name: "Häfele Loox5 24V / 100W İnce LED Trafo", price: 48.0 }
+          : reqWatts > 36
+          ? { sku: "833.95.002", name: "Häfele Loox5 24V / 60W İnce LED Trafo", price: 34.0 }
+          : { sku: "833.95.001", name: "Häfele Loox5 24V / 36W İnce LED Trafo", price: 24.0 };
+      const chanW = module.carcass.ledChannelWidthMm ?? 12;
+      const chanD = module.carcass.ledChannelDepthMm ?? 8;
+      addHardware(
+        `LED.CH.${chanW}X${chanD}`,
+        `Alüminyum Gömme LED Kanal (${chanW}×${chanD}mm) + ${module.carcass.ledColorTempK || 3000}K Şerit LED`,
+        "special",
+        Math.max(1, ledMeters),
+        "metre",
+        15.5
+      );
+      addHardware(driverSpec.sku, driverSpec.name, "special", 1, "adet", driverSpec.price);
+      const sensorType = module.carcass.ledSensorType || "ir_door";
+      addHardware(
+        sensorType === "pir_motion" ? "833.89.145" : "833.89.142",
+        sensorType === "pir_motion"
+          ? "Häfele Loox5 PIR Hareket Sensörü + 6'lı Dağıtıcı"
+          : "Häfele Loox5 Kapak Açılım IR Sensörü + 6'lı Dağıtıcı",
+        "special",
+        1,
+        "adet",
+        16.5
+      );
+    }
   });
 
   const nestingResults = skipSyncNesting ? [] : optimizeSheetNesting(cutList);

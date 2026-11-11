@@ -148,7 +148,7 @@ export function evaluateModuleCompatibility(module: ModuleInstance): ValidationI
         : "manual_standard");
 
     // Category 12: Material Suitability (Shelf Span Deflection & J-Pull Material Check)
-    if (bayW > 950 && (bay.shelves.length > 0 || bay.hangingRails.length > 0)) {
+    if ((bayW > 900 && bay.shelves.some((s) => s.isAdjustable && (s.thickness || 18) <= 18)) || (bayW > 1200 && (bay.shelves.length > 0 || bay.hangingRails.length > 0))) {
       issues.push({
         severity: "warning",
         code: "CHK_12_SHELF_SPAN_DEFLECTION",

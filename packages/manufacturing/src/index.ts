@@ -6,3 +6,4 @@ export * from "./selco-adapter";
 export * from "./bom-generator";
 export * from "./technical-outputs";
 export * from "./cnc-postprocessors";
+export * from "./cam-export-pipeline";

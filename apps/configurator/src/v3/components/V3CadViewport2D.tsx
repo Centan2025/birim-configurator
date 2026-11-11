@@ -10,6 +10,7 @@ import {
   calculateFourSpaceDimensions,
   inferDoorSystemIdFromType,
   getModuleFrontSweepBounds,
+  calculateModulePlacement,
 } from "@birim/core";
 import {
   useV3Adapter,
@@ -31,15 +32,22 @@ import {
   findDraggableInteriorComponent,
   ElevationSnapTarget,
 } from "../engine/elevationSnapEngine";
+import { solveAngledWallSnapForModule } from "../engine/angledWallSnapEngine";
 
 export interface V3CadViewport2DProps {
   mode: "elevation" | "plan" | "section";
   interactivePlan?: boolean;
   snapMm?: number;
+  studioSafeInsets?: {
+    topPx?: number;
+    leftPx?: number;
+    rightPx?: number;
+    bottomPx?: number;
+  };
 }
 
 export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
-  ({ mode, interactivePlan = false, snapMm = 50 }) => {
+  ({ mode, interactivePlan = false, snapMm = 50, studioSafeInsets }) => {
     const {
       project,
       activeModule,
@@ -49,6 +57,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       selectedComponentId,
       setSelectedComponentId,
       rotateActiveModule90,
+      snapModuleToAngledWall,
       setModulePosition,
       resizeModuleParametric,
       swapModuleWithNeighbor,
@@ -1680,6 +1689,28 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
           }
         }
 
+        // Automatic Parallel Alignment & Flush Back-Snap to ANY Angled Wall (`30°`, `45°`, `135°`, freehand)!
+        if (dragMod && useMagnet && spaceWalls.some((w) => ((w.rotationY || 0) % 90 + 90) % 90 !== 0)) {
+          const angledSol = solveAngledWallSnapForModule({
+            mod: dragMod,
+            modIdx: draggingModIdx,
+            candidatePosX: rawNextX,
+            candidatePosZ: rawNextZ,
+            walls: spaceWalls.filter((w) => ((w.rotationY || 0) % 90 + 90) % 90 !== 0),
+            allModules: project.modules,
+            maxPerpSnapDistMm: 145,
+          });
+          if (angledSol) {
+            nextX = angledSol.snappedPositionX;
+            nextZ = angledSol.snappedPositionZ;
+            const curModRot = (((dragMod.rotation?.y || 0) % 360) + 360) % 360;
+            if (Math.abs(curModRot - angledSol.moduleRotationYDeg) > 0.5) {
+              rotateActiveModule90(angledSol.moduleRotationYDeg - curModRot);
+            }
+            activeSnapMsg = `🧲📐 "${angledSol.wallName}" Açılı Duvarına Paralel Yaslandı (${angledSol.moduleRotationYDeg}°)`;
+          }
+        }
+
         setActivePlanSnapX(snappedEdgeX);
         setPlanRowSnapBanner(activeSnapMsg);
         if (dragMod && (nextX !== dragMod.position.x || nextZ !== dragMod.position.z)) {
@@ -2639,6 +2670,46 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       ? "🔗 Sonraki Noktayı Tıklayın..."
                       : "1. Başlangıç Noktasını Tıklayın..."
                     : "✏️ Serbest Duvar Çiz"}
+                </button>
+
+                <button
+                  type="button"
+                  data-testid="plan-add-45deg-wall-btn"
+                  onClick={() => {
+                    addWallSegment({
+                      name: `Açılı Duvar ${spaceWalls.length + 1}`,
+                      length: 1800,
+                      height: project.space.ceilingHeight || 2600,
+                      thickness: 150,
+                      position: { x: mainWall.length, y: 0, z: 0 },
+                      rotationY: 45,
+                      elements: [],
+                    });
+                  }}
+                  className="px-2.5 py-1.5 rounded-xl bg-white hover:bg-amber-50 text-[#0F172A] border border-slate-200 font-bold cursor-pointer"
+                  data-tooltip="+45° Açılı Duvar Segmenti Ekle"
+                >
+                  + 45° Açılı Duvar
+                </button>
+
+                <button
+                  type="button"
+                  data-testid="plan-snap-module-parallel-wall-btn"
+                  onClick={() => {
+                    const targetWallId =
+                      selectedPlanObject?.kind === "wall" ? selectedPlanObject.id : undefined;
+                    const sol = snapModuleToAngledWall(activeModuleIndex, targetWallId);
+                    if (sol) {
+                      setPlanRowSnapBanner(
+                        `📐 Seçili dolap "${sol.wallName}" duvarına paralel (${sol.moduleRotationYDeg}°) hizalandı`
+                      );
+                      setTimeout(() => setPlanRowSnapBanner(null), 2600);
+                    }
+                  }}
+                  className="px-2.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold cursor-pointer"
+                  data-tooltip="Dolabı Açılı Duvara Paralel Yasla"
+                >
+                  📐 Dolabı Duvara Paralel Yasla
                 </button>
 
                 {isDrawingWall && drawWallStart && (
@@ -4585,26 +4656,38 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       });
                     }
 
+                    const modRotDeg = (((mod?.rotation?.y ?? fp.rotationY ?? 0) % 360) + 360) % 360;
+                    const isRotatedMod = Math.abs(modRotDeg) > 0.05;
+                    const modPlace = mod && isRotatedMod ? calculateModulePlacement(mod) : null;
+                    const localW = mod ? mod.dimensions.width : mw;
+                    const localD = mod ? mod.dimensions.depth : md;
+                    const lx0 = isRotatedMod ? 0 : mx;
+                    const lz0 = isRotatedMod ? 0 : mz;
+                    const localGroupTransform =
+                      isRotatedMod && modPlace
+                        ? `translate(${modPlace.origin.x}, ${modPlace.origin.z}) rotate(${-modRotDeg})`
+                        : undefined;
+
                     return (
-                      <>
+                      <g transform={localGroupTransform}>
                         <rect
-                          x={mx}
-                          y={mz}
-                          width={mw}
-                          height={md}
+                          x={lx0}
+                          y={lz0}
+                          width={localW}
+                          height={localD}
                           rx={6}
-                          fill={carcassFill}
+                          fill={fp.category === "complementary" ? "rgba(216, 184, 146, 0.55)" : carcassFill}
                           stroke={carcassStroke}
                           strokeWidth={strokeW}
                           strokeDasharray={fp.category === "kitchen_wall" ? "10 5" : undefined}
                         />
 
-                        {/* 18mm Carcass Side & Back Panel Inner Lines */}
-                        {fp.rotationY === 0 && (
+                        {/* 18mm Carcass Side & Back Panel Inner Lines (Preserved at ALL angles 0°/45°/90°/180°/270°!) */}
+                        {fp.category !== "complementary" && (
                           <g className="pointer-events-none" opacity={0.55}>
-                            <line x1={mx + T} y1={mz + T} x2={mx + mw - T} y2={mz + T} stroke="#94A3B8" strokeWidth="2" />
-                            <line x1={mx + T} y1={mz + T} x2={mx + T} y2={mz + md - T} stroke="#94A3B8" strokeWidth="2" />
-                            <line x1={mx + mw - T} y1={mz + T} x2={mx + mw - T} y2={mz + md - T} stroke="#94A3B8" strokeWidth="2" />
+                            <line x1={lx0 + T} y1={lz0 + T} x2={lx0 + localW - T} y2={lz0 + T} stroke="#94A3B8" strokeWidth="2" />
+                            <line x1={lx0 + T} y1={lz0 + T} x2={lx0 + T} y2={lz0 + localD - T} stroke="#94A3B8" strokeWidth="2" />
+                            <line x1={lx0 + localW - T} y1={lz0 + T} x2={lx0 + localW - T} y2={lz0 + localD - T} stroke="#94A3B8" strokeWidth="2" />
                           </g>
                         )}
 
@@ -4615,24 +4698,9 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                             const divCoordMm = bo.startMm + bo.spanWidthMm;
                             const hasDividerAfter = bIdx < bayOffsetsMm.length - 1;
 
-                            if (fp.rotationY === 90 || fp.rotationY === 270) {
-                              const bayZ = mz + divCoordMm;
-                              return hasDividerAfter ? (
-                                <line
-                                  key={`div_${bIdx}`}
-                                  x1={mx}
-                                  y1={bayZ}
-                                  x2={mx + mw}
-                                  y2={bayZ}
-                                  stroke={isAct ? "#2563EB" : "#64748B"}
-                                  strokeWidth="3"
-                                />
-                              ) : null;
-                            }
-
-                            const bx = mx + bo.startMm;
+                            const bx = lx0 + bo.startMm;
                             const bSpan = bo.spanWidthMm;
-                            const divX = mx + divCoordMm;
+                            const divX = lx0 + divCoordMm;
                             const extDrawers = bayObj ? bayObj.drawers.filter((d) => !d.isInternal) : [];
                             const hasRails = bayObj ? bayObj.hangingRails.length > 0 : false;
 
@@ -4642,9 +4710,9 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                                 {hasDividerAfter && (
                                   <line
                                     x1={divX}
-                                    y1={mz}
+                                    y1={lz0}
                                     x2={divX}
-                                    y2={mz + md}
+                                    y2={lz0 + localD}
                                     stroke={isAct ? "#1D4ED8" : "#475569"}
                                     strokeWidth="3.5"
                                   />
@@ -4655,9 +4723,9 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                                   <g opacity={0.45}>
                                     <line
                                       x1={bx + T}
-                                      y1={mz + md * 0.5}
+                                      y1={lz0 + localD * 0.5}
                                       x2={bx + bSpan - T}
-                                      y2={mz + md * 0.5}
+                                      y2={lz0 + localD * 0.5}
                                       stroke="#475569"
                                       strokeWidth="2.5"
                                       strokeDasharray="8 5"
@@ -4673,7 +4741,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                                     <g>
                                       <rect
                                         x={bx + T + 8}
-                                        y={mz + md - drwH - 8}
+                                        y={lz0 + localD - drwH - 8}
                                         width={Math.max(40, bSpan - 2 * T - 16)}
                                         height={drwH}
                                         rx={7}
@@ -4684,7 +4752,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                                       />
                                       <text
                                         x={bx + bSpan / 2}
-                                        y={mz + md - 8 - Math.round(drwH * 0.28)}
+                                        y={lz0 + localD - 8 - Math.round(drwH * 0.28)}
                                         textAnchor="middle"
                                         fill="#92400E"
                                         fontSize={drwFont}
@@ -4707,7 +4775,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                                     <g>
                                       <rect
                                         x={bx + bSpan / 2 - bPillW / 2}
-                                        y={mz + 8}
+                                        y={lz0 + 8}
                                         width={bPillW}
                                         height={bPillH}
                                         rx={7}
@@ -4717,7 +4785,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                                       />
                                       <text
                                         x={bx + bSpan / 2}
-                                        y={mz + 8 + Math.round(bPillH * 0.72)}
+                                        y={lz0 + 8 + Math.round(bPillH * 0.72)}
                                         textAnchor="middle"
                                         fill={isAct ? "#1D4ED8" : "#0F172A"}
                                         fontSize={bFont}
@@ -4733,26 +4801,8 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                             );
                           })}
 
-                        {/* Authentic Door Opening System in 2D Plan (Matches 3D Product 1-to-1: Single Left, Single Right, Double 2-Leaf, Sliding, Bi-Fold, Lift-Up, Pocket, Tambour) */}
-                        {fp.rotationY === 90 ? (
-                          <line
-                            x1={mx + mw + 8}
-                            y1={mz + 12}
-                            x2={mx + mw + 8}
-                            y2={mz + md - 12}
-                            stroke={isAct ? "#2563EB" : "#78716C"}
-                            strokeWidth="4"
-                          />
-                        ) : fp.rotationY === 270 ? (
-                          <line
-                            x1={mx - 8}
-                            y1={mz + 12}
-                            x2={mx - 8}
-                            y2={mz + md - 12}
-                            stroke={isAct ? "#2563EB" : "#78716C"}
-                            strokeWidth="4"
-                          />
-                        ) : (
+                        {/* Authentic Door Opening System & 90° Sweep Arcs in 2D Plan — Active for ALL rotations (0°, 45°, 90°, 180°, 270°)! */}
+                        {(
                           mod &&
                           !mod.isOpenFront &&
                           bayOffsetsMm.map((bo, bIdx) => {
@@ -4763,9 +4813,9 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                             if (dType === "open" || dSys === "open") return null;
 
                             const leafSpec = fourSpace?.doorLeaves[bIdx];
-                            const bx = mx + bo.startMm;
+                            const bx = lx0 + bo.startMm;
                             const baySpanW = bo.spanWidthMm;
-                            const frontZ = mz + md + 4;
+                            const frontZ = lz0 + localD + 4;
                             const doorStroke = hasDoorSwingError
                               ? "#DC2626"
                               : isAct
@@ -5070,7 +5120,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                             );
                           })
                         )}
-                      </>
+                      </g>
                     );
                   })()}
 
@@ -6588,8 +6638,19 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             {planRowSnapBanner}
           </div>
         )}
-        {/* Top Architectural Header Bar */}
-        <div className="min-h-[44px] px-4 py-1.5 bg-[#FAF9F6] border-b border-[#DED8CC] flex flex-wrap items-center justify-between gap-2 shrink-0 z-10">
+        {/* Top Architectural Header Bar (Automatically respects Studio floating panel safe insets!) */}
+        <div
+          style={
+            studioSafeInsets
+              ? {
+                  marginTop: `${studioSafeInsets.topPx ?? 58}px`,
+                  paddingLeft: `${studioSafeInsets.leftPx ?? 84}px`,
+                  paddingRight: `${studioSafeInsets.rightPx ?? 20}px`,
+                }
+              : undefined
+          }
+          className="min-h-[44px] px-4 py-1.5 bg-[#FAF9F6]/90 backdrop-blur-md border-b border-[#DED8CC] flex flex-wrap items-center justify-between gap-2 shrink-0 z-10 transition-[padding] duration-300"
+        >
           <div className="flex items-center gap-2.5">
             <span className="px-2.5 py-1 rounded-lg bg-[#141413] text-[#FAF9F6] text-xs font-semibold tracking-tight">
               {mode === "elevation"
@@ -6870,7 +6931,17 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         </div>
 
         {/* Bottom-Right Frosted Ice Zoom & Pan Capsule */}
-        <div className="absolute bottom-4 right-4 z-10 flex items-center gap-1 birim-ice-pill p-1 rounded-2xl text-xs text-stone-800">
+        <div
+          style={
+            studioSafeInsets
+              ? {
+                  bottom: `${studioSafeInsets.bottomPx ?? 68}px`,
+                  right: `${studioSafeInsets.rightPx ?? 20}px`,
+                }
+              : undefined
+          }
+          className="absolute bottom-4 right-4 z-10 flex items-center gap-1 birim-ice-pill p-1 rounded-2xl text-xs text-stone-800 transition-[right,bottom] duration-300"
+        >
           <button
             type="button"
             title="Uzaklaştır (−)"
@@ -7564,12 +7635,12 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       {nElements.map((el) => {
                         const isHinge = el.role === "door_hinge";
                         const isSpecialFitting = el.role === "special_fitting";
-                        const isDoor = el.role.startsWith("door") && !isHinge;
+                        const isDoor = el.role.startsWith("door") && !isHinge && el.role !== "door_handle";
                         const isDrawer = el.role.startsWith("drawer");
                         const isShelf = el.role === "shelf";
                         const isDivider = el.role === "carcass_divider";
                         const isSubDivider = el.role === "carcass_sub_divider";
-                        const isDrawerHandle = el.role === "drawer_handle";
+                        const isDrawerHandle = el.role === "drawer_handle" || el.role === "door_handle" || el.role === "gola_profile";
                         const dragMeta = findDraggableInteriorComponent(
                           m,
                           el.id,
@@ -8037,12 +8108,12 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             const isSelected = el.isSelected;
             const isHinge = el.role === "door_hinge";
             const isSpecialFitting = el.role === "special_fitting";
-            const isDoor = el.role.startsWith("door") && !isHinge;
+            const isDoor = el.role.startsWith("door") && !isHinge && el.role !== "door_handle";
             const isDrawer = el.role.startsWith("drawer");
             const isShelf = el.role === "shelf";
             const isDivider = el.role === "carcass_divider";
             const isSubDivider = el.role === "carcass_sub_divider";
-            const isDrawerHandle = el.role === "drawer_handle";
+            const isDrawerHandle = el.role === "drawer_handle" || el.role === "door_handle" || el.role === "gola_profile";
             const dragMeta = mode === "elevation" ? findInteriorDragTarget(el.id) : null;
             const isActiveDrag = interiorDrag?.targetId === dragMeta?.targetId && Boolean(dragMeta);
 
@@ -8072,6 +8143,12 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             } else if (isDrawerHandle) {
               fill = "#44403C";
               stroke = "#1C1917";
+            } else if (mode === "section" && el.role === "drawer_back") {
+              fill = "#FDBA74";
+              stroke = "#7C2D12";
+            } else if (mode === "section" && sectionDirection2D === "Z" && (el.role === "drawer_side_left" || el.role === "drawer_slide")) {
+              fill = el.role === "drawer_slide" ? "#CBD5E1" : "#F8FAFC";
+              stroke = "#64748B";
             } else if (isDrawer) {
               fill = "#FEF3C7";
               stroke = "#9A3412";
@@ -8168,10 +8245,46 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   height={Math.max(1, el.height)}
                   fill={fill}
                   stroke={stroke}
-                  strokeWidth={isSelected || isActiveDrag ? 6 : isHiddenLeg ? 2.2 : 3}
-                  strokeDasharray={isHiddenLeg ? "10 7" : undefined}
-                  opacity={isDoor ? 0.35 : isHiddenLeg ? 0.7 : 0.98}
+                  strokeWidth={
+                    isSelected || isActiveDrag
+                      ? 6
+                      : mode === "section" && el.role === "drawer_back"
+                      ? 4
+                      : isHiddenLeg || (mode === "section" && sectionDirection2D === "Z" && el.role === "drawer_side_left")
+                      ? 2
+                      : 3
+                  }
+                  strokeDasharray={
+                    isHiddenLeg
+                      ? "10 7"
+                      : mode === "section" && sectionDirection2D === "Z" && el.role === "drawer_side_left"
+                      ? "8 5"
+                      : undefined
+                  }
+                  opacity={
+                    isDoor
+                      ? 0.35
+                      : mode === "section" && sectionDirection2D === "Z" && el.role === "drawer_side_left"
+                      ? 0.36
+                      : isHiddenLeg
+                      ? 0.7
+                      : 0.98
+                  }
                 />
+                {mode === "section" && el.role === "drawer_back" && el.height >= 36 && (
+                  <text
+                    x={sectionDirection2D === "Z" ? el.x + el.width + 14 : el.x + el.width / 2}
+                    y={el.y + el.height / 2 + 6}
+                    textAnchor={sectionDirection2D === "Z" ? "start" : "middle"}
+                    fill="#7C2D12"
+                    fontSize="18"
+                    fontWeight="800"
+                    fontFamily="monospace"
+                    className="pointer-events-none"
+                  >
+                    {sectionDirection2D === "Z" ? "← Çekmece Arkalığı (16mm)" : "Çekmece Arkalığı"}
+                  </text>
+                )}
                 {/* Architectural Recessed Toe-Kick Shadow Strip & Label on Front Plinth */}
                 {isPlinth && el.id.includes("_plinth_front") && el.height >= 35 && (
                   <g className="pointer-events-none">

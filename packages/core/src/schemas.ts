@@ -120,7 +120,7 @@ export const DoorCrossSectionProfileSchema = z
   ])
   .optional();
 
-export const BackPanelTypeSchema = z.enum(["grooved", "rebated", "nailed", "flush"]);
+export const BackPanelTypeSchema = z.enum(["grooved", "rebated", "nailed", "flush", "none"]);
 export const ModuleFamilyIdSchema = z
   .enum([
     "fam_kitchen_base",
@@ -151,6 +151,7 @@ export const JointTypeSchema = z.enum([
   "dowel_only",
   "groove",
   "rebate",
+  "miter_45",
 ]);
 export const GrainDirectionSchema = z.enum(["lengthwise", "crosswise", "none"]);
 
@@ -414,6 +415,7 @@ export const ModuleInstanceSchema = z.object({
       "led_channel",
       "wall_bracket",
       "service_spacer",
+      "attached_table",
     ])
     .optional(),
   requiresFactoryValidation: z.boolean().optional(),

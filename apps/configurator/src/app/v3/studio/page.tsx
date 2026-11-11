@@ -234,8 +234,8 @@ export default function V3StudioPage() {
         {/* COLLAPSIBLE LEFT TOOL LIBRARY */}
         <aside
           data-testid="studio-left-library"
-          className={`transition-all duration-200 border-r border-stone-200/90 bg-white flex flex-col z-20 shrink-0 ${
-            leftOpen ? "w-72" : "w-14"
+          className={`m-2.5 birim-ice-rail-pill birim-ice-unified-shell rounded-[28px] overflow-hidden flex flex-col z-20 shrink-0 ${
+            leftOpen ? "w-80" : "w-14"
           }`}
         >
           <div className="h-11 border-b border-stone-200/80 flex items-center justify-between px-3">

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { BirimTooltipPortal } from "../v3/design-system/BirimTooltip";
 
 export const metadata: Metadata = {
   title: "Birim Configurator | Parametrik Dolap ve Mutfak Platformu",
@@ -18,6 +19,7 @@ export default function RootLayout({
     <html lang="tr" className="dark">
       <body className="h-screen w-screen overflow-hidden bg-slate-950 text-slate-100 antialiased">
         {children}
+        <BirimTooltipPortal />
       </body>
     </html>
   );

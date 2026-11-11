@@ -41,56 +41,62 @@ export const V3_TOKENS = {
 // ---------------------------------------------------------------------------
 // 2. OFFICIAL BİRİM® BRAND LOGO (Authentic B1R1M® Geometric Wordmark from birim-store)
 // ---------------------------------------------------------------------------
-export const V3BrandBadge: React.FC<{ subtitle?: string; dark?: boolean }> = ({
-  subtitle = "V4.2",
+export const BirimLogo: React.FC<{ className?: string; dark?: boolean }> = ({
+  className = "h-5 w-auto",
   dark = false,
 }) => (
-  <div className="flex items-center gap-2.5 select-none">
-    <div className="flex items-center gap-2">
-      <svg
-        viewBox="0 0 236 46"
-        className={`h-6 w-auto shrink-0 ${dark ? "text-white" : "text-[#1C1917]"}`}
-        aria-label="BİRİM Logo"
-        role="img"
-      >
-        <path
-          fill="currentColor"
-          d="M2 14 L15 5 H46 C54 5 59 9 59 15 C59 19 56 22 51 23.5 C57 25 60 28.5 60 34 C60 40.5 54.5 44 46 44 H2 Z M16 14 V20 H41 C43.5 20 45 18.8 45 17 C45 15.2 43.5 14 41 14 Z M16 28 V35 H42 C44.5 35 46 33.6 46 31.5 C46 29.4 44.5 28 42 28 Z"
-        />
-        <path fill="currentColor" d="M65 14 L79 5 V44 H65 V27 H73 V22.5 H65 Z" />
-        <path
-          fill="currentColor"
-          d="M84 14 L98 5 H129 C137.5 5 143 9.5 143 16.5 C143 22 139.5 25.5 133.5 27 C138.5 28.2 141.5 31.5 142.5 37 L143.5 44 H128.5 L127.5 36.5 C126.8 32.5 124.5 31 119.5 31 H99 V44 H84 Z M99 14 V22 H123.5 C126.5 22 128.5 20.3 128.5 18 C128.5 15.7 126.5 14 123.5 14 Z"
-        />
-        <path fill="currentColor" d="M148 14 L162 5 V44 H148 V27 H156 V22.5 H148 Z" />
-        <path
-          fill="currentColor"
-          d="M167 14 L181 5 H188 L201.5 25 L215 5 H229 V44 H215 V22 L201.5 41 H199.5 L181 22 V44 H167 Z"
-        />
-        <circle cx="230" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.2" />
-        <text
-          x="230"
-          y="9.2"
-          textAnchor="middle"
-          fill="currentColor"
-          fontSize="6.2"
-          fontWeight="800"
-          fontFamily="sans-serif"
-        >
-          R
-        </text>
-      </svg>
+  <svg
+    viewBox="0 0 256 48"
+    className={`shrink-0 overflow-visible ${dark ? "text-white" : "text-[#141413]"} ${className}`}
+    aria-label="BİRİM Logo"
+    role="img"
+  >
+    <path
+      fill="currentColor"
+      d="M2 15 L15 6 H46 C54 6 59 10 59 16 C59 20 56 23 51 24.5 C57 26 60 29.5 60 35 C60 41.5 54.5 45 46 45 H2 Z M16 15 V21 H41 C43.5 21 45 19.8 45 18 C45 16.2 43.5 15 41 15 Z M16 29 V36 H42 C44.5 36 46 34.6 46 32.5 C46 30.4 44.5 29 42 29 Z"
+    />
+    <path fill="currentColor" d="M65 15 L79 6 V45 H65 V28 H73 V23.5 H65 Z" />
+    <path
+      fill="currentColor"
+      d="M84 15 L98 6 H129 C137.5 6 143 10.5 143 17.5 C143 23 139.5 26.5 133.5 28 C138.5 29.2 141.5 32.5 142.5 38 L143.5 45 H128.5 L127.5 37.5 C126.8 33.5 124.5 32 119.5 32 H99 V45 H84 Z M99 15 V23 H123.5 C126.5 23 128.5 21.3 128.5 19 C128.5 16.7 126.5 15 123.5 15 Z"
+    />
+    <path fill="currentColor" d="M148 15 L162 6 V45 H148 V28 H156 V23.5 H148 Z" />
+    <path
+      fill="currentColor"
+      d="M167 15 L181 6 H188 L201.5 26 L215 6 H229 V45 H215 V23 L201.5 42 H199.5 L181 23 V45 H167 Z"
+    />
+    <circle cx="241" cy="10" r="5.2" fill="none" stroke="currentColor" strokeWidth="1.35" />
+    <text
+      x="241"
+      y="12.4"
+      textAnchor="middle"
+      fill="currentColor"
+      fontSize="6.8"
+      fontWeight="800"
+      fontFamily="sans-serif"
+    >
+      R
+    </text>
+  </svg>
+);
 
+export const V3BrandBadge: React.FC<{ subtitle?: string; dark?: boolean }> = ({
+  subtitle = "V5.9",
+  dark = false,
+}) => (
+  <div className="inline-flex items-center gap-3 pr-1 select-none shrink-0">
+    <BirimLogo className="h-[21px] w-auto" dark={dark} />
+    {subtitle && (
       <span
-        className={`text-[10px] px-2 py-0.5 rounded-md font-mono font-bold border ${
+        className={`text-[10px] px-2 py-0.5 rounded-lg font-mono font-bold border shrink-0 ${
           dark
             ? "bg-stone-800 text-stone-200 border-stone-700"
-            : "bg-[#F1F5F9] text-[#44403C] border-[#CBD5E1]"
+            : "bg-white/65 text-[#334155] border-white/80"
         }`}
       >
         {subtitle}
       </span>
-    </div>
+    )}
   </div>
 );
 
@@ -246,7 +252,7 @@ export const V3DimensionControl: React.FC<V3DimensionControlProps> = ({
   };
 
   return (
-    <div className="p-3 rounded-2xl bg-white/44 backdrop-blur-2xl border border-white/85 shadow-2xs space-y-2.5 transition-colors hover:bg-white/60">
+    <div className="p-3 rounded-2xl bg-white/58 backdrop-blur-xl border border-white/75 shadow-2xs space-y-2.5 transition-colors hover:bg-white/72">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <span className="w-6 h-6 rounded-lg bg-[#F5F3EE] border border-[#DED8CC] text-[#141413] font-mono text-xs font-bold flex items-center justify-center shrink-0">
@@ -622,7 +628,7 @@ export const V3PremiumDropdown: React.FC<{
   return (
     <div
       data-testid={testId ? `${testId}-wrapper` : undefined}
-      className="rounded-2xl border border-white/85 bg-white/55 backdrop-blur-2xl overflow-hidden shadow-xs hover:border-blue-400 transition-all duration-200"
+      className="rounded-2xl border border-slate-300/90 bg-white/85 backdrop-blur-xl overflow-hidden shadow-xs hover:border-blue-400 transition-all duration-200"
     >
       {/* Hidden native select for automated test compatibility */}
       {testId && (
@@ -784,3 +790,6 @@ export const V3AlertBanner: React.FC<{
     </div>
   );
 };
+
+export { BirimTooltip, BirimTooltipPortal } from "./BirimTooltip";
+export type { BirimTooltipProps, BirimTooltipPlacement, BirimTooltipVisualId } from "./BirimTooltip";

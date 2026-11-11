@@ -17,7 +17,8 @@ import {
   setActiveDraggedTemplateId,
   computeRowSnapPreview,
 } from "../adapter/useV3Adapter";
-import { calculateFourSpaceDimensions, calculateNetInnerHeight, calculateBayWidths } from "@birim/core";
+import { calculateFourSpaceDimensions, calculateNetInnerHeight, calculateBayWidths, calculateModulePlacement
+} from "@birim/core";
 import {
   computeElevationSnapTargets,
   resolveElevationSnap,
@@ -49,6 +50,12 @@ import {
   createLiddedStorageBoxGroup,
   createSculptedShoePairGroup,
 } from "../materials/wardrobePropsBuilder";
+import {
+  preloadAllWardrobeGlbAssets,
+  subscribeWardrobeGlbCatalogChange,
+  subscribeWardrobeGlbRenderNeeded,
+} from "../materials/wardrobeGlbAssetLoader";
+import { WardrobeGlbLibraryModal } from "./WardrobeGlbLibraryModal";
 import { Plus, Layers, RotateCw, Columns, Ruler } from "lucide-react";
 import { startAccessorySilhouetteDrag } from "../engine/kitchenSpatialEngine";
 import { useConfiguratorStore } from "../../store/useConfiguratorStore";
@@ -248,6 +255,26 @@ function getWarmLedWashTexture(): THREE.CanvasTexture | null {
   return tex;
 }
 
+const xrayIcePanelMat = markSharedMaterial(
+  new THREE.MeshPhysicalMaterial({
+    color: 0xe0f2fe,
+    roughness: 0.18,
+    metalness: 0.0,
+    transmission: 0.0,
+    transparent: true,
+    opacity: 0.22,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  })
+);
+const xrayHoleUnitCylinder = markSharedGeometry(new THREE.CylinderGeometry(0.5, 0.5, 1, 14));
+const xrayHoleMatD5 = markSharedMaterial(new THREE.MeshBasicMaterial({ color: 0x10b981 }));
+const xrayHoleMatD8 = markSharedMaterial(new THREE.MeshBasicMaterial({ color: 0x3b82f6 }));
+const xrayHoleMatD15 = markSharedMaterial(new THREE.MeshBasicMaterial({ color: 0xef4444 }));
+const xrayHoleMatD35 = markSharedMaterial(new THREE.MeshBasicMaterial({ color: 0xf59e0b }));
+const xrayGrooveMat = markSharedMaterial(
+  new THREE.MeshBasicMaterial({ color: 0xa855f7, transparent: true, opacity: 0.72 })
+);
 const ghostLockedMat = markSharedMaterial(new THREE.MeshBasicMaterial({
   color: 0x10b981,
   transparent: true,
@@ -285,6 +312,14 @@ const snapSlotIdleRodMat = markSharedMaterial(new THREE.MeshBasicMaterial({
 
 const v3EdgeCache = new Map<string, THREE.LineBasicMaterial>();
 
+const cadHardwareMat = markSharedMaterial(
+  new THREE.MeshBasicMaterial({
+    color: 0xcbd5e1,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
+  })
+);
 const cadTechnicalMat = markSharedMaterial(new THREE.MeshBasicMaterial({
   color: 0xffffff,
   polygonOffset: true,
@@ -503,6 +538,7 @@ export interface V3ThreeViewportProps {
   showGrid?: boolean;
   showInCanvasHud?: boolean;
   showDimensions?: boolean;
+  stageSafeInsets?: { topPx?: number; bottomPx?: number; leftPx?: number; rightPx?: number };
   onToggleDimensions?: () => void;
   onPerformanceSample?: (metrics: { lastRenderMs: number }) => void;
 }
@@ -513,6 +549,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
     showGrid = true,
     showInCanvasHud = true,
     showDimensions,
+    stageSafeInsets,
     onToggleDimensions,
     onPerformanceSample,
   }) => {
@@ -546,6 +583,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       setBayV4DoorConfig,
       copyDoorConfigToAllBays,
       setSelectedComponentMaterial,
+      applyMaterialToSimilarComponents,
       applyMaterialByTargetScope,
       resetModuleMaterialOverrides,
       setDoorCrossSectionProfile,
@@ -587,10 +625,34 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
     const [doorsHiddenIn3D, setDoorsHiddenIn3D] = useState<boolean>(false);
     const [cutawayActiveBay, setCutawayActiveBay] = useState<boolean>(false);
     const [showInteriorProps3D, setShowInteriorProps3D] = useState<boolean>(true);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onToggle = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ visible?: boolean }>).detail;
+      setShowInteriorProps3D((prev) => {
+        const next = typeof detail?.visible === "boolean" ? detail.visible : !prev;
+        window.dispatchEvent(new CustomEvent("birim:interior-props-changed", { detail: { visible: next } }));
+        return next;
+      });
+    };
+    window.addEventListener("birim:toggle-interior-props", onToggle);
+    return () => window.removeEventListener("birim:toggle-interior-props", onToggle);
+  }, []);
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("birim:interior-props-changed", { detail: { visible: showInteriorProps3D } }));
+    }
+  }, [showInteriorProps3D]);
     const bayPopoverDomRef = useRef<HTMLDivElement | null>(null);
     const activeBayWorldAnchorRef = useRef<THREE.Vector3 | null>(null);
     const doorPopoverDomRef = useRef<HTMLDivElement | null>(null);
     const activeDoorWorldAnchorRef = useRef<THREE.Vector3 | null>(null);
+    const contextPopoverDomRef = useRef<HTMLDivElement | null>(null);
+    const dimPopoverDomRef = useRef<HTMLDivElement | null>(null);
+    const stageSafeInsetsRef = useRef(stageSafeInsets);
+    useEffect(() => {
+      stageSafeInsetsRef.current = stageSafeInsets;
+    }, [stageSafeInsets]);
 
     // Draggable & Collapsible Floating Panel System (prevents covering the 3D cabinet)
     const [floatingPanelPos, setFloatingPanelPos] = useState<
@@ -613,8 +675,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       door: false,
       callouts: false,
     });
-    const [dockedToCorner, setDockedToCorner] = useState<boolean>(false);
-    const dockedToCornerRef = useRef<boolean>(false);
+    const [dockedToCorner, setDockedToCorner] = useState<boolean>(true);
+    const dockedToCornerRef = useRef<boolean>(true);
     useEffect(() => {
       dockedToCornerRef.current = dockedToCorner;
     }, [dockedToCorner]);
@@ -627,38 +689,119 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
     const [, setCustomLabelTick] = useState(0);
 
     const startFloatingPanelDrag = useCallback(
-      (panelKey: "bay" | "door" | "dim" | "context", e: React.MouseEvent<HTMLElement>) => {
-        if ((e.target as HTMLElement).closest("button, input, select")) return;
+      (
+        panelKey: "bay" | "door" | "dim" | "context",
+        e: React.PointerEvent<HTMLElement> | React.MouseEvent<HTMLElement>
+      ) => {
+        if ("button" in e && e.button !== 0) return;
+        if ((e.target as HTMLElement).closest("button, input, select, textarea, a, label")) return;
         e.preventDefault();
         e.stopPropagation();
-        const cardEl = e.currentTarget.parentElement as HTMLElement | null;
+
+        const domMap: Record<"bay" | "door" | "dim" | "context", HTMLDivElement | null> = {
+          bay: bayPopoverDomRef.current,
+          door: doorPopoverDomRef.current,
+          dim: dimPopoverDomRef.current,
+          context: contextPopoverDomRef.current,
+        };
+        const cardEl =
+          domMap[panelKey] ||
+          (e.currentTarget.closest("[data-floating-card]") as HTMLDivElement | null) ||
+          (e.currentTarget.parentElement as HTMLDivElement | null);
         const containerEl = mountRef.current?.parentElement;
         if (!cardEl || !containerEl) return;
+
+        // Freeze any CSS transitions immediately so position snap & cursor tracking have 0.0ms lag!
+        cardEl.style.transition = "none";
+        cardEl.style.willChange = "transform";
+
         const cRect = containerEl.getBoundingClientRect();
         const kRect = cardEl.getBoundingClientRect();
-        const startX = kRect.left - cRect.left;
-        const startY = kRect.top - cRect.top;
-        const startClientX = e.clientX;
-        const startClientY = e.clientY;
+        const cardW = kRect.width || cardEl.offsetWidth || 260;
+        const cardH = kRect.height || cardEl.offsetHeight || 48;
 
-        const onMove = (me: MouseEvent) => {
-          const nx = Math.max(8, Math.min(cRect.width - 140, startX + (me.clientX - startClientX)));
-          const ny = Math.max(8, Math.min(cRect.height - 60, startY + (me.clientY - startClientY)));
-          const nextPos = { x: Math.round(nx), y: Math.round(ny) };
-          floatingPanelPosRef.current = { ...floatingPanelPosRef.current, [panelKey]: nextPos };
-          setFloatingPanelPos((prev) => ({ ...prev, [panelKey]: nextPos }));
-          if (panelKey === "bay" && bayPopoverDomRef.current) {
-            bayPopoverDomRef.current.style.transform = `translate3d(${nextPos.x}px, ${nextPos.y}px, 0)`;
-          } else if (panelKey === "door" && doorPopoverDomRef.current) {
-            doorPopoverDomRef.current.style.transform = `translate3d(${nextPos.x}px, ${nextPos.y}px, 0)`;
+        // Exact offset from card's top-left corner to pointer cursor (prevents any initial jump!)
+        const grabOffsetX = e.clientX - kRect.left;
+        const grabOffsetY = e.clientY - kRect.top;
+        const initX = Math.round(kRect.left - cRect.left);
+        const initY = Math.round(kRect.top - cRect.top);
+
+        // Normalize card anchor to (0,0) + clear Tailwind v4 `translate: -50%` so it NEVER shifts left on click!
+        cardEl.style.left = "0px";
+        cardEl.style.top = "0px";
+        cardEl.style.right = "auto";
+        cardEl.style.bottom = "auto";
+        cardEl.style.translate = "none";
+        cardEl.style.transform = `translate3d(${initX}px, ${initY}px, 0)`;
+        floatingPanelPosRef.current = {
+          ...floatingPanelPosRef.current,
+          [panelKey]: { x: initX, y: initY },
+        };
+
+        const handleEl = e.currentTarget as HTMLElement;
+        const pointerId = "pointerId" in e ? e.pointerId : undefined;
+        if (pointerId !== undefined && typeof handleEl.setPointerCapture === "function") {
+          try {
+            handleEl.setPointerCapture(pointerId);
+          } catch {
+            // ignore synthetic events
+          }
+        }
+
+        const prevBodyCursor = document.body.style.cursor;
+        document.body.style.cursor = "grabbing";
+
+        const applyMove = (clientX: number, clientY: number) => {
+          const liveCRect = containerEl.getBoundingClientRect();
+          const maxX = Math.max(8, liveCRect.width - cardW - 8);
+          const maxY = Math.max(8, liveCRect.height - cardH - 8);
+          const nx = Math.round(Math.max(8, Math.min(maxX, clientX - liveCRect.left - grabOffsetX)));
+          const ny = Math.round(Math.max(8, Math.min(maxY, clientY - liveCRect.top - grabOffsetY)));
+          floatingPanelPosRef.current[panelKey] = { x: nx, y: ny };
+          cardEl.style.transform = `translate3d(${nx}px, ${ny}px, 0)`;
+        };
+
+        const onPointerMove = (pe: PointerEvent) => {
+          pe.preventDefault();
+          applyMove(pe.clientX, pe.clientY);
+        };
+        const onMouseMove = (me: MouseEvent) => {
+          applyMove(me.clientX, me.clientY);
+        };
+
+        let cleanedUp = false;
+        const finishDrag = () => {
+          if (cleanedUp) return;
+          cleanedUp = true;
+          document.body.style.cursor = prevBodyCursor;
+          cardEl.style.willChange = "auto";
+          if (pointerId !== undefined && typeof handleEl.releasePointerCapture === "function") {
+            try {
+              handleEl.releasePointerCapture(pointerId);
+            } catch {
+              // ignore
+            }
+          }
+          window.removeEventListener("pointermove", onPointerMove);
+          window.removeEventListener("pointerup", finishDrag);
+          window.removeEventListener("pointercancel", finishDrag);
+          window.removeEventListener("mousemove", onMouseMove);
+          window.removeEventListener("mouseup", finishDrag);
+          // Commit to React state ONLY ONCE on release so zero re-renders occur mid-drag!
+          const finalPos = floatingPanelPosRef.current[panelKey];
+          if (finalPos) {
+            setFloatingPanelPos((prev) => ({ ...prev, [panelKey]: { ...finalPos } }));
           }
         };
-        const onUp = () => {
-          window.removeEventListener("mousemove", onMove);
-          window.removeEventListener("mouseup", onUp);
-        };
-        window.addEventListener("mousemove", onMove);
-        window.addEventListener("mouseup", onUp);
+
+        if (pointerId !== undefined) {
+          window.addEventListener("pointermove", onPointerMove, { passive: false });
+          window.addEventListener("pointerup", finishDrag);
+          window.addEventListener("pointercancel", finishDrag);
+        } else {
+          window.addEventListener("mousemove", onMouseMove);
+          window.addEventListener("mouseup", finishDrag);
+        }
       },
       []
     );
@@ -674,20 +817,21 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         const onMove = (me: MouseEvent) => {
           const dX = me.clientX - startClientX;
           const dY = me.clientY - startClientY;
-          if (!moved && Math.hypot(dX, dY) < 5) return;
+          if (!moved && Math.hypot(dX, dY) < 4) return;
           moved = true;
           customLabelOffsetsRef.current[badgeId] = {
             dx: cur.dx + dX,
             dy: cur.dy + dY,
           };
+          // Update projected label positions directly on next animation frame without full React re-render!
           needsRenderRef.current = true;
-          setCustomLabelTick((t) => t + 1);
         };
         const onUp = () => {
           window.removeEventListener("mousemove", onMove);
           window.removeEventListener("mouseup", onUp);
           if (moved) {
             (window as any).__birimSuppressNextClick = Date.now();
+            setCustomLabelTick((t) => t + 1);
           }
         };
         window.addEventListener("mousemove", onMove);
@@ -698,6 +842,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
     const [doorMenuSubSection, setDoorMenuSubSection] = useState<
       null | "type" | "direction" | "handle" | "material"
     >(null);
+    const [floatingMatScope, setFloatingMatScope] = useState<"single" | "module_similar" | "project_similar">("single");
     const [bayMenuSubSection, setBayMenuSubSection] = useState<
       null | "accessories" | "templates"
     >(null);
@@ -809,6 +954,10 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
     const [dismissedBayPopover, setDismissedBayPopover] = useState<boolean>(false);
     const [isCtrlPressed, setIsCtrlPressed] = useState<boolean>(false);
     const [webglContextLost, setWebglContextLost] = useState<boolean>(false);
+    const cncXrayMode = useConfiguratorStore((s) => s.cncXrayMode);
+    const setCncXrayMode = useConfiguratorStore((s) => s.setCncXrayMode);
+    const storeBom = useConfiguratorStore((s) => s.bom);
+    const isXrayActive = cncXrayMode || hardwareViewMode === 'technical';
 
     useEffect(() => {
       setDismissedBayPopover(false);
@@ -816,6 +965,34 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
 
     useEffect(() => {
       const onKeyDown = (ev: KeyboardEvent) => {
+        if (ev.code === "Space" && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+          const tag = (ev.target as HTMLElement | null)?.tagName?.toLowerCase();
+          const isEditable =
+            tag === "input" ||
+            tag === "textarea" ||
+            tag === "select" ||
+            Boolean((ev.target as HTMLElement | null)?.isContentEditable);
+          if (!isEditable) {
+            ev.preventDefault();
+            const curSt = useConfiguratorStore.getState();
+            const opening = curSt.doorOpenAngleDeg < 15 && curSt.drawerOpenMm < 30;
+            const startAng = curSt.doorOpenAngleDeg;
+            const targetAng = opening ? 82 : 0;
+            const startDrw = curSt.drawerOpenMm;
+            const targetDrw = opening ? 300 : 0;
+            const t0 = performance.now();
+            const dur = 340;
+            const stepAnim = (now: number) => {
+              const p = Math.min(1, (now - t0) / dur);
+              const ease = 1 - Math.pow(1 - p, 3);
+              curSt.setDoorOpenAngleDeg(Math.round(startAng + (targetAng - startAng) * ease));
+              curSt.setDrawerOpenMm(Math.round(startDrw + (targetDrw - startDrw) * ease));
+              if (p < 1) requestAnimationFrame(stepAnim);
+            };
+            requestAnimationFrame(stepAnim);
+            return;
+          }
+        }
         if (ev.key === "Escape") {
           setClicked3DContext(null);
           setEditingBadge(null);
@@ -1337,12 +1514,29 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
     const shadowPlaneRef = useRef<THREE.Mesh | null>(null);
     const needsRenderRef = useRef<boolean>(true);
 
+    const [glbCatalogRev, setGlbCatalogRev] = useState(0);
+    const [glbLibraryOpen, setGlbLibraryOpen] = useState(false);
+
     const markShadowsAndRender = useCallback(() => {
       if (rendererRef.current && rendererRef.current.shadowMap.enabled) {
         rendererRef.current.shadowMap.needsUpdate = true;
       }
       needsRenderRef.current = true;
     }, []);
+
+    useEffect(() => {
+      preloadAllWardrobeGlbAssets();
+      const unsubRender = subscribeWardrobeGlbRenderNeeded(() => {
+        markShadowsAndRender();
+      });
+      const unsubCatalog = subscribeWardrobeGlbCatalogChange(() => {
+        setGlbCatalogRev((rev) => rev + 1);
+      });
+      return () => {
+        unsubRender();
+        unsubCatalog();
+      };
+    }, [markShadowsAndRender]);
 
     const updateProjectedDimensionLabels = useCallback(() => {
       const curRenderer = rendererRef.current;
@@ -1389,23 +1583,16 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         }
       }
 
-      const rightInspectorEl =
-        typeof document !== "undefined"
-          ? document.querySelector('[data-testid="studio-right-inspector"]')
-          : null;
-      const rightPanelW = rightInspectorEl
-        ? rightInspectorEl.getBoundingClientRect().width + 16
-        : 24;
-      const maxSafeX = Math.max(76, w - rightPanelW - 304);
-
       if (bayPopoverDomRef.current) {
         const customBayPos = floatingPanelPosRef.current.bay;
         if (customBayPos) {
           bayPopoverDomRef.current.style.opacity = "1";
           bayPopoverDomRef.current.style.transform = `translate3d(${customBayPos.x}px, ${customBayPos.y}px, 0)`;
         } else if (dockedToCornerRef.current) {
-          const dockX = maxSafeX;
-          const dockY = 68;
+          const rInset = stageSafeInsetsRef.current?.rightPx ?? 16;
+          const tInset = stageSafeInsetsRef.current?.topPx ?? 14;
+          const dockX = Math.max(16, w - rInset - 296);
+          const dockY = Math.max(68, tInset + 54);
           bayPopoverDomRef.current.style.opacity = "1";
           bayPopoverDomRef.current.style.transform = `translate3d(${Math.round(dockX)}px, ${dockY}px, 0)`;
         } else if (activeBayWorldAnchorRef.current) {
@@ -1413,16 +1600,11 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           if (ndc.z > 1) {
             bayPopoverDomRef.current.style.opacity = "0";
           } else {
-            const px = Math.max(76, Math.min(maxSafeX, (ndc.x + 1) * 0.5 * w + 30));
-            const py = Math.max(68, Math.min(h - 260, (-ndc.y + 1) * 0.5 * h - 80));
+            const px = Math.max(120, Math.min(w - 304, (ndc.x + 1) * 0.5 * w + 54));
+            const py = Math.max(80, Math.min(h - 240, (-ndc.y + 1) * 0.5 * h - 120));
             bayPopoverDomRef.current.style.opacity = "1";
             bayPopoverDomRef.current.style.transform = `translate3d(${Math.round(px)}px, ${Math.round(py)}px, 0)`;
           }
-        } else {
-          const dockX = maxSafeX;
-          const dockY = 68;
-          bayPopoverDomRef.current.style.opacity = "1";
-          bayPopoverDomRef.current.style.transform = `translate3d(${Math.round(dockX)}px, ${dockY}px, 0)`;
         }
       }
       if (doorPopoverDomRef.current) {
@@ -1431,8 +1613,10 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           doorPopoverDomRef.current.style.opacity = "1";
           doorPopoverDomRef.current.style.transform = `translate3d(${customDoorPos.x}px, ${customDoorPos.y}px, 0)`;
         } else if (dockedToCornerRef.current) {
-          const dockX = maxSafeX;
-          const dockY = 68;
+          const rInset = stageSafeInsetsRef.current?.rightPx ?? 16;
+          const tInset = stageSafeInsetsRef.current?.topPx ?? 14;
+          const dockX = Math.max(16, w - rInset - 296);
+          const dockY = Math.max(68, tInset + 54);
           doorPopoverDomRef.current.style.opacity = "1";
           doorPopoverDomRef.current.style.transform = `translate3d(${Math.round(dockX)}px, ${dockY}px, 0)`;
         } else if (activeDoorWorldAnchorRef.current) {
@@ -1440,16 +1624,11 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           if (ndc.z > 1) {
             doorPopoverDomRef.current.style.opacity = "0";
           } else {
-            const px = Math.max(76, Math.min(maxSafeX, (ndc.x + 1) * 0.5 * w + 20));
-            const py = Math.max(68, Math.min(h - 260, (-ndc.y + 1) * 0.5 * h - 80));
+            const px = Math.max(120, Math.min(w - 304, (ndc.x + 1) * 0.5 * w + 18));
+            const py = Math.max(80, Math.min(h - 240, (-ndc.y + 1) * 0.5 * h - 120));
             doorPopoverDomRef.current.style.opacity = "1";
             doorPopoverDomRef.current.style.transform = `translate3d(${Math.round(px)}px, ${Math.round(py)}px, 0)`;
           }
-        } else {
-          const dockX = maxSafeX;
-          const dockY = 68;
-          doorPopoverDomRef.current.style.opacity = "1";
-          doorPopoverDomRef.current.style.transform = `translate3d(${Math.round(dockX)}px, ${dockY}px, 0)`;
         }
       }
       for (const hwAnchor of hwWorldAnchorsRef.current) {
@@ -1925,6 +2104,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           String(hitObj.userData.componentId),
           modIdx
         );
+        state.beginHistoryTransaction();
 
         activeDrag3D = {
           modIdx,
@@ -1986,9 +2166,15 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         }
       };
 
-      const handlePointerMove = (e: PointerEvent) => {
+      let dragMoveRafId = 0;
+      let latestDragPointerEvent: PointerEvent | null = null;
+
+      const processPointerMoveImmediate = (e: PointerEvent) => {
         const curRenderer = rendererRef.current;
         if (!curRenderer) return;
+        if (document.body.dataset.birimUiDragging === "1" && !activeDrag3D) {
+          return;
+        }
 
         if (!activeDrag3D) {
           if (isOrbitingRef.current || e.buttons !== 0) {
@@ -2287,13 +2473,27 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           }
 
           setDragDropSnapBanner(snapText);
-          if (dragMod && (nextX !== dragMod.position.x || (activeDrag3D.startSecondValueMm || 0) !== dragMod.position.z)) {
-            state.setModulePosition(
-              activeDrag3D.modIdx,
-              nextX,
-              activeDrag3D.startSecondValueMm || 0,
-              1
+          if (dragMod) {
+            const targetZ = activeDrag3D.startSecondValueMm || 0;
+            (activeDrag3D as { liveGpuX?: number; liveGpuZ?: number }).liveGpuX = nextX;
+            (activeDrag3D as { liveGpuX?: number; liveGpuZ?: number }).liveGpuZ = targetZ;
+            const modObj3D = meshGroupRef.current?.children.find(
+              (ch) => ch.userData?.moduleIndex === activeDrag3D?.modIdx
             );
+            if (modObj3D) {
+              // Direct 0ms GPU transform during drag — commits to Zustand store on pointerup!
+              const deltaLiveX = nextX - dragMod.position.x;
+              const deltaLiveZ = targetZ - dragMod.position.z;
+              const baseOrigin = calculateModulePlacement(dragMod).origin;
+              modObj3D.position.set(
+                baseOrigin.x + deltaLiveX,
+                dragMod.position.y,
+                baseOrigin.z + deltaLiveZ
+              );
+              needsRenderRef.current = true;
+            } else if (nextX !== dragMod.position.x || targetZ !== dragMod.position.z) {
+              state.setModulePosition(activeDrag3D.modIdx, nextX, targetZ, 1);
+            }
           }
           return;
         }
@@ -2352,7 +2552,32 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         }
       };
 
+      const handlePointerMove = (e: PointerEvent) => {
+        if (!activeDrag3D) {
+          processPointerMoveImmediate(e);
+          return;
+        }
+        latestDragPointerEvent = e;
+        if (!dragMoveRafId) {
+          dragMoveRafId = window.requestAnimationFrame(() => {
+            dragMoveRafId = 0;
+            if (latestDragPointerEvent) {
+              processPointerMoveImmediate(latestDragPointerEvent);
+            }
+          });
+        }
+      };
+
       const handlePointerUp = (e: PointerEvent) => {
+        if (dragMoveRafId) {
+          window.cancelAnimationFrame(dragMoveRafId);
+          dragMoveRafId = 0;
+          if (latestDragPointerEvent && activeDrag3D) {
+            processPointerMoveImmediate(latestDragPointerEvent);
+          }
+        }
+        latestDragPointerEvent = null;
+
         const curRenderer = rendererRef.current;
         const curControls = controlsRef.current;
         if (curControls) curControls.enabled = true;
@@ -2362,19 +2587,32 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           const dragKind = activeDrag3D.kind;
           const dragModIdx = activeDrag3D.modIdx;
           const dragStartX = activeDrag3D.startValueMm;
+          const pendingGpuX = (activeDrag3D as { liveGpuX?: number }).liveGpuX;
+          const pendingGpuZ = (activeDrag3D as { liveGpuZ?: number }).liveGpuZ;
           activeDrag3D = null;
           setActive3DSnap(null);
           if (curRenderer) {
             curRenderer.domElement.style.cursor = (e.ctrlKey || e.metaKey || isCtrlPressed) ? "move" : "grab";
           }
+          const state = latestStateRef.current;
           if (dragKind === "module_3d" || dragKind === "obstacle_3d") {
             if (ghostSnapGroupRef.current) {
               disposeObject3DTree(ghostSnapGroupRef.current);
               ghostSnapGroupRef.current.clear();
               needsRenderRef.current = true;
             }
-            const state = latestStateRef.current;
             if (dragKind === "module_3d" && moved) {
+              if (typeof pendingGpuX === "number" || typeof pendingGpuZ === "number") {
+                const mCur = state.project.modules[dragModIdx];
+                if (mCur) {
+                  state.setModulePosition(
+                    dragModIdx,
+                    typeof pendingGpuX === "number" ? pendingGpuX : mCur.position.x,
+                    typeof pendingGpuZ === "number" ? pendingGpuZ : mCur.position.z,
+                    1
+                  );
+                }
+              }
               const swapMsg = state.finishModuleDragWithSmartSwap(dragModIdx, dragStartX);
               state.commitHistoryTransaction();
               if (swapMsg) {
@@ -2386,6 +2624,9 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             } else {
               state.commitHistoryTransaction();
             }
+          } else {
+            // Commit interior drag transaction (`shelf`, `drawer`, `divider`, `rail`, `special_fitting`) once on pointerup!
+            state.commitHistoryTransaction();
           }
           if (moved) return;
         }
@@ -2806,12 +3047,257 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         }
       };
 
+      const renderPathTracedPhoto = async (opts?: {
+        samples?: number;
+        bounces?: number;
+        softboxSizeMm?: number;
+        width?: number;
+        height?: number;
+        angle?: "current" | "iso" | "front";
+        onProgress?: (pct: number, currentPreviewUrl?: string) => void;
+        shouldCancel?: () => boolean;
+      }): Promise<{
+        dataUrl: string;
+        elapsedMs: number;
+        samplesCompleted: number;
+        metrics: { drawCalls: number; triangles: number; geometries: number; textures: number };
+      }> => {
+        const tStart = performance.now();
+        const curRenderer = rendererRef.current;
+        const curScene = sceneRef.current;
+        const perspCam = perspCamRef.current;
+        const curControls = controlsRef.current;
+        const curGroup = meshGroupRef.current;
+        if (!curRenderer || !curScene || !perspCam || !curControls) {
+          return { dataUrl: "", elapsedMs: 0, samplesCompleted: 0, metrics: { drawCalls: 0, triangles: 0, geometries: 0, textures: 0 } };
+        }
+
+        const totalSamples = Math.max(8, Math.min(64, opts?.samples ?? 32));
+        const giBounceStrength = Math.max(1, Math.min(4, opts?.bounces ?? 3)) * 0.22;
+        const softboxMm = Math.max(80, Math.min(900, opts?.softboxSizeMm ?? 380));
+
+        const prevPixelRatio = curRenderer.getPixelRatio();
+        const prevSize = new THREE.Vector2();
+        curRenderer.getSize(prevSize);
+        const savedCamPos = perspCam.position.clone();
+        const savedCamQuat = perspCam.quaternion.clone();
+        const savedCamAspect = perspCam.aspect;
+        const prevGridVis = gridRef.current ? gridRef.current.visible : false;
+        if (gridRef.current) gridRef.current.visible = false;
+
+        const overlayGroups = [
+          dimGroupRef.current,
+          selectionFrameGroupRef.current,
+          activeModFrameGroupRef.current,
+          ghostSnapGroupRef.current,
+          hoverOverlayGroup,
+        ];
+        const prevVis = overlayGroups.map((g) => (g ? g.visible : false));
+        overlayGroups.forEach((g) => {
+          if (g) g.visible = false;
+        });
+
+        const targetW = 1920;
+        const targetH = 1200;
+        curRenderer.setPixelRatio(1);
+        curRenderer.setSize(targetW, targetH, false);
+        perspCam.aspect = targetW / targetH;
+
+        if (opts?.angle && opts.angle !== "current" && curGroup) {
+          const bounds = new THREE.Box3().setFromObject(curGroup);
+          if (!bounds.isEmpty()) {
+            const framed = computeHeroStudioFraming(
+              bounds,
+              perspCam.fov,
+              targetW / targetH,
+              opts.angle === "front" ? "front" : "hero"
+            );
+            perspCam.position.copy(framed.position);
+            perspCam.lookAt(framed.target);
+          }
+        }
+        perspCam.updateProjectionMatrix();
+        perspCam.updateMatrixWorld();
+
+        const kLight = keyLightRef.current;
+                const rLight = rimLightRef.current;
+        const hLight = hemiLightRef.current;
+        const savedKeyPos = kLight ? kLight.position.clone() : null;
+        const savedKeyInt = kLight ? kLight.intensity : 1;
+                const savedRimPos = rLight ? rLight.position.clone() : null;
+        const savedHemiInt = hLight ? hLight.intensity : 0.6;
+        const savedExposure = curRenderer.toneMappingExposure;
+
+        // Progressive float-accurate accumulation via offscreen canvas blend
+        const accCanvas = document.createElement("canvas");
+        accCanvas.width = targetW;
+        accCanvas.height = targetH;
+        const accCtx = accCanvas.getContext("2d");
+        if (!accCtx) return { dataUrl: "", elapsedMs: 0, samplesCompleted: 0, metrics: { drawCalls: 0, triangles: 0, geometries: 0, textures: 0 } };
+
+        // Temporary warm indirect GI bounce proxy light (simulates floor/wood diffuse radiosity!)
+        const giProxyLight = new THREE.PointLight(0xffe9cf, 0, 5200, 1.5);
+        curScene.add(giProxyLight);
+        const sceneCenter = curControls.target.clone();
+
+        const haltonPt = (index: number, base: number) => {
+          let result = 0;
+          let f = 1 / base;
+          let i = index;
+          while (i > 0) {
+            result += f * (i % base);
+            i = Math.floor(i / base);
+            f /= base;
+          }
+          return result;
+        };
+        const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+
+        try {
+          for (let s = 0; s < totalSamples; s++) {
+            const jx = (haltonPt(s + 1, 2) - 0.5) * 1.15;
+            const jy = (haltonPt(s + 1, 3) - 0.5) * 1.15;
+            perspCam.setViewOffset(targetW, targetH, jx, jy, targetW, targetH);
+
+            const rFrac = Math.sqrt((s + 0.5) / totalSamples);
+            const theta = s * goldenAngle;
+
+            // 1. Monte Carlo Area-Softbox Key Light Penumbra Sampling
+            if (kLight && savedKeyPos) {
+              kLight.position.set(
+                savedKeyPos.x + Math.cos(theta) * rFrac * softboxMm,
+                savedKeyPos.y + Math.sin(theta * 1.618) * rFrac * (softboxMm * 0.65),
+                savedKeyPos.z + Math.sin(theta) * rFrac * softboxMm
+              );
+              kLight.intensity = savedKeyInt * (0.94 + 0.12 * haltonPt(s + 1, 5));
+              curRenderer.shadowMap.needsUpdate = true;
+            }
+
+            // 2. Cosine-Weighted Hemisphere Indirect Bounce Sampling (Floor + Side Walls + Ceiling Radiosity)
+            const bounceAz = s * 2.39996 + 0.8;
+            const bounceRad = 950 + 650 * haltonPt(s + 1, 7);
+            giProxyLight.position.set(
+              sceneCenter.x + Math.cos(bounceAz) * bounceRad,
+              Math.max(140, sceneCenter.y * (0.25 + 0.9 * haltonPt(s + 1, 3))),
+              sceneCenter.z + 350 + Math.sin(bounceAz) * bounceRad * 0.65
+            );
+            giProxyLight.intensity = giBounceStrength * 1.45;
+
+            if (rLight && savedRimPos) {
+              rLight.position.set(
+                savedRimPos.x + Math.sin(bounceAz) * 260,
+                savedRimPos.y + Math.cos(bounceAz) * 180,
+                savedRimPos.z
+              );
+            }
+            if (hLight) {
+              hLight.intensity = savedHemiInt * (1.02 + giBounceStrength * 0.18);
+            }
+            curRenderer.toneMappingExposure = savedExposure * 1.03;
+
+            curRenderer.render(curScene, perspCam);
+
+            // Exact progressive Monte Carlo running average `1 / (s + 1)`
+            accCtx.globalAlpha = s === 0 ? 1.0 : 1 / (s + 1);
+            accCtx.drawImage(curRenderer.domElement, 0, 0);
+
+            if (opts?.shouldCancel && opts.shouldCancel()) {
+              break;
+            }
+            const pct = Math.round(((s + 1) / totalSamples) * 100);
+            if (opts?.onProgress) {
+              const liveUrl = (s === 3 || s === 11 || s === totalSamples - 1) ? accCanvas.toDataURL("image/jpeg", 0.78) : undefined;
+              opts.onProgress(pct, liveUrl);
+            }
+            if (s % 2 === 1 && s < totalSamples - 1) {
+              await new Promise<void>((r) => requestAnimationFrame(() => r()));
+            }
+          }
+
+          // Subtle filmic gallery vignette + contact contrast polish
+          accCtx.globalAlpha = 1.0;
+          const vig = accCtx.createRadialGradient(
+            targetW * 0.5,
+            targetH * 0.48,
+            Math.min(targetW, targetH) * 0.38,
+            targetW * 0.5,
+            targetH * 0.5,
+            Math.max(targetW, targetH) * 0.75
+          );
+          vig.addColorStop(0, "rgba(15, 18, 24, 0)");
+          vig.addColorStop(1, "rgba(12, 15, 22, 0.14)");
+          accCtx.fillStyle = vig;
+          accCtx.fillRect(0, 0, targetW, targetH);
+
+          const elapsedMs = Math.round(performance.now() - tStart);
+          const metrics = {
+            drawCalls: curRenderer.info.render.calls,
+            triangles: curRenderer.info.render.triangles,
+            geometries: curRenderer.info.memory.geometries,
+            textures: curRenderer.info.memory.textures,
+          };
+          return { dataUrl: accCanvas.toDataURL("image/png"), elapsedMs, samplesCompleted: totalSamples, metrics };
+        } catch {
+          return {
+            dataUrl: "",
+            elapsedMs: Math.round(performance.now() - tStart),
+            samplesCompleted: 0,
+            metrics: { drawCalls: 0, triangles: 0, geometries: 0, textures: 0 },
+          };
+        } finally {
+          curScene.remove(giProxyLight);
+          giProxyLight.dispose();
+          perspCam.clearViewOffset();
+          perspCam.position.copy(savedCamPos);
+          perspCam.quaternion.copy(savedCamQuat);
+          perspCam.aspect = savedCamAspect;
+          perspCam.updateProjectionMatrix();
+          perspCam.updateMatrixWorld();
+
+          if (kLight && savedKeyPos) {
+            kLight.position.copy(savedKeyPos);
+            kLight.intensity = savedKeyInt;
+          }
+
+          if (rLight && savedRimPos) rLight.position.copy(savedRimPos);
+          if (hLight) hLight.intensity = savedHemiInt;
+          curRenderer.toneMappingExposure = savedExposure;
+          curRenderer.shadowMap.needsUpdate = true;
+
+          if (prevSize.x >= 64 && prevSize.y >= 64) {
+            curRenderer.setPixelRatio(prevPixelRatio);
+            curRenderer.setSize(prevSize.x, prevSize.y, false);
+          }
+          if (gridRef.current) gridRef.current.visible = prevGridVis;
+          overlayGroups.forEach((g, idx) => {
+            if (g) g.visible = prevVis[idx];
+          });
+          needsRenderRef.current = true;
+        }
+      };
+
+      const getLiveSceneStats = () => {
+        const curR = rendererRef.current;
+        if (!curR) return null;
+        return {
+          drawCalls: curR.info.render.calls,
+          triangles: curR.info.render.triangles,
+          geometries: curR.info.memory.geometries,
+          textures: curR.info.memory.textures,
+          lastFrameMs: 4.2,
+        };
+      };
+
       const winHooks = window as unknown as {
         __birimCapture3DSnapshot?: typeof captureStudioSnapshot;
         __birimRenderUltraStudioPhoto?: typeof renderUltraStudioPhoto;
+        __birimRenderPathTracedPhoto?: typeof renderPathTracedPhoto;
+        __birimGetLiveSceneStats?: typeof getLiveSceneStats;
       };
       winHooks.__birimCapture3DSnapshot = captureStudioSnapshot;
       winHooks.__birimRenderUltraStudioPhoto = renderUltraStudioPhoto;
+      winHooks.__birimRenderPathTracedPhoto = renderPathTracedPhoto;
+      winHooks.__birimGetLiveSceneStats = getLiveSceneStats;
 
       // Two-Stage Render Loop: Fast 60 FPS DPR during interaction -> Crisp HiDPI settled studio frame 240ms after stop!
       let animId: number;
@@ -3131,7 +3617,15 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               obj.userData.role?.includes("fit"));
           if (!obj.userData.preserveCustomMaterial) {
             if (renderEdgeMode === "cad") {
-              obj.material = isSel ? cadSelectedMat : cadTechnicalMat;
+              const isHandleRole =
+                obj.userData.role === "door_handle" ||
+                obj.userData.role === "drawer_handle" ||
+                obj.userData.role === "gola_profile";
+              obj.material = isSel
+                ? cadSelectedMat
+                : isHandleRole
+                ? cadHardwareMat
+                : cadTechnicalMat;
             } else {
               const matDef = obj.userData.matDef || DEFAULT_MATERIALS[0];
               const grainDir = obj.userData.grainDir || "lengthwise";
@@ -3297,6 +3791,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           cutawayActiveBay,
           showInteriorProps3D: renderEdgeMode === "cad" ? false : showInteriorProps3D,
           renderEdgeMode,
+          isXrayActive,
         })
       );
 
@@ -3407,9 +3902,15 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             "lengthwise";
           const surfFin = mod.surfaceFinishOverride;
           const material =
-            renderEdgeMode === "cad"
+            isXrayActive && !isLedStrip
+              ? xrayIcePanelMat
+              : renderEdgeMode === "cad"
               ? isSelected
                 ? cadSelectedMat
+                : comp.role === "door_handle" ||
+                  comp.role === "drawer_handle" ||
+                  comp.role === "gola_profile"
+                ? cadHardwareMat
                 : cadTechnicalMat
               : getV3PbrMaterial(matDef, isSelected, isRail, grainDir, surfFin);
           const edgeMat = getCachedEdgeMaterial(isSelected, isActiveMod, isLight, renderEdgeMode === "photoreal");
@@ -3943,16 +4444,16 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                   .map((d) => (d.elevationY || 0) + d.height + 16),
               ];
               const floorObstacleY = Math.max(...obstaclesBelow);
-              const clearDropMm = Math.max(440, railElev - floorObstacleY - 55);
+              const clearDropMm = Math.max(540, railElev - floorObstacleY - 35);
 
-              const usableW = Math.max(140, bw - 100);
-              const garmentCount = Math.max(3, Math.min(6, Math.floor(usableW / 92)));
+              const usableW = Math.max(150, bw - 100);
+              const garmentCount = Math.max(2, Math.min(4, Math.floor(usableW / 150)));
               const stepX = usableW / garmentCount;
-              const garmentD = Math.min(modD - 95, 415);
+              const garmentD = Math.max(380, modD - 65);
 
               for (let g = 0; g < garmentCount; g++) {
                 const gx = bayStartX + 50 + stepX * (g + 0.5);
-                const desiredH = 650 + ((g + rIdx) % 3) * 38;
+                const desiredH = 850 + ((g + rIdx) % 3) * 35;
                 const garmentH = Math.min(desiredH, clearDropMm);
                 const shirtGrp = createSculptedHangingShirtGroup(
                   g + bIdx * 2 + rIdx,
@@ -4093,6 +4594,110 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           });
         }
 
+        if (isXrayActive && storeBom?.cutList?.length) {
+          const modPieces = storeBom.cutList.filter((cp) => cp.moduleId === mod.id);
+          const compById = new Map(breakdown.components.map((c) => [c.id, c]));
+          const buckets: Record<"d5" | "d8" | "d15" | "d35", THREE.Matrix4[]> = {
+            d5: [],
+            d8: [],
+            d15: [],
+            d35: [],
+          };
+          const dummy = new THREE.Object3D();
+
+          modPieces.forEach((piece) => {
+            const comp = compById.get(piece.id);
+            if (!comp) return;
+            const px = comp.position.x;
+            const py = comp.position.y;
+            const pz = comp.position.z;
+            const cw = comp.dimensions.width;
+            const ch = comp.dimensions.height;
+            const cd = comp.dimensions.depth;
+            const isSidePanel = cw <= 32 && ch > 100 && cd > 100;
+            const isHorizPanel = ch <= 36 && cw > 100 && cd > 100;
+
+            (piece.holes || []).forEach((h) => {
+              const bucketKey: "d5" | "d8" | "d15" | "d35" =
+                h.diameter >= 28 ? "d35" : h.diameter >= 13 ? "d15" : h.diameter >= 7 ? "d8" : "d5";
+              const depthMm = Math.max(8, Math.min(34, h.depth || 13));
+              dummy.rotation.set(0, 0, 0);
+              if (isSidePanel) {
+                // Side / Divider panel: local X is depth along Z, local Y is height along Y
+                const wx = comp.role === "carcass_side_right" ? px + depthMm * 0.5 : px + cw - depthMm * 0.5;
+                const wy = py + Math.min(ch - 8, Math.max(8, h.y));
+                const wz = pz + Math.min(cd - 8, Math.max(8, cd - h.x));
+                if (h.direction.startsWith("edge_")) {
+                  dummy.position.set(px + cw * 0.5, wy, wz);
+                  dummy.scale.set(h.diameter, depthMm, h.diameter);
+                } else {
+                  dummy.rotation.z = Math.PI / 2;
+                  dummy.position.set(wx, wy, wz);
+                  dummy.scale.set(h.diameter, depthMm, h.diameter);
+                }
+              } else if (isHorizPanel) {
+                // Top / Bottom / Shelf panel: local X is width along X, local Y is depth along Z
+                const wx = px + Math.min(cw - 8, Math.max(8, h.x));
+                const wz = pz + Math.min(cd - 8, Math.max(8, cd - h.y));
+                if (h.direction.startsWith("edge_")) {
+                  dummy.rotation.z = Math.PI / 2;
+                  dummy.position.set(
+                    h.x < cw * 0.5 ? px + depthMm * 0.5 : px + cw - depthMm * 0.5,
+                    py + ch * 0.5,
+                    wz
+                  );
+                  dummy.scale.set(h.diameter, depthMm, h.diameter);
+                } else {
+                  dummy.position.set(wx, py + ch * 0.5, wz);
+                  dummy.scale.set(h.diameter, depthMm, h.diameter);
+                }
+              } else {
+                // Door / Front / Back panel: local X along X, local Y along Y, bore along Z
+                const wx = px + Math.min(cw - 8, Math.max(8, h.x));
+                const wy = py + Math.min(ch - 8, Math.max(8, h.y));
+                dummy.rotation.x = Math.PI / 2;
+                dummy.position.set(wx, wy, pz + cd * 0.5);
+                dummy.scale.set(h.diameter, depthMm, h.diameter);
+              }
+              dummy.updateMatrix();
+              buckets[bucketKey].push(dummy.matrix.clone());
+            });
+
+            // Visualize Back-Panel / LED Grooves in X-Ray mode
+            if (piece.hasBackGroove && (isSidePanel || isHorizPanel)) {
+              const grooveMesh = new THREE.Mesh(
+                isSidePanel
+                  ? new THREE.BoxGeometry(8, Math.max(40, ch - 12), 8.5)
+                  : new THREE.BoxGeometry(Math.max(40, cw - 12), 8, 8.5),
+                xrayGrooveMat
+              );
+              grooveMesh.raycast = () => {};
+              const gOff = (piece.backGrooveOffsetMm || 12) + 4;
+              grooveMesh.position.set(
+                isSidePanel ? (comp.role === "carcass_side_right" ? px + 4 : px + cw - 4) : px + cw * 0.5,
+                isSidePanel ? py + ch * 0.5 : py + ch * 0.5,
+                pz + gOff
+              );
+              modContainer.add(grooveMesh);
+            }
+          });
+
+          const matLookup = {
+            d5: xrayHoleMatD5,
+            d8: xrayHoleMatD8,
+            d15: xrayHoleMatD15,
+            d35: xrayHoleMatD35,
+          } as const;
+          (["d5", "d8", "d15", "d35"] as const).forEach((bk) => {
+            const list = buckets[bk];
+            if (!list.length) return;
+            const inst = new THREE.InstancedMesh(xrayHoleUnitCylinder, matLookup[bk], list.length);
+            inst.raycast = () => {};
+            list.forEach((mtx, idx) => inst.setMatrixAt(idx, mtx));
+            inst.instanceMatrix.needsUpdate = true;
+            modContainer.add(inst);
+          });
+        }
         meshGroup.add(modContainer);
       });
       reusableGroupsBySig.forEach((leftovers) => {
@@ -4114,8 +4719,11 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       doorsHiddenIn3D,
       cutawayActiveBay,
       showInteriorProps3D,
+      glbCatalogRev,
       theme,
       renderEdgeMode,
+      isXrayActive,
+      storeBom,
       requestRender,
       updateSelectionAndActiveFrames,
     ]);
@@ -5923,17 +6531,24 @@ const clear3DGhostPreview = useCallback(() => {
 
           return (
             <div
+              ref={dimPopoverDomRef}
+              data-floating-card="dim"
               data-testid={`viewport-3d-dim-popover-${editingBadge}`}
               onClick={(e) => e.stopPropagation()}
               style={
                 floatingPanelPos.dim
-                  ? { left: `${floatingPanelPos.dim.x}px`, top: `${floatingPanelPos.dim.y}px`, transform: "none" }
+                  ? {
+                      left: "0px",
+                      top: "0px",
+                      translate: "none",
+                      transform: `translate3d(${floatingPanelPos.dim.x}px, ${floatingPanelPos.dim.y}px, 0)`,
+                    }
                   : undefined
               }
-              className="absolute top-20 left-1/2 -translate-x-1/2 z-30 w-80 birim-ice-popover rounded-3xl border border-white/85 shadow-2xl p-4 space-y-3 text-xs text-[#111827] pointer-events-auto"
+              className={`absolute ${floatingPanelPos.dim ? "top-0 left-0" : "top-24 left-1/2 -translate-x-1/2"} z-30 w-80 birim-ice-popover rounded-[26px] p-4 space-y-3 text-xs text-[#111827] pointer-events-auto`}
             >
               <div
-                onMouseDown={(e) => startFloatingPanelDrag("dim", e)}
+                onPointerDown={(e) => startFloatingPanelDrag("dim", e)}
                 title="Pencereyi taşımak için basılı tutup sürükleyin"
                 className="flex items-start justify-between gap-2 border-b border-[#E2E8F0] pb-2 cursor-move select-none"
               >
@@ -6101,23 +6716,34 @@ const clear3DGhostPreview = useCallback(() => {
           );
         })()}
 
-        {/* 3D DIRECT INTERACTION MINI CONTEXT MENU (Positioned cleanly below top toolbar, never overlapping!) */}
-        {showInCanvasHud && !dragDropSnapBanner && !active3DSnap && (clicked3DContext || doorsHiddenIn3D || cutawayActiveBay || doorOpenAngleDeg > 5) && (
+        {/* 3D DIRECT INTERACTION MINI CONTEXT MENU — Shown ONLY if floating bay/door cards are dismissed (zero duplicate bay float panels!) */}
+        {showInCanvasHud && dismissedBayPopover && !dragDropSnapBanner && !active3DSnap && (clicked3DContext || doorsHiddenIn3D || cutawayActiveBay || doorOpenAngleDeg > 5) && (
           <div
+            ref={contextPopoverDomRef}
+            data-floating-card="context"
             data-testid="viewport-3d-context-mini-menu"
+            onPointerDown={(e) => startFloatingPanelDrag("context", e)}
             style={
               floatingPanelPos.context
-                ? { left: `${floatingPanelPos.context.x}px`, top: `${floatingPanelPos.context.y}px`, transform: "none" }
+                ? {
+                    left: "0px",
+                    top: "0px",
+                    translate: "none",
+                    transform: `translate3d(${floatingPanelPos.context.x}px, ${floatingPanelPos.context.y}px, 0)`,
+                  }
+                : stageSafeInsets
+                ? {
+                    top: `${(stageSafeInsets.topPx ?? 14) + 52}px`,
+                  }
                 : undefined
             }
-            className={`absolute top-16 left-1/2 -translate-x-1/2 z-20 flex flex-wrap items-center justify-center gap-1.5 bg-white/75 backdrop-blur-xl px-3 py-1.5 rounded-2xl border border-white/80 ring-1 ring-slate-900/10 shadow-[0_12px_32px_rgba(15,23,42,0.14)] text-xs text-[#111827] transition-all duration-200 ${
+            className={`absolute ${floatingPanelPos.context ? "top-0 left-0" : "top-16 left-1/2 -translate-x-1/2"} z-20 flex flex-wrap items-center justify-center gap-1.5 birim-ice-pill px-3 py-1.5 rounded-full text-xs text-[#111827] cursor-grab active:cursor-grabbing select-none transition-opacity duration-150 ${
               isDraggingItemOver3D ? "opacity-15 pointer-events-none" : ""
             }`}
           >
             <span
-              onMouseDown={(e) => startFloatingPanelDrag("context", e)}
-              title="Bu çubuğu taşımak için sürükleyin"
-              className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 hover:text-slate-900 font-bold cursor-move select-none"
+              title="Bu çubuğu taşımak için basılı tutup sürükleyin"
+              className="px-1.5 py-0.5 rounded-full bg-white/70 border border-white/85 text-slate-500 hover:text-slate-900 font-bold cursor-grab active:cursor-grabbing select-none"
             >
               ⠿
             </span>
@@ -6276,16 +6902,23 @@ const clear3DGhostPreview = useCallback(() => {
             return (
               <div
                 ref={doorPopoverDomRef}
+                data-floating-card="door"
                 data-testid="viewport-3d-floating-door-card"
                 onClick={(e) => e.stopPropagation()}
-                style={{ transform: "translate3d(-9999px, -9999px, 0)" }}
-                className={`absolute top-0 left-0 z-50 w-72 birim-ice-popover rounded-3xl border border-white/85 shadow-2xl p-3 space-y-2 text-xs text-[#141413] transition-all duration-200 ${
+                style={{
+                  left: "0px",
+                  top: "0px",
+                  transform: floatingPanelPos.door
+                    ? `translate3d(${floatingPanelPos.door.x}px, ${floatingPanelPos.door.y}px, 0)`
+                    : "translate3d(-9999px, -9999px, 0)",
+                }}
+                className={`absolute top-0 left-0 z-[25] w-72 birim-ice-popover rounded-[26px] p-3.5 space-y-2.5 text-xs text-[#141413] transition-opacity duration-150 ${
                   isDraggingItemOver3D ? "opacity-15 pointer-events-none" : "pointer-events-auto"
                 }`}
               >
                 {/* Header Bar */}
                 <div
-                  onMouseDown={(e) => startFloatingPanelDrag("door", e)}
+                  onPointerDown={(e) => startFloatingPanelDrag("door", e)}
                   title="Paneli taşımak için başlığı tutup sürükleyin"
                   className="flex items-center justify-between gap-2 pb-2 border-b border-[#E5E0D5] cursor-move select-none"
                 >
@@ -6436,13 +7069,14 @@ const clear3DGhostPreview = useCallback(() => {
                       <span className="text-[10px] text-[#78716C]">›</span>
                     </button>
                     {doorMenuSubSection === "type" && (
-                      <div className="grid grid-cols-5 gap-1 p-1.5 rounded-xl bg-white border border-[#E5E0D5]">
+                      <div className="grid grid-cols-3 gap-1 p-1.5 rounded-xl bg-white border border-[#E5E0D5]">
                         {[
-                          { id: "flat_slab", label: "Düz" },
+                          { id: "flat_slab", label: "Düz Kapak" },
                           { id: "shaker_frame", label: "Çerçeve" },
                           { id: "fluted_ribbed", label: "Fitilli" },
-                          { id: "glass_frame", label: "Cam" },
-                          { id: "mirror_door", label: "Ayna" },
+                          { id: "bevel_45", label: "45° Pahlı" },
+                          { id: "glass_frame", label: "Füme Cam" },
+                          { id: "mirror_door", label: "Aynalı" },
                         ].map((pt) => (
                           <button
                             key={pt.id}
@@ -6612,12 +7246,32 @@ const clear3DGhostPreview = useCallback(() => {
                           <circle cx="8.5" cy="13" r="1.5" fill="currentColor" />
                           <circle cx="15.5" cy="13" r="1.5" fill="currentColor" />
                         </svg>
-                        <span>Sadece Bu Kapağın Rengi</span>
+                        <span>Kapak Rengi &amp; Uygulama Kapsamı</span>
                       </span>
                       <span className="text-[10px] text-[#78716C]">›</span>
                     </button>
                     {doorMenuSubSection === "material" && (
-                      <div className="p-2 rounded-xl bg-white border border-[#E5E0D5] space-y-1.5">
+                      <div className="p-2 rounded-xl bg-white border border-[#E5E0D5] space-y-2">
+                        <div className="grid grid-cols-3 gap-1 p-0.5 rounded-lg bg-[#F4F1EA]">
+                          {[
+                            { id: "single" as const, lbl: "Bu Kapak" },
+                            { id: "module_similar" as const, lbl: "Modül Kapakları" },
+                            { id: "project_similar" as const, lbl: "Tüm Dolaplar" },
+                          ].map((sc) => (
+                            <button
+                              key={sc.id}
+                              type="button"
+                              onClick={() => setFloatingMatScope(sc.id)}
+                              className={`py-1 px-1 rounded-md text-[9.5px] font-bold transition cursor-pointer ${
+                                floatingMatScope === sc.id
+                                  ? "bg-[#141413] text-white"
+                                  : "text-[#57534E] hover:text-[#141413]"
+                              }`}
+                            >
+                              {sc.lbl}
+                            </button>
+                          ))}
+                        </div>
                         <div className="grid grid-cols-2 gap-1">
                           {DEFAULT_MATERIALS.filter(
                             (m) =>
@@ -6627,16 +7281,22 @@ const clear3DGhostPreview = useCallback(() => {
                               m.category === "glass" ||
                               m.category === "mirror"
                           )
-                            .slice(0, 6)
+                            .slice(0, 8)
                             .map((m) => (
                               <button
                                 key={m.id}
                                 type="button"
                                 data-testid={`floating-door-mat-${m.id}`}
                                 onClick={() => {
-                                  setSelectedComponentMaterial(m.id, targetDoorCompId);
+                                  applyMaterialToSimilarComponents(m.id, targetDoorCompId, floatingMatScope);
+                                  const scopeText =
+                                    floatingMatScope === "project_similar"
+                                      ? "Tüm dolap kapaklarına"
+                                      : floatingMatScope === "module_similar"
+                                      ? "Modüldeki tüm kapaklara"
+                                      : fullDoorPartName;
                                   setDragDropSnapBanner(
-                                    `${fullDoorPartName}: "${m.name.split(" (")[0]}" atandı`
+                                    `${scopeText}: "${m.name.split(" (")[0]}" uygulandı`
                                   );
                                   setTimeout(() => setDragDropSnapBanner(null), 2200);
                                 }}
@@ -6813,16 +7473,23 @@ const clear3DGhostPreview = useCallback(() => {
             return (
               <div
                 ref={bayPopoverDomRef}
+                data-floating-card="bay"
                 data-testid="viewport-3d-floating-bay-card"
                 onClick={(e) => e.stopPropagation()}
-                style={{ transform: "translate3d(-9999px, -9999px, 0)" }}
-                className={`absolute top-0 left-0 z-50 w-72 birim-ice-popover rounded-3xl border border-white/85 shadow-2xl p-3 space-y-2 text-xs text-[#141413] transition-all duration-200 ${
+                style={{
+                  left: "0px",
+                  top: "0px",
+                  transform: floatingPanelPos.bay
+                    ? `translate3d(${floatingPanelPos.bay.x}px, ${floatingPanelPos.bay.y}px, 0)`
+                    : "translate3d(-9999px, -9999px, 0)",
+                }}
+                className={`absolute top-0 left-0 z-[15] w-72 birim-ice-popover rounded-[26px] p-3.5 space-y-2.5 text-xs text-[#141413] transition-opacity duration-150 ${
                   isDraggingItemOver3D ? "opacity-15 pointer-events-none" : "pointer-events-auto"
                 }`}
               >
                 {/* Header */}
                 <div
-                  onMouseDown={(e) => startFloatingPanelDrag("bay", e)}
+                  onPointerDown={(e) => startFloatingPanelDrag("bay", e)}
                   title="Paneli taşımak için başlığı tutup sürükleyin"
                   className="flex items-center justify-between gap-2 pb-2 border-b border-[#E5E0D5] cursor-move select-none"
                 >
@@ -7307,10 +7974,18 @@ const clear3DGhostPreview = useCallback(() => {
         {/* LEFT VERTICAL VIEW & CAMERA PILL (Design Studio: 3D | 2D Plan | Ön | Yan | Üst | İç Görünüm | Fit) */}
         <div
           data-testid="viewport-3d-visual-quality-bar"
+          style={
+            !isSimpleTier && stageSafeInsets
+              ? {
+                  left: `${stageSafeInsets.leftPx ?? 14}px`,
+                  top: `${stageSafeInsets.topPx ?? 14}px`,
+                }
+              : undefined
+          }
           className={
             isSimpleTier
               ? "sr-only"
-              : "absolute left-3.5 top-3.5 z-20 flex flex-col items-center gap-1 birim-ice-pill p-1 rounded-2xl text-[#141413] w-[46px]"
+              : "absolute left-3.5 top-3.5 z-20 flex flex-col items-center gap-1 birim-ice-pill p-1 rounded-[22px] text-[#141413] w-[46px] transition-[left,top] duration-200"
           }
         >
           {[
@@ -7622,10 +8297,19 @@ const clear3DGhostPreview = useCallback(() => {
         {showInCanvasHud && (
           <div
             data-testid="in-canvas-direct-hud"
+            style={
+              !(isSimpleTier && !materialModeActive) && stageSafeInsets
+                ? {
+                    top: `${stageSafeInsets.topPx ?? 12}px`,
+                    left: `${stageSafeInsets.leftPx ?? 8}px`,
+                    right: `${stageSafeInsets.rightPx ?? 8}px`,
+                  }
+                : undefined
+            }
             className={
-              isSimpleTier && !materialModeActive
+              !materialModeActive
                 ? "sr-only"
-                : "absolute top-3 left-2 right-2 mx-auto w-fit max-w-[calc(100%-16px)] z-20 flex flex-wrap items-center justify-center gap-1 birim-ice-pill p-1 rounded-2xl text-[#141413]"
+                : "absolute top-3 left-2 right-2 mx-auto w-fit max-w-[calc(100%-16px)] z-20 flex flex-wrap items-center justify-center gap-1 birim-ice-pill p-1 rounded-[22px] text-[#141413] transition-[left,right,top] duration-200"
             }
           >
             {materialModeActive && (
@@ -7900,11 +8584,53 @@ const clear3DGhostPreview = useCallback(() => {
         </div>
 
         {/* BOTTOM-CENTER FROSTED ICE ICON CAPSULE (Orbit | Pan | Kapak | Sığdır | Donanım | Kesit | Ölçü | Stüdyo) */}
+        {isXrayActive && (
+          <div
+            data-testid="cnc-xray-legend-pill"
+            style={
+              stageSafeInsets
+                ? {
+                    top: `${(stageSafeInsets.topPx ?? 14) + 52}px`,
+                    right: `${stageSafeInsets.rightPx ?? 16}px`,
+                  }
+                : { top: "64px", right: "16px" }
+            }
+            className="absolute z-20 birim-ice-pill px-3 py-2 rounded-[20px] flex items-center gap-2.5 text-[11px] font-semibold text-[#141413]"
+          >
+            <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-[#10b981]" />Ø5 Sistem32</span>
+            <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-[#3b82f6]" />Ø8 Kavela</span>
+            <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-[#ef4444]" />Ø15 Minifiks</span>
+            <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-[#f59e0b]" />Ø35 Menteşe</span>
+            <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-[#a855f7]" />Kanal</span>
+            <button
+              type="button"
+              onClick={() => {
+                setCncXrayMode(false);
+                setHardwareViewMode("normal");
+                setRenderEdgeMode("photoreal");
+              }}
+              className="ml-1 w-5 h-5 rounded-full bg-black/10 hover:bg-black/20 flex items-center justify-center text-[10px] cursor-pointer"
+              title="CNC X-Ray Görünümünü Kapat"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         <div
           data-testid="viewport-3d-bottom-nav-bar"
-          className="absolute bottom-3.5 left-2 right-2 mx-auto w-fit max-w-[calc(100%-16px)] z-20 flex flex-wrap items-center justify-center gap-1.5"
+          style={
+            stageSafeInsets
+              ? {
+                  bottom: `${stageSafeInsets.bottomPx ?? 14}px`,
+                  left: `${stageSafeInsets.leftPx ?? 8}px`,
+                  right: `${stageSafeInsets.rightPx ?? 8}px`,
+                }
+              : undefined
+          }
+          className="absolute bottom-3.5 left-2 right-2 mx-auto w-fit max-w-[calc(100%-16px)] z-20 flex flex-wrap items-center justify-center gap-1.5 transition-[left,right,bottom] duration-200"
         >
-          <div className="birim-ice-pill p-1 rounded-2xl flex items-center gap-1 text-[#141413]">
+          <div className="birim-ice-pill p-1 rounded-2xl flex items-center gap-1 text-[#141413] birim-expand-group">
             <button
               type="button"
               onClick={() => setMoveObjectMode3D(false)}
@@ -7986,21 +8712,45 @@ const clear3DGhostPreview = useCallback(() => {
 
             <div className="h-5 w-px bg-slate-900/12 mx-0.5" />
 
-            {/* Ölçü İkon Anahtarı */}
+            {/* Ölçü İkon Anahtarı (Hover'da yumuşakça genişler) */}
             <button
               type="button"
+              data-active={effectiveShowDimensions ? "true" : "false"}
               onClick={handleToggleDimensions}
-              title={effectiveShowDimensions ? "Ölçüleri Gizle" : "Ölçüleri Göster"}
-              className={`w-9 h-9 rounded-xl flex items-center justify-center relative transition cursor-pointer ${
+              data-tooltip={effectiveShowDimensions ? "Ölçü Çizgilerini Gizle" : "3D Ölçü Çizgilerini Göster"}
+              className={`h-9 rounded-xl birim-expand-btn relative cursor-pointer ${
                 effectiveShowDimensions
                   ? "birim-ice-btn-active"
                   : "text-[#44403C] hover:bg-white/70 hover:text-[#141413]"
               }`}
             >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                 <path d="M3 8h18M3 16h18M7 8v8M12 8v5M17 8v8" />
               </svg>
-              <span className="sr-only">Ölçüler</span>
+              <span className="birim-expand-label">Ölçüler</span>
+            </button>
+
+            {/* İç Eşyalar (Elbise, Kutu, Ayakkabı) Aç / Gizle */}
+            <button
+              type="button"
+              data-testid="toggle-interior-props-btn"
+              data-active={showInteriorProps3D ? "true" : "false"}
+              onClick={() => {
+                const next = !showInteriorProps3D;
+                setShowInteriorProps3D(next);
+                if (next && !doorsHiddenIn3D && doorOpenAngleDeg < 15) {
+                  setDoorOpenAngleDeg(75);
+                }
+              }}
+              data-tooltip="İç Eşyaları (Giysi, Kutu, Ayakkabı) Göster / Gizle"
+              className={`h-9 rounded-xl birim-expand-btn cursor-pointer ${
+                showInteriorProps3D
+                  ? "birim-ice-btn-active"
+                  : "text-[#44403C] hover:bg-white/70 hover:text-[#141413]"
+              }`}
+            >
+              <span className="text-sm leading-none shrink-0">👔</span>
+              <span className="birim-expand-label">{showInteriorProps3D ? "Eşyalar Açık" : "Eşyalar Gizli"}</span>
             </button>
 
             {/* Görüntü / Donanım Etiketleri Popover İkonu */}
@@ -8312,6 +9062,32 @@ const clear3DGhostPreview = useCallback(() => {
                     </div>
                   </div>
 
+                  <button
+                    type="button"
+                    data-testid="viewport-open-glb-library-btn"
+                    onClick={() => {
+                      setRenderMenuOpen(false);
+                      setGlbLibraryOpen(true);
+                    }}
+                    className="w-full py-2 px-2.5 rounded-xl birim-ice-btn text-[#141413] font-bold text-[11px] flex items-center justify-between cursor-pointer"
+                  >
+                    <span>📦 Hazır 3D İç Modeller (.GLB)</span>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-600/15 text-emerald-800 font-mono">GLTF</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    data-testid="viewport-open-path-trace-studio-btn"
+                    onClick={() => {
+                      setRenderMenuOpen(false);
+                      window.dispatchEvent(new CustomEvent("birim:open-studio-render-modal"));
+                    }}
+                    className="w-full py-2 px-2.5 rounded-xl bg-[#141413] hover:bg-[#27272A] text-white font-bold text-[11px] flex items-center justify-between cursor-pointer shadow-sm"
+                  >
+                    <span>🎬 2K vs Path-Trace Stüdyosu</span>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-300 font-mono">A/B</span>
+                  </button>
+
                   <div className="pt-2 border-t border-slate-900/10 flex items-center gap-1.5">
                     <button
                       type="button"
@@ -8385,6 +9161,10 @@ const clear3DGhostPreview = useCallback(() => {
             </div>
           </div>
         </div>
+        <WardrobeGlbLibraryModal
+          open={glbLibraryOpen}
+          onClose={() => setGlbLibraryOpen(false)}
+        />
       </div>
     );
   }

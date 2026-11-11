@@ -13,6 +13,7 @@ cylinder.rotateX(Math.PI / 2);
 markSharedGeometry(cylinder);
 const cylinderY = markSharedGeometry(new THREE.CylinderGeometry(0.5, 0.5, 1, 20));
 const edges = markSharedGeometry(new THREE.EdgesGeometry(box));
+const cylinderRimEdges = markSharedGeometry(new THREE.EdgesGeometry(cylinder, 28));
 
 const liftDoorDirectionGeo = (() => {
   const g = new THREE.BufferGeometry();
@@ -62,40 +63,48 @@ const bevelFrustumCache = new Map<
  * with 4 crisp diagonal 45° miter lines at the corners!
  */
 function createBevel45FrustumGeometry(w: number, h: number, d: number, bevelMm: number): THREE.BufferGeometry {
-  const hw = w / 2;
-  const hh = h / 2;
-  const hd = d / 2;
-  const b = Math.min(bevelMm, hw * 0.35, hh * 0.35);
+  const hw = Math.max(20, w / 2);
+  const hh = Math.max(20, h / 2);
+  const hd = Math.max(3, d / 2);
+  const zShoulder = -hd + d * 0.34; // Straight rear shoulder before 45° front chamfer begins
+  const b = Math.min(bevelMm, hw * 0.32, hh * 0.32);
   const iw = hw - b;
   const ih = hh - b;
+  const TILE_MM = 520;
 
-  // 8 vertices: 0..3 back rectangle (z = -hd), 4..7 front beveled plateau (z = +hd)
+  // 12 vertices: 0..3 rear base (z = -hd), 4..7 shoulder perimeter (z = zShoulder), 8..11 front 45° plateau (z = +hd)
   const v = [
-    [-hw, -hh, -hd], // 0: back bottom-left
-    [hw, -hh, -hd],  // 1: back bottom-right
-    [hw, hh, -hd],   // 2: back top-right
-    [-hw, hh, -hd],  // 3: back top-left
-    [-iw, -ih, hd],  // 4: front bottom-left (inward by bevelMm)
-    [iw, -ih, hd],   // 5: front bottom-right
-    [iw, ih, hd],    // 6: front top-right
-    [-iw, ih, hd],   // 7: front top-left
+    [-hw, -hh, -hd],       [hw, -hh, -hd],       [hw, hh, -hd],       [-hw, hh, -hd],
+    [-hw, -hh, zShoulder], [hw, -hh, zShoulder], [hw, hh, zShoulder], [-hw, hh, zShoulder],
+    [-iw, -ih, hd],        [iw, -ih, hd],        [iw, ih, hd],        [-iw, ih, hd],
   ];
 
-  // 6 quad faces (front plateau, back base, bottom 45° slope, right 45° slope, top 45° slope, left 45° slope)
   const quads = [
-    [4, 5, 6, 7], // front face
-    [1, 0, 3, 2], // back face
-    [0, 1, 5, 4], // bottom 45° chamfer slope
-    [1, 2, 6, 5], // right 45° chamfer slope
-    [2, 3, 7, 6], // top 45° chamfer slope
-    [3, 0, 4, 7], // left 45° chamfer slope
+    [8, 9, 10, 11], // front plateau
+    [1, 0, 3, 2],   // rear face
+    [0, 1, 5, 4],   // bottom straight shoulder
+    [1, 2, 6, 5],   // right straight shoulder
+    [2, 3, 7, 6],   // top straight shoulder
+    [3, 0, 4, 7],   // left straight shoulder
+    [4, 5, 9, 8],   // bottom 45° chamfer slope
+    [5, 6, 10, 9],  // right 45° chamfer slope
+    [6, 7, 11, 10], // top 45° chamfer slope
+    [7, 4, 8, 11],  // left 45° chamfer slope
   ];
 
   const positions: number[] = [];
   const uvs: number[] = [];
+  const pushTri = (i0: number, i1: number, i2: number) => {
+    for (const idx of [i0, i1, i2]) {
+      const [vx, vy, vz] = v[idx];
+      positions.push(vx, vy, vz);
+      // World-scale millimeter UV projection so wood grain never distorts on 45° bevel slopes!
+      uvs.push((vx + hw) / TILE_MM, (vy + hh) / TILE_MM);
+    }
+  };
   for (const [a, bIdx, c, dIdx] of quads) {
-    positions.push(...v[a], ...v[bIdx], ...v[c], ...v[a], ...v[c], ...v[dIdx]);
-    uvs.push(0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1);
+    pushTri(a, bIdx, c);
+    pushTri(a, c, dIdx);
   }
 
   const geom = new THREE.BufferGeometry();
@@ -134,6 +143,169 @@ function getCachedBevel45Frustum(
   const entry = { frustumGeo, frustumEdges };
   bevelFrustumCache.set(key, entry);
   return entry;
+}
+
+
+const countertopCutoutCache = new Map<string, { geo: THREE.BufferGeometry; edges: THREE.EdgesGeometry }>();
+
+function getCachedCountertopCutoutGeometry(
+  w: number,
+  h: number,
+  d: number,
+  hole: NonNullable<import("@birim/geometry").ComponentBox3D["cutoutHole"]>,
+  grainCrosswise = false
+): { geo: THREE.BufferGeometry; edges: THREE.EdgesGeometry } {
+  const key = `${Math.round(w)}_${Math.round(h)}_${Math.round(d)}_${Math.round(hole.offsetX)}_${Math.round(hole.offsetZ)}_${Math.round(hole.width)}_${Math.round(hole.depth)}_${Math.round(hole.cornerRadiusMm || 10)}_${grainCrosswise ? 1 : 0}`;
+  const hit = countertopCutoutCache.get(key);
+  if (hit) return hit;
+
+  if (countertopCutoutCache.size >= 48) {
+    const oldest = countertopCutoutCache.keys().next().value;
+    if (oldest) {
+      const ev = countertopCutoutCache.get(oldest);
+      if (ev) {
+        delete ev.geo.userData.__birimSharedResource;
+        delete ev.edges.userData.__birimSharedResource;
+        ev.geo.dispose();
+        ev.edges.dispose();
+      }
+      countertopCutoutCache.delete(oldest);
+    }
+  }
+
+  const hw = w / 2;
+  const hd = d / 2;
+  const shape = new THREE.Shape();
+  shape.moveTo(-hw, -hd);
+  shape.lineTo(hw, -hd);
+  shape.lineTo(hw, hd);
+  shape.lineTo(-hw, hd);
+  shape.closePath();
+
+  // Clamp inner cutout safely inside countertop margins (minimum 35mm front/rear/side bridge)
+  const holeW = Math.max(80, Math.min(w - 70, hole.width));
+  const holeD = Math.max(80, Math.min(d - 70, hole.depth));
+  const x0 = Math.max(-hw + 35, Math.min(hw - 35 - holeW, -hw + hole.offsetX));
+  // Shape Y maps to -Z after rotateX(-PI/2), so z in [-hd..hd] maps to shapeY = -z
+  const zFront = Math.max(-hd + 35, Math.min(hd - 35 - holeD, -hd + hole.offsetZ));
+  const yTop = -zFront;
+  const yBot = -(zFront + holeD);
+  const r = Math.max(2, Math.min(hole.cornerRadiusMm ?? 12, holeW * 0.2, holeD * 0.2));
+
+  const holePath = new THREE.Path();
+  // Clockwise hole winding inside CCW outer shape
+  holePath.moveTo(x0 + r, yBot);
+  holePath.lineTo(x0 + holeW - r, yBot);
+  holePath.quadraticCurveTo(x0 + holeW, yBot, x0 + holeW, yBot + r);
+  holePath.lineTo(x0 + holeW, yTop - r);
+  holePath.quadraticCurveTo(x0 + holeW, yTop, x0 + holeW - r, yTop);
+  holePath.lineTo(x0 + r, yTop);
+  holePath.quadraticCurveTo(x0, yTop, x0, yTop - r);
+  holePath.lineTo(x0, yBot + r);
+  holePath.quadraticCurveTo(x0, yBot, x0 + r, yBot);
+  shape.holes.push(holePath);
+
+  const extrudeGeo = new THREE.ExtrudeGeometry(shape, {
+    depth: Math.max(4, h),
+    bevelEnabled: true,
+    bevelThickness: Math.min(1.5, h * 0.12),
+    bevelSize: 1.2,
+    bevelSegments: 2,
+    curveSegments: 6,
+  });
+  extrudeGeo.rotateX(-Math.PI / 2);
+  extrudeGeo.translate(0, -h / 2, 0);
+
+  // Normalize UVs to physical millimeter scale (matching 780x2850mm veneer/stone UV convention)
+  const posAttr = extrudeGeo.getAttribute("position");
+  const normAttr = extrudeGeo.getAttribute("normal");
+  const uvArr = new Float32Array(posAttr.count * 2);
+  for (let i = 0; i < posAttr.count; i++) {
+    const vx = posAttr.getX(i);
+    const vy = posAttr.getY(i);
+    const vz = posAttr.getZ(i);
+    const ay = Math.abs(normAttr.getY(i));
+    let u = ay > 0.5 ? (vx + hw) / 900 : (vx + vz + hw) / 900;
+    let v = ay > 0.5 ? (vz + hd) / 900 : (vy + h / 2) / 900;
+    if (grainCrosswise) {
+      const tmp = u;
+      u = v;
+      v = tmp;
+    }
+    uvArr[i * 2] = u;
+    uvArr[i * 2 + 1] = v;
+  }
+  extrudeGeo.setAttribute("uv", new THREE.BufferAttribute(uvArr, 2));
+
+  const sharedGeo = markSharedGeometry(extrudeGeo);
+  const sharedEdges = markSharedGeometry(new THREE.EdgesGeometry(extrudeGeo, 18));
+  const entry = { geo: sharedGeo, edges: sharedEdges };
+  countertopCutoutCache.set(key, entry);
+  return entry;
+}
+
+
+const worldUvBoxCache = new Map<string, THREE.BufferGeometry>();
+
+function getCachedWorldUvBoxGeometry(
+  w: number,
+  h: number,
+  d: number,
+  grainCrosswise = false
+): THREE.BufferGeometry {
+  const key = `${Math.round(w)}_${Math.round(h)}_${Math.round(d)}_${grainCrosswise ? 1 : 0}`;
+  const hit = worldUvBoxCache.get(key);
+  if (hit) return hit;
+
+  if (worldUvBoxCache.size >= 160) {
+    const oldest = worldUvBoxCache.keys().next().value;
+    if (oldest) {
+      const ev = worldUvBoxCache.get(oldest);
+      if (ev) {
+        delete ev.userData.__birimSharedResource;
+        ev.dispose();
+      }
+      worldUvBoxCache.delete(oldest);
+    }
+  }
+
+  const geo = new THREE.BoxGeometry(Math.max(1, w), Math.max(1, h), Math.max(1, d));
+  const pos = geo.getAttribute("position");
+  const norm = geo.getAttribute("normal");
+  const uv = geo.getAttribute("uv");
+  const hw = w / 2;
+  const hh = h / 2;
+  const hd = d / 2;
+  for (let i = 0; i < pos.count; i++) {
+    const vx = pos.getX(i);
+    const vy = pos.getY(i);
+    const vz = pos.getZ(i);
+    const ax = Math.abs(norm.getX(i));
+    const ay = Math.abs(norm.getY(i));
+    const az = Math.abs(norm.getZ(i));
+    let u = 0;
+    let v = 0;
+    if (az >= ax && az >= ay) {
+      u = (vx + hw) / 780;
+      v = (vy + hh) / 2850;
+    } else if (ax >= ay) {
+      u = (vz + hd) / 780;
+      v = (vy + hh) / 2850;
+    } else {
+      u = (vx + hw) / 780;
+      v = (vz + hd) / 2850;
+    }
+    if (grainCrosswise) {
+      const t = u;
+      u = v;
+      v = t;
+    }
+    uv.setXY(i, u, v);
+  }
+  uv.needsUpdate = true;
+  const shared = markSharedGeometry(geo);
+  worldUvBoxCache.set(key, shared);
+  return shared;
 }
 
 const microBevelPanelCache = new Map<string, THREE.BufferGeometry>();
@@ -398,6 +570,13 @@ const doorDirectionLineMat = new THREE.LineBasicMaterial({
   opacity: 0.55,
 });
 
+const sharedDarkAnodizedFrameMat = markSharedMaterial(
+  new THREE.MeshStandardMaterial({
+    color: 0x1e2024,
+    roughness: 0.34,
+    metalness: 0.85,
+  })
+);
 const sharedSmokedGlassPaneMat = markSharedMaterial(
   new THREE.MeshPhysicalMaterial({
     color: 0x28313b,
@@ -1444,16 +1623,14 @@ export function createComponentMesh(
     return group;
   }
 
-  // 5E. REALISTIC 3D BAR / KNOB / LONG PROFILE HANDLES FLUSH-MOUNTED ON DOOR FACE (ZERO AIR GAP!)
+  // 5E. REALISTIC 3D BAR / KNOB / LONG PROFILE HANDLES FLUSH-MOUNTED ON DOOR FACE + CRISP CAD EDGE OUTLINES!
   if (comp.role === "door_handle" || comp.role === "drawer_handle") {
     const w = comp.dimensions.width;
     const h = comp.dimensions.height;
     const d = comp.dimensions.depth;
-    // Note: comp.position.z = front.position.z + front.dimensions.depth, so the exact outer face of the door leaf is at z_local = cz - d * 0.5!
     const doorFaceZ = cz - d * 0.5;
 
     if (comp.handleCategory === "knob") {
-      // Stem embeds 2mm into the door panel and extends 12mm outward to the knob cap
       const stemLen = 14;
       const stem = new THREE.Mesh(cylinder, material);
       stem.scale.set(11, 11, stemLen);
@@ -1465,17 +1642,19 @@ export function createComponentMesh(
       const cap = new THREE.Mesh(cylinder, material);
       cap.scale.set(Math.max(24, w), Math.max(24, h), capDepth);
       cap.position.set(cx, cy, doorFaceZ + stemLen - 2 + capDepth / 2 - 1);
+      const capEdges = new THREE.LineSegments(cylinderRimEdges, edgeMaterial);
+      capEdges.userData.isPrimaryEdge = true;
+      cap.add(capEdges);
       tagSubMesh(cap, userData, comp);
       group.add(cap);
       return group;
     }
 
-    // Bar handle (vertical or horizontal) with 2 standoff legs directly embedded into the door face (doorFaceZ - 2mm) and bridged by the grip bar
     const isVertical = h > w * 1.5;
     const barW = isVertical ? Math.max(11, w) : Math.max(96, w);
     const barH = isVertical ? Math.max(128, h) : Math.max(11, h);
     const barD = 10;
-    const postLen = 16; // Standoff projection from door surface
+    const postLen = 16;
 
     const span = isVertical ? Math.max(36, barH * 0.78) : Math.max(36, barW * 0.78);
     [-span / 2, span / 2].forEach((offset) => {
@@ -1486,16 +1665,45 @@ export function createComponentMesh(
         cy + (isVertical ? offset : 0),
         doorFaceZ + postLen / 2 - 2
       );
+      const postEdges = new THREE.LineSegments(cylinderRimEdges, edgeMaterial);
+      postEdges.userData.isPrimaryEdge = true;
+      post.add(postEdges);
       tagSubMesh(post, userData, comp);
       group.add(post);
     });
 
     const barGeo = getCachedBeveledPanelGeometry(barW, barH, barD, 1.8, comp.id);
     const barMesh = new THREE.Mesh(barGeo, material);
-    // Sits directly on the outer tips of the two standoff posts with 2mm overlap — zero gap!
     barMesh.position.set(cx, cy, doorFaceZ + postLen - 3 + barD / 2);
+    const barEdgeLines = new THREE.LineSegments(edges, edgeMaterial);
+    barEdgeLines.scale.set(barW, barH, barD);
+    barEdgeLines.userData.isPrimaryEdge = true;
+    barMesh.add(barEdgeLines);
     tagSubMesh(barMesh, userData, comp);
     group.add(barMesh);
+    return group;
+  }
+
+  // 5.9 TRUE 3D COUNTERTOP / PANEL APERTURE EXTRUSION (Sink & Cooktop See-Through Cutout!)
+  if (comp.cutoutHole && comp.cutoutHole.width > 40 && comp.cutoutHole.depth > 40) {
+    const isCross =
+      userData?.grainDir === "crosswise" || comp.grainDirection === "crosswise";
+    const { geo: cutGeo, edges: cutEdges } = getCachedCountertopCutoutGeometry(
+      comp.dimensions.width,
+      comp.dimensions.height,
+      comp.dimensions.depth,
+      comp.cutoutHole,
+      isCross
+    );
+    const cutMesh = new THREE.Mesh(cutGeo, material);
+    cutMesh.position.set(cx, cy, cz);
+    tagSubMesh(cutMesh, userData, comp);
+    group.add(cutMesh);
+
+    const cutLines = new THREE.LineSegments(cutEdges, edgeMaterial);
+    cutLines.position.set(cx, cy, cz);
+    cutLines.userData.isPrimaryEdge = true;
+    group.add(cutLines);
     return group;
   }
 
@@ -1528,6 +1736,13 @@ export function createComponentMesh(
     comp.dimensions.depth >= 8 &&
     comp.crossSectionProfile !== "bevel_45";
 
+  const isCrossGrain =
+    userData?.grainDir === "crosswise" || comp.grainDirection === "crosswise";
+  const useWorldUvFlatBox =
+    !useTrueBevelGeo &&
+    (!comp.primitive || comp.primitive === "box") &&
+    comp.isManufacturablePanel !== false;
+
   const mesh = new THREE.Mesh(
     comp.primitive === "sphere"
       ? sphere
@@ -1541,10 +1756,17 @@ export function createComponentMesh(
           bevelRadiusMm,
           comp.id
         )
+      : useWorldUvFlatBox
+      ? getCachedWorldUvBoxGeometry(
+          comp.dimensions.width,
+          comp.dimensions.height,
+          comp.dimensions.depth,
+          isCrossGrain
+        )
       : box,
     material
   );
-  if (!useTrueBevelGeo) {
+  if (!useTrueBevelGeo && !useWorldUvFlatBox) {
     mesh.scale.set(comp.dimensions.width, comp.dimensions.height, comp.dimensions.depth);
   }
   mesh.position.set(cx, cy, cz);
@@ -1613,138 +1835,53 @@ export function createComponentMesh(
     group.add(gripWell);
   }
 
-  // 6B. 3D CNC DOOR CROSS-SECTION PROFILE RENDERING (Shaker Frame / Fluted Ribbed / 45° Bevel / Custom DXF-SVG CAD Profile)
+  // 6B. 3D CNC DOOR CROSS-SECTION PROFILE RENDERING (Strict 1-to-1 Name <-> Geometry Alignment + World-Scale UVs!)
   if (comp.role === "door_left" || comp.role === "door_right" || comp.role === "drawer_front") {
+    const explicitProfile = comp.crossSectionProfile;
     const activeProfile =
-      comp.crossSectionProfile ||
-      (comp.handleCategory === "decorative_bespoke" ? "shaker_frame" : "flat_slab");
+      explicitProfile ||
+      (comp.materialId === "mat_smoked_glass"
+        ? "glass_frame"
+        : comp.materialId === "mat_bronze_mirror"
+        ? "mirror_door"
+        : comp.handleCategory === "decorative_bespoke"
+        ? "shaker_frame"
+        : "flat_slab");
     const w = comp.dimensions.width;
     const h = comp.dimensions.height;
     const d = comp.dimensions.depth;
 
-    if (activeProfile === "shaker_frame" && w > 160 && h > 160) {
-      const stileW = Math.min(68, Math.max(38, Math.round(w * 0.14)));
-      const innerW = Math.max(40, w - 2 * stileW);
-      const innerH = Math.max(40, h - 2 * stileW);
-      // Recessed shadow frame + raised 6mm outer Shaker stiles & rails
-      const recessWell = new THREE.Mesh(box, darkCavityMat);
-      recessWell.scale.set(innerW + 4, innerH + 4, 2.5);
-      recessWell.position.set(cx, cy, cz + d * 0.5 - 0.5);
-      tagSubMesh(recessWell, userData, comp);
-      group.add(recessWell);
-
-      const centerPanel = new THREE.Mesh(box, material);
-      centerPanel.scale.set(innerW - 4, innerH - 4, 2.5);
-      centerPanel.position.set(cx, cy, cz + d * 0.5 + 0.4);
-      centerPanel.add(new THREE.LineSegments(edges, revealShadowMat));
-      tagSubMesh(centerPanel, userData, comp);
-      group.add(centerPanel);
-
-      // Left, Right, Top, Bottom 5mm Raised Shaker Frame Bars
-      const frameBars = [
-        { sx: stileW, sy: h, px: cx - w / 2 + stileW / 2, py: cy },
-        { sx: stileW, sy: h, px: cx + w / 2 - stileW / 2, py: cy },
-        { sx: innerW, sy: stileW, px: cx, py: cy + h / 2 - stileW / 2 },
-        { sx: innerW, sy: stileW, px: cx, py: cy - h / 2 + stileW / 2 },
-      ];
-      frameBars.forEach((fb) => {
-        const bar = new THREE.Mesh(box, material);
-        bar.scale.set(fb.sx, fb.sy, 4.5);
-        bar.position.set(fb.px, fb.py, cz + d * 0.5 + 2.2);
-        bar.add(new THREE.LineSegments(edges, revealShadowMat));
-        tagSubMesh(bar, userData, comp);
-        group.add(bar);
-      });
-    } else if (activeProfile === "fluted_ribbed" && w > 120) {
-      // Vertical CNC Fluted / Ribbed Slats across the door front
-      const slatPitch = 36;
-      const slatCount = Math.min(28, Math.max(4, Math.floor((w - 24) / slatPitch)));
-      const spanW = w - 28;
-      const stepX = spanW / Math.max(1, slatCount - 1);
-      for (let s = 0; s < slatCount; s++) {
-        const slat = new THREE.Mesh(box, material);
-        slat.scale.set(Math.max(10, stepX * 0.62), h - 16, 4.5);
-        slat.position.set(cx - spanW / 2 + s * stepX, cy, cz + d * 0.5 + 2.2);
-        slat.add(new THREE.LineSegments(edges, revealShadowMat));
-        tagSubMesh(slat, userData, comp);
-        group.add(slat);
-      }
-    } else if (activeProfile === "bevel_45" && w > 120 && h > 120) {
-      // TRUE 3D 45°-SLOPED PERIMETER CHAMFER (matches the 2D trapezoidal cross-section 1-to-1!)
-      // Back 8mm is straight edge-banded base; front 12mm slopes inward at a 45° angle (32mm visual chamfer width)
-      mesh.scale.set(w, h, Math.max(6, d * 0.42));
-      mesh.position.set(cx, cy, cz - d * 0.29);
-
-      const bevelDepth = Math.max(10, d * 0.68);
-      const bevelSlopeW = 32;
-      const { frustumGeo, frustumEdges } = getCachedBevel45Frustum(w, h, bevelDepth, bevelSlopeW);
-      const frustumMesh = new THREE.Mesh(frustumGeo, material);
-      frustumMesh.position.set(cx, cy, cz + d * 0.22);
-      frustumMesh.add(new THREE.LineSegments(frustumEdges, revealShadowMat));
-      tagSubMesh(frustumMesh, userData, comp);
-      group.add(frustumMesh);
-    } else if (activeProfile === "custom_cad_profile" && w > 140 && h > 140) {
-      const poly = comp.customCadPolygon;
-      const firstPtY = poly && poly.length >= 3 ? poly[1]?.y ?? 0.65 : 0.65;
-      const bevelSlopeMm = Math.max(14, Math.min(44, Math.round(firstPtY * 34)));
-      const { frustumGeo, frustumEdges } = getCachedBevel45Frustum(w, h, 8, bevelSlopeMm);
-      const outerBevel = new THREE.Mesh(frustumGeo, material);
-      outerBevel.position.set(cx, cy, cz + d * 0.5 + 3);
-      outerBevel.add(new THREE.LineSegments(frustumEdges, revealShadowMat));
-      tagSubMesh(outerBevel, userData, comp);
-      group.add(outerBevel);
-
-      if (w > 200 && h > 200) {
-        const grooveInset = Math.max(42, bevelSlopeMm * 2 + 12);
-        const grooveWell = new THREE.Mesh(box, darkCavityMat);
-        grooveWell.scale.set(w - grooveInset, h - grooveInset, 3);
-        grooveWell.position.set(cx, cy, cz + d * 0.5 + 6.2);
-        tagSubMesh(grooveWell, userData, comp);
-        group.add(grooveWell);
-
-        const innerField = new THREE.Mesh(box, material);
-        innerField.scale.set(w - grooveInset - 26, h - grooveInset - 26, 4.2);
-        innerField.position.set(cx, cy, cz + d * 0.5 + 7.8);
-        innerField.add(new THREE.LineSegments(edges, revealShadowMat));
-        tagSubMesh(innerField, userData, comp);
-        group.add(innerField);
-      }
-    } else if (
-      (activeProfile === "glass_frame" || comp.materialId === "mat_smoked_glass") &&
-      w > 140 &&
-      h > 140
-    ) {
-      // Framed Showcase Glass Door (Cam Kapak): Hide solid slab, build 4 outer frame stiles/rails + translucent smoked glass center pane!
+    if (activeProfile === "glass_frame" && w > 140 && h > 140) {
+      // 1. Füme Cam Vitrin Kapak (`glass_frame`): 4 world-UV perimeter frame bars + true translucent smoked glass center pane!
       mesh.visible = false;
-      const frameW = Math.min(54, Math.max(32, Math.round(w * 0.11)));
+      const frameW = Math.min(54, Math.max(34, Math.round(w * 0.11)));
       const innerW = Math.max(40, w - 2 * frameW);
       const innerH = Math.max(40, h - 2 * frameW);
+      const frameMat =
+        comp.materialId === "mat_smoked_glass" ? sharedDarkAnodizedFrameMat : material;
       const frameBars = [
-        { sx: frameW, sy: h, px: cx - w / 2 + frameW / 2, py: cy },
-        { sx: frameW, sy: h, px: cx + w / 2 - frameW / 2, py: cy },
-        { sx: innerW, sy: frameW, px: cx, py: cy + h / 2 - frameW / 2 },
-        { sx: innerW, sy: frameW, px: cx, py: cy - h / 2 + frameW / 2 },
+        { sx: frameW, sy: h, px: cx - w / 2 + frameW / 2, py: cy, horiz: false },
+        { sx: frameW, sy: h, px: cx + w / 2 - frameW / 2, py: cy, horiz: false },
+        { sx: innerW, sy: frameW, px: cx, py: cy + h / 2 - frameW / 2, horiz: true },
+        { sx: innerW, sy: frameW, px: cx, py: cy - h / 2 + frameW / 2, horiz: true },
       ];
       frameBars.forEach((fb) => {
-        const bar = new THREE.Mesh(box, material);
-        bar.scale.set(fb.sx, fb.sy, d);
+        const barGeo = getCachedWorldUvBoxGeometry(fb.sx, fb.sy, d, fb.horiz);
+        const bar = new THREE.Mesh(barGeo, frameMat);
         bar.position.set(fb.px, fb.py, cz);
-        bar.add(new THREE.LineSegments(edges, revealShadowMat));
         tagSubMesh(bar, userData, comp);
         group.add(bar);
       });
       const glassPane = new THREE.Mesh(box, sharedSmokedGlassPaneMat);
-      glassPane.scale.set(innerW, innerH, Math.max(6, d * 0.35));
+      glassPane.scale.set(innerW, innerH, Math.max(6, d * 0.32));
       glassPane.position.set(cx, cy, cz);
-      glassPane.add(new THREE.LineSegments(edges, revealShadowMat));
       tagSubMesh(glassPane, userData, comp);
+      glassPane.castShadow = false; // Allow studio & LED light to illuminate inner shelves & clothes behind smoked glass!
+      glassPane.renderOrder = 4;
       group.add(glassPane);
-    } else if (
-      (activeProfile === "mirror_door" || comp.materialId === "mat_bronze_mirror") &&
-      w > 140 &&
-      h > 140
-    ) {
-      const rimW = 24;
+    } else if (activeProfile === "mirror_door" && w > 140 && h > 140) {
+      // 2. Aynalı Kapak (`mirror_door`): Crisp slim perimeter bezel + full-height silver/bronze mirror pane!
+      const rimW = 14;
       const mirrorW = Math.max(40, w - 2 * rimW);
       const mirrorH = Math.max(40, h - 2 * rimW);
       const mirrorMat =
@@ -1752,11 +1889,97 @@ export function createComponentMesh(
           ? sharedBronzeMirrorPaneMat
           : sharedSilverMirrorPaneMat;
       const mirrorPane = new THREE.Mesh(box, mirrorMat);
-      mirrorPane.scale.set(mirrorW, mirrorH, 3.5);
-      mirrorPane.position.set(cx, cy, cz + d * 0.5 + 1.5);
-      mirrorPane.add(new THREE.LineSegments(edges, revealShadowMat));
+      mirrorPane.scale.set(mirrorW, mirrorH, 4);
+      mirrorPane.position.set(cx, cy, cz + d * 0.5 - 0.5);
+      const mEdge = new THREE.LineSegments(edges, revealShadowMat);
+      mirrorPane.add(mEdge);
       tagSubMesh(mirrorPane, userData, comp);
       group.add(mirrorPane);
+    } else if (activeProfile === "shaker_frame" && w > 160 && h > 160) {
+      // 3. 5-Parçalı Çerçeveli Shaker Kapak (`shaker_frame`): True recessed 12mm center panel + 18mm outer stiles & rails!
+      mesh.visible = false;
+      const stileW = Math.min(66, Math.max(42, Math.round(w * 0.13)));
+      const innerW = Math.max(40, w - 2 * stileW);
+      const innerH = Math.max(40, h - 2 * stileW);
+      const centerD = Math.max(10, d - 6);
+      const centerGeo = getCachedWorldUvBoxGeometry(innerW + 4, innerH + 4, centerD, isCrossGrain);
+      const centerPanel = new THREE.Mesh(centerGeo, material);
+      centerPanel.position.set(cx, cy, cz - (d - centerD) / 2);
+      tagSubMesh(centerPanel, userData, comp);
+      group.add(centerPanel);
+
+      const innerFrameOutline = new THREE.LineSegments(edges, revealShadowMat);
+      innerFrameOutline.scale.set(innerW, innerH, d);
+      innerFrameOutline.position.set(cx, cy, cz);
+      group.add(innerFrameOutline);
+
+      const frameBars = [
+        { sx: stileW, sy: h, px: cx - w / 2 + stileW / 2, py: cy, horiz: false },
+        { sx: stileW, sy: h, px: cx + w / 2 - stileW / 2, py: cy, horiz: false },
+        { sx: innerW, sy: stileW, px: cx, py: cy + h / 2 - stileW / 2, horiz: true },
+        { sx: innerW, sy: stileW, px: cx, py: cy - h / 2 + stileW / 2, horiz: true },
+      ];
+      frameBars.forEach((fb) => {
+        const barGeo = getCachedWorldUvBoxGeometry(fb.sx, fb.sy, d, fb.horiz);
+        const bar = new THREE.Mesh(barGeo, material);
+        bar.position.set(fb.px, fb.py, cz);
+        tagSubMesh(bar, userData, comp);
+        group.add(bar);
+      });
+    } else if (activeProfile === "fluted_ribbed" && w > 120) {
+      // 4. Dikey Fitilli / CNC Çıtalı Kapak (`fluted_ribbed`): Milled dark shadow grooves + world-UV vertical ribs (zero grain stretch!)
+      mesh.visible = false;
+      const backThickness = Math.max(11, d - 6);
+      const backingGeo = getCachedWorldUvBoxGeometry(w, h, backThickness, isCrossGrain);
+      const backingMesh = new THREE.Mesh(backingGeo, darkCavityMat);
+      backingMesh.position.set(cx, cy, cz - (d - backThickness) / 2);
+      tagSubMesh(backingMesh, userData, comp);
+      group.add(backingMesh);
+
+      const slatPitch = 30;
+      const slatCount = Math.min(36, Math.max(4, Math.floor((w - 8) / slatPitch)));
+      const slatW = Math.max(14, (w - (slatCount - 1) * 5) / slatCount);
+      const ribDepth = d - backThickness + 1.5;
+      const slatGeo = getCachedWorldUvBoxGeometry(slatW, h - 2, ribDepth, false);
+      const startLeft = cx - w / 2 + slatW / 2;
+      const stepX = slatCount > 1 ? (w - slatW) / (slatCount - 1) : 0;
+      const instSlats = new THREE.InstancedMesh(slatGeo, material, slatCount);
+      const slatMtx = new THREE.Matrix4();
+      for (let s = 0; s < slatCount; s++) {
+        slatMtx.makeTranslation(startLeft + s * stepX, cy, cz + d / 2 - ribDepth / 2);
+        instSlats.setMatrixAt(s, slatMtx);
+      }
+      instSlats.instanceMatrix.needsUpdate = true;
+      tagSubMesh(instSlats as unknown as THREE.Mesh, userData, comp);
+      group.add(instSlats);
+    } else if (activeProfile === "bevel_45" && w > 120 && h > 120) {
+      // 5. 45° Pahlı Kesit Kapak (`bevel_45`): Hide flat box (NO double-scaling!), render precision 2-tier 45° chamfered frustum!
+      mesh.visible = false;
+      group.children.forEach((ch) => {
+        if ((ch as THREE.Group).children?.some((sub) => sub.userData?.isPrimaryEdge)) {
+          ch.visible = false;
+        }
+      });
+      const bevelSlopeW = Math.min(30, Math.round(Math.min(w, h) * 0.08));
+      const { frustumGeo, frustumEdges } = getCachedBevel45Frustum(w, h, d, bevelSlopeW);
+      const frustumMesh = new THREE.Mesh(frustumGeo, material);
+      frustumMesh.position.set(cx, cy, cz);
+      frustumMesh.castShadow = true;
+      frustumMesh.receiveShadow = true;
+      frustumMesh.add(new THREE.LineSegments(frustumEdges, revealShadowMat));
+      tagSubMesh(frustumMesh, userData, comp);
+      group.add(frustumMesh);
+    } else if (activeProfile === "custom_cad_profile" && w > 140 && h > 140) {
+      mesh.visible = false;
+      const poly = comp.customCadPolygon;
+      const firstPtY = poly && poly.length >= 3 ? poly[1]?.y ?? 0.65 : 0.65;
+      const bevelSlopeMm = Math.max(14, Math.min(40, Math.round(firstPtY * 32)));
+      const { frustumGeo, frustumEdges } = getCachedBevel45Frustum(w, h, d, bevelSlopeMm);
+      const outerBevel = new THREE.Mesh(frustumGeo, material);
+      outerBevel.position.set(cx, cy, cz);
+      outerBevel.add(new THREE.LineSegments(frustumEdges, revealShadowMat));
+      tagSubMesh(outerBevel, userData, comp);
+      group.add(outerBevel);
     }
   }
 

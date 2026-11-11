@@ -313,9 +313,11 @@ export default function V3ShowroomPage() {
                 <button
                   type="button"
                   onClick={() => setActiveDrawer("none")}
-                  className="text-xs text-stone-400 hover:text-stone-900 cursor-pointer"
+                  title="Kapat"
+                  aria-label="Kapat"
+                  className="w-7 h-7 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-500 hover:text-stone-900 flex items-center justify-center transition cursor-pointer"
                 >
-                  Kapat ✕
+                  ✕
                 </button>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -361,9 +363,11 @@ export default function V3ShowroomPage() {
                 <button
                   type="button"
                   onClick={() => setActiveDrawer("none")}
-                  className="text-xs text-stone-400 hover:text-stone-900 cursor-pointer"
+                  title="Kapat"
+                  aria-label="Kapat"
+                  className="w-7 h-7 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-500 hover:text-stone-900 flex items-center justify-center transition cursor-pointer"
                 >
-                  Kapat ✕
+                  ✕
                 </button>
               </div>
 

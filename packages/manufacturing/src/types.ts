@@ -19,17 +19,20 @@ export interface CutPiece {
   componentRole: string;
   materialId: string;
   materialName: string;
-  lengthMm: UnitLength; // Nominal finished length (Boy — Y axis in panel DXF)
-  widthMm: UnitLength; // Nominal finished width (En — X axis in panel DXF)
+  lengthMm: UnitLength; // Nominal finished length (Boy — along grain when grained, Y axis in panel DXF)
+  widthMm: UnitLength; // Nominal finished width (En — across grain, X axis in panel DXF)
   nominalLengthMm?: UnitLength; // Bitmiş / Anma Boy (mm)
   nominalWidthMm?: UnitLength; // Bitmiş / Anma En (mm)
-  netCutLengthMm?: UnitLength; // Testere Net Kesim Boyu (Bant kalınlığı düşülmüş, mm)
-  netCutWidthMm?: UnitLength; // Testere Net Kesim Eni (Bant kalınlığı düşülmüş, mm)
+  netCutLengthMm?: UnitLength; // Testere Net Kesim Boyu (Bant - Ön Freze düşülmüş, mm)
+  netCutWidthMm?: UnitLength; // Testere Net Kesim Eni (Bant - Ön Freze düşülmüş, mm)
+  preMillingMm?: UnitLength; // Kenar bantlama ön freze bıçak kazıma payı (mm)
   edgeBandCode?: string; // Fabrika kenar bant kodu (ör. "1B 1mm", "4K 1mm", "Bantsız")
   thicknessMm: UnitLength; // Thickness (Kalınlık)
   quantity: number;
   edgeBanding: EdgeBandingConfig;
   grain: GrainDirection;
+  grainGroupId?: string;
+  cncFileName?: string;
   areaM2: number;
   edgeBandMeters: number;
   holes?: DrillingHole[];
@@ -38,14 +41,50 @@ export interface CutPiece {
   mirrorInnerFaceX?: boolean;
   /** Back groove routing active on this panel */
   hasBackGroove?: boolean;
-  /** Back groove distance from rear edge (default 20mm -> groove occupies [rear - 20, rear - 12]) */
+  /** Back groove distance from rear edge (default 18-20mm) */
   backGrooveOffsetMm?: UnitLength;
+  /** Back groove width (t_back + 0.5mm, e.g. 8.5mm) */
+  backGrooveWidthMm?: UnitLength;
+  /** Optional CNC LED groove routing metadata */
+  ledGrooveSpec?: {
+    enabled: boolean;
+    offsetFromFrontMm: UnitLength;
+    widthMm: UnitLength;
+    depthMm: UnitLength;
+    cableExitHole?: boolean;
+  };
+  /** Optional Gola L/C profile notches on front edge of side/divider panels */
+  golaNotches?: {
+    kind: "L_TOP" | "C_MID";
+    yBottomMm: UnitLength;
+    widthMm: UnitLength;
+    heightMm: UnitLength;
+  }[];
+  /** Optional U-shaped siphon cutout on under-sink drawer bottom & back */
+  siphonCutout?: {
+    widthMm: UnitLength;
+    depthMm: UnitLength;
+  };
   /** Explicit sink/cooktop CNC cutout metadata (prevents false cutouts on plain countertops) */
   hasSinkOrHobCutout?: boolean;
   cutoutWidthMm?: UnitLength;
   cutoutDepthMm?: UnitLength;
   cutoutCenterXMm?: UnitLength;
   utilityCutouts?: import("@birim/core").PanelCutoutConfig[];
+  /** Carcass joinery topology (sides_through, top_bottom_through, miter_45, kitchen_stretchers) */
+  carcassJoineryTopology?: "sides_through" | "top_bottom_through" | "miter_45" | "kitchen_stretchers";
+  /** Back panel construction mode (grooved, rebated, nailed, flush, none) */
+  backPanelMode?: "grooved" | "rebated" | "nailed" | "flush" | "none";
+  /** Wooden drawer 8.5mm x 6mm bottom groove (13mm above bottom edge on 16mm wooden sides & front) */
+  hasDrawerBottomGroove?: boolean;
+  drawerBottomGrooveOffsetMm?: UnitLength;
+  drawerBottomGrooveWidthMm?: UnitLength;
+  drawerBottomGrooveDepthMm?: UnitLength;
+  /** Top-left & top-right corner notches on grooved wall-cabinet back panels for EN 14749 hangers */
+  wallHangerCornerNotches?: {
+    widthMm: UnitLength;
+    heightMm: UnitLength;
+  };
 }
 
 export interface HardwareBOMItem {

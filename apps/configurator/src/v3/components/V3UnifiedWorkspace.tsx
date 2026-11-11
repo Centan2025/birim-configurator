@@ -33,6 +33,13 @@ import { V3CadViewport2D } from "./V3CadViewport2D";
 import type { V4ModuleTemplate } from "@birim/catalog";
 import { useConfiguratorStore } from "../../store/useConfiguratorStore";
 import { WorkspaceTopBar } from "./workspace/WorkspaceTopBar";
+import { StudioRenderModal } from "./workspace/StudioRenderModal";
+import { CustomHardwareModal } from "./workspace/CustomHardwareModal";
+import { AssemblyDiagramModal } from "./workspace/AssemblyDiagramModal";
+import { KitchenIslandTableModal } from "./workspace/KitchenIslandTableModal";
+import { getMaterialSwatchStyle } from "../materials/pbrMaterialSystem";
+import { BirimLogo } from "../design-system";
+import { startZeroLagModalDrag } from "../design-system/zeroLagDrag";
 import { EmptyStageRecoveryCard } from "./workspace/EmptyStageRecoveryCard";
 import { SimpleCustomerInspector } from "./workspace/SimpleCustomerInspector";
 import { TapToPlaceController, type TapToPlaceItemSpec } from "./workspace/TapToPlaceController";
@@ -336,7 +343,6 @@ import {
   Wand2,
   SlidersHorizontal,
   ChevronDown,
-  LayoutGrid,
 } from "lucide-react";
 
 const V3ThreeViewport = dynamic(() => import("./V3ThreeViewport"), {
@@ -780,7 +786,7 @@ function renderMaterialSwatchBox(
   return (
     <div
       className={`${cls} border border-stone-300/90 shadow-inner relative overflow-hidden shrink-0`}
-      style={{ backgroundColor: mat.colorHex }}
+      data-material-swatch="true" style={getMaterialSwatchStyle(mat)}
     >
       {(mat.category === "wood" || (mat.category === "laminate" && mat.hasGrain)) && (
         <svg
@@ -947,6 +953,7 @@ export const V3UnifiedWorkspace: React.FC<{
     deleteActiveSelectionSmart,
     selectedComponentId,
     setSelectedComponentMaterial,
+    applyMaterialToSimilarComponents,
     setCountertopMaterial,
     activeBlumEngineering,
     exportBlumBxfString,
@@ -963,6 +970,9 @@ export const V3UnifiedWorkspace: React.FC<{
     setAllWallsSettings,
     moveActiveModule,
     rotateActiveModule90,
+    snapModuleToAngledWall,
+    addKitchenIslandUnit,
+    addOrUpdateAttachedTable,
     applyTemplate,
     loadLinearKitchen,
     loadLKitchen,
@@ -974,6 +984,13 @@ export const V3UnifiedWorkspace: React.FC<{
     commitHistoryTransaction,
     setModuleUtilityCutouts,
     autoResolveCornerCollisions,
+    cncXrayMode,
+    toggleCncXrayMode,
+    studioSplitView,
+    toggleStudioSplitView,
+    autoFixProjectIssues,
+    spaceObstacles,
+    addInteriorItemAtElevation,
   } = useV3Adapter();
 
   const experienceTier = useConfiguratorStore((s) => s.userExperienceTier);
@@ -982,6 +999,7 @@ export const V3UnifiedWorkspace: React.FC<{
   const [mode, setMode] = useState<V3WorkspaceMode>(initialMode);
   const [canvasTheme, setCanvasTheme] = useState<"warm-light" | "dark">("warm-light");
   const [leftOpen, setLeftOpen] = useState(false);
+  const [selectedPartMatScope, setSelectedPartMatScope] = useState<"single" | "module_similar" | "project_similar">("single");
   const [leftTab, setLeftTab] = useState<
     "quick_wizard" | "templates" | "interior" | "materials" | "accessories" | "hardware"
   >("quick_wizard");
@@ -1024,8 +1042,32 @@ export const V3UnifiedWorkspace: React.FC<{
         setMaterialValidationErrorMsg(null);
       }
     };
+    let rangeTxActive = false;
+    const onRangePointerDown = (ev: PointerEvent) => {
+      const t = ev.target as HTMLInputElement | null;
+      if (t && t.tagName === "INPUT" && t.type === "range") {
+        // Skip purely visual camera/door angle sliders that don't mutate project history
+        if (t.dataset.testid === "showroom-drawer-open-slider") return;
+        rangeTxActive = true;
+        beginHistoryTransaction();
+      }
+    };
+    const onRangePointerUp = () => {
+      if (rangeTxActive) {
+        rangeTxActive = false;
+        commitHistoryTransaction();
+      }
+    };
+    window.addEventListener("pointerdown", onRangePointerDown, true);
+    window.addEventListener("pointerup", onRangePointerUp, true);
+    window.addEventListener("pointercancel", onRangePointerUp, true);
     window.addEventListener("keydown", onGlobalKeyDown);
-    return () => window.removeEventListener("keydown", onGlobalKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onGlobalKeyDown);
+      window.removeEventListener("pointerdown", onRangePointerDown, true);
+      window.removeEventListener("pointerup", onRangePointerUp, true);
+      window.removeEventListener("pointercancel", onRangePointerUp, true);
+    };
   }, []);
   const [leftSubCat, setLeftSubCat] = useState<string>("dolap");
   const [openRightDrawer, setOpenRightDrawer] = useState<null | "material" | "handle" | "soket" | "more_menu">(null);
@@ -1056,6 +1098,28 @@ export const V3UnifiedWorkspace: React.FC<{
   const [showAdminModal, setShowAdminModal] = useState(false);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [isBomModalOpen, setIsBomModalOpen] = useState(false);
+  const [showAssemblyModal, setShowAssemblyModal] = useState(false);
+  const [showStudioRenderModal, setShowStudioRenderModal] = useState(false);
+  const [showCustomHardwareModal, setShowCustomHardwareModal] = useState(false);
+  const [showIslandTableModal, setShowIslandTableModal] = useState(false);
+  const [interiorPropsVisible, setInteriorPropsVisible] = useState(true);
+  const [customCatalogTick, setCustomCatalogTick] = useState(0);
+  void customCatalogTick;
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onOpenRender = () => setShowStudioRenderModal(true);
+    const onPropsChanged = (ev: Event) => {
+      const vis = (ev as CustomEvent<{ visible?: boolean }>).detail?.visible;
+      if (typeof vis === "boolean") setInteriorPropsVisible(vis);
+    };
+    window.addEventListener("birim:open-studio-render-modal", onOpenRender);
+    window.addEventListener("birim:interior-props-changed", onPropsChanged);
+    return () => {
+      window.removeEventListener("birim:open-studio-render-modal", onOpenRender);
+      window.removeEventListener("birim:interior-props-changed", onPropsChanged);
+    };
+  }, []);
   const [bomModalInitialTab, setBomModalInitialTab] = useState<
     "cutlist" | "hardware" | "nesting" | "validation" | "assembly" | "selco" | "cnc_mpr_cix" | "quote" | "blum_bxf"
   >("cutlist");
@@ -1205,12 +1269,12 @@ export const V3UnifiedWorkspace: React.FC<{
     if (!resizingPanel) return;
     const onMouseMove = (ev: MouseEvent) => {
       if (resizingPanel === "studio-left") {
-        setStudioLeftWidthPx(Math.max(380, Math.min(650, ev.clientX)));
+        setStudioLeftWidthPx(Math.max(360, Math.min(640, ev.clientX - 14)));
       } else if (resizingPanel === "plan-left") {
-        setPlanLeftWidthPx(Math.max(210, Math.min(540, ev.clientX)));
+        setPlanLeftWidthPx(Math.max(240, Math.min(540, ev.clientX - 12)));
       } else if (resizingPanel === "studio-right") {
         setStudioRightWidthPx(
-          Math.max(280, Math.min(580, window.innerWidth - ev.clientX))
+          Math.max(320, Math.min(560, window.innerWidth - ev.clientX - 14))
         );
       } else if (resizingPanel === "plan-split") {
         const dragState = splitDragStartRef.current;
@@ -2227,7 +2291,7 @@ export const V3UnifiedWorkspace: React.FC<{
     <div
       data-testid="v3-unified-root"
       data-active-mode={mode}
-      className="flex flex-col h-screen w-screen overflow-hidden bg-[#F5F3EE] text-[#141413] font-sans select-none"
+      className="relative flex flex-col h-screen w-screen overflow-hidden bg-[#B8B0A4] text-[#141413] font-sans select-none"
     >
       {/* 1. BİRİM ARCHITECTURAL STUDIO TOP BAR (3-Persona Progressive Disclosure) */}
       {!(mode === "showroom" && zenMode) && (
@@ -2236,6 +2300,11 @@ export const V3UnifiedWorkspace: React.FC<{
           mode={mode}
           studioView={studioView}
           studio2DMode={studio2DMode}
+          studioSplitView={studioSplitView}
+          cncXrayMode={cncXrayMode}
+          floating={mode !== "plan"}
+          onToggleStudioSplitView={toggleStudioSplitView}
+          onToggleCncXrayMode={toggleCncXrayMode}
           experienceTier={experienceTier}
           canUndo={canUndo}
           canRedo={canRedo}
@@ -2248,6 +2317,10 @@ export const V3UnifiedWorkspace: React.FC<{
           }}
           onOpenQuickSell={() => setShowQuickSellModal(true)}
           onOpenBomModal={() => setIsBomModalOpen(true)}
+          onOpenAssemblyModal={() => setShowAssemblyModal(true)}
+          onOpenStudioRenderModal={() => setShowStudioRenderModal(true)}
+          onOpenCustomHardwareModal={() => setShowCustomHardwareModal(true)}
+          onOpenIslandTableModal={() => setShowIslandTableModal(true)}
           onOpenVisualCatalog={() => setIsVisualCatalogOpen(true)}
           onOpenArAnd3DModal={() => setShowArAnd3DModal(true)}
           onOpenRulesModal={() => setShowRulesModal(true)}
@@ -2288,8 +2361,10 @@ export const V3UnifiedWorkspace: React.FC<{
             {/* SMART 1-LINE DELETE INTENT CHOICE BAR (Appears when pressing Delete on Door or Carcass Panel) */}
       {pendingDeletePrompt && (
         <div
+          data-draggable-shell="delete-bar"
           data-testid="smart-delete-choice-bar"
-          className="fixed top-[104px] left-1/2 -translate-x-1/2 z-[70] max-w-[92vw] px-4 py-2.5 rounded-3xl birim-ice-popover border border-white/85 shadow-2xl flex flex-wrap items-center gap-2 text-xs text-[#141413]"
+          onPointerDown={(e) => startZeroLagModalDrag(e)}
+          className="fixed top-[72px] left-1/2 -translate-x-1/2 z-[70] max-w-[92vw] px-4 py-2.5 rounded-full birim-ice-popover flex flex-wrap items-center gap-2 text-xs text-[#141413] cursor-grab active:cursor-grabbing"
         >
           <span className="font-semibold text-[#141413] mr-1">
             {pendingDeletePrompt.kind === "door"
@@ -2727,26 +2802,32 @@ export const V3UnifiedWorkspace: React.FC<{
       )}
 
       {/* 2. MAIN UNIFIED WORKSPACE STAGE (Persists WebGL Canvas without unmounting!) */}
-      <div className="flex-1 relative overflow-hidden">
+      <div className="flex-1 flex overflow-hidden relative">
         {/* EKRAN 7 (FAZ 1, 2 & 3): PLAN MODU SOL İKON SÜTUNU + MEKÂN ÇİZİMİ PANELİ (Matches image_da6ae9.jpg 1-to-1) */}
         {mode === "plan" && (
           <aside
             data-testid="plan-left-panel"
-            className={`absolute left-2.5 top-2.5 bottom-2.5 rounded-3xl overflow-hidden border border-white/80 shadow-[0_16px_48px_rgba(15,23,42,0.18)] birim-ice-drawer text-[#111827] flex flex-row z-30 ${
-              resizingPanel === "plan-left" ? "" : "transition-[width] duration-200 ease-out"
-            }`}
-            style={{
-              width: planLeftOpen
-                ? isCompactViewport
-                  ? "56px"
-                  : `${planLeftWidthPx}px`
-                : "56px",
-            }}
+            className="bg-transparent p-2.5 text-[#111827] flex flex-row items-stretch z-30 shrink-0 relative"
           >
-            {/* FAR-LEFT 7-ITEM VERTICAL ICON RAIL FOR PLAN MODE (Mekân | Modüller | Ölçü | Katmanlar | Görünüm | DXF / DWG | Ayarlar) */}
+            <div
+              data-draggable-shell="plan-left-shell"
+              className={`relative h-full birim-ice-rail-pill rounded-[28px] overflow-hidden flex flex-row items-stretch max-w-[calc(100vw-24px)] ${
+                resizingPanel === "plan-left" ? "birim-ice-resizing-none" : "birim-ice-unified-shell"
+              }`}
+              style={{
+                width: planLeftOpen
+                  ? isCompactViewport
+                    ? "min(376px, calc(100vw - 24px))"
+                    : `${planLeftWidthPx}px`
+                  : "56px",
+              }}
+            >
+            {/* FAR-LEFT INTEGRATED ICON RAIL FOR PLAN MODE */}
             <div
               data-testid="plan-left-icon-rail"
-              className="w-[56px] birim-ice-rail border-r py-2.5 px-1.5 flex flex-col items-center justify-between shrink-0 select-none"
+              className={`w-[56px] h-full py-2.5 px-1.5 flex flex-col items-center justify-between shrink-0 select-none transition-colors duration-300 ${
+                planLeftOpen ? "border-r border-white/60 bg-white/14" : "border-r border-transparent"
+              }`}
             >
               <div className="w-full space-y-1.5 flex flex-col items-center">
                 {[
@@ -2857,32 +2938,51 @@ export const V3UnifiedWorkspace: React.FC<{
                   data-testid="plan-toggle-left-panel-btn"
                   onClick={() => setPlanLeftOpen((v) => !v)}
                   title={planLeftOpen ? "Sol Paneli Daralt" : "Sol Paneli Aç"}
-                  className="p-1.5 rounded-lg text-[#475569] hover:text-[#111827] hover:bg-[#E2E8F0] transition cursor-pointer"
+                  className="w-10 h-10 rounded-2xl bg-white/72 hover:bg-white/92 border border-white/88 shadow-2xs flex items-center justify-center text-[#3A3632] hover:text-[#141413] transition cursor-pointer"
                 >
-                  {planLeftOpen ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                  <ChevronRight
+                    className={`w-4 h-4 transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                      planLeftOpen ? "rotate-180" : "rotate-0"
+                    }`}
+                  />
                 </button>
               </div>
             </div>
 
-            {/* PLAN LEFT PANEL MAIN CONTENT (Responsive: Docked on Desktop, Frosted Slide-Over Drawer on <1180px) */}
-            {planLeftOpen && (
+            {/* PLAN LEFT PANEL MAIN CONTENT — ALWAYS MOUNTED INSIDE UNIFIED FROSTED SHELL */}
+            <div className="flex-1 min-w-0 h-full overflow-hidden">
               <div
-                className={`flex-1 flex flex-col min-w-0 min-h-0 ${
-                  isCompactViewport
-                    ? "fixed left-[56px] top-[94px] bottom-[48px] w-[320px] max-w-[calc(100vw-68px)] z-40 birim-ice-popover rounded-2xl"
-                    : "bg-white/45 backdrop-blur-2xl"
+                aria-hidden={!planLeftOpen}
+                className={`h-full flex flex-col min-h-0 ${
+                  planLeftOpen ? "birim-ice-drawer-open" : "birim-ice-drawer-closed"
                 }`}
+                style={{
+                  width: isCompactViewport
+                    ? "min(320px, calc(100vw - 80px))"
+                    : `${Math.max(240, planLeftWidthPx - 56)}px`,
+                }}
               >
                 {/* Title + 2 Workflow Tabs */}
                 <div className="px-3.5 pt-3 pb-2 border-b border-[#E2E8F0] space-y-2.5">
                   <div className="flex items-center justify-between">
                     <h2 className="text-sm font-extrabold text-[#111827]">Mekân Çizimi</h2>
-                    <span className="text-[11px] font-mono text-[#64748B]">
-                      {activeSpatialMetrics.roomAreaM2.toLocaleString("tr-TR", {
-                        minimumFractionDigits: 2,
-                      })}{" "}
-                      m²
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] font-mono text-[#64748B]">
+                        {activeSpatialMetrics.roomAreaM2.toLocaleString("tr-TR", {
+                          minimumFractionDigits: 2,
+                        })}{" "}
+                        m²
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setPlanLeftOpen(false)}
+                        title="Kataloğu Kapat"
+                        aria-label="Kapat"
+                        className="w-7 h-7 rounded-xl bg-[#F1F5F9] hover:bg-[#E2E8F0] text-[#475569] hover:text-[#111827] flex items-center justify-center transition cursor-pointer shrink-0"
+                      >
+                        ✕
+                      </button>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-1 p-1 rounded-xl bg-[#F1F5F9] border border-[#E2E8F0]">
@@ -3380,194 +3480,274 @@ export const V3UnifiedWorkspace: React.FC<{
                   </div>
                 )}
               </div>
-            )}
+            </div>
+            </div>
           </aside>
         )}
 
-                {/* LEFT PANEL — DESIGN STUDIO: 56px FROSTED ICE PURE ICON RAIL + SEMI-TRANSPARENT LIBRARY */}
+        {/* LEFT PANEL — DESIGN STUDIO: UNIFIED SMOOTH-EXPANDING FROSTED ICE SHELL (image_cf849e.png <-> image_cd45e6.png) */}
         {mode === "studio" && (
           <aside
             data-testid="studio-left-library"
-            className="absolute left-2.5 top-2.5 bottom-2.5 rounded-3xl overflow-hidden border border-white/80 shadow-[0_16px_48px_rgba(15,23,42,0.18)] birim-ice-drawer text-[#111827] flex flex-row z-30 transition-[width] duration-200 ease-out"
-            style={{
-              width: leftOpen
-                ? isCompactViewport
-                  ? "56px"
-                  : `min(${studioLeftWidthPx}px, clamp(300px, 25vw, 444px))`
-                : "56px",
-            }}
+            className="absolute left-3.5 top-[62px] bottom-[64px] bg-transparent pointer-events-none text-[#111827] flex flex-row items-stretch z-30"
           >
-            {leftOpen && (
+            {/* SINGLE UNIFIED ROUNDED-[28px] FROSTED-ICE GLASS SHELL (Smoothly expands 56px <-> ~396px!) */}
+            <div
+              data-draggable-shell="studio-left-shell"
+              className={`pointer-events-auto relative h-full birim-ice-rail-pill rounded-[28px] overflow-hidden flex flex-row items-stretch max-w-[calc(100vw-28px)] ${
+                resizingPanel === "studio-left"
+                  ? "birim-ice-resizing-none"
+                  : !leftOpen
+                  ? "birim-rail-expandable birim-ice-unified-shell"
+                  : "birim-ice-unified-shell"
+              }`}
+              style={
+                leftOpen
+                  ? {
+                      width: isCompactViewport
+                        ? "min(392px, calc(100vw - 28px))"
+                        : `min(${studioLeftWidthPx}px, clamp(368px, 29vw, 460px))`,
+                    }
+                  : undefined
+              }
+            >
+              {leftOpen && !isCompactViewport && (
+                <div
+                  data-testid="studio-left-resize-handle"
+                  title="Sol panel genişliğini değiştirmek için sürükleyin"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    setResizingPanel("studio-left");
+                  }}
+                  className="pointer-events-auto absolute top-4 right-0 w-2.5 bottom-4 rounded-full cursor-col-resize hover:bg-white/60 z-40 transition-colors"
+                />
+              )}
+
+              {/* INTEGRATED 56px ICON COLUMN INSIDE UNIFIED FROSTED SHELL */}
               <div
-                data-testid="studio-left-resize-handle"
-                title="Sol panel genişliğini değiştirmek için sürükleyin"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  setResizingPanel("studio-left");
-                }}
-                className="absolute top-0 right-0 w-1.5 h-full cursor-col-resize hover:bg-stone-400/40 z-30 transition-colors"
-              />
-            )}
-
-            {/* FAR-LEFT FROSTED ICE PURE ICON RAIL */}
-            <div className="w-[56px] birim-ice-rail border-r py-2.5 px-1.5 flex flex-col items-center justify-between shrink-0 select-none">
-              <div className="w-full space-y-1.5 flex flex-col items-center">
-                <button
-                  type="button"
-                  data-testid="studio-tab-quick-wizard"
-                  onClick={() => {
-                    startTransition(() => {
-                      setLeftTab("quick_wizard");
-                      setLeftOpen((prev) => (leftTab === "quick_wizard" ? !prev : true));
-                    });
-                  }}
-                  className={`w-10 h-10 rounded-xl flex items-center justify-center transition cursor-pointer ${
-                    leftOpen && leftTab === "quick_wizard"
-                      ? "birim-ice-btn-active"
-                      : "text-[#57534E] hover:bg-white/75 hover:text-[#141413]"
-                  }`}
-                  title="Hızlı Gövde Sihirbazı"
-                >
-                  <Sparkles className={`w-4 h-4 ${leftOpen && leftTab === "quick_wizard" ? "text-[#E5D3B8]" : "text-[#8C7A6B]"}`} />
-                  <span className="sr-only">Sihirbaz</span>
-                </button>
-
-                <button
-                  type="button"
-                  data-testid="studio-tab-templates"
-                  title="Modül Şablonları"
-                  onClick={() => {
-                    startTransition(() => {
-                      setLeftTab("templates");
-                      setStudioInspectorTab("dimensions");
-                      setLeftOpen(true);
-                    });
-                  }}
-                  className={`w-10 h-10 rounded-xl flex items-center justify-center transition cursor-pointer ${
-                    leftOpen && leftTab === "templates" && studioInspectorTab !== "interior" && studioInspectorTab !== "material" && studioInspectorTab !== "all"
-                      ? "birim-ice-btn-active"
-                      : "text-[#57534E] hover:bg-white/75 hover:text-[#141413]"
-                  }`}
-                >
-                  <Package className="w-4 h-4" />
-                  <span className="sr-only">Modüller</span>
-                </button>
-
-                <button
-                  type="button"
-                  data-testid="studio-tab-interior"
-                  onClick={() => {
-                    startTransition(() => {
-                      setLeftTab("interior");
-                      setStudioInspectorTab("interior");
-                      setLeftOpen(true);
-                      if (doorOpenAngleDeg === 0 && !doorsHiddenStudio) {
-                        setDoorOpenAngleDeg(85);
-                      }
-                    });
-                  }}
-                  className={`w-10 h-10 rounded-xl flex items-center justify-center transition cursor-pointer ${
-                    leftOpen && (leftTab === "interior" || studioInspectorTab === "interior")
-                      ? "birim-ice-btn-active"
-                      : "text-[#57534E] hover:bg-white/75 hover:text-[#141413]"
-                  }`}
-                  title="İç Düzen (Raf, Çekmece, Askılık ve Bölme)"
-                >
-                  <Layers className="w-4 h-4" />
-                  <span className="sr-only">İç Düzen</span>
-                </button>
-
-                <button
-                  type="button"
-                  data-testid="studio-tab-materials"
-                  title="Malzeme, Renk ve Doku Kütüphanesi"
-                  onClick={() => {
-                    startTransition(() => {
-                      setLeftTab("materials");
-                      setStudioInspectorTab("material");
-                      setLeftOpen(true);
-                    });
-                  }}
-                  className={`w-10 h-10 rounded-xl flex items-center justify-center transition cursor-pointer ${
-                    leftOpen && (leftTab === "materials" || studioInspectorTab === "material")
-                      ? "birim-ice-btn-active"
-                      : "text-[#57534E] hover:bg-white/75 hover:text-[#141413]"
-                  }`}
-                >
-                  <Palette className="w-4 h-4" />
-                  <span className="sr-only">Malzeme</span>
-                </button>
-
-                <button
-                  type="button"
-                  data-testid="studio-tab-hardware"
-                  onClick={() => {
-                    startTransition(() => {
-                      setLeftTab("hardware");
-                      setStudioInspectorTab("all");
-                      setLeftOpen(true);
-                    });
-                  }}
-                  className={`${
-                    isSimpleBlumMode ? "sr-only" : "w-10 h-10 rounded-xl flex items-center justify-center transition cursor-pointer"
-                  } ${
-                    leftOpen && (leftTab === "hardware" || studioInspectorTab === "all")
-                      ? "birim-ice-btn-active"
-                      : "text-[#57534E] hover:bg-white/75 hover:text-[#141413]"
-                  }`}
-                  title="Blum, Hettich & Häfele Donanım Kütüphanesi"
-                >
-                  <Wrench className="w-4 h-4" />
-                  <span className="sr-only">Donanım</span>
-                </button>
-
-                <div className="w-7 h-px bg-slate-900/10 my-1" />
-
-                <button
-                  type="button"
-                  data-testid="v4-open-floating-catalog-btn"
-                  title="Tam Ekran Görsel Katalog"
-                  onClick={() => setIsVisualCatalogOpen(true)}
-                  className="w-10 h-10 rounded-xl flex items-center justify-center text-[#57534E] hover:bg-white/75 hover:text-[#141413] transition cursor-pointer"
-                >
-                  <Maximize2 className="w-4 h-4" />
-                  <span className="sr-only">Katalog</span>
-                </button>
-
-                <button
-                  type="button"
-                  data-testid="v3-open-projects-btn"
-                  title="Kayıtlı Projeler"
-                  onClick={() => setIsProjectModalOpen(true)}
-                  className="w-10 h-10 rounded-xl flex items-center justify-center text-[#57534E] hover:bg-white/75 hover:text-[#141413] transition cursor-pointer"
-                >
-                  <FolderOpen className="w-4 h-4" />
-                  <span className="sr-only">Projeler</span>
-                </button>
-              </div>
-
-              <div className="flex flex-col items-center gap-1.5">
-                <button
-                  type="button"
-                  data-testid="studio-toggle-left"
-                  onClick={() => setLeftOpen(!leftOpen)}
-                  title={leftOpen ? "Sol Paneli Daralt" : "Sol Paneli Aç"}
-                  className="w-9 h-9 rounded-xl birim-ice-btn flex items-center justify-center text-[#57534E] hover:text-[#141413] transition cursor-pointer"
-                >
-                  {leftOpen ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
-
-            {/* MAIN LEFT LIBRARY CONTENT AREA */}
-            {leftOpen && (
-              <div
-                className={`flex-1 flex flex-col min-w-0 min-h-0 ${
-                  isCompactViewport
-                    ? "fixed left-[56px] top-[50px] bottom-[52px] w-[340px] max-w-[calc(100vw-68px)] z-40 birim-ice-popover rounded-2xl"
-                    : "bg-white/40 backdrop-blur-2xl border-r border-white/70"
-                }`}
+                data-testid="studio-left-icon-rail"
+                onPointerDown={(e) => startZeroLagModalDrag(e, "[data-draggable-shell='studio-left-shell']")}
+                className={`${
+                  leftOpen ? "w-[56px] items-center border-r border-white/60 bg-white/14" : "w-full items-stretch border-r border-transparent"
+                } h-full py-2.5 px-1.5 flex flex-col justify-between shrink-0 select-none cursor-grab active:cursor-grabbing transition-colors duration-300`}
               >
+                <div className={`w-full space-y-1.5 flex flex-col ${leftOpen ? "items-center" : "items-stretch"}`}>
+                  <button
+                    type="button"
+                    data-testid="studio-tab-quick-wizard"
+                    onClick={() => {
+                      startTransition(() => {
+                        if (leftOpen && leftTab === "quick_wizard") {
+                          setLeftOpen(false);
+                        } else {
+                          setLeftTab("quick_wizard");
+                          setLeftOpen(true);
+                        }
+                      });
+                    }}
+                    className={`${leftOpen ? "w-10 justify-center" : "w-full px-2.5 justify-start"} h-10 rounded-2xl flex items-center transition cursor-pointer ${
+                      leftOpen && leftTab === "quick_wizard"
+                        ? "birim-ice-btn-active"
+                        : !leftOpen && leftTab === "quick_wizard"
+                        ? "birim-ice-rail-icon-active"
+                        : "text-[#44403C] hover:bg-white/70 hover:text-[#141413]"
+                    }`}
+                    title="Hızlı Gövde Sihirbazı"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    {!leftOpen ? <span className="birim-rail-item-label text-[11px] font-bold">Sihirbaz</span> : <span className="sr-only">Sihirbaz</span>}
+                  </button>
+
+                  <button
+                    type="button"
+                    data-testid="studio-tab-templates"
+                    title="Modül Şablonları"
+                    onClick={() => {
+                      startTransition(() => {
+                        if (leftOpen && leftTab === "templates") {
+                          setLeftOpen(false);
+                        } else {
+                          setLeftTab("templates");
+                          setStudioInspectorTab("dimensions");
+                          setLeftOpen(true);
+                        }
+                      });
+                    }}
+                    className={`${leftOpen ? "w-10 justify-center" : "w-full px-2.5 justify-start"} h-10 rounded-2xl flex items-center transition cursor-pointer ${
+                      leftOpen && leftTab === "templates"
+                        ? "birim-ice-btn-active"
+                        : !leftOpen && leftTab === "templates"
+                        ? "birim-ice-rail-icon-active"
+                        : "text-[#57534E] hover:bg-white/70 hover:text-[#141413]"
+                    }`}
+                  >
+                    <Package className="w-4 h-4" />
+                    {!leftOpen ? <span className="birim-rail-item-label text-[11px] font-bold">Modüller</span> : <span className="sr-only">Modüller</span>}
+                  </button>
+
+                  <button
+                    type="button"
+                    data-testid="studio-tab-interior"
+                    onClick={() => {
+                      startTransition(() => {
+                        if (leftOpen && leftTab === "interior") {
+                          setLeftOpen(false);
+                        } else {
+                          setLeftTab("interior");
+                          setStudioInspectorTab("interior");
+                          setLeftOpen(true);
+                          if (doorOpenAngleDeg === 0 && !doorsHiddenStudio) {
+                            setDoorOpenAngleDeg(85);
+                          }
+                        }
+                      });
+                    }}
+                    className={`${leftOpen ? "w-10 justify-center" : "w-full px-2.5 justify-start"} h-10 rounded-2xl flex items-center transition cursor-pointer ${
+                      leftOpen && leftTab === "interior"
+                        ? "birim-ice-btn-active"
+                        : !leftOpen && leftTab === "interior"
+                        ? "birim-ice-rail-icon-active"
+                        : "text-[#57534E] hover:bg-white/70 hover:text-[#141413]"
+                    }`}
+                    title="İç Düzen (Raf, Çekmece, Askılık ve Bölme)"
+                  >
+                    <Layers className="w-4 h-4" />
+                    {!leftOpen ? <span className="birim-rail-item-label text-[11px] font-bold">İç Düzen</span> : <span className="sr-only">İç Düzen</span>}
+                  </button>
+
+                  <button
+                    type="button"
+                    data-testid="studio-tab-materials"
+                    title="Malzeme, Renk ve Doku Kütüphanesi"
+                    onClick={() => {
+                      startTransition(() => {
+                        if (leftOpen && leftTab === "materials") {
+                          setLeftOpen(false);
+                        } else {
+                          setLeftTab("materials");
+                          setStudioInspectorTab("material");
+                          setLeftOpen(true);
+                        }
+                      });
+                    }}
+                    className={`${leftOpen ? "w-10 justify-center" : "w-full px-2.5 justify-start"} h-10 rounded-2xl flex items-center transition cursor-pointer ${
+                      leftOpen && leftTab === "materials"
+                        ? "birim-ice-btn-active"
+                        : !leftOpen && leftTab === "materials"
+                        ? "birim-ice-rail-icon-active"
+                        : "text-[#57534E] hover:bg-white/70 hover:text-[#141413]"
+                    }`}
+                  >
+                    <Palette className="w-4 h-4" />
+                    {!leftOpen ? <span className="birim-rail-item-label text-[11px] font-bold">Malzeme</span> : <span className="sr-only">Malzeme</span>}
+                  </button>
+
+                  <button
+                    type="button"
+                    data-testid="studio-tab-hardware"
+                    onClick={() => {
+                      startTransition(() => {
+                        if (leftOpen && leftTab === "hardware") {
+                          setLeftOpen(false);
+                        } else {
+                          setLeftTab("hardware");
+                          setStudioInspectorTab("all");
+                          setLeftOpen(true);
+                        }
+                      });
+                    }}
+                    className={`${
+                      isSimpleBlumMode ? "sr-only" : `${leftOpen ? "w-10 justify-center" : "w-full px-2.5 justify-start"} h-10 rounded-2xl flex items-center transition cursor-pointer`
+                    } ${
+                      leftOpen && leftTab === "hardware"
+                        ? "birim-ice-btn-active"
+                        : !leftOpen && leftTab === "hardware"
+                        ? "birim-ice-rail-icon-active"
+                        : "text-[#57534E] hover:bg-white/70 hover:text-[#141413]"
+                    }`}
+                    title="Blum, Hettich & Häfele Donanım Kütüphanesi"
+                  >
+                    <Wrench className="w-4 h-4" />
+                    {!leftOpen ? <span className="birim-rail-item-label text-[11px] font-bold">Donanım</span> : <span className="sr-only">Donanım</span>}
+                  </button>
+
+                  <div className="w-7 h-px bg-slate-900/10 my-1" />
+
+                  <button
+                    type="button"
+                    data-testid="open-custom-hardware-btn"
+                    data-tooltip="Yeni Kulp & Özel Donanım Tanımla"
+                    onClick={() => setShowCustomHardwareModal(true)}
+                    className={`${leftOpen ? "w-10 justify-center" : "w-full px-2.5 justify-start"} h-10 rounded-2xl flex items-center text-[#57534E] hover:bg-white/75 hover:text-[#141413] transition cursor-pointer`}
+                  >
+                    <span className="text-sm leading-none">🔩</span>
+                    {!leftOpen ? <span className="birim-rail-item-label text-[11px] font-bold">Yeni Kulp</span> : <span className="sr-only">Yeni Kulp &amp; Donanım</span>}
+                  </button>
+
+                  <button
+                    type="button"
+                    data-testid="open-island-table-btn"
+                    data-tooltip="Şelale Ada Mutfak & Çok Açılı Masa Stüdyosu"
+                    onClick={() => setShowIslandTableModal(true)}
+                    className={`${leftOpen ? "w-10 justify-center" : "w-full px-2.5 justify-start"} h-10 rounded-2xl flex items-center text-[#57534E] hover:bg-white/75 hover:text-[#141413] transition cursor-pointer`}
+                  >
+                    <span className="text-sm leading-none">🏝️</span>
+                    {!leftOpen ? <span className="birim-rail-item-label text-[11px] font-bold">Ada &amp; Masa</span> : <span className="sr-only">Ada Mutfak &amp; Masa</span>}
+                  </button>
+
+                  <button
+                    type="button"
+                    data-testid="v4-open-floating-catalog-btn"
+                    data-tooltip="Tam Ekran Görsel Katalog"
+                    onClick={() => setIsVisualCatalogOpen(true)}
+                    className={`${leftOpen ? "w-10 justify-center" : "w-full px-2.5 justify-start"} h-10 rounded-2xl flex items-center text-[#57534E] hover:bg-white/75 hover:text-[#141413] transition cursor-pointer`}
+                  >
+                    <Maximize2 className="w-4 h-4" />
+                    {!leftOpen ? <span className="birim-rail-item-label text-[11px] font-bold">Katalog</span> : <span className="sr-only">Katalog</span>}
+                  </button>
+
+                  <button
+                    type="button"
+                    data-testid="v3-open-projects-btn"
+                    title="Kayıtlı Projeler"
+                    onClick={() => setIsProjectModalOpen(true)}
+                    className={`${leftOpen ? "w-10 justify-center" : "w-full px-2.5 justify-start"} h-10 rounded-2xl flex items-center text-[#57534E] hover:bg-white/75 hover:text-[#141413] transition cursor-pointer`}
+                  >
+                    <FolderOpen className="w-4 h-4" />
+                    {!leftOpen ? <span className="birim-rail-item-label text-[11px] font-bold">Projeler</span> : <span className="sr-only">Projeler</span>}
+                  </button>
+                </div>
+
+                <div className="flex flex-col items-center gap-1.5">
+                  <button
+                    type="button"
+                    data-testid="studio-toggle-left"
+                    onClick={() => setLeftOpen((v) => !v)}
+                    title={leftOpen ? "Sol Paneli Daralt" : "Sol Paneli Aç"}
+                    className="w-10 h-10 rounded-2xl bg-white/72 hover:bg-white/92 border border-white/88 shadow-2xs flex items-center justify-center text-[#3A3632] hover:text-[#141413] transition cursor-pointer"
+                  >
+                    <ChevronRight
+                      className={`w-4 h-4 transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                        leftOpen ? "rotate-180" : "rotate-0"
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
+
+              {/* ALWAYS-MOUNTED EXPANDING CONTENT PANE INSIDE UNIFIED FROSTED SHELL */}
+              <div className="flex-1 min-w-0 h-full overflow-hidden">
+                <div
+                  aria-hidden={!leftOpen}
+                  className={`h-full flex flex-col min-h-0 ${
+                    leftOpen ? "birim-ice-drawer-open" : "birim-ice-drawer-closed"
+                  }`}
+                  style={{
+                    width: isCompactViewport
+                      ? "min(336px, calc(100vw - 84px))"
+                      : `calc(min(${studioLeftWidthPx}px, clamp(368px, 29vw, 460px)) - 56px)`,
+                  }}
+                >
 
                 {(() => {
                   if (leftTab === "quick_wizard") {
@@ -3577,8 +3757,11 @@ export const V3UnifiedWorkspace: React.FC<{
                     data-testid="quick-cabinet-wizard-panel"
                     className="flex-1 flex flex-col min-h-0 bg-transparent"
                   >
-                    {/* Header */}
-                    <div className="px-4 py-3 border-b border-white/70 bg-white/35 backdrop-blur-xl">
+                    {/* Header (Zero-Lag Draggable) */}
+                    <div
+                      onPointerDown={(e) => startZeroLagModalDrag(e, "[data-draggable-shell='studio-left-shell']")}
+                      className="px-4 py-3 birim-ice-shell-header cursor-grab active:cursor-grabbing select-none"
+                    >
                       <div className="flex items-center justify-between gap-2">
                         <div>
                           <h2 className="text-xs font-bold uppercase tracking-wider text-[#141413]">
@@ -3588,18 +3771,29 @@ export const V3UnifiedWorkspace: React.FC<{
                             Seçimleriniz anında sağdaki 3D modele yansır
                           </p>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => setQuickLiveSync((v) => !v)}
-                          className={`px-2 py-1 rounded-md border text-[10px] font-semibold transition cursor-pointer ${
-                            quickLiveSync
-                              ? "bg-[#141413] text-[#FAF9F6] border-[#141413]"
-                              : "bg-white text-[#57534E] border-[#DED8CC]"
-                          }`}
-                          title="Seçimleri tıkladığınız anda sağdaki 3D sahneye uygular"
-                        >
-                          {quickLiveSync ? "Canlı 3D: Açık" : "Canlı 3D: Kapalı"}
-                        </button>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setQuickLiveSync((v) => !v)}
+                            className={`px-2 py-1 rounded-md border text-[10px] font-semibold transition cursor-pointer ${
+                              quickLiveSync
+                                ? "bg-[#141413] text-[#FAF9F6] border-[#141413]"
+                                : "bg-white text-[#57534E] border-[#DED8CC]"
+                            }`}
+                            title="Seçimleri tıkladığınız anda sağdaki 3D sahneye uygular"
+                          >
+                            {quickLiveSync ? "Canlı 3D: Açık" : "Canlı 3D: Kapalı"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setLeftOpen(false)}
+                            title="Kataloğu Kapat"
+                            aria-label="Kapat"
+                            className="w-7 h-7 rounded-xl bg-white/80 hover:bg-white border border-[#DED8CC] text-[#57534E] hover:text-[#141413] flex items-center justify-center transition cursor-pointer"
+                          >
+                            ✕
+                          </button>
+                        </div>
                       </div>
 
                       {/* Live Isometric Preview Card inside Wizard */}
@@ -3907,7 +4101,7 @@ export const V3UnifiedWorkspace: React.FC<{
                   if (leftTab === "interior" || (leftTab === "templates" && studioInspectorTab === "interior")) {
                     return (
                       /* 🚪 İÇ DÜZEN KÜTÜPHANESİ (FULL HEIGHT) */
-                  <div className="flex-1 flex flex-col min-h-0 bg-transparent">
+                  <div className="flex-1 flex flex-col min-h-0 bg-white">
                     {(() => {
                       const interiorLibraryCatalog = [
                         {
@@ -4080,9 +4274,20 @@ export const V3UnifiedWorkspace: React.FC<{
                                 Seçili: Bölme {activeBayIndex + 1} ({currentBayWidthMm} mm)
                               </span>
                             </div>
-                            <span className="px-2 py-0.5 rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] text-[10px] font-bold text-[#1D4ED8]">
-                              🖐️ Sürükle-Bırak veya Tıkla
-                            </span>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span className="px-2 py-0.5 rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] text-[10px] font-bold text-[#1D4ED8]">
+                                🖐️ Sürükle-Bırak
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setLeftOpen(false)}
+                                title="Kataloğu Kapat"
+                                aria-label="Kapat"
+                                className="w-7 h-7 rounded-xl bg-[#F1F5F9] hover:bg-[#E2E8F0] text-[#475569] hover:text-[#111827] flex items-center justify-center transition cursor-pointer"
+                              >
+                                ✕
+                              </button>
+                            </div>
                           </div>
 
                           {/* Search Bar */}
@@ -4266,7 +4471,7 @@ export const V3UnifiedWorkspace: React.FC<{
                   if (leftTab === "materials" || (leftTab === "templates" && studioInspectorTab === "material")) {
                     return (
                       /* 🎨 MALZEME KÜTÜPHANESİ (FULL HEIGHT) */
-                  <div className="flex-1 flex flex-col min-h-0 bg-transparent">
+                  <div className="flex-1 flex flex-col min-h-0 bg-white">
                     {(() => {
                       const classifyMatTab = (m: import("@birim/core").MaterialDefinition) => {
                         const n = m.name.toLowerCase();
@@ -4369,6 +4574,15 @@ export const V3UnifiedWorkspace: React.FC<{
                                   : "Aynı Malzemeli Parçalar"}
                               </span>
                             </div>
+                            <button
+                              type="button"
+                              onClick={() => setLeftOpen(false)}
+                              title="Kataloğu Kapat"
+                              aria-label="Kapat"
+                              className="w-7 h-7 rounded-xl bg-[#F1F5F9] hover:bg-[#E2E8F0] text-[#475569] hover:text-[#111827] flex items-center justify-center transition cursor-pointer shrink-0"
+                            >
+                              ✕
+                            </button>
                           </div>
 
                           {/* Search Bar + Filter Button */}
@@ -4506,7 +4720,7 @@ export const V3UnifiedWorkspace: React.FC<{
                   if (leftTab === "hardware" || (leftTab === "templates" && studioInspectorTab === "all")) {
                     return (
                       /* ⚙️ DONANIM KÜTÜPHANESİ (FULL HEIGHT) */
-                  <div className="flex-1 flex flex-col min-h-0 bg-transparent">
+                  <div className="flex-1 flex flex-col min-h-0 bg-white">
                     {(() => {
                       const T_door =
                         activeBay?.door.doorThicknessMm || activeModule.carcass.doorThickness || 18;
@@ -4841,7 +5055,23 @@ export const V3UnifiedWorkspace: React.FC<{
                           },
                         },
 
-                        // 5. KULP VE PROFİLLER
+                        // 5. KULP VE PROFİLLER (+ Özel Kulp Tanımlama Kartı)
+                        {
+                          id: "hw_lib_custom_creator",
+                          cat: "handle",
+                          title: "+ Yeni Kulp / Donanım Ekle",
+                          subtitle: "Özel Boy, C-C Delik Aksı & Fiyat",
+                          sku: "CUSTOM_HW",
+                          mfrName: "Birim Özel Üretim",
+                          visual: "handle_bar",
+                          isSelected: false,
+                          isCompatible: true,
+                          isVerified: true,
+                          priceEur: 0,
+                          onSelect: () => {
+                            setShowCustomHardwareModal(true);
+                          },
+                        },
                         {
                           id: "hw_lib_handle_bar",
                           cat: "handle",
@@ -4944,7 +5174,7 @@ export const V3UnifiedWorkspace: React.FC<{
                       return (
                         <div
                           data-testid="hardware-library-panel"
-                          className="bg-transparent flex flex-col flex-1 min-h-0"
+                          className="bg-white flex flex-col flex-1 min-h-0"
                         >
                           {/* Header: Donanım Kütüphanesi */}
                           <div className="px-3.5 pt-3 pb-1.5 flex items-center justify-between gap-2">
@@ -4956,6 +5186,15 @@ export const V3UnifiedWorkspace: React.FC<{
                                 {hardwareCatalog.length} gerçek katalog SKU • BOM & Fiyat senkron
                               </span>
                             </div>
+                            <button
+                              type="button"
+                              onClick={() => setLeftOpen(false)}
+                              title="Kataloğu Kapat"
+                              aria-label="Kapat"
+                              className="w-7 h-7 rounded-xl bg-[#F1F5F9] hover:bg-[#E2E8F0] text-[#475569] hover:text-[#111827] flex items-center justify-center transition cursor-pointer shrink-0"
+                            >
+                              ✕
+                            </button>
                           </div>
 
                           {/* Search Bar + Filter Funnel Button */}
@@ -5129,8 +5368,19 @@ export const V3UnifiedWorkspace: React.FC<{
                       /* TAB 2: AKSESUARLAR */
                   <div className="flex-1 overflow-y-auto p-3.5 space-y-4">
                     <div className="space-y-2">
-                      <div className="text-xs font-bold text-[#111827]">
-                        Hazır Oda & Mutfak Dizilimleri
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-xs font-bold text-[#111827]">
+                          Hazır Oda & Mutfak Dizilimleri
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setLeftOpen(false)}
+                          title="Kataloğu Kapat"
+                          aria-label="Kapat"
+                          className="w-7 h-7 rounded-xl bg-[#F1F5F9] hover:bg-[#E2E8F0] text-[#475569] hover:text-[#111827] flex items-center justify-center transition cursor-pointer shrink-0"
+                        >
+                          ✕
+                        </button>
                       </div>
                       <div className="grid grid-cols-2 gap-2">
                         {WARDROBE_TEMPLATES.map((tpl) => (
@@ -5205,34 +5455,45 @@ export const V3UnifiedWorkspace: React.FC<{
                   }
                   return (
                     /* 📦 MODÜL KÜTÜPHANESİ (FULL HEIGHT) */
-                  <div className="flex-1 flex flex-col min-h-0 bg-transparent">
+                  <div className="flex-1 flex flex-col min-h-0 bg-white">
                     {/* Header: Modül Kütüphanesi + Kart/Liste Switcher */}
                     <div className="px-3.5 pt-3 pb-2 flex items-center justify-between gap-2">
                       <h2 className="text-sm font-bold text-[#111827]">Modül Kütüphanesi</h2>
-                      <div className="inline-flex items-center p-0.5 rounded-lg bg-[#F1F5F9] border border-[#E2E8F0] shrink-0">
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <div className="inline-flex items-center p-0.5 rounded-lg bg-[#F1F5F9] border border-[#E2E8F0] shrink-0">
+                          <button
+                            type="button"
+                            data-testid="catalog-view-grid"
+                            onClick={() => setCatalogViewMode("grid")}
+                            className={`px-2 py-0.5 rounded-md text-[10px] font-bold cursor-pointer transition ${
+                              catalogViewMode === "grid"
+                                ? "bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1]"
+                                : "text-[#64748B] hover:text-[#111827]"
+                            }`}
+                          >
+                            ⊞ Kart
+                          </button>
+                          <button
+                            type="button"
+                            data-testid="catalog-view-list"
+                            onClick={() => setCatalogViewMode("list")}
+                            className={`px-2 py-0.5 rounded-md text-[10px] font-bold cursor-pointer transition ${
+                              catalogViewMode === "list"
+                                ? "bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1]"
+                                : "text-[#64748B] hover:text-[#111827]"
+                            }`}
+                          >
+                            ☰ Liste
+                          </button>
+                        </div>
                         <button
                           type="button"
-                          data-testid="catalog-view-grid"
-                          onClick={() => setCatalogViewMode("grid")}
-                          className={`px-2 py-0.5 rounded-md text-[10px] font-bold cursor-pointer transition ${
-                            catalogViewMode === "grid"
-                              ? "bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1]"
-                              : "text-[#64748B] hover:text-[#111827]"
-                          }`}
+                          onClick={() => setLeftOpen(false)}
+                          title="Kataloğu Kapat"
+                          aria-label="Kapat"
+                          className="w-7 h-7 rounded-xl bg-[#F1F5F9] hover:bg-[#E2E8F0] text-[#475569] hover:text-[#111827] flex items-center justify-center transition cursor-pointer shrink-0"
                         >
-                          ⊞ Kart
-                        </button>
-                        <button
-                          type="button"
-                          data-testid="catalog-view-list"
-                          onClick={() => setCatalogViewMode("list")}
-                          className={`px-2 py-0.5 rounded-md text-[10px] font-bold cursor-pointer transition ${
-                            catalogViewMode === "list"
-                              ? "bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1]"
-                              : "text-[#64748B] hover:text-[#111827]"
-                          }`}
-                        >
-                          ☰ Liste
+                          ✕
                         </button>
                       </div>
                     </div>
@@ -5583,54 +5844,43 @@ export const V3UnifiedWorkspace: React.FC<{
                   </div>
                   );
                 })()}
+                </div>
               </div>
-            )}
+            </div>
           </aside>
         )}
 
-        {/* VISIBLE INTERACTIVE DRAGGABLE SPLITTER BAR BETWEEN PLAN LEFT PANEL AND 2D DRAWING PANE */}
+        {/* UNIFIED ARCHITECTURAL SPLITTER BAR BETWEEN PLAN LEFT PANEL AND 2D DRAWING PANE */}
         {mode === "plan" && planLeftOpen && !isCompactViewport && (
           <div
             data-testid="plan-left-resize-handle"
-            title="Sol panel genişliğini değiştirmek için fareyle tutup sürükleyin (Çift tıklama: Varsayılan 330px)"
+            data-tooltip="Sol Panel Ayırıcı — Sürükleyerek genişliği ayarlayın (Çift tık: 330px sıfırla)."
             onMouseDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
               setResizingPanel("plan-left");
             }}
             onDoubleClick={() => setPlanLeftWidthPx(330)}
-            className={`w-2.5 h-full shrink-0 cursor-col-resize flex items-center justify-center relative z-30 select-none group transition-colors ${
-              resizingPanel === "plan-left"
-                ? "bg-blue-500/20"
-                : "bg-[#E2E8F0]/70 hover:bg-blue-500/15"
+            className={`birim-unified-splitter ${
+              resizingPanel === "plan-left" ? "birim-unified-splitter-active" : ""
             }`}
           >
-            <div
-              className={`w-0.5 h-full transition-colors ${
-                resizingPanel === "plan-left"
-                  ? "bg-[#2563EB]"
-                  : "bg-slate-300/90 group-hover:bg-[#2563EB]"
-              }`}
-            />
-            <div
-              className={`absolute top-1/2 -translate-y-1/2 px-1 py-2 rounded-full border shadow-sm flex flex-col items-center justify-center gap-0.5 transition-all ${
-                resizingPanel === "plan-left"
-                  ? "bg-[#2563EB] text-white border-blue-700 scale-105"
-                  : "bg-white/95 text-slate-600 border-slate-300 group-hover:border-[#2563EB] group-hover:text-[#2563EB]"
-              }`}
-            >
-              <span className="text-[9px] font-black leading-none">↔</span>
-            </div>
+            <div className="birim-unified-splitter-grip">⋮</div>
           </div>
         )}
 
-        {/* 2D ARCHITECTURAL PLAN / ELEVATION PANE (Docked Top Module Bar + Non-Overlapping 2D Canvas) */}
-        {((mode === "plan" && planViewLayout !== "3d_only") || (mode === "studio" && studioView === "2d")) && (
+        {/* 2D ARCHITECTURAL PLAN / ELEVATION PANE (Supports Studio 2D & Studio 2D|3D Split View!) */}
+        {((mode === "plan" && planViewLayout !== "3d_only") ||
+          (mode === "studio" && (studioView === "2d" || studioSplitView))) && (
           <div
             className={`${
-              mode === "plan" && planViewLayout === "split"
-                ? "relative flex-1 h-full"
-                : "absolute inset-0 w-full h-full z-10"
+              mode === "plan"
+                ? planViewLayout === "2d_only"
+                  ? "flex-1 h-full relative"
+                  : "h-full relative"
+                : studioSplitView
+                ? "absolute top-0 bottom-0 left-0 w-1/2 z-10"
+                : "absolute inset-0 z-10"
             } flex flex-col shrink-0 min-w-0 overflow-hidden`}
             style={
               mode === "plan" && planViewLayout === "split"
@@ -5791,7 +6041,7 @@ export const V3UnifiedWorkspace: React.FC<{
                 {planModDropdownOpen && (
                   <div
                     data-testid="plan-mod-hybrid-dropdown-menu"
-                    className="absolute top-full left-2.5 mt-1 z-50 w-80 max-w-[calc(100%-20px)] birim-ice-popover rounded-3xl border border-white/85 shadow-2xl p-2.5 space-y-1 max-h-72 overflow-y-auto"
+                    className="absolute top-full left-2.5 mt-1 z-50 w-80 max-w-[calc(100%-20px)] bg-white/95 backdrop-blur-xl rounded-2xl border border-slate-200 ring-1 ring-slate-900/10 shadow-[0_18px_40px_rgba(15,23,42,0.18)] p-2 space-y-1 max-h-72 overflow-y-auto"
                   >
                     <div className="flex items-center justify-between px-2 py-1 border-b border-slate-200/70">
                       <span className="text-[11px] font-extrabold text-[#0F172A]">
@@ -5861,10 +6111,25 @@ export const V3UnifiedWorkspace: React.FC<{
               </div>
             )}
 
-            {/* 2D VIEWPORT BODY (Flex-1 below Docked Header — Zero Overlap Possible!) */}
+            {/* 2D VIEWPORT BODY (Automatically offset outside left/top/right floating frosted glass panels!) */}
             <div className="flex-1 min-h-0 relative w-full">
-              {mode === "studio" && studioView === "2d" && (
-                <div className="absolute left-4 top-14 z-30 flex flex-col items-center gap-1 birim-ice-pill p-1.5 rounded-2xl border border-white/80 shadow-md text-[#2B2927] w-[62px]">
+              {mode === "studio" && (studioView === "2d" || studioSplitView) && (
+                <div
+                  style={{
+                    left: studioSplitView
+                      ? leftOpen
+                        ? isCompactViewport
+                          ? "16px"
+                          : `calc(min(${studioLeftWidthPx}px, clamp(368px, 29vw, 460px)) + 26px)`
+                        : "84px"
+                      : leftOpen
+                      ? isCompactViewport
+                        ? "84px"
+                        : `calc(min(${studioLeftWidthPx}px, clamp(368px, 29vw, 460px)) + 26px)`
+                      : "84px",
+                  }}
+                  className="absolute top-[112px] z-20 inline-flex flex-row items-center gap-1 birim-ice-pill p-1 rounded-[22px] text-[#141413] transition-[left] duration-[380ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
+                >
                   {[
                     {
                       id: "3d",
@@ -5872,6 +6137,7 @@ export const V3UnifiedWorkspace: React.FC<{
                       active: false,
                       onClick: () => {
                         startTransition(() => {
+                          if (studioSplitView) toggleStudioSplitView();
                           setStudioView("3d");
                         });
                       },
@@ -5911,13 +6177,13 @@ export const V3UnifiedWorkspace: React.FC<{
                       key={b.id}
                       type="button"
                       onClick={b.onClick}
-                      className={`w-full py-2 px-1 rounded-xl flex flex-col items-center justify-center gap-0.5 transition cursor-pointer ${
+                      className={`px-3 py-1.5 rounded-2xl text-[11px] leading-none transition cursor-pointer whitespace-nowrap ${
                         b.active
-                          ? "bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1] font-bold shadow-xs"
-                          : "text-[#57534E] hover:bg-[#F1F5F9] hover:text-[#1C1917] font-semibold"
+                          ? "birim-ice-charcoal-pill font-bold"
+                          : "text-[#44403C] hover:bg-white/75 hover:text-[#141413] font-semibold"
                       }`}
                     >
-                      <span className="text-[10px] leading-tight text-center">{b.label}</span>
+                      {b.label}
                     </button>
                   ))}
                 </div>
@@ -5926,16 +6192,34 @@ export const V3UnifiedWorkspace: React.FC<{
                 mode={mode === "plan" ? "plan" : studio2DMode}
                 interactivePlan={mode === "plan" || (mode === "studio" && studio2DMode === "plan")}
                 snapMm={snapMm}
+                studioSafeInsets={
+                  mode === "studio"
+                    ? {
+                        topPx: 58,
+                        bottomPx: 66,
+                        leftPx: leftOpen
+                          ? isCompactViewport
+                            ? 84
+                            : Math.min(studioLeftWidthPx, 460) + 28
+                          : 84,
+                        rightPx: studioSplitView
+                          ? 16
+                          : studioRightOpen && !isCompactViewport
+                          ? Math.min(520, Math.max(376, studioRightWidthPx)) + 28
+                          : 64,
+                      }
+                    : undefined
+                }
               />
             </div>
           </div>
         )}
 
-        {/* VISIBLE INTERACTIVE DRAGGABLE SPLITTER BAR BETWEEN 2D PLAN AND 3D/ELEVATION PANE */}
+        {/* UNIFIED ARCHITECTURAL SPLITTER BAR BETWEEN 2D PLAN AND 3D/ELEVATION PANE (Identical across Plan & Studio!) */}
         {mode === "plan" && planViewLayout === "split" && (
           <div
             data-testid="plan-split-resize-handle"
-            title="2D Plan ve 3D Görünüm ekran oranını değiştirmek için basılı tutup sürükleyin"
+            data-tooltip={`2D / 3D Ekran Ayırıcı (%${planSplitRatioPct}) — Sürükleyerek sahne oranını değiştirin (Çift tık: %50-%50).`}
             onMouseDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -5949,32 +6233,37 @@ export const V3UnifiedWorkspace: React.FC<{
               };
               setResizingPanel("plan-split");
             }}
-            className={`w-4 h-full shrink-0 cursor-col-resize flex flex-col items-center justify-center relative z-30 select-none transition-all border-x ${
-              resizingPanel === "plan-split"
-                ? "bg-blue-600/20 border-blue-500"
-                : "bg-slate-200/75 hover:bg-blue-50/90 border-slate-300/90"
+            onDoubleClick={() => setPlanSplitRatioPct(50)}
+            className={`birim-unified-splitter ${
+              resizingPanel === "plan-split" ? "birim-unified-splitter-active" : ""
             }`}
           >
-            <div
-              className={`w-6 h-20 rounded-full backdrop-blur-xl shadow-lg flex flex-col items-center justify-center gap-1 pointer-events-none border transition-transform ${
-                resizingPanel === "plan-split"
-                  ? "bg-blue-600 text-white border-blue-400 scale-105"
-                  : "bg-white/90 text-[#0F172A] border-slate-300"
-              }`}
-            >
-              <span className="text-xs leading-none font-black">⟷</span>
-              <span className="text-[9px] font-mono font-bold leading-none">{planSplitRatioPct}%</span>
-            </div>
+            <div className="birim-unified-splitter-grip">⋮</div>
           </div>
         )}
 
-        {/* PERSISTENT 3D WEBGL VIEWPORT & PLAN RIGHT PANE */}
+        {/* IDENTICAL UNIFIED SPLITTER BAR IN STUDIO 2D|3D SPLIT VIEW */}
+        {mode === "studio" && studioSplitView && (
+          <div
+            data-testid="studio-split-resize-handle"
+            style={{ left: "calc(50% - 5px)" }}
+            className="birim-unified-splitter !absolute top-0 bottom-0 z-25 pointer-events-none"
+          >
+            <div className="birim-unified-splitter-grip">⋮</div>
+          </div>
+        )}
+
+        {/* PERSISTENT FULL-BLEED 3D WEBGL VIEWPORT & PLAN RIGHT PANE */}
         <main
           className={`${
-            mode === "studio" && studioView === "2d"
+            mode === "studio" && studioView === "2d" && !studioSplitView
               ? "hidden"
-              : "flex-1"
-          } relative h-full flex flex-col overflow-hidden`}
+              : mode === "studio" && studioSplitView
+              ? "absolute top-0 bottom-0 right-0 w-1/2 z-0"
+              : mode === "studio" || mode === "showroom"
+              ? "absolute inset-0 z-0"
+              : "flex-1 relative h-full"
+          } flex flex-col overflow-hidden`}
           style={
             mode === "plan"
               ? { width: `calc(${100 - planSplitRatioPct}% - 7px)` }
@@ -6135,7 +6424,7 @@ export const V3UnifiedWorkspace: React.FC<{
             </div>
           )}
 
-                    <div className="absolute inset-0 w-full h-full overflow-hidden flex flex-col z-0">
+                    <div className="relative flex-1 w-full h-full overflow-hidden flex flex-col">
             <V3ThreeViewport
               theme={
                 canvasTheme === "dark"
@@ -6147,6 +6436,25 @@ export const V3UnifiedWorkspace: React.FC<{
               showGrid={!(mode === "showroom" && zenMode)}
               showInCanvasHud={mode === "studio"}
               showDimensions={show3DDimensions}
+              stageSafeInsets={
+                mode === "studio"
+                  ? {
+                      topPx: 64,
+                      bottomPx: 66,
+                      leftPx: studioSplitView
+                        ? 14
+                        : leftOpen && !isCompactViewport
+                        ? Math.min(studioLeftWidthPx, 460) + 28
+                        : 82,
+                      rightPx:
+                        studioRightOpen && !isCompactViewport
+                          ? studioRightWidthPx + 28
+                          : 18,
+                    }
+                  : mode === "showroom" && !zenMode
+                  ? { topPx: 66, bottomPx: 72, leftPx: 20, rightPx: 84 }
+                  : undefined
+              }
               onToggleDimensions={() => setShow3DDimensions((prev) => !prev)}
             />
 
@@ -6415,7 +6723,7 @@ export const V3UnifiedWorkspace: React.FC<{
           {mode === "showroom" && (
             <>
               {zenMode ? (
-                <div className="absolute top-4 right-5 z-30">
+                <div className="absolute top-[64px] right-5 z-30">
                   <button
                     type="button"
                     data-testid="showroom-exit-zen"
@@ -6430,7 +6738,7 @@ export const V3UnifiedWorkspace: React.FC<{
               ) : (
                 <>
                   {/* Top-Left Compact Frosted Ice Project & Quote Pill */}
-                  <div className="absolute top-4 left-5 z-20 birim-ice-pill px-3.5 py-2 rounded-2xl flex items-center gap-3">
+                  <div className="absolute top-[64px] left-5 z-20 birim-ice-pill px-3.5 py-2 rounded-2xl flex items-center gap-3">
                     <div>
                       <div className="text-xs font-bold text-[#141413] leading-tight">{project.title}</div>
                       <div className="text-[10px] font-mono text-[#57534E]">
@@ -6560,7 +6868,7 @@ export const V3UnifiedWorkspace: React.FC<{
                                   ? "ring-2 ring-[#141413] ring-offset-2 ring-offset-white/60 scale-110"
                                   : "border border-white/80 hover:scale-110 shadow-xs"
                               }`}
-                              style={{ backgroundColor: mat.colorHex }}
+                              data-material-swatch="true" style={getMaterialSwatchStyle(mat)}
                             >
                               <span className="sr-only">{mat.name.split(" (")[0]}</span>
                             </button>
@@ -6626,187 +6934,53 @@ export const V3UnifiedWorkspace: React.FC<{
           )}
         </main>
 
-        {/* Collapsed Right Inspector Rail (Symmetrical with left rail) */}
+        {/* Mobile/Tablet Floating Button to Reopen Right Inspector when collapsed */}
         {mode === "studio" && !studioRightOpen && (
-          <aside
-            data-testid="studio-right-rail-collapsed"
-            className="absolute right-2.5 top-2.5 bottom-2.5 w-[56px] rounded-3xl overflow-hidden border border-white/80 shadow-[0_16px_48px_rgba(15,23,42,0.18)] birim-ice-drawer text-[#111827] flex flex-col z-30 select-none py-2.5 px-1.5 justify-between items-center transition-all duration-200 ease-out"
+          <button
+            type="button"
+            title="Özellikler Panelini Aç"
+            data-testid="studio-reopen-right-inspector-btn"
+            onClick={() => setStudioRightOpen(true)}
+            className="fixed right-3.5 top-16 z-40 w-10 h-10 rounded-2xl birim-ice-pill text-[#111827] flex items-center justify-center cursor-pointer hover:scale-105 transition"
           >
-            {/* Top Toggle Button */}
-            <div className="flex flex-col items-center gap-2">
-              <button
-                type="button"
-                data-testid="studio-reopen-right-inspector-btn"
-                title="Özellikler Panelini Aç"
-                onClick={() => setStudioRightOpen(true)}
-                className="w-10 h-10 rounded-xl birim-ice-btn flex items-center justify-center text-[#57534E] hover:text-[#141413] transition cursor-pointer"
-              >
-                <ChevronLeft className="w-4 h-4" />
-                <span className="sr-only">Özellikler Panelini Aç</span>
-              </button>
-
-              <div className="w-7 h-px bg-slate-900/10 my-0.5" />
-
-              {/* Tab Quick-Jump Icons */}
-              <button
-                type="button"
-                data-testid="studio-rail-tab-dimensions"
-                title="Ölçüler"
-                onClick={() => {
-                  setStudioInspectorTab("dimensions");
-                  setStudioRightOpen(true);
-                }}
-                className={`w-10 h-10 rounded-xl flex items-center justify-center transition cursor-pointer ${
-                  studioInspectorTab === "dimensions"
-                    ? "birim-ice-btn-active"
-                    : "text-[#57534E] hover:bg-white/75 hover:text-[#141413]"
-                }`}
-              >
-                <SlidersHorizontal className="w-4 h-4" />
-                <span className="sr-only">Ölçüler</span>
-              </button>
-
-              <button
-                type="button"
-                data-testid="studio-rail-tab-carcass"
-                title="Gövde & Şablon"
-                onClick={() => {
-                  setStudioInspectorTab("carcass");
-                  setStudioRightOpen(true);
-                }}
-                className={`w-10 h-10 rounded-xl flex items-center justify-center transition cursor-pointer ${
-                  studioInspectorTab === "carcass"
-                    ? "birim-ice-btn-active"
-                    : "text-[#57534E] hover:bg-white/75 hover:text-[#141413]"
-                }`}
-              >
-                <Box className="w-4 h-4" />
-                <span className="sr-only">Gövde</span>
-              </button>
-
-              <button
-                type="button"
-                data-testid="studio-rail-tab-door"
-                title="Kapaklar"
-                onClick={() => {
-                  setStudioInspectorTab("door");
-                  setStudioRightOpen(true);
-                }}
-                className={`w-10 h-10 rounded-xl flex items-center justify-center transition cursor-pointer ${
-                  studioInspectorTab === "door"
-                    ? "birim-ice-btn-active"
-                    : "text-[#57534E] hover:bg-white/75 hover:text-[#141413]"
-                }`}
-              >
-                <DoorOpen className="w-4 h-4" />
-                <span className="sr-only">Kapaklar</span>
-              </button>
-
-              <button
-                type="button"
-                data-testid="studio-rail-tab-interior"
-                title="İç Düzen"
-                onClick={() => {
-                  setStudioInspectorTab("interior");
-                  setStudioRightOpen(true);
-                  if (doorOpenAngleDeg === 0 && !doorsHiddenStudio) {
-                    setDoorOpenAngleDeg(85);
-                  }
-                }}
-                className={`w-10 h-10 rounded-xl flex items-center justify-center transition cursor-pointer ${
-                  studioInspectorTab === "interior"
-                    ? "birim-ice-btn-active"
-                    : "text-[#57534E] hover:bg-white/75 hover:text-[#141413]"
-                }`}
-              >
-                <LayoutGrid className="w-4 h-4" />
-                <span className="sr-only">İç Düzen</span>
-              </button>
-
-              <button
-                type="button"
-                data-testid="studio-rail-tab-material"
-                title="Malzeme & Renk"
-                onClick={() => {
-                  setStudioInspectorTab("material");
-                  setStudioRightOpen(true);
-                }}
-                className={`w-10 h-10 rounded-xl flex items-center justify-center transition cursor-pointer ${
-                  studioInspectorTab === "material"
-                    ? "birim-ice-btn-active"
-                    : "text-[#57534E] hover:bg-white/75 hover:text-[#141413]"
-                }`}
-              >
-                <Palette className="w-4 h-4" />
-                <span className="sr-only">Malzeme</span>
-              </button>
-
-              <button
-                type="button"
-                data-testid="studio-rail-tab-all"
-                title="Donanım (Menteşe & Ray)"
-                onClick={() => {
-                  setStudioInspectorTab("all");
-                  setStudioRightOpen(true);
-                }}
-                className={`w-10 h-10 rounded-xl flex items-center justify-center transition cursor-pointer ${
-                  studioInspectorTab === "all"
-                    ? "birim-ice-btn-active"
-                    : "text-[#57534E] hover:bg-white/75 hover:text-[#141413]"
-                }`}
-              >
-                <Wrench className="w-4 h-4" />
-                <span className="sr-only">Donanım</span>
-              </button>
-            </div>
-
-            {/* Bottom Actions */}
-            <div className="flex flex-col items-center gap-1.5">
-              <button
-                type="button"
-                title="BOM & Kesim Listesi"
-                onClick={() => setIsBomModalOpen(true)}
-                className="w-10 h-10 rounded-xl flex items-center justify-center text-[#57534E] hover:bg-white/75 hover:text-[#141413] transition cursor-pointer"
-              >
-                <FileSpreadsheet className="w-4 h-4" />
-                <span className="sr-only">BOM</span>
-              </button>
-              <button
-                type="button"
-                title="Modülü Kopyala"
-                onClick={duplicateActiveModule}
-                className="w-10 h-10 rounded-xl flex items-center justify-center text-[#57534E] hover:bg-white/75 hover:text-[#141413] transition cursor-pointer"
-              >
-                <Copy className="w-4 h-4" />
-                <span className="sr-only">Kopyala</span>
-              </button>
-            </div>
-          </aside>
+            <SlidersHorizontal className="w-4 h-4" />
+            <span className="sr-only">Gövde & Özellikler</span>
+          </button>
         )}
 
-        {/* RIGHT PANEL — DESIGN STUDIO SMART PROPERTY EDITOR (5 Tabs: Ölçüler | Gövde | Kapak | İç Düzen | Donanım) */}
-        {((mode === "studio" && studioRightOpen) || (mode === "plan" && showInspectorInPlan)) && (
+        {/* RIGHT PANEL — FLOATING ROUNDED-CORNER FROSTED ICE SHELL OVER TRANSPARENT CONTAINER (Matches image_cf8426.png 1-to-1!) */}
+        {(mode === "studio" || (mode === "plan" && showInspectorInPlan)) && (
           <aside
             data-testid="studio-right-inspector"
-            className="absolute right-2.5 top-2.5 bottom-2.5 rounded-3xl overflow-hidden border border-white/80 shadow-[0_16px_48px_rgba(15,23,42,0.18)] birim-ice-drawer text-[#111827] flex flex-col z-30 max-w-[92vw] transition-[width] duration-200 ease-out"
+            aria-hidden={mode === "studio" ? !studioRightOpen : false}
+            className={`${
+              mode === "studio"
+                ? `absolute right-3.5 top-[62px] bottom-[64px] bg-transparent pointer-events-none ${
+                    studioRightOpen ? "birim-ice-right-open" : "birim-ice-right-closed"
+                  }`
+                : "bg-transparent p-2.5 pointer-events-none shrink-0 relative"
+            } text-[#111827] flex flex-col z-30 max-w-[92vw]`}
             style={{
               width: isCompactViewport
-                ? "min(392px, 92vw)"
+                ? "min(396px, 92vw)"
                 : `clamp(376px, ${studioRightWidthPx}px, min(520px, 92vw))`,
             }}
           >
-            <div
-              data-testid="studio-right-resize-handle"
-              title="Sağ panel genişliğini değiştirmek için sürükleyin"
-              onMouseDown={(e) => {
-                e.preventDefault();
-                setResizingPanel("studio-right");
-              }}
-              className="absolute top-0 left-0 w-1.5 h-full cursor-col-resize hover:bg-stone-400/40 z-30 transition-colors"
-            />
+            {!isCompactViewport && (
+              <div
+                data-testid="studio-right-resize-handle"
+                title="Sağ panel genişliğini değiştirmek için sürükleyin"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  setResizingPanel("studio-right");
+                }}
+                className="pointer-events-auto absolute top-4 -left-1.5 bottom-4 w-3 rounded-full cursor-col-resize hover:bg-white/55 z-40 transition-colors"
+              />
+            )}
 
-            {/* Module Title Header (Matches Design Studio Reference 1-to-1) */}
-            <div className="px-3.5 pt-3 pb-2 bg-white/35 backdrop-blur-2xl border-b border-white/80 flex items-start justify-between gap-2 relative">
+            <div data-draggable-shell="studio-right-shell" className="pointer-events-auto flex-1 min-h-0 flex flex-col birim-ice-floating-shell rounded-[28px] overflow-hidden relative">
+            {/* Module Title Header (Matches image_cf8426.png 1-to-1 • Zero-Lag Draggable) */}
+            <div onPointerDown={(e) => startZeroLagModalDrag(e)} title="Paneli taşımak için basılı tutup sürükleyin" className="px-4 pt-3.5 pb-2.5 birim-ice-shell-header flex items-start justify-between gap-2 relative cursor-grab active:cursor-grabbing select-none">
               <div className="flex items-start gap-2.5 min-w-0">
                 <div className="mt-0.5 text-[#57534E] shrink-0">
                   <Box className="w-4 h-4" />
@@ -6865,58 +7039,129 @@ export const V3UnifiedWorkspace: React.FC<{
                 </button>
               </div>
 
-              {openRightDrawer === "more_menu" && (
-                <div className="absolute right-3 top-12 w-56 birim-ice-popover rounded-2xl p-2 z-40 space-y-1 text-xs">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsBomModalOpen(true);
-                      setOpenRightDrawer(null);
-                    }}
-                    className="w-full px-3 py-2 rounded-xl hover:bg-[#F1F5F9] text-left font-semibold text-[#1C1917] flex items-center gap-2 cursor-pointer"
-                  >
-                    <FileSpreadsheet className="w-3.5 h-3.5 text-[#57534E]" />
-                    <span>BOM & Kesim Listesi (CNC)</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowRulesModal(true);
-                      setOpenRightDrawer(null);
-                    }}
-                    className="w-full px-3 py-2 rounded-xl hover:bg-[#F1F5F9] text-left font-semibold text-[#1C1917] flex items-center gap-2 cursor-pointer"
-                  >
-                    <ShieldCheck className="w-3.5 h-3.5 text-[#57534E]" />
-                    <span>Mühendislik Doğrulaması</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowAdminModal(true);
-                      setOpenRightDrawer(null);
-                    }}
-                    className="w-full px-3 py-2 rounded-xl hover:bg-[#F1F5F9] text-left font-semibold text-[#1C1917] flex items-center gap-2 cursor-pointer"
-                  >
-                    <Wrench className="w-3.5 h-3.5 text-[#57534E]" />
-                    <span>V4 Kütüphane Yönetimi</span>
-                  </button>
-                  <div className="h-px bg-[#E2E8F0] my-1" />
-                  <button
-                    type="button"
-                    data-testid="studio-delete-active-module-btn"
-                    disabled={project.modules.length === 0}
-                    onClick={() => {
-                      removeActiveModule();
-                      setOpenRightDrawer(null);
-                    }}
-                    className="w-full px-3 py-2 rounded-xl hover:bg-red-50 disabled:opacity-40 text-left font-semibold text-red-600 flex items-center gap-2 cursor-pointer"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>Bu Modülü Sil</span>
-                  </button>
-                </div>
-              )}
             </div>
+
+            {openRightDrawer === "more_menu" && (
+              <div
+                data-testid="studio-right-more-dropdown"
+                className="absolute right-3 top-12 w-64 birim-ice-popover rounded-2xl p-2 z-[140] space-y-1 text-xs shadow-2xl"
+              >
+                <button
+                  type="button"
+                  data-testid="more-menu-assembly-diagram-btn"
+                  onClick={() => {
+                    setShowAssemblyModal(true);
+                    setOpenRightDrawer(null);
+                  }}
+                  className="w-full px-3 py-2 rounded-xl hover:bg-white/80 text-left font-semibold text-[#141413] flex items-center gap-2.5 cursor-pointer"
+                >
+                  <span className="text-sm leading-none">🔧</span>
+                  <span>Montaj Şeması &amp; Kurulum Kılavuzu</span>
+                </button>
+                <button
+                  type="button"
+                  data-testid="more-menu-studio-render-btn"
+                  onClick={() => {
+                    setShowStudioRenderModal(true);
+                    setOpenRightDrawer(null);
+                  }}
+                  className="w-full px-3 py-2 rounded-xl hover:bg-white/80 text-left font-semibold text-[#141413] flex items-center gap-2.5 cursor-pointer"
+                >
+                  <span className="text-sm leading-none">🎬</span>
+                  <span>2K Render &amp; Path-Tracing Stüdyosu</span>
+                </button>
+                <button
+                  type="button"
+                  data-testid="more-menu-custom-hardware-btn"
+                  onClick={() => {
+                    setShowCustomHardwareModal(true);
+                    setOpenRightDrawer(null);
+                  }}
+                  className="w-full px-3 py-2 rounded-xl hover:bg-white/80 text-left font-semibold text-[#141413] flex items-center gap-2.5 cursor-pointer"
+                >
+                  <span className="text-sm leading-none">🔩</span>
+                  <span>Yeni Kulp &amp; Özel Donanım Ekle</span>
+                </button>
+                <button
+                  type="button"
+                  data-testid="more-menu-island-table-btn"
+                  onClick={() => {
+                    setShowIslandTableModal(true);
+                    setOpenRightDrawer(null);
+                  }}
+                  className="w-full px-3 py-2 rounded-xl hover:bg-white/80 text-left font-semibold text-[#141413] flex items-center gap-2.5 cursor-pointer"
+                >
+                  <span className="text-sm leading-none">🏝️</span>
+                  <span>Ada Mutfak &amp; Çok Açılı Masa</span>
+                </button>
+                <button
+                  type="button"
+                  data-testid="more-menu-snap-angled-wall-btn"
+                  onClick={() => {
+                    const sol = snapModuleToAngledWall(activeModuleIndex);
+                    setOpenRightDrawer(null);
+                    if (sol) {
+                      setApprovalBanner({
+                        ok: true,
+                        text: `📐 Modül "${sol.wallName}" duvarına paralel (${sol.moduleRotationYDeg}°) yaslandı.`,
+                      });
+                    }
+                  }}
+                  className="w-full px-3 py-2 rounded-xl hover:bg-white/80 text-left font-semibold text-[#141413] flex items-center gap-2.5 cursor-pointer"
+                >
+                  <span className="text-sm leading-none">📐</span>
+                  <span>Dolabı Duvara Paralel Yasla</span>
+                </button>
+                <div className="h-px bg-slate-900/10 my-1" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsBomModalOpen(true);
+                    setOpenRightDrawer(null);
+                  }}
+                  className="w-full px-3 py-2 rounded-xl hover:bg-white/80 text-left font-semibold text-[#1C1917] flex items-center gap-2 cursor-pointer"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-[#57534E]" />
+                  <span>BOM &amp; Kesim Listesi (CNC)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowRulesModal(true);
+                    setOpenRightDrawer(null);
+                  }}
+                  className="w-full px-3 py-2 rounded-xl hover:bg-white/80 text-left font-semibold text-[#1C1917] flex items-center gap-2 cursor-pointer"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-[#57534E]" />
+                  <span>Mühendislik Doğrulaması</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAdminModal(true);
+                    setOpenRightDrawer(null);
+                  }}
+                  className="w-full px-3 py-2 rounded-xl hover:bg-white/80 text-left font-semibold text-[#1C1917] flex items-center gap-2 cursor-pointer"
+                >
+                  <Wrench className="w-3.5 h-3.5 text-[#57534E]" />
+                  <span>V4 Kütüphane Yönetimi</span>
+                </button>
+                <div className="h-px bg-slate-900/10 my-1" />
+                <button
+                  type="button"
+                  data-testid="studio-delete-active-module-btn"
+                  disabled={project.modules.length === 0}
+                  onClick={() => {
+                    removeActiveModule();
+                    setOpenRightDrawer(null);
+                  }}
+                  className="w-full px-3 py-2 rounded-xl hover:bg-red-50 disabled:opacity-40 text-left font-semibold text-red-600 flex items-center gap-2 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Bu Modülü Sil</span>
+                </button>
+              </div>
+            )}
 
             {/* 6 ICON-DRIVEN TABS: Shown in Mimar & Üretim modes (hidden in Kolay mode for zero clutter) */}
             {!isSimpleBlumMode && (
@@ -7056,6 +7301,295 @@ export const V3UnifiedWorkspace: React.FC<{
                   renderInteriorIcon={(kind, sz) => renderInteriorComponentIllustration(kind, sz)}
                 />
               )}
+
+              {!isSimpleBlumMode &&
+                (studioInspectorTab === "carcass" || studioInspectorTab === "all") && (
+                  <div
+                    data-testid="carcass-parametric-engineering-card"
+                    className="p-3.5 rounded-[24px] birim-ice-card space-y-3 text-xs"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <div className="text-xs font-extrabold text-[#141413]">
+                          Karkas Topolojisi, 5 Arkalık Modu &amp; CNC Ön Freze
+                        </div>
+                        <div className="text-[10.5px] text-[#57534E]">
+                          Net iç derinlik, birleşim kertmeleri ve bant düşümü anında güncellenir
+                        </div>
+                      </div>
+                      {validationIssues.length > 0 && (
+                        <button
+                          type="button"
+                          data-testid="studio-autofix-issues-btn"
+                          onClick={() => {
+                            const fixed = autoFixProjectIssues();
+                            setApprovalBanner({
+                              ok: true,
+                              text:
+                                fixed > 0
+                                  ? `✓ ${fixed} mühendislik uyarısı otomatik düzeltildi.`
+                                  : "Tüm modül parametreleri güncel.",
+                            });
+                            setTimeout(() => setApprovalBanner(null), 3000);
+                          }}
+                          className="px-2.5 py-1 rounded-full birim-ice-charcoal-pill text-[10.5px] font-bold shrink-0 cursor-pointer"
+                        >
+                          ⚡ Oto-Düzelt ({validationIssues.length})
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Birleşim Topolojisi: Tip A / B / C / D */}
+                    <div className="space-y-1">
+                      <span className="text-[11px] font-bold text-[#44403C] block">
+                        Gövde Birleşim Topolojisi
+                      </span>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {[
+                          { id: "sides_through" as const, label: "Tip A • Yanlar Tam Boy" },
+                          { id: "top_bottom_through" as const, label: "Tip B • Alt/Üst Tam" },
+                          { id: "miter_45" as const, label: "Tip C • 45° Gönye" },
+                          { id: "kitchen_stretchers" as const, label: "Tip D • 90mm Kayıtlı" },
+                        ].map((jt) => {
+                          const curTopo =
+                            activeModule.carcass.carcassJoineryTopology ||
+                            (activeModule.category === "base" ? "kitchen_stretchers" : "sides_through");
+                          const act = curTopo === jt.id;
+                          return (
+                            <button
+                              key={jt.id}
+                              type="button"
+                              onClick={() =>
+                                updateCarcassConfig({ carcassJoineryTopology: jt.id })
+                              }
+                              className={`py-1.5 px-2.5 rounded-2xl border text-left text-[11px] font-semibold transition cursor-pointer ${
+                                act ? "birim-ice-charcoal-pill" : "birim-ice-btn text-[#141413]"
+                              }`}
+                            >
+                              {jt.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* 5 Arkalık Modu */}
+                    <div className="space-y-1">
+                      <span className="text-[11px] font-bold text-[#44403C] block">
+                        Arkalık Konstrüksiyonu (5 Mod)
+                      </span>
+                      <div className="grid grid-cols-5 gap-1">
+                        {[
+                          { id: "grooved" as const, label: "Kanallı" },
+                          { id: "rebated" as const, label: "Lambalı" },
+                          { id: "nailed" as const, label: "Çakma" },
+                          { id: "flush" as const, label: "18mm Tam" },
+                          { id: "none" as const, label: "Arkalıksız" },
+                        ].map((bp) => {
+                          const curBp = activeModule.carcass.backPanelType || "grooved";
+                          const act = curBp === bp.id;
+                          return (
+                            <button
+                              key={bp.id}
+                              type="button"
+                              onClick={() =>
+                                updateCarcassConfig({
+                                  backPanelType: bp.id,
+                                  backThickness: bp.id === "flush" ? 18 : bp.id === "none" ? 0 : 8,
+                                })
+                              }
+                              className={`py-1.5 px-1 rounded-xl border text-center text-[10.5px] font-bold transition cursor-pointer ${
+                                act ? "birim-ice-charcoal-pill" : "birim-ice-btn text-[#141413]"
+                              }`}
+                            >
+                              {bp.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Ön Freze (Pre-Milling) + Şelale Tezgâh & Görünen Yan & Baza Çekmecesi */}
+                    <div className="grid grid-cols-2 gap-2 pt-1">
+                      <div className="p-2 rounded-2xl birim-ice-btn flex items-center justify-between">
+                        <span className="text-[11px] font-semibold text-[#44403C]">Ön Freze</span>
+                        <select
+                          value={activeModule.carcass.preMillingMm ?? 0}
+                          onChange={(e) =>
+                            updateCarcassConfig({ preMillingMm: Number(e.target.value) })
+                          }
+                          className="bg-transparent font-mono font-bold text-xs text-[#141413] cursor-pointer focus:outline-none"
+                        >
+                          <option value={0}>0 mm</option>
+                          <option value={0.5}>0.5 mm</option>
+                          <option value={1}>1.0 mm</option>
+                          <option value={2}>2.0 mm</option>
+                        </select>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updateCarcassConfig({
+                            hasPlinthDrawer: !activeModule.carcass.hasPlinthDrawer,
+                          })
+                        }
+                        className={`p-2 rounded-2xl border text-[11px] font-bold transition cursor-pointer ${
+                          activeModule.carcass.hasPlinthDrawer
+                            ? "birim-ice-charcoal-pill"
+                            : "birim-ice-btn text-[#141413]"
+                        }`}
+                      >
+                        {activeModule.carcass.hasPlinthDrawer ? "✓ Baza Çekmecesi" : "+ Baza Çekmecesi"}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updateCarcassConfig({
+                            appliedEndPanelLeft:
+                              activeModule.carcass.appliedEndPanelLeft === "floor_to_top"
+                                ? "none"
+                                : "floor_to_top",
+                            appliedEndPanelRight:
+                              activeModule.carcass.appliedEndPanelRight === "floor_to_top"
+                                ? "none"
+                                : "floor_to_top",
+                          })
+                        }
+                        className={`p-2 rounded-2xl border text-[11px] font-bold transition cursor-pointer ${
+                          activeModule.carcass.appliedEndPanelLeft &&
+                          activeModule.carcass.appliedEndPanelLeft !== "none"
+                            ? "birim-ice-charcoal-pill"
+                            : "birim-ice-btn text-[#141413]"
+                        }`}
+                      >
+                        Görünen Yan Panel
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updateCarcassConfig({
+                            hasWaterfallLeft: !activeModule.carcass.hasWaterfallLeft,
+                            hasWaterfallRight: !activeModule.carcass.hasWaterfallRight,
+                          })
+                        }
+                        className={`p-2 rounded-2xl border text-[11px] font-bold transition cursor-pointer ${
+                          activeModule.carcass.hasWaterfallLeft
+                            ? "birim-ice-charcoal-pill"
+                            : "birim-ice-btn text-[#141413]"
+                        }`}
+                      >
+                        Şelale Yan Tezgâh
+                      </button>
+
+                      {/* Süpürgelik Kertmesi (MD §2.1) */}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updateCarcassConfig({
+                            baseboardNotch: activeModule.carcass.baseboardNotch?.enabled
+                              ? { enabled: false, heightMm: 80, depthMm: 15 }
+                              : { enabled: true, heightMm: 80, depthMm: 15 },
+                          })
+                        }
+                        className={`p-2 rounded-2xl border text-[11px] font-bold transition cursor-pointer ${
+                          activeModule.carcass.baseboardNotch?.enabled
+                            ? "birim-ice-charcoal-pill"
+                            : "birim-ice-btn text-[#141413]"
+                        }`}
+                        title="Yan dikme alt arka köşesine 80×15mm duvar süpürgeliği kertmesi açar"
+                      >
+                        {activeModule.carcass.baseboardNotch?.enabled
+                          ? "✓ Süpürgelik Kertme"
+                          : "Süpürgelik Kertme"}
+                      </button>
+
+                      {/* Çatı Eğimli Kesim (MD §2.1 & §7.4) */}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updateCarcassConfig({
+                            slopedCeiling: activeModule.carcass.slopedCeiling?.enabled
+                              ? {
+                                  enabled: false,
+                                  slopeType: "side_gable",
+                                  kneeWallHeightMm: 1500,
+                                  slopeAngleDeg: 32,
+                                }
+                              : {
+                                  enabled: true,
+                                  slopeType: "side_gable",
+                                  kneeWallHeightMm: Math.max(1100, height - 600),
+                                  slopeAngleDeg: 32,
+                                },
+                          })
+                        }
+                        className={`p-2 rounded-2xl border text-[11px] font-bold transition cursor-pointer ${
+                          activeModule.carcass.slopedCeiling?.enabled
+                            ? "birim-ice-charcoal-pill"
+                            : "birim-ice-btn text-[#141413]"
+                        }`}
+                        title="Çatı arası / mansard eğimli tavan açılı karkas ve kapak kesimi"
+                      >
+                        {activeModule.carcass.slopedCeiling?.enabled
+                          ? "✓ Çatı Eğimi (32°)"
+                          : "Çatı Eğimli Kesim"}
+                      </button>
+                    </div>
+
+                    {/* Çekmece Kasa Tipi & İç Çekmece Menteşe Çözümü (MD §5.1 & §5.2) */}
+                    <div className="grid grid-cols-2 gap-2 pt-1 border-t border-white/60">
+                      <div className="space-y-1">
+                        <span className="text-[10.5px] font-bold text-[#44403C] block">
+                          Çekmece Kasa Sistemi
+                        </span>
+                        <select
+                          value={activeModule.carcass.drawerBoxSystem || "metal_box_legrabox"}
+                          onChange={(e) =>
+                            updateCarcassConfig({
+                              drawerBoxSystem: e.target.value as
+                                | "wooden_undermount"
+                                | "metal_box_legrabox"
+                                | "metal_box_tandembox"
+                                | "ball_bearing_side",
+                            })
+                          }
+                          className="w-full p-1.5 rounded-xl birim-ice-btn text-[11px] font-bold text-[#141413] cursor-pointer"
+                        >
+                          <option value="metal_box_legrabox">LEGRABOX Metal (LW-38)</option>
+                          <option value="metal_box_tandembox">TANDEMBOX Metal (LW-75)</option>
+                          <option value="wooden_undermount">Ahşap Gizli Ray (LW-42)</option>
+                          <option value="ball_bearing_side">Bilyalı Teleskopik (LW-26)</option>
+                        </select>
+                      </div>
+
+                      <div className="space-y-1">
+                        <span className="text-[10.5px] font-bold text-[#44403C] block">
+                          İç Çekmece Menteşe Çözümü
+                        </span>
+                        <select
+                          value={
+                            activeModule.carcass.internalDrawerHingeSolution ||
+                            "spacer_block_25mm"
+                          }
+                          onChange={(e) =>
+                            updateCarcassConfig({
+                              internalDrawerHingeSolution: e.target.value as
+                                | "spacer_block_25mm"
+                                | "zero_protrusion_155deg",
+                            })
+                          }
+                          className="w-full p-1.5 rounded-xl birim-ice-btn text-[11px] font-bold text-[#141413] cursor-pointer"
+                        >
+                          <option value="spacer_block_25mm">25mm Besleme Çıtası</option>
+                          <option value="zero_protrusion_155deg">155° Sıfır Çıkıntı Menteşe</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
               {!isSimpleBlumMode &&
                 (studioInspectorTab === "carcass" || studioInspectorTab === "all") && (
@@ -7504,7 +8038,7 @@ export const V3UnifiedWorkspace: React.FC<{
                                   setMaterials(activeModule.carcass.bodyMaterialId, mat.id)
                                 }
                                 title={`${mat.name} — Tıkla: Kapak Rengi Yap`}
-                                style={{ backgroundColor: mat.colorHex }}
+                                data-material-swatch="true" style={getMaterialSwatchStyle(mat)}
                                 className={`w-7 h-7 rounded-full border transition cursor-pointer ${
                                   isDoorActive
                                     ? "ring-2 ring-blue-600 ring-offset-2 border-white scale-110"
@@ -7519,63 +8053,179 @@ export const V3UnifiedWorkspace: React.FC<{
                 )}
               </div>
               )}
-              {/* Interactive Door & Drawer Open/Close Control Bar (Visible in Kapak & İç Donanım tabs, or whenever doors/drawers are open) */}
+              {/* Smart Mechanism-Aware Door & Drawer Motion Simulation Card (Fixes image_c01e8a.png!) */}
               {(studioInspectorTab === "door" ||
                 studioInspectorTab === "interior" ||
                 doorOpenAngleDeg > 0 ||
-                drawerOpenMm > 0) && (
-                <div className="p-3 rounded-2xl bg-white border border-[#CBD5E1] space-y-2.5 text-xs shadow-2xs">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-bold text-[#1C1917] flex items-center gap-1.5">
-                      <DoorOpen className="w-4 h-4 text-[#57534E]" />
-                      <span>Kapak & Çekmece Açıklığı</span>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={toggleDoorOpen}
-                      className={`px-3 py-1 rounded-xl text-[13px] font-bold transition cursor-pointer ${
-                        doorOpenAngleDeg > 0
-                          ? "bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1]"
-                          : "bg-[#F1F5F9] hover:bg-[#EEF3F8] text-[#1C1917]"
-                      }`}
-                    >
-                      {doorOpenAngleDeg > 0 ? "Kapakları Kapat (0°)" : "Kapakları Aç (85°)"}
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 pt-1">
-                    <div>
-                      <div className="flex justify-between text-xs text-[#78716C] mb-1">
-                        <span>Kapak Açısı</span>
-                        <span className="font-mono font-bold text-[#1C1917]">{doorOpenAngleDeg}°</span>
+                drawerOpenMm > 0) &&
+                (() => {
+                  const hasDoorsOnMod =
+                    !activeModule.isOpenFront &&
+                    activeModule.bays.some(
+                      (b) => b.door && b.door.type !== "open" && b.door.doorSystemId !== "open"
+                    );
+                  const isSlidingMod = activeModule.bays.some(
+                    (b) =>
+                      b.door?.type === "sliding" ||
+                      b.door?.type === "sliding_bottom" ||
+                      Boolean(b.door?.doorSystemId?.startsWith("sliding"))
+                  );
+                  const isLiftMod = activeModule.bays.some((b) =>
+                    Boolean(b.door?.doorSystemId?.startsWith("lift"))
+                  );
+                  const has155ZeroHinge =
+                    activeModule.carcass.internalDrawerHingeSolution === "zero_protrusion_155deg" ||
+                    activeModule.bays.some((b) => b.door?.hardwareProductId?.includes("155"));
+                  const maxDoorDeg = isSlidingMod || isLiftMod ? 90 : has155ZeroHinge ? 155 : 110;
+                  const allDrawers = activeModule.bays.flatMap((b) => b.drawers || []);
+                  const hasDrawersOnMod = allDrawers.length > 0;
+                  const maxRunnerMm = hasDrawersOnMod
+                    ? Math.max(
+                        270,
+                        ...allDrawers.map((d) =>
+                          Math.min(550, d.nominalLengthMm || Math.max(300, activeModule.dimensions.depth - 80))
+                        )
+                      )
+                    : 400;
+                  const hasCoveredDrawers = activeModule.bays.some(
+                    (b) =>
+                      (b.drawers?.length || 0) > 0 &&
+                      !activeModule.isOpenFront &&
+                      b.door &&
+                      b.door.type !== "open" &&
+                      b.door.doorSystemId !== "open" &&
+                      b.drawers.some((d) => d.isInternal || b.door.type === "sliding" || (activeModule.dimensions.height > 1200 && !b.door.doorSystemId?.startsWith("lift")))
+                  );
+                  const anyOpenNow = doorOpenAngleDeg > 0 || drawerOpenMm > 0;
+                  const doorReadout = !hasDoorsOnMod
+                    ? "Kapaksız"
+                    : isSlidingMod || isLiftMod
+                    ? `%${Math.min(100, Math.round((doorOpenAngleDeg / 90) * 100))}`
+                    : `${doorOpenAngleDeg}°`;
+                  const drawerPct = Math.min(100, Math.round((drawerOpenMm / maxRunnerMm) * 100));
+
+                  const quickActionLabel = anyOpenNow
+                    ? "Tümünü Kapat"
+                    : !hasDoorsOnMod && hasDrawersOnMod
+                    ? "Çekmeceleri Aç"
+                    : isSlidingMod
+                    ? "Sürgüyü Aç (%100)"
+                    : isLiftMod
+                    ? "Kapağı Kaldır"
+                    : "Kapakları Aç (90°)";
+
+                  return (
+                    <div className="p-3.5 rounded-[24px] birim-ice-card space-y-2.5 text-xs">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold text-[#141413] flex items-center gap-1.5">
+                          <DoorOpen className="w-4 h-4 text-[#57534E]" />
+                          <span>Açılım Simülasyonu</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (anyOpenNow) {
+                              setDoorOpenAngleDeg(0);
+                              setDrawerOpenMm(0);
+                            } else if (!hasDoorsOnMod && hasDrawersOnMod) {
+                              setDrawerOpenMm(Math.round(maxRunnerMm * 0.8));
+                            } else {
+                              setDoorOpenAngleDeg(90);
+                            }
+                          }}
+                          className={`px-3 py-1 rounded-full text-[11px] font-bold transition cursor-pointer ${
+                            anyOpenNow
+                              ? "birim-ice-charcoal-pill"
+                              : "birim-ice-btn text-[#141413]"
+                          }`}
+                        >
+                          {quickActionLabel}
+                        </button>
                       </div>
-                      <input
-                        type="range"
-                        min={0}
-                        max={110}
-                        step={5}
-                        value={doorOpenAngleDeg}
-                        onChange={(e) => setDoorOpenAngleDeg(Number(e.target.value))}
-                        className="w-full accent-[#64748B] h-1.5 bg-[#E2E8F0] rounded-lg cursor-pointer"
-                      />
-                    </div>
-                    <div>
-                      <div className="flex justify-between text-xs text-[#78716C] mb-1">
-                        <span>Çekmece</span>
-                        <span className="font-mono font-bold text-[#1C1917]">{drawerOpenMm} mm</span>
+
+                      <div className="grid grid-cols-2 gap-3 pt-0.5">
+                        <div className={!hasDoorsOnMod ? "opacity-45" : ""}>
+                          <div className="flex justify-between text-[11px] text-[#57534E] mb-1">
+                            <span>
+                              {isSlidingMod
+                                ? "Sürgü Açılımı"
+                                : isLiftMod
+                                ? "Kalkar Açılım"
+                                : "Kapak Açılma Açısı"}
+                            </span>
+                            <span className="font-mono font-bold text-[#141413]">{doorReadout}</span>
+                          </div>
+                          <input
+                            type="range"
+                            disabled={!hasDoorsOnMod}
+                            min={0}
+                            max={maxDoorDeg}
+                            step={5}
+                            value={Math.min(maxDoorDeg, doorOpenAngleDeg)}
+                            onChange={(e) => {
+                              const nextDeg = Number(e.target.value);
+                              setDoorOpenAngleDeg(nextDeg);
+                              // Physical interlock: closing a door in front of internal/covered drawers retracts the drawers first!
+                              if (hasCoveredDrawers && nextDeg < 80 && drawerOpenMm > 0) {
+                                setDrawerOpenMm(0);
+                              }
+                            }}
+                            className="w-full accent-[#141413] h-1.5 bg-black/15 rounded-lg cursor-pointer disabled:cursor-not-allowed"
+                          />
+                        </div>
+
+                        <div className={!hasDrawersOnMod ? "opacity-45" : ""}>
+                          <div className="flex justify-between text-[11px] text-[#57534E] mb-1">
+                            <span>Çekmece Açılımı</span>
+                            <span className="font-mono font-bold text-[#141413]">
+                              {hasDrawersOnMod ? `%${drawerPct} (${drawerOpenMm} mm)` : "Yok"}
+                            </span>
+                          </div>
+                          <input
+                            type="range"
+                            disabled={!hasDrawersOnMod}
+                            min={0}
+                            max={maxRunnerMm}
+                            step={10}
+                            value={hasDrawersOnMod ? Math.min(maxRunnerMm, drawerOpenMm) : 0}
+                            onChange={(e) => {
+                              const nextMm = Number(e.target.value);
+                              // Physical interlock: pulling a covered drawer automatically opens closed doors so it never ghosts through!
+                              if (hasCoveredDrawers && nextMm > 0 && doorOpenAngleDeg < 90) {
+                                setDoorOpenAngleDeg(has155ZeroHinge ? 120 : 95);
+                              }
+                              setDrawerOpenMm(nextMm);
+                            }}
+                            className="w-full accent-[#141413] h-1.5 bg-black/15 rounded-lg cursor-pointer disabled:cursor-not-allowed"
+                          />
+                        </div>
                       </div>
-                      <input
-                        type="range"
-                        min={0}
-                        max={320}
-                        step={20}
-                        value={drawerOpenMm}
-                        onChange={(e) => setDrawerOpenMm(Number(e.target.value))}
-                        className="w-full accent-[#64748B] h-1.5 bg-[#E2E8F0] rounded-lg cursor-pointer"
-                      />
+
+                      <div className="pt-2 border-t border-black/8 flex items-center justify-between gap-2">
+                        <span className="text-[11px] font-medium text-[#57534E]">
+                          👔 İç Giysi, Kutu &amp; Ayakkabı Objeleri
+                        </span>
+                        <button
+                          type="button"
+                          data-testid="inspector-toggle-interior-props-btn"
+                          onClick={() => {
+                            if (typeof window !== "undefined") {
+                              window.dispatchEvent(new CustomEvent("birim:toggle-interior-props"));
+                            }
+                          }}
+                          data-tooltip="İç Eşyaları (Giysi, Kutu, Ayakkabı) Göster / Gizle"
+                          className={`px-2.5 py-1 rounded-full text-[10.5px] font-bold transition cursor-pointer ${
+                            interiorPropsVisible
+                              ? "birim-ice-charcoal-pill"
+                              : "birim-ice-btn text-[#44403C]"
+                          }`}
+                        >
+                          {interiorPropsVisible ? "✓ Görünür" : "Gizli"}
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                </div>
-              )}
+                  );
+                })()}
 
                             {/* Contextual Selected Part Banner (Shown whenever a single door, shelf, divider, or countertop is clicked in 3D/2D) */}
               {selectedComponentId && (() => {
@@ -7720,30 +8370,86 @@ export const V3UnifiedWorkspace: React.FC<{
                     </div>
                   )}
 
-                  <V3PremiumDropdown
-                    label="Yalnızca Bu Parçanın Malzemesi"
-                    testId="studio-selected-component-material-dropdown"
-                    value={
-                      activeModule.componentMaterialOverrides?.[selectedComponentId] || ""
-                    }
-                    placeholder="Modül Varsayılan Malzemesini Kullan"
-                    options={[
-                      {
-                        value: "",
-                        label: "Modül Varsayılan Malzemesi (Sıfırla)",
-                        subLabel: "Genel kapak/gövde malzemesini miras alır",
-                      },
-                      ...DEFAULT_MATERIALS.filter((m) => m.id !== "mat_led_warm_3000k").map(
-                        (m) => ({
-                          value: m.id,
-                          label: m.decorCode ? `${m.name} [${m.decorCode}]` : m.name,
-                          subLabel: m.brand ? `${m.brand} • ${m.category}` : m.category,
-                          badge: `${m.costPerM2} ₺/m²`,
-                        })
-                      ),
-                    ]}
-                    onChange={(val) => setSelectedComponentMaterial(val || null)}
-                  />
+                  <div className="space-y-2 pt-1.5 border-t border-blue-200/80">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-bold text-blue-950">Malzeme Uygulama Kapsamı</span>
+                      {activeModule.componentMaterialOverrides?.[selectedComponentId] && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            applyMaterialToSimilarComponents(
+                              activeModule.componentMaterialOverrides?.[selectedComponentId] || null,
+                              selectedComponentId,
+                              "project_similar"
+                            )
+                          }
+                          className="px-2 py-0.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold cursor-pointer"
+                          title="Bu parçadaki malzemeyi sahnedeki tüm benzer elemanlara uygula"
+                        >
+                          ⚡ Tüm Benzerlere Yay
+                        </button>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-white/80 border border-blue-200">
+                      {[
+                        { id: "single" as const, lbl: "Sadece Bu Parça" },
+                        { id: "module_similar" as const, lbl: "Modüldeki Benzerler" },
+                        { id: "project_similar" as const, lbl: "Tüm Dolaplarda" },
+                      ].map((sc) => (
+                        <button
+                          key={sc.id}
+                          type="button"
+                          data-testid={`selected-part-mat-scope-${sc.id}`}
+                          onClick={() => setSelectedPartMatScope(sc.id)}
+                          className={`py-1.5 px-1.5 rounded-lg text-[10.5px] font-bold transition cursor-pointer ${
+                            selectedPartMatScope === sc.id
+                              ? "bg-[#141413] text-white shadow-2xs"
+                              : "text-slate-700 hover:bg-slate-100"
+                          }`}
+                        >
+                          {sc.lbl}
+                        </button>
+                      ))}
+                    </div>
+                    <V3PremiumDropdown
+                      label={
+                        selectedPartMatScope === "project_similar"
+                          ? "Tüm Projedeki Benzer Elemanların Malzemesi"
+                          : selectedPartMatScope === "module_similar"
+                          ? "Bu Modüldeki Benzer Elemanların Malzemesi"
+                          : "Seçili Parçanın Malzemesi"
+                      }
+                      testId="studio-selected-component-material-dropdown"
+                      value={
+                        activeModule.componentMaterialOverrides?.[selectedComponentId] ||
+                        matchedPart?.materialId ||
+                        ""
+                      }
+                      placeholder="Malzeme Seçin"
+                      options={[
+                        {
+                          value: "",
+                          label: "Özel Atamayı Sıfırla (Varsayılan)",
+                          subLabel: "Genel kapak/gövde malzemesini miras alır",
+                        },
+                        ...DEFAULT_MATERIALS.filter((m) => m.id !== "mat_led_warm_3000k").map(
+                          (m) => ({
+                            value: m.id,
+                            label: m.decorCode ? `${m.name} [${m.decorCode}]` : m.name,
+                            subLabel: m.brand ? `${m.brand} • ${m.category}` : m.category,
+                            badge: `€${m.costPerM2}/m²`,
+                          })
+                        ),
+                      ]}
+                      onChange={(val) =>
+                        applyMaterialToSimilarComponents(
+                          val || null,
+                          selectedComponentId,
+                          selectedPartMatScope
+                        )
+                      }
+                    />
+                  </div>
                 </div>
                 );
               })()}
@@ -8778,11 +9484,6 @@ export const V3UnifiedWorkspace: React.FC<{
                                 window as unknown as { __birimDoorCrossSection?: string }
                               ).__birimDoorCrossSection = nextProf;
                             }
-                            if (activeBay) {
-                              setBayV4DoorConfig(activeBayIndex, {
-                                softClose: activeBay.door.softClose,
-                              });
-                            }
                           }}
                           className={`text-xs font-semibold px-2 py-0.5 rounded-full border transition cursor-pointer ${
                             doorCrossSectionProfile === "bevel_45"
@@ -8855,11 +9556,9 @@ export const V3UnifiedWorkspace: React.FC<{
                               type="button"
                               onClick={() => {
                                 if (card.id === "glass") {
-                                  setMaterials(undefined, "mat_smoked_glass");
+                                  setDoorCrossSectionProfile("glass_frame");
+                                  setModuleDoorCrossSection("glass_frame");
                                 } else {
-                                  if (isGlassMat) {
-                                    setMaterials(undefined, "mat_veneer_oak");
-                                  }
                                   const prof = card.id as
                                     | "flat_slab"
                                     | "shaker_frame"
@@ -8870,11 +9569,6 @@ export const V3UnifiedWorkspace: React.FC<{
                                     (
                                       window as unknown as { __birimDoorCrossSection?: string }
                                     ).__birimDoorCrossSection = prof;
-                                  }
-                                  if (activeBay) {
-                                    setBayV4DoorConfig(activeBayIndex, {
-                                      softClose: activeBay.door.softClose,
-                                    });
                                   }
                                 }
                               }}
@@ -8935,8 +9629,19 @@ export const V3UnifiedWorkspace: React.FC<{
 
                       {openRightDrawer === "material" && (
                         <div className="p-2.5 rounded-2xl bg-white border border-[#CBD5E1] space-y-2 max-h-60 overflow-y-auto shadow-sm">
-                          <div className="text-xs font-bold uppercase tracking-wider text-[#78716C]">
-                            Kapak Malzemesi Seçin
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="text-xs font-bold uppercase tracking-wider text-[#78716C]">
+                              Kapak Malzemesi Seçin
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setOpenRightDrawer(null)}
+                              title="Kapat"
+                              aria-label="Kapat"
+                              className="w-6 h-6 rounded-lg bg-[#F1F5F9] hover:bg-[#E2E8F0] text-[#64748B] hover:text-[#111827] flex items-center justify-center transition cursor-pointer shrink-0"
+                            >
+                              ✕
+                            </button>
                           </div>
                           {DEFAULT_MATERIALS.filter((m) => m.id !== "mat_led_warm_3000k").map(
                             (mat) => (
@@ -8992,7 +9697,22 @@ export const V3UnifiedWorkspace: React.FC<{
                       </button>
 
                       {openRightDrawer === "handle" && activeBay && (
-                        <div className="p-2.5 rounded-2xl bg-white border border-[#CBD5E1] grid grid-cols-2 gap-1.5 shadow-sm">
+                        <div className="p-2.5 rounded-2xl bg-white border border-[#CBD5E1] space-y-2 shadow-sm">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs font-bold uppercase tracking-wider text-[#78716C]">
+                              Kulp Modeli Seçin
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setOpenRightDrawer(null)}
+                              title="Kapat"
+                              aria-label="Kapat"
+                              className="w-6 h-6 rounded-lg bg-[#F1F5F9] hover:bg-[#E2E8F0] text-[#64748B] hover:text-[#111827] flex items-center justify-center transition cursor-pointer shrink-0"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                          <div className="grid grid-cols-2 gap-1.5">
                           {[
                             { cat: "bar_handle", code: "K019", label: "Mat Siyah Çubuk" },
                             { cat: "knob", code: "D008", label: "Düğme Kulp" },
@@ -9023,6 +9743,7 @@ export const V3UnifiedWorkspace: React.FC<{
                               </button>
                             );
                           })}
+                          </div>
                         </div>
                       )}
                     </div>
@@ -9064,6 +9785,20 @@ export const V3UnifiedWorkspace: React.FC<{
 
                       {openRightDrawer === "soket" && (
                         <div className="p-2.5 rounded-2xl bg-white border border-[#CBD5E1] space-y-1.5 shadow-sm">
+                          <div className="flex items-center justify-between gap-2 pb-1">
+                            <span className="text-xs font-bold uppercase tracking-wider text-[#78716C]">
+                              Baza / Soket Yüzeyi Seçin
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setOpenRightDrawer(null)}
+                              title="Kapat"
+                              aria-label="Kapat"
+                              className="w-6 h-6 rounded-lg bg-[#F1F5F9] hover:bg-[#E2E8F0] text-[#64748B] hover:text-[#111827] flex items-center justify-center transition cursor-pointer shrink-0"
+                            >
+                              ✕
+                            </button>
+                          </div>
                           {[
                             {
                               id: "mat_lacquer_sage",
@@ -9214,7 +9949,7 @@ export const V3UnifiedWorkspace: React.FC<{
                         >
                           <span
                             className="w-5 h-5 rounded-md border border-stone-300 shrink-0"
-                            style={{ backgroundColor: mat.colorHex }}
+                            data-material-swatch="true" style={getMaterialSwatchStyle(mat)}
                           />
                           <span className="text-xs text-[#1C1917] truncate">
                             {mat.name.split(" (")[0]}
@@ -11565,16 +12300,18 @@ export const V3UnifiedWorkspace: React.FC<{
                           data-testid="door-screen3-handle-customizer"
                           className="p-3 rounded-2xl bg-[#F8FAFC] border border-[#CBD5E1] space-y-2.5"
                         >
-                          <div className="flex items-center justify-between">
+                          <div className="flex items-center justify-between gap-2">
                             <span className="text-[13px] font-bold text-[#111827]">
                               Kulp Modeli, Yönü & Konum Parametreleri
                             </span>
                             <button
                               type="button"
                               onClick={() => setOpenRightDrawer(null)}
-                              className="text-xs text-[#64748B] hover:text-[#111827] cursor-pointer"
+                              title="Kapat"
+                              aria-label="Kapat"
+                              className="w-6 h-6 rounded-lg bg-white hover:bg-[#E2E8F0] border border-[#CBD5E1] text-[#64748B] hover:text-[#111827] flex items-center justify-center transition cursor-pointer shrink-0"
                             >
-                              Kapat ▲
+                              ✕
                             </button>
                           </div>
 
@@ -11742,6 +12479,20 @@ export const V3UnifiedWorkspace: React.FC<{
                           data-testid="door-screen3-material-picker-drawer"
                           className="p-3 rounded-2xl bg-[#F8FAFC] border border-[#CBD5E1] space-y-2.5"
                         >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs font-bold text-[#111827]">
+                              Kapak Malzemesi &amp; Uygulama Kapsamı
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setOpenRightDrawer(null)}
+                              title="Kapat"
+                              aria-label="Kapat"
+                              className="w-6 h-6 rounded-lg bg-white hover:bg-[#E2E8F0] border border-[#CBD5E1] text-[#64748B] hover:text-[#111827] flex items-center justify-center transition cursor-pointer shrink-0"
+                            >
+                              ✕
+                            </button>
+                          </div>
                           {/* Scope Selector: Tek Kapak | Seçili Bölme | Tüm Kapaklar */}
                           <div className="grid grid-cols-3 gap-1">
                             {[
@@ -11806,7 +12557,7 @@ export const V3UnifiedWorkspace: React.FC<{
                                 >
                                   <span
                                     className="w-6 h-6 rounded-lg border border-stone-300 shrink-0"
-                                    style={{ backgroundColor: mat.colorHex }}
+                                    data-material-swatch="true" style={getMaterialSwatchStyle(mat)}
                                   />
                                   <div className="min-w-0">
                                     <div className="text-xs font-bold text-[#111827] truncate">
@@ -14288,6 +15039,7 @@ export const V3UnifiedWorkspace: React.FC<{
                 </>
               )}
             </div>
+            </div>
           </aside>
         )}
       </div>
@@ -14313,9 +15065,9 @@ export const V3UnifiedWorkspace: React.FC<{
             : pricing.totalWithVatEur;
 
         return (
-          <footer className="h-[52px] birim-ice-bar text-[#141413] border-t flex items-center justify-between px-3.5 shrink-0 z-30 gap-2.5">
-            {/* Sol: Buzlu Cam Modül Film Şeridi + İkon "+" Ekleme */}
-            <div className="flex items-center gap-1.5 min-w-0 overflow-x-auto no-scrollbar">
+          <footer className="absolute bottom-2.5 left-3.5 right-3.5 h-[48px] bg-transparent pointer-events-none text-[#141413] flex items-center justify-between z-30 gap-2.5">
+            {/* Sol: Yüzen Buzlu Cam Modül Film Şeridi + İkon "+" Ekleme */}
+            <div className="pointer-events-auto flex items-center gap-1.5 min-w-0 overflow-x-auto no-scrollbar">
               <div className="flex items-center gap-1 p-0.5 rounded-2xl birim-ice-pill">
                 {project.modules.map((m, idx) => (
                   <div
@@ -14368,8 +15120,29 @@ export const V3UnifiedWorkspace: React.FC<{
               </div>
             </div>
 
-            {/* Sağ: İkon Odaklı Kapasite, Fiyat ve Buzlu Cam Aksiyon Kapsülü */}
-            <div className="flex items-center gap-2 shrink-0 ml-auto">
+            {/* Sağ: Yüzen Buzlu Cam Açılım Sürgüsü, Kapasite, Fiyat ve Aksiyon Kapsülü */}
+            <div className="pointer-events-auto flex items-center gap-2 shrink-0 ml-auto">
+              <div
+                title="Kapak ve Çekmece Açılma Oranı (%0 – %100 • Kısayol: Space)"
+                className="hidden md:inline-flex items-center gap-2 px-3 h-9 rounded-[20px] birim-ice-pill text-[11px] font-semibold text-[#141413]"
+              >
+                <DoorOpen className="w-3.5 h-3.5 text-[#57534E]" />
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={Math.round(Math.max(doorOpenAngleDeg / 0.85, drawerOpenMm / 3.2))}
+                  onChange={(e) => {
+                    const pct = Number(e.target.value);
+                    setDoorOpenAngleDeg(Math.round(pct * 0.85));
+                    setDrawerOpenMm(Math.round(pct * 3.2));
+                  }}
+                  className="w-20 accent-[#141413] h-1.5 bg-black/15 rounded-lg cursor-pointer"
+                />
+                <span className="font-mono text-[10px] w-7 text-right">
+                  %{Math.min(100, Math.round(Math.max(doorOpenAngleDeg / 0.85, drawerOpenMm / 3.2)))}
+                </span>
+              </div>
               <div className="hidden lg:flex items-center gap-2 px-2.5 h-8 rounded-xl birim-ice-btn text-[11px] font-mono font-bold text-[#141413]" title="Toplam Dolap Genişliği">
                 <span>↔ {isSimpleBlumMode ? `${totalWidthMm / 10}cm` : `${totalWidthMm}mm`}</span>
                 {!isSimpleBlumMode && (
@@ -14763,7 +15536,7 @@ export const V3UnifiedWorkspace: React.FC<{
                           ? "ring-2 ring-blue-600 border-white scale-110"
                           : "border-slate-300"
                       }`}
-                      style={{ backgroundColor: mat.colorHex }}
+                      data-material-swatch="true" style={getMaterialSwatchStyle(mat)}
                     />
                   ))}
                 </div>
@@ -14778,13 +15551,14 @@ export const V3UnifiedWorkspace: React.FC<{
         <div
           data-testid="v3-engineering-modal"
           onClick={() => setShowRulesModal(false)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 backdrop-blur-2xl p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/40 backdrop-blur-xs p-4"
         >
           <div
+            data-draggable-shell="rules"
             onClick={(e) => e.stopPropagation()}
-            className="birim-ice-popover border border-white/85 rounded-3xl shadow-2xl max-w-2xl w-full overflow-hidden text-stone-900"
+            className="birim-ice-modal rounded-[28px] max-w-2xl w-full overflow-hidden text-stone-900"
           >
-            <div className="px-5 py-4 border-b border-white/70 flex items-center justify-between bg-white/40 backdrop-blur-xl">
+            <div onPointerDown={(e) => startZeroLagModalDrag(e)} title="Taşımak için sürükleyin" className="px-5 py-4 birim-ice-shell-header flex items-center justify-between cursor-grab active:cursor-grabbing select-none">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="w-4 h-4 text-[#57534E]" />
                 <div>
@@ -14876,13 +15650,14 @@ export const V3UnifiedWorkspace: React.FC<{
         <div
           data-testid="v4-library-admin-modal"
           onClick={() => setShowAdminModal(false)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 backdrop-blur-2xl p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/40 backdrop-blur-xs p-4"
         >
           <div
+            data-draggable-shell="admin"
             onClick={(e) => e.stopPropagation()}
-            className="birim-ice-popover border border-white/85 rounded-3xl shadow-2xl max-w-3xl w-full overflow-hidden text-stone-900"
+            className="birim-ice-modal rounded-[28px] max-w-3xl w-full overflow-hidden text-stone-900"
           >
-            <div className="px-5 py-4 border-b border-white/70 flex items-center justify-between bg-white/40 backdrop-blur-xl">
+            <div onPointerDown={(e) => startZeroLagModalDrag(e)} title="Taşımak için sürükleyin" className="px-5 py-4 birim-ice-shell-header flex items-center justify-between cursor-grab active:cursor-grabbing select-none">
               <div className="flex items-center gap-2">
                 <Wrench className="w-4 h-4 text-[#57534E]" />
                 <h2 className="text-sm font-bold">
@@ -15099,14 +15874,15 @@ export const V3UnifiedWorkspace: React.FC<{
         <div
           data-testid="v4-floating-catalog-modal"
           onClick={() => setIsVisualCatalogOpen(false)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 backdrop-blur-2xl p-4 sm:p-6"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/50 backdrop-blur-xs p-4 sm:p-6"
         >
           <div
+            data-draggable-shell="catalog"
             onClick={(e) => e.stopPropagation()}
-            className="birim-ice-popover border border-white/85 rounded-3xl shadow-2xl max-w-5xl w-full h-[85vh] flex flex-col overflow-hidden text-stone-900"
+            className="birim-ice-modal rounded-[28px] max-w-5xl w-full h-[85vh] flex flex-col overflow-hidden text-stone-900"
           >
-            {/* Header */}
-            <div className="px-5 py-3.5 border-b border-white/70 bg-white/40 backdrop-blur-xl flex flex-wrap items-center justify-between gap-3">
+            {/* Header (Zero-Lag Draggable) */}
+            <div onPointerDown={(e) => startZeroLagModalDrag(e)} title="Taşımak için sürükleyin" className="px-5 py-3.5 birim-ice-shell-header flex flex-wrap items-center justify-between gap-3 cursor-grab active:cursor-grabbing select-none">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-xl bg-[#EEF3F8] text-[#1C1917] border border-[#CBD5E1] flex items-center justify-center font-bold">
                   <Package className="w-4 h-4" />
@@ -15134,9 +15910,11 @@ export const V3UnifiedWorkspace: React.FC<{
                   type="button"
                   data-testid="v4-floating-catalog-close"
                   onClick={() => setIsVisualCatalogOpen(false)}
-                  className="px-3 py-1.5 rounded-xl bg-stone-200 hover:bg-stone-300 text-stone-800 text-xs font-bold cursor-pointer"
+                  title="Kataloğu Kapat"
+                  aria-label="Kapat"
+                  className="w-8 h-8 rounded-xl bg-stone-200/80 hover:bg-stone-300 text-stone-700 hover:text-stone-950 flex items-center justify-center transition cursor-pointer shrink-0"
                 >
-                  Kapat ✕
+                  <X className="w-4 h-4" />
                 </button>
               </div>
             </div>
@@ -15368,15 +16146,16 @@ export const V3UnifiedWorkspace: React.FC<{
         return (
           <div
             data-testid="v4-step-wizard-modal"
-            className="fixed inset-0 z-[130] bg-slate-950/50 backdrop-blur-2xl flex items-center justify-center p-3 sm:p-5 overflow-y-auto"
+            className="fixed inset-0 z-[130] bg-slate-900/45 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 overflow-y-auto"
             onClick={() => setShowStepWizardModal(false)}
           >
             <div
-              className="birim-ice-popover rounded-3xl border border-white/85 shadow-[0_24px_60px_rgba(15,23,42,0.25)] max-w-5xl w-full overflow-hidden text-slate-900 flex flex-col max-h-[92vh]"
+              data-draggable-shell="wizard"
+              className="birim-ice-modal rounded-[28px] max-w-5xl w-full overflow-hidden text-slate-900 flex flex-col max-h-[92vh]"
               onClick={(e) => e.stopPropagation()}
             >
-              {/* B1R1M Mimari Sihirbaz Başlığı ve Adım Çubuğu */}
-              <div className="px-6 pt-5 pb-4 bg-white/40 backdrop-blur-xl border-b border-white/70">
+              {/* B1R1M Mimari Sihirbaz Başlığı ve Adım Çubuğu (Zero-Lag Draggable) */}
+              <div onPointerDown={(e) => startZeroLagModalDrag(e)} title="Taşımak için sürükleyin" className="px-6 pt-5 pb-4 birim-ice-shell-header cursor-grab active:cursor-grabbing select-none">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3">
                     <div className="w-9 h-9 rounded-lg bg-[#141413] text-[#FAF9F6] flex items-center justify-center shrink-0">
@@ -16154,10 +16933,80 @@ export const V3UnifiedWorkspace: React.FC<{
         }}
       />
 
-            <V3ProjectModal
+      <V3ProjectModal
         isOpen={isProjectModalOpen}
         onClose={() => setIsProjectModalOpen(false)}
       />
+
+      <StudioRenderModal
+        isOpen={showStudioRenderModal}
+        projectId={project.id}
+        projectTitle={project.title}
+        onClose={() => setShowStudioRenderModal(false)}
+      />
+
+      <CustomHardwareModal
+        isOpen={showCustomHardwareModal}
+        onClose={() => setShowCustomHardwareModal(false)}
+        onApplyHandleToActiveBay={(spec) => {
+          setBayV4DoorConfig(activeBayIndex, {
+            handleCategory: spec.handleCategory,
+            handleProfileId: spec.handleProfileId,
+            handleLengthMm: spec.handleLengthMm,
+            handleMaterialId: spec.handleMaterialId,
+          });
+          setApprovalBanner({
+            ok: true,
+            text: `🔩 Özel kulp (${spec.handleProfileId} • ${spec.handleLengthMm}mm) seçili bölmeye uygulandı.`,
+          });
+        }}
+        onApplyHandleToAllBays={(spec) => {
+          setBayV4DoorConfig(activeBayIndex, {
+            handleCategory: spec.handleCategory,
+            handleProfileId: spec.handleProfileId,
+            handleLengthMm: spec.handleLengthMm,
+            handleMaterialId: spec.handleMaterialId,
+          });
+          copyDoorConfigToAllBays(activeBayIndex);
+          setApprovalBanner({
+            ok: true,
+            text: `🔩 Özel kulp (${spec.handleProfileId} • ${spec.handleLengthMm}mm) modüldeki tüm bölmelere uygulandı.`,
+          });
+        }}
+        onCatalogChanged={() => setCustomCatalogTick((t) => t + 1)}
+      />
+
+      <AssemblyDiagramModal
+        isOpen={showAssemblyModal}
+        project={project}
+        bom={bom}
+        activeModuleIndex={activeModuleIndex}
+        onClose={() => setShowAssemblyModal(false)}
+      />
+
+      <KitchenIslandTableModal
+        isOpen={showIslandTableModal}
+        project={project}
+        materials={DEFAULT_MATERIALS}
+        activeModuleIndex={activeModuleIndex}
+        onAddIsland={(spec) => {
+          addKitchenIslandUnit(spec);
+          setApprovalBanner({
+            ok: true,
+            text: `🏝️ Şelale tezgâhlı ada mutfak (${spec.widthMm}×${spec.depthMm}mm) sahneye eklendi.`,
+          });
+        }}
+        onAddOrUpdateAttachedTable={(spec) => {
+          addOrUpdateAttachedTable(spec);
+          setApprovalBanner({
+            ok: true,
+            text: `🍽️ ${spec.angleDeg}° açılı masa (${spec.lengthMm}×${spec.widthMm}mm) seçili modüle bağlandı.`,
+          });
+        }}
+        onClose={() => setShowIslandTableModal(false)}
+      />
+
+      <BirimLogo className="hidden" />
       <BomModal isOpen={isBomModalOpen} onClose={() => setIsBomModalOpen(false)} initialTab={bomModalInitialTab} />
       <TapToPlaceController
         armedItem={armedTapItem}

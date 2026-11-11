@@ -9,7 +9,28 @@ import {
 } from "@birim/core";
 
 let activeDraggedTemplateIdState: string | null = null;
-let transparentDragCanvas: HTMLCanvasElement | null = null;
+let emptyDragPixelCanvas: HTMLCanvasElement | null = null;
+
+function getInvisibleDragImageCanvas(): HTMLCanvasElement | null {
+  if (typeof document === "undefined") return null;
+  if (!emptyDragPixelCanvas) {
+    emptyDragPixelCanvas = document.createElement("canvas");
+    emptyDragPixelCanvas.width = 2;
+    emptyDragPixelCanvas.height = 2;
+    emptyDragPixelCanvas.style.position = "fixed";
+    emptyDragPixelCanvas.style.top = "-100px";
+    emptyDragPixelCanvas.style.left = "-100px";
+    emptyDragPixelCanvas.style.width = "2px";
+    emptyDragPixelCanvas.style.height = "2px";
+    emptyDragPixelCanvas.style.opacity = "0";
+    emptyDragPixelCanvas.style.pointerEvents = "none";
+    emptyDragPixelCanvas.style.zIndex = "-9999";
+    document.body.appendChild(emptyDragPixelCanvas);
+  }
+  const ctx = emptyDragPixelCanvas.getContext("2d");
+  if (ctx) ctx.clearRect(0, 0, 2, 2);
+  return emptyDragPixelCanvas;
+}
 
 export function setActiveDraggedTemplateId(templateId: string | null): void {
   activeDraggedTemplateIdState = templateId;
@@ -20,10 +41,8 @@ export function getActiveDraggedTemplateId(): string | null {
 }
 
 /**
- * Initiates a clean silhouette drag operation:
- * - Suppresses the browser's default rectangular HTML button screenshot via a 1x1 transparent canvas
- * - Stores the active templateId so 3D and 2D viewports can render the real-scale Cabinet Silhouette
- *   and magnetic snap target lines live during `onDragOver`.
+ * Initiates a clean module drag operation with an invisible 2x2 cursor drag image
+ * so ONLY the real-scale 3D/2D cabinet placement preview renders on the stage (no symbolic icon stuck to mouse!).
  */
 export function startModuleSilhouetteDrag(
   e: React.DragEvent<HTMLElement>,
@@ -32,86 +51,15 @@ export function startModuleSilhouetteDrag(
   setActiveDraggedTemplateId(templateId);
   e.dataTransfer.setData("application/x-birim-template-id", templateId);
   e.dataTransfer.effectAllowed = "copy";
-
-  if (typeof document !== "undefined") {
-    if (!transparentDragCanvas) {
-      transparentDragCanvas = document.createElement("canvas");
-      transparentDragCanvas.width = 110;
-      transparentDragCanvas.height = 96;
-      transparentDragCanvas.style.position = "fixed";
-      transparentDragCanvas.style.top = "0px";
-      transparentDragCanvas.style.left = "0px";
-      transparentDragCanvas.style.zIndex = "-9999";
-      transparentDragCanvas.style.opacity = "0.01";
-      transparentDragCanvas.style.pointerEvents = "none";
-      document.body.appendChild(transparentDragCanvas);
-    }
-    const ctx = transparentDragCanvas.getContext("2d");
-    if (ctx) {
-      ctx.clearRect(0, 0, 110, 96);
-      const isWall = templateId.includes("_kw_") || templateId.includes("wall");
-      const w = 58;
-      const h = isWall ? 38 : 58;
-      const dx = 14;
-      const dy = 8;
-      const x0 = 20;
-      const y0 = isWall ? 24 : 18;
-
-      ctx.lineJoin = "round";
-      ctx.lineCap = "round";
-
-      // Isometric Top Face Silhouette
-      ctx.beginPath();
-      ctx.moveTo(x0, y0);
-      ctx.lineTo(x0 + dx, y0 - dy);
-      ctx.lineTo(x0 + w + dx, y0 - dy);
-      ctx.lineTo(x0 + w, y0);
-      ctx.closePath();
-      ctx.fillStyle = "rgba(16, 185, 129, 0.34)";
-      ctx.fill();
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = "#047857";
-      ctx.stroke();
-
-      // Isometric Right Side Face Silhouette
-      ctx.beginPath();
-      ctx.moveTo(x0 + w, y0);
-      ctx.lineTo(x0 + w + dx, y0 - dy);
-      ctx.lineTo(x0 + w + dx, y0 + h - dy);
-      ctx.lineTo(x0 + w, y0 + h);
-      ctx.closePath();
-      ctx.fillStyle = "rgba(5, 150, 105, 0.38)";
-      ctx.fill();
-      ctx.stroke();
-
-      // Isometric Front Carcass Silhouette + Internal Shelves/Bays
-      ctx.fillStyle = "rgba(16, 185, 129, 0.24)";
-      ctx.fillRect(x0, y0, w, h);
-      ctx.strokeRect(x0, y0, w, h);
-
-      // Center bay & shelf dashed silhouette lines
-      ctx.setLineDash([4, 3]);
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(x0 + w / 2, y0);
-      ctx.lineTo(x0 + w / 2, y0 + h);
-      ctx.moveTo(x0 + 4, y0 + h * 0.36);
-      ctx.lineTo(x0 + w - 4, y0 + h * 0.36);
-      ctx.moveTo(x0 + 4, y0 + h * 0.68);
-      ctx.lineTo(x0 + w - 4, y0 + h * 0.68);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    }
-    e.dataTransfer.setDragImage(transparentDragCanvas, 52, 48);
+  const blank = getInvisibleDragImageCanvas();
+  if (blank) {
+    e.dataTransfer.setDragImage(blank, 0, 0);
   }
 }
 
-
-let accessoryDragCanvas: HTMLCanvasElement | null = null;
-
 /**
- * Sets a clean, button-free 3D isometric silhouette as the cursor drag image when dragging
- * an interior accessory (shelf, drawer, rail, trouser rack, etc.) so the browser never drags the button card.
+ * Initiates an interior hardware/fitting drag operation with an invisible cursor drag image
+ * so ONLY the live 3D/2D hardware drawing inside the cabinet appears — ZERO symbolic drawing stuck to the mouse tip!
  */
 export function startAccessorySilhouetteDrag(
   e: React.DragEvent<HTMLElement>,
@@ -123,80 +71,12 @@ export function startAccessorySilhouetteDrag(
   e.dataTransfer.effectAllowed = "copy";
 
   if (typeof window !== "undefined") {
-    (window as any).__birimActiveDraggedAccessory = item;
+    (window as unknown as { __birimActiveDraggedAccessory?: typeof item }).__birimActiveDraggedAccessory = item;
   }
 
-  if (typeof document !== "undefined") {
-    if (!accessoryDragCanvas) {
-      accessoryDragCanvas = document.createElement("canvas");
-      accessoryDragCanvas.width = 96;
-      accessoryDragCanvas.height = 72;
-      accessoryDragCanvas.style.position = "fixed";
-      accessoryDragCanvas.style.top = "0px";
-      accessoryDragCanvas.style.left = "0px";
-      accessoryDragCanvas.style.zIndex = "-9999";
-      accessoryDragCanvas.style.opacity = "0.01";
-      accessoryDragCanvas.style.pointerEvents = "none";
-      document.body.appendChild(accessoryDragCanvas);
-    }
-    const ctx = accessoryDragCanvas.getContext("2d");
-    if (ctx) {
-      ctx.clearRect(0, 0, 96, 72);
-      ctx.lineJoin = "round";
-      ctx.lineCap = "round";
-
-      if (item.visual.includes("drawer") || item.visual.includes("basket")) {
-        // Draw clean 3D drawer box silhouette
-        ctx.fillStyle = "rgba(37, 99, 235, 0.28)";
-        ctx.strokeStyle = "#1D4ED8";
-        ctx.lineWidth = 2;
-        ctx.fillRect(16, 20, 56, 30);
-        ctx.strokeRect(16, 20, 56, 30);
-        ctx.beginPath();
-        ctx.moveTo(16, 20);
-        ctx.lineTo(28, 10);
-        ctx.lineTo(84, 10);
-        ctx.lineTo(72, 20);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-      } else if (item.visual === "sub_divider" || item.visual === "carcass_divider" || item.visual.includes("divider")) {
-        // Draw clean 3D vertical divider panel silhouette (Raf Arası Dikme / Ara Dikme)
-        ctx.fillStyle = "rgba(37, 99, 235, 0.35)";
-        ctx.strokeStyle = "#1D4ED8";
-        ctx.lineWidth = 2.2;
-        ctx.beginPath();
-        ctx.moveTo(40, 8);
-        ctx.lineTo(56, 4);
-        ctx.lineTo(56, 62);
-        ctx.lineTo(40, 68);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-      } else if (item.visual.includes("rail")) {
-        // Draw clean 3D chrome hanging rail silhouette
-        ctx.strokeStyle = "#2563EB";
-        ctx.lineWidth = 5;
-        ctx.beginPath();
-        ctx.moveTo(12, 32);
-        ctx.lineTo(84, 32);
-        ctx.stroke();
-      } else {
-        // Draw clean 3D isometric shelf / accessory board silhouette
-        ctx.fillStyle = "rgba(37, 99, 235, 0.35)";
-        ctx.strokeStyle = "#1D4ED8";
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(12, 36);
-        ctx.lineTo(30, 22);
-        ctx.lineTo(84, 26);
-        ctx.lineTo(66, 40);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-      }
-    }
-    e.dataTransfer.setDragImage(accessoryDragCanvas, 48, 36);
+  const blank = getInvisibleDragImageCanvas();
+  if (blank) {
+    e.dataTransfer.setDragImage(blank, 0, 0);
   }
 }
 
@@ -457,7 +337,7 @@ export function getEffectiveSpaceObstacles(project: DesignProject): Architectura
         id: "arch_column_right",
         type: "column",
         name: "Taşıyıcı Köşe Kolonu",
-        position: { x: Math.max(3650, maxModRightX + 40), y: 0, z: 0 },
+        position: { x: (project.space.walls[0]?.length || 3600) <= 3250 ? 2950 : Math.max(3650, maxModRightX + 40), y: 0, z: 0 },
         dimensions: { width: 250, height: 2600, depth: 300 },
       },
     ];
@@ -540,10 +420,11 @@ export function validateSpatialAndKitchenEngineering(
       return [{ x1: fp.x, z1: fp.z, x2: fp.x + fp.planWidth, z2: fp.z + fp.planDepth }];
     }
     const wd = Math.min(fp.wingDepthMm, fp.planWidth, fp.planDepth);
+    const armSpan = Math.min(640, fp.planDepth);
     if (fp.rotationY === 90) {
       return [
         { x1: fp.x, z1: fp.z, x2: fp.x + fp.planWidth, z2: fp.z + wd },
-        { x1: fp.x + fp.planWidth - wd, z1: fp.z, x2: fp.x + fp.planWidth, z2: fp.z + fp.planDepth },
+        { x1: fp.x + fp.planWidth - Math.min(wd, 360), z1: fp.z, x2: fp.x + fp.planWidth, z2: fp.z + armSpan },
       ];
     }
     if (fp.rotationY === 180) {
@@ -560,7 +441,7 @@ export function validateSpatialAndKitchenEngineering(
     }
     return [
       { x1: fp.x, z1: fp.z, x2: fp.x + fp.planWidth, z2: fp.z + wd },
-      { x1: fp.x, z1: fp.z, x2: fp.x + wd, z2: fp.z + fp.planDepth },
+      { x1: fp.x, z1: fp.z, x2: fp.x + wd, z2: fp.z + armSpan },
     ];
   };
 

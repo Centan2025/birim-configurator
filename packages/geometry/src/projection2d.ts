@@ -88,6 +88,12 @@ export function generateElevation2D(
       }
       return true;
     })
+    .sort((a, b) => {
+      // Paint back-to-front by max Z so door_handle & drawer_handle ALWAYS sit on top of drawer_front & door panels!
+      const za = componentBounds(a).max.z + (a.role.includes("handle") || a.role === "gola_profile" ? 500 : 0);
+      const zb = componentBounds(b).max.z + (b.role.includes("handle") || b.role === "gola_profile" ? 500 : 0);
+      return za - zb;
+    })
     .map((c) => {
       const bounds = componentBounds(c);
       const isHiddenLegBehindPlinth = hasFrontPlinth && c.id.includes("_plastic_leg_");
@@ -240,11 +246,18 @@ export function generateCrossSection2D(
           c.role === "door_right" ||
           c.role === "door_sliding" ||
           c.role === "door_lift" ||
-          c.role === "door_handle"
+          c.role === "door_handle" ||
+          c.role === "drawer_handle" ||
+          c.role === "drawer_front"
         ) {
           return cutZ >= overall.depth - 36;
         }
         const b = componentBounds(c);
+        // In B-B Longitudinal Section (looking rearward toward Z=0), drawer_back sits behind the cutZ plane
+        // in front of carcass_back and MUST remain visible inside the sliced drawer box!
+        if (c.role === "drawer_back") {
+          return b.min.z <= cutZ + 45;
+        }
         return (
           c.role.startsWith("carcass_") ||
           c.role === "plinth" ||
@@ -252,6 +265,11 @@ export function generateCrossSection2D(
           c.role === "sub_divider" ||
           (b.min.z <= cutZ + 45 && b.max.z >= cutZ - 45)
         );
+      })
+      .sort((a, b) => {
+        const order = (r: string) =>
+          r === "carcass_back" ? 0 : r === "drawer_back" ? 1 : r.startsWith("drawer_side") ? 2 : 3;
+        return order(a.role) - order(b.role);
       })
       .map((c) => {
         const bounds = componentBounds(c);
@@ -320,6 +338,8 @@ export function generateCrossSection2D(
         c.role === "hanging_rail" ||
         c.role === "drawer_box" ||
         c.role === "drawer_side_left" ||
+        c.role === "drawer_slide" ||
+        c.role === "drawer_back" ||
         c.role === "drawer_bottom" ||
         c.role === "drawer_front" ||
         c.role === "door_left" ||
@@ -354,10 +374,38 @@ export function generateCrossSection2D(
           c.role.startsWith("door_") ||
           c.role === "special_fitting")
       ) {
+        if (c.role === "drawer_side_left" || c.role === "drawer_slide") {
+          // Include the side wall & runner of the bay currently sliced by cutX as background elevation!
+          if (typeof c.bayIndex === "number") {
+            const bayDrawers = components.filter(
+              (dc) => dc.bayIndex === c.bayIndex && (dc.role === "drawer_bottom" || dc.role === "drawer_front")
+            );
+            if (bayDrawers.length > 0) {
+              return bayDrawers.some((dc) => {
+                const db = componentBounds(dc);
+                return cutX >= db.min.x - 24 && cutX <= db.max.x + 24;
+              });
+            }
+          }
+        }
         const b = componentBounds(c);
         return cutX >= b.min.x - 24 && cutX <= b.max.x + 24;
       }
       return true;
+    })
+    .sort((a, b) => {
+      // Draw background elevation elements first so sliced cross-section boards (`drawer_back`, `drawer_bottom`, `drawer_front`) sit cleanly ON TOP!
+      const zLayer = (r: string) =>
+        r === "drawer_side_left" || r === "drawer_slide"
+          ? 0
+          : r === "carcass_divider"
+          ? 1
+          : r === "drawer_bottom"
+          ? 3
+          : r === "drawer_back" || r === "drawer_front"
+          ? 4
+          : 2;
+      return zLayer(a.role) - zLayer(b.role);
     })
     .map((c) => {
       const bounds = componentBounds(c);

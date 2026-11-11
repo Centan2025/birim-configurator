@@ -154,6 +154,70 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     return {};
   }
 
+  // 0. WOVEN ARCHITECTURAL LINEN / TEXTILE PANEL (Cross-Slub Yarn Albedo + Weave Normal + Roughness)
+  if (matDef.id.includes("linen") || matDef.id.includes("fabric") || matDef.id.includes("keten")) {
+    const S = 384;
+    const colorCanvas = document.createElement("canvas");
+    colorCanvas.width = S;
+    colorCanvas.height = S;
+    const cCtx = colorCanvas.getContext("2d")!;
+    const cImg = cCtx.createImageData(S, S);
+
+    const roughCanvas = document.createElement("canvas");
+    roughCanvas.width = S;
+    roughCanvas.height = S;
+    const rCtx = roughCanvas.getContext("2d")!;
+    const rImg = rCtx.createImageData(S, S);
+    const heightField = new Float32Array(S * S);
+
+    const [br, bg, bb] = hexToRgb(matDef.colorHex || "#cbbba4");
+    for (let y = 0; y < S; y++) {
+      const ny = y / S;
+      for (let x = 0; x < S; x++) {
+        const nx = x / S;
+        const warp = Math.sin(nx * Math.PI * 96) * 0.5 + 0.5;
+        const weft = Math.sin(ny * Math.PI * 96) * 0.5 + 0.5;
+        const slubX = periodicFbm(nx, ny, 24, 3, 3) - 0.5;
+        const slubY = periodicFbm(nx + 0.31, ny + 0.17, 3, 24, 3) - 0.5;
+        const overUnder = (Math.floor(x / 2) + Math.floor(y / 2)) % 2 === 0 ? warp : weft;
+        const delta = (overUnder - 0.5) * 18 + slubX * 22 + slubY * 18;
+        const idx = (y * S + x) * 4;
+        cImg.data[idx] = clampByte(br + delta);
+        cImg.data[idx + 1] = clampByte(bg + delta * 0.96);
+        cImg.data[idx + 2] = clampByte(bb + delta * 0.9);
+        cImg.data[idx + 3] = 255;
+
+        const rv = clampByte(214 + (0.5 - overUnder) * 24 + slubX * 16);
+        rImg.data[idx] = rv;
+        rImg.data[idx + 1] = rv;
+        rImg.data[idx + 2] = rv;
+        rImg.data[idx + 3] = 255;
+        heightField[y * S + x] = 0.5 + (overUnder - 0.5) * 0.28 + slubX * 0.14 + slubY * 0.14;
+      }
+    }
+    cCtx.putImageData(cImg, 0, 0);
+    rCtx.putImageData(rImg, 0, 0);
+
+    const colorMap = markSharedTexture(new THREE.CanvasTexture(colorCanvas));
+    colorMap.wrapS = THREE.RepeatWrapping;
+    colorMap.wrapT = THREE.RepeatWrapping;
+    colorMap.repeat.set(2.4, 2.4);
+    colorMap.colorSpace = THREE.SRGBColorSpace;
+    colorMap.anisotropy = 8;
+    colorMap.needsUpdate = true;
+
+    const roughnessMap = markSharedTexture(new THREE.CanvasTexture(roughCanvas));
+    roughnessMap.wrapS = THREE.RepeatWrapping;
+    roughnessMap.wrapT = THREE.RepeatWrapping;
+    roughnessMap.repeat.set(2.4, 2.4);
+    roughnessMap.needsUpdate = true;
+
+    const normalMap = buildNormalMapFromHeightField(heightField, S, S, 1.45, 2.4, 2.4);
+    const set: CachedTextureSet = { colorMap, roughnessMap, normalMap };
+    textureCache.set(matDef.id, set);
+    return set;
+  }
+
   // 1. HIGH-DEFINITION RIFT-CUT / CATHEDRAL ARCHITECTURAL WOOD VENEERS (768x768 3-Map PBR)
   if (matDef.category === "wood" || (matDef.category === "laminate" && matDef.hasGrain)) {
     const W = 768;
@@ -175,15 +239,21 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     const idLow = matDef.id.toLowerCase();
     const isWalnut = idLow.includes("walnut") || idLow.includes("ceviz");
     const isSmoked = idLow.includes("smoked") || idLow.includes("fume");
+    const isNordic = idLow.includes("iskandinav") || idLow.includes("nordic");
+    const isSafir = idLow.includes("safir");
     const isNaturalOak = idLow.includes("oak") || idLow.includes("mese");
-    // Rich warm golden-honey European Rift-Cut Oak (#c38d52) & deep American Walnut (#5e402d) matching studio showroom reference
+    // Species-calibrated natural architectural veneers
     const calibratedWoodHex = isWalnut
-      ? "#5e402d"
+      ? "#593b28"
       : isSmoked
-      ? "#46372c"
+      ? "#44352a"
+      : isNordic
+      ? "#d5be9d"
+      : isSafir
+      ? "#bf915d"
       : isNaturalOak
-      ? "#c38d52"
-      : matDef.colorHex || "#c38d52";
+      ? "#be8950"
+      : matDef.colorHex || "#be8950";
     const [hr, hg, hb] = hexToRgb(calibratedWoodHex);
 
     for (let y = 0; y < H; y++) {
@@ -212,13 +282,24 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
         // Organic non-periodic latewood fiber density (zero periodic sine stripes)
         const latewoodBand = periodicFbm(ux + 0.41, uy, isWalnut ? 10 : 14, 1, 3);
 
+        // Authentic tangential cathedral V-crown growth ring modulation blended with rift-cut flank fibers
+        const plankCenter = ((ux * 2.0) % 1.0) - 0.5;
+        const cathedralField =
+          Math.abs(plankCenter) * (isWalnut ? 11.5 : 14.0) +
+          Math.cos(uy * Math.PI * 2) * 1.35 +
+          (broadHeartwood - 0.5) * 2.4;
+        const ringWave = Math.pow(0.5 + 0.5 * Math.sin(cathedralField * Math.PI * 2), 2.6);
+        const flankWeight = Math.min(1, Math.abs(plankCenter) * 2.6);
+        const cathedralAccent = (ringWave - 0.35) * (1 - flankWeight * 0.55) * (isWalnut ? 0.16 : 0.12);
+
         const fiberDelta =
-          (broadHeartwood - 0.5) * (isWalnut ? 0.24 : 0.21) +
-          (mediumFibers - 0.5) * (isWalnut ? 0.21 : 0.18) +
-          (latewoodBand - 0.5) * (isWalnut ? 0.13 : 0.11) +
-          (fineGrain - 0.5) * 0.065 +
+          (broadHeartwood - 0.5) * (isWalnut ? 0.24 : 0.19) +
+          (mediumFibers - 0.5) * (isWalnut ? 0.2 : 0.17) +
+          (latewoodBand - 0.5) * (isWalnut ? 0.12 : 0.1) +
+          cathedralAccent +
+          (fineGrain - 0.5) * 0.06 +
           medullaryRay * 0.08 -
-          poreDepth * (isWalnut ? 0.21 : 0.18);
+          poreDepth * (isWalnut ? 0.22 : 0.17);
 
         const r = hr * (1 + fiberDelta * 1.04);
         const g = hg * (1 + fiberDelta * 0.98);
@@ -952,21 +1033,47 @@ export function getV3PbrMaterial(
     return mat;
   }
 
-  // 3. Architectural Smoked / Fluted Showcase Glass (Rimadesio-grade Fresnel reflections)
+  // 3. Architectural Smoked / Fluted Showcase Glass (Thin-walled physical glass with interior shelf visibility)
   if (matDef.category === "glass" || matDef.id.includes("glass")) {
     const mat = new THREE.MeshPhysicalMaterial({
-      color: new THREE.Color(matDef.colorHex || "#2d3748"),
-      metalness: 0.06,
-      roughness: 0.04,
-      transmission: 0.72,
+      color: new THREE.Color(matDef.colorHex || "#2b333d"),
+      metalness: 0.04,
+      roughness: 0.03,
+      transmission: 0.74,
+      thickness: 6.0,
+      attenuationDistance: 52,
+      attenuationColor: new THREE.Color("#3a424d"),
       transparent: true,
-      opacity: 0.84,
+      opacity: 0.56,
       depthWrite: false,
       ior: 1.52,
       reflectivity: 0.98,
       clearcoat: 1.0,
-      clearcoatRoughness: 0.03,
-      envMapIntensity: 1.65,
+      clearcoatRoughness: 0.02,
+      envMapIntensity: 1.85,
+      emissive,
+      emissiveIntensity,
+    });
+    markSharedMaterial(mat);
+    pbrMaterialCache.set(key, mat);
+    return mat;
+  }
+
+  // 3B. Dedicated Physical Textile / Woven Linen Class (`fabric`)
+  if (matDef.id.includes("linen") || matDef.id.includes("fabric") || matDef.id.includes("keten")) {
+    const fMaps = getOrCreateProceduralMaps(matDef);
+    const mat = new THREE.MeshPhysicalMaterial({
+      color: new THREE.Color("#ffffff"),
+      map: fMaps.colorMap || null,
+      roughnessMap: fMaps.roughnessMap || null,
+      normalMap: fMaps.normalMap || null,
+      normalScale: new THREE.Vector2(0.32, 0.32),
+      roughness: 0.86,
+      metalness: 0.0,
+      sheen: 0.78,
+      sheenRoughness: 0.58,
+      sheenColor: new THREE.Color("#faf6ef"),
+      envMapIntensity: 0.55,
       emissive,
       emissiveIntensity,
     });
@@ -1057,14 +1164,14 @@ export function getV3PbrMaterial(
       roughnessMap: maps.roughnessMap || null,
       normalMap: maps.normalMap || null,
       normalScale: new THREE.Vector2(0.05, 0.05),
-      roughness: surfaceFinishOverride === "gloss" ? 0.09 : 0.29,
+      roughness: surfaceFinishOverride === "gloss" || (matDef.roughness ?? 0.35) <= 0.12 ? 0.06 : 0.28,
       metalness: 0.01,
       ior: 1.5,
       specularIntensity: 0.85,
       sheen: 0.24,
       sheenRoughness: 0.45,
       sheenColor: new THREE.Color("#fafaf9"),
-      clearcoat: surfaceFinishOverride === "gloss" ? 0.92 : 0.34,
+      clearcoat: surfaceFinishOverride === "gloss" || (matDef.roughness ?? 0.35) <= 0.12 ? 0.98 : 0.34,
       clearcoatRoughness: surfaceFinishOverride === "gloss" ? 0.05 : 0.26,
       reflectivity: 0.62,
       envMapIntensity: 0.88,
@@ -1128,4 +1235,137 @@ export function computePhysicalUvScale(
   const repeatY = Math.max(0.1, Number((heightMm / referenceTileMm).toFixed(3)));
   const rotationRad = grain === "crosswise" ? Math.PI / 2 : 0;
   return { repeatX, repeatY, rotationRad };
+}
+
+
+export type PhysicalMaterialClass =
+  | "wood"
+  | "lacquer"
+  | "fabric"
+  | "metal"
+  | "glass"
+  | "mirror"
+  | "stone"
+  | "melamine";
+
+export function classifyPhysicalMaterial(matDef: MaterialDefinition): PhysicalMaterialClass {
+  const idLow = (matDef.id || "").toLowerCase();
+  if (idLow.includes("linen") || idLow.includes("fabric") || idLow.includes("keten")) return "fabric";
+  if (matDef.category === "glass" || idLow.includes("glass")) return "glass";
+  if (matDef.category === "mirror" || idLow.includes("mirror") || idLow.includes("ayna")) return "mirror";
+  if (matDef.category === "metal") return "metal";
+  if (matDef.category === "stone" || idLow.includes("calacatta") || idLow.includes("neolith")) return "stone";
+  if (matDef.category === "wood" || (matDef.category === "laminate" && matDef.hasGrain)) return "wood";
+  if (matDef.category === "lacquer") return "lacquer";
+  return "melamine";
+}
+
+const swatchDataUrlCache = new Map<string, string>();
+
+/**
+ * Generates and caches a crisp 96x96 photorealistic material swatch DataURL for UI cards,
+ * dropdowns, and callout badges so every wood veneer, stone slab, smoked glass, mirror,
+ * woven linen, brushed metal, and soft-touch lacquer displays accurate visual character.
+ */
+export function getMaterialPreviewDataUrl(matDef: MaterialDefinition | undefined | null): string {
+  if (!matDef || typeof document === "undefined") return "";
+  const hit = swatchDataUrlCache.get(matDef.id);
+  if (hit) return hit;
+
+  const S = 96;
+  const c = document.createElement("canvas");
+  c.width = S;
+  c.height = S;
+  const ctx = c.getContext("2d");
+  if (!ctx) return "";
+
+  const cls = classifyPhysicalMaterial(matDef);
+
+  if (cls === "wood" || cls === "stone" || cls === "fabric") {
+    const maps = getOrCreateProceduralMaps(matDef);
+    const srcImg = maps.colorMap?.image as HTMLCanvasElement | undefined;
+    if (srcImg) {
+      ctx.drawImage(srcImg, 0, 0, Math.min(384, srcImg.width), Math.min(384, srcImg.height), 0, 0, S, S);
+      // Soft studio directional lighting gradient across swatch
+      const sheen = ctx.createLinearGradient(0, 0, S, S);
+      sheen.addColorStop(0, "rgba(255,255,255,0.16)");
+      sheen.addColorStop(0.5, "rgba(255,255,255,0)");
+      sheen.addColorStop(1, "rgba(0,0,0,0.14)");
+      ctx.fillStyle = sheen;
+      ctx.fillRect(0, 0, S, S);
+      const url = c.toDataURL("image/png");
+      swatchDataUrlCache.set(matDef.id, url);
+      return url;
+    }
+  }
+
+  if (cls === "glass") {
+    const g = ctx.createLinearGradient(0, 0, S, S);
+    g.addColorStop(0, "#3b4450");
+    g.addColorStop(0.45, "#232931");
+    g.addColorStop(1, "#181d23");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, S, S);
+    // Crisp architectural window reflection slash + dark aluminum perimeter frame
+    ctx.fillStyle = "rgba(255,255,255,0.24)";
+    ctx.beginPath();
+    ctx.moveTo(14, 0);
+    ctx.lineTo(42, 0);
+    ctx.lineTo(0, 56);
+    ctx.lineTo(0, 22);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "#111317";
+    ctx.lineWidth = 6;
+    ctx.strokeRect(3, 3, S - 6, S - 6);
+    const url = c.toDataURL("image/png");
+    swatchDataUrlCache.set(matDef.id, url);
+    return url;
+  }
+
+  if (cls === "mirror") {
+    const isBronze = matDef.id.toLowerCase().includes("bronze") || matDef.id.toLowerCase().includes("bronz");
+    const g = ctx.createLinearGradient(0, 0, S, S);
+    g.addColorStop(0, isBronze ? "#efe0cc" : "#f8fafc");
+    g.addColorStop(0.48, isBronze ? "#bfa488" : "#cbd5e1");
+    g.addColorStop(0.54, isBronze ? "#fff5e8" : "#ffffff");
+    g.addColorStop(1, isBronze ? "#7b654f" : "#64748b");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, S, S);
+    ctx.strokeStyle = "rgba(255,255,255,0.75)";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(5, 5, S - 10, S - 10);
+    const url = c.toDataURL("image/png");
+    swatchDataUrlCache.set(matDef.id, url);
+    return url;
+  }
+
+  // Lacquer / Melamine / Metal brushed or velvet sheen
+  const baseHex = matDef.colorHex || "#e5e5e0";
+  ctx.fillStyle = baseHex;
+  ctx.fillRect(0, 0, S, S);
+  const isGloss = (matDef.roughness ?? 0.4) <= 0.15 || matDef.id.includes("evogloss");
+  const grad = ctx.createLinearGradient(0, 0, S, S);
+  grad.addColorStop(0, isGloss ? "rgba(255,255,255,0.42)" : "rgba(255,255,255,0.18)");
+  grad.addColorStop(0.45, "rgba(255,255,255,0.02)");
+  grad.addColorStop(1, "rgba(0,0,0,0.14)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, S, S);
+  const url = c.toDataURL("image/png");
+  swatchDataUrlCache.set(matDef.id, url);
+  return url;
+}
+
+export function getMaterialSwatchStyle(
+  matDef: MaterialDefinition | undefined | null
+): { backgroundColor: string; backgroundImage?: string; backgroundSize?: string; backgroundPosition?: string } {
+  const fallbackHex = matDef?.colorHex || "#d6d3cd";
+  const url = getMaterialPreviewDataUrl(matDef);
+  if (!url) return { backgroundColor: fallbackHex };
+  return {
+    backgroundColor: fallbackHex,
+    backgroundImage: `url("${url}")`,
+    backgroundSize: "cover",
+    backgroundPosition: "center",
+  };
 }

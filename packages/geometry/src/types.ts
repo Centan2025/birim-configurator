@@ -8,6 +8,7 @@ export type ComponentRole =
   | "carcass_divider"
   | "carcass_sub_divider"
   | "carcass_back"
+  | "end_panel"
   | "plinth"
   | "shelf"
   | "hanging_rail"
@@ -41,8 +42,22 @@ export interface ComponentGeometry {
   primitive?: "box" | "sphere" | "cylinder";
   parentComponentId?: string;
   handleCategory?: import("@birim/core").HandleCategory;
+  slidingMountingType?: import("@birim/core").SlidingMountingType;
+  isInternalDrawer?: boolean;
   crossSectionProfile?: import("@birim/core").DoorCrossSectionProfile;
   customCadPolygon?: { x: number; y: number }[];
+  /** Analytical rectangular 3D aperture cut through a countertop (sink / cooktop hole) */
+  cutoutHole?: {
+    centerXMm: UnitLength;
+    centerZMm: UnitLength;
+    widthMm: UnitLength;
+    depthMm: UnitLength;
+  };
+  /** U-shaped siphon cutout on under-sink drawer bottom & back */
+  siphonCutout?: {
+    widthMm: UnitLength;
+    depthMm: UnitLength;
+  };
   materialId: string;
   isFrontFacing?: boolean;
   /** True only if this component represents a cuttable sheet/panel piece in BOM (false for UI hardware/handles/profiles) */

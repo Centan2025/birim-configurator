@@ -5,6 +5,10 @@ import {
   DesignProject,
   ShelfConfig,
 } from "./types";
+import {
+  computeContinuousKitchenLayers,
+  evaluateSlidingDoorDeadZones,
+} from "./parametric-spec-engine";
 
 /**
  * Eliminates IEEE-754 floating-point drift (e.g. 0.1 + 0.2 = 0.30000000000000004)
@@ -65,7 +69,7 @@ export interface SystemRulesConfig {
   maxCarcassHeight: UnitLength;
   minCarcassDepth: UnitLength;
   maxCarcassDepth: UnitLength;
-  maxShelfSpanWithoutSupport: UnitLength; // 950mm
+  maxShelfSpanWithoutSupport: UnitLength; // 900mm for 18mm movable shelves (ISO 7170 / MD Spec #16)
   minDrawerHeight: UnitLength;
   maxDrawerHeight: UnitLength;
   minHangingSpaceHeight: UnitLength;
@@ -80,7 +84,7 @@ export const DEFAULT_RULES: SystemRulesConfig = {
   maxCarcassHeight: 2800,
   minCarcassDepth: 200,
   maxCarcassDepth: 950,
-  maxShelfSpanWithoutSupport: 950,
+  maxShelfSpanWithoutSupport: 900,
   minDrawerHeight: 80,
   maxDrawerHeight: 450,
   minHangingSpaceHeight: 850,
@@ -111,7 +115,8 @@ export function calculateModulePlacement(module: ModuleInstance) {
 }
 
 /**
- * Computes the 3D AABB of a module's front door/drawer opening sweep zone in room coordinates.
+ * Computes the 3D AABB of a module's front door/drawer opening sweep zone in room coordinates,
+ * including handle protrusion (+32mm) for 90° L/U corner clash checks!
  */
 export function getModuleFrontSweepBounds(module: ModuleInstance): {
   minX: number;
@@ -133,10 +138,19 @@ export function getModuleFrontSweepBounds(module: ModuleInstance): {
   }
   const place = calculateModulePlacement(module);
   const rotY = (((module.rotation?.y ?? 0) % 360) + 360) % 360;
-  const sweepDepth = Math.min(
-    550,
-    Math.max(350, Math.round(module.dimensions.width / Math.max(1, module.bays.length)))
+  const hasProtrudingHandle = module.bays.some(
+    (b) =>
+      b.door.handleCategory !== "handleless_plain" &&
+      b.door.handleCategory !== "gola_profile" &&
+      b.door.handleCategory !== "j_pull" &&
+      b.door.handleCategory !== "recessed_grip"
   );
+  const handleExtra = hasProtrudingHandle ? 30 : 0;
+  const sweepDepth =
+    Math.min(
+      550,
+      Math.max(350, Math.round(module.dimensions.width / Math.max(1, module.bays.length)))
+    ) + handleExtra;
   const minY = module.position.y;
   const maxY = module.position.y + module.dimensions.height;
 
@@ -183,7 +197,6 @@ export function getModuleFrontSweepBounds(module: ModuleInstance): {
 /**
  * Canonical bay clear-width solver.
  * Guarantees exact dimensional closure: sum(bayWidths) + (numBays + 1) * panelThickness === outerWidth
- * whenever availableInnerWidth > 0, supporting both customWidth (mm) and widthRatio weights.
  */
 export function calculateBayWidths(module: ModuleInstance): UnitLength[] {
   const width = roundMm(module.dimensions.width);
@@ -198,7 +211,9 @@ export function calculateBayWidths(module: ModuleInstance): UnitLength[] {
     return module.bays.map(() => 0);
   }
 
-  const minPerBay = Math.min(60, Math.floor(availableInnerWidth / numBays));
+  const targetWidth = availableInnerWidth;
+
+  const minPerBay = Math.min(60, Math.floor(targetWidth / numBays));
   const fixedIndices: number[] = [];
   const flexIndices: number[] = [];
 
@@ -216,25 +231,24 @@ export function calculateBayWidths(module: ModuleInstance): UnitLength[] {
   );
 
   const minFlexReserve = flexIndices.length * minPerBay;
-  const maxAllowedFixedSum = Math.max(0, availableInnerWidth - minFlexReserve);
+  const maxAllowedFixedSum = Math.max(0, targetWidth - minFlexReserve);
 
   const result = new Array<number>(numBays).fill(0);
 
   if (fixedIndices.length === numBays || rawFixedSum >= maxAllowedFixedSum) {
-    // Proportionally scale all bays to fit availableInnerWidth with exact remainder closure
     const weights = module.bays.map((b) =>
       typeof b.customWidth === "number" && b.customWidth > 0
         ? b.customWidth
         : (b.widthRatio && b.widthRatio > 0 ? b.widthRatio : 1) *
-          Math.max(minPerBay, availableInnerWidth / numBays)
+          Math.max(minPerBay, targetWidth / numBays)
     );
     const weightSum = weights.reduce((a, b) => a + b, 0) || numBays;
     let allocated = 0;
     for (let i = 0; i < numBays; i++) {
       if (i === numBays - 1) {
-        result[i] = Math.max(0, roundIntMm(availableInnerWidth - allocated));
+        result[i] = Math.max(0, roundIntMm(targetWidth - allocated));
       } else {
-        const w = Math.max(minPerBay, Math.floor((availableInnerWidth * weights[i]) / weightSum));
+        const w = Math.max(minPerBay, Math.floor((targetWidth * weights[i]) / weightSum));
         result[i] = w;
         allocated += w;
       }
@@ -249,7 +263,7 @@ export function calculateBayWidths(module: ModuleInstance): UnitLength[] {
     fixedAllocated += fw;
   });
 
-  const remainingForFlex = Math.max(0, availableInnerWidth - fixedAllocated);
+  const remainingForFlex = Math.max(0, targetWidth - fixedAllocated);
   const flexWeights = flexIndices.map((idx) => {
     const r = module.bays[idx].widthRatio;
     return typeof r === "number" && Number.isFinite(r) && r > 0 ? r : 1;
@@ -279,12 +293,40 @@ export function calculateNetInnerHeight(module: ModuleInstance): UnitLength {
   return Math.max(0, roundIntMm(height - plinthHeight - 2 * panelThickness));
 }
 
+/**
+ * Computes usable clear internal depth (MD Spec Section 3.2 & Checklist #2):
+ * - Grooved (Kanallı): D_internal = D_carcass - d_offset - t_back
+ *   (Default d_offset: 12mm wardrobe -> 12+8=20mm; 18mm kitchen/wall -> 18+8=26mm, so 560mm -> 534mm!)
+ * - Rebated (Lambalı): D_internal = D_carcass - t_back
+ * - Flush (18mm İçten Tam Kalınlık): D_internal = D_carcass - t_back
+ * - Nailed (Arkadan Çakma): D_internal = D_carcass (panel sits behind carcass, D_total = D_carcass + t_back)
+ * - None (Arkalıksız / Eviye / Cihaz): D_internal = D_carcass
+ */
 export function calculateNetInnerDepth(module: ModuleInstance): UnitLength {
   const { depth } = module.dimensions;
-  const backOffset = module.carcass.backPanelType === "flush" || module.carcass.backPanelType === "nailed"
-    ? module.carcass.backPanelThickness || 8
-    : 20;
-  return Math.max(0, roundIntMm(depth - backOffset));
+  const bpType = module.carcass.backPanelType || "grooved";
+
+  if (bpType === "none" || bpType === "nailed") {
+    return Math.max(0, roundIntMm(depth));
+  }
+  if (bpType === "rebated") {
+    const tBack = module.carcass.backPanelThickness || 8;
+    return Math.max(0, roundIntMm(depth - tBack));
+  }
+  if (bpType === "flush") {
+    const tBack = module.carcass.backPanelThickness || 18;
+    return Math.max(0, roundIntMm(depth - tBack));
+  }
+
+  // Grooved back panel: D_internal = D_carcass - d_offset - t_back
+  const hasConcealedWallHanger =
+    module.category === "kitchen_wall" &&
+    module.carcass.wallSuspensionType === "concealed_camar_807";
+  const defaultOffset = isWardrobeModule(module) ? 12 : 18;
+  const rawOffset = module.carcass.backOffsetMm ?? defaultOffset;
+  const dOffset = hasConcealedWallHanger ? Math.max(16, rawOffset) : rawOffset;
+  const tBack = module.carcass.backPanelThickness ?? 8;
+  return Math.max(0, roundIntMm(depth - dOffset - tBack));
 }
 
 /**
@@ -343,6 +385,33 @@ export function validateModule(
     });
   }
 
+  // Sliding door overlap dead-zone clash check (Checklist #6)
+  issues.push(...evaluateSlidingDoorDeadZones(module));
+
+  // Sloped ceiling side-hinge validation (MD Spec Section 7.4 & Checklist #21)
+  const slope = module.carcass.slopedCeiling;
+  if (slope && slope.mode !== "none") {
+    module.bays.forEach((bay, bIdx) => {
+      if (slope.mode === "left_slope" && (bay.door.type === "single_left")) {
+        issues.push({
+          severity: "error",
+          code: "ERR_SLOPED_DOOR_HINGE_SIDE",
+          message: `Sol yan eğimli çatı dolabında Bölme ${bIdx + 1} menteşeleri kısa eğimli kenara konulamaz; sağ (uzun dik) kenara alınmalıdır!`,
+          targetId: bay.door.id,
+          blockingProduction: true,
+        });
+      } else if (slope.mode === "right_slope" && (bay.door.type === "single_right")) {
+        issues.push({
+          severity: "error",
+          code: "ERR_SLOPED_DOOR_HINGE_SIDE",
+          message: `Sağ yan eğimli çatı dolabında Bölme ${bIdx + 1} menteşeleri kısa eğimli kenara konulamaz; sol (uzun dik) kenara alınmalıdır!`,
+          targetId: bay.door.id,
+          blockingProduction: true,
+        });
+      }
+    });
+  }
+
   const bayWidths = calculateBayWidths(module);
   const netInnerHeight = calculateNetInnerHeight(module);
 
@@ -355,17 +424,67 @@ export function validateModule(
         targetId: `bay_${idx}`,
         blockingProduction: true,
       });
-    } else if (bayWidth > rules.maxShelfSpanWithoutSupport) {
-      issues.push({
-        severity: "warning",
-        code: "WARN_SHELF_SPAN_DEFLECTION",
-        message: `Bölme ${idx + 1} genişliği (${bayWidth}mm), ${rules.maxShelfSpanWithoutSupport}mm'yi aşıyor; orta dikme önerilir.`,
-        targetId: `bay_${idx}`,
-      });
+    } else {
+      const bayObj = module.bays[idx];
+      const hasMovable18mmShelf = bayObj?.shelves?.some(
+        (sh) => !sh.isHidden && sh.isAdjustable && (sh.thickness || module.carcass.panelThickness || 18) <= 18
+      );
+      const effMaxSpan = hasMovable18mmShelf ? rules.maxShelfSpanWithoutSupport : 1200;
+      if (bayWidth > effMaxSpan) {
+        issues.push({
+          severity: "warning",
+          code: "WARN_SHELF_SPAN_DEFLECTION",
+          message: `Bölme ${idx + 1} genişliği (${bayWidth}mm), ${effMaxSpan}mm sehim sınırını aşıyor; 25mm raf veya orta ara dikme önerilir.`,
+          targetId: `bay_${idx}`,
+        });
+      }
     }
 
     const bay = module.bays[idx];
     if (bay) {
+      // Structural fixed shelf check for tall bodies > 1800mm (MD Spec Section 4.1)
+      if (
+        height > 1800 &&
+        module.category !== "complementary" &&
+        !bay.shelves.some((s) => !s.isAdjustable && !s.isHidden) &&
+        bay.drawers.length === 0
+      ) {
+        issues.push({
+          severity: "info",
+          code: "INFO_TALL_CARCASS_NEEDS_FIXED_SHELF",
+          message: `Bölme ${idx + 1}: 1800mm üzeri gövdede yan dikmelerin bel vermemesi için en az 1 adet sabit yapısal raf önerilir.`,
+          targetId: `bay_${idx}`,
+        });
+      }
+
+      // Pantograph width [500, 1150] & height >= 850mm check (MD Spec Section 4.3)
+      const hasPantograph =
+        bay.hangingRails.some((r) => r.isLiftMechanism && !r.isHidden) ||
+        (bay.specialFittings || []).some((f) => f.type === "wardrobe_lift" && !f.isHidden);
+      if (hasPantograph && (bayWidth < 500 || bayWidth > 1150 || netInnerHeight < 850)) {
+        issues.push({
+          severity: "warning",
+          code: "WARN_PANTOGRAPH_BOUNDS",
+          message: `Bölme ${idx + 1} asansörlü askı (pantograf) için iç genişlik 500–1150mm ve iç yükseklik ≥850mm olmalıdır (Mevcut: ${bayWidth}×${netInnerHeight}mm).`,
+          targetId: `bay_${idx}`,
+        });
+      }
+
+      // Blind corner LeMans / Magic Corner minimum door opening >= 450mm (MD Spec Section 4.4)
+      const hasCornerPullout = (bay.specialFittings || []).some(
+        (f) =>
+          !f.isHidden &&
+          (f.type === "corner_lemans" || f.type === "magic_corner" || f.type === "carousel_half_moon")
+      );
+      if (hasCornerPullout && bayWidth < 450) {
+        issues.push({
+          severity: "warning",
+          code: "WARN_CORNER_MECHANISM_DOOR_OPENING",
+          message: `Bölme ${idx + 1} kör köşe mekanizması (LeMans / Sihirli Köşe) için minimum 450mm kapak açıklığı gerekir.`,
+          targetId: `bay_${idx}`,
+        });
+      }
+
       bay.drawers.forEach((drawer, dIdx) => {
         if (drawer.height < rules.minDrawerHeight || drawer.height > rules.maxDrawerHeight) {
           issues.push({
@@ -386,14 +505,18 @@ export function validateModule(
         }
 
         if (drawer.isInternal && bay.door.type !== "open") {
+          const isZeroProtrusion =
+            bay.door.hardwareProductId === "hw_blum_71b7550" ||
+            bay.door.hardwareProductId === "hw_hettich_9099540" ||
+            module.carcass.internalDrawerHingeSolution === "spacer_block_25mm";
           const isNearHinge = rules.hingeZonesY.some(
             (hy) => Math.abs(drawer.elevationY - hy) < 50
           );
-          if (isNearHinge) {
+          if (isNearHinge && !isZeroProtrusion) {
             issues.push({
               severity: "warning",
               code: "WARN_INTERNAL_DRAWER_HINGE_COLLISION",
-              message: `Bölme ${idx + 1} iç çekmecesi menteşe montaj yüksekliği ile çakışabilir; menteşe payı (distans) gereklidir.`,
+              message: `Bölme ${idx + 1} iç çekmecesi menteşe gövdesi ile çakışabilir; 25mm besleme çıtası veya 155° sıfır çıkıntılı menteşe seçiniz.`,
               targetId: drawer.id,
             });
           }
@@ -427,7 +550,8 @@ export function validateModule(
 }
 
 /**
- * Validates entire project including multi-module collisions, front opening sweeps, and architectural space boundaries.
+ * Validates entire project including multi-module collisions, front opening sweeps,
+ * lift-door ceiling sweeps, countertop slab seams, and architectural space boundaries.
  */
 export function validateProject(project: DesignProject): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
@@ -442,10 +566,33 @@ export function validateProject(project: DesignProject): ValidationIssue[] {
     ...(project.space.walls || []).flatMap((w) => w.elements || []),
   ];
 
+  // Continuous kitchen countertop seam & island overhang checks (MD Spec Section 7.3 & 8.1)
+  const contLayers = computeContinuousKitchenLayers(project);
+  contLayers.countertops.forEach((ct) => {
+    if (ct.hasSeamCutoutConflict) {
+      issues.push({
+        severity: "error",
+        code: "ERR_COUNTERTOP_SEAM_OVER_CUTOUT",
+        message: `Tezgâh ek yeri (${ct.slabMaxLengthMm}mm plaka sınırı) eviye veya ocak boşaltması üzerine denk geliyor!`,
+        targetId: ct.moduleIds[0],
+        blockingProduction: true,
+      });
+    }
+    if (ct.requiresSupportBrackets) {
+      issues.push({
+        severity: "warning",
+        code: "WARN_ISLAND_OVERHANG_BRACKET",
+        message: `Ada/bar tezgâh arka taşması (${ct.rearOverhangMm}mm) 300mm desteksiz sınırı aşıyor; gizli çelik konsol veya bar ayağı zorunludur.`,
+        targetId: ct.moduleIds[0],
+      });
+    }
+  });
+
   const isPlumbingCompatibleModule = (mod: ModuleInstance): boolean => {
     const label = `${mod.id} ${mod.name} ${mod.templateId || ""}`.toLowerCase();
     return (
       label.includes("eviye") ||
+      label.includes("evye") ||
       label.includes("sink") ||
       label.includes("snk") ||
       label.includes("ıslak") ||
@@ -453,6 +600,7 @@ export function validateProject(project: DesignProject): ValidationIssue[] {
       label.includes("tesisat") ||
       label.includes("bulaşık") ||
       label.includes("bulasik") ||
+      label.includes("dishwasher") ||
       label.includes("dsh")
     );
   };
@@ -470,6 +618,30 @@ export function validateProject(project: DesignProject): ValidationIssue[] {
         blockingProduction: true,
       });
     }
+
+    // Kinematic Upward Lift Door Sweep vs Ceiling / Crown Check (Checklist #14)
+    mod.bays.forEach((bay) => {
+      const ds = bay.door?.doorSystemId || bay.door?.type || "";
+      if (ds === "lift_up_stay" || ds === "lift_parallel" || ds === "lift_bi_fold" || ds === "lift") {
+        const doorH = Math.max(200, mod.dimensions.height - (mod.carcass.plinthHeight || 0));
+        const upwardRiseMm =
+          ds === "lift_parallel"
+            ? Math.round(doorH * 0.55)
+            : ds === "lift_bi_fold"
+            ? Math.round(doorH * 0.22)
+            : Math.round(doorH * 0.38);
+        if (mod.position.y + mod.dimensions.height + upwardRiseMm > ceiling) {
+          issues.push({
+            severity: "warning",
+            code: "WARN_LIFT_DOOR_CEILING_SWEEP",
+            message: `"${mod.name}" kalkar kapak açıldığında üst noktası (${
+              mod.position.y + mod.dimensions.height + upwardRiseMm
+            }mm) tavana (${ceiling}mm) çarpıyor; 86° açı sınırlayıcı klips kullanılmalıdır!`,
+            targetId: mod.id,
+          });
+        }
+      }
+    });
 
     const place = calculateModulePlacement(mod);
     const mMinX = mod.position.x;
@@ -506,13 +678,14 @@ export function validateProject(project: DesignProject): ValidationIssue[] {
         obs.type === "column" ||
         obs.type === "beam" ||
         obs.type === "partition" ||
-        obs.type === "protrusion"
+        obs.type === "protrusion" ||
+        obs.type === "radiator"
       ) {
         if (xHit && yHit && zHit) {
           issues.push({
             severity: "error",
             code: "ERR_COLUMN_COLLISION",
-            message: `Taşıyıcı eleman çakışması: "${mod.name}" ile "${obs.name}" çakışıyor.`,
+            message: `Taşıyıcı eleman çakışması: "${mod.name}" ile "${obs.name}" çakışıyor (Kolon/kiriş kertmesi uygulanabilir).`,
             targetId: mod.id,
             blockingProduction: true,
           });
@@ -539,10 +712,13 @@ export function validateProject(project: DesignProject): ValidationIssue[] {
           ? mMinZ < rawMaxZ - 5 && mMaxZ > rawMinZ + 5 && mMinX < 250
           : xHit && mMinZ < 350;
         if (horizHit && yHit) {
+          const isBaseBlockingSash = mod.category === "kitchen_base" && mMaxY > oMinY;
           issues.push({
             severity: "error",
             code: "ERR_WINDOW_COLLISION",
-            message: `Pencere kesişimi: "${mod.name}" üst kotu (${mMaxY}mm), "${obs.name}" denizlik kotunu (Y:${oMinY}mm) aşarak pencereyi kapatıyor.`,
+            message: isBaseBlockingSash
+              ? `Tezgâh pencere kanadını bloke ediyor! "${mod.name}" tezgâh üst kotu (${mMaxY}mm), "${obs.name}" parapet kotunu (${oMinY}mm) aşıyor.`
+              : `Pencere kesişimi: "${mod.name}" üst kotu (${mMaxY}mm), "${obs.name}" denizlik kotunu (Y:${oMinY}mm) aşarak pencereyi kapatıyor.`,
             targetId: mod.id,
             blockingProduction: true,
           });
@@ -564,7 +740,7 @@ export function validateProject(project: DesignProject): ValidationIssue[] {
           issues.push({
             severity: "error",
             code: "ERR_DOOR_OBSTACLE_COLLISION",
-            message: `Kapı açılım engeli: "${mod.name}" modülü, "${obs.name}" oda kapısının açılış alanını kapatıyor.`,
+            message: `Kapı açılım engeli: "${mod.name}" modülü, "${obs.name}" oda kapısının 90° açılış süpürme alanını kapatıyor.`,
             targetId: mod.id,
             blockingProduction: true,
           });
@@ -678,7 +854,7 @@ export function validateProject(project: DesignProject): ValidationIssue[] {
         issues.push({
           severity: "warning",
           code: "WARN_FRONT_OPENING_SWEEP_COLLISION",
-          message: `"${m1.name}" ve "${m2.name}" kapak/çekmece açılım süpürme hacimleri çakışıyor; köşe kör dolgu çıtası (min 50mm) veya açılış yönü kontrolü önerilir.`,
+          message: `"${m1.name}" ve "${m2.name}" kapak/kulp/çekmece açılım hacimleri çakışıyor; 90° L-köşe dolgu çıtası (min 50mm) önerilir.`,
           targetId: `${m1.id}_${m2.id}`,
         });
       }
@@ -743,7 +919,8 @@ export function calculateShelfDeflection(
     ((5 * totalForceN * Math.pow(L, 3)) / (384 * elasticModulusMpa * momentOfInertiaMm4));
   const deflectionMm = roundMm(rawDeflectionMm, 2);
   const maxAllowedDeflectionMm = roundMm(L / 300, 2);
-  const passed = deflectionMm <= maxAllowedDeflectionMm && L <= 950;
+  const maxSafeSpanForThickness = t <= 18 ? 900 : 1150;
+  const passed = deflectionMm <= maxAllowedDeflectionMm && L <= maxSafeSpanForThickness;
   const safetyRatio = roundMm(maxAllowedDeflectionMm / Math.max(0.01, deflectionMm), 2);
 
   let recommendation: string | undefined;
@@ -774,7 +951,7 @@ export interface AutoFixModuleResult {
 }
 
 /**
- * One-click intelligent engineering auto-fix for store customers and sales consultants.
+ * One-click intelligent engineering auto-fix for store customers, architects, and factory engineers.
  */
 export function autoFixModuleIssues(module: ModuleInstance): AutoFixModuleResult {
   const nextMod: ModuleInstance = JSON.parse(JSON.stringify(module));
@@ -795,7 +972,7 @@ export function autoFixModuleIssues(module: ModuleInstance): AutoFixModuleResult
     const minD = nextMod.templateId?.includes("microwave_wall") ? 380 : 580;
     if (nextMod.dimensions.depth < minD) {
       nextMod.dimensions.depth = minD;
-      appliedFixes.push(`Ankastre arka havalandırma için derinlik ${minD}mm yapıldı.`);
+      appliedFixes.push(`Ankastre arka havalandırma (min 50mm baca) için derinlik ${minD}mm yapıldı.`);
     }
   }
 
@@ -831,13 +1008,38 @@ export function autoFixModuleIssues(module: ModuleInstance): AutoFixModuleResult
       nextMod.dimensions.width = 1200;
       appliedFixes.push("Sürgülü kapak için gövde genişliği en az 1200mm yapıldı.");
     }
+    // Fix sliding door dead-zone clashes by equalizing custom widths or moving pullouts
+    const deadZoneIssues = evaluateSlidingDoorDeadZones(nextMod);
+    if (deadZoneIssues.length > 0) {
+      nextMod.bays.forEach((b) => {
+        b.customWidth = undefined;
+      });
+      appliedFixes.push("Sürgü kapak ölü bölge çekmece çakışmasını önlemek için bölmeler eşitlendi.");
+    }
+  }
+
+  // Fix sloped ceiling hinge orientation (Checklist #21)
+  if (nextMod.carcass.slopedCeiling?.mode === "left_slope") {
+    nextMod.bays.forEach((b) => {
+      if (b.door.type === "single_left") {
+        b.door.type = "single_right";
+        appliedFixes.push("Sol eğimli tavan kapağı menteşeleri uzun dik (sağ) kenara alındı.");
+      }
+    });
+  } else if (nextMod.carcass.slopedCeiling?.mode === "right_slope") {
+    nextMod.bays.forEach((b) => {
+      if (b.door.type === "single_right") {
+        b.door.type = "single_left";
+        appliedFixes.push("Sağ eğimli tavan kapağı menteşeleri uzun dik (sol) kenara alındı.");
+      }
+    });
   }
 
   let bayWidths = calculateBayWidths(nextMod);
   const expectedInnerW =
     nextMod.dimensions.width - (nextMod.bays.length + 1) * nextMod.carcass.panelThickness;
   const currentSumW = bayWidths.reduce((a, b) => a + b, 0);
-  if (Math.abs(currentSumW - expectedInnerW) > 1) {
+  if (Math.abs(currentSumW - expectedInnerW) > 1 && !nextMod.bays.some((b) => b.door.doorSystemId === "pocket_retractable")) {
     nextMod.bays.forEach((b) => {
       b.customWidth = undefined;
     });
@@ -845,7 +1047,7 @@ export function autoFixModuleIssues(module: ModuleInstance): AutoFixModuleResult
     appliedFixes.push("Bölme iç genişlikleri dış gövde ölçüsüne göre dengelendi.");
   }
 
-  const hasWideSpan = bayWidths.some((bw) => bw > 950);
+  const hasWideSpan = bayWidths.some((bw) => bw > 900);
   if (hasWideSpan && nextMod.bays.length < 6) {
     const idealBays = Math.min(6, Math.max(2, Math.ceil(nextMod.dimensions.width / 800)));
     while (nextMod.bays.length < idealBays) {
@@ -868,7 +1070,7 @@ export function autoFixModuleIssues(module: ModuleInstance): AutoFixModuleResult
       b.customWidth = undefined;
     });
     bayWidths = calculateBayWidths(nextMod);
-    appliedFixes.push(`Raf sehimini önlemek için modül ${nextMod.bays.length} eşit bölmeye ayrıldı.`);
+    appliedFixes.push(`Raf sehimini (>900mm) önlemek için modül ${nextMod.bays.length} eşit bölmeye ayrıldı.`);
   }
 
   const netInnerH = calculateNetInnerHeight(nextMod);
@@ -885,6 +1087,20 @@ export function autoFixModuleIssues(module: ModuleInstance): AutoFixModuleResult
       bay.door.type = "double";
       appliedFixes.push(
         `Bölme ${bIdx + 1} geniş kapağı (>600mm) sarkmayı önlemek için çift kapağa dönüştürüldü.`
+      );
+    }
+
+    // Internal drawer behind hinged door -> auto upgrade to Blum 155° Zero-Protrusion Hinge (Checklist #5)
+    if (
+      bay.drawers.some((d) => d.isInternal) &&
+      bay.door.type !== "open" &&
+      bay.door.hardwareProductId !== "hw_blum_71b7550" &&
+      bay.door.hardwareProductId !== "hw_hettich_9099540" &&
+      nextMod.carcass.internalDrawerHingeSolution !== "spacer_block_25mm"
+    ) {
+      bay.door.hardwareProductId = "hw_blum_71b7550";
+      appliedFixes.push(
+        `Bölme ${bIdx + 1}: İç çekmece çakışmasını önlemek için menteşe 155° Sıfır Çıkıntılı (Blum 71B7550) yapıldı.`
       );
     }
 
@@ -942,9 +1158,9 @@ export function autoFixModuleIssues(module: ModuleInstance): AutoFixModuleResult
       d.elevationY = roundIntMm(d.elevationY);
       d.height = roundIntMm(d.height);
       if (d.nominalLengthMm && d.nominalLengthMm + 10 > netInnerD) {
-        d.nominalLengthMm = Math.max(250, Math.floor((netInnerD - 15) / 50) * 50);
+        d.nominalLengthMm = Math.max(250, Math.floor((netInnerD - 10) / 50) * 50);
         appliedFixes.push(
-          `Bölme ${bIdx + 1}: Çekmece ray boyu iç derinliğe (${d.nominalLengthMm}mm) uyarlandı.`
+          `Bölme ${bIdx + 1}: Çekmece ray boyu kanallı arkalık net iç derinliğine (${d.nominalLengthMm}mm) uyarlandı.`
         );
       }
     });

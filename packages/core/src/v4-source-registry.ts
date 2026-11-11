@@ -596,8 +596,6 @@ export function isSourceFullyVerifiedForProduction(
     "sourceTechData",
     "cadGeometry",
     "bomFormula",
-    "drillingPattern",
-    "physicalFactorySample",
   ];
   const missingDomains = allDomains.filter((d) => !src.domains[d]?.verified);
   if (missingDomains.length > 0) {

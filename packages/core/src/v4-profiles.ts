@@ -79,7 +79,7 @@ export const CONSTRUCTION_PROFILES: Record<string, ConstructionProfile> = {
     centerRevealGapMm: 3.0,
     defaultOverlayMm: 16.0,
     plinthHeightMm: 100,
-    maxShelfSpanMm: 950,
+    maxShelfSpanMm: 900,
     wallMountClearanceMm: 35,
     edgeBandThicknessMm: 1.0,
     system32PitchMm: 32,
@@ -99,7 +99,7 @@ export const CONSTRUCTION_PROFILES: Record<string, ConstructionProfile> = {
     centerRevealGapMm: 3.0,
     defaultOverlayMm: 16.0,
     plinthHeightMm: 100,
-    maxShelfSpanMm: 950,
+    maxShelfSpanMm: 900,
     wallMountClearanceMm: 35,
     edgeBandThicknessMm: 1.0,
     system32PitchMm: 32,
@@ -119,7 +119,7 @@ export const CONSTRUCTION_PROFILES: Record<string, ConstructionProfile> = {
     centerRevealGapMm: 3.0,
     defaultOverlayMm: 16.0,
     plinthHeightMm: 80,
-    maxShelfSpanMm: 950,
+    maxShelfSpanMm: 900,
     wallMountClearanceMm: 35,
     edgeBandThicknessMm: 1.0,
     system32PitchMm: 32,
@@ -149,6 +149,7 @@ export interface FourSpaceDimensionsBreakdown {
     netInnerHeightMm: UnitLength;
     netInnerDepthMm: UnitLength;
     bayClearWidthsMm: UnitLength[];
+    usableBayClearWidthsAfterPocketMm: UnitLength[];
   };
   doorLeaves: {
     bayIndex: number;
@@ -164,6 +165,7 @@ export interface FourSpaceDimensionsBreakdown {
     hingeBottomOffsetMm: UnitLength;
     hingeTopOffsetMm: UnitLength;
     overlayType: DoorOverlayType;
+    hingeCrankType: "straight_full_overlay" | "half_cranked_middle" | "full_cranked_inset";
     doorX0Mm: UnitLength;
     doorY0Mm: UnitLength;
     doorZ0Mm: UnitLength;
@@ -173,10 +175,6 @@ export interface FourSpaceDimensionsBreakdown {
   }[];
 }
 
-/**
- * Single canonical Blum CLIP top BLUMOTION / Hettich Sensys / DIN 68856 hinge count rule
- * shared across @birim/core, @birim/manufacturing BOM, CNC drilling, and Blum BXF export.
- */
 export function calculateRecommendedHingesPerLeaf(
   leafHeightMm: UnitLength,
   leafWeightKg = 0,
@@ -189,10 +187,6 @@ export function calculateRecommendedHingesPerLeaf(
   return 2;
 }
 
-/**
- * Computes vertical Y coordinates (mm from bottom edge of door leaf) for concealed hinges.
- * Avoids internal shelf collision zones automatically while respecting bottom/top edge offsets.
- */
 export function calculateDoorHingePositionsY(
   leafHeightMm: UnitLength,
   options?: {
@@ -250,10 +244,11 @@ export function resolveEffectiveConstructionProfile(module: ModuleInstance): Con
   return {
     ...baseProfile,
     panelThicknessMm: module.carcass.panelThickness || baseProfile.panelThicknessMm,
-    backPanelThicknessMm: module.carcass.backPanelThickness || baseProfile.backPanelThicknessMm,
+    backPanelThicknessMm: module.carcass.backPanelThickness ?? baseProfile.backPanelThicknessMm,
     backPanelType: module.carcass.backPanelType || baseProfile.backPanelType,
     doorThicknessMm: module.carcass.doorThickness || baseProfile.doorThicknessMm,
     doorPerimeterGapMm: module.carcass.doorPerimeterGap ?? baseProfile.doorPerimeterGapMm,
+    centerRevealGapMm: module.carcass.centerRevealGapMm ?? baseProfile.centerRevealGapMm,
     plinthHeightMm: module.carcass.plinthHeight ?? baseProfile.plinthHeightMm,
     edgeBandThicknessMm: module.carcass.edgeBandThickness ?? baseProfile.edgeBandThicknessMm,
     system32FrontSetbackMm:
@@ -262,13 +257,6 @@ export function resolveEffectiveConstructionProfile(module: ModuleInstance): Con
   };
 }
 
-/**
- * Computes the 4 separate canonical dimension spaces:
- * 1. External Carcass Dimensions
- * 2. Net Panel Cut Dimensions (accounting for floor-standing wardrobe uprights vs plinth-mounted bases)
- * 3. Usable Internal Clear Dimensions
- * 4. Door Leaf Dimensions, True Single-Leaf Mass (kg), AVENTOS Power Factor (LF), and Hinge Count
- */
 export function calculateFourSpaceDimensions(
   module: ModuleInstance
 ): FourSpaceDimensionsBreakdown {
@@ -278,6 +266,7 @@ export function calculateFourSpaceDimensions(
   const T_door = profile.doorThicknessMm;
   const plinth = profile.plinthHeightMm;
   const gap = profile.doorPerimeterGapMm;
+  const centerGap = profile.centerRevealGapMm;
 
   const isWardrobe = isWardrobeModule(module);
   const effPlinthConstruction =
@@ -289,14 +278,34 @@ export function calculateFourSpaceDimensions(
       : isWardrobe
       ? "pedestal_box"
       : "adjustable_legs_clip");
+  const joinery = module.carcass.carcassJoineryTopology || "sides_through";
   const sideRunsToFloor = plinth > 0 && effPlinthConstruction === "gable_rails";
   const carcassBoxHeightMm = Math.max(0, roundIntMm(height - plinth));
-  const sidePanelHeightMm = sideRunsToFloor ? roundIntMm(height) : carcassBoxHeightMm;
-  const sidePanelBottomYMm = sideRunsToFloor ? 0 : roundIntMm(plinth);
-  const horizontalPanelWidthMm = Math.max(0, roundIntMm(width - 2 * T));
+  const sidePanelHeightMm =
+    joinery === "top_bottom_through"
+      ? Math.max(0, carcassBoxHeightMm - 2 * T)
+      : sideRunsToFloor
+      ? roundIntMm(height)
+      : carcassBoxHeightMm;
+  const sidePanelBottomYMm =
+    joinery === "top_bottom_through"
+      ? roundIntMm(plinth + T)
+      : sideRunsToFloor
+      ? 0
+      : roundIntMm(plinth);
+  const horizontalPanelWidthMm =
+    joinery === "top_bottom_through" || joinery === "miter_45"
+      ? roundIntMm(width)
+      : Math.max(0, roundIntMm(width - 2 * T));
+
   const netInnerHeightMm = calculateNetInnerHeight(module);
   const baseInnerDepthMm = calculateNetInnerDepth(module);
   const bayClearWidthsMm = calculateBayWidths(module);
+  const usableBayClearWidthsAfterPocketMm = bayClearWidthsMm.map((bw, idx) => {
+    const b = module.bays[idx];
+    const isPocket = b?.door?.doorSystemId === "pocket_retractable" || b?.door?.type === "pocket";
+    return isPocket ? Math.max(80, bw - 75) : bw;
+  });
 
   const hasSliding = module.bays.some(
     (b) =>
@@ -316,15 +325,27 @@ export function calculateFourSpaceDimensions(
     roundIntMm(baseInnerDepthMm - (hasSliding ? 80 : 0) - (hasInset ? T_door + 2 : 0))
   );
 
-  let backPanelWidthMm = horizontalPanelWidthMm + 16;
+  // Back panel cutting formula per MD Spec Section 3.2:
+  // Grooved: W_back = (W_ext - 2*T) + 2*(d_groove - eps), d_groove = 9mm, eps = 1mm -> +16mm!
+  const innerHorizW = Math.max(0, roundIntMm(width - 2 * T));
+  let backPanelWidthMm = innerHorizW + 16;
   let backPanelHeightMm = netInnerHeightMm + 16;
-  if (profile.backPanelType === "rebated") {
-    backPanelWidthMm = horizontalPanelWidthMm + 20;
+  if (profile.backPanelType === "none") {
+    backPanelWidthMm = 0;
+    backPanelHeightMm = 0;
+  } else if (profile.backPanelType === "rebated") {
+    backPanelWidthMm = innerHorizW + 20;
     backPanelHeightMm = netInnerHeightMm + 20;
-  } else if (profile.backPanelType === "flush" || profile.backPanelType === "nailed") {
+  } else if (profile.backPanelType === "flush") {
+    backPanelWidthMm = innerHorizW;
+    backPanelHeightMm = netInnerHeightMm;
+  } else if (profile.backPanelType === "nailed") {
     backPanelWidthMm = Math.max(0, roundIntMm(width - 2));
     backPanelHeightMm = Math.max(0, roundIntMm(carcassBoxHeightMm - 2));
   }
+
+  const totalExtraDepthForNailed =
+    profile.backPanelType === "nailed" ? profile.backPanelThicknessMm : 0;
 
   let currentBayStartX = T;
   const doorLeaves = module.bays.map((bay, bayIdx) => {
@@ -347,22 +368,38 @@ export function calculateFourSpaceDimensions(
         ? "half_overlay"
         : "full_overlay");
 
+    // Exact Half-Overlay formula on shared 18mm middle divider: b_half = (T - g_gap) / 2 (MD Spec Section 6.1.3!)
+    const halfOverlayMm = roundMm((T - centerGap) / 2, 2);
     const leftOverlay =
       overlayType === "inset"
         ? -gap
         : overlayType === "half_overlay"
-        ? T / 2 - gap / 2
+        ? halfOverlayMm
         : bayIdx === 0
         ? T - gap
-        : T / 2 - gap / 2;
+        : halfOverlayMm;
     const rightOverlay =
       overlayType === "inset"
         ? -gap
         : overlayType === "half_overlay"
-        ? T / 2 - gap / 2
+        ? halfOverlayMm
         : bayIdx === module.bays.length - 1
         ? T - gap
-        : T / 2 - gap / 2;
+        : halfOverlayMm;
+
+    // Determine automatic hinge crank type (Checklist #8!)
+    const isRightHinged =
+      dType === "single_right" || dType === "inset_right" || dType === "half_overlay_right";
+    const hingesOnSharedMiddleDivider =
+      overlayType === "half_overlay" ||
+      (!isRightHinged && bayIdx > 0) ||
+      (isRightHinged && bayIdx < module.bays.length - 1);
+    const hingeCrankType: "straight_full_overlay" | "half_cranked_middle" | "full_cranked_inset" =
+      overlayType === "inset"
+        ? "full_cranked_inset"
+        : hingesOnSharedMiddleDivider
+        ? "half_cranked_middle"
+        : "straight_full_overlay";
 
     const tplId = (module.templateId || "").toLowerCase();
     const extDrawers = bay.drawers.filter((d) => !d.isInternal);
@@ -398,7 +435,9 @@ export function calculateFourSpaceDimensions(
           )
         : 0;
 
-    const rawDoorY0Mm = overlayType === "inset" ? plinth + T + gap : plinth + gap;
+    const bottomOverhang = bay.door.bottomOverhangMm ?? 0; // e.g. +15mm handleless wall cabinet drop
+    const rawDoorY0Mm =
+      (overlayType === "inset" ? plinth + T + gap : plinth + gap) - bottomOverhang;
     const doorX0Mm = roundMm(overlayType === "inset" ? bayStartX + gap : bayStartX - leftOverlay);
     const doorY0Mm = roundMm(rawDoorY0Mm + bottomCutMm);
     const doorZ0Mm = roundMm(overlayType === "inset" ? depth - T : depth);
@@ -419,12 +458,13 @@ export function calculateFourSpaceDimensions(
         hingeBottomOffsetMm: bay.door.hingeBottomOffsetMm ?? 100,
         hingeTopOffsetMm: bay.door.hingeTopOffsetMm ?? 100,
         overlayType,
+        hingeCrankType,
         doorX0Mm,
         doorY0Mm,
         doorZ0Mm,
         fullDoorSpanWidthMm: totalDoorSpanW,
         baseDoorHeightMm: 0,
-        centerRevealGapMm: profile.centerRevealGapMm,
+        centerRevealGapMm: centerGap,
       };
     }
 
@@ -446,17 +486,19 @@ export function calculateFourSpaceDimensions(
       dSys === "folding_side" || dType === "folding"
         ? Math.max(0, roundIntMm((totalDoorSpanW - gap) / 2))
         : isDouble
-        ? Math.max(0, roundIntMm((totalDoorSpanW - profile.centerRevealGapMm) / 2))
+        ? Math.max(0, roundIntMm((totalDoorSpanW - centerGap) / 2))
         : roundIntMm(totalDoorSpanW);
     const isFoldDoor = dSys === "folding_side" || dType === "folding";
     const leafWidthMm =
       isHingedOrFold && !isFoldDoor ? Math.min(600, rawLeafWidthMm) : rawLeafWidthMm;
 
-    const golaDeduction = bay.door.handleCategory === "gola_profile" ? 30 : 0;
+    // Horizontal Top L-Gola finger clearance deduction (35mm on base cabinets, 0mm on wall cabinets with bottom overhang)
+    const golaDeduction =
+      bay.door.handleCategory === "gola_profile" && module.category !== "kitchen_wall" ? 35 : 0;
     const rawBaseDoorHeight =
       overlayType === "inset"
-        ? Math.max(80, netInnerHeightMm - 2 * gap - golaDeduction)
-        : Math.max(80, carcassBoxHeightMm - 2 * gap - golaDeduction);
+        ? Math.max(80, netInnerHeightMm - 2 * gap - golaDeduction + bottomOverhang)
+        : Math.max(80, carcassBoxHeightMm - 2 * gap - golaDeduction + bottomOverhang);
     const baseDoorHeight = Math.max(80, roundIntMm(rawBaseDoorHeight - bottomCutMm - topCutMm));
 
     const leafHeightMm = isBiFoldLift
@@ -467,12 +509,10 @@ export function calculateFourSpaceDimensions(
     const handleWeightKg =
       bay.door.handleCategory === "handleless_plain" || bay.door.handleType === "none" ? 0 : 0.18;
 
-    // Exact single-leaf mass (leafWidthMm * leafHeightMm * leafThicknessMm) — never halved twice!
     const singleLeafBoardKg =
       ((leafWidthMm * leafHeightMm * leafThicknessMm) / 1_000_000_000) * densityKgM3;
     const leafWeightKg = roundMm(singleLeafBoardKg + handleWeightKg, 2);
 
-    // Blum AVENTOS Power Factor LF = Cabinet/Front Height (mm) × (Total Lift Front Weight + 2 × Handle Weight) (kg)
     const totalLiftPanelBoardKg = singleLeafBoardKg * leafCount;
     const powerFactorLf = roundIntMm(
       baseDoorHeight * (totalLiftPanelBoardKg + 2 * handleWeightKg)
@@ -517,12 +557,13 @@ export function calculateFourSpaceDimensions(
       hingeBottomOffsetMm,
       hingeTopOffsetMm,
       overlayType,
+      hingeCrankType,
       doorX0Mm,
       doorY0Mm,
       doorZ0Mm,
       fullDoorSpanWidthMm: totalDoorSpanW,
       baseDoorHeightMm: baseDoorHeight,
-      centerRevealGapMm: profile.centerRevealGapMm,
+      centerRevealGapMm: centerGap,
     };
   });
 
@@ -530,8 +571,11 @@ export function calculateFourSpaceDimensions(
     externalCarcass: {
       widthMm: width,
       heightMm: height,
-      depthMm: depth,
-      totalDepthWithDoorMm: module.isOpenFront ? depth : depth + T_door + 2,
+      depthMm: depth + totalExtraDepthForNailed,
+      totalDepthWithDoorMm:
+        module.isOpenFront
+          ? depth + totalExtraDepthForNailed
+          : depth + totalExtraDepthForNailed + T_door + 2,
     },
     netPanelCut: {
       sidePanelHeightMm,
@@ -546,6 +590,7 @@ export function calculateFourSpaceDimensions(
       netInnerHeightMm,
       netInnerDepthMm: usableInnerDepthMm,
       bayClearWidthsMm,
+      usableBayClearWidthsAfterPocketMm,
     },
     doorLeaves,
   };
@@ -589,9 +634,6 @@ export function inferDoorSystemIdFromType(type: string): DoorSystemId {
   }
 }
 
-/**
- * Safely migrates any V3.1 DesignProject to V4 without losing any existing fields.
- */
 export function migrateV3ProjectToV4(project: DesignProject): DesignProject {
   const catalogVersion = project.catalogVersion || project.libraryVersionId || "lib_v4_0_0";
   return {

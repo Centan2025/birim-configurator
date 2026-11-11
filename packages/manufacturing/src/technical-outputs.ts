@@ -339,10 +339,22 @@ function renderSinglePieceEntities(
   // 1. Finished panel perimeter rectangle (PANEL_CONTOUR)
   writer.addRect("PANEL_CONTOUR", offsetX, offsetY, w, h);
 
+  // 1b. Industrial CAM Net-Cut Closed Counter-Clockwise LWPOLYLINE (`OUTLINE_T<thickness>`)
+  const preMill = piece.preMillingMm ?? 0;
+  const effEbDeduct = Math.max(0, ebT - preMill);
+  const insetLeft = eb?.left ? effEbDeduct : 0;
+  const insetBottom = eb?.bottom ? effEbDeduct : 0;
+  const outlineLayer = `OUTLINE_T${Math.round(piece.thicknessMm || 18)}`;
+  writer.addRect(
+    outlineLayer,
+    roundMm(offsetX + insetLeft, 2),
+    roundMm(offsetY + insetBottom, 2),
+    netW,
+    netH
+  );
+
   // 2. Saw net-cut perimeter properly inset by left & bottom edge-banding thickness (NET_CUT_CONTOUR)
   if (netW !== w || netH !== h) {
-    const insetLeft = eb?.left ? ebT : 0;
-    const insetBottom = eb?.bottom ? ebT : 0;
     writer.addRect(
       "NET_CUT_CONTOUR",
       roundMm(offsetX + insetLeft, 2),
@@ -350,6 +362,37 @@ function renderSinglePieceEntities(
       netW,
       netH
     );
+  }
+
+  // 2b. Gola L/C Notches on front edge (`NOTCH_GOLA_L` / `NOTCH_GOLA_C`)
+  if (piece.golaNotches && piece.golaNotches.length > 0) {
+    for (const gn of piece.golaNotches) {
+      const gx = piece.mirrorInnerFaceX
+        ? roundMm(offsetX + w - gn.widthMm, 2)
+        : offsetX;
+      writer.addRect(
+        gn.kind === "L_TOP" ? "NOTCH_GOLA_L" : "NOTCH_GOLA_C",
+        gx,
+        roundMm(offsetY + gn.yBottomMm, 2),
+        gn.widthMm,
+        gn.heightMm
+      );
+    }
+  }
+
+  // 2c. Under-Sink Drawer U-Shaped Siphon Cutout (`CUTOUT_SIPHON_U`)
+  if (piece.siphonCutout) {
+    const sw = Math.min(w - 40, piece.siphonCutout.widthMm);
+    const sd = Math.min(h - 40, piece.siphonCutout.depthMm);
+    if (sw > 40 && sd > 40) {
+      writer.addRect(
+        "CUTOUT_SIPHON_U",
+        roundMm(offsetX + (w - sw) / 2, 2),
+        roundMm(offsetY + h - sd, 2),
+        sw,
+        sd
+      );
+    }
   }
 
   // 3. Explicit CNC Sink / Cooktop Cut-out ONLY when piece.hasSinkOrHobCutout === true!
@@ -394,11 +437,68 @@ function renderSinglePieceEntities(
         piece.componentRole === "carcass_bottom";
 
   if (grooveActive && w >= 100) {
+    const grooveW = piece.backGrooveWidthMm ?? 8.5;
     const grooveOffset = piece.backGrooveOffsetMm ?? 20;
     const grooveX = piece.mirrorInnerFaceX
-      ? Math.max(8, grooveOffset - 8) // [12..20] from x = 0 rear edge
-      : Math.max(12, w - grooveOffset); // [w - 20 .. w - 12] from x = w rear edge
-    writer.addRect("BACK_GROOVE_8MM", offsetX + grooveX, offsetY, 8, h);
+      ? Math.max(8, grooveOffset - grooveW)
+      : Math.max(12, w - grooveOffset);
+    writer.addRect("BACK_GROOVE_8MM", offsetX + grooveX, offsetY, grooveW, h);
+    writer.addRect(`GROOVE_W${grooveW}_Z10`, offsetX + grooveX, offsetY, grooveW, h);
+  }
+
+  // 4a-bis. Rebated Back Panel Step Milling (`REBATE_BACK_8MM`) along rear inner edge
+  if (
+    piece.backPanelMode === "rebated" &&
+    w >= 100 &&
+    (piece.componentRole === "carcass_side_left" ||
+      piece.componentRole === "carcass_side_right" ||
+      piece.componentRole === "carcass_top" ||
+      piece.componentRole === "carcass_bottom")
+  ) {
+    const rebateW = 10;
+    const rx = piece.mirrorInnerFaceX ? 0 : w - rebateW;
+    writer.addRect("REBATE_BACK_8MM", offsetX + rx, offsetY, rebateW, h);
+  }
+
+  // 4a-ter. Wooden Drawer 8mm Bottom Groove (`DRAWER_BOTTOM_GROOVE_8MM` & `GROOVE_W8.5_Z6`, 13mm from bottom edge!)
+  if (piece.hasDrawerBottomGroove && w >= 55 && h >= 120) {
+    const dgw = piece.drawerBottomGrooveWidthMm ?? 8.5;
+    const dgd = piece.drawerBottomGrooveDepthMm ?? 6;
+    const dgo = piece.drawerBottomGrooveOffsetMm ?? 13;
+    const dgx = Math.min(w - dgw - 4, dgo);
+    writer.addRect("DRAWER_BOTTOM_GROOVE_8MM", roundMm(offsetX + dgx, 2), offsetY, dgw, h);
+    writer.addRect(`GROOVE_W${dgw}_Z${dgd}`, roundMm(offsetX + dgx, 2), offsetY, dgw, h);
+  }
+
+  // 4a-quater. Wall Cabinet Grooved Back Panel Top-Corner Hanger Cutouts (`NOTCH_WALL_HANGER`, 45x65mm)
+  if (piece.wallHangerCornerNotches && w >= 200 && h >= 200) {
+    const nw = piece.wallHangerCornerNotches.widthMm;
+    const nh = piece.wallHangerCornerNotches.heightMm;
+    // In carcass_back local coords: `h` = vertical height (Y: 0..h), `w` = horizontal width (X: 0..w)
+    writer.addRect("NOTCH_WALL_HANGER", offsetX, roundMm(offsetY + h - nh, 2), nw, nh);
+    writer.addRect("NOTCH_WALL_HANGER", roundMm(offsetX + w - nw, 2), roundMm(offsetY + h - nh, 2), nw, nh);
+  }
+
+  // 4a-quinquies. 45-Degree Miter Carcass Bevel Contour (`MITER_45_BEVEL`)
+  if (
+    piece.carcassJoineryTopology === "miter_45" &&
+    (piece.componentRole === "carcass_side_left" ||
+      piece.componentRole === "carcass_side_right" ||
+      piece.componentRole === "carcass_top" ||
+      piece.componentRole === "carcass_bottom")
+  ) {
+    writer.addRect("MITER_45_BEVEL", offsetX, offsetY, w, h);
+  }
+
+  // 4b. Recessed LED Profile CNC Groove (`GROOVE_W12_Z8`)
+  if (piece.ledGrooveSpec?.enabled) {
+    const lw = piece.ledGrooveSpec.widthMm || 12;
+    const ld = piece.ledGrooveSpec.depthMm || 8;
+    const lOff = piece.ledGrooveSpec.offsetFromFrontMm || 75;
+    const lx = piece.mirrorInnerFaceX
+      ? Math.max(8, w - lOff - lw / 2)
+      : Math.min(w - lw - 8, lOff - lw / 2);
+    writer.addRect(`GROOVE_W${lw}_Z${ld}`, roundMm(offsetX + lx, 2), offsetY, lw, h);
   }
 
   // 5. Part Name, ID, Net Cut Dimensions & Edge Banding Text Annotation (PART_LABELS)
@@ -423,29 +523,37 @@ function renderSinglePieceEntities(
       const rad = roundMm(hole.diameter / 2, 2);
 
       if (hole.direction.startsWith("edge_")) {
-        // Horizontal edge bore represented as an axis line into the panel edge on EDGE_DRILL_8MM
-        const boreLen = Math.min(hole.depth || 30, Math.min(w, h) * 0.4);
+        const boreLen = Math.min(hole.depth || 34, Math.min(w, h) * 0.4);
         let x2 = hx;
         let y2 = hy;
-        if (hole.direction === "edge_bottom") y2 = roundMm(hy + boreLen, 2);
-        else if (hole.direction === "edge_top") y2 = roundMm(hy - boreLen, 2);
-        else if (hole.direction === "edge_left") x2 = roundMm(hx + boreLen, 2);
-        else if (hole.direction === "edge_right") x2 = roundMm(hx - boreLen, 2);
+        let sideCode = "LEFT";
+        if (hole.direction === "edge_bottom") {
+          y2 = roundMm(hy + boreLen, 2);
+          sideCode = "LEFT";
+        } else if (hole.direction === "edge_top") {
+          y2 = roundMm(hy - boreLen, 2);
+          sideCode = "RIGHT";
+        } else if (hole.direction === "edge_left") {
+          x2 = roundMm(hx + boreLen, 2);
+          sideCode = "LEFT";
+        } else if (hole.direction === "edge_right") {
+          x2 = roundMm(hx - boreLen, 2);
+          sideCode = "RIGHT";
+        }
+        const dInt = Math.round(hole.diameter || 8);
+        const zInt = Math.round(hole.depth || 34);
+        writer.addLine(`DRILL_H_${sideCode}_D${dInt}_Z${zInt}`, hx, hy, x2, y2);
         writer.addLine("EDGE_DRILL_8MM", hx, hy, x2, y2);
         return;
       }
 
-      const backSuffix = hole.direction === "face_back" ? "_BACK" : "";
-      const toolLayer =
-        hole.diameter >= 35
-          ? `BORE_35MM${backSuffix}`
-          : hole.diameter >= 15
-          ? `CAM_15MM${backSuffix}`
-          : hole.diameter >= 8
-          ? `DRILL_8MM${backSuffix}`
-          : `DRILL_5MM${backSuffix}`;
-
-      writer.addCircle(toolLayer, hx, hy, rad);
+      const isBackFace = hole.direction === "face_back";
+      const dCode = Math.round(hole.diameter);
+      const zCode = Math.round(hole.depth || 12);
+      const camLayer = isBackFace
+        ? `BACK_FACE_DRILL_V_D${dCode}_Z${zCode}`
+        : `DRILL_V_D${dCode}_Z${zCode}`;
+      writer.addCircle(camLayer, hx, hy, rad);
 
       if (hole.purpose === "hinge_cup" || hole.purpose === "hinge_mount") {
         const r = rad + 4;
