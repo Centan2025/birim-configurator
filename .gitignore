@@ -22,3 +22,5 @@ test-results/
 
 # Local temporary AI handoff
 .handoff.local.md
+
+*.tsbuildinfo

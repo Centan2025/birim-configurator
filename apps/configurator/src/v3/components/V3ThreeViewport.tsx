@@ -3065,8 +3065,31 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       requestRender();
     }, [cameraPreset, requestRender]);
 
-    // Fast Selection & Active Module Highlight WITHOUT rebuilding scene geometry
+    // 2-Directional Interactive 3D Section Clipping Plane (X Boyuna Kesit & Z Enine Kesit)
     useEffect(() => {
+      const curRenderer = rendererRef.current;
+      if (!curRenderer) return;
+      if (!section3DAxis) {
+        curRenderer.localClippingEnabled = false;
+        curRenderer.clippingPlanes = [];
+        requestRender();
+        return;
+      }
+      const mod = project.modules[activeModuleIndex] || project.modules[0];
+      if (!mod) return;
+      curRenderer.localClippingEnabled = true;
+      if (section3DAxis === "X") {
+        const cutWorldX = mod.position.x + Math.round(mod.dimensions.width * section3DRatio);
+        curRenderer.clippingPlanes = [new THREE.Plane(new THREE.Vector3(-1, 0, 0), cutWorldX)];
+      } else {
+        const cutWorldZ = mod.position.z + Math.round(mod.dimensions.depth * section3DRatio);
+        curRenderer.clippingPlanes = [new THREE.Plane(new THREE.Vector3(0, 0, -1), cutWorldZ)];
+      }
+      requestRender();
+    }, [section3DAxis, section3DRatio, project, activeModuleIndex, requestRender]);
+
+    // Fast Selection & Active Module Highlight & Selection Frame Synchronization
+    const updateSelectionAndActiveFrames = useCallback(() => {
       const meshGroup = meshGroupRef.current;
       if (!meshGroup) return;
       const isLight = theme !== "dark";
@@ -3157,13 +3180,14 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         disposeObject3DTree(selGroup);
         selGroup.clear();
         if (selectedComponentId) {
+          meshGroup.updateMatrixWorld(true);
           let matchedMesh: THREE.Mesh | null = null;
           meshGroup.traverse((obj) => {
             if (
               !matchedMesh &&
               obj instanceof THREE.Mesh &&
               obj.userData?.componentId === selectedComponentId &&
-              obj.userData?.moduleIndex === activeModuleIndex
+              (obj.userData?.moduleIndex === activeModuleIndex || obj.userData?.moduleIndex === undefined)
             ) {
               matchedMesh = obj;
             }
@@ -3183,11 +3207,13 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               const wCenter = lCenter.clone().applyMatrix4(targetMesh.matrixWorld);
               const wQuat = new THREE.Quaternion();
               targetMesh.getWorldQuaternion(wQuat);
+              const wScale = new THREE.Vector3();
+              targetMesh.getWorldScale(wScale);
 
               const dFrameGeo = new THREE.BoxGeometry(
-                Math.max(12, lSize.x + 8),
-                Math.max(12, lSize.y + 8),
-                Math.max(12, lSize.z + 8)
+                Math.max(12, lSize.x * Math.abs(wScale.x) + 8),
+                Math.max(12, lSize.y * Math.abs(wScale.y) + 8),
+                Math.max(12, lSize.z * Math.abs(wScale.z) + 8)
               );
               const dFrameLines = new THREE.LineSegments(
                 new THREE.EdgesGeometry(dFrameGeo),
@@ -3213,35 +3239,16 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
 
               activeDoorWorldAnchorRef.current = wCenter.clone();
             }
+          } else {
+            activeDoorWorldAnchorRef.current = null;
           }
+        } else {
+          activeDoorWorldAnchorRef.current = null;
         }
       }
 
       requestRender();
-    }, [activeModuleIndex, selectedComponentId, project, doorOpenAngleDeg, drawerOpenMm, explodedFactor, theme, renderEdgeMode, requestRender]);
-
-    // 2-Directional Interactive 3D Section Clipping Plane (X Boyuna Kesit & Z Enine Kesit)
-    useEffect(() => {
-      const curRenderer = rendererRef.current;
-      if (!curRenderer) return;
-      if (!section3DAxis) {
-        curRenderer.localClippingEnabled = false;
-        curRenderer.clippingPlanes = [];
-        requestRender();
-        return;
-      }
-      const mod = project.modules[activeModuleIndex] || project.modules[0];
-      if (!mod) return;
-      curRenderer.localClippingEnabled = true;
-      if (section3DAxis === "X") {
-        const cutWorldX = mod.position.x + Math.round(mod.dimensions.width * section3DRatio);
-        curRenderer.clippingPlanes = [new THREE.Plane(new THREE.Vector3(-1, 0, 0), cutWorldX)];
-      } else {
-        const cutWorldZ = mod.position.z + Math.round(mod.dimensions.depth * section3DRatio);
-        curRenderer.clippingPlanes = [new THREE.Plane(new THREE.Vector3(0, 0, -1), cutWorldZ)];
-      }
-      requestRender();
-    }, [section3DAxis, section3DRatio, project, activeModuleIndex, requestRender]);
+    }, [activeModuleIndex, selectedComponentId, project, theme, renderEdgeMode, requestRender]);
 
     // Rebuild Parametric Meshes ONLY when project geometry or kinematic sliders change
     useEffect(() => {
@@ -3288,6 +3295,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             child.rotation.y = placementGroup.rotation.y;
           }
         });
+        updateSelectionAndActiveFrames();
         markShadowsAndRender();
         return;
       }
@@ -4074,6 +4082,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       });
 
       if (rendererRef.current) publishSceneDiagnostics(rendererRef.current.domElement, meshGroup);
+      updateSelectionAndActiveFrames();
       markShadowsAndRender();
     }, [
       project,
@@ -4090,7 +4099,13 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       theme,
       renderEdgeMode,
       requestRender,
+      updateSelectionAndActiveFrames,
     ]);
+
+    // Fast Selection & Active Module Highlight WITHOUT rebuilding scene geometry
+    useEffect(() => {
+      updateSelectionAndActiveFrames();
+    }, [selectedComponentId, activeModuleIndex, theme, renderEdgeMode, updateSelectionAndActiveFrames]);
 
     // Separate useEffect for 3D Room Architecture so cabinet interior edits/drags never rebuild room walls/floors!
     useEffect(() => {
@@ -7262,7 +7277,7 @@ const clear3DGhostPreview = useCallback(() => {
         {active3DSnap && (
           <div
             data-testid="in-canvas-snap-badge"
-            className="absolute top-16 left-1/2 -translate-x-1/2 z-20 pointer-events-none px-3.5 py-1.5 rounded-full bg-white/95 text-[#1C1917] border border-[#CBD5E1] shadow-lg text-xs font-bold flex items-center gap-2"
+            className="absolute top-16 left-1/2 -translate-x-1/2 z-20 pointer-events-none px-3.5 py-1.5 rounded-full birim-ice-pill text-[#1C1917] text-xs font-bold flex items-center gap-2"
           >
             <span>🎯 Hizalandı: {active3DSnap.label}</span>
             <span className="px-2 py-0.5 rounded-full bg-[#F1F5F9] text-[#1C1917] font-mono">
@@ -7277,7 +7292,7 @@ const clear3DGhostPreview = useCallback(() => {
           className={
             isSimpleTier
               ? "sr-only"
-              : "absolute left-3.5 top-3.5 z-20 flex flex-col items-center gap-1 bg-[#FAF9F6]/95 backdrop-blur-md p-1 rounded-xl border border-[#DED8CC] shadow-sm text-[#141413] w-[56px]"
+              : "absolute left-3.5 top-3.5 z-20 flex flex-col items-center gap-1 birim-ice-pill p-1 rounded-2xl text-[#141413] w-[46px]"
           }
         >
           {[
@@ -7509,18 +7524,17 @@ const clear3DGhostPreview = useCallback(() => {
               <button
                 key={btn.id}
                 type="button"
+                title={btn.label}
                 data-testid={`viewport-3d-pill-${btn.id}`}
                 onClick={btn.onClick}
-                className={`w-full py-2 px-1 rounded-xl flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
+                className={`w-9 h-9 rounded-xl flex items-center justify-center transition cursor-pointer ${
                   isActive
-                    ? "bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1] shadow-xs"
-                    : "text-[#57534E] hover:bg-[#F1F5F9] hover:text-[#1C1917]"
+                    ? "birim-ice-btn-active"
+                    : "text-[#44403C] hover:bg-white/70 hover:text-[#141413]"
                 }`}
               >
                 {btn.icon}
-                <span className="text-[9px] font-semibold leading-tight text-center">
-                  {btn.label}
-                </span>
+                <span className="sr-only">{btn.label}</span>
               </button>
             );
           })}
@@ -7557,7 +7571,7 @@ const clear3DGhostPreview = useCallback(() => {
               controls.update();
               requestRender();
             }}
-            className="w-full py-2 rounded-xl flex items-center justify-center text-[#57534E] hover:bg-[#F1F5F9] hover:text-[#1C1917] transition cursor-pointer"
+            className="w-9 h-9 rounded-xl flex items-center justify-center text-[#44403C] hover:bg-white/70 hover:text-[#141413] transition cursor-pointer"
           >
             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
               <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
@@ -7567,7 +7581,7 @@ const clear3DGhostPreview = useCallback(() => {
           <button
             type="button"
             data-testid="viewport-3d-pill-props"
-            title="Dolap İçi 3D Kıyafet, Askı, Kutu ve Ayakkabı Silüetlerini Göster / Gizle (Kapakları açarak veya gizleyerek inceleyebilirsiniz)"
+            title="Dolap İçi 3D Kıyafet, Askı, Kutu ve Ayakkabı Silüetlerini Göster / Gizle"
             onClick={() => {
               const next = !showInteriorProps3D;
               setShowInteriorProps3D(next);
@@ -7575,25 +7589,25 @@ const clear3DGhostPreview = useCallback(() => {
                 setDoorsHiddenIn3D(true);
               }
             }}
-            className={`w-full py-1.5 px-1 rounded-xl flex flex-col items-center justify-center gap-0.5 transition cursor-pointer ${
+            className={`w-9 h-9 rounded-xl flex items-center justify-center transition cursor-pointer ${
               showInteriorProps3D
-                ? "bg-[#141413] text-white shadow-xs"
-                : "text-[#57534E] hover:bg-[#F1F5F9] hover:text-[#1C1917]"
+                ? "birim-ice-btn-active"
+                : "text-[#44403C] hover:bg-white/70 hover:text-[#141413]"
             }`}
           >
-            <span className="text-xs leading-none">👔</span>
-            <span className="text-[8px] font-bold leading-tight text-center">Eşyalar</span>
+            <span className="text-sm leading-none">👔</span>
+            <span className="sr-only">Eşyalar</span>
           </button>
         </div>
 
-        {/* TOP-CENTER CONTEXTUAL ACTION BAR (Design Studio: Seç | Taşı | Ölçü | Kopyala | Aynala | Sil) */}
+        {/* TOP-CENTER FROSTED ICE ICON DOCK (Seç | Taşı | Ölçü | Böl | Birleştir | Kopyala | Kapak | Aynala | Sil) */}
         {showInCanvasHud && (
           <div
             data-testid="in-canvas-direct-hud"
             className={
               isSimpleTier && !materialModeActive
                 ? "sr-only"
-                : "absolute top-3 left-2 right-2 mx-auto w-fit max-w-[calc(100%-16px)] z-20 flex flex-wrap items-center justify-center gap-1 bg-[#FAF9F6]/95 backdrop-blur-md px-2 py-1 rounded-xl border border-[#DED8CC] shadow-sm text-[#141413]"
+                : "absolute top-3 left-2 right-2 mx-auto w-fit max-w-[calc(100%-16px)] z-20 flex flex-wrap items-center justify-center gap-1 birim-ice-pill p-1 rounded-2xl text-[#141413]"
             }
           >
             {materialModeActive && (
@@ -7645,16 +7659,17 @@ const clear3DGhostPreview = useCallback(() => {
                   <button
                     key={mTool.id}
                     type="button"
+                    title={mTool.label}
                     data-testid={mTool.testId}
                     onClick={() => setMaterialPaintTool(mTool.id)}
-                    className={`px-3 py-1.5 rounded-xl flex flex-col items-center gap-0.5 transition cursor-pointer ${
+                    className={`w-9 h-9 rounded-xl flex items-center justify-center transition cursor-pointer ${
                       materialPaintTool === mTool.id
-                        ? "bg-[#EFF6FF] text-[#1D4ED8] border border-[#2563EB] font-bold"
-                        : "text-[#57534E] hover:bg-[#F8FAFC]"
+                        ? "birim-ice-btn-active"
+                        : "text-[#44403C] hover:bg-white/70 hover:text-[#141413]"
                     }`}
                   >
                     {mTool.icon}
-                    <span className="text-[10px]">{mTool.label}</span>
+                    <span className="sr-only">{mTool.label}</span>
                   </button>
                 ))}
                 <button
@@ -7665,72 +7680,69 @@ const clear3DGhostPreview = useCallback(() => {
                     setDragDropSnapBanner("🧹 Özel parça malzeme atamaları temizlendi");
                     setTimeout(() => setDragDropSnapBanner(null), 2000);
                   }}
-                  className="px-3 py-1.5 rounded-xl flex flex-col items-center gap-0.5 text-red-600 hover:bg-red-50 transition cursor-pointer"
+                  className="w-9 h-9 rounded-xl flex items-center justify-center text-red-600 hover:bg-red-500/15 transition cursor-pointer"
                   title="Özel parça malzeme atamalarını sıfırla"
                 >
                   <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                     <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
                   </svg>
-                  <span className="text-[10px] font-medium">Temizle</span>
+                  <span className="sr-only">Temizle</span>
                 </button>
-                <div className="h-6 w-px bg-[#E2E8F0] mx-0.5" />
+                <div className="h-5 w-px bg-slate-900/12 mx-0.5" />
               </>
             )}
-            {/* 1. Seç */}
+
             <button
               type="button"
               data-testid="hud-tool-select"
               onClick={() => setMoveObjectMode3D(false)}
-              className={`px-3 py-1.5 rounded-xl flex flex-col items-center gap-0.5 transition cursor-pointer ${
+              className={`w-9 h-9 rounded-xl flex items-center justify-center transition cursor-pointer ${
                 !moveObjectMode3D
-                  ? "bg-[#F1F5F9] text-[#1C1917] font-semibold"
-                  : "text-[#57534E] hover:bg-[#F8F6F2]"
+                  ? "birim-ice-btn-active"
+                  : "text-[#44403C] hover:bg-white/70 hover:text-[#141413]"
               }`}
               title="Seçim ve İnceleme Modu"
             >
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M5 3l14 8-6.5 2L9 19.5 5 3z" />
               </svg>
-              <span className="text-[10px]">Seç</span>
+              <span className="sr-only">Seç</span>
             </button>
 
-            {/* 2. Taşı */}
             <button
               type="button"
               data-testid="viewport-3d-move-mode-toggle"
               onClick={() => setMoveObjectMode3D((v) => !v)}
-              className={`px-3 py-1.5 rounded-xl flex flex-col items-center gap-0.5 transition cursor-pointer ${
+              className={`w-9 h-9 rounded-xl flex items-center justify-center transition cursor-pointer ${
                 moveObjectMode3D
-                  ? "bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1] font-semibold"
-                  : "text-[#57534E] hover:bg-[#F8F6F2]"
+                  ? "birim-ice-btn-active"
+                  : "text-[#44403C] hover:bg-white/70 hover:text-[#141413]"
               }`}
-              title="Modülü 3D Sahnede Tutup Taşı (Mıknatıslı Duvar Hizalama)"
+              title="Modülü 3D Sahnede Tutup Taşı"
             >
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                 <path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20" />
               </svg>
-              <span className="text-[10px]">Taşı</span>
+              <span className="sr-only">Taşı</span>
             </button>
 
-            {/* 3. Ölçü */}
             <button
               type="button"
               data-testid="in-canvas-toggle-dimensions"
               onClick={handleToggleDimensions}
-              className={`px-3 py-1.5 rounded-xl flex flex-col items-center gap-0.5 transition cursor-pointer ${
+              className={`w-9 h-9 rounded-xl flex items-center justify-center transition cursor-pointer ${
                 effectiveShowDimensions
-                  ? "bg-[#F1F5F9] text-[#1C1917] font-semibold"
-                  : "text-[#57534E] hover:bg-[#F8F6F2]"
+                  ? "birim-ice-btn-active"
+                  : "text-[#44403C] hover:bg-white/70 hover:text-[#141413]"
               }`}
               title="3D Ölçü Çizgilerini Göster / Gizle"
             >
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                 <path d="M4 8v8M20 8v8M4 12h16" />
               </svg>
-              <span className="text-[10px]">Ölçü</span>
+              <span className="sr-only">Ölçü</span>
             </button>
 
-            {/* 3B. Böl (Bölme Ekle / Dikme At) */}
             <button
               type="button"
               data-testid="hud-tool-split-bay"
@@ -7738,14 +7750,13 @@ const clear3DGhostPreview = useCallback(() => {
                 splitBayIntoTwo(activeBayIndex);
                 setCutawayActiveBay(true);
               }}
-              className="px-3 py-1.5 rounded-xl flex flex-col items-center gap-0.5 text-[#57534E] hover:bg-[#EEF3F8] hover:text-[#111827] transition cursor-pointer"
-              title="Modüle yeni dikey bölme (ara dikme) ekle"
+              className="w-9 h-9 rounded-xl flex items-center justify-center text-[#44403C] hover:bg-white/70 hover:text-[#141413] transition cursor-pointer"
+              title="Modüle Yeni Dikey Bölme (Ara Dikme) Ekle"
             >
               <Columns className="w-4 h-4" />
-              <span className="text-[10px]">Böl</span>
+              <span className="sr-only">Böl</span>
             </button>
 
-            {/* 3C. Birleştir (Ara Dikme Sil / Bölme Birleştir) */}
             <button
               type="button"
               data-testid="hud-tool-merge-bay"
@@ -7755,32 +7766,30 @@ const clear3DGhostPreview = useCallback(() => {
                   removeBayAt(activeBayIndex);
                 }
               }}
-              className="px-3 py-1.5 rounded-xl flex flex-col items-center gap-0.5 text-[#57534E] hover:bg-[#EEF3F8] hover:text-[#111827] disabled:opacity-40 transition cursor-pointer"
-              title="Seçili ara dikmeyi kaldır ve bölmeleri birleştir"
+              className="w-9 h-9 rounded-xl flex items-center justify-center text-[#44403C] hover:bg-white/70 hover:text-[#141413] disabled:opacity-35 transition cursor-pointer"
+              title="Seçili Ara Dikmeyi Kaldır ve Bölmeleri Birleştir"
             >
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                 <rect x="3" y="4" width="18" height="16" rx="2" />
                 <path d="M9 12h6M8 9l-3 3 3 3M16 9l3 3-3 3" />
               </svg>
-              <span className="text-[10px]">Birleştir</span>
+              <span className="sr-only">Birleştir</span>
             </button>
 
-            {/* 4. Kopyala */}
             <button
               type="button"
               data-testid="in-canvas-add-module"
               onClick={addAdjacentModule}
-              className="px-3 py-1.5 rounded-xl flex flex-col items-center gap-0.5 text-[#57534E] hover:bg-[#F8F6F2] hover:text-[#1C1917] transition cursor-pointer"
-              title="Seçili modülü yanına kopyala"
+              className="w-9 h-9 rounded-xl flex items-center justify-center text-[#44403C] hover:bg-white/70 hover:text-[#141413] transition cursor-pointer"
+              title="Seçili Modülü Yanına Kopyala"
             >
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                 <rect x="9" y="9" width="13" height="13" rx="2" />
                 <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
               </svg>
-              <span className="text-[10px]">Kopyala</span>
+              <span className="sr-only">Kopyala</span>
             </button>
 
-            {/* 4B. Kapak Aç / Kapat (İçini Göster) */}
             <button
               type="button"
               data-testid="hud-tool-toggle-doors"
@@ -7793,22 +7802,21 @@ const clear3DGhostPreview = useCallback(() => {
                 );
                 setTimeout(() => setDragDropSnapBanner(null), 2000);
               }}
-              className={`px-3 py-1.5 rounded-xl flex flex-col items-center gap-0.5 transition cursor-pointer ${
+              className={`w-9 h-9 rounded-xl flex items-center justify-center transition cursor-pointer ${
                 doorOpenAngleDeg > 0
-                  ? "bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1] font-semibold shadow-xs"
-                  : "text-[#57534E] hover:bg-[#F8F6F2] hover:text-[#1C1917]"
+                  ? "birim-ice-btn-active"
+                  : "text-[#44403C] hover:bg-white/70 hover:text-[#141413]"
               }`}
-              title="Dolap kapaklarını aç / kapat (veya 3D sahnede kapağa çift tıklayın)"
+              title={doorOpenAngleDeg > 0 ? "Kapakları Kapat" : "Kapakları Aç / İçini Göster"}
             >
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                 <path d="M5 3h11a2 2 0 012 2v14a2 2 0 01-2 2H5V3z" />
                 <path d="M5 3l9 3v15l-9-3V3z" />
                 <circle cx="11.5" cy="12" r="1" fill="currentColor" />
               </svg>
-              <span className="text-[10px]">{doorOpenAngleDeg > 0 ? "Kapağı Kapat" : "Kapak Aç"}</span>
+              <span className="sr-only">{doorOpenAngleDeg > 0 ? "Kapağı Kapat" : "Kapak Aç"}</span>
             </button>
 
-                        {/* 5. Aynala (Kapak Yönü / Modül Simetrisi) */}
             <button
               type="button"
               data-testid="in-canvas-flip-door-dir"
@@ -7817,18 +7825,17 @@ const clear3DGhostPreview = useCallback(() => {
                 setDragDropSnapBanner("⇄ Kapak Açılış Yönü Aynalandı (Sol ⇄ Sağ)");
                 setTimeout(() => setDragDropSnapBanner(null), 2200);
               }}
-              className="px-3 py-1.5 rounded-xl flex flex-col items-center gap-0.5 text-[#57534E] hover:bg-[#F8F6F2] hover:text-[#1C1917] transition cursor-pointer"
-              title="Kapak açılış yönünü aynala (Sol ⇄ Sağ)"
+              className="w-9 h-9 rounded-xl flex items-center justify-center text-[#44403C] hover:bg-white/70 hover:text-[#141413] transition cursor-pointer"
+              title="Kapak Açılış Yönünü Aynala (Sol ⇄ Sağ)"
             >
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                 <path d="M12 3v18M4 7l5 5-5 5V7zM20 7l-5 5 5 5V7z" />
               </svg>
-              <span className="text-[10px]">Aynala</span>
+              <span className="sr-only">Aynala</span>
             </button>
 
-            <div className="h-6 w-px bg-[#E2E8F0] mx-0.5" />
+            <div className="h-5 w-px bg-slate-900/12 mx-0.5" />
 
-            {/* 6. Sil */}
             <button
               type="button"
               data-testid="hud-tool-delete"
@@ -7837,13 +7844,13 @@ const clear3DGhostPreview = useCallback(() => {
                   window.dispatchEvent(new CustomEvent("birim:delete-active-selection"));
                 }
               }}
-              className="px-3 py-1.5 rounded-xl flex flex-col items-center gap-0.5 text-red-600 hover:bg-red-50 transition cursor-pointer"
-              title="Seçili parçayı veya modülü sil"
+              className="w-9 h-9 rounded-xl flex items-center justify-center text-red-600 hover:bg-red-500/15 transition cursor-pointer"
+              title="Seçili Parçayı veya Modülü Sil"
             >
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                 <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
               </svg>
-              <span className="text-[10px] font-medium">Sil</span>
+              <span className="sr-only">Sil</span>
             </button>
           </div>
         )}
@@ -7874,52 +7881,58 @@ const clear3DGhostPreview = useCallback(() => {
           </svg>
         </div>
 
-        {/* BOTTOM-CENTER NAVIGATION PILL (Orbit | Pan | Zoom | Sığdır) + RENDER MODE SELECTOR (Gerçekçi ⌄) */}
+        {/* BOTTOM-CENTER FROSTED ICE ICON CAPSULE (Orbit | Pan | Kapak | Sığdır | Donanım | Kesit | Ölçü | Stüdyo) */}
         <div
           data-testid="viewport-3d-bottom-nav-bar"
-          className="absolute bottom-3 left-2 right-2 mx-auto w-fit max-w-[calc(100%-16px)] z-20 flex flex-wrap items-center justify-center gap-2"
+          className="absolute bottom-3.5 left-2 right-2 mx-auto w-fit max-w-[calc(100%-16px)] z-20 flex flex-wrap items-center justify-center gap-1.5"
         >
-          <div className="bg-[#FAF9F6]/95 backdrop-blur-md p-1 rounded-xl border border-[#DED8CC] shadow-sm flex items-center gap-1 text-[#141413]">
+          <div className="birim-ice-pill p-1 rounded-2xl flex items-center gap-1 text-[#141413]">
             <button
               type="button"
               onClick={() => setMoveObjectMode3D(false)}
-              className={`h-8 px-2.5 rounded-lg flex items-center gap-1.5 text-xs transition cursor-pointer ${
-                !moveObjectMode3D ? "bg-[#141413] text-[#FAF9F6] font-semibold" : "text-[#57534E] hover:bg-[#EFECE5]"
+              className={`w-9 h-9 rounded-xl flex items-center justify-center transition cursor-pointer ${
+                !moveObjectMode3D ? "birim-ice-btn-active" : "text-[#44403C] hover:bg-white/70"
               }`}
-              title="Sahneyi Döndür"
+              title="Sahneyi Çevir (Orbit)"
             >
-              <RotateCw className="w-3.5 h-3.5" />
-              <span>{isSimpleTier ? "Çevir" : "Orbit"}</span>
+              <RotateCw className="w-4 h-4" />
+              <span className="sr-only">{isSimpleTier ? "Çevir" : "Orbit"}</span>
             </button>
             <button
               type="button"
               onClick={() => setMoveObjectMode3D(true)}
-              className={`h-8 px-2.5 rounded-lg flex items-center gap-1.5 text-xs transition cursor-pointer ${
-                moveObjectMode3D ? "bg-[#141413] text-[#FAF9F6] font-semibold" : "text-[#57534E] hover:bg-[#EFECE5]"
+              className={`w-9 h-9 rounded-xl flex items-center justify-center transition cursor-pointer ${
+                moveObjectMode3D ? "birim-ice-btn-active" : "text-[#44403C] hover:bg-white/70"
               }`}
-              title="Dolabı Duvar Boyunca Taşı"
+              title="Dolabı Duvar Boyunca Taşı (Pan)"
             >
-              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                 <path d="M18 11V6a2 2 0 00-2-2v0a2 2 0 00-2 2v0M14 10V4a2 2 0 00-2-2v0a2 2 0 00-2 2v6M10 10.5V6a2 2 0 00-2-2v0a2 2 0 00-2 2v8" />
                 <path d="M18 8a2 2 0 114 0v6a8 8 0 01-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 012.83-2.82L7 15" />
               </svg>
-              <span>{isSimpleTier ? "Taşı" : "Pan"}</span>
+              <span className="sr-only">{isSimpleTier ? "Taşı" : "Pan"}</span>
             </button>
-            <div className="h-4 w-px bg-[#DED8CC]" />
+
+            <div className="h-5 w-px bg-slate-900/12 mx-0.5" />
+
             <button
               type="button"
-              onClick={() => {
-                toggleDoorOpen();
-              }}
-              className={`h-8 px-2.5 rounded-lg flex items-center gap-1.5 text-xs transition cursor-pointer ${
+              onClick={() => toggleDoorOpen()}
+              className={`w-9 h-9 rounded-xl flex items-center justify-center transition cursor-pointer ${
                 doorOpenAngleDeg > 5
-                  ? "bg-[#141413] text-[#FAF9F6] font-semibold"
-                  : "text-[#57534E] hover:bg-[#EFECE5]"
+                  ? "birim-ice-btn-active"
+                  : "text-[#44403C] hover:bg-white/70"
               }`}
-              title="Dolap Kapaklarını Aç / Kapat"
+              title={doorOpenAngleDeg > 5 ? "Kapakları Kapat" : "Kapakları Aç / İçini Gör"}
             >
-              <span>{doorOpenAngleDeg > 5 ? "Kapağı Kapat" : "İçini Gör"}</span>
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <path d="M5 3h11a2 2 0 012 2v14a2 2 0 01-2 2H5V3z" />
+                <path d="M5 3l9 3v15l-9-3V3z" />
+                <circle cx="11.5" cy="12" r="1" fill="currentColor" />
+              </svg>
+              <span className="sr-only">{doorOpenAngleDeg > 5 ? "Kapağı Kapat" : "İçini Gör"}</span>
             </button>
+
             <button
               type="button"
               onClick={() => {
@@ -7944,407 +7957,414 @@ const clear3DGhostPreview = useCallback(() => {
                   }
                 }
               }}
-              className="h-8 px-2.5 rounded-lg flex items-center gap-1 text-xs text-[#57534E] hover:bg-[#EFECE5] hover:text-[#141413] transition cursor-pointer"
+              className="w-9 h-9 rounded-xl flex items-center justify-center text-[#44403C] hover:bg-white/70 hover:text-[#141413] transition cursor-pointer"
               title="Sahneye Sığdır"
             >
-              <span>Sığdır</span>
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+              </svg>
+              <span className="sr-only">Sığdır</span>
             </button>
-          </div>
 
-          {/* Görüntü ⌄ Hardware View Mode Selector Pill (Accessible in ALL modes so users can toggle Hardware Callouts!) */}
-          {showInCanvasHud && (
-            <div className="relative">
-              <button
-                type="button"
-                data-testid="viewport-3d-hardware-view-mode-btn"
-                onClick={() => setHardwareViewMenuOpen((v) => !v)}
-                className={`h-10 bg-[#FAF9F6]/95 backdrop-blur-md px-3 rounded-xl border shadow-sm flex items-center gap-2 text-xs font-semibold transition cursor-pointer ${
-                  hardwareViewMode !== "normal"
-                    ? "border-[#141413] text-[#FAF9F6] bg-[#141413]"
-                    : "border-[#DED8CC] text-[#141413] hover:bg-white"
-                }`}
-              >
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                  <rect x="3" y="4" width="18" height="14" rx="2" />
-                  <circle cx="8.5" cy="10.5" r="2" />
-                  <path d="M14 9h4M14 13h4" />
-                </svg>
-                <span>
-                  {hardwareViewMode === "hardware"
-                    ? "Donanımları Göster"
-                    : hardwareViewMode === "technical"
-                    ? "Teknik Görünüm"
-                    : "Görüntü"}
-                </span>
-                <span className="text-[10px] text-[#64748B]">⌄</span>
-              </button>
+            <div className="h-5 w-px bg-slate-900/12 mx-0.5" />
 
-              {hardwareViewMenuOpen && (
-                <div
-                  data-testid="viewport-3d-hardware-view-menu"
-                  className="absolute bottom-full left-0 mb-2 w-56 bg-white rounded-2xl border border-[#CBD5E1] shadow-2xl p-2 space-y-1 z-30 text-xs"
-                >
-                  <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-[#64748B]">
-                    3D Donanım Görünüm Modu
-                  </div>
-                  {[
-                    {
-                      id: "normal" as const,
-                      label: "Normal Görünüm",
-                      sub: "Temiz mobilya ve sunum görünümü",
-                    },
-                    {
-                      id: "hardware" as const,
-                      label: "Donanımları Göster",
-                      sub: "Menteşe, ray, LED ve askılık etiketleri",
-                    },
-                    {
-                      id: "technical" as const,
-                      label: "Teknik Görünüm",
-                      sub: "CAD tel kafes + donanım ve CNC eksenleri",
-                    },
-                  ].map((vm) => (
-                    <button
-                      key={vm.id}
-                      type="button"
-                      data-testid={`viewport-3d-hw-mode-${vm.id}`}
-                      onClick={() => {
-                        setHardwareViewMode(vm.id);
-                        setHardwareViewMenuOpen(false);
-                        if (vm.id === "hardware" || vm.id === "technical") {
-                          if (doorOpenAngleDeg < 15 && !doorsHiddenIn3D) {
-                            setDoorOpenAngleDeg(65);
-                          }
-                        }
-                        if (vm.id === "technical") {
-                          setRenderEdgeMode("cad");
-                        } else {
-                          setRenderEdgeMode("photoreal");
-                        }
-                      }}
-                      className={`w-full px-2.5 py-1.5 rounded-xl text-left transition cursor-pointer ${
-                        hardwareViewMode === vm.id
-                          ? "bg-[#EFF6FF] border border-[#2563EB] text-[#111827] font-bold"
-                          : "hover:bg-[#F8FAFC] text-[#111827]"
-                      }`}
-                    >
-                      <div className="text-[11px] font-bold">{vm.label}</div>
-                      <div className="text-[9px] text-[#64748B]">{vm.sub}</div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* 2-Yönlü 3D Canlı Kesit (Shown in Architect & Factory modes) */}
-          <div className={isSimpleTier ? "sr-only" : "relative"}>
+            {/* Ölçü İkon Anahtarı */}
             <button
               type="button"
-              data-testid="viewport-3d-section-toggle-btn"
-              onClick={() => setSection3DMenuOpen((v) => !v)}
-              className={`h-10 bg-[#FAF9F6]/95 backdrop-blur-md px-3 rounded-xl border shadow-sm flex items-center gap-1.5 text-xs font-semibold transition cursor-pointer ${
-                section3DAxis
-                  ? "border-[#141413] text-[#FAF9F6] bg-[#141413]"
-                  : "border-[#DED8CC] text-[#141413] hover:bg-white"
+              onClick={handleToggleDimensions}
+              title={effectiveShowDimensions ? "Ölçüleri Gizle" : "Ölçüleri Göster"}
+              className={`w-9 h-9 rounded-xl flex items-center justify-center relative transition cursor-pointer ${
+                effectiveShowDimensions
+                  ? "birim-ice-btn-active"
+                  : "text-[#44403C] hover:bg-white/70 hover:text-[#141413]"
               }`}
-              title="3D Dolap Kesiti (X ve Z yönünde istediğiniz noktadan canlı kesit alın)"
             >
-              <span>{section3DAxis ? `Kesit (${section3DAxis})` : "Kesit"}</span>
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <path d="M3 8h18M3 16h18M7 8v8M12 8v5M17 8v8" />
+              </svg>
+              <span className="sr-only">Ölçüler</span>
             </button>
 
-            {section3DMenuOpen && (
-              <div
-                data-testid="viewport-3d-section-popover"
-                onClick={(e) => e.stopPropagation()}
-                className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2.5 w-64 bg-white/82 backdrop-blur-xl rounded-2xl border border-white/80 ring-1 ring-slate-900/10 shadow-2xl p-3 space-y-2.5 z-30 text-xs"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-extrabold text-slate-900">✂️ 2-Yönlü Canlı Kesit</span>
-                  <button
-                    type="button"
-                    onClick={() => setSection3DMenuOpen(false)}
-                    className="text-slate-400 hover:text-slate-800 font-bold cursor-pointer"
+            {/* Görüntü / Donanım Etiketleri Popover İkonu */}
+            {showInCanvasHud && (
+              <div className="relative">
+                <button
+                  type="button"
+                  data-testid="viewport-3d-hardware-view-mode-btn"
+                  title="3D Donanım & Teknik Tel Kafes Görünüm Modu"
+                  onClick={() => setHardwareViewMenuOpen((v) => !v)}
+                  className={`w-9 h-9 rounded-xl flex items-center justify-center transition cursor-pointer ${
+                    hardwareViewMode !== "normal"
+                      ? "birim-ice-btn-active"
+                      : "text-[#44403C] hover:bg-white/70 hover:text-[#141413]"
+                  }`}
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                    <rect x="3" y="4" width="18" height="14" rx="2" />
+                    <circle cx="8.5" cy="10.5" r="2" />
+                    <path d="M14 9h4M14 13h4" />
+                  </svg>
+                  <span className="sr-only">Görüntü</span>
+                </button>
+
+                {hardwareViewMenuOpen && (
+                  <div
+                    data-testid="viewport-3d-hardware-view-menu"
+                    className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2.5 w-56 birim-ice-popover rounded-2xl p-2 space-y-1 z-30 text-xs"
                   >
-                    ✕
-                  </button>
-                </div>
-                <div className="grid grid-cols-3 gap-1">
-                  {[
-                    { id: null, label: "Kapalı" },
-                    { id: "X" as const, label: "X (Sol-Sağ)" },
-                    { id: "Z" as const, label: "Z (Ön-Arka)" },
-                  ].map((sOpt) => (
-                    <button
-                      key={String(sOpt.id)}
-                      type="button"
-                      onClick={() => setSection3DAxis(sOpt.id)}
-                      className={`py-1.5 px-2 rounded-xl font-bold text-[11px] border transition cursor-pointer ${
-                        section3DAxis === sOpt.id
-                          ? "bg-blue-600 text-white border-blue-600 shadow-2xs"
-                          : "bg-white/90 hover:bg-blue-50 text-slate-700 border-slate-200"
-                      }`}
-                    >
-                      {sOpt.label}
-                    </button>
-                  ))}
-                </div>
-                {section3DAxis && (
-                  <div className="space-y-1 pt-1 border-t border-slate-200/70">
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="font-semibold text-slate-600">Kesit Noktası:</span>
-                      <span className="font-mono font-extrabold text-blue-700">
-                        {Math.round(
-                          (section3DAxis === "X" ? width : depth) * section3DRatio
-                        )}{" "}
-                        mm ({Math.round(section3DRatio * 100)}%)
-                      </span>
+                    <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-[#64748B]">
+                      3D Görünüm Katmanı
                     </div>
-                    <input
-                      type="range"
-                      min={0.1}
-                      max={0.95}
-                      step={0.02}
-                      value={section3DRatio}
-                      onChange={(e) => setSection3DRatio(Number(e.target.value))}
-                      className="w-full accent-blue-600 h-1.5 bg-slate-200 rounded-lg cursor-pointer"
-                    />
+                    {[
+                      {
+                        id: "normal" as const,
+                        label: "Normal Görünüm",
+                        sub: "Temiz sunum görünümü",
+                      },
+                      {
+                        id: "hardware" as const,
+                        label: "Donanımları Göster",
+                        sub: "Menteşe, ray ve LED etiketleri",
+                      },
+                      {
+                        id: "technical" as const,
+                        label: "Teknik CAD",
+                        sub: "Tel kafes + CNC eksenleri",
+                      },
+                    ].map((vm) => (
+                      <button
+                        key={vm.id}
+                        type="button"
+                        data-testid={`viewport-3d-hw-mode-${vm.id}`}
+                        onClick={() => {
+                          setHardwareViewMode(vm.id);
+                          setHardwareViewMenuOpen(false);
+                          if (vm.id === "hardware" || vm.id === "technical") {
+                            if (doorOpenAngleDeg < 15 && !doorsHiddenIn3D) {
+                              setDoorOpenAngleDeg(65);
+                            }
+                          }
+                          if (vm.id === "technical") {
+                            setRenderEdgeMode("cad");
+                          } else {
+                            setRenderEdgeMode("photoreal");
+                          }
+                        }}
+                        className={`w-full px-2.5 py-1.5 rounded-xl text-left transition cursor-pointer ${
+                          hardwareViewMode === vm.id
+                            ? "birim-ice-btn-active"
+                            : "hover:bg-white/70 text-[#111827]"
+                        }`}
+                      >
+                        <div className="text-[11px] font-bold">{vm.label}</div>
+                        <div className={`text-[9px] ${hardwareViewMode === vm.id ? "text-stone-300" : "text-[#64748B]"}`}>{vm.sub}</div>
+                      </button>
+                    ))}
                   </div>
                 )}
               </div>
             )}
-          </div>
 
-          {/* Ölçüler Toggle Pill (Birim Architectural Charcoal Switch) */}
-          <button
-            type="button"
-            onClick={handleToggleDimensions}
-            className="h-10 bg-[#FAF9F6]/95 backdrop-blur-md px-3 rounded-xl border border-[#DED8CC] shadow-sm flex items-center gap-2 text-xs font-semibold text-[#141413] hover:bg-white transition cursor-pointer"
-          >
-            <span>Ölçüler</span>
-            <span
-              className={`w-7 h-4 rounded-full p-0.5 flex items-center transition ${
-                effectiveShowDimensions ? "bg-[#141413] justify-end" : "bg-[#D6D0C4] justify-start"
-              }`}
-            >
-              <span className="w-3 h-3 rounded-full bg-[#FAF9F6]" />
-            </span>
-          </button>
+            {/* 2-Yönlü Canlı Kesit İkonu */}
+            <div className={isSimpleTier ? "sr-only" : "relative"}>
+              <button
+                type="button"
+                data-testid="viewport-3d-section-toggle-btn"
+                onClick={() => setSection3DMenuOpen((v) => !v)}
+                className={`w-9 h-9 rounded-xl flex items-center justify-center transition cursor-pointer ${
+                  section3DAxis
+                    ? "birim-ice-btn-active"
+                    : "text-[#44403C] hover:bg-white/70 hover:text-[#141413]"
+                }`}
+                title="2-Yönlü Canlı 3D Dolap Kesiti (X / Z)"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <circle cx="6" cy="6" r="3" />
+                  <circle cx="6" cy="18" r="3" />
+                  <path d="M20 4L8.12 15.88M14.47 14.48L20 20M8.12 8.12L12 12" />
+                </svg>
+                <span className="sr-only">{section3DAxis ? `Kesit (${section3DAxis})` : "Kesit"}</span>
+              </button>
 
-          {/* Render Mode & Environment Selector Pill (Stüdyo & Zemin ⌄) */}
-          <div className="relative">
-            <button
-              type="button"
-              data-testid="viewport-3d-edge-mode-toggle"
-              onClick={() => setRenderMenuOpen((v) => !v)}
-              className="h-10 bg-[#FAF9F6]/95 backdrop-blur-md px-3 rounded-xl border border-[#DED8CC] shadow-sm flex items-center gap-2 text-xs font-semibold text-[#141413] hover:bg-white transition cursor-pointer"
-            >
-              <svg className="w-4 h-4 text-[#57534E]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                <rect x="3" y="3" width="18" height="18" rx="2" />
-                <circle cx="8.5" cy="8.5" r="1.5" />
-                <path d="M21 15l-5-5L5 21" />
-              </svg>
-              <span>{renderEdgeMode === "photoreal" ? "Gerçekçi" : "Teknik CAD"}</span>
-              <span className="text-[10px] text-[#57534E]">⌄</span>
-            </button>
-
-            {renderMenuOpen && (
-              <div className="absolute bottom-full right-0 mb-2 w-64 bg-white rounded-2xl border border-[#E2E8F0] shadow-xl p-3 space-y-3 z-30 text-xs">
-                <div>
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-[#57534E] mb-1.5">
-                    Görünüm Modu
-                  </div>
-                  <div className="grid grid-cols-2 gap-1">
+              {section3DMenuOpen && (
+                <div
+                  data-testid="viewport-3d-section-popover"
+                  onClick={(e) => e.stopPropagation()}
+                  className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2.5 w-60 birim-ice-popover rounded-2xl p-3 space-y-2.5 z-30 text-xs"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-extrabold text-slate-900">✂️ Canlı Kesit</span>
                     <button
                       type="button"
-                      onClick={() => {
-                        setRenderEdgeMode("photoreal");
-                        setRenderMenuOpen(false);
-                      }}
-                      className={`py-1.5 px-2 rounded-lg font-semibold cursor-pointer ${
-                        renderEdgeMode === "photoreal"
-                          ? "bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1]"
-                          : "bg-[#F1F5F9] text-[#1C1917]"
-                      }`}
+                      onClick={() => setSection3DMenuOpen(false)}
+                      className="text-slate-500 hover:text-slate-900 font-bold cursor-pointer"
                     >
-                      Gerçekçi PBR
+                      ✕
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setRenderEdgeMode("cad");
-                        setRenderMenuOpen(false);
-                      }}
-                      className={`py-1.5 px-2 rounded-lg font-semibold cursor-pointer ${
-                        renderEdgeMode === "cad"
-                          ? "bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1]"
-                          : "bg-[#F1F5F9] text-[#1C1917]"
-                      }`}
-                    >
-                      Teknik Çizim
-                    </button>
-                  </div>
-                </div>
-
-                <div>
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-[#57534E] mb-1.5">
-                    Stüdyo Işığı
                   </div>
                   <div className="grid grid-cols-3 gap-1">
                     {[
-                      { id: "daylight", label: "Gün Işığı" },
-                      { id: "showroom_warm", label: "Stüdyo 3000K" },
-                      { id: "night_led", label: "Gece LED" },
-                    ].map((lp) => (
+                      { id: null, label: "Kapalı" },
+                      { id: "X" as const, label: "X Ekseni" },
+                      { id: "Z" as const, label: "Z Ekseni" },
+                    ].map((sOpt) => (
                       <button
-                        key={lp.id}
+                        key={String(sOpt.id)}
                         type="button"
-                        data-testid={`viewport-3d-light-${lp.id}`}
-                        onClick={() =>
-                          setLightingPreset(lp.id as "daylight" | "showroom_warm" | "night_led")
-                        }
-                        className={`py-1 px-1.5 rounded-lg text-[10px] font-semibold cursor-pointer ${
-                          lightingPreset === lp.id
-                            ? "bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1]"
-                            : "bg-[#F1F5F9] text-[#1C1917]"
+                        onClick={() => setSection3DAxis(sOpt.id)}
+                        className={`py-1.5 px-2 rounded-xl font-bold text-[11px] transition cursor-pointer ${
+                          section3DAxis === sOpt.id
+                            ? "birim-ice-btn-active"
+                            : "birim-ice-btn text-slate-800"
                         }`}
                       >
-                        {lp.label}
+                        {sOpt.label}
                       </button>
                     ))}
                   </div>
+                  {section3DAxis && (
+                    <div className="space-y-1 pt-1 border-t border-slate-200/70">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="font-semibold text-slate-600">Konum</span>
+                        <span className="font-mono font-extrabold text-slate-900">
+                          {Math.round((section3DAxis === "X" ? width : depth) * section3DRatio)} mm
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0.1}
+                        max={0.95}
+                        step={0.02}
+                        value={section3DRatio}
+                        onChange={(e) => setSection3DRatio(Number(e.target.value))}
+                        className="w-full accent-[#141413] h-1.5 bg-slate-200 rounded-lg cursor-pointer"
+                      />
+                    </div>
+                  )}
                 </div>
+              )}
+            </div>
 
-                <div>
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-[#57534E] mb-1.5">
-                    Duvar Yüzeyi (Kontrast)
-                  </div>
-                  <div className="grid grid-cols-2 gap-1">
-                    {[
-                      { id: "brut_concrete", label: "Brüt Beton", swatch: "#9E9991" },
-                      { id: "anthracite_gallery", label: "Koyu Galeri", swatch: "#444341" },
-                      { id: "warm_taupe", label: "Sıcak Grej", swatch: "#ACA396" },
-                      { id: "soft_plaster", label: "Açık Sıva", swatch: "#DED9D0" },
-                    ].map((wt) => (
+            {/* Stüdyo Ortam, Işık, Zemin & 2K Render İkonu */}
+            <div className="relative">
+              <button
+                type="button"
+                data-testid="viewport-3d-edge-mode-toggle"
+                title="Stüdyo Işığı, Duvar/Zemin Yüzeyi ve 2K Fotoğraf Render"
+                onClick={() => setRenderMenuOpen((v) => !v)}
+                className={`w-9 h-9 rounded-xl flex items-center justify-center transition cursor-pointer ${
+                  renderMenuOpen || renderEdgeMode === "cad"
+                    ? "birim-ice-btn-active"
+                    : "text-[#44403C] hover:bg-white/70 hover:text-[#141413]"
+                }`}
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                  <circle cx="8.5" cy="8.5" r="1.5" />
+                  <path d="M21 15l-5-5L5 21" />
+                </svg>
+                <span className="sr-only">{renderEdgeMode === "photoreal" ? "Gerçekçi" : "Teknik CAD"}</span>
+              </button>
+
+              {renderMenuOpen && (
+                <div className="absolute bottom-full right-0 mb-2.5 w-64 birim-ice-popover rounded-2xl p-3 space-y-3 z-30 text-xs">
+                  <div>
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-[#57534E] mb-1.5">
+                      Görünüm
+                    </div>
+                    <div className="grid grid-cols-2 gap-1">
                       <button
-                        key={wt.id}
                         type="button"
-                        data-testid={`viewport-3d-wall-${wt.id}`}
-                        onClick={() => setWallTone(wt.id as ArchitecturalWallTone)}
-                        className={`py-1 px-2 rounded-lg text-[10px] font-semibold flex items-center gap-1.5 text-left cursor-pointer ${
-                          wallTone === wt.id
-                            ? "bg-[#141413] text-[#FAF9F6]"
-                            : "bg-[#F4F1EA] text-[#1C1917] hover:bg-[#EAE5DA]"
+                        onClick={() => {
+                          setRenderEdgeMode("photoreal");
+                          setRenderMenuOpen(false);
+                        }}
+                        className={`py-1.5 px-2 rounded-xl font-semibold cursor-pointer ${
+                          renderEdgeMode === "photoreal"
+                            ? "birim-ice-btn-active"
+                            : "birim-ice-btn text-[#1C1917]"
                         }`}
                       >
-                        <span
-                          className="w-2.5 h-2.5 rounded-full border border-black/20 shrink-0"
+                        Gerçekçi PBR
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRenderEdgeMode("cad");
+                          setRenderMenuOpen(false);
+                        }}
+                        className={`py-1.5 px-2 rounded-xl font-semibold cursor-pointer ${
+                          renderEdgeMode === "cad"
+                            ? "birim-ice-btn-active"
+                            : "birim-ice-btn text-[#1C1917]"
+                        }`}
+                      >
+                        Teknik Çizim
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-[#57534E] mb-1.5">
+                      Işık
+                    </div>
+                    <div className="grid grid-cols-3 gap-1">
+                      {[
+                        { id: "daylight", label: "Gün" },
+                        { id: "showroom_warm", label: "3000K" },
+                        { id: "night_led", label: "Gece" },
+                      ].map((lp) => (
+                        <button
+                          key={lp.id}
+                          type="button"
+                          data-testid={`viewport-3d-light-${lp.id}`}
+                          onClick={() =>
+                            setLightingPreset(lp.id as "daylight" | "showroom_warm" | "night_led")
+                          }
+                          className={`py-1 px-1.5 rounded-xl text-[10px] font-semibold cursor-pointer ${
+                            lightingPreset === lp.id
+                              ? "birim-ice-btn-active"
+                              : "birim-ice-btn text-[#1C1917]"
+                          }`}
+                        >
+                          {lp.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-[#57534E] mb-1.5">
+                      Duvar
+                    </div>
+                    <div className="grid grid-cols-4 gap-1.5">
+                      {[
+                        { id: "brut_concrete", label: "Brüt Beton", swatch: "#9E9991" },
+                        { id: "anthracite_gallery", label: "Koyu Galeri", swatch: "#444341" },
+                        { id: "warm_taupe", label: "Sıcak Grej", swatch: "#ACA396" },
+                        { id: "soft_plaster", label: "Açık Sıva", swatch: "#DED9D0" },
+                      ].map((wt) => (
+                        <button
+                          key={wt.id}
+                          type="button"
+                          title={wt.label}
+                          data-testid={`viewport-3d-wall-${wt.id}`}
+                          onClick={() => setWallTone(wt.id as ArchitecturalWallTone)}
+                          className={`h-8 rounded-xl flex items-center justify-center cursor-pointer border transition ${
+                            wallTone === wt.id
+                              ? "ring-2 ring-[#141413] border-white scale-105"
+                              : "border-white/70 hover:scale-105"
+                          }`}
                           style={{ backgroundColor: wt.swatch }}
-                        />
-                        <span className="truncate">{wt.label}</span>
-                      </button>
-                    ))}
+                        >
+                          <span className="sr-only">{wt.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-[#57534E] mb-1.5">
+                      Zemin
+                    </div>
+                    <div className="grid grid-cols-2 gap-1">
+                      {[
+                        { id: "oak_parquet", label: "Meşe" },
+                        { id: "herringbone_oak", label: "Balıksırtı" },
+                        { id: "walnut_parquet", label: "Ceviz" },
+                        { id: "travertine", label: "Traverten" },
+                        { id: "neolith_calacatta", label: "Mermer" },
+                        { id: "microcement", label: "Beton" },
+                        { id: "studio", label: "Stüdyo" },
+                      ].map((fl) => (
+                        <button
+                          key={fl.id}
+                          type="button"
+                          data-testid={`viewport-3d-floor-${fl.id}`}
+                          onClick={() => setFloorStyle(fl.id as ArchitecturalFloorStyle)}
+                          className={`py-1 px-2 rounded-xl text-[10px] font-semibold text-left cursor-pointer ${
+                            floorStyle === fl.id
+                              ? "birim-ice-btn-active"
+                              : "birim-ice-btn text-[#1C1917]"
+                          }`}
+                        >
+                          {fl.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-900/10 flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      data-testid="viewport-3d-ultra-studio-render-btn"
+                      disabled={ultraRenderProgress !== null}
+                      title="2K Stüdyo Fotoğraf İndir (.PNG)"
+                      onClick={async () => {
+                        const win = window as unknown as {
+                          __birimRenderUltraStudioPhoto?: (opts?: {
+                            angle?: "current" | "iso" | "front";
+                            width?: number;
+                            height?: number;
+                            onProgress?: (pct: number) => void;
+                          }) => Promise<string>;
+                        };
+                        if (!win.__birimRenderUltraStudioPhoto) return;
+                        setUltraRenderProgress(0);
+                        const dataUrl = await win.__birimRenderUltraStudioPhoto({
+                          angle: "current",
+                          width: 2048,
+                          height: 1280,
+                          onProgress: (p) => setUltraRenderProgress(p),
+                        });
+                        setUltraRenderProgress(null);
+                        setRenderMenuOpen(false);
+                        if (dataUrl) {
+                          const a = document.createElement("a");
+                          a.href = dataUrl;
+                          a.download = `Birim_Studyo_Render_${project.id}.png`;
+                          document.body.appendChild(a);
+                          a.click();
+                          setTimeout(() => {
+                            if (a.parentNode) a.parentNode.removeChild(a);
+                          }, 1000);
+                          setDragDropSnapBanner("2K Ultra Stüdyo Render indirildi");
+                          setTimeout(() => setDragDropSnapBanner(null), 2800);
+                        }
+                      }}
+                      className="flex-1 h-8 px-2.5 rounded-xl birim-ice-btn-active disabled:opacity-60 font-semibold text-[11px] flex items-center justify-center gap-1.5 transition cursor-pointer"
+                    >
+                      <span>📸</span>
+                      <span>{ultraRenderProgress !== null ? `%${ultraRenderProgress}` : "2K PNG"}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      data-testid="viewport-3d-room-toggle"
+                      title={showRoomArchitecture3D ? "Oda Duvarlarını Gizle" : "Oda Duvarlarını Göster"}
+                      onClick={() => setShowRoomArchitecture3D((prev) => !prev)}
+                      className={`w-8 h-8 rounded-xl flex items-center justify-center cursor-pointer ${
+                        showRoomArchitecture3D ? "birim-ice-btn-active" : "birim-ice-btn text-[#1C1917]"
+                      }`}
+                    >
+                      <span>🧱</span>
+                      <span className="sr-only">{showRoomArchitecture3D ? "Duvarlar: Açık" : "Duvarlar: Gizli"}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      data-testid="viewport-3d-rotate-mod-90"
+                      title="Aktif Modülü 90° Döndür"
+                      onClick={() => rotateActiveModule90(90)}
+                      className="w-8 h-8 rounded-xl birim-ice-btn text-[#1C1917] flex items-center justify-center cursor-pointer"
+                    >
+                      <span>↻</span>
+                      <span className="sr-only">90° Döndür</span>
+                    </button>
                   </div>
                 </div>
-
-                <div>
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-[#57534E] mb-1.5">
-                    Zemin Kaplaması
-                  </div>
-                  <div className="grid grid-cols-2 gap-1">
-                    {[
-                      { id: "oak_parquet", label: "Meşe Parke" },
-                      { id: "herringbone_oak", label: "Balıksırtı" },
-                      { id: "walnut_parquet", label: "Ceviz Parke" },
-                      { id: "travertine", label: "Traverten Taş" },
-                      { id: "neolith_calacatta", label: "Neolith Mermer" },
-                      { id: "microcement", label: "Mikrobeton" },
-                      { id: "studio", label: "Stüdyo Fon" },
-                    ].map((fl) => (
-                      <button
-                        key={fl.id}
-                        type="button"
-                        data-testid={`viewport-3d-floor-${fl.id}`}
-                        onClick={() => setFloorStyle(fl.id as ArchitecturalFloorStyle)}
-                        className={`py-1 px-2 rounded-lg text-[10px] font-semibold text-left cursor-pointer ${
-                          floorStyle === fl.id
-                            ? "bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1]"
-                            : "bg-[#F1F5F9] text-[#1C1917]"
-                        }`}
-                      >
-                        {fl.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="pt-2 border-t border-[#E5E0D5]">
-                  <button
-                    type="button"
-                    data-testid="viewport-3d-ultra-studio-render-btn"
-                    disabled={ultraRenderProgress !== null}
-                    onClick={async () => {
-                      const win = window as unknown as {
-                        __birimRenderUltraStudioPhoto?: (opts?: {
-                          angle?: "current" | "iso" | "front";
-                          width?: number;
-                          height?: number;
-                          onProgress?: (pct: number) => void;
-                        }) => Promise<string>;
-                      };
-                      if (!win.__birimRenderUltraStudioPhoto) return;
-                      setUltraRenderProgress(0);
-                      const dataUrl = await win.__birimRenderUltraStudioPhoto({
-                        angle: "current",
-                        width: 2048,
-                        height: 1280,
-                        onProgress: (p) => setUltraRenderProgress(p),
-                      });
-                      setUltraRenderProgress(null);
-                      setRenderMenuOpen(false);
-                      if (dataUrl) {
-                        const a = document.createElement("a");
-                        a.href = dataUrl;
-                        a.download = `Birim_Studyo_Render_${project.id}.png`;
-                        document.body.appendChild(a);
-                        a.click();
-                        setTimeout(() => {
-                          if (a.parentNode) a.parentNode.removeChild(a);
-                        }, 1000);
-                        setDragDropSnapBanner("2K Ultra Stüdyo Render indirildi (16x Yumuşak Gölge)");
-                        setTimeout(() => setDragDropSnapBanner(null), 2800);
-                      }
-                    }}
-                    className="w-full py-2 px-3 rounded-xl bg-[#141413] hover:bg-[#292524] disabled:opacity-60 text-[#FAF9F6] font-semibold text-xs flex items-center justify-center gap-2 transition cursor-pointer"
-                  >
-                    <span>
-                      {ultraRenderProgress !== null
-                        ? `Stüdyo Render İşleniyor... %${ultraRenderProgress}`
-                        : "2K Stüdyo Fotoğraf İndir"}
-                    </span>
-                  </button>
-                </div>
-
-                <div className="pt-1.5 border-t border-[#E2E8F0] flex items-center justify-between gap-2">
-                  <button
-                    type="button"
-                    data-testid="viewport-3d-room-toggle"
-                    onClick={() => setShowRoomArchitecture3D((prev) => !prev)}
-                    className="px-2.5 py-1 rounded-lg bg-[#F1F5F9] hover:bg-[#EEF3F8] text-[10px] font-semibold text-[#1C1917] cursor-pointer"
-                  >
-                    {showRoomArchitecture3D ? "Duvarlar: Açık" : "Duvarlar: Gizli"}
-                  </button>
-                  <button
-                    type="button"
-                    data-testid="viewport-3d-rotate-mod-90"
-                    onClick={() => rotateActiveModule90(90)}
-                    className="px-2.5 py-1 rounded-lg bg-[#F1F5F9] hover:bg-[#EEF3F8] text-[10px] font-semibold text-[#1C1917] cursor-pointer"
-                  >
-                    90° Döndür
-                  </button>
-                </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
       </div>

@@ -131,78 +131,116 @@ export function generateModuleGeometry(
       ? Math.min(600, Math.round(depth * 0.58))
       : Math.min(580, Math.round(depth * 0.64));
     const returnSpanZ = Math.max(180, depth - wingD);
-    // In wardrobes / tall corners, ALL vertical uprights (dikmeler) extend all the way down to the floor (y = 0)!
-    const sideY = isWardrobe ? 0 : plinthHeight;
-    const sideH = isWardrobe ? height : height - plinthHeight;
+    const effCornerPlinthType =
+      module.carcass.plinthConstruction ||
+      (module.carcass.hasAdjustableLegs === false
+        ? isWardrobe
+          ? "gable_rails"
+          : "pedestal_box"
+        : isWardrobe
+        ? "pedestal_box"
+        : "adjustable_legs_clip");
+    const cornerSideRunsToFloor = plinthHeight > 0 && effCornerPlinthType === "gable_rails";
+    const sideY = cornerSideRunsToFloor ? 0 : plinthHeight;
+    const sideH = cornerSideRunsToFloor ? height : height - plinthHeight;
     const netH = Math.max(120, height - plinthHeight - 2 * T);
 
-    // 1. Floor-standing Plinth (for Wardrobe) OR Adjustable Black Plastic Kitchen Legs (for Kitchen L-Corner Base)
+    // 1. World-Standard L-Corner Plinth (Seamless 90° Mitered/Connector Inner Corner + Bottom PVC Seal + Axilo Legs)
     if (plinthHeight > 0) {
-      if (isWardrobe) {
-        components.push(
-          {
-            id: `${module.id}_plinth_front_x`,
-            role: "plinth",
-            label: "Köşe Gardırop Ön Baza (X Kolu)",
-            dimensions: { width: Math.max(80, width - wingD - T), height: plinthHeight, depth: T },
-            position: { x: wingD, y: 0, z: wingD - T - 16 },
-            materialId: bodyMaterialId,
-            isManufacturablePanel: true,
-            thicknessAxis: "z",
-          },
-          {
-            id: `${module.id}_plinth_front_z`,
-            role: "plinth",
-            label: "Köşe Gardırop Dönüş Baza (Z Kolu)",
-            dimensions: { width: T, height: plinthHeight, depth: Math.max(80, returnSpanZ - T) },
-            position: { x: wingD - T - 16, y: 0, z: wingD },
-            materialId: bodyMaterialId,
-            isManufacturablePanel: true,
-            thicknessAxis: "x",
-          }
-        );
-      } else {
-        // 6 Adjustable Black Plastic Legs under the L-Corner Kitchen Base Cabinet
+      const lSetback = Math.max(
+        18,
+        Math.min(
+          75,
+          module.carcass.plinthSetbackMm ??
+            (effCornerPlinthType === "adjustable_legs_clip" ? 55 : 35)
+        )
+      );
+      const lSealH = plinthHeight >= 75 ? 3.5 : 0;
+      const lBoardH = plinthHeight - lSealH;
+      const lPlinthMat =
+        module.carcass.plinthMaterialId ||
+        (effCornerPlinthType === "adjustable_legs_clip"
+          ? doorMaterialId || bodyMaterialId
+          : bodyMaterialId);
+      const cornerJuncX = wingD - lSetback - T;
+      const cornerJuncZ = wingD - lSetback - T;
+      const spanXArm = Math.max(80, width - cornerJuncX - (cornerSideRunsToFloor ? T : 3));
+      const spanZArm = Math.max(80, depth - (cornerJuncZ + T) - (cornerSideRunsToFloor ? T : 3));
+
+      if (effCornerPlinthType === "adjustable_legs_clip") {
         const lLegCoords = [
-          { id: "fl_back", x: 42, z: 42 },
-          { id: "fr_back", x: width - 42, z: 42 },
-          { id: "fr_front", x: width - 42, z: wingD - 48 },
-          { id: "inner_corner", x: wingD - 48, z: wingD - 48 },
-          { id: "ret_left", x: 42, z: depth - 48 },
-          { id: "ret_right", x: wingD - 48, z: depth - 48 },
+          { id: "fl_back", x: 56, z: 56 },
+          { id: "fr_back", x: width - 56, z: 56 },
+          { id: "fr_front", x: width - 56, z: Math.max(70, cornerJuncZ - 32) },
+          { id: "inner_corner", x: Math.max(70, cornerJuncX - 32), z: Math.max(70, cornerJuncZ - 32) },
+          { id: "ret_left", x: 56, z: depth - 56 },
+          { id: "ret_right", x: Math.max(70, cornerJuncX - 32), z: depth - 56 },
         ];
         lLegCoords.forEach((lc, lIdx) => {
           components.push({
             id: `${module.id}_plastic_leg_${lc.id}_${lIdx + 1}`,
             role: "special_fitting",
-            label: `Ayarlanabilir Plastik Baza Ayağı #${lIdx + 1}`,
-            dimensions: { width: 52, height: plinthHeight, depth: 52 },
-            position: { x: lc.x - 26, y: 0, z: Math.max(30, lc.z - 52) },
+            label: `Häfele Axilo 78 Ayarlı Baza Ayağı #${lIdx + 1}`,
+            dimensions: { width: 64, height: plinthHeight, depth: 64 },
+            position: { x: lc.x - 32, y: 0, z: lc.z - 32 },
             materialId: "mat_anodized_metal",
             isManufacturablePanel: false,
           });
         });
-        // Ready-made L-Corner Kitchen Base comes with L-shaped Front Plinth installed in front of the plastic legs!
+      }
+
+      components.push(
+        {
+          id: `${module.id}_plinth_front_x`,
+          role: "plinth",
+          label: `L-Köşe Ön Baza Bandı X Kolu (Girinti:${lSetback}mm)`,
+          dimensions: { width: spanXArm, height: lBoardH, depth: T },
+          position: { x: cornerJuncX, y: lSealH, z: cornerJuncZ },
+          materialId: lPlinthMat,
+          isFrontFacing: true,
+          isManufacturablePanel: true,
+          thicknessAxis: "z",
+        },
+        {
+          id: `${module.id}_plinth_front_z`,
+          role: "plinth",
+          label: `L-Köşe Dönüş Baza Bandı Z Kolu (Girinti:${lSetback}mm)`,
+          dimensions: { width: T, height: lBoardH, depth: spanZArm },
+          position: { x: cornerJuncX, y: lSealH, z: cornerJuncZ + T },
+          materialId: lPlinthMat,
+          isFrontFacing: true,
+          isManufacturablePanel: true,
+          thicknessAxis: "x",
+        },
+        {
+          id: `${module.id}_plinth_corner_90`,
+          role: "special_fitting",
+          label: "90° İç Köşe Baza Birleşim Profili",
+          dimensions: { width: 22, height: plinthHeight, depth: 22 },
+          position: { x: cornerJuncX - 2, y: 0, z: cornerJuncZ - 2 },
+          materialId: "mat_anodized_metal",
+          isManufacturablePanel: false,
+        }
+      );
+      if (lSealH > 0) {
         components.push(
           {
-            id: `${module.id}_plinth_front_x`,
-            role: "plinth",
-            label: "Mutfak L-Köşe Ön Baza Bandı (X Kolu)",
-            dimensions: { width: Math.max(80, width - wingD), height: plinthHeight, depth: T },
-            position: { x: wingD, y: 0, z: wingD - T - 22 },
-            materialId: doorMaterialId || bodyMaterialId,
-            isManufacturablePanel: true,
-            thicknessAxis: "z",
+            id: `${module.id}_plinth_seal_lx`,
+            role: "special_fitting",
+            label: "Baza Altı PVC Nem & Su Sızdırmazlık Fitili (X)",
+            dimensions: { width: spanXArm, height: lSealH, depth: T + 3 },
+            position: { x: cornerJuncX, y: 0, z: cornerJuncZ - 1.5 },
+            materialId: "mat_anodized_metal",
+            isManufacturablePanel: false,
           },
           {
-            id: `${module.id}_plinth_front_z`,
-            role: "plinth",
-            label: "Mutfak L-Köşe Dönüş Baza Bandı (Z Kolu)",
-            dimensions: { width: T, height: plinthHeight, depth: Math.max(80, returnSpanZ) },
-            position: { x: wingD - T - 22, y: 0, z: wingD },
-            materialId: doorMaterialId || bodyMaterialId,
-            isManufacturablePanel: true,
-            thicknessAxis: "x",
+            id: `${module.id}_plinth_seal_lz`,
+            role: "special_fitting",
+            label: "Baza Altı PVC Nem & Su Sızdırmazlık Fitili (Z)",
+            dimensions: { width: T + 3, height: lSealH, depth: spanZArm },
+            position: { x: cornerJuncX - 1.5, y: 0, z: cornerJuncZ + T },
+            materialId: "mat_anodized_metal",
+            isManufacturablePanel: false,
           }
         );
       }
@@ -693,102 +731,381 @@ export function generateModuleGeometry(
     return diagResult;
   }
 
-  // 1. Plinth (Baza) & Visible Adjustable Plastic Kitchen Legs
-  const showLegs = module.carcass.hasAdjustableLegs !== false;
+  // 1. WORLD-STANDARD ARCHITECTURAL PLINTH & TOE-KICK SYSTEMS (3 Authentic Constructions):
+  //    A) "pedestal_box"         — Independent 4-sided leveled structural box frame + divider load ribs + bottom PVC seal (Wardrobe/Living standard, 35mm setback)
+  //    B) "adjustable_legs_clip" — DIN 68935 / Häfele Axilo 78 legs + C-clips + front & side clip-on plinths + PVC water seal (Kitchen/Bath standard, 55mm setback)
+  //    C) "gable_rails"          — Full-height side panels to floor + front & rear structural rails + divider load ribs + bottom PVC seal (Built-in standard, 26mm setback)
+  const effPlinthType =
+    module.carcass.plinthConstruction ||
+    (module.carcass.hasAdjustableLegs === false
+      ? isWardrobe
+        ? "gable_rails"
+        : "pedestal_box"
+      : isWardrobe
+      ? "pedestal_box"
+      : "adjustable_legs_clip");
+
+  const defaultPlinthSetback =
+    effPlinthType === "adjustable_legs_clip"
+      ? 55
+      : effPlinthType === "pedestal_box"
+      ? 35
+      : 26;
+  const plinthFrontSetback = Math.max(
+    15,
+    Math.min(
+      Math.max(30, depth - 130),
+      module.carcass.plinthSetbackMm ?? defaultPlinthSetback
+    )
+  );
+
+  // Compute X positions of all intermediate bay dividers so structural plinth ribs or legs sit directly under every divider!
+  const dividerStartXs: number[] = [];
+  {
+    let accX = T;
+    for (let bI = 0; bI < module.bays.length - 1; bI++) {
+      accX += bayWidths[bI] || 0;
+      dividerStartXs.push(accX);
+      accX += T;
+    }
+    if (dividerStartXs.length === 0 && width >= 950) {
+      dividerStartXs.push(Math.round((width - T) / 2));
+    }
+  }
+
   if (plinthHeight > 0) {
-    if (isWardrobe) {
-      if (showLegs) {
-        const legXs = [T + 36, width - T - 36];
-        if (width > 1100) legXs.push(Math.round(width / 2));
-        const legZs = [54, Math.max(90, depth - 82)];
-        let wLegIdx = 1;
-        for (const lx of legXs) {
-          for (const lz of legZs) {
-            components.push({
-              id: `${module.id}_plastic_leg_${wLegIdx}`,
-              role: "special_fitting",
-              label: `Ayarlı Dolap Baza Ayağı #${wLegIdx} (H:${plinthHeight}mm)`,
-              dimensions: { width: 48, height: plinthHeight, depth: 48 },
-              position: { x: lx - 24, y: explodeY > 0 ? -explodeY : 0, z: lz - 24 },
-              materialId: "mat_anodized_metal",
-              isManufacturablePanel: false,
-            });
-            wLegIdx++;
+    const baseExpY = explodeY > 0 ? -explodeY : 0;
+    const sealH = plinthHeight >= 75 ? 3.5 : 0; // Co-extruded bottom PVC moisture & dust seal lip (keeps board cut >= 71.5mm!)
+    const boardH = plinthHeight - sealH;
+    const frontPlinthZ = Math.max(60, depth - plinthFrontSetback - T);
+    const rearRailZ = 20; // 20mm rear wall skirting / cable clearance
+    const plinthMatId =
+      module.carcass.plinthMaterialId ||
+      (effPlinthType === "adjustable_legs_clip"
+        ? doorMaterialId || bodyMaterialId
+        : bodyMaterialId);
+
+    if (effPlinthType === "pedestal_box") {
+      // A. INDEPENDENT 4-SIDED LEVELED STRUCTURAL BOX PLINTH (İtalyan Modüler Gardırop Standardı)
+      const sideReveal = 3; // Crisp 3mm architectural shadow reveal on exposed ends
+      const boxW = Math.max(120, width - 2 * sideReveal);
+      const sideReturnDepth = Math.max(70, frontPlinthZ - rearRailZ);
+      const ribDepth = Math.max(70, frontPlinthZ - (rearRailZ + T));
+
+      components.push(
+        {
+          id: `${module.id}_plinth_front`,
+          role: "plinth",
+          label: `Kutu Baza Ön Bandı (H:${plinthHeight}mm, Girinti:${plinthFrontSetback}mm)`,
+          dimensions: { width: boxW, height: boardH, depth: T },
+          position: { x: sideReveal, y: baseExpY + sealH, z: frontPlinthZ + explodeZ * 0.45 },
+          materialId: plinthMatId,
+          isFrontFacing: true,
+          isManufacturablePanel: true,
+          thicknessAxis: "z",
+        },
+        {
+          id: `${module.id}_plinth_rear`,
+          role: "plinth",
+          label: `Kutu Baza Arka Taşıyıcı Kayıt`,
+          dimensions: { width: Math.max(70, boxW - 2 * T), height: boardH, depth: T },
+          position: { x: sideReveal + T, y: baseExpY + sealH, z: rearRailZ - explodeZ * 0.35 },
+          materialId: bodyMaterialId,
+          isManufacturablePanel: true,
+          thicknessAxis: "z",
+        },
+        {
+          id: `${module.id}_plinth_side_left`,
+          role: "plinth",
+          label: `Kutu Baza Sol Yan Dönüşü`,
+          dimensions: { width: T, height: boardH, depth: sideReturnDepth },
+          position: { x: sideReveal - explodeX * 0.45, y: baseExpY + sealH, z: rearRailZ },
+          materialId: plinthMatId,
+          isManufacturablePanel: true,
+          thicknessAxis: "x",
+        },
+        {
+          id: `${module.id}_plinth_side_right`,
+          role: "plinth",
+          label: `Kutu Baza Sağ Yan Dönüşü`,
+          dimensions: { width: T, height: boardH, depth: sideReturnDepth },
+          position: {
+            x: width - sideReveal - T + explodeX * 0.45,
+            y: baseExpY + sealH,
+            z: rearRailZ,
+          },
+          materialId: plinthMatId,
+          isManufacturablePanel: true,
+          thicknessAxis: "x",
+        }
+      );
+
+      // Structural transverse load-bearing ribs directly beneath every vertical divider (zero bottom-panel sag!)
+      dividerStartXs.forEach((divX, rIdx) => {
+        if (ribDepth >= 70) {
+          components.push({
+            id: `${module.id}_plinth_rib_${rIdx + 1}`,
+            role: "plinth",
+            label: `Baza Ara Taşıyıcı Kayıt #${rIdx + 1}`,
+            dimensions: { width: T, height: boardH, depth: ribDepth },
+            position: { x: divX, y: baseExpY + sealH, z: rearRailZ + T },
+            materialId: bodyMaterialId,
+            isManufacturablePanel: true,
+            thicknessAxis: "x",
+          });
+        }
+      });
+
+      // Bottom PVC Moisture & Dust Seal Gaskets on Front & Sides
+      if (sealH > 0) {
+        components.push(
+          {
+            id: `${module.id}_plinth_seal_front`,
+            role: "special_fitting",
+            label: "Baza Altı PVC Nem & Toz Sızdırmazlık Fitili (Ön)",
+            dimensions: { width: boxW, height: sealH, depth: T + 3 },
+            position: { x: sideReveal, y: baseExpY, z: frontPlinthZ - 1.5 + explodeZ * 0.45 },
+            materialId: "mat_anodized_metal",
+            isManufacturablePanel: false,
+          },
+          {
+            id: `${module.id}_plinth_seal_left`,
+            role: "special_fitting",
+            label: "Baza Altı PVC Nem & Toz Fitili (Sol Yan)",
+            dimensions: { width: T + 2, height: sealH, depth: sideReturnDepth },
+            position: { x: sideReveal - 1 - explodeX * 0.45, y: baseExpY, z: rearRailZ },
+            materialId: "mat_anodized_metal",
+            isManufacturablePanel: false,
+          },
+          {
+            id: `${module.id}_plinth_seal_right`,
+            role: "special_fitting",
+            label: "Baza Altı PVC Nem & Toz Fitili (Sağ Yan)",
+            dimensions: { width: T + 2, height: sealH, depth: sideReturnDepth },
+            position: {
+              x: width - sideReveal - T - 1 + explodeX * 0.45,
+              y: baseExpY,
+              z: rearRailZ,
+            },
+            materialId: "mat_anodized_metal",
+            isManufacturablePanel: false,
           }
+        );
+      }
+
+      // Concealed Internal M10 Steel Leveling Glides (Terazi Pingoları) inside corners & under divider ribs
+      const glideXs = [sideReveal + T + 18, ...dividerStartXs.map((dx) => dx + T / 2), width - sideReveal - T - 18];
+      const glideZs = [rearRailZ + T + 24, Math.max(rearRailZ + T + 60, frontPlinthZ - 26)];
+      let gCounter = 1;
+      for (const gx of glideXs) {
+        for (const gz of glideZs) {
+          components.push({
+            id: `${module.id}_plinth_glide_${gCounter++}`,
+            role: "special_fitting",
+            label: `Gizli Çelik Baza Terazi Pingosu M10`,
+            dimensions: { width: 32, height: Math.min(28, plinthHeight - 8), depth: 32 },
+            position: { x: gx - 16, y: baseExpY, z: gz - 16 },
+            materialId: "mat_metal_chrome",
+            isManufacturablePanel: false,
+          });
         }
       }
-      // In wardrobes, side panels extend to floor so plinth fits between side panels (x = T, width = innerSpanW)
-      components.push({
-        id: `${module.id}_plinth_front`,
-        role: "plinth",
-        label: "Baza Ön",
-        dimensions: {
-          width: innerSpanW,
-          height: plinthHeight,
-          depth: T,
-        },
-        position: {
-          x: T,
-          y: explodeY > 0 ? -explodeY : 0,
-          z: depth - T - 20,
-        },
-        materialId: module.carcass.plinthMaterialId || bodyMaterialId,
-        isManufacturablePanel: true,
-        thicknessAxis: "z",
-      });
-    } else {
-      // In kitchen base & tall cabinets: generate visible 3D Adjustable Black ABS Plastic Legs (_plastic_leg_)!
-      const legXs = [46, width - 46];
-      if (width > 950) {
-        legXs.push(Math.round(width / 2));
-      }
-      // 1. Adjustable Black ABS Plastic Legs sit at z = depth - 82mm (strictly BEHIND the front plinth board!)
-      const legZs = [54, Math.max(90, depth - 82)];
+    } else if (effPlinthType === "adjustable_legs_clip") {
+      // B. DIN 68935 / HÄFELE AXILO 78 ADJUSTABLE LEGS + SNAP-ON C-CLIPS + FRONT/SIDE CLIP-ON PLINTH + WATER SEAL
+      const sideReturnInset = 8; // Side return sits cleanly at x=8..26, enclosing legs completely!
+      const legOuterOffset = Math.max(58, sideReturnInset + T + 34);
+      const legXs = [
+        legOuterOffset,
+        ...dividerStartXs.map((dx) => dx + Math.round(T / 2)),
+        Math.max(legOuterOffset + 40, width - legOuterOffset),
+      ];
+      const frontLegZ = Math.max(88, frontPlinthZ - 32);
+      const rearLegZ = 56;
+      const legZs = [rearLegZ, frontLegZ];
+
       let legCounter = 1;
-      for (const lx of (showLegs ? legXs : [])) {
+      for (const lx of legXs) {
         for (const lz of legZs) {
           components.push({
             id: `${module.id}_plastic_leg_${legCounter}`,
             role: "special_fitting",
-            label: `Ayarlanabilir Plastik Mutfak Baza Ayağı #${legCounter} (H:${plinthHeight}mm)`,
-            dimensions: { width: 52, height: plinthHeight, depth: 52 },
-            position: {
-              x: lx - 26,
-              y: explodeY > 0 ? -explodeY : 0,
-              z: lz - 26,
-            },
+            label: `Häfele Axilo 78 Ayarlanabilir Baza Ayağı #${legCounter} (H:${plinthHeight}mm)`,
+            dimensions: { width: 64, height: plinthHeight, depth: 64 },
+            position: { x: lx - 32, y: baseExpY, z: lz - 32 },
             materialId: "mat_anodized_metal",
             isManufacturablePanel: false,
           });
+          // Add 3D Snap-On Plinth C-Clip on every front-row leg latching onto the rear of _plinth_front!
+          if (lz === frontLegZ) {
+            components.push({
+              id: `${module.id}_plinth_clip_${legCounter}`,
+              role: "special_fitting",
+              label: `Baza C-Klips Bağlantı Aparatı #${legCounter}`,
+              dimensions: { width: 42, height: 30, depth: Math.max(24, frontPlinthZ - frontLegZ + 8) },
+              position: {
+                x: lx - 21,
+                y: baseExpY + Math.round(plinthHeight * 0.45),
+                z: frontLegZ - 4,
+              },
+              materialId: "mat_anodized_metal",
+              isManufacturablePanel: false,
+            });
+          }
           legCounter++;
         }
       }
-      // 2. Ready-Made Kitchen Base Front Plinth (Ön Baza Bandı) is included by default at z = depth - T - 24 (in front of the plastic legs!)
-      components.push({
-        id: `${module.id}_plinth_front`,
-        role: "plinth",
-        label: `Mutfak Ön Baza Bandı (H:${plinthHeight}mm, Su Contalı)`,
-        dimensions: {
-          width,
-          height: plinthHeight,
-          depth: T,
+
+      // Clip-On Front Plinth Board + Side Return Panels so 3/4 views show a clean finished enclosed base!
+      const sideRetDepth = Math.max(70, frontPlinthZ - rearRailZ);
+      components.push(
+        {
+          id: `${module.id}_plinth_front`,
+          role: "plinth",
+          label: `Klipsli Ön Baza Bandı (H:${plinthHeight}mm, Girinti:${plinthFrontSetback}mm, Su Contalı)`,
+          dimensions: { width, height: boardH, depth: T },
+          position: { x: 0, y: baseExpY + sealH, z: frontPlinthZ + explodeZ * 0.55 },
+          materialId: plinthMatId,
+          isFrontFacing: true,
+          isManufacturablePanel: true,
+          thicknessAxis: "z",
         },
-        position: {
-          x: 0,
-          y: explodeY > 0 ? -explodeY : 0,
-          z: depth - T - 24,
+        {
+          id: `${module.id}_plinth_side_left`,
+          role: "plinth",
+          label: `Klipsli Sol Yan Baza Dönüş Bandı`,
+          dimensions: { width: T, height: boardH, depth: sideRetDepth },
+          position: { x: sideReturnInset - explodeX * 0.5, y: baseExpY + sealH, z: rearRailZ },
+          materialId: plinthMatId,
+          isManufacturablePanel: true,
+          thicknessAxis: "x",
         },
-        materialId: doorMaterialId || bodyMaterialId,
-        isFrontFacing: true,
-        isManufacturablePanel: true,
-        thicknessAxis: "z",
+        {
+          id: `${module.id}_plinth_side_right`,
+          role: "plinth",
+          label: `Klipsli Sağ Yan Baza Dönüş Bandı`,
+          dimensions: { width: T, height: boardH, depth: sideRetDepth },
+          position: {
+            x: width - sideReturnInset - T + explodeX * 0.5,
+            y: baseExpY + sealH,
+            z: rearRailZ,
+          },
+          materialId: plinthMatId,
+          isManufacturablePanel: true,
+          thicknessAxis: "x",
+        }
+      );
+
+      if (sealH > 0) {
+        components.push(
+          {
+            id: `${module.id}_plinth_seal_front`,
+            role: "special_fitting",
+            label: "Ko-Ekstrüze Baza Su Sızdırmazlık Contası (Ön)",
+            dimensions: { width, height: sealH, depth: T + 3.5 },
+            position: { x: 0, y: baseExpY, z: frontPlinthZ - 1.5 + explodeZ * 0.55 },
+            materialId: "mat_anodized_metal",
+            isManufacturablePanel: false,
+          },
+          {
+            id: `${module.id}_plinth_seal_left`,
+            role: "special_fitting",
+            label: "Ko-Ekstrüze Baza Su Sızdırmazlık Contası (Sol Yan)",
+            dimensions: { width: T + 2.5, height: sealH, depth: sideRetDepth },
+            position: { x: sideReturnInset - 1.25 - explodeX * 0.5, y: baseExpY, z: rearRailZ },
+            materialId: "mat_anodized_metal",
+            isManufacturablePanel: false,
+          },
+          {
+            id: `${module.id}_plinth_seal_right`,
+            role: "special_fitting",
+            label: "Ko-Ekstrüze Baza Su Sızdırmazlık Contası (Sağ Yan)",
+            dimensions: { width: T + 2.5, height: sealH, depth: sideRetDepth },
+            position: {
+              x: width - sideReturnInset - T - 1.25 + explodeX * 0.5,
+              y: baseExpY,
+              z: rearRailZ,
+            },
+            materialId: "mat_anodized_metal",
+            isManufacturablePanel: false,
+          }
+        );
+      }
+    } else {
+      // C. "gable_rails" — FULL-HEIGHT SIDE PANELS TO FLOOR + DUAL FRONT/REAR STRUCTURAL RAILS + DIVIDER RIBS
+      const ribDepth = Math.max(70, frontPlinthZ - (rearRailZ + T));
+      components.push(
+        {
+          id: `${module.id}_plinth_front`,
+          role: "plinth",
+          label: `Gömme Ön Baza Kayıdı (H:${plinthHeight}mm, Girinti:${plinthFrontSetback}mm)`,
+          dimensions: { width: innerSpanW, height: boardH, depth: T },
+          position: { x: T, y: baseExpY + sealH, z: frontPlinthZ + explodeZ * 0.45 },
+          materialId: plinthMatId,
+          isFrontFacing: true,
+          isManufacturablePanel: true,
+          thicknessAxis: "z",
+        },
+        {
+          id: `${module.id}_plinth_rear`,
+          role: "plinth",
+          label: `Gömme Arka Baza Denge Kayıdı`,
+          dimensions: { width: innerSpanW, height: boardH, depth: T },
+          position: { x: T, y: baseExpY + sealH, z: rearRailZ - explodeZ * 0.35 },
+          materialId: bodyMaterialId,
+          isManufacturablePanel: true,
+          thicknessAxis: "z",
+        }
+      );
+
+      dividerStartXs.forEach((divX, rIdx) => {
+        if (ribDepth >= 70) {
+          components.push({
+            id: `${module.id}_plinth_rib_${rIdx + 1}`,
+            role: "plinth",
+            label: `Baza Ara Destek Kayıdı #${rIdx + 1}`,
+            dimensions: { width: T, height: boardH, depth: ribDepth },
+            position: { x: divX, y: baseExpY + sealH, z: rearRailZ + T },
+            materialId: bodyMaterialId,
+            isManufacturablePanel: true,
+            thicknessAxis: "x",
+          });
+        }
       });
+
+      if (sealH > 0) {
+        components.push({
+          id: `${module.id}_plinth_seal_front`,
+          role: "special_fitting",
+          label: "Baza Altı PVC Nem Fitili",
+          dimensions: { width: innerSpanW, height: sealH, depth: T + 3 },
+          position: { x: T, y: baseExpY, z: frontPlinthZ - 1.5 + explodeZ * 0.45 },
+          materialId: "mat_anodized_metal",
+          isManufacturablePanel: false,
+        });
+      }
+
+      const glideXs = [T + 22, ...dividerStartXs.map((dx) => dx + T / 2), width - T - 22];
+      let gCounter = 1;
+      for (const gx of glideXs) {
+        for (const gz of [rearRailZ + T + 24, Math.max(rearRailZ + T + 60, frontPlinthZ - 26)]) {
+          components.push({
+            id: `${module.id}_plinth_glide_${gCounter++}`,
+            role: "special_fitting",
+            label: `Gizli Dikme/Baza Terazi Pingosu M10`,
+            dimensions: { width: 30, height: Math.min(26, plinthHeight - 8), depth: 30 },
+            position: { x: gx - 15, y: baseExpY, z: gz - 15 },
+            materialId: "mat_metal_chrome",
+            isManufacturablePanel: false,
+          });
+        }
+      }
     }
   }
 
-  // 2. Left Side Panel — in wardrobes, side panels extend all the way to the floor (y = 0, height = height)
-  const sideH = isWardrobe ? height : height - plinthHeight;
-  const sideY = isWardrobe ? 0 : plinthHeight;
+  // 2. Left & Right Side Panels — extend to floor ONLY in "gable_rails"; sit cleanly atop plinth in "pedestal_box" & "adjustable_legs_clip"!
+  const sideRunsToFloor = plinthHeight > 0 && effPlinthType === "gable_rails";
+  const sideH = sideRunsToFloor ? height : height - plinthHeight;
+  const sideY = sideRunsToFloor ? 0 : plinthHeight;
   components.push({
     id: `${module.id}_side_left`,
     role: "carcass_side_left",
@@ -1789,8 +2106,8 @@ export function generateModuleGeometry(
           baseClosedX = Math.round(
             T + bayIdx * ((innerClearSpanW - effDoorW) / Math.max(1, totalBays - 1))
           );
-          effDoorY = plinthHeight + T + 12; // 12mm bottom recessed track clearance
-          effDoorH = Math.max(160, height - plinthHeight - 2 * T - 24); // 12mm top + 12mm bottom track clearance
+          effDoorY = plinth + T + 12; // 12mm bottom recessed track clearance
+          effDoorH = Math.max(160, height - plinth - 2 * T - 24); // 12mm top + 12mm bottom track clearance
           leafZ = isFrontTrack ? depth - T_door - 4 : depth - 2 * T_door - 12;
         } else if (mountKind === "coplanar_flush") {
           // 4. COPLANAR FLUSH (Hettich InLine XL / Cinetto PS48):
@@ -1798,8 +2115,8 @@ export function generateModuleGeometry(
           const popProgress = Math.min(1, openRatio * 3.5);
           const slideProgress = Math.max(0, (openRatio - 0.22) / 0.78);
           const popZ = isFrontTrack ? popProgress * 48 : 0;
-          effDoorY = plinthHeight + 4;
-          effDoorH = Math.max(160, height - plinthHeight - 6);
+          effDoorY = plinth + 4;
+          effDoorH = Math.max(160, height - plinth - 6);
           leafZ = depth + 4 + popZ;
           const coplanarSlideOffset = isFrontTrack ? slideProgress * (bayW * 0.84) * slideDir : 0;
           baseClosedX = Math.max(0, Math.min(width - effDoorW, doorX0));
@@ -1816,6 +2133,7 @@ export function generateModuleGeometry(
             isFrontFacing: true,
             isManufacturablePanel: true,
             thicknessAxis: "z",
+            slidingMountingType: mountKind,
           });
 
           // Top & Bottom Pantograph Carriage Units attached to leaf
@@ -1839,8 +2157,8 @@ export function generateModuleGeometry(
           baseClosedX = Math.round(
             bayIdx * ((width - effDoorW) / Math.max(1, totalBays - 1))
           );
-          effDoorY = plinthHeight + 4;
-          effDoorH = Math.max(160, height - plinthHeight - 4);
+          effDoorY = plinth + 4;
+          effDoorH = Math.max(160, height - plinth - 4);
           leafZ = isFrontTrack ? depth + 34 : depth + 8;
         }
 
@@ -1872,6 +2190,7 @@ export function generateModuleGeometry(
             isFrontFacing: true,
             isManufacturablePanel: true,
             thicknessAxis: "z",
+            slidingMountingType: mountKind,
           });
 
           // Emit 2 Roller Carriages + Silent-System Soft-Close Damper per Sliding Door Leaf!
@@ -2227,7 +2546,7 @@ export function generateModuleGeometry(
         role: "special_fitting",
         label: "Alt Çift Kanallı Gömme Alüminyum Taşıyıcı Ray (SlideLine M / Slido)",
         dimensions: { width: trackSpanW, height: 12, depth: 54 },
-        position: { x: T, y: plinthHeight + T, z: depth - 58 },
+        position: { x: T, y: plinth + T, z: depth - 58 },
         materialId: "mat_metal_chrome",
       });
     } else if (mountKind === "coplanar_flush") {
@@ -2245,7 +2564,7 @@ export function generateModuleGeometry(
         role: "special_fitting",
         label: "InLine XL Alt Gizli Koplanar Kılavuz Rayı",
         dimensions: { width: width - 24, height: 14, depth: 52 },
-        position: { x: 12, y: Math.max(0, plinthHeight - 14), z: depth - 46 },
+        position: { x: 12, y: Math.max(0, plinth - 14), z: depth - 46 },
         materialId: "mat_metal_chrome",
       });
     } else {
@@ -2263,7 +2582,7 @@ export function generateModuleGeometry(
         role: "special_fitting",
         label: "STB 19 Alt Tabla Altı Gizli Sürgü Kılavuz Profili",
         dimensions: { width: width - 16, height: 12, depth: 48 },
-        position: { x: 8, y: Math.max(0, plinthHeight - 12), z: depth + 4 },
+        position: { x: 8, y: Math.max(0, plinth - 12), z: depth + 4 },
         materialId: "mat_metal_chrome",
       });
 

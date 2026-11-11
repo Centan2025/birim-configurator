@@ -64,10 +64,34 @@ export function generateElevation2D(
   const { overall, components, bayWidths } = breakdown;
   const padding = 150;
 
+  const hasFrontPlinth = components.some((c) => c.id.includes("_plinth_front"));
   const elements: Rect2D[] = components
-    .filter((c) => c.role !== "carcass_back" && c.role !== "hanging_rail" && !c.id.includes("_sub_"))
+    .filter((c) => {
+      if (c.role === "carcass_back" || c.role === "hanging_rail" || c.id.includes("_sub_")) {
+        return false;
+      }
+      // Hide rear/internal plinth stretchers, clips, side seals & rear-row legs in 2D Front Elevation so _plinth_front is crisp!
+      if (
+        c.id.includes("_plinth_rear") ||
+        c.id.includes("_plinth_rib_") ||
+        c.id.includes("_plinth_side_") ||
+        c.id.includes("_plinth_clip_") ||
+        c.id.includes("_plinth_glide_") ||
+        c.id.includes("_plinth_seal_left") ||
+        c.id.includes("_plinth_seal_right")
+      ) {
+        return false;
+      }
+      // Only show front-row legs as ISO hidden dashed contours (avoid duplicate rear-row overlap at same X!)
+      if (c.id.includes("_plastic_leg_") && c.position.z < 70) {
+        return false;
+      }
+      return true;
+    })
     .map((c) => {
       const bounds = componentBounds(c);
+      const isHiddenLegBehindPlinth = hasFrontPlinth && c.id.includes("_plastic_leg_");
+      const isPlinthSeal = c.id.includes("_plinth_seal_");
       return {
         id: c.id,
         label: c.label,
@@ -75,7 +99,11 @@ export function generateElevation2D(
         y: overall.height - bounds.max.y,
         width: bounds.max.x - bounds.min.x,
         height: bounds.max.y - bounds.min.y,
-        role: c.role,
+        role: isHiddenLegBehindPlinth
+          ? "plinth_leg_hidden"
+          : isPlinthSeal
+          ? "plinth_seal"
+          : c.role,
         isSelected: c.id === selectedComponentId,
       };
     });
@@ -300,7 +328,23 @@ export function generateCrossSection2D(
         c.role === "special_fitting" ||
         c.role === "carcass_back";
       if (!isAllowedRole) return false;
+      // In A-A Transverse Side Section, exclude left/right side plinths & ribs spanning full Z so recessed front/rear rails & seal profile show cleanly!
       if (
+        c.id.includes("_plinth_side_") ||
+        c.id.includes("_plinth_rib_") ||
+        c.id.includes("_plinth_seal_left") ||
+        c.id.includes("_plinth_seal_right")
+      ) {
+        return false;
+      }
+      // Always show one representative pair of front/rear plinth legs & clip in Side Section so toe-kick engineering is visible!
+      const isRepPlinthHardware =
+        c.id.endsWith("_plastic_leg_1") ||
+        c.id.endsWith("_plastic_leg_2") ||
+        c.id.endsWith("_plinth_clip_2") ||
+        c.id.includes("_plinth_seal_front");
+      if (
+        !isRepPlinthHardware &&
         typeof cutX === "number" &&
         (c.role === "shelf" ||
           c.role === "sub_divider" ||

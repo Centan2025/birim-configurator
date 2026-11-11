@@ -1,5 +1,9 @@
 import { CompatibilityStatus, DesignProject } from "@birim/core";
-import { ManufacturingBOM } from "@birim/manufacturing";
+import {
+  ManufacturingBOM,
+  type BirimErpNestingExportBundle,
+  type BirimErpNestingBuildOptions,
+} from "@birim/manufacturing";
 import { PricingBreakdown } from "@birim/pricing";
 
 export interface AuditLogEntry {
@@ -7,7 +11,11 @@ export interface AuditLogEntry {
   timestamp: string;
   userId: string;
   branchId: string;
-  action: "QUOTE_SNAPSHOT_CREATED" | "PRODUCTION_BLUEPRINT_EXPORTED" | "DESIGN_LOCKED";
+  action:
+    | "QUOTE_SNAPSHOT_CREATED"
+    | "PRODUCTION_BLUEPRINT_EXPORTED"
+    | "ERP_NESTING_BUNDLE_EXPORTED"
+    | "DESIGN_LOCKED";
   resourceId: string;
   details: Record<string, string | number>;
 }
@@ -53,7 +61,15 @@ export interface ERPBlueprintPayload {
     label: string;
     material: string;
     dimensions_mm: [number, number, number];
-    edge_banding: { top: boolean; bottom: boolean; left: boolean; right: boolean; thickness_mm: number };
+    net_cut_dimensions_mm: [number, number, number];
+    edge_banding: {
+      top: boolean;
+      bottom: boolean;
+      left: boolean;
+      right: boolean;
+      thickness_mm: number;
+      erp_serialized_edge_banding: string | null;
+    };
     grain: string;
     workshops: string[];
     drilling_count: number;
@@ -64,6 +80,7 @@ export interface ERPBlueprintPayload {
     quantity: number;
     unit: string;
   }[];
+  nesting_bundle: BirimErpNestingExportBundle;
   metadata: {
     project_id: string;
     project_title: string;
@@ -91,7 +108,21 @@ export interface IERPAdapter {
     project: DesignProject,
     bom: ManufacturingBOM,
     orderId: string,
-    idempotencyKey?: string
-  ): Promise<{ success: boolean; blueprintId: string; itemsCount: number }>;
+    idempotencyKey?: string,
+    nestingOptions?: BirimErpNestingBuildOptions
+  ): Promise<{
+    success: boolean;
+    blueprintId: string;
+    itemsCount: number;
+    nestingJobsCount: number;
+    totalSheetsUsed: number;
+    nestingBundle: BirimErpNestingExportBundle;
+  }>;
+  buildNestingPayload(
+    project: DesignProject,
+    bom: ManufacturingBOM,
+    orderId?: string,
+    nestingOptions?: BirimErpNestingBuildOptions
+  ): BirimErpNestingExportBundle;
   getAuditLogs(): AuditLogEntry[];
 }

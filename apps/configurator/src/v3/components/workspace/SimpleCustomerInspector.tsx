@@ -7,6 +7,7 @@ import type {
   HandleCategory,
   MaterialDefinition,
   ModuleInstance,
+  PlinthConstructionType,
   SlidingMountingType,
 } from "@birim/core";
 import { type UserExperienceTier } from "../../../store/useConfiguratorStore";
@@ -50,6 +51,12 @@ interface SimpleCustomerInspectorProps {
   onRemoveBayAndShrink?: (idx: number) => void;
   onShrinkDoubleBay?: (idx: number) => void;
   onSetDimensions: (w: number, h: number, d: number) => void;
+  onUpdatePlinthConfig?: (patch: {
+    plinthHeight?: number;
+    plinthConstruction?: PlinthConstructionType;
+    plinthSetbackMm?: number;
+    hasAdjustableLegs?: boolean;
+  }) => void;
   onToggleDoorOpen: () => void;
   onSetBayDoorType: (
     bayIdx: number,
@@ -137,7 +144,7 @@ const DimensionField: React.FC<{
   };
 
   return (
-    <div className="p-2.5 rounded-xl bg-[#FAF9F6] border border-[#DED8CC] flex items-center justify-between gap-2">
+    <div className="p-2.5 rounded-2xl bg-white/52 backdrop-blur-md border border-white/75 shadow-2xs flex items-center justify-between gap-2">
       <div>
         <span className="text-xs font-bold text-[#141413] block">{label}</span>
         <span className="text-[10px] text-[#78716C]">
@@ -209,6 +216,7 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
   onRemoveBayAndShrink,
   onShrinkDoubleBay,
   onSetDimensions,
+  onUpdatePlinthConfig,
   onToggleDoorOpen,
   onSetBayDoorType,
   onSetSlidingMountingType,
@@ -352,7 +360,7 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
   return (
     <div data-testid="blum-clean-inspector-card" className="space-y-3.5 pb-4">
       {/* 1. INTERACTIVE VISUAL CABINET SUMMARY CARD + QUICK INTERIOR VIEW BUTTON */}
-      <div className="p-3 rounded-2xl bg-[#FAF9F6] border border-[#DED8CC] flex items-center justify-between gap-3">
+      <div className="p-2.5 rounded-2xl birim-ice-pill flex items-center justify-between gap-2.5">
         <div className="flex items-center gap-3 min-w-0">
           <svg viewBox="0 0 88 64" className="w-16 h-12 shrink-0 select-none">
             {(() => {
@@ -522,21 +530,22 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
         <button
           type="button"
           onClick={onToggleDoorOpen}
-          className={`shrink-0 h-9 px-3 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 border transition cursor-pointer ${
+          title={doorOpenAngleDeg > 0 ? "Kapakları Kapat" : "Dolap İçini Gör"}
+          className={`shrink-0 w-9 h-9 rounded-xl inline-flex items-center justify-center transition cursor-pointer ${
             doorOpenAngleDeg > 0
-              ? "bg-[#141413] text-white border-[#141413]"
-              : "bg-white hover:bg-[#EFECE5] text-[#141413] border-[#DED8CC]"
+              ? "birim-ice-btn-active"
+              : "birim-ice-btn text-[#141413]"
           }`}
         >
           {doorOpenAngleDeg > 0 ? (
             <>
-              <EyeOff className="w-3.5 h-3.5" />
-              <span>Kapat</span>
+              <EyeOff className="w-4 h-4" />
+              <span className="sr-only">Kapat</span>
             </>
           ) : (
             <>
-              <Eye className="w-3.5 h-3.5" />
-              <span>İçini Gör</span>
+              <Eye className="w-4 h-4" />
+              <span className="sr-only">İçini Gör</span>
             </>
           )}
         </button>
@@ -544,7 +553,7 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
 
       {/* 2. SPACIOUS 5-STEP SEGMENTED NAVIGATION BAR (Eliminates Cramped Endless Scrolling!) */}
       <div className="space-y-1.5">
-        <div className="p-1 rounded-2xl bg-[#EFECE5] border border-[#DED8CC] grid grid-cols-5 gap-1">
+        <div className="p-1 rounded-2xl birim-ice-pill grid grid-cols-5 gap-1">
           {STEP_ORDER.map((step) => {
             const IconComp = step.Icon;
             const isAct = !showAllSteps && activeStep === step.id;
@@ -553,22 +562,27 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
               <button
                 key={step.id}
                 type="button"
+                title={step.shortLabel}
                 data-testid={`customer-step-tab-${step.id}`}
                 onClick={() => {
                   setShowAllSteps(false);
                   setActiveStep(step.id);
                 }}
-                className={`py-2 px-1 rounded-xl flex flex-col items-center justify-center gap-1 transition cursor-pointer relative ${
+                className={`h-10 px-1 rounded-xl flex flex-col items-center justify-center gap-0.5 transition cursor-pointer relative ${
                   isAct
-                    ? "bg-[#141413] text-white shadow-xs font-bold"
-                    : "text-[#44403C] hover:text-[#141413] hover:bg-white/60 font-semibold"
+                    ? "birim-ice-btn-active font-bold"
+                    : "text-[#44403C] hover:text-[#141413] hover:bg-white/65 font-medium"
                 }`}
               >
                 {hasLedDot && (
                   <span className="absolute top-1.5 right-2 w-2 h-2 rounded-full bg-amber-400 ring-2 ring-amber-200/60" />
                 )}
                 <IconComp className="w-4 h-4 shrink-0" />
-                <span className="text-[11px] leading-none">{step.shortLabel}</span>
+                {isAct ? (
+                  <span className="text-[9px] leading-none tracking-tight">{step.shortLabel}</span>
+                ) : (
+                  <span className="sr-only">{step.shortLabel}</span>
+                )}
               </button>
             );
           })}
@@ -604,7 +618,7 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
           STEP 1: DOLAP DIŞ ÖLÇÜLERİ (Spacious Single-Column Stepper Inputs)
          ======================================================================== */}
       {(showAllSteps || activeStep === "dimensions") && (
-        <section className="p-3.5 rounded-2xl bg-white border border-[#DED8CC] space-y-3">
+        <section className="p-3.5 rounded-2xl bg-white/58 backdrop-blur-xl border border-white/75 shadow-2xs space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-[#141413]">Dolap Dış Ölçüsü</span>
             <div className="inline-flex rounded-lg bg-[#EFECE5] p-0.5 border border-[#DED8CC]">
@@ -675,6 +689,169 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
               ))}
             </div>
           </div>
+
+          {/* World-Standard Plinth (Baza / Soket) System Selector */}
+          {onUpdatePlinthConfig && (() => {
+            const curPlinthH = activeModule.carcass.plinthHeight ?? 80;
+            const isWardrobeCat =
+              activeModule.category === "wardrobe" ||
+              activeModule.category === "vestiyer" ||
+              activeModule.category === "living" ||
+              activeModule.category === "tall";
+            const curPlinthType: PlinthConstructionType =
+              activeModule.carcass.plinthConstruction ||
+              (activeModule.carcass.hasAdjustableLegs === false
+                ? isWardrobeCat
+                  ? "gable_rails"
+                  : "pedestal_box"
+                : isWardrobeCat
+                ? "pedestal_box"
+                : "adjustable_legs_clip");
+            const defaultSetback =
+              curPlinthType === "adjustable_legs_clip"
+                ? 55
+                : curPlinthType === "pedestal_box"
+                ? 35
+                : 26;
+            const curPlinthSetback = activeModule.carcass.plinthSetbackMm ?? defaultSetback;
+
+            return (
+              <div className="pt-2.5 border-t border-[#EFECE5] space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-xs font-bold text-[#141413]">
+                      Baza (Soket) Konstrüksiyonu
+                    </div>
+                    <div className="text-[10.5px] text-[#78716C]">
+                      Dünya standartlarında taşıyıcı baza ve alt nem contası
+                    </div>
+                  </div>
+                  <span className="font-mono text-xs font-bold text-[#141413]">
+                    {curPlinthH === 0
+                      ? "Bazasız"
+                      : unit === "cm"
+                      ? `${Math.round(curPlinthH / 10)} cm`
+                      : `${curPlinthH} mm`}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-1.5">
+                  {[
+                    {
+                      id: "pedestal_box" as const,
+                      title: "Kutu Baza Kasası",
+                      sub: "4 kenar kapalı + ara kayıt + fitil (Gardırop)",
+                      defSetback: 35,
+                    },
+                    {
+                      id: "adjustable_legs_clip" as const,
+                      title: "Klipsli Ayaklı Baza",
+                      sub: "Axilo ayak + C-klips + su contası (DIN 68935)",
+                      defSetback: 55,
+                    },
+                    {
+                      id: "gable_rails" as const,
+                      title: "Yan Dikme İnişli",
+                      sub: "Zemine inen yanlar + ön/arka çift kayıt",
+                      defSetback: 26,
+                    },
+                    {
+                      id: "none" as const,
+                      title: "Bazasız (0 cm)",
+                      sub: "Zemine sıfır veya duvara askılı",
+                      defSetback: 0,
+                    },
+                  ].map((pOpt) => {
+                    const isAct =
+                      pOpt.id === "none"
+                        ? curPlinthH === 0
+                        : curPlinthH > 0 && curPlinthType === pOpt.id;
+                    return (
+                      <button
+                        key={pOpt.id}
+                        type="button"
+                        data-testid={`simple-plinth-type-${pOpt.id}`}
+                        onClick={() => {
+                          if (pOpt.id === "none") {
+                            onUpdatePlinthConfig({ plinthHeight: 0, hasAdjustableLegs: false });
+                          } else {
+                            onUpdatePlinthConfig({
+                              plinthHeight: curPlinthH > 0 ? curPlinthH : 80,
+                              plinthConstruction: pOpt.id,
+                              plinthSetbackMm: pOpt.defSetback,
+                              hasAdjustableLegs: pOpt.id !== "gable_rails",
+                            });
+                          }
+                        }}
+                        className={`p-2 rounded-xl border text-left transition cursor-pointer ${
+                          isAct
+                            ? "bg-[#141413] text-white border-[#141413]"
+                            : "bg-[#FAF9F6] hover:bg-[#EFECE5] text-[#141413] border-[#DED8CC]"
+                        }`}
+                      >
+                        <div className="text-[11.5px] font-bold leading-tight">{pOpt.title}</div>
+                        <div
+                          className={`text-[10px] mt-0.5 leading-snug ${
+                            isAct ? "text-[#E6D2AE]" : "text-[#78716C]"
+                          }`}
+                        >
+                          {pOpt.sub}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {curPlinthH > 0 && (
+                  <div className="p-2.5 rounded-xl bg-[#FAF9F6] border border-[#DED8CC] space-y-2">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="font-semibold text-[#44403C]">Baza Yüksekliği</span>
+                      <span className="font-mono font-bold text-[#141413]">{curPlinthH} mm</span>
+                    </div>
+                    <div className="grid grid-cols-5 gap-1">
+                      {[60, 80, 100, 120, 150].map((ph) => (
+                        <button
+                          key={ph}
+                          type="button"
+                          onClick={() => onUpdatePlinthConfig({ plinthHeight: ph })}
+                          className={`py-1 rounded-lg text-[11px] font-bold border transition cursor-pointer ${
+                            curPlinthH === ph
+                              ? "bg-[#141413] text-white border-[#141413]"
+                              : "bg-white hover:bg-[#EFECE5] text-[#44403C] border-[#DED8CC]"
+                          }`}
+                        >
+                          {unit === "cm" ? `${ph / 10}cm` : `${ph}`}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="pt-1 space-y-1">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="font-semibold text-[#44403C]">
+                          Ön Girinti (Ayak Boşluğu)
+                        </span>
+                        <span className="font-mono font-bold text-[#141413]">
+                          {curPlinthSetback} mm
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        data-testid="simple-plinth-setback-slider"
+                        min={15}
+                        max={85}
+                        step={1}
+                        value={Math.min(85, Math.max(15, curPlinthSetback))}
+                        onChange={(e) =>
+                          onUpdatePlinthConfig({ plinthSetbackMm: Number(e.target.value) })
+                        }
+                        className="w-full accent-[#141413] h-1.5 bg-[#DED8CC] rounded-lg cursor-pointer"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </section>
       )}
 
@@ -682,7 +859,7 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
           STEP 2: BÖLMELER & İÇ DÜZEN (Spacious 2-Column Cards — Zero Squeezed Text!)
          ======================================================================== */}
       {(showAllSteps || activeStep === "interior") && (
-        <section className="p-3.5 rounded-2xl bg-white border border-[#DED8CC] space-y-3.5">
+        <section className="p-3.5 rounded-2xl bg-white/58 backdrop-blur-xl border border-white/75 shadow-2xs space-y-3.5">
           {/* Compartment Selector Pills */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -1067,7 +1244,7 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
           STEP 3: KAPAK SİSTEMİ, SÜRGÜ MONTAJ MEKANİZMALARI & KULP (Spacious 2-Col!)
          ======================================================================== */}
       {(showAllSteps || activeStep === "door") && (
-        <section className="p-3.5 rounded-2xl bg-white border border-[#DED8CC] space-y-3.5">
+        <section className="p-3.5 rounded-2xl bg-white/58 backdrop-blur-xl border border-white/75 shadow-2xs space-y-3.5">
           <div className="space-y-2">
             <div className="text-xs font-bold text-[#141413]">
               Kapak Açılma Sistemi ({activeBayIndex + 1}. Bölme)
@@ -1283,7 +1460,7 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
       {(showAllSteps || activeStep === "led") && (
         <section
           data-testid="customer-led-studio-section"
-          className="p-3.5 rounded-2xl bg-white border border-[#DED8CC] space-y-3.5"
+          className="p-3.5 rounded-2xl bg-white/58 backdrop-blur-xl border border-white/75 shadow-2xs space-y-3.5"
         >
           {/* Master Toggle Card */}
           <div
@@ -1892,7 +2069,7 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
           STEP 5: MALZEME & RENK KARTELASI (Spacious 2-Column Untruncated Cards!)
          ======================================================================== */}
       {(showAllSteps || activeStep === "material") && (
-        <section className="p-3.5 rounded-2xl bg-white border border-[#DED8CC] space-y-3">
+        <section className="p-3.5 rounded-2xl bg-white/58 backdrop-blur-xl border border-white/75 shadow-2xs space-y-3">
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs font-bold text-[#141413]">Yüzey Seçimi</span>
             <div className="inline-flex rounded-xl bg-[#EFECE5] p-0.5 border border-[#DED8CC]">
@@ -1986,29 +2163,32 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
           <button
             type="button"
             disabled={stepIndex <= 0}
+            title="Önceki Adım"
             onClick={() => stepIndex > 0 && setActiveStep(STEP_ORDER[stepIndex - 1].id)}
-            className="h-9 px-3.5 rounded-xl bg-white hover:bg-[#EFECE5] disabled:opacity-40 border border-[#DED8CC] text-xs font-semibold text-[#141413] inline-flex items-center gap-1.5 transition cursor-pointer"
+            className="w-9 h-9 rounded-xl birim-ice-btn disabled:opacity-35 text-[#141413] inline-flex items-center justify-center transition cursor-pointer"
           >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            <span>Önceki</span>
+            <ArrowLeft className="w-4 h-4" />
+            <span className="sr-only">Önceki</span>
           </button>
 
           {stepIndex < STEP_ORDER.length - 1 ? (
             <button
               type="button"
+              title={`Sonraki: ${STEP_ORDER[stepIndex + 1].shortLabel}`}
               onClick={() => setActiveStep(STEP_ORDER[stepIndex + 1].id)}
-              className="h-9 px-4 rounded-xl bg-[#141413] hover:bg-[#292524] text-white text-xs font-semibold inline-flex items-center gap-1.5 transition cursor-pointer"
+              className="h-9 px-3.5 rounded-xl birim-ice-btn-active text-xs font-semibold inline-flex items-center gap-1.5 transition cursor-pointer"
             >
-              <span>Sonraki: {STEP_ORDER[stepIndex + 1].shortLabel}</span>
+              <span>{STEP_ORDER[stepIndex + 1].shortLabel}</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           ) : (
             <button
               type="button"
+              title="Mimar Detay Moduna Geç"
               onClick={() => onSwitchTier("architect")}
-              className="h-9 px-3.5 rounded-xl bg-[#FAF9F6] hover:bg-[#EFECE5] border border-[#DED8CC] text-xs font-semibold text-[#44403C] inline-flex items-center gap-1.5 transition cursor-pointer"
+              className="h-9 px-3 rounded-xl birim-ice-btn text-xs font-semibold text-[#44403C] inline-flex items-center gap-1.5 transition cursor-pointer"
             >
-              <span>Mimar Detay Modu</span>
+              <span>Mimar</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           )}

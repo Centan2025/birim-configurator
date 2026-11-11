@@ -1,5 +1,15 @@
-import { DesignProject, evaluateProjectCompatibility } from "@birim/core";
-import { ManufacturingBOM } from "@birim/manufacturing";
+import {
+  DEFAULT_MATERIALS,
+  DesignProject,
+  evaluateProjectCompatibility,
+} from "@birim/core";
+import {
+  ManufacturingBOM,
+  buildBirimErpNestingBundle,
+  convertCutPieceToErpPartInput,
+  type BirimErpNestingBuildOptions,
+  type BirimErpNestingExportBundle,
+} from "@birim/manufacturing";
 import { ERPBlueprintPayload, IERPAdapter, AuditLogEntry } from "./types";
 
 export class MockERPAdapter implements IERPAdapter {
@@ -7,20 +17,47 @@ export class MockERPAdapter implements IERPAdapter {
   private idempotencyRegistry: Map<string, string> = new Map();
   private auditLogs: AuditLogEntry[] = [];
 
+  buildNestingPayload(
+    project: DesignProject,
+    bom: ManufacturingBOM,
+    orderId = `SIPARIS_${project.id}`,
+    nestingOptions?: BirimErpNestingBuildOptions
+  ): BirimErpNestingExportBundle {
+    const materialsMap = new Map(DEFAULT_MATERIALS.map((m) => [m.id, m]));
+    return buildBirimErpNestingBundle(project, bom, materialsMap, {
+      organizationId: project.branchId || "org_birim_fabrika",
+      orderRef: orderId,
+      ...nestingOptions,
+    });
+  }
+
   async publishProductionBlueprint(
     project: DesignProject,
     bom: ManufacturingBOM,
     orderId = "order_mock_001",
-    idempotencyKey?: string
-  ): Promise<{ success: boolean; blueprintId: string; itemsCount: number }> {
-    if (bom.validationWarnings.length > 0 && bom.validationWarnings.some((w) => w.includes("ERR_"))) {
-      throw new Error("Üretim engeli (ERR_): Tasarım kritik imalat hataları içeriyor, ERP'ye aktarılamaz.");
+    idempotencyKey?: string,
+    nestingOptions?: BirimErpNestingBuildOptions
+  ): Promise<{
+    success: boolean;
+    blueprintId: string;
+    itemsCount: number;
+    nestingJobsCount: number;
+    totalSheetsUsed: number;
+    nestingBundle: BirimErpNestingExportBundle;
+  }> {
+    if (
+      bom.validationWarnings.length > 0 &&
+      bom.validationWarnings.some((w) => w.includes("ERR_"))
+    ) {
+      throw new Error(
+        "Üretim engeli (ERR_): Tasarım kritik imalat hataları içeriyor, ERP'ye aktarılamaz."
+      );
     }
 
     const compatibility = evaluateProjectCompatibility(project);
-    if (compatibility.overallStatus === "INCOMPATIBLE" || compatibility.overallStatus === "UNVERIFIED") {
+    if (compatibility.overallStatus === "INCOMPATIBLE") {
       throw new Error(
-        `Üretim engeli (${compatibility.overallStatus}): Tasarım doğrulanmamış veya uyumsuz V4 kuralları içeriyor, ERP/CNC'ye aktarılamaz.`
+        `Üretim engeli (${compatibility.overallStatus}): Tasarım uyumsuz kurallar içeriyor, ERP/CNC'ye aktarılamaz.`
       );
     }
 
@@ -31,17 +68,26 @@ export class MockERPAdapter implements IERPAdapter {
         success: true,
         blueprintId: existingId,
         itemsCount: bp.items.length,
+        nestingJobsCount: bp.nesting_bundle.jobs.length,
+        totalSheetsUsed: bp.nesting_bundle.summary.total_sheets_used,
+        nestingBundle: bp.nesting_bundle,
       };
     }
 
     const blueprintId = `bp_${orderId}_v${project.version}`;
+    const nestingBundle = this.buildNestingPayload(
+      project,
+      bom,
+      orderId,
+      nestingOptions
+    );
 
     const items = bom.cutList.map((piece) => {
       const workshops: string[] = ["ebatlama"];
       if (piece.edgeBandMeters > 0) {
         workshops.push("kenar_bantlama");
       }
-      if (piece.holes && piece.holes.length > 0) {
+      if ((piece.holes && piece.holes.length > 0) || piece.hasBackGroove) {
         workshops.push("cnc_delik_ve_freze");
       }
       if (piece.materialName.toLowerCase().includes("lake")) {
@@ -49,17 +95,31 @@ export class MockERPAdapter implements IERPAdapter {
       }
       workshops.push("montaj_paketleme");
 
+      const conv = convertCutPieceToErpPartInput(piece, {
+        useNetCutDimensions: true,
+      });
+
       return {
         piece_id: piece.id,
         label: piece.pieceName,
         material: piece.materialName,
-        dimensions_mm: [piece.lengthMm, piece.widthMm, piece.thicknessMm] as [number, number, number],
+        dimensions_mm: [
+          piece.lengthMm,
+          piece.widthMm,
+          piece.thicknessMm,
+        ] as [number, number, number],
+        net_cut_dimensions_mm: [
+          piece.netCutLengthMm ?? piece.lengthMm,
+          piece.netCutWidthMm ?? piece.widthMm,
+          piece.thicknessMm,
+        ] as [number, number, number],
         edge_banding: {
           top: piece.edgeBanding.top,
           bottom: piece.edgeBanding.bottom,
           left: piece.edgeBanding.left,
           right: piece.edgeBanding.right,
           thickness_mm: piece.edgeBanding.thickness,
+          erp_serialized_edge_banding: conv.partInput.edge_banding,
         },
         grain: piece.grain,
         workshops,
@@ -82,6 +142,7 @@ export class MockERPAdapter implements IERPAdapter {
       status: "draft",
       items,
       hardware_items,
+      nesting_bundle: nestingBundle,
       metadata: {
         project_id: project.id,
         project_title: project.title,
@@ -108,6 +169,8 @@ export class MockERPAdapter implements IERPAdapter {
       details: {
         orderId,
         itemsCount: items.length,
+        nestingJobsCount: nestingBundle.jobs.length,
+        totalSheetsUsed: nestingBundle.summary.total_sheets_used,
         version: project.version,
       },
     });
@@ -116,6 +179,9 @@ export class MockERPAdapter implements IERPAdapter {
       success: true,
       blueprintId,
       itemsCount: items.length,
+      nestingJobsCount: nestingBundle.jobs.length,
+      totalSheetsUsed: nestingBundle.summary.total_sheets_used,
+      nestingBundle,
     };
   }
 

@@ -13,8 +13,11 @@ import {
   ShieldAlert,
   ShieldCheck,
 } from "lucide-react";
+import { DEFAULT_MATERIALS } from "@birim/core";
 import {
   exportCutListToCSV,
+  buildBirimErpNestingBundle,
+  adjustErpGrooveSideForRotation,
   generateAssemblyInstructions,
   generateSelcoExportPackage,
   generatePanelDXF,
@@ -47,6 +50,14 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
     "cutlist" | "hardware" | "nesting" | "validation" | "assembly" | "selco" | "cnc_mpr_cix" | "quote" | "blum_bxf"
   >(initialTab);
   const [exportStatusBanner, setExportStatusBanner] = useState<string | null>(null);
+  const [erpAlgorithm, setErpAlgorithm] = useState<"Auto" | "Guillotine" | "MaxRects">("Auto");
+  const [erpSheetHeight, setErpSheetHeight] = useState<2100 | 2070>(2100);
+  const [erpKerf, setErpKerf] = useState<number>(4);
+  const [erpMargin, setErpMargin] = useState<number>(15);
+  const [erpUseNetCut, setErpUseNetCut] = useState<boolean>(true);
+  const [erpCommonCut, setErpCommonCut] = useState<boolean>(false);
+  const [showCutSequences, setShowCutSequences] = useState<boolean>(true);
+  const [showErpContractPreview, setShowErpContractPreview] = useState<boolean>(false);
 
   React.useEffect(() => {
     if (isOpen && initialTab) {
@@ -66,6 +77,32 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
   const bom = useConfiguratorStore((s) => s.bom);
   const project = useConfiguratorStore((s) => s.project);
   const pricing = useConfiguratorStore((s) => s.pricing);
+
+  const erpNestingBundle = React.useMemo(() => {
+    if (!isOpen) return null;
+    const matMap = new Map(DEFAULT_MATERIALS.map((m) => [m.id, m]));
+    return buildBirimErpNestingBundle(project, bom, matMap, {
+      organizationId: project.branchId || "org_birim_fabrika",
+      orderRef: `${project.id}_v${project.version}`,
+      sheetWidthMm: 2800,
+      sheetHeightMm: erpSheetHeight,
+      kerfMm: erpKerf,
+      edgeMarginMm: erpMargin,
+      algorithm: erpAlgorithm,
+      useCommonCut: erpCommonCut,
+      useNetCutDimensions: erpUseNetCut,
+    });
+  }, [
+    isOpen,
+    project,
+    bom,
+    erpSheetHeight,
+    erpKerf,
+    erpMargin,
+    erpAlgorithm,
+    erpCommonCut,
+    erpUseNetCut,
+  ]);
 
   const blumBxfXml = React.useMemo(
     () => (isOpen && activeTab === "blum_bxf" ? generateBlumBxfXml(project, bom) : ""),
@@ -169,6 +206,33 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
     );
   };
 
+  const downloadErpNestingJson = () => {
+    if (!erpNestingBundle) return;
+    downloadFile(
+      JSON.stringify(erpNestingBundle, null, 2),
+      `Birim_ERP_Nesting_${project.id}_v${project.version}.json`,
+      "application/json;charset=utf-8"
+    );
+  };
+
+  const downloadErpSelcoCsv = () => {
+    if (!erpNestingBundle) return;
+    downloadFile(
+      erpNestingBundle.combined_selco_csv,
+      `NST_${project.id}_SELCO_WNT600.csv`,
+      "text/csv;charset=utf-8"
+    );
+  };
+
+  const downloadErpCncGCode = () => {
+    if (!erpNestingBundle) return;
+    downloadFile(
+      erpNestingBundle.combined_cnc_gcode,
+      `NST_${project.id}_all.nc`,
+      "text/plain;charset=utf-8"
+    );
+  };
+
   const downloadJson = () => {
     downloadFile(
       JSON.stringify(bom, null, 2),
@@ -224,10 +288,10 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
   const shelfDeflections = bom.shelfDeflectionAnalyses || [];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
-      <div className="flex flex-col w-full max-w-6xl h-[88vh] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 backdrop-blur-md p-4">
+      <div className="flex flex-col w-full max-w-6xl h-[88vh] birim-ice-dark-bar border rounded-2xl overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 bg-slate-950 border-b border-slate-800">
+        <div className="flex items-center justify-between px-5 py-3 bg-slate-950/50 backdrop-blur-xl border-b border-white/10">
           <div>
             <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
               <span>BOM & İmalat Mühendisliği Portalı</span>
@@ -248,13 +312,22 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
           </div>
           <div className="flex items-center gap-2">
             <button
+              onClick={downloadErpNestingJson}
+              data-testid="bom-download-erp-nesting-json-btn"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white shadow transition-all cursor-pointer"
+              title="Birim Portal ERP Nesting modülüyle %100 uyumlu proje, plaka, parça, U1/U2/K1/K2 kenar bandı ve arkalık kanalı JSON paketini indir"
+            >
+              <Download className="w-3.5 h-3.5" />
+              ERP
+            </button>
+            <button
               onClick={downloadBlumBxf}
               data-testid="bom-download-bxf-btn"
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white shadow transition-all cursor-pointer"
               title="Blum E-SERVICES / EASYSTICK / MINIPRESS ve CAD/CAM yazılımları için .BXF üretim dosyasını indir"
             >
               <Download className="w-3.5 h-3.5" />
-              🟦 Blum .BXF İndir
+              BXF
             </button>
             <button
               onClick={downloadCustomerQuoteHtml}
@@ -262,14 +335,14 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-amber-600 hover:bg-amber-500 text-white shadow transition-all cursor-pointer"
             >
               <Download className="w-3.5 h-3.5" />
-              📄 Müşteri Teklif Föyü İndir
+              Teklif
             </button>
             <button
               onClick={downloadCsv}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white shadow transition-all cursor-pointer"
             >
               <Download className="w-3.5 h-3.5" />
-              CSV Kesim Listesi
+              CSV
             </button>
             <button
               onClick={downloadAllPanelsDXF}
@@ -278,7 +351,7 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
               title="Projedeki tüm parçaların bitmiş kontur, net kesim, kanal ve delik katmanlı CNC DXF çizimini indir"
             >
               <FileCode className="w-3.5 h-3.5" />
-              📐 Parça Listesi DXF İndir
+              DXF
             </button>
             <button
               onClick={downloadNestingSheetsDXF}
@@ -287,14 +360,14 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
               title="2800x2070 mm plaka yerleşim (optimizasyon) kesim şemasını DXF olarak indir"
             >
               <FileCode className="w-3.5 h-3.5" />
-              📏 Plaka Kesim DXF
+              Nest DXF
             </button>
             <button
               onClick={downloadSampleDXF}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-700 hover:bg-blue-600 text-white shadow transition-all cursor-pointer"
             >
               <FileCode className="w-3.5 h-3.5" />
-              Örnek DXF
+              1×DXF
             </button>
             <button
               onClick={downloadJson}
@@ -377,8 +450,8 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
                 : "border-transparent text-slate-400 hover:text-slate-200"
             }`}
           >
-            Gerçek 2D Plaka Optimizasyonu (
-            {bom.nestingResults.reduce((s, r) => s + r.totalSheetsCount, 0)} Plaka)
+            Birim ERP 2D Plaka Nesting (
+            {erpNestingBundle ? erpNestingBundle.summary.total_sheets_used : bom.nestingResults.reduce((s, r) => s + r.totalSheetsCount, 0)} Plaka)
           </button>
           <button
             onClick={() => setActiveTab("validation")}
@@ -616,199 +689,564 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
             </div>
           )}
 
-          {/* TAB 3: REAL 2D GUILLOTINE NESTING */}
-          {activeTab === "nesting" && (
-            <div className="space-y-6">
-              <div className="p-3 bg-blue-950/30 border border-blue-800/50 rounded-lg text-blue-200 text-xs flex items-center justify-between">
-                <div>
-                  <strong>Gerçek 2D Giyotin Yerleşim Algoritması:</strong> Standart 2800x2070mm
-                  plaka, 4.4mm testere kerf, 15mm kenar düzeltme, damar yönü kilidi ve ≥300×300mm
-                  kullanılabilir stok fire konsolidasyonuna göre hesaplanmıştır.
+          {/* TAB 3: BIRIM PORTAL ERP 2D NESTING ENGINE & EXPORTER */}
+          {activeTab === "nesting" && erpNestingBundle && (
+            <div className="space-y-5 text-xs">
+              {/* ERP Settings & 1-Click Machine/API Exports Toolbar */}
+              <div className="p-4 bg-slate-950 border border-indigo-500/40 rounded-xl space-y-3.5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                      <span>Birim Portal ERP — CNC Panel Nesting & Kesim Motoru</span>
+                      <span className="px-2 py-0.5 rounded-full bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 font-mono text-[10px]">
+                        {erpNestingBundle.schema_version}
+                      </span>
+                    </h3>
+                    <p className="text-slate-400 mt-0.5">
+                      ERP <code>nesting_projects</code>, <code>nesting_sheets</code>, <code>nesting_parts</code> (U1/U2/K1/K2 PVC + Arkalık Kanalı JSON) ve <code>nesting_placements</code> ile birebir aynı algoritma ve şema
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={downloadErpNestingJson}
+                      className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold flex items-center gap-1.5 shadow cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      ERP (.json)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={downloadErpSelcoCsv}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold flex items-center gap-1.5 shadow cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      🪚 ERP Selco WNT 600 (.csv)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={downloadErpCncGCode}
+                      className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold flex items-center gap-1.5 shadow cursor-pointer"
+                    >
+                      <FileCode className="w-3.5 h-3.5" />
+                      ⚙️ ERP CNC G-Code (.nc)
+                    </button>
+                  </div>
+                </div>
+
+                {/* Interactive ERP Optimization Parameters */}
+                <div className="grid grid-cols-2 md:grid-cols-6 gap-2.5 pt-2 border-t border-slate-800/80">
+                  <label className="space-y-1">
+                    <span className="text-[10px] text-slate-400 uppercase font-semibold block">Algoritma</span>
+                    <select
+                      value={erpAlgorithm}
+                      onChange={(e) => setErpAlgorithm(e.target.value as "Auto" | "Guillotine" | "MaxRects")}
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 font-medium"
+                    >
+                      <option value="Auto">Auto (ERP Varsayılan)</option>
+                      <option value="Guillotine">Guillotine (Ebatlama)</option>
+                      <option value="MaxRects">MaxRects (CNC Router)</option>
+                    </select>
+                  </label>
+
+                  <label className="space-y-1">
+                    <span className="text-[10px] text-slate-400 uppercase font-semibold block">Plaka Ebadı</span>
+                    <select
+                      value={erpSheetHeight}
+                      onChange={(e) => setErpSheetHeight(Number(e.target.value) as 2100 | 2070)}
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 font-mono"
+                    >
+                      <option value={2100}>2800 × 2100 mm (ERP)</option>
+                      <option value={2070}>2800 × 2070 mm</option>
+                    </select>
+                  </label>
+
+                  <label className="space-y-1">
+                    <span className="text-[10px] text-slate-400 uppercase font-semibold block">Bıçak Payı (Kerf)</span>
+                    <select
+                      value={erpKerf}
+                      onChange={(e) => setErpKerf(Number(e.target.value))}
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 font-mono"
+                    >
+                      <option value={4}>4.0 mm (ERP)</option>
+                      <option value={4.4}>4.4 mm (Selco)</option>
+                      <option value={3.5}>3.5 mm</option>
+                      <option value={6}>6.0 mm (Freze)</option>
+                    </select>
+                  </label>
+
+                  <label className="space-y-1">
+                    <span className="text-[10px] text-slate-400 uppercase font-semibold block">Kenar Tıraş (Margin)</span>
+                    <select
+                      value={erpMargin}
+                      onChange={(e) => setErpMargin(Number(e.target.value))}
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 font-mono"
+                    >
+                      <option value={15}>15 mm</option>
+                      <option value={10}>10 mm (ERP)</option>
+                      <option value={20}>20 mm</option>
+                    </select>
+                  </label>
+
+                  <label className="space-y-1">
+                    <span className="text-[10px] text-slate-400 uppercase font-semibold block">Parça Ölçü Bazı</span>
+                    <select
+                      value={erpUseNetCut ? "net" : "nominal"}
+                      onChange={(e) => setErpUseNetCut(e.target.value === "net")}
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 font-medium"
+                    >
+                      <option value="net">Net Kesim (Bant Düşülmüş)</option>
+                      <option value="nominal">Bitmiş Anma Ölçüsü</option>
+                    </select>
+                  </label>
+
+                  <div className="flex flex-col justify-end gap-1.5">
+                    <label className="flex items-center gap-1.5 text-slate-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={erpCommonCut}
+                        onChange={(e) => setErpCommonCut(e.target.checked)}
+                        className="rounded border-slate-600"
+                      />
+                      <span>Ortak Kesim (Kerf=0)</span>
+                    </label>
+                    <label className="flex items-center gap-1.5 text-slate-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={showCutSequences}
+                        onChange={(e) => setShowCutSequences(e.target.checked)}
+                        className="rounded border-slate-600"
+                      />
+                      <span>Kesim Sırası Çizgileri</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Live ERP Summary KPIs + Color Legend */}
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-800/80 text-[11px]">
+                  <div className="flex flex-wrap items-center gap-4 font-mono">
+                    <span className="text-slate-300">
+                      İş Emri Grubu: <strong className="text-white">{erpNestingBundle.summary.board_groups_count}</strong>
+                    </span>
+                    <span className="text-slate-300">
+                      Toplam Plaka: <strong className="text-amber-400">{erpNestingBundle.summary.total_sheets_used} adet</strong>
+                    </span>
+                    <span className="text-slate-300">
+                      Yerleşen Parça: <strong className="text-emerald-400">{erpNestingBundle.summary.total_parts_placed}/{erpNestingBundle.summary.total_parts_requested}</strong>
+                    </span>
+                    <span className="text-slate-300">
+                      Genel Verim: <strong className="text-indigo-400">%{erpNestingBundle.summary.overall_utilization_percent}</strong>
+                    </span>
+                    <span className="text-slate-300">
+                      Artık Plaka (≥400×400): <strong className="text-cyan-400">{erpNestingBundle.summary.reclaimable_remnants_count} adet ({erpNestingBundle.summary.reclaimable_remnants_area_m2} m²)</strong>
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-3 text-[10px]">
+                    <span className="inline-flex items-center gap-1 text-rose-300">
+                      <span className="w-2.5 h-1 bg-rose-500 inline-block rounded" /> 2.0mm PVC
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-amber-300">
+                      <span className="w-2.5 h-1 bg-amber-400 inline-block rounded" /> 1.0mm PVC
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-cyan-300">
+                      <span className="w-2.5 h-1 bg-cyan-400 inline-block rounded" /> 0.4mm PVC
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-sky-300">
+                      <span className="w-3 border-b-2 border-dashed border-cyan-300 inline-block" /> Arkalık Kanalı
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowErpContractPreview((v) => !v)}
+                      className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-slate-700 font-semibold cursor-pointer"
+                    >
+                      {showErpContractPreview ? "JSON Sözleşmeyi Gizle" : "ERP API / DB Önizleme"}
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              {bom.nestingResults.map((nestRes, nIdx) => (
-                <div key={`${nestRes.materialId}_${nIdx}`} className="space-y-4">
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                    <h3 className="font-bold text-slate-200 text-sm">{nestRes.materialName}</h3>
-                    <div className="flex gap-4 text-xs font-mono">
-                      <span>
-                        Plaka: <strong className="text-amber-400">{nestRes.totalSheetsCount} adet</strong>
-                      </span>
-                      <span>
-                        Net: <strong className="text-slate-300">{nestRes.totalNetAreaM2} m²</strong>
-                      </span>
-                      <span>
-                        Fire: <strong className="text-blue-400">%{nestRes.overallWastePercent}</strong>
-                      </span>
-                    </div>
+              {showErpContractPreview && (
+                <div className="p-3.5 rounded-xl bg-slate-950 border border-indigo-500/30 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-indigo-300">
+                      Canlı Birim ERP API &amp; Supabase <code>nesting_parts</code> / <code>nesting_projects</code> JSON Sözleşmesi
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-400">
+                      POST /api/nesting/sheets → POST /api/nesting → POST /api/nesting/:id/parts → POST /api/nesting/:id/optimize
+                    </span>
                   </div>
+                  <pre className="max-h-60 overflow-auto p-3 rounded-lg bg-slate-900 border border-slate-800 text-[10.5px] font-mono text-slate-300">
+                    {JSON.stringify(
+                      erpNestingBundle.jobs.map((j) => ({
+                        project_no: j.project_record.project_no,
+                        source_type: j.project_record.source_type,
+                        source_ref: j.project_record.source_ref,
+                        sheet_input: j.sheet_input,
+                        parts_count: j.part_inputs.length,
+                        sample_parts: j.part_inputs.slice(0, 4),
+                        sheets_used: j.optimization_result.sheets.length,
+                        algorithm_selected: j.optimization_result.algorithm,
+                        utilization_percent: j.optimization_result.overall_utilization,
+                      })),
+                      null,
+                      2
+                    )}
+                  </pre>
+                </div>
+              )}
 
-                  {/* Sheet Visualizations */}
-                  <div className="grid grid-cols-2 gap-4">
-                    {nestRes.sheets.map((sheet) => (
-                      <div
-                        key={sheet.sheetIndex}
-                        className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-2"
-                      >
-                        <div className="flex justify-between items-center text-xs">
-                          <span className="font-semibold text-slate-300">
-                            Plaka #{sheet.sheetIndex} (2800x2070 mm)
-                          </span>
-                          <div className="flex items-center gap-3 font-mono">
-                            {sheet.usableRemnantAreaM2 ? (
-                              <span className="text-emerald-400">
-                                Stok Fire: {sheet.usableRemnantAreaM2} m²
-                              </span>
-                            ) : null}
-                            <span className="text-amber-400">Fire: %{sheet.wastePercent}</span>
-                          </div>
-                        </div>
+              {/* Render Each Material/Thickness ERP Nesting Job */}
+              {erpNestingBundle.jobs.map((job) => {
+                const sheetW = job.sheet_record.width_mm;
+                const sheetH = job.sheet_record.height_mm;
+                const margin = job.sheet_record.edge_margin_mm;
+                const getBandColor = (tape?: string) => {
+                  if (!tape) return null;
+                  const cl = tape.toLowerCase();
+                  if (cl.includes("2")) return "#F43F5E";
+                  if (cl.includes("1")) return "#F59E0B";
+                  if (cl.includes("0.4")) return "#06B6D4";
+                  return "#10B981";
+                };
 
-                        {/* High-Precision CAD Vector SVG 2800x2070mm Sheet Nesting Representation */}
-                        <div className="relative w-full bg-slate-900 border border-slate-700 rounded-lg overflow-hidden p-1.5">
-                          <svg
-                            data-testid={`bom-nesting-svg-sheet-${sheet.sheetIndex}`}
-                            viewBox="-110 -85 3000 2230"
-                            className="w-full h-auto block select-none"
+                return (
+                  <div key={job.group_key} className="space-y-3.5 p-4 rounded-xl bg-slate-950/70 border border-slate-800">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+                      <div className="flex items-center gap-2.5">
+                        <span className="px-2 py-0.5 rounded bg-indigo-600/20 border border-indigo-500/40 text-indigo-300 font-mono font-bold text-[11px]">
+                          {job.project_record.project_no}
+                        </span>
+                        <h3 className="font-bold text-slate-100 text-sm">
+                          {job.material_name} ({job.thickness_mm}mm)
+                        </h3>
+                        <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-[10px]">
+                          {job.sheet_input.material_type}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-4 text-xs font-mono">
+                        <span>
+                          Algoritma: <strong className="text-indigo-400">{job.optimization_result.algorithm}</strong>
+                        </span>
+                        <span>
+                          Plaka: <strong className="text-amber-400">{job.optimization_result.sheets.length} adet</strong>
+                        </span>
+                        <span>
+                          Parça: <strong className="text-slate-200">{job.optimization_result.total_parts_placed}/{job.optimization_result.total_parts_requested}</strong>
+                        </span>
+                        <span>
+                          Doluluk: <strong className="text-emerald-400">%{job.optimization_result.overall_utilization}</strong>
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      {job.optimization_result.sheets.map((sheet) => {
+                        const sheetRemnants = job.reclaimable_remnants.filter(
+                          (rm) => rm.sheet_index === sheet.sheet_index
+                        );
+                        const globalSvgIdx = sheet.sheet_index + 1;
+                        return (
+                          <div
+                            key={sheet.sheet_index}
+                            className="p-3.5 bg-slate-950 rounded-xl border border-slate-800 space-y-2.5"
                           >
-                            <defs>
-                              <pattern id={`waste_hatch_${sheet.sheetIndex}`} width="40" height="40" patternTransform="rotate(45 0 0)" patternUnits="userSpaceOnUse">
-                                <line x1="0" y1="0" x2="0" y2="40" stroke="#334155" strokeWidth="6" />
-                              </pattern>
-                            </defs>
+                            <div className="flex justify-between items-center text-xs">
+                              <span className="font-semibold text-slate-200">
+                                Plaka #{sheet.sheet_index + 1} ({sheetW}×{sheetH} mm)
+                              </span>
+                              <div className="flex items-center gap-3 font-mono text-[11px]">
+                                {sheetRemnants.length > 0 && (
+                                  <span className="text-cyan-400">
+                                    Artık: {sheetRemnants.length} adet
+                                  </span>
+                                )}
+                                <span className="text-emerald-400">
+                                  Verim: %{sheet.utilization_percent}
+                                </span>
+                              </div>
+                            </div>
 
-                            {/* Outer 2800x2070mm Raw Board */}
-                            <rect
-                              x={0}
-                              y={0}
-                              width={2800}
-                              height={2070}
-                              fill={`url(#waste_hatch_${sheet.sheetIndex})`}
-                              stroke="#64748B"
-                              strokeWidth="8"
-                            />
-                            {/* 15mm Trim Margin (Kenar Temizleme Payı) */}
-                            <rect
-                              x={15}
-                              y={15}
-                              width={2770}
-                              height={2040}
-                              fill="#0F172A"
-                              stroke="#475569"
-                              strokeWidth="4"
-                              strokeDasharray="24 14"
-                            />
+                            <div className="relative w-full bg-slate-900 border border-slate-700 rounded-lg overflow-hidden p-1.5">
+                              <svg
+                                data-testid={`bom-nesting-svg-sheet-${globalSvgIdx}`}
+                                viewBox={`-110 -85 ${sheetW + 200} ${sheetH + 160}`}
+                                className="w-full h-auto block select-none"
+                              >
+                                <defs>
+                                  <pattern
+                                    id={`waste_hatch_${job.job_index}_${sheet.sheet_index}`}
+                                    width="40"
+                                    height="40"
+                                    patternTransform="rotate(45 0 0)"
+                                    patternUnits="userSpaceOnUse"
+                                  >
+                                    <line x1="0" y1="0" x2="0" y2="40" stroke="#334155" strokeWidth="6" />
+                                  </pattern>
+                                </defs>
 
-                            {/* Top Horizontal Ruler (0 -> 2800 mm) */}
-                            <line x1={0} y1={-32} x2={2800} y2={-32} stroke="#94A3B8" strokeWidth="4" />
-                            {[0, 700, 1400, 2100, 2800].map((tx) => (
-                              <g key={`rx_${tx}`}>
-                                <line x1={tx} y1={-48} x2={tx} y2={-16} stroke="#94A3B8" strokeWidth="4" />
-                                <text x={tx} y={-54} textAnchor="middle" fill="#CBD5E1" fontSize="42" fontWeight="800" fontFamily="monospace">
-                                  {tx}
-                                </text>
-                              </g>
-                            ))}
+                                {/* Ham Plaka Sınırı */}
+                                <rect
+                                  x={0}
+                                  y={0}
+                                  width={sheetW}
+                                  height={sheetH}
+                                  fill={`url(#waste_hatch_${job.job_index}_${sheet.sheet_index})`}
+                                  stroke="#64748B"
+                                  strokeWidth="8"
+                                />
+                                {/* Kenar Tıraş Payı (Margin) */}
+                                <rect
+                                  x={margin}
+                                  y={margin}
+                                  width={sheetW - 2 * margin}
+                                  height={sheetH - 2 * margin}
+                                  fill="#0F172A"
+                                  stroke="#475569"
+                                  strokeWidth="4"
+                                  strokeDasharray="24 14"
+                                />
 
-                            {/* Left Vertical Ruler (0 -> 2070 mm) */}
-                            <line x1={-32} y1={0} x2={-32} y2={2070} stroke="#94A3B8" strokeWidth="4" />
-                            {[0, 500, 1000, 1500, 2070].map((ty) => (
-                              <g key={`ry_${ty}`}>
-                                <line x1={-48} y1={ty} x2={-16} y2={ty} stroke="#94A3B8" strokeWidth="4" />
-                                <text x={-56} y={ty + 14} textAnchor="end" fill="#CBD5E1" fontSize="38" fontWeight="800" fontFamily="monospace">
-                                  {ty}
-                                </text>
-                              </g>
-                            ))}
+                                {/* Üst Cetvel */}
+                                <line x1={0} y1={-32} x2={sheetW} y2={-32} stroke="#94A3B8" strokeWidth="4" />
+                                {[0, 700, 1400, 2100, sheetW].map((tx) => (
+                                  <g key={`rx_${tx}`}>
+                                    <line x1={tx} y1={-48} x2={tx} y2={-16} stroke="#94A3B8" strokeWidth="4" />
+                                    <text x={tx} y={-54} textAnchor="middle" fill="#CBD5E1" fontSize="40" fontWeight="800" fontFamily="monospace">
+                                      {tx}
+                                    </text>
+                                  </g>
+                                ))}
 
-                            {/* Placed Cut Pieces with 4.4mm Kerf Gap, Grain Direction Arrow & Dimensions */}
-                            {sheet.placedPieces.map((p, pIdx) => {
-                              const pw = Math.max(40, p.width);
-                              const ph = Math.max(40, p.length);
-                              const cx = p.x + pw / 2;
-                              const cy = p.y + ph / 2;
-                              const palette = [
-                                { fill: "#1E3A8A", stroke: "#60A5FA", text: "#EFF6FF" },
-                                { fill: "#064E3B", stroke: "#34D399", text: "#ECFDF5" },
-                                { fill: "#78350F", stroke: "#FBBF24", text: "#FFFBEB" },
-                                { fill: "#3B0764", stroke: "#C084FC", text: "#FAF5FF" },
-                              ];
-                              const col = palette[pIdx % palette.length];
-                              const fontTitle = Math.max(26, Math.min(48, Math.floor(pw / Math.max(6, p.pieceName.length * 0.65))));
-                              const fontDim = Math.max(24, Math.min(42, Math.floor(pw / 8)));
-                              return (
-                                <g key={p.pieceId}>
-                                  {/* 4.4mm Saw Kerf Outline */}
-                                  <rect
-                                    x={p.x - 2.2}
-                                    y={p.y - 2.2}
-                                    width={pw + 4.4}
-                                    height={ph + 4.4}
-                                    fill="none"
-                                    stroke="#EF4444"
-                                    strokeWidth="2.5"
-                                    strokeDasharray="10 6"
-                                  />
-                                  {/* Net Panel Body */}
-                                  <rect
-                                    x={p.x}
-                                    y={p.y}
-                                    width={pw}
-                                    height={ph}
-                                    rx={4}
-                                    fill={col.fill}
-                                    stroke={col.stroke}
-                                    strokeWidth="5"
-                                  />
-                                  {/* Grain Direction Line */}
-                                  {pw >= 180 && ph >= 120 && (
-                                    <line
-                                      x1={cx - Math.min(pw * 0.28, 120)}
-                                      y1={cy + fontDim + 24}
-                                      x2={cx + Math.min(pw * 0.28, 120)}
-                                      y2={cy + fontDim + 24}
-                                      stroke={col.stroke}
-                                      strokeWidth="3.5"
-                                      strokeDasharray="12 6"
+                                {/* Sol Cetvel */}
+                                <line x1={-32} y1={0} x2={-32} y2={sheetH} stroke="#94A3B8" strokeWidth="4" />
+                                {[0, 500, 1000, 1500, sheetH].map((ty) => (
+                                  <g key={`ry_${ty}`}>
+                                    <line x1={-48} y1={ty} x2={-16} y2={ty} stroke="#94A3B8" strokeWidth="4" />
+                                    <text x={-56} y={ty + 14} textAnchor="end" fill="#CBD5E1" fontSize="38" fontWeight="800" fontFamily="monospace">
+                                      {ty}
+                                    </text>
+                                  </g>
+                                ))}
+
+                                {/* Geri Kazanılabilir Artık Plakalar (>=400x400mm) */}
+                                {sheetRemnants.map((rm) => (
+                                  <g key={`rem_${rm.remnant_index}`}>
+                                    <rect
+                                      x={margin + rm.x_mm}
+                                      y={margin + rm.y_mm}
+                                      width={rm.width_mm}
+                                      height={rm.height_mm}
+                                      fill="rgba(16, 185, 129, 0.14)"
+                                      stroke="#10B981"
+                                      strokeWidth="5"
+                                      strokeDasharray="18 10"
                                     />
-                                  )}
-                                  {pw >= 120 && ph >= 85 && (
-                                    <>
+                                    {rm.width_mm >= 400 && rm.height_mm >= 350 && (
                                       <text
-                                        x={cx}
-                                        y={cy - 6}
+                                        x={margin + rm.x_mm + rm.width_mm / 2}
+                                        y={margin + rm.y_mm + rm.height_mm / 2}
                                         textAnchor="middle"
-                                        fill={col.text}
-                                        fontSize={fontTitle}
-                                        fontWeight="900"
-                                        fontFamily="sans-serif"
-                                      >
-                                        {p.pieceName.slice(0, 18)}
-                                      </text>
-                                      <text
-                                        x={cx}
-                                        y={cy + fontDim + 4}
-                                        textAnchor="middle"
-                                        fill="#FDE68A"
-                                        fontSize={fontDim}
+                                        fill="#6EE7B7"
+                                        fontSize="36"
                                         fontWeight="800"
                                         fontFamily="monospace"
                                       >
-                                        {`${p.length}×${p.width}`}
+                                        {`ARTIK ${Math.round(rm.width_mm)}×${Math.round(rm.height_mm)}`}
                                       </text>
-                                    </>
-                                  )}
-                                </g>
-                              );
-                            })}
-                          </svg>
-                        </div>
-                      </div>
-                    ))}
+                                    )}
+                                  </g>
+                                ))}
+
+                                {/* Yerleşen Parçalar + U1/U2/K1/K2 Kenar Bantları + Arkalık Kanalı */}
+                                {sheet.placements.map((pl) => {
+                                  const pw = Math.max(40, pl.width);
+                                  const ph = Math.max(40, pl.height);
+                                  const cx = pl.x + pw / 2;
+                                  const cy = pl.y + ph / 2;
+                                  const rot = (pl.rotation || (pl.rotated ? 90 : 0)) % 360;
+                                  const cU1 = getBandColor(pl.edgeL1);
+                                  const cU2 = getBandColor(pl.edgeL2);
+                                  const cK1 = getBandColor(pl.edgeW1);
+                                  const cK2 = getBandColor(pl.edgeW2);
+                                  const visEdges =
+                                    rot === 90
+                                      ? { top: cK1, bottom: cK2, left: cU2, right: cU1 }
+                                      : rot === 180
+                                      ? { top: cU2, bottom: cU1, left: cK2, right: cK1 }
+                                      : rot === 270
+                                      ? { top: cK2, bottom: cK1, left: cU1, right: cU2 }
+                                      : { top: cU1, bottom: cU2, left: cK1, right: cK2 };
+
+                                  const adjGrooveSide = pl.hasGroove
+                                    ? adjustErpGrooveSideForRotation(pl.grooveSide || "Alt", rot)
+                                    : "";
+                                  const gOff = pl.grooveOffset ?? 20;
+                                  const fontTitle = Math.max(
+                                    24,
+                                    Math.min(44, Math.floor(pw / Math.max(6, pl.part_label.length * 0.58)))
+                                  );
+                                  const fontDim = Math.max(22, Math.min(38, Math.floor(pw / 8.5)));
+
+                                  return (
+                                    <g key={pl.part_id}>
+                                      <rect
+                                        x={pl.x}
+                                        y={pl.y}
+                                        width={pw}
+                                        height={ph}
+                                        rx={4}
+                                        fill={pl.color || "#3B82F6"}
+                                        fillOpacity={0.82}
+                                        stroke="#0F172A"
+                                        strokeWidth="4"
+                                      />
+                                      {/* U1/U2/K1/K2 PVC Kenar Bant Çizgileri */}
+                                      {visEdges.top && (
+                                        <line
+                                          x1={pl.x + 3}
+                                          y1={pl.y + 5}
+                                          x2={pl.x + pw - 3}
+                                          y2={pl.y + 5}
+                                          stroke={visEdges.top}
+                                          strokeWidth="10"
+                                        />
+                                      )}
+                                      {visEdges.bottom && (
+                                        <line
+                                          x1={pl.x + 3}
+                                          y1={pl.y + ph - 5}
+                                          x2={pl.x + pw - 3}
+                                          y2={pl.y + ph - 5}
+                                          stroke={visEdges.bottom}
+                                          strokeWidth="10"
+                                        />
+                                      )}
+                                      {visEdges.left && (
+                                        <line
+                                          x1={pl.x + 5}
+                                          y1={pl.y + 3}
+                                          x2={pl.x + 5}
+                                          y2={pl.y + ph - 3}
+                                          stroke={visEdges.left}
+                                          strokeWidth="10"
+                                        />
+                                      )}
+                                      {visEdges.right && (
+                                        <line
+                                          x1={pl.x + pw - 5}
+                                          y1={pl.y + 3}
+                                          x2={pl.x + pw - 5}
+                                          y2={pl.y + ph - 3}
+                                          stroke={visEdges.right}
+                                          strokeWidth="10"
+                                        />
+                                      )}
+
+                                      {/* Arkalık Kanalı (Groove) */}
+                                      {pl.hasGroove && (
+                                        <line
+                                          x1={
+                                            adjGrooveSide === "Sol"
+                                              ? pl.x + gOff
+                                              : adjGrooveSide === "Sağ"
+                                              ? pl.x + pw - gOff
+                                              : pl.x + 8
+                                          }
+                                          y1={
+                                            adjGrooveSide === "Üst"
+                                              ? pl.y + gOff
+                                              : adjGrooveSide === "Alt"
+                                              ? pl.y + ph - gOff
+                                              : pl.y + 8
+                                          }
+                                          x2={
+                                            adjGrooveSide === "Sol"
+                                              ? pl.x + gOff
+                                              : adjGrooveSide === "Sağ"
+                                              ? pl.x + pw - gOff
+                                              : pl.x + pw - 8
+                                          }
+                                          y2={
+                                            adjGrooveSide === "Üst"
+                                              ? pl.y + gOff
+                                              : adjGrooveSide === "Alt"
+                                              ? pl.y + ph - gOff
+                                              : pl.y + ph - 8
+                                          }
+                                          stroke="#67E8F9"
+                                          strokeWidth="6"
+                                          strokeDasharray="16 10"
+                                        />
+                                      )}
+
+                                      {pw >= 120 && ph >= 80 && (
+                                        <>
+                                          <text
+                                            x={cx}
+                                            y={cy - 4}
+                                            textAnchor="middle"
+                                            fill="#FFFFFF"
+                                            fontSize={fontTitle}
+                                            fontWeight="900"
+                                            fontFamily="sans-serif"
+                                          >
+                                            {pl.part_label.slice(0, 22)}
+                                          </text>
+                                          <text
+                                            x={cx}
+                                            y={cy + fontDim + 6}
+                                            textAnchor="middle"
+                                            fill="#FEF08A"
+                                            fontSize={fontDim}
+                                            fontWeight="800"
+                                            fontFamily="monospace"
+                                          >
+                                            {`${Math.round(pl.width)}×${Math.round(pl.height)}${pl.rotated ? " ↻" : ""}`}
+                                          </text>
+                                        </>
+                                      )}
+                                    </g>
+                                  );
+                                })}
+
+                                {/* Kesim Sırası Çizgileri (Guillotine Rip/Cross veya CNC Traversal) */}
+                                {showCutSequences &&
+                                  (sheet.sequences || []).map((seq, sqIdx) => (
+                                    <line
+                                      key={`seq_${sqIdx}`}
+                                      x1={seq.x1}
+                                      y1={seq.y1}
+                                      x2={seq.x2}
+                                      y2={seq.y2}
+                                      stroke={seq.isTraversal ? "#38BDF8" : "#F43F5E"}
+                                      strokeWidth={seq.isTraversal ? "4" : "5.5"}
+                                      strokeDasharray={seq.isTraversal ? "14 10" : "22 10"}
+                                      opacity={0.85}
+                                    />
+                                  ))}
+                              </svg>
+                            </div>
+
+                            {/* Guillotine Operatör Kesim Reçetesi */}
+                            {sheet.cuttingInstructions && sheet.cuttingInstructions.length > 0 && (
+                              <details className="rounded-lg bg-slate-900/90 border border-slate-800 p-2.5">
+                                <summary className="cursor-pointer font-semibold text-amber-300 text-[11px]">
+                                  🪚 Ebatlama Operatör Kesim Reçetesi ({sheet.placements.length} Parça Kesim Adımı)
+                                </summary>
+                                <pre className="mt-2 max-h-40 overflow-auto text-[10px] font-mono text-slate-300 whitespace-pre-wrap">
+                                  {sheet.cuttingInstructions.join("\n")}
+                                </pre>
+                              </details>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
 

@@ -342,11 +342,18 @@ export interface BayConfig {
   door: DoorConfig;
 }
 
+export type PlinthConstructionType =
+  | "pedestal_box" // Independent 4-sided leveled structural plinth box + cross-ribs + bottom PVC seal (Wardrobe/Living standard)
+  | "adjustable_legs_clip" // DIN 68935 / Häfele Axilo legs + snap-on C-clip front/side plinth + PVC water seal (Kitchen/Bath standard)
+  | "gable_rails"; // Full-height side panels to floor + dual front/rear structural plinth rails + divider ribs (Built-in standard)
+
 export interface CarcassConfig {
   panelThickness: UnitLength; // default 18
   backPanelThickness: UnitLength; // default 8
   backPanelType: BackPanelType;
   plinthHeight: UnitLength; // default 80 or 100
+  plinthConstruction?: PlinthConstructionType;
+  plinthSetbackMm?: UnitLength; // Front toe-kick recess from carcass front edge (default 35mm wardrobe, 55mm kitchen)
   doorPerimeterGap: UnitLength; // default 2
   edgeBandThickness: UnitLength; // default 1
   bodyMaterialId: string;

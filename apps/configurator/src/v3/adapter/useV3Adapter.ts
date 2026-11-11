@@ -49,6 +49,9 @@ import {
   parseBlumBxfXml,
   exportAllPanelsDXF,
   exportNestingSheetsDXF,
+  buildBirimErpNestingBundle,
+  type BirimErpNestingBuildOptions,
+  type BirimErpNestingExportBundle,
 } from "@birim/manufacturing";
 import { calculateProjectPrice } from "@birim/pricing";
 import { computeNestingAsync } from "../../workers/manufacturing-worker-client";
@@ -5845,6 +5848,40 @@ export function useV3Adapter() {
     const curState = useConfiguratorStore.getState();
     return exportNestingSheetsDXF(curState.bom);
   }, []);
+
+  /**
+   * V5.5: Generates a 100% Birim Portal ERP compatible Nesting Bundle
+   * (nesting_projects + nesting_sheets + nesting_parts + nesting_placements + Selco CSV + CNC G-Code)
+   */
+  const exportErpNestingBundle = useCallback(
+    (options?: BirimErpNestingBuildOptions): BirimErpNestingExportBundle => {
+      const curState = useConfiguratorStore.getState();
+      const matMap = new Map(DEFAULT_MATERIALS.map((m) => [m.id, m]));
+      return buildBirimErpNestingBundle(curState.project, curState.bom, matMap, options);
+    },
+    []
+  );
+
+  const exportErpNestingJsonString = useCallback(
+    (options?: BirimErpNestingBuildOptions): string => {
+      return JSON.stringify(exportErpNestingBundle(options), null, 2);
+    },
+    [exportErpNestingBundle]
+  );
+
+  const exportErpSelcoCsvString = useCallback(
+    (options?: BirimErpNestingBuildOptions): string => {
+      return exportErpNestingBundle(options).combined_selco_csv;
+    },
+    [exportErpNestingBundle]
+  );
+
+  const exportErpGCodeString = useCallback(
+    (options?: BirimErpNestingBuildOptions): string => {
+      return exportErpNestingBundle(options).combined_cnc_gcode;
+    },
+    [exportErpNestingBundle]
+  );
   /**
    * V4.6: Updates parametric CNC utility cutouts (sockets, grommets, plumbing, baseboard notches) on active module
    */
@@ -6097,6 +6134,10 @@ export function useV3Adapter() {
     exportBlumBxfString,
     exportAllPanelsDxfString,
     exportNestingDxfString,
+    exportErpNestingBundle,
+    exportErpNestingJsonString,
+    exportErpSelcoCsvString,
+    exportErpGCodeString,
     importBlumBxfFile,
     applyBlumQuickWizardPreset,
     activeSpatialMetrics,

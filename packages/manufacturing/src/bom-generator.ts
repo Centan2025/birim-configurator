@@ -315,16 +315,73 @@ export function generateBOMForProject(
         0.05
       );
 
-      if (module.carcass.plinthHeight > 0 && module.carcass.hasAdjustableLegs !== false) {
-        const feetCount = Math.max(4, Math.ceil(module.dimensions.width / 450) * 2);
-        addHardware(
-          "HW_LEVELING_FEET",
-          "Ayarlanabilir Baza Ayağı 80-100mm",
-          "leg",
-          feetCount,
-          "adet",
-          1.2
+      if (module.carcass.plinthHeight > 0) {
+        const isWardrobeMod =
+          module.category === "wardrobe" ||
+          module.category === "vestiyer" ||
+          module.category === "living" ||
+          module.category === "tall";
+        const effPType =
+          module.carcass.plinthConstruction ||
+          (module.carcass.hasAdjustableLegs === false
+            ? isWardrobeMod
+              ? "gable_rails"
+              : "pedestal_box"
+            : isWardrobeMod
+            ? "pedestal_box"
+            : "adjustable_legs_clip");
+        const supportColumns = Math.max(2, module.bays.length + 1);
+        const feetCount = supportColumns * 2;
+        const sealMeters = roundMm(
+          (module.dimensions.width +
+            (effPType !== "gable_rails" ? module.dimensions.depth * 2 : 0)) /
+            1000,
+          2
         );
+
+        if (effPType === "adjustable_legs_clip") {
+          addHardware(
+            "637.76.331",
+            `Häfele Axilo™ 78 Ayarlanabilir Baza Ayağı + Yan Destek Tablası (H:${module.carcass.plinthHeight}mm)`,
+            "leg",
+            feetCount,
+            "adet",
+            2.35
+          );
+          addHardware(
+            "637.76.420",
+            "Häfele Axilo™ Geçmeli Ön Baza C-Klips Bağlantı Aparatı",
+            "connector",
+            supportColumns,
+            "adet",
+            0.85
+          );
+          addHardware(
+            "637.90.810",
+            "Ko-Ekstrüze PVC Baza Altı Su Sızdırmazlık Contası (18mm)",
+            "special",
+            Math.max(1, sealMeters),
+            "metre",
+            2.9
+          );
+        } else {
+          addHardware(
+            "651.09.310",
+            "Ağır Yük Gizli Çelik Baza Terazi Pingosu M10 + Çakma Somun",
+            "leg",
+            feetCount,
+            "adet",
+            1.45
+          );
+          addHardware(
+            "637.90.805",
+            "PVC Baza Altı Nem ve Toz Sızdırmazlık Fitili (18mm)",
+            "special",
+            Math.max(1, sealMeters),
+            "metre",
+            2.4
+          );
+        }
       }
 
       if (module.category === "kitchen_wall") {
@@ -610,7 +667,7 @@ export function generateBOMForProject(
               bay?.door.slidingMountingType ||
               (dSys === "sliding_bottom_rolling" ? "inset_inside" : dSys === "sliding_coplanar" ? "coplanar_flush" : "top_hung_pelmet");
             if (bayIdx === 0) {
-              const trackMeters = Number((module.dimensions.width / 1000).toFixed(2));
+              const trackMeters = Number((mod.dimensions.width / 1000).toFixed(2));
               if (sMount === "inset_inside") {
                 addHardware(
                   "HT_SLIDELINE_M_SET",
@@ -625,7 +682,7 @@ export function generateBOMForProject(
                   "Gömme Çift Kanallı Eloksallı Alüminyum Üst/Alt Sürgü Rayı",
                   "slide",
                   Number((trackMeters * 2).toFixed(2)),
-                  "metre",
+                  "mt",
                   19.5
                 );
               } else if (sMount === "coplanar_flush") {
@@ -651,7 +708,7 @@ export function generateBOMForProject(
                   "TopLine XL Üstten Askılı Çift Yollu Alüminyum Taşıyıcı Ray",
                   "slide",
                   trackMeters,
-                  "metre",
+                  "mt",
                   28.0
                 );
                 if (sMount === "top_hung_pelmet") {
@@ -659,7 +716,7 @@ export function generateBOMForProject(
                     "HF_SLIDO_FASCIA_CLIP",
                     "Häfele Slido Üst Alın Kapama (Valans) Montaj Klips Takımı",
                     "special",
-                    Math.max(4, Math.ceil(module.dimensions.width / 450)),
+                    Math.max(4, Math.ceil(mod.dimensions.width / 450)),
                     "adet",
                     2.8
                   );
@@ -783,20 +840,30 @@ export function generateBOMForProject(
                 thickness: defaultEbThickness,
               };
       } else if (comp.role === "plinth") {
-        // Plinth lengthMm is its long horizontal span; widthMm is its height (e.g. 80mm).
-        // Banding along the long edge uses `left: true` (1B) so meters = length/1000 and height net-cut deducts ebT!
+        // Visible front & side plinth boards receive 4-edge moisture-sealed PVC banding (2B + 2E) so mop water never swells raw edges!
         length = Math.max(comp.dimensions.width, comp.dimensions.depth);
         width = comp.dimensions.height;
-        edgeBanding = {
-          top: false,
-          bottom: false,
-          left: true,
-          right: false,
-          thickness: defaultEbThickness,
-        };
+        const isExposedPlinthFace =
+          comp.id.includes("_plinth_front") || comp.id.includes("_plinth_side_");
+        edgeBanding = isExposedPlinthFace
+          ? {
+              top: true,
+              bottom: true,
+              left: true,
+              right: true,
+              thickness: defaultEbThickness,
+            }
+          : {
+              top: false,
+              bottom: false,
+              left: true,
+              right: false,
+              thickness: defaultEbThickness,
+            };
       }
 
-      if (width < 70 || length < 70) {
+      const minSawDim = comp.role === "plinth" ? 50 : 70;
+      if (width < minSawDim || length < minSawDim) {
         validationWarnings.push(
           `Parça "${comp.label}" boyutu (${roundIntMm(length)}x${roundIntMm(
             width

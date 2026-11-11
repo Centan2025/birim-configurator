@@ -608,37 +608,109 @@ export function createComponentMesh(
     return group;
   }
 
-  // 1B. REAL 3D ADJUSTABLE BLACK ABS PLASTIC KITCHEN CABINET LEGS (_plastic_leg_)
+  // 1B. WORLD-STANDARD PLINTH HARDWARE: HÄFELE AXILO 78 LEGS, C-CLIPS, PVC WATER SEALS & STEEL M10 GLIDES
   if (comp.id.includes("_plastic_leg_")) {
     const h = comp.dimensions.height;
-    // Wide Ø68mm circular floor glide flange
+    // 1. Wide Ø64mm ribbed floor glide foot with subtle radial step
     const baseFoot = new THREE.Mesh(cylinderY, darkCavityMat);
-    baseFoot.scale.set(68, 8, 68);
-    baseFoot.position.set(cx, cy - h / 2 + 4, cz);
+    baseFoot.scale.set(64, 6, 64);
+    baseFoot.position.set(cx, cy - h / 2 + 3, cz);
     tagSubMesh(baseFoot, userData, comp);
     group.add(baseFoot);
 
-    // Threaded adjustable Ø38mm ABS vertical shaft
+    const footHub = new THREE.Mesh(cylinderY, darkDamperMat);
+    footHub.scale.set(48, 8, 48);
+    footHub.position.set(cx, cy - h / 2 + 8, cz);
+    tagSubMesh(footHub, userData, comp);
+    group.add(footHub);
+
+    // 2. Threaded Ø36mm heavy-duty ABS column
     const legShaft = new THREE.Mesh(cylinderY, darkDamperMat);
-    legShaft.scale.set(38, Math.max(20, h - 18), 38);
-    legShaft.position.set(cx, cy, cz);
+    legShaft.scale.set(36, Math.max(18, h - 20), 36);
+    legShaft.position.set(cx, cy + 1, cz);
     tagSubMesh(legShaft, userData, comp);
     group.add(legShaft);
 
-    // Adjustment knurled collar ring
-    const collarRing = new THREE.Mesh(cylinderY, darkCavityMat);
-    collarRing.scale.set(46, 12, 46);
-    collarRing.position.set(cx, cy - h * 0.15, cz);
+    // 3. Häfele Axilo™ gear adjustment collar ring
+    const collarRing = new THREE.Mesh(cylinderY, screwHeadMat);
+    collarRing.scale.set(46, 11, 46);
+    collarRing.position.set(cx, cy - h * 0.14, cz);
     tagSubMesh(collarRing, userData, comp);
     group.add(collarRing);
 
-    // Top carcass mounting socket plate
-    const topSocket = new THREE.Mesh(cylinderY, darkCavityMat);
-    topSocket.scale.set(58, 10, 58);
-    topSocket.position.set(cx, cy + h / 2 - 5, cz);
-    tagSubMesh(topSocket, userData, comp);
-    group.add(topSocket);
+    // 4. Rectangular 76×52mm Carcass-Edge Support Saddle Plate (supports both Side Panel & Bottom Panel!)
+    const topSaddle = new THREE.Mesh(box, darkCavityMat);
+    topSaddle.scale.set(76, 7, 52);
+    topSaddle.position.set(cx, cy + h / 2 - 3.5, cz);
+    tagSubMesh(topSaddle, userData, comp);
+    group.add(topSaddle);
 
+    return group;
+  }
+
+  if (comp.id.includes("_plinth_clip_")) {
+    const w = comp.dimensions.width;
+    const h = comp.dimensions.height;
+    const d = comp.dimensions.depth;
+    // Rear plinth screw-on bracket plate
+    const plate = new THREE.Mesh(box, darkCavityMat);
+    plate.scale.set(w, h * 0.72, 4);
+    plate.position.set(cx, cy, cz + d / 2 - 2);
+    tagSubMesh(plate, userData, comp);
+    group.add(plate);
+
+    // Twin spring C-clamp jaws snapping around the Ø36mm front leg shaft
+    [-14, 14].forEach((ox) => {
+      const jaw = new THREE.Mesh(box, darkDamperMat);
+      jaw.scale.set(5, h * 0.52, Math.max(14, d - 4));
+      jaw.position.set(cx + ox, cy, cz - 1);
+      tagSubMesh(jaw, userData, comp);
+      group.add(jaw);
+    });
+    return group;
+  }
+
+  if (comp.id.includes("_plinth_seal_")) {
+    const w = comp.dimensions.width;
+    const h = comp.dimensions.height;
+    const d = comp.dimensions.depth;
+    // Co-extruded rigid U-grip channel + soft floor-sealing elastomer wiper lip
+    const uGrip = new THREE.Mesh(box, screwHeadMat);
+    uGrip.scale.set(w, Math.max(1.8, h * 0.65), d);
+    uGrip.position.set(cx, cy + h * 0.18, cz);
+    tagSubMesh(uGrip, userData, comp);
+    group.add(uGrip);
+
+    const floorLip = new THREE.Mesh(box, darkDamperMat);
+    floorLip.scale.set(w, Math.max(1.5, h * 0.45), d + 1.2);
+    floorLip.position.set(cx, cy - h * 0.25, cz);
+    tagSubMesh(floorLip, userData, comp);
+    group.add(floorLip);
+    return group;
+  }
+
+  if (comp.id.includes("_plinth_glide_")) {
+    const h = comp.dimensions.height;
+    const pad = new THREE.Mesh(cylinderY, darkCavityMat);
+    pad.scale.set(28, 5, 28);
+    pad.position.set(cx, cy - h / 2 + 2.5, cz);
+    tagSubMesh(pad, userData, comp);
+    group.add(pad);
+
+    const m10Bolt = new THREE.Mesh(cylinderY, chromeHardwareMat);
+    m10Bolt.scale.set(10, Math.max(10, h - 5), 10);
+    m10Bolt.position.set(cx, cy + 2.5, cz);
+    tagSubMesh(m10Bolt, userData, comp);
+    group.add(m10Bolt);
+    return group;
+  }
+
+  if (comp.id.includes("_plinth_corner_")) {
+    const cornerPost = new THREE.Mesh(box, screwHeadMat);
+    cornerPost.scale.set(comp.dimensions.width, comp.dimensions.height, comp.dimensions.depth);
+    cornerPost.position.set(cx, cy, cz);
+    tagSubMesh(cornerPost, userData, comp);
+    group.add(cornerPost);
     return group;
   }
 

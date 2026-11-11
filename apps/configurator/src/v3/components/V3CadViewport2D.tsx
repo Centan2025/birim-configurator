@@ -2195,7 +2195,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             {selectedPlanObject && !showAdvancedCadBar && !isDrawingWall && !isPlacingObstacle && (
               <div
                 data-testid="plan-selected-object-floating-pill"
-                className="pointer-events-auto w-fit max-w-[calc(100%-8px)] flex flex-wrap items-center justify-center gap-1.5 bg-white/90 backdrop-blur-xl px-2.5 py-1.5 rounded-2xl border border-white/95 ring-1 ring-slate-900/10 shadow-[0_10px_28px_rgba(15,23,42,0.16)] text-xs text-[#0F172A]"
+                className="pointer-events-auto w-fit max-w-[calc(100%-8px)] flex flex-wrap items-center justify-center gap-1.5 birim-ice-pill px-2 py-1 rounded-2xl text-xs text-[#0F172A]"
               >
                 {/* 1. SELECTED MODULE CONTEXT PILL */}
                 {selectedModuleObj && (
@@ -2224,8 +2224,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                           className="px-2 py-1 rounded-lg hover:bg-white text-[#0F172A] font-bold text-[11px] inline-flex items-center gap-1 transition active:scale-95 cursor-pointer"
                           title="Solundaki modülle yer değiştir"
                         >
-                          <span>⇄</span>
-                          <span>Sol</span>
+                          <span>⇤</span><span className="sr-only">Sol</span>
                         </button>
                         <button
                           type="button"
@@ -2240,8 +2239,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                           className="px-2 py-1 rounded-lg hover:bg-white text-[#0F172A] font-bold text-[11px] inline-flex items-center gap-1 transition active:scale-95 cursor-pointer"
                           title="Sağındaki modülle yer değiştir"
                         >
-                          <span>Sağ</span>
-                          <span>⇄</span>
+                          <span>⇥</span><span className="sr-only">Sağ</span>
                         </button>
                       </div>
                     )}
@@ -2256,8 +2254,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       }`}
                       title="Mıknatıslı yapışmayı (Snap) aç/kapat"
                     >
-                      <span>{magnetEnabled ? "🧲" : "🔓"}</span>
-                      <span>{magnetEnabled ? "Snap" : "Serbest"}</span>
+                      <span>{magnetEnabled ? "🧲" : "🔓"}</span><span className="sr-only">{magnetEnabled ? "Snap" : "Serbest"}</span>
                     </button>
                   </>
                 )}
@@ -2458,8 +2455,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   className="px-2 py-1 rounded-xl bg-red-50 hover:bg-red-600 text-red-700 hover:text-white border border-red-200 font-bold text-[11px] inline-flex items-center gap-1 transition active:scale-95 cursor-pointer shrink-0 whitespace-nowrap"
                   title="Seçili objeyi sil (Delete / Backspace)"
                 >
-                  <span>🗑</span>
-                  <span>Sil</span>
+                  <span>🗑</span><span className="sr-only">Sil</span>
                 </button>
 
                 <button
@@ -2476,7 +2472,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             {/* B. CLEAN TABBED FROSTED GLASS CAD DRAWER (Stacked above Scale Bar, never overlaps!) */}
             <div
               data-testid="plan-room-architecture-bar"
-              className={`pointer-events-auto w-fit max-w-[calc(100%-8px)] flex flex-col gap-2 bg-white/92 backdrop-blur-xl px-3.5 py-2.5 rounded-2xl border border-white/95 ring-1 ring-slate-900/10 shadow-[0_16px_40px_rgba(15,23,42,0.18)] text-[11px] text-[#0F172A] transition-all duration-200 origin-bottom ${
+              className={`pointer-events-auto w-fit max-w-[calc(100%-8px)] flex flex-col gap-2 birim-ice-popover px-3 py-2 rounded-2xl text-[11px] text-[#0F172A] transition-all duration-200 origin-bottom ${
                 showAdvancedCadBar || isDrawingWall || isPlacingObstacle
                   ? "opacity-100 scale-y-100"
                   : "opacity-0 pointer-events-none h-0 overflow-hidden py-0 my-0 border-0 scale-y-95"
@@ -2956,7 +2952,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 </select>
               </div>
 
-              <div className="inline-flex items-center bg-[#F8FAFC] rounded-xl border border-[#CBD5E1] p-0.5 shrink-0 whitespace-nowrap">
+              <div className="inline-flex items-center birim-ice-btn rounded-xl p-0.5 shrink-0 whitespace-nowrap">
                 <button
                   type="button"
                   data-testid="plan-zoom-out-btn"
@@ -2988,16 +2984,16 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   setPanPx({ x: 0, y: 0 });
                 }}
                 title="Plana Sığdır ve Merkeze Al (Sağ Tuş basılı tutarak da kaydırabilirsiniz)"
-                className="px-2.5 py-1 rounded-xl bg-[#F8FAFC] hover:bg-[#EFF6FF] border border-[#CBD5E1] text-[11px] font-bold text-[#0F172A] inline-flex items-center gap-1 shrink-0 whitespace-nowrap transition active:scale-95 cursor-pointer"
+                className="w-7 h-7 rounded-xl birim-ice-btn text-xs font-bold text-[#0F172A] inline-flex items-center justify-center shrink-0 transition active:scale-95 cursor-pointer"
               >
                 <span>⛶</span>
-                <span>Sığdır</span>
+                <span className="sr-only">Sığdır</span>
               </button>
 
               <div
                 data-testid="plan-text-scale-control"
                 title="2D Plan Yazı, Ölçü ve Döndürme Düğmesi Büyüklüğü (Seçiminiz kaydedilir)"
-                className="inline-flex items-center bg-[#F8FAFC] rounded-xl border border-[#CBD5E1] p-0.5 shrink-0 whitespace-nowrap"
+                className="inline-flex items-center birim-ice-btn rounded-xl p-0.5 shrink-0 whitespace-nowrap"
               >
                 <button
                   type="button"
@@ -3029,7 +3025,9 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
 
               <label
                 title="Plan Ölçü Çizgilerini Göster / Gizle"
-                className="inline-flex items-center gap-1.5 px-2 py-1 rounded-xl bg-[#F8FAFC] border border-[#CBD5E1] cursor-pointer select-none shrink-0 whitespace-nowrap"
+                className={`w-7 h-7 rounded-xl inline-flex items-center justify-center cursor-pointer select-none shrink-0 transition ${
+                  showPlanDimensions ? "birim-ice-btn-active" : "birim-ice-btn text-[#0F172A]"
+                }`}
               >
                 <input
                   type="checkbox"
@@ -3038,18 +3036,8 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   onChange={(e) => setShowPlanDimensions(e.target.checked)}
                   className="sr-only"
                 />
-                <span
-                  className={`w-7 h-4 rounded-full transition relative inline-flex items-center px-0.5 shrink-0 ${
-                    showPlanDimensions ? "bg-[#2563EB]" : "bg-[#CBD5E1]"
-                  }`}
-                >
-                  <span
-                    className={`w-3 h-3 rounded-full bg-white shadow-2xs transition-transform ${
-                      showPlanDimensions ? "translate-x-3" : "translate-x-0"
-                    }`}
-                  />
-                </span>
-                <span className="text-[11px] font-bold text-[#0F172A]">Ölçüler</span>
+                <span className="text-xs leading-none">📏</span>
+                <span className="sr-only">Ölçüler</span>
               </label>
 
               <select
@@ -3059,7 +3047,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   setWallDimDisplayMode(e.target.value as "net_inner" | "outer" | "plinth")
                 }
                 title="Duvar Ölçülendirme Modu"
-                className="px-2 py-1 rounded-xl bg-[#F8FAFC] border border-[#CBD5E1] text-[11px] font-bold text-[#0F172A] shrink-0 whitespace-nowrap cursor-pointer"
+                className="px-2 h-7 rounded-xl birim-ice-btn text-[11px] font-bold text-[#0F172A] shrink-0 whitespace-nowrap cursor-pointer"
               >
                 <option value="net_inner">📏 Net İç Ölçü</option>
                 <option value="outer">📏 Dış Duvar</option>
@@ -3071,14 +3059,14 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 data-testid="plan-toggle-advanced-cad-btn"
                 onClick={() => setShowAdvancedCadBar((v) => !v)}
                 title="Detaylı CAD & Yapı Elemanı Çubuğunu Aç/Kapat"
-                className={`px-2.5 py-1 rounded-xl border text-[11px] font-bold inline-flex items-center gap-1 shrink-0 whitespace-nowrap transition active:scale-95 cursor-pointer ${
+                className={`w-7 h-7 rounded-xl text-xs font-bold inline-flex items-center justify-center shrink-0 transition active:scale-95 cursor-pointer ${
                   showAdvancedCadBar
-                    ? "bg-[#2563EB] text-white border-[#1D4ED8] shadow-2xs"
-                    : "bg-[#F8FAFC] hover:bg-[#EFF6FF] text-[#0F172A] border-[#CBD5E1]"
+                    ? "birim-ice-btn-active"
+                    : "birim-ice-btn text-[#0F172A]"
                 }`}
               >
                 <span>🛠</span>
-                <span>CAD</span>
+                <span className="sr-only">CAD</span>
               </button>
             </div>
           </div>
@@ -6802,7 +6790,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     className="px-1.5 py-0.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold cursor-pointer"
                     title="Seçili modülü solundaki modülle yer değiştir"
                   >
-                    ⇄ Solla Değiştir
+                    ⇤
                   </button>
                   <button
                     type="button"
@@ -6817,7 +6805,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     className="px-1.5 py-0.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold cursor-pointer"
                     title="Seçili modülü sağındaki modülle yer değiştir"
                   >
-                    ⇄ Sağla Değiştir
+                    ⇥
                   </button>
                 </div>
               )}
@@ -6853,69 +6841,78 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 type="button"
                 data-testid="cad-elevation-toggle-room"
                 onClick={() => setShowRoomContextInElev((v) => !v)}
-                className={`px-3 py-1 rounded-lg border text-xs font-semibold transition cursor-pointer ${
+                className={`w-8 h-8 rounded-xl text-xs font-semibold flex items-center justify-center transition cursor-pointer ${
                   showRoomContextInElev
-                    ? "bg-[#141413] text-[#FAF9F6] border-[#141413]"
-                    : "bg-white hover:bg-[#EFECE5] border-[#DED8CC] text-[#141413]"
+                    ? "birim-ice-btn-active"
+                    : "birim-ice-btn text-[#141413]"
                 }`}
-                title="Duvar sınırını ve tüm komşu modülleri eşzamanlı göster veya sadece seçili modüle odaklan"
+                title={showRoomContextInElev ? "Tüm Modüller & Duvar Gösteriliyor (Tek Modüle Geç)" : "Tek Modül Odağı (Tüm Duvarı Göster)"}
               >
-                {showRoomContextInElev ? "Tüm Modüller & Duvar: Açık" : "Tek Modül Odağı"}
+                <span>🧱</span>
+                <span className="sr-only">{showRoomContextInElev ? "Tüm Modüller & Duvar: Açık" : "Tek Modül Odağı"}</span>
               </button>
               <button
                 type="button"
                 data-testid="cad-elevation-toggle-doors"
                 onClick={() => setShowDoorsIn2D((v) => !v)}
-                className={`px-3 py-1 rounded-lg border text-xs font-semibold transition cursor-pointer ${
+                title={showDoorsIn2D ? "Kapak Çizgisini Gizle (İç Düzeni Gör)" : "Kapak Çizgisini Göster"}
+                className={`w-8 h-8 rounded-xl text-xs font-semibold flex items-center justify-center transition cursor-pointer ${
                   showDoorsIn2D
-                    ? "bg-[#8C7A6B] text-white border-[#786759]"
-                    : "bg-white hover:bg-[#EFECE5] border-[#DED8CC] text-[#141413]"
+                    ? "birim-ice-btn-active"
+                    : "birim-ice-btn text-[#141413]"
                 }`}
               >
-                {showDoorsIn2D ? "Kapak Çizgisi: Açık" : "İç Düzen Görünümü (Kapaksız)"}
+                <span>🚪</span>
+                <span className="sr-only">{showDoorsIn2D ? "Kapak Çizgisi: Açık" : "İç Düzen Görünümü (Kapaksız)"}</span>
               </button>
             </div>
           )}
         </div>
 
-        {/* Bottom-Right Zoom Pill */}
-        <div className="absolute bottom-4 right-4 z-10 flex items-center gap-1.5 bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-xl border border-stone-300 shadow-xs text-xs text-stone-800">
+        {/* Bottom-Right Frosted Ice Zoom & Pan Capsule */}
+        <div className="absolute bottom-4 right-4 z-10 flex items-center gap-1 birim-ice-pill p-1 rounded-2xl text-xs text-stone-800">
           <button
             type="button"
+            title="Uzaklaştır (−)"
             onClick={() => setZoom((z) => Math.max(0.4, +(z - 0.15).toFixed(2)))}
-            className="px-2 py-0.5 rounded bg-stone-100 hover:bg-stone-200 font-mono font-bold cursor-pointer"
+            className="w-7 h-7 rounded-xl hover:bg-white/75 font-mono font-bold flex items-center justify-center cursor-pointer"
           >
             −
           </button>
-          <span className="font-mono text-xs font-bold min-w-[48px] text-center">
+          <span className="font-mono text-[11px] font-bold min-w-[42px] text-center">
             {Math.round(zoom * 100)}%
           </span>
           <button
             type="button"
+            title="Yakınlaştır (+)"
             onClick={() => setZoom((z) => Math.min(3.5, +(z + 0.15).toFixed(2)))}
-            className="px-2 py-0.5 rounded bg-stone-100 hover:bg-stone-200 font-mono font-bold cursor-pointer"
+            className="w-7 h-7 rounded-xl hover:bg-white/75 font-mono font-bold flex items-center justify-center cursor-pointer"
           >
             +
           </button>
+          <div className="h-4 w-px bg-slate-900/12 mx-0.5" />
           <button
             type="button"
             data-testid="elev-pan-mode-toggle"
             onClick={() => setElevPanMode((p) => !p)}
-            className={`ml-1 px-2 py-0.5 rounded text-xs font-bold border transition cursor-pointer ${
+            className={`w-7 h-7 rounded-xl text-xs flex items-center justify-center transition cursor-pointer ${
               elevPanMode
-                ? "bg-blue-600 text-white border-blue-700 shadow-2xs"
-                : "bg-stone-100 hover:bg-stone-200 text-stone-700 border-stone-300"
+                ? "birim-ice-btn-active"
+                : "hover:bg-white/75 text-stone-700"
             }`}
-            title="Çalışma alanını fareyle sürükleyerek kaydır (Pan Modu)"
+            title="Çalışma Alanını Sürükle (Pan Modu)"
           >
-            🖐️ Kaydır
+            <span>🖐️</span>
+            <span className="sr-only">Kaydır</span>
           </button>
           <button
             type="button"
+            title="Yakınlaştırmayı ve Konumu Sıfırla"
             onClick={() => { setZoom(1); setPanPx({ x: 0, y: 0 }); setElevPanMode(false); }}
-            className="ml-1 text-xs font-semibold text-stone-600 hover:text-stone-900 underline cursor-pointer"
+            className="w-7 h-7 rounded-xl hover:bg-white/75 text-stone-700 font-bold flex items-center justify-center cursor-pointer"
           >
-            Sıfırla
+            <span>↺</span>
+            <span className="sr-only">Sıfırla</span>
           </button>
         </div>
 
@@ -7579,11 +7576,23 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                           nBreakdown.bayWidths
                         );
 
+                        const isPlinth = el.role === "plinth";
+                        const isPlinthSeal = el.role === "plinth_seal" || el.id.includes("_plinth_seal_");
+                        const isHiddenLeg = el.role === "plinth_leg_hidden";
                         let fill = "#FFFFFF";
                         let stroke = "#1C1917";
                         if (isDoor) {
                           fill = "#F5F5F4";
                           stroke = "#57534E";
+                        } else if (isPlinthSeal) {
+                          fill = "#27272A";
+                          stroke = "#18181B";
+                        } else if (isPlinth) {
+                          fill = "#E7E5E4";
+                          stroke = "#1C1917";
+                        } else if (isHiddenLeg) {
+                          fill = "none";
+                          stroke = "#64748B";
                         } else if (isDrawerHandle) {
                           fill = "#44403C";
                           stroke = "#1C1917";
@@ -7666,8 +7675,9 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                               height={Math.max(1, el.height)}
                               fill={fill}
                               stroke={stroke}
-                              strokeWidth={el.isSelected ? 5 : 2.8}
-                              opacity={isDoor ? 0.34 : 0.98}
+                              strokeWidth={el.isSelected ? 5 : isHiddenLeg ? 2 : 2.8}
+                              strokeDasharray={isHiddenLeg ? "10 7" : undefined}
+                              opacity={isDoor ? 0.34 : isHiddenLeg ? 0.65 : 0.98}
                             />
                             {(isShelf || (isDrawer && el.role === "drawer_front")) && el.width > 200 && (
                               <g className="pointer-events-none">
@@ -7695,7 +7705,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                                 </text>
                               </g>
                             )}
-                            {isSpecialFitting && el.width > 120 && (
+                            {isSpecialFitting && !el.id.includes("_plinth_") && !el.id.includes("_plastic_leg_") && el.width > 120 && (
                               <g className="pointer-events-none">
                                 <rect
                                   x={el.x + el.width / 2 - 180}
@@ -8036,11 +8046,29 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             const dragMeta = mode === "elevation" ? findInteriorDragTarget(el.id) : null;
             const isActiveDrag = interiorDrag?.targetId === dragMeta?.targetId && Boolean(dragMeta);
 
+            const isPlinth = el.role === "plinth";
+            const isPlinthSeal = el.role === "plinth_seal" || el.id.includes("_plinth_seal_");
+            const isHiddenLeg = el.role === "plinth_leg_hidden";
+            const isSectionLegOrClip =
+              mode === "section" &&
+              (el.id.includes("_plastic_leg_") || el.id.includes("_plinth_clip_") || el.id.includes("_plinth_glide_"));
             let fill = "#FFFFFF";
             let stroke = "#1C1917";
             if (isDoor) {
               fill = "#F5F5F4";
               stroke = "#57534E";
+            } else if (isPlinthSeal) {
+              fill = "#27272A";
+              stroke = "#18181B";
+            } else if (isPlinth) {
+              fill = "#E7E5E4";
+              stroke = "#1C1917";
+            } else if (isHiddenLeg) {
+              fill = "none";
+              stroke = "#64748B";
+            } else if (isSectionLegOrClip) {
+              fill = "#CBD5E1";
+              stroke = "#334155";
             } else if (isDrawerHandle) {
               fill = "#44403C";
               stroke = "#1C1917";
@@ -8140,9 +8168,36 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   height={Math.max(1, el.height)}
                   fill={fill}
                   stroke={stroke}
-                  strokeWidth={isSelected || isActiveDrag ? 6 : 3}
-                  opacity={isDoor ? 0.35 : 0.98}
+                  strokeWidth={isSelected || isActiveDrag ? 6 : isHiddenLeg ? 2.2 : 3}
+                  strokeDasharray={isHiddenLeg ? "10 7" : undefined}
+                  opacity={isDoor ? 0.35 : isHiddenLeg ? 0.7 : 0.98}
                 />
+                {/* Architectural Recessed Toe-Kick Shadow Strip & Label on Front Plinth */}
+                {isPlinth && el.id.includes("_plinth_front") && el.height >= 35 && (
+                  <g className="pointer-events-none">
+                    <rect
+                      x={el.x + 1.5}
+                      y={el.y + 1.5}
+                      width={Math.max(1, el.width - 3)}
+                      height={Math.min(14, el.height * 0.2)}
+                      fill="#1C1917"
+                      opacity={0.14}
+                    />
+                    {mode === "elevation" && el.width >= 360 && (
+                      <text
+                        x={el.x + el.width / 2}
+                        y={el.y + el.height / 2 + 8}
+                        textAnchor="middle"
+                        fill="#44403C"
+                        fontSize="20"
+                        fontWeight="700"
+                        fontFamily="monospace"
+                      >
+                        {`BAZA H:${activeModule.carcass.plinthHeight}mm`}
+                      </text>
+                    )}
+                  </g>
+                )}
 
                 {/* Readable Label + Elevation Pill on Shelves & Drawers */}
                 {mode === "elevation" && (isShelf || (isDrawer && el.role === "drawer_front")) && el.width > 200 && (

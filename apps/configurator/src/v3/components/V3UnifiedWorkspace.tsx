@@ -951,6 +951,8 @@ export const V3UnifiedWorkspace: React.FC<{
     exportBlumBxfString,
     exportAllPanelsDxfString,
     exportNestingDxfString,
+    exportErpNestingJsonString,
+    exportErpSelcoCsvString,
     importBlumBxfFile,
     applyBlumQuickWizardPreset,
     activeSpatialMetrics,
@@ -2406,296 +2408,318 @@ export const V3UnifiedWorkspace: React.FC<{
       {mode === "plan" && (
         <div
           data-testid="plan-ribbon-toolbar"
-          className="min-h-[44px] bg-white border-b border-[#E2E8F0] px-4 py-1.5 flex items-center justify-between gap-3 shrink-0 z-30 text-xs relative"
+          className="min-h-[44px] birim-ice-bar border-b px-3.5 py-1 flex items-center justify-between gap-2 shrink-0 z-30 text-xs relative"
         >
-          {/* Left: Primary CAD & Alignment Tools matching image_da6ae9.jpg */}
+          {/* Sol: Buzlu Cam Saf İkon Çizim & Hizalama Kapsülü */}
           <div className="flex items-center gap-1 flex-wrap">
-            <button
-              type="button"
-              data-testid="plan-top-tool-select"
-              onClick={() => {
-                setPlanActiveDrawingTool("select");
-                dispatchPlanToolAction({ action: "select_mode" });
-              }}
-              className={`px-3 py-1.5 rounded-xl font-bold flex items-center gap-1.5 transition cursor-pointer border ${
-                planActiveDrawingTool === "select"
-                  ? "bg-[#EFF6FF] text-[#1D4ED8] border-[#2563EB] shadow-2xs"
-                  : "bg-white hover:bg-[#F8FAFC] text-[#334155] border-transparent hover:border-[#E2E8F0]"
-              }`}
-            >
-              <span>↖</span>
-              <span>Seç</span>
-            </button>
-
-            <button
-              type="button"
-              data-testid="plan-top-tool-line"
-              onClick={() => {
-                setPlanActiveDrawingTool("wall");
-                dispatchPlanToolAction({ action: "draw_wall" });
-              }}
-              className={`px-3 py-1.5 rounded-xl font-bold flex items-center gap-1.5 transition cursor-pointer border ${
-                planActiveDrawingTool === "wall"
-                  ? "bg-[#EFF6FF] text-[#1D4ED8] border-[#2563EB] shadow-2xs"
-                  : "bg-white hover:bg-[#F8FAFC] text-[#334155] border-transparent hover:border-[#E2E8F0]"
-              }`}
-            >
-              <span>╱</span>
-              <span>Çizgi</span>
-            </button>
-
-            <button
-              type="button"
-              data-testid="plan-top-tool-offset"
-              onClick={() => dispatchPlanToolAction({ action: "offset_wall", offsetMm: 100 })}
-              title="Ana duvarı +100 mm ofsetle / uzat"
-              className="px-3 py-1.5 rounded-xl font-semibold flex items-center gap-1.5 bg-white hover:bg-[#F8FAFC] text-[#334155] border border-transparent hover:border-[#E2E8F0] transition cursor-pointer"
-            >
-              <span>⧉</span>
-              <span>Ofset</span>
-            </button>
-
-            <button
-              type="button"
-              data-testid="plan-top-tool-measure"
-              onClick={() => {
-                setShow3DDimensions((prev) => !prev);
-                dispatchPlanToolAction({ action: "toggle_dimensions" });
-              }}
-              className={`px-3 py-1.5 rounded-xl font-semibold flex items-center gap-1.5 transition cursor-pointer border ${
-                show3DDimensions
-                  ? "bg-[#EFF6FF] text-[#1D4ED8] border-[#BFDBFE]"
-                  : "bg-white hover:bg-[#F8FAFC] text-[#334155] border-transparent"
-              }`}
-            >
-              <Ruler className="w-3.5 h-3.5" />
-              <span>Ölçü</span>
-            </button>
-
-            <div className="h-4 w-px bg-[#E2E8F0] mx-1" />
-
-            {/* Hizala Dropdown / Action Group */}
-            <div className="relative">
+            <div className="inline-flex items-center p-0.5 rounded-2xl birim-ice-pill gap-0.5">
               <button
                 type="button"
-                data-testid="plan-top-tool-align"
+                data-testid="plan-top-tool-select"
+                title="Seçim Modu"
                 onClick={() => {
-                  setPlanTopAlignMenuOpen((v) => !v);
-                  setPlanTopDistributeMenuOpen(false);
+                  setPlanActiveDrawingTool("select");
+                  dispatchPlanToolAction({ action: "select_mode" });
                 }}
-                className="px-3 py-1.5 rounded-xl font-semibold flex items-center gap-1.5 bg-white hover:bg-[#F8FAFC] text-[#334155] border border-[#E2E8F0] transition cursor-pointer"
+                className={`w-8 h-8 rounded-xl font-bold flex items-center justify-center transition cursor-pointer ${
+                  planActiveDrawingTool === "select"
+                    ? "birim-ice-btn-active"
+                    : "text-[#334155] hover:bg-white/75"
+                }`}
               >
-                <span>╟</span>
-                <span>Hizala</span>
-                <span className="text-[10px] text-[#64748B]">⌄</span>
+                <span>↖</span>
+                <span className="sr-only">Seç</span>
               </button>
-              {planTopAlignMenuOpen && (
-                <div
-                  data-testid="plan-top-align-menu"
-                  className="absolute left-0 top-10 w-48 bg-white rounded-2xl border border-[#CBD5E1] shadow-xl p-1.5 z-50 space-y-1"
-                >
-                  <button
-                    type="button"
-                    data-testid="plan-align-left"
-                    onClick={() => {
-                      alignActiveModuleOnWall("left");
-                      setPlanTopAlignMenuOpen(false);
-                    }}
-                    className="w-full px-3 py-1.5 rounded-xl hover:bg-[#EFF6FF] text-left font-semibold text-[#111827] flex items-center justify-between cursor-pointer"
-                  >
-                    <span>⬅ Sola Hizala</span>
-                    <span className="text-[10px] font-mono text-[#64748B]">0 mm</span>
-                  </button>
-                  <button
-                    type="button"
-                    data-testid="plan-align-center"
-                    onClick={() => {
-                      alignActiveModuleOnWall("center");
-                      setPlanTopAlignMenuOpen(false);
-                    }}
-                    className="w-full px-3 py-1.5 rounded-xl hover:bg-[#EFF6FF] text-left font-semibold text-[#111827] flex items-center justify-between cursor-pointer"
-                  >
-                    <span>↔ Merkez Hizala</span>
-                    <span className="text-[10px] font-mono text-[#64748B]">Eşit</span>
-                  </button>
-                  <button
-                    type="button"
-                    data-testid="plan-align-right"
-                    onClick={() => {
-                      alignActiveModuleOnWall("right");
-                      setPlanTopAlignMenuOpen(false);
-                    }}
-                    className="w-full px-3 py-1.5 rounded-xl hover:bg-[#EFF6FF] text-left font-semibold text-[#111827] flex items-center justify-between cursor-pointer"
-                  >
-                    <span>➡ Sağa Hizala</span>
-                    <span className="text-[10px] font-mono text-[#64748B]">Son</span>
-                  </button>
-                  <button
-                    type="button"
-                    data-testid="plan-align-flush-back"
-                    onClick={() => {
-                      alignActiveModuleOnWall("flush_back");
-                      setPlanTopAlignMenuOpen(false);
-                    }}
-                    className="w-full px-3 py-1.5 rounded-xl hover:bg-[#EFF6FF] text-left font-semibold text-[#111827] flex items-center justify-between cursor-pointer"
-                  >
-                    <span>⬆ Duvara Yasla</span>
-                    <span className="text-[10px] font-mono text-[#64748B]">Z: 0</span>
-                  </button>
-                </div>
-              )}
-            </div>
 
-            {/* Dağıt Dropdown / Action Group */}
-            <div className="relative">
               <button
                 type="button"
-                data-testid="plan-top-tool-distribute"
+                data-testid="plan-top-tool-line"
+                title="Duvar / Çizgi Çiz"
                 onClick={() => {
-                  setPlanTopDistributeMenuOpen((v) => !v);
-                  setPlanTopAlignMenuOpen(false);
+                  setPlanActiveDrawingTool("wall");
+                  dispatchPlanToolAction({ action: "draw_wall" });
                 }}
-                className="px-3 py-1.5 rounded-xl font-semibold flex items-center gap-1.5 bg-white hover:bg-[#F8FAFC] text-[#334155] border border-[#E2E8F0] transition cursor-pointer"
+                className={`w-8 h-8 rounded-xl font-bold flex items-center justify-center transition cursor-pointer ${
+                  planActiveDrawingTool === "wall"
+                    ? "birim-ice-btn-active"
+                    : "text-[#334155] hover:bg-white/75"
+                }`}
               >
-                <span>⫼</span>
-                <span>Dağıt</span>
-                <span className="text-[10px] text-[#64748B]">⌄</span>
+                <span>╱</span>
+                <span className="sr-only">Çizgi</span>
               </button>
-              {planTopDistributeMenuOpen && (
-                <div
-                  data-testid="plan-top-distribute-menu"
-                  className="absolute left-0 top-10 w-52 bg-white rounded-2xl border border-[#CBD5E1] shadow-xl p-1.5 z-50 space-y-1"
-                >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      distributeAlongWall();
-                      setPlanTopDistributeMenuOpen(false);
-                    }}
-                    className="w-full px-3 py-1.5 rounded-xl hover:bg-[#EFF6FF] text-left font-semibold text-[#111827] cursor-pointer"
-                  >
-                    ↔ Duvara Eşit Dağıt
-                  </button>
-                  <button
-                    type="button"
-                    data-testid="plan-distribute-gap-0"
-                    onClick={() => {
-                      distributeModulesWithGap(0);
-                      setPlanTopDistributeMenuOpen(false);
-                    }}
-                    className="w-full px-3 py-1.5 rounded-xl hover:bg-[#EFF6FF] text-left font-semibold text-[#111827] cursor-pointer"
-                  >
-                    🔗 Sıfır Boşlukla Bitiştir (0 mm)
-                  </button>
-                  <button
-                    type="button"
-                    data-testid="plan-distribute-gap-50"
-                    onClick={() => {
-                      distributeModulesWithGap(50);
-                      setPlanTopDistributeMenuOpen(false);
-                    }}
-                    className="w-full px-3 py-1.5 rounded-xl hover:bg-[#EFF6FF] text-left font-semibold text-[#111827] cursor-pointer"
-                  >
-                    📐 50 mm Boşluk Bırak
-                  </button>
-                </div>
-              )}
+
+              <button
+                type="button"
+                data-testid="plan-top-tool-offset"
+                onClick={() => dispatchPlanToolAction({ action: "offset_wall", offsetMm: 100 })}
+                title="Ana Duvarı +100 mm Ofsetle / Uzat"
+                className="w-8 h-8 rounded-xl font-semibold flex items-center justify-center text-[#334155] hover:bg-white/75 transition cursor-pointer"
+              >
+                <span>⧉</span>
+                <span className="sr-only">Ofset</span>
+              </button>
+
+              <button
+                type="button"
+                data-testid="plan-top-tool-measure"
+                title="Ölçü Çizgilerini Göster / Gizle"
+                onClick={() => {
+                  setShow3DDimensions((prev) => !prev);
+                  dispatchPlanToolAction({ action: "toggle_dimensions" });
+                }}
+                className={`w-8 h-8 rounded-xl font-semibold flex items-center justify-center transition cursor-pointer ${
+                  show3DDimensions
+                    ? "birim-ice-btn-active"
+                    : "text-[#334155] hover:bg-white/75"
+                }`}
+              >
+                <Ruler className="w-3.5 h-3.5" />
+                <span className="sr-only">Ölçü</span>
+              </button>
             </div>
 
-            <div className="h-4 w-px bg-[#E2E8F0] mx-1" />
+            <div className="inline-flex items-center p-0.5 rounded-2xl birim-ice-pill gap-0.5">
+              {/* Hizala Popover İkonu */}
+              <div className="relative">
+                <button
+                  type="button"
+                  data-testid="plan-top-tool-align"
+                  title="Modül Hizalama Araçları"
+                  onClick={() => {
+                    setPlanTopAlignMenuOpen((v) => !v);
+                    setPlanTopDistributeMenuOpen(false);
+                  }}
+                  className={`w-8 h-8 rounded-xl font-semibold flex items-center justify-center transition cursor-pointer ${
+                    planTopAlignMenuOpen ? "birim-ice-btn-active" : "text-[#334155] hover:bg-white/75"
+                  }`}
+                >
+                  <span>╟</span>
+                  <span className="sr-only">Hizala</span>
+                </button>
+                {planTopAlignMenuOpen && (
+                  <div
+                    data-testid="plan-top-align-menu"
+                    className="absolute left-0 top-10 w-44 birim-ice-popover rounded-2xl p-1.5 z-50 space-y-1"
+                  >
+                    <button
+                      type="button"
+                      data-testid="plan-align-left"
+                      onClick={() => {
+                        alignActiveModuleOnWall("left");
+                        setPlanTopAlignMenuOpen(false);
+                      }}
+                      className="w-full px-2.5 py-1.5 rounded-xl hover:bg-white/80 text-left font-semibold text-[#111827] flex items-center justify-between cursor-pointer"
+                    >
+                      <span>⬅ Sol</span>
+                      <span className="text-[10px] font-mono text-[#64748B]">0mm</span>
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="plan-align-center"
+                      onClick={() => {
+                        alignActiveModuleOnWall("center");
+                        setPlanTopAlignMenuOpen(false);
+                      }}
+                      className="w-full px-2.5 py-1.5 rounded-xl hover:bg-white/80 text-left font-semibold text-[#111827] flex items-center justify-between cursor-pointer"
+                    >
+                      <span>↔ Merkez</span>
+                      <span className="text-[10px] font-mono text-[#64748B]">Eşit</span>
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="plan-align-right"
+                      onClick={() => {
+                        alignActiveModuleOnWall("right");
+                        setPlanTopAlignMenuOpen(false);
+                      }}
+                      className="w-full px-2.5 py-1.5 rounded-xl hover:bg-white/80 text-left font-semibold text-[#111827] flex items-center justify-between cursor-pointer"
+                    >
+                      <span>➡ Sağ</span>
+                      <span className="text-[10px] font-mono text-[#64748B]">Son</span>
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="plan-align-flush-back"
+                      onClick={() => {
+                        alignActiveModuleOnWall("flush_back");
+                        setPlanTopAlignMenuOpen(false);
+                      }}
+                      className="w-full px-2.5 py-1.5 rounded-xl hover:bg-white/80 text-left font-semibold text-[#111827] flex items-center justify-between cursor-pointer"
+                    >
+                      <span>⬆ Duvara Yasla</span>
+                      <span className="text-[10px] font-mono text-[#64748B]">Z:0</span>
+                    </button>
+                  </div>
+                )}
+              </div>
 
-            {/* Snaps & Grid Toggles */}
-            <div className="inline-flex items-center gap-1 bg-[#F8FAFC] px-2 py-1 rounded-xl border border-[#E2E8F0]">
+              {/* Dağıt Popover İkonu */}
+              <div className="relative">
+                <button
+                  type="button"
+                  data-testid="plan-top-tool-distribute"
+                  title="Modülleri Duvar Boyunca Dağıt"
+                  onClick={() => {
+                    setPlanTopDistributeMenuOpen((v) => !v);
+                    setPlanTopAlignMenuOpen(false);
+                  }}
+                  className={`w-8 h-8 rounded-xl font-semibold flex items-center justify-center transition cursor-pointer ${
+                    planTopDistributeMenuOpen ? "birim-ice-btn-active" : "text-[#334155] hover:bg-white/75"
+                  }`}
+                >
+                  <span>⫼</span>
+                  <span className="sr-only">Dağıt</span>
+                </button>
+                {planTopDistributeMenuOpen && (
+                  <div
+                    data-testid="plan-top-distribute-menu"
+                    className="absolute left-0 top-10 w-48 birim-ice-popover rounded-2xl p-1.5 z-50 space-y-1"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        distributeAlongWall();
+                        setPlanTopDistributeMenuOpen(false);
+                      }}
+                      className="w-full px-2.5 py-1.5 rounded-xl hover:bg-white/80 text-left font-semibold text-[#111827] cursor-pointer"
+                    >
+                      ↔ Eşit Dağıt
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="plan-distribute-gap-0"
+                      onClick={() => {
+                        distributeModulesWithGap(0);
+                        setPlanTopDistributeMenuOpen(false);
+                      }}
+                      className="w-full px-2.5 py-1.5 rounded-xl hover:bg-white/80 text-left font-semibold text-[#111827] cursor-pointer"
+                    >
+                      🔗 Bitiştir (0 mm)
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="plan-distribute-gap-50"
+                      onClick={() => {
+                        distributeModulesWithGap(50);
+                        setPlanTopDistributeMenuOpen(false);
+                      }}
+                      className="w-full px-2.5 py-1.5 rounded-xl hover:bg-white/80 text-left font-semibold text-[#111827] cursor-pointer"
+                    >
+                      📐 50 mm Boşluk
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <button
+                type="button"
+                data-testid="plan-top-tool-grid"
+                title="2D Izgarayı (Grid) Göster / Gizle"
+                onClick={() => dispatchPlanToolAction({ action: "toggle_grid" })}
+                className="w-8 h-8 rounded-xl font-bold flex items-center justify-center text-[#334155] hover:bg-white/75 transition cursor-pointer"
+              >
+                <span>#</span>
+                <span className="sr-only">Izgara</span>
+              </button>
+            </div>
+
+            {/* Mıknatıs (Snap) İkon Kapsülü */}
+            <div className="inline-flex items-center gap-0.5 birim-ice-pill p-0.5 rounded-2xl">
               <button
                 type="button"
                 data-testid="plan-top-tool-snaps"
                 onClick={() => dispatchPlanToolAction({ action: "toggle_snaps" })}
-                className="flex items-center gap-1 font-semibold text-[#1E293B] cursor-pointer"
+                className="w-7 h-7 rounded-xl flex items-center justify-center text-[#1E293B] hover:bg-white/75 cursor-pointer"
                 title="Mıknatıslı Yakalamayı (Snap) Aç/Kapat"
               >
                 <Magnet className="w-3.5 h-3.5 text-[#2563EB]" />
-                <span>Snaps</span>
+                <span className="sr-only">Snaps</span>
               </button>
               {[0, 50, 100].map((s) => (
                 <button
                   key={s}
                   type="button"
+                  title={s === 0 ? "Mıknatıs Kapalı" : `${s} mm Mıknatıs Adımı`}
                   onClick={() => setSnapMm(s)}
-                  className={`px-1.5 py-0.5 rounded-md font-mono text-[10px] font-bold cursor-pointer ${
+                  className={`px-1.5 h-7 rounded-xl font-mono text-[10px] font-bold cursor-pointer transition ${
                     snapMm === s
-                      ? "bg-[#EFF6FF] text-[#1D4ED8] border border-[#BFDBFE]"
-                      : "text-[#64748B] hover:bg-white"
+                      ? "birim-ice-btn-active"
+                      : "text-[#64748B] hover:bg-white/75"
                   }`}
                 >
-                  {s === 0 ? "Kapalı" : `${s}mm`}
+                  {s === 0 ? "Ø" : s}
                 </button>
               ))}
             </div>
-
-            <button
-              type="button"
-              data-testid="plan-top-tool-grid"
-              onClick={() => dispatchPlanToolAction({ action: "toggle_grid" })}
-              className="px-3 py-1.5 rounded-xl font-semibold flex items-center gap-1.5 bg-white hover:bg-[#F8FAFC] text-[#334155] border border-[#E2E8F0] transition cursor-pointer"
-            >
-              <span>#</span>
-              <span>Izgara</span>
-            </button>
           </div>
 
-          {/* Right: Quick Presets + Equal Distribute + Inspector Toggle (Preserves all existing testids) */}
-          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+          {/* Sağ: Kompakt Mimari Dizilim Şablon İkonları + Özellik Düzenleyici */}
+          <div className="inline-flex items-center gap-0.5 p-0.5 rounded-2xl birim-ice-pill overflow-x-auto no-scrollbar">
             <button
               type="button"
               data-testid="plan-preset-linear-kitchen"
+              title="Doğrusal (I-Tipi) Mutfak Şablonu"
               onClick={loadLinearKitchen}
-              className="px-2 py-1 rounded-lg bg-[#F8FAFC] hover:bg-[#EFF6FF] border border-[#E2E8F0] text-[#334155] text-[11px] font-semibold transition cursor-pointer shrink-0"
+              className="w-8 h-7 rounded-xl hover:bg-white/80 text-[#334155] text-xs font-extrabold flex items-center justify-center transition cursor-pointer shrink-0"
             >
-              Doğrusal Mutfak
+              <span>━</span>
+              <span className="sr-only">Doğrusal Mutfak</span>
             </button>
             <button
               type="button"
               data-testid="plan-preset-l-kitchen"
+              title="L-Tipi Köşe Mutfak Şablonu"
               onClick={loadLKitchen}
-              className="px-2 py-1 rounded-lg bg-[#F8FAFC] hover:bg-[#EFF6FF] border border-[#E2E8F0] text-[#334155] text-[11px] font-semibold transition cursor-pointer shrink-0"
+              className="w-8 h-7 rounded-xl hover:bg-white/80 text-[#334155] text-xs font-extrabold flex items-center justify-center transition cursor-pointer shrink-0"
             >
-              L Tipi Mutfak
+              <span>┗</span>
+              <span className="sr-only">L Tipi Mutfak</span>
             </button>
             <button
               type="button"
               data-testid="plan-preset-u-kitchen"
+              title="U-Tipi Mutfak Şablonu"
               onClick={loadUKitchen}
-              className="px-2 py-1 rounded-lg bg-[#F8FAFC] hover:bg-[#EFF6FF] border border-[#E2E8F0] text-[#334155] text-[11px] font-semibold transition cursor-pointer shrink-0"
+              className="w-8 h-7 rounded-xl hover:bg-white/80 text-[#334155] text-xs font-extrabold flex items-center justify-center transition cursor-pointer shrink-0"
             >
-              U Tipi Mutfak
+              <span>⊔</span>
+              <span className="sr-only">U Tipi Mutfak</span>
             </button>
             <button
               type="button"
               data-testid="plan-preset-wardrobe"
+              title="Master Gardırop Şablonu"
               onClick={() => applyTemplate(WARDROBE_TEMPLATES[1].templateId)}
-              className="px-2 py-1 rounded-lg bg-[#F8FAFC] hover:bg-[#EFF6FF] border border-[#E2E8F0] text-[#334155] text-[11px] font-semibold transition cursor-pointer shrink-0"
+              className="w-8 h-7 rounded-xl hover:bg-white/80 text-[#334155] text-xs font-bold flex items-center justify-center transition cursor-pointer shrink-0"
             >
-              Master Gardırop
+              <span>🚪</span>
+              <span className="sr-only">Master Gardırop</span>
             </button>
+            <div className="h-4 w-px bg-slate-900/12 mx-0.5" />
             <button
               type="button"
               data-testid="plan-distribute-wall-btn"
+              title="Modülleri Duvara Eşit Dağıt"
               onClick={distributeAlongWall}
-              className="px-2.5 py-1 rounded-lg bg-[#EFF6FF] hover:bg-[#DBEAFE] border border-[#BFDBFE] text-[#1D4ED8] text-[11px] font-bold transition cursor-pointer shrink-0"
+              className="w-8 h-7 rounded-xl hover:bg-white/80 text-[#1D4ED8] text-xs font-bold flex items-center justify-center transition cursor-pointer shrink-0"
             >
-              Duvara Eşit Dağıt
+              <span>⇹</span>
+              <span className="sr-only">Duvara Eşit Dağıt</span>
             </button>
             <button
               type="button"
               data-testid="plan-toggle-inspector-btn"
+              title={showInspectorInPlan ? "Özellik Panelini Gizle" : "Özellik Düzenleyiciyi Aç"}
               onClick={() => setShowInspectorInPlan((prev) => !prev)}
-              className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold transition cursor-pointer shrink-0 ${
+              className={`w-8 h-7 rounded-xl text-xs font-bold flex items-center justify-center transition cursor-pointer shrink-0 ${
                 showInspectorInPlan
-                  ? "bg-[#EFF6FF] text-[#1D4ED8] border-[#2563EB]"
-                  : "bg-white hover:bg-[#F8FAFC] text-[#334155] border-[#CBD5E1]"
+                  ? "birim-ice-btn-active"
+                  : "hover:bg-white/80 text-[#334155]"
               }`}
             >
-              ⚙️ {showInspectorInPlan ? "Paneli Gizle" : "Özellik Düzenleyici"}
+              <SlidersHorizontal className="w-3.5 h-3.5" />
+              <span className="sr-only">{showInspectorInPlan ? "Paneli Gizle" : "Özellik Düzenleyici"}</span>
             </button>
           </div>
         </div>
@@ -2707,21 +2731,21 @@ export const V3UnifiedWorkspace: React.FC<{
         {mode === "plan" && (
           <aside
             data-testid="plan-left-panel"
-            className={`border-r border-[#E2E8F0] bg-white/95 backdrop-blur-xl text-[#111827] flex flex-row z-30 shrink-0 relative ${
+            className={`border-r border-white/70 birim-ice-drawer text-[#111827] flex flex-row z-30 shrink-0 relative ${
               resizingPanel === "plan-left" ? "" : "transition-[width] duration-200 ease-out"
             }`}
             style={{
               width: planLeftOpen
                 ? isCompactViewport
-                  ? "70px"
+                  ? "56px"
                   : `${planLeftWidthPx}px`
-                : "70px",
+                : "56px",
             }}
           >
             {/* FAR-LEFT 7-ITEM VERTICAL ICON RAIL FOR PLAN MODE (Mekân | Modüller | Ölçü | Katmanlar | Görünüm | DXF / DWG | Ayarlar) */}
             <div
               data-testid="plan-left-icon-rail"
-              className="w-[70px] bg-[#F8FAFC] border-r border-[#E2E8F0] py-3 px-1.5 flex flex-col items-center justify-between shrink-0 select-none"
+              className="w-[56px] birim-ice-rail border-r py-2.5 px-1.5 flex flex-col items-center justify-between shrink-0 select-none"
             >
               <div className="w-full space-y-1.5 flex flex-col items-center">
                 {[
@@ -2810,16 +2834,17 @@ export const V3UnifiedWorkspace: React.FC<{
                     <button
                       key={railItem.id}
                       type="button"
+                      title={railItem.label}
                       data-testid={railItem.testId}
                       onClick={railItem.onClick}
-                      className={`w-full py-2 px-1 rounded-xl flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
+                      className={`w-10 h-10 rounded-xl flex items-center justify-center transition cursor-pointer ${
                         isAct
-                          ? "bg-[#EFF6FF] text-[#1D4ED8] border border-[#2563EB] font-bold shadow-2xs"
-                          : "text-[#475569] hover:bg-[#F1F5F9] hover:text-[#111827] font-medium"
+                          ? "birim-ice-btn-active"
+                          : "text-[#475569] hover:bg-white/75 hover:text-[#111827]"
                       }`}
                     >
                       {railItem.icon}
-                      <span className="text-[9px] leading-none text-center">{railItem.label}</span>
+                      <span className="sr-only">{railItem.label}</span>
                     </button>
                   );
                 })}
@@ -2843,7 +2868,7 @@ export const V3UnifiedWorkspace: React.FC<{
               <div
                 className={`flex-1 flex flex-col min-w-0 min-h-0 ${
                   isCompactViewport
-                    ? "fixed left-[70px] top-[90px] bottom-[48px] w-[320px] max-w-[calc(100vw-82px)] z-40 bg-white/94 backdrop-blur-xl border border-white/90 ring-1 ring-slate-900/10 rounded-r-2xl shadow-[12px_0_36px_rgba(15,23,42,0.18)]"
+                    ? "fixed left-[56px] top-[94px] bottom-[48px] w-[320px] max-w-[calc(100vw-68px)] z-40 birim-ice-popover rounded-r-2xl"
                     : "bg-white"
                 }`}
               >
@@ -3358,17 +3383,17 @@ export const V3UnifiedWorkspace: React.FC<{
           </aside>
         )}
 
-                {/* LEFT PANEL — DESIGN STUDIO: FAR-LEFT ICON RAIL + MODÜL KÜTÜPHANESİ (Matches image_e719c6.jpg 1-to-1) */}
+                {/* LEFT PANEL — DESIGN STUDIO: 56px FROSTED ICE PURE ICON RAIL + SEMI-TRANSPARENT LIBRARY */}
         {mode === "studio" && (
           <aside
             data-testid="studio-left-library"
-            className="border-r border-[#E2E8F0] bg-[#FFFFFF] text-[#111827] flex flex-row z-30 shrink-0 relative transition-[width] duration-200 ease-out"
+            className="border-r border-white/70 birim-ice-drawer text-[#111827] flex flex-row z-30 shrink-0 relative transition-[width] duration-200 ease-out"
             style={{
               width: leftOpen
                 ? isCompactViewport
-                  ? "72px"
+                  ? "56px"
                   : `min(${studioLeftWidthPx}px, clamp(300px, 25vw, 444px))`
-                : "72px",
+                : "56px",
             }}
           >
             {leftOpen && (
@@ -3383,9 +3408,9 @@ export const V3UnifiedWorkspace: React.FC<{
               />
             )}
 
-            {/* FAR-LEFT VERTICAL NAVIGATION RAIL (B1R1M Architectural Stone & Charcoal Grammar) */}
-            <div className="w-[68px] bg-[#FAF9F6] border-r border-[#DED8CC] py-3 px-1.5 flex flex-col items-center justify-between shrink-0 select-none">
-              <div className="w-full space-y-1 flex flex-col items-center">
+            {/* FAR-LEFT FROSTED ICE PURE ICON RAIL */}
+            <div className="w-[56px] birim-ice-rail border-r py-2.5 px-1.5 flex flex-col items-center justify-between shrink-0 select-none">
+              <div className="w-full space-y-1.5 flex flex-col items-center">
                 <button
                   type="button"
                   data-testid="studio-tab-quick-wizard"
@@ -3395,20 +3420,21 @@ export const V3UnifiedWorkspace: React.FC<{
                       setLeftOpen((prev) => (leftTab === "quick_wizard" ? !prev : true));
                     });
                   }}
-                  className={`w-full py-2 px-1 rounded-lg flex flex-col items-center justify-center gap-1 transition cursor-pointer border ${
+                  className={`w-10 h-10 rounded-xl flex items-center justify-center transition cursor-pointer ${
                     leftOpen && leftTab === "quick_wizard"
-                      ? "bg-[#141413] text-[#FAF9F6] border-[#141413] font-semibold"
-                      : "text-[#57534E] hover:bg-[#EFECE5] hover:text-[#141413] border-transparent font-medium"
+                      ? "birim-ice-btn-active"
+                      : "text-[#57534E] hover:bg-white/75 hover:text-[#141413]"
                   }`}
                   title="Hızlı Gövde Sihirbazı"
                 >
-                  <Sparkles className={`w-4 h-4 ${leftOpen && leftTab === "quick_wizard" ? "text-[#D6C7B2]" : "text-[#8C7A6B]"}`} />
-                  <span className="text-[10px] leading-tight text-center">Sihirbaz</span>
+                  <Sparkles className={`w-4 h-4 ${leftOpen && leftTab === "quick_wizard" ? "text-[#E5D3B8]" : "text-[#8C7A6B]"}`} />
+                  <span className="sr-only">Sihirbaz</span>
                 </button>
 
                 <button
                   type="button"
                   data-testid="studio-tab-templates"
+                  title="Modül Şablonları"
                   onClick={() => {
                     startTransition(() => {
                       setLeftTab("templates");
@@ -3416,14 +3442,14 @@ export const V3UnifiedWorkspace: React.FC<{
                       setLeftOpen(true);
                     });
                   }}
-                  className={`w-full py-2 px-1 rounded-lg flex flex-col items-center justify-center gap-1 transition cursor-pointer border ${
+                  className={`w-10 h-10 rounded-xl flex items-center justify-center transition cursor-pointer ${
                     leftOpen && leftTab === "templates" && studioInspectorTab !== "interior" && studioInspectorTab !== "material" && studioInspectorTab !== "all"
-                      ? "bg-[#141413] text-[#FAF9F6] border-[#141413] font-semibold"
-                      : "text-[#57534E] hover:bg-[#EFECE5] hover:text-[#141413] border-transparent font-medium"
+                      ? "birim-ice-btn-active"
+                      : "text-[#57534E] hover:bg-white/75 hover:text-[#141413]"
                   }`}
                 >
                   <Package className="w-4 h-4" />
-                  <span className="text-[10px] leading-tight text-center">Modüller</span>
+                  <span className="sr-only">Modüller</span>
                 </button>
 
                 <button
@@ -3439,20 +3465,21 @@ export const V3UnifiedWorkspace: React.FC<{
                       }
                     });
                   }}
-                  className={`w-full py-2 px-1 rounded-lg flex flex-col items-center justify-center gap-1 transition cursor-pointer border ${
+                  className={`w-10 h-10 rounded-xl flex items-center justify-center transition cursor-pointer ${
                     leftOpen && (leftTab === "interior" || studioInspectorTab === "interior")
-                      ? "bg-[#141413] text-[#FAF9F6] border-[#141413] font-semibold"
-                      : "text-[#57534E] hover:bg-[#EFECE5] hover:text-[#141413] border-transparent font-medium"
+                      ? "birim-ice-btn-active"
+                      : "text-[#57534E] hover:bg-white/75 hover:text-[#141413]"
                   }`}
-                  title="Raf, Çekmece, Askılık ve Bölme Kütüphanesi"
+                  title="İç Düzen (Raf, Çekmece, Askılık ve Bölme)"
                 >
                   <Layers className="w-4 h-4" />
-                  <span className="text-[10px] leading-tight text-center">İç Düzen</span>
+                  <span className="sr-only">İç Düzen</span>
                 </button>
 
                 <button
                   type="button"
                   data-testid="studio-tab-materials"
+                  title="Malzeme, Renk ve Doku Kütüphanesi"
                   onClick={() => {
                     startTransition(() => {
                       setLeftTab("materials");
@@ -3460,14 +3487,14 @@ export const V3UnifiedWorkspace: React.FC<{
                       setLeftOpen(true);
                     });
                   }}
-                  className={`w-full py-2 px-1 rounded-lg flex flex-col items-center justify-center gap-1 transition cursor-pointer border ${
+                  className={`w-10 h-10 rounded-xl flex items-center justify-center transition cursor-pointer ${
                     leftOpen && (leftTab === "materials" || studioInspectorTab === "material")
-                      ? "bg-[#141413] text-[#FAF9F6] border-[#141413] font-semibold"
-                      : "text-[#57534E] hover:bg-[#EFECE5] hover:text-[#141413] border-transparent font-medium"
+                      ? "birim-ice-btn-active"
+                      : "text-[#57534E] hover:bg-white/75 hover:text-[#141413]"
                   }`}
                 >
                   <Palette className="w-4 h-4" />
-                  <span className="text-[10px] leading-tight text-center">Malzeme</span>
+                  <span className="sr-only">Malzeme</span>
                 </button>
 
                 <button
@@ -3481,38 +3508,40 @@ export const V3UnifiedWorkspace: React.FC<{
                     });
                   }}
                   className={`${
-                    isSimpleBlumMode ? "sr-only" : "w-full py-2 px-1 rounded-lg flex flex-col items-center justify-center gap-1 transition cursor-pointer border"
+                    isSimpleBlumMode ? "sr-only" : "w-10 h-10 rounded-xl flex items-center justify-center transition cursor-pointer"
                   } ${
                     leftOpen && (leftTab === "hardware" || studioInspectorTab === "all")
-                      ? "bg-[#141413] text-[#FAF9F6] border-[#141413] font-semibold"
-                      : "text-[#57534E] hover:bg-[#EFECE5] hover:text-[#141413] border-transparent font-medium"
+                      ? "birim-ice-btn-active"
+                      : "text-[#57534E] hover:bg-white/75 hover:text-[#141413]"
                   }`}
-                  title="Blum & Donanım Kütüphanesi"
+                  title="Blum, Hettich & Häfele Donanım Kütüphanesi"
                 >
                   <Wrench className="w-4 h-4" />
-                  <span className="text-[10px] leading-tight text-center">Donanım</span>
+                  <span className="sr-only">Donanım</span>
                 </button>
 
-                <div className="w-8 h-px bg-[#DED8CC] my-1" />
+                <div className="w-7 h-px bg-slate-900/10 my-1" />
 
                 <button
                   type="button"
                   data-testid="v4-open-floating-catalog-btn"
+                  title="Tam Ekran Görsel Katalog"
                   onClick={() => setIsVisualCatalogOpen(true)}
-                  className="w-full py-2 px-1 rounded-lg flex flex-col items-center justify-center gap-1 text-[#57534E] hover:bg-[#EFECE5] hover:text-[#141413] font-medium transition cursor-pointer"
+                  className="w-10 h-10 rounded-xl flex items-center justify-center text-[#57534E] hover:bg-white/75 hover:text-[#141413] transition cursor-pointer"
                 >
                   <Maximize2 className="w-4 h-4" />
-                  <span className="text-[10px] leading-tight text-center">Katalog</span>
+                  <span className="sr-only">Katalog</span>
                 </button>
 
                 <button
                   type="button"
                   data-testid="v3-open-projects-btn"
+                  title="Kayıtlı Projeler"
                   onClick={() => setIsProjectModalOpen(true)}
-                  className="w-full py-2 px-1 rounded-lg flex flex-col items-center justify-center gap-1 text-[#57534E] hover:bg-[#EFECE5] hover:text-[#141413] font-medium transition cursor-pointer"
+                  className="w-10 h-10 rounded-xl flex items-center justify-center text-[#57534E] hover:bg-white/75 hover:text-[#141413] transition cursor-pointer"
                 >
                   <FolderOpen className="w-4 h-4" />
-                  <span className="text-[10px] leading-tight text-center">Projeler</span>
+                  <span className="sr-only">Projeler</span>
                 </button>
               </div>
 
@@ -3522,7 +3551,7 @@ export const V3UnifiedWorkspace: React.FC<{
                   data-testid="studio-toggle-left"
                   onClick={() => setLeftOpen(!leftOpen)}
                   title={leftOpen ? "Sol Paneli Daralt" : "Sol Paneli Aç"}
-                  className="w-8 h-8 rounded-lg flex items-center justify-center text-[#57534E] hover:text-[#141413] hover:bg-[#EFECE5] border border-transparent hover:border-[#DED8CC] transition cursor-pointer"
+                  className="w-9 h-9 rounded-xl birim-ice-btn flex items-center justify-center text-[#57534E] hover:text-[#141413] transition cursor-pointer"
                 >
                   {leftOpen ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                 </button>
@@ -3534,8 +3563,8 @@ export const V3UnifiedWorkspace: React.FC<{
               <div
                 className={`flex-1 flex flex-col min-w-0 min-h-0 ${
                   isCompactViewport
-                    ? "fixed left-[68px] top-[52px] bottom-[56px] w-[340px] max-w-[calc(100vw-80px)] z-40 bg-[#FAF9F6]/98 backdrop-blur-xl border-r border-[#DED8CC] rounded-r-xl shadow-xl"
-                    : "bg-white border-r border-[#DED8CC]"
+                    ? "fixed left-[56px] top-[50px] bottom-[52px] w-[340px] max-w-[calc(100vw-68px)] z-40 birim-ice-popover rounded-r-2xl"
+                    : "bg-white/55 backdrop-blur-2xl border-r border-white/70"
                 }`}
               >
 
@@ -5610,9 +5639,9 @@ export const V3UnifiedWorkspace: React.FC<{
             {mode === "plan" && (
               <div
                 data-testid="plan-hybrid-module-dock"
-                className="shrink-0 relative z-30 w-full px-2.5 py-1.5 bg-[#D8D3C8]/95 border-b border-stone-300/90 flex items-center justify-between gap-1.5"
+                className="shrink-0 relative z-30 w-full px-2.5 py-1 birim-ice-bar border-b flex items-center justify-between gap-1.5"
               >
-                <div className="flex items-center gap-1 min-w-0 flex-1 bg-white/92 backdrop-blur-xl px-1.5 py-1 rounded-xl border border-slate-200/90 shadow-2xs overflow-hidden">
+                <div className="flex items-center gap-1 min-w-0 flex-1 birim-ice-pill px-1.5 py-1 rounded-2xl overflow-hidden">
                   {/* Prev/Next Quick Stepper when > 1 module */}
                   {project.modules.length > 1 && (
                     <div className="inline-flex items-center bg-slate-100/90 rounded-lg p-0.5 border border-slate-200/80 shrink-0">
@@ -5731,7 +5760,7 @@ export const V3UnifiedWorkspace: React.FC<{
                       className="px-2 py-1 rounded-lg bg-white hover:bg-blue-50 text-[#0F172A] border border-slate-200/90 text-[11px] font-bold inline-flex items-center gap-1 shrink-0 whitespace-nowrap shadow-2xs transition active:scale-95 cursor-pointer"
                     >
                       <Plus className="w-3.5 h-3.5 text-blue-600" />
-                      <span className="hidden xl:inline">Kopyala</span>
+                      <span className="sr-only">Kopyala</span>
                     </button>
 
                     <button
@@ -5750,7 +5779,7 @@ export const V3UnifiedWorkspace: React.FC<{
                       }`}
                     >
                       <span>🏠</span>
-                      <span className="hidden xl:inline">{planRightView === "2d-elevation" ? "3D" : "Cephe"}</span>
+                      <span className="sr-only">{planRightView === "2d-elevation" ? "3D" : "Cephe"}</span>
                     </button>
                   </div>
                 </div>
@@ -5953,10 +5982,10 @@ export const V3UnifiedWorkspace: React.FC<{
           {mode === "plan" && (
             <div
               data-testid="plan-right-view-switcher"
-              className="min-h-[44px] px-3 py-1.5 bg-white border-b border-[#E2E8F0] flex items-center justify-between gap-2 shrink-0 z-20 flex-wrap"
+              className="min-h-[42px] px-3 py-1 birim-ice-bar border-b flex items-center justify-between gap-2 shrink-0 z-20 flex-wrap"
             >
-              {/* Primary 2D Plan | 3D Görünüm Switcher Pills (Matches image_da6ae9.jpg top-right) */}
-              <div className="inline-flex items-center p-0.5 rounded-xl bg-[#F1F5F9] border border-[#E2E8F0]">
+              {/* Primary Frosted Ice 2D | 2D+3D | 3D Switcher Pills */}
+              <div className="inline-flex items-center p-0.5 rounded-2xl birim-ice-pill gap-0.5">
                 <button
                   type="button"
                   data-testid="plan-layout-2d-only"
@@ -5970,8 +5999,8 @@ export const V3UnifiedWorkspace: React.FC<{
                       ? "bg-white text-[#111827] shadow-2xs"
                       : "text-[#64748B] hover:text-[#111827]"
                   }`}
-                >
-                  2D Plan
+                 title="Yalnız 2D Plan">
+                  2D
                 </button>
                 <button
                   type="button"
@@ -5986,8 +6015,8 @@ export const V3UnifiedWorkspace: React.FC<{
                       ? "bg-[#2563EB] text-white shadow-2xs"
                       : "text-[#64748B] hover:text-[#111827]"
                   }`}
-                >
-                  3D Görünüm
+                 title="Bölünmüş 2D + 3D Görünüm">
+                  2D|3D
                 </button>
                 <button
                   type="button"
@@ -6002,8 +6031,8 @@ export const V3UnifiedWorkspace: React.FC<{
                       ? "bg-[#2563EB] text-white shadow-2xs"
                       : "text-[#64748B] hover:text-[#111827]"
                   }`}
-                >
-                  3D Tam Ekran
+                 title="Tam Ekran 3D Görünüm">
+                  3D
                 </button>
               </div>
 
@@ -6140,7 +6169,7 @@ export const V3UnifiedWorkspace: React.FC<{
           {mode === "plan" && planViewLayout !== "3d_only" && (
             <div
               data-testid="plan-selected-module-card"
-              className="border-t border-white/80 bg-white/82 backdrop-blur-xl ring-1 ring-slate-900/10 px-3.5 py-2.5 space-y-2 shrink-0 z-20 shadow-[0_-8px_28px_-12px_rgba(15,23,42,0.12)]"
+              className="border-t birim-ice-bar px-3.5 py-2 space-y-2 shrink-0 z-20"
             >
               {/* Single-Row Icon-First Module Strip */}
               <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -6230,7 +6259,7 @@ export const V3UnifiedWorkspace: React.FC<{
                     }`}
                   >
                     <SlidersHorizontal className="w-3.5 h-3.5" />
-                    <span>Ölçü</span>
+                    <span className="sr-only">Ölçü</span>
                   </button>
 
                   <button
@@ -6267,8 +6296,8 @@ export const V3UnifiedWorkspace: React.FC<{
                     title="Tasarım Stüdyosunda Detaylı Düzenle"
                     className="h-8 px-3 rounded-xl bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all active:scale-[0.98] cursor-pointer"
                   >
-                    <span>Detay</span>
                     <span>↗</span>
+                    <span className="sr-only">Detay</span>
                   </button>
                 </div>
               </div>
@@ -6379,128 +6408,107 @@ export const V3UnifiedWorkspace: React.FC<{
             </div>
           )}
 
-          {/* B1R1M GALLERY SHOWROOM FLOATING PRESENTATION HUD */}
+          {/* B1R1M GALLERY SHOWROOM FROSTED ICE ICON PRESENTATION HUD */}
           {mode === "showroom" && (
             <>
               {zenMode ? (
-                <div className="absolute top-5 right-6 z-30">
+                <div className="absolute top-4 right-5 z-30">
                   <button
                     type="button"
                     data-testid="showroom-exit-zen"
+                    title="Tam Ekrandan Çık"
                     onClick={() => setZenMode(false)}
-                    className="h-9 px-4 rounded-lg bg-[#FAF9F6]/95 hover:bg-white text-[#141413] border border-[#DED8CC] backdrop-blur-md text-xs font-semibold shadow-md flex items-center gap-2 cursor-pointer"
+                    className="w-10 h-10 rounded-2xl birim-ice-pill text-[#141413] flex items-center justify-center cursor-pointer hover:scale-105 transition"
                   >
-                    <Eye className="w-3.5 h-3.5 text-[#141413]" />
-                    <span>Tam Ekrandan Çık</span>
+                    <Eye className="w-4 h-4 text-[#141413]" />
+                    <span className="sr-only">Tam Ekrandan Çık</span>
                   </button>
                 </div>
               ) : (
                 <>
-                  <div className="absolute top-5 left-6 z-20 bg-[#FAF9F6]/95 backdrop-blur-md px-4 py-3 rounded-xl border border-[#DED8CC] shadow-sm flex items-center gap-4">
+                  {/* Top-Left Compact Frosted Ice Project & Quote Pill */}
+                  <div className="absolute top-4 left-5 z-20 birim-ice-pill px-3.5 py-2 rounded-2xl flex items-center gap-3">
                     <div>
-                      <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#8C7A6B]">
-                        B1R1M Sunum Stüdyosu
-                      </div>
-                      <div className="text-sm font-bold text-[#141413]">{project.title}</div>
-                      <div className="text-[11px] font-mono text-[#57534E] mt-0.5">
+                      <div className="text-xs font-bold text-[#141413] leading-tight">{project.title}</div>
+                      <div className="text-[10px] font-mono text-[#57534E]">
                         {project.modules.length} Modül • {(liveCustomerAndFactoryStats.totalModWidth / 10).toFixed(0)} cm
-                      </div>
-                    </div>
-                    <div className="h-8 w-px bg-[#DED8CC]" />
-                    <div>
-                      <div className="text-[10px] uppercase tracking-[0.1em] text-[#78716C]">
-                        KDV Dahil Toplam
-                      </div>
-                      <div className="text-sm font-bold font-mono text-[#141413]">
-                        €{pricing.totalWithVatEur.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}
                       </div>
                     </div>
                     <button
                       type="button"
+                      title="Teklif Föyü Oluştur"
                       onClick={() => setShowQuickSellModal(true)}
-                      className="h-9 px-3.5 rounded-lg bg-[#141413] hover:bg-[#292524] text-[#FAF9F6] text-xs font-semibold transition cursor-pointer"
+                      className="w-9 h-9 rounded-xl birim-ice-btn-active flex items-center justify-center transition cursor-pointer"
                     >
-                      Teklif Föyü Oluştur
+                      <FileSpreadsheet className="w-4 h-4" />
+                      <span className="sr-only">Teklif Föyü Oluştur</span>
                     </button>
                   </div>
 
-                  <div className="absolute right-6 top-1/2 -translate-y-1/2 z-20 flex flex-col gap-1.5 bg-[#FAF9F6]/95 backdrop-blur-md p-2.5 rounded-xl border border-[#DED8CC] shadow-md w-40">
-                    <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#78716C] px-1">
-                      Kamera Açısı
-                    </div>
+                  {/* Right Vertical Frosted Ice Camera & Door Icon Dock */}
+                  <div className="absolute right-5 top-1/2 -translate-y-1/2 z-20 flex flex-col items-center gap-1.5 birim-ice-pill p-1.5 rounded-2xl w-[54px]">
                     {[
-                      { id: "iso", label: "Perspektif" },
-                      { id: "front", label: "Ön Cephe" },
-                      { id: "side", label: "Yan Bakış" },
-                      { id: "top", label: "Üst Bakış" },
+                      { id: "iso", label: "Perspektif", tag: "3D" },
+                      { id: "front", label: "Ön Cephe", tag: "ÖN" },
+                      { id: "side", label: "Yan Bakış", tag: "YAN" },
+                      { id: "top", label: "Üst Bakış", tag: "ÜST" },
                     ].map((cam) => (
                       <button
                         key={cam.id}
                         type="button"
+                        title={cam.label}
                         data-testid={`showroom-cam-${cam.id}`}
                         onClick={() =>
                           setCameraPreset(cam.id as "iso" | "front" | "side" | "top")
                         }
-                        className={`px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-2 transition cursor-pointer ${
+                        className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center gap-0.5 transition cursor-pointer ${
                           cameraPreset === cam.id
-                            ? "bg-[#141413] text-[#FAF9F6]"
-                            : "text-[#44403C] hover:bg-[#EFECE5]"
+                            ? "birim-ice-btn-active"
+                            : "text-[#44403C] hover:bg-white/75"
                         }`}
                       >
                         <Camera className="w-3.5 h-3.5 shrink-0" />
-                        <span>{cam.label}</span>
+                        <span className="text-[8px] font-mono font-bold leading-none">{cam.tag}</span>
                       </button>
                     ))}
 
-                    <div className="h-px bg-[#E5E0D5] my-1" />
+                    <div className="w-7 h-px bg-slate-900/12 my-0.5" />
 
                     <button
                       type="button"
                       data-testid="showroom-door-toggle"
+                      title={doorOpenAngleDeg > 0 ? "Kapakları Kapat" : "İç Düzeni Göster"}
                       onClick={toggleDoorOpen}
-                      className={`px-2.5 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 border transition cursor-pointer ${
+                      className={`w-10 h-10 rounded-xl flex items-center justify-center transition cursor-pointer ${
                         doorOpenAngleDeg > 0
-                          ? "bg-[#141413] text-[#FAF9F6] border-[#141413]"
-                          : "bg-white hover:bg-[#EFECE5] text-[#141413] border-[#DED8CC]"
+                          ? "birim-ice-btn-active"
+                          : "birim-ice-btn text-[#141413]"
                       }`}
                     >
                       {doorOpenAngleDeg > 0 ? (
-                        <>
-                          <EyeOff className="w-3.5 h-3.5" />
-                          <span>Kapakları Kapat</span>
-                        </>
+                        <EyeOff className="w-4 h-4" />
                       ) : (
-                        <>
-                          <DoorOpen className="w-3.5 h-3.5" />
-                          <span>İç Düzeni Göster</span>
-                        </>
+                        <DoorOpen className="w-4 h-4" />
                       )}
+                      <span className="sr-only">
+                        {doorOpenAngleDeg > 0 ? "Kapakları Kapat" : "İç Düzeni Göster"}
+                      </span>
                     </button>
 
-                    <div className="px-1 pt-1 space-y-0.5">
-                      <div className="flex justify-between text-[10px] text-[#57534E]">
-                        <span>Kapak</span>
-                        <span className="font-mono font-semibold text-[#141413]">
-                          {doorOpenAngleDeg}°
-                        </span>
-                      </div>
+                    <div className="w-full px-1 pt-0.5 flex flex-col items-center gap-1" title={`Kapak Açısı: ${doorOpenAngleDeg}°`}>
+                      <span className="text-[8px] font-mono font-bold text-[#44403C]">{doorOpenAngleDeg}°</span>
                       <input
                         type="range"
                         min={0}
                         max={90}
                         value={doorOpenAngleDeg}
                         onChange={(e) => setDoorOpenAngleDeg(Number(e.target.value))}
-                        className="w-full accent-[#141413] h-1.5 bg-[#E5E0D5] rounded-lg cursor-pointer"
+                        className="w-9 accent-[#141413] h-1 bg-slate-300/80 rounded-lg cursor-pointer"
                       />
                     </div>
 
-                    <div className="px-1 pt-0.5 space-y-0.5">
-                      <div className="flex justify-between text-[10px] text-[#57534E]">
-                        <span>Çekmece</span>
-                        <span className="font-mono font-semibold text-[#141413]">
-                          {drawerOpenMm} mm
-                        </span>
-                      </div>
+                    <div className="w-full px-1 pb-0.5 flex flex-col items-center gap-1" title={`Çekmece Açıklığı: ${drawerOpenMm} mm`}>
+                      <span className="text-[8px] font-mono font-bold text-[#44403C]">{drawerOpenMm}</span>
                       <input
                         type="range"
                         min={0}
@@ -6510,17 +6518,15 @@ export const V3UnifiedWorkspace: React.FC<{
                         step={25}
                         value={drawerOpenMm}
                         onChange={(e) => setDrawerOpenMm(Number(e.target.value))}
-                        className="w-full accent-[#141413] h-1.5 bg-[#E5E0D5] rounded-lg cursor-pointer"
+                        className="w-9 accent-[#141413] h-1 bg-slate-300/80 rounded-lg cursor-pointer"
                       />
                     </div>
                   </div>
 
-                  <div className="absolute bottom-5 left-6 right-6 z-20 flex flex-wrap items-center justify-between gap-3 pointer-events-none">
-                    <div className="pointer-events-auto flex items-center gap-2 bg-[#FAF9F6]/95 backdrop-blur-md px-3.5 py-2 rounded-xl border border-[#DED8CC] shadow-md overflow-x-auto max-w-full">
-                      <div className="flex items-center gap-1.5 pr-2.5 border-r border-[#E5E0D5] text-xs font-semibold text-[#44403C] shrink-0">
-                        <Palette className="w-3.5 h-3.5 text-[#8C7A6B]" />
-                        <span>Yüzey Seçimi</span>
-                      </div>
+                  {/* Bottom Pure Swatch Frosted Ice Dock + Price Pill */}
+                  <div className="absolute bottom-4 left-5 right-5 z-20 flex flex-wrap items-center justify-between gap-3 pointer-events-none">
+                    <div className="pointer-events-auto flex items-center gap-2 birim-ice-pill px-3 py-2 rounded-2xl overflow-x-auto max-w-full">
+                      <Palette className="w-4 h-4 text-[#8C7A6B] shrink-0" />
                       <div className="flex items-center gap-1.5">
                         {DEFAULT_MATERIALS.map((mat) => {
                           const isSelected =
@@ -6529,6 +6535,7 @@ export const V3UnifiedWorkspace: React.FC<{
                             <button
                               key={mat.id}
                               type="button"
+                              title={mat.name.split(" (")[0]}
                               data-testid={`showroom-mat-${mat.id}`}
                               onClick={() => {
                                 const savedSnap =
@@ -6545,19 +6552,14 @@ export const V3UnifiedWorkspace: React.FC<{
                                   snapshot: savedSnap,
                                 });
                               }}
-                              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs transition shrink-0 cursor-pointer ${
+                              className={`w-7 h-7 rounded-full flex items-center justify-center transition shrink-0 cursor-pointer ${
                                 isSelected
-                                  ? "bg-white border-[#141413] text-[#141413] font-semibold"
-                                  : "bg-white/70 hover:bg-white border-[#E5E0D5] text-[#57534E]"
+                                  ? "ring-2 ring-[#141413] ring-offset-2 ring-offset-white/60 scale-110"
+                                  : "border border-white/80 hover:scale-110 shadow-xs"
                               }`}
+                              style={{ backgroundColor: mat.colorHex }}
                             >
-                              <span
-                                className="w-4 h-4 rounded-full border border-[#D6D0C4] flex items-center justify-center shrink-0"
-                                style={{ backgroundColor: mat.colorHex }}
-                              />
-                              <span className="hidden xl:inline">
-                                {mat.name.split(" (")[0]}
-                              </span>
+                              <span className="sr-only">{mat.name.split(" (")[0]}</span>
                             </button>
                           );
                         })}
@@ -6567,62 +6569,52 @@ export const V3UnifiedWorkspace: React.FC<{
                     {showroomMaterialPreview && (
                       <div
                         data-testid="showroom-material-preview-bar"
-                        className="pointer-events-auto flex items-center gap-2.5 bg-[#FAF9F6]/95 backdrop-blur-md px-3.5 py-2 rounded-xl border border-[#141413] shadow-md text-xs"
+                        className="pointer-events-auto flex items-center gap-2 birim-ice-pill px-3 py-1.5 rounded-2xl text-xs"
                       >
-                        <div>
-                          <span className="font-semibold text-[#141413] block">
-                            Önizleme: {showroomMaterialPreview.label}
-                          </span>
-                          <span className="text-[#57534E] text-[11px]">
-                            Kalıcı olarak uygulansın mı?
-                          </span>
-                        </div>
+                        <span className="font-semibold text-[#141413] truncate max-w-[140px]">
+                          {showroomMaterialPreview.label}
+                        </span>
                         <button
                           type="button"
+                          title="Kalıcı Uygula"
                           data-testid="showroom-confirm-material-btn"
                           onClick={() => setShowroomMaterialPreview(null)}
-                          className="px-3 py-1.5 rounded-lg bg-[#141413] text-[#FAF9F6] font-semibold cursor-pointer"
+                          className="w-7 h-7 rounded-xl birim-ice-btn-active flex items-center justify-center cursor-pointer"
                         >
-                          Uygula
+                          ✓
                         </button>
                         <button
                           type="button"
+                          title="Geri Al"
                           data-testid="showroom-cancel-material-btn"
                           onClick={() => {
                             restoreModuleMaterialSnapshot(showroomMaterialPreview.snapshot);
                             setShowroomMaterialPreview(null);
                           }}
-                          className="px-2.5 py-1.5 rounded-lg bg-white border border-[#DED8CC] text-[#44403C] font-medium cursor-pointer"
+                          className="w-7 h-7 rounded-xl birim-ice-btn text-[#44403C] flex items-center justify-center cursor-pointer"
                         >
-                          Geri Al
+                          ✕
                         </button>
                       </div>
                     )}
 
-                    <div className="pointer-events-auto flex items-center gap-4 bg-white/95 backdrop-blur-md px-5 py-2.5 rounded-2xl border border-stone-200/90 shadow-lg">
-                      <div>
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">
-                          Anahtar Teslim Fiyat
-                        </span>
-                        <div className="flex items-baseline gap-1.5">
-                          <span
-                            data-testid="showroom-total-price"
-                            className="text-lg font-black font-mono text-stone-900"
-                          >
-                            €
-                            {pricing.totalWithVatEur.toLocaleString("tr-TR", {
-                              minimumFractionDigits: 2,
-                            })}
-                          </span>
-                          <span className="text-[11px] font-mono text-stone-500">
-                            (
-                            {pricing.totalWithVatTry.toLocaleString("tr-TR", {
-                              maximumFractionDigits: 0,
-                            })}{" "}
-                            TL)
-                          </span>
-                        </div>
-                      </div>
+                    <div className="pointer-events-auto flex items-center gap-2.5 birim-ice-pill px-4 py-2 rounded-2xl">
+                      <span
+                        data-testid="showroom-total-price"
+                        className="text-base font-black font-mono text-stone-900"
+                      >
+                        €
+                        {pricing.totalWithVatEur.toLocaleString("tr-TR", {
+                          minimumFractionDigits: 2,
+                        })}
+                      </span>
+                      <span className="text-[11px] font-mono text-stone-600">
+                        (
+                        {pricing.totalWithVatTry.toLocaleString("tr-TR", {
+                          maximumFractionDigits: 0,
+                        })}{" "}
+                        TL)
+                      </span>
                     </div>
                   </div>
                 </>
@@ -6635,12 +6627,13 @@ export const V3UnifiedWorkspace: React.FC<{
         {mode === "studio" && !studioRightOpen && (
           <button
             type="button"
+            title="Özellikler Panelini Aç"
             data-testid="studio-reopen-right-inspector-btn"
             onClick={() => setStudioRightOpen(true)}
-            className="fixed right-3 top-16 z-40 px-3 py-2 rounded-xl bg-[#EEF3F8] text-[#111827] border border-[#94A3B8] shadow-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+            className="fixed right-3.5 top-16 z-40 w-10 h-10 rounded-2xl birim-ice-pill text-[#111827] flex items-center justify-center cursor-pointer hover:scale-105 transition"
           >
-            <ChevronLeft className="w-4 h-4" />
-            <span>Gövde & Özellikler</span>
+            <SlidersHorizontal className="w-4 h-4" />
+            <span className="sr-only">Gövde & Özellikler</span>
           </button>
         )}
 
@@ -6648,7 +6641,7 @@ export const V3UnifiedWorkspace: React.FC<{
         {((mode === "studio" && studioRightOpen) || (mode === "plan" && showInspectorInPlan)) && (
           <aside
             data-testid="studio-right-inspector"
-            className="border-l border-[#E2E8F0] bg-white/95 backdrop-blur-xl text-[#111827] flex flex-col z-30 shrink-0 relative max-xl:fixed max-xl:right-0 max-xl:top-13 max-xl:bottom-16 max-xl:shadow-[0_16px_44px_rgba(15,23,42,0.22)] max-xl:border-l max-xl:border-white/80 max-w-[92vw] transition-[width] duration-200 ease-out"
+            className="border-l border-white/70 birim-ice-drawer text-[#111827] flex flex-col z-30 shrink-0 relative max-xl:fixed max-xl:right-0 max-xl:top-13 max-xl:bottom-14 max-xl:shadow-[0_16px_44px_rgba(15,23,42,0.22)] max-xl:border-l max-xl:border-white/80 max-w-[92vw] transition-[width] duration-200 ease-out"
             style={{
               width: isCompactViewport
                 ? "min(392px, 92vw)"
@@ -6666,7 +6659,7 @@ export const V3UnifiedWorkspace: React.FC<{
             />
 
             {/* Module Title Header (Matches Design Studio Reference 1-to-1) */}
-            <div className="px-4 pt-3.5 pb-2.5 bg-white border-b border-[#E2E8F0] flex items-start justify-between gap-2 relative">
+            <div className="px-3.5 pt-3 pb-2 bg-white/45 backdrop-blur-md border-b border-white/70 flex items-start justify-between gap-2 relative">
               <div className="flex items-start gap-2.5 min-w-0">
                 <div className="mt-0.5 text-[#57534E] shrink-0">
                   <Box className="w-4 h-4" />
@@ -6726,7 +6719,7 @@ export const V3UnifiedWorkspace: React.FC<{
               </div>
 
               {openRightDrawer === "more_menu" && (
-                <div className="absolute right-4 top-12 w-56 bg-white rounded-2xl border border-[#E2E8F0] shadow-xl p-2 z-40 space-y-1 text-xs">
+                <div className="absolute right-3 top-12 w-56 birim-ice-popover rounded-2xl p-2 z-40 space-y-1 text-xs">
                   <button
                     type="button"
                     onClick={() => {
@@ -6780,7 +6773,7 @@ export const V3UnifiedWorkspace: React.FC<{
 
             {/* 6 ICON-DRIVEN TABS: Shown in Mimar & Üretim modes (hidden in Kolay mode for zero clutter) */}
             {!isSimpleBlumMode && (
-            <div className="px-3 py-2 bg-[#FAF9F6] border-b border-[#E4DFD5] grid grid-cols-3 gap-1.5 shrink-0">
+            <div className="mx-3 mt-2 p-1 birim-ice-pill rounded-2xl grid grid-cols-6 gap-1 shrink-0">
               {[
                 { id: "dimensions", label: "Ölçü", Icon: Ruler },
                 { id: "carcass", label: "Gövde", Icon: Box },
@@ -6864,14 +6857,14 @@ export const V3UnifiedWorkspace: React.FC<{
                         );
                       }
                     }}
-                    className={`py-2 px-2.5 rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 text-center border ${
+                    className={`h-9 rounded-xl transition cursor-pointer flex flex-col items-center justify-center gap-0.5 ${
                       isAct
-                        ? "bg-[#141413] border-[#141413] text-white font-bold shadow-2xs"
-                        : "bg-white border-[#DED8CC] text-[#44403C] hover:text-[#141413] hover:bg-[#EFECE5] font-semibold"
+                        ? "birim-ice-btn-active font-bold"
+                        : "text-[#44403C] hover:text-[#141413] hover:bg-white/65"
                     }`}
                   >
-                    <TabIcon className={`w-3.5 h-3.5 shrink-0 ${isAct ? "text-[#D6C7B2]" : "text-[#78716C]"}`} />
-                    <span className="text-xs leading-none">{sec.label}</span>
+                    <TabIcon className={`w-4 h-4 shrink-0 ${isAct ? "text-[#E5D3B8]" : "text-[#57534E]"}`} />
+                    <span className="sr-only">{sec.label}</span>
                   </button>
                 );
               })}
@@ -6893,6 +6886,7 @@ export const V3UnifiedWorkspace: React.FC<{
                   onRemoveBayAndShrink={removeBayAndShrinkModule}
                   onShrinkDoubleBay={shrinkDoubleBayToSingle}
                   onSetDimensions={setDimensions}
+                  onUpdatePlinthConfig={(patch) => updateCarcassConfig(patch)}
                   onToggleDoorOpen={toggleDoorOpen}
                   onSetBayDoorType={setBayDoorType}
                   onSetSlidingMountingType={setModuleSlidingMountingType}
@@ -8269,31 +8263,73 @@ export const V3UnifiedWorkspace: React.FC<{
                         </span>
                       </div>
 
-                      {/* 3 Selectable Plinth / Leg Option Cards */}
-                      <div className="grid grid-cols-3 gap-2 p-0.5">
+                      {/* 4 World-Standard Plinth Construction Cards in Architect Mode */}
+                      <div className="grid grid-cols-2 gap-2 p-0.5">
                         {[
                           {
+                            id: "plinth_pedestal_box",
+                            title: "Kutu Baza Kasası (Gardırop)",
+                            sub: "4 kenar kapalı + ara kayıt + PVC nem fitili",
+                            active:
+                              plinthH > 0 &&
+                              (activeModule.carcass.plinthConstruction ||
+                                (activeModule.category === "wardrobe" ||
+                                activeModule.category === "vestiyer" ||
+                                activeModule.category === "living" ||
+                                activeModule.category === "tall"
+                                  ? "pedestal_box"
+                                  : "adjustable_legs_clip")) === "pedestal_box",
+                            onSelect: () => {
+                              const nextH = plinthH > 0 ? plinthH : 80;
+                              updateCarcassConfig({
+                                plinthHeight: nextH,
+                                plinthConstruction: "pedestal_box",
+                                plinthSetbackMm: 35,
+                                hasAdjustableLegs: true,
+                              });
+                              setAdjustableLegsEnabled(true);
+                            },
+                          },
+                          {
                             id: "plinth_with_legs",
-                            title: "Baza + Ayarlı Ayak",
-                            sub: "Seviye ayarlı pingo/baza ayağı",
-                            active: plinthH > 0 && hasLegs,
+                            title: "Klipsli Ayaklı Baza (DIN 68935)",
+                            sub: "Häfele Axilo 78 ayak + C-klips + su contası",
+                            active:
+                              plinthH > 0 &&
+                              (activeModule.carcass.plinthConstruction ||
+                                (activeModule.category === "wardrobe" ||
+                                activeModule.category === "vestiyer" ||
+                                activeModule.category === "living" ||
+                                activeModule.category === "tall"
+                                  ? "pedestal_box"
+                                  : "adjustable_legs_clip")) === "adjustable_legs_clip",
                             onSelect: () => {
                               const nextH = plinthH > 0 ? plinthH : 100;
-                              setPlinthHeight(nextH);
+                              updateCarcassConfig({
+                                plinthHeight: nextH,
+                                plinthConstruction: "adjustable_legs_clip",
+                                plinthSetbackMm: 55,
+                                hasAdjustableLegs: true,
+                              });
                               setAdjustableLegsEnabled(true);
-                              setModuleAdjustableLegs(true);
                             },
                           },
                           {
                             id: "plinth_closed_only",
-                            title: "Kapalı Ahşap Kaide",
-                            sub: "Yan dikme taşıyıcılı ön baza",
-                            active: plinthH > 0 && !hasLegs,
+                            title: "Yan Dikme İnişli Kayıtlı",
+                            sub: "Zemine inen yanlar + ön/arka çift kayıt",
+                            active:
+                              plinthH > 0 &&
+                              activeModule.carcass.plinthConstruction === "gable_rails",
                             onSelect: () => {
-                              const nextH = plinthH > 0 ? plinthH : 100;
-                              setPlinthHeight(nextH);
+                              const nextH = plinthH > 0 ? plinthH : 80;
+                              updateCarcassConfig({
+                                plinthHeight: nextH,
+                                plinthConstruction: "gable_rails",
+                                plinthSetbackMm: 26,
+                                hasAdjustableLegs: false,
+                              });
                               setAdjustableLegsEnabled(false);
-                              setModuleAdjustableLegs(false);
                             },
                           },
                           {
@@ -8353,6 +8389,41 @@ export const V3UnifiedWorkspace: React.FC<{
                                 </button>
                               ))}
                             </div>
+                          </div>
+
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between text-xs font-bold text-[#475569]">
+                              <span>Ön Girinti (Ayak Boşluğu / Toe-Kick):</span>
+                              <span className="font-mono text-[#0F172A]">
+                                {activeModule.carcass.plinthSetbackMm ??
+                                  ((activeModule.carcass.plinthConstruction ||
+                                    (activeModule.category === "wardrobe"
+                                      ? "pedestal_box"
+                                      : "adjustable_legs_clip")) === "adjustable_legs_clip"
+                                    ? 55
+                                    : 35)}{" "}
+                                mm
+                              </span>
+                            </div>
+                            <input
+                              type="range"
+                              min={15}
+                              max={85}
+                              step={1}
+                              value={
+                                activeModule.carcass.plinthSetbackMm ??
+                                ((activeModule.carcass.plinthConstruction ||
+                                  (activeModule.category === "wardrobe"
+                                    ? "pedestal_box"
+                                    : "adjustable_legs_clip")) === "adjustable_legs_clip"
+                                  ? 55
+                                  : 35)
+                              }
+                              onChange={(e) =>
+                                updateCarcassConfig({ plinthSetbackMm: Number(e.target.value) })
+                              }
+                              className="w-full accent-[#2563EB] h-1.5 bg-[#CBD5E1] rounded-lg cursor-pointer"
+                            />
                           </div>
 
                           <V3PremiumDropdown
@@ -13306,6 +13377,42 @@ export const V3UnifiedWorkspace: React.FC<{
                             <span>📐 Parça Listesi Kesim & CNC Delik İndir (.DXF)</span>
                           </button>
 
+                          <button
+                            type="button"
+                            data-testid="studio-export-erp-nesting-json-btn"
+                            onClick={() => {
+                              const jsonStr = exportErpNestingJsonString();
+                              const blob = new Blob([jsonStr], { type: "application/json;charset=utf-8" });
+                              const url = URL.createObjectURL(blob);
+                              const a = document.createElement("a");
+                              a.href = url;
+                              a.download = `Birim_ERP_Nesting_${project.id}_v${project.version}.json`;
+                              document.body.appendChild(a);
+                              a.click();
+                              setTimeout(() => {
+                                if (a.parentNode) a.parentNode.removeChild(a);
+                                URL.revokeObjectURL(url);
+                              }, 1500);
+                            }}
+                            className="py-2 px-2.5 rounded-xl bg-[#4F46E5] hover:bg-[#4338CA] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs transition cursor-pointer"
+                            title="Birim Portal ERP Nesting modülüyle %100 uyumlu proje, plaka, parça, U1/U2/K1/K2 kenar bandı ve kanal JSON paketini indir"
+                          >
+                            <span>📦 ERP Nesting (.JSON)</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            data-testid="studio-open-erp-nesting-modal-btn"
+                            onClick={() => {
+                              setBomModalInitialTab("nesting");
+                              setIsBomModalOpen(true);
+                            }}
+                            className="py-2 px-2.5 rounded-xl bg-[#059669] hover:bg-[#047857] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs transition cursor-pointer"
+                            title="Canlı 2D Birim ERP Plaka Yerleşimi, Kesim Reçetesi, Selco CSV ve CNC G-Code merkezini aç"
+                          >
+                            <span>🪚 ERP Plaka & Selco</span>
+                          </button>
+
                           <label
                             data-testid="studio-import-blum-bxf-btn"
                             className="py-2 px-2.5 rounded-xl bg-white hover:bg-[#F8FAFC] border border-[#2563EB] text-[#1D4ED8] text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer"
@@ -14059,21 +14166,17 @@ export const V3UnifiedWorkspace: React.FC<{
             : pricing.totalWithVatEur;
 
         return (
-          <footer className="h-[56px] bg-[#FAF9F6]/98 backdrop-blur-md text-[#141413] border-t border-[#DED8CC] flex items-center justify-between px-4 shrink-0 z-30 gap-3">
-            {/* Left: Clean Architectural Module Strip + "+ Modül Ekle" */}
-            <div className="flex items-center gap-2 min-w-0 overflow-x-auto">
-              <div className="hidden sm:flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-[#78716C] shrink-0 pr-1">
-                <span>{mainModules.length} Modül</span>
-              </div>
-
-              <div className="flex items-center gap-1.5">
+          <footer className="h-[52px] birim-ice-bar text-[#141413] border-t flex items-center justify-between px-3.5 shrink-0 z-30 gap-2.5">
+            {/* Sol: Buzlu Cam Modül Film Şeridi + İkon "+" Ekleme */}
+            <div className="flex items-center gap-1.5 min-w-0 overflow-x-auto no-scrollbar">
+              <div className="flex items-center gap-1 p-0.5 rounded-2xl birim-ice-pill">
                 {project.modules.map((m, idx) => (
                   <div
                     key={m.id}
-                    className={`h-9 px-2 rounded-lg border flex items-center gap-1.5 transition shrink-0 ${
+                    className={`h-8 px-2 rounded-xl flex items-center gap-1 transition shrink-0 ${
                       activeModuleIndex === idx
-                        ? "bg-white border-[#141413] ring-1 ring-[#141413]"
-                        : "bg-white/70 hover:bg-white border-[#DED8CC]"
+                        ? "birim-ice-btn-active"
+                        : "hover:bg-white/70 text-[#141413]"
                     }`}
                   >
                     <button
@@ -14081,11 +14184,11 @@ export const V3UnifiedWorkspace: React.FC<{
                       data-testid={`studio-mod-pill-${idx}`}
                       onClick={() => setActiveModuleIndex(idx)}
                       title={`#${idx + 1} ${m.name} (${m.dimensions.width}×${m.dimensions.height}mm)`}
-                      className="flex items-center gap-1.5 cursor-pointer"
+                      className="flex items-center gap-1 cursor-pointer"
                     >
                       <V3IsometricModuleIcon module={m} size="sm" />
-                      <span className="text-[11px] font-semibold text-[#141413] max-w-[90px] truncate">
-                        {idx + 1}. {isSimpleBlumMode ? `${m.dimensions.width / 10} cm` : `${m.dimensions.width} mm`}
+                      <span className="text-[11px] font-mono font-bold">
+                        {isSimpleBlumMode ? `${m.dimensions.width / 10}` : m.dimensions.width}
                       </span>
                     </button>
                     {project.modules.length > 1 && (
@@ -14097,7 +14200,7 @@ export const V3UnifiedWorkspace: React.FC<{
                           removeModuleAt(idx);
                         }}
                         title="Bu modülü sahneden sil"
-                        className="w-4 h-4 rounded-xs hover:bg-red-100 text-[#78716C] hover:text-red-600 flex items-center justify-center text-xs leading-none cursor-pointer"
+                        className="w-4 h-4 rounded-full hover:bg-red-500/20 opacity-70 hover:opacity-100 flex items-center justify-center text-xs leading-none cursor-pointer"
                       >
                         ×
                       </button>
@@ -14109,76 +14212,46 @@ export const V3UnifiedWorkspace: React.FC<{
                   type="button"
                   data-testid="studio-pill-add-module"
                   onClick={addAdjacentModule}
-                  className="h-9 px-3 rounded-lg border border-dashed border-[#8C7A6B] hover:border-[#141413] bg-white/70 hover:bg-white flex items-center gap-1 text-[11px] font-semibold text-[#141413] transition cursor-pointer shrink-0"
-                  title="Yanına yeni modül ekle"
+                  className="w-8 h-8 rounded-xl birim-ice-btn flex items-center justify-center text-[#141413] cursor-pointer shrink-0"
+                  title="Yanına Yeni Modül Ekle"
                 >
-                  <span>+ Modül Ekle</span>
+                  <Plus className="w-4 h-4" />
+                  <span className="sr-only">+ Modül Ekle</span>
                 </button>
               </div>
             </div>
 
-            {/* Right: Mode-Appropriate Summary + Total Price + Actions */}
-            <div className="flex items-center gap-3.5 shrink-0 ml-auto">
-              {/* Preserve exact dimension string for E2E while showing human summary in Kolay mode */}
-              <div className="hidden lg:flex items-center gap-4 text-xs">
-                <div>
-                  <span className="text-[10px] text-[#78716C] block">Toplam Genişlik</span>
-                  <span className="font-mono font-bold text-[#141413]">
-                    {isSimpleBlumMode ? `${totalWidthMm / 10} cm` : `${totalWidthMm} mm`}
-                  </span>
-                  <span data-testid="studio-footer-dimensions" className="sr-only">
-                    {width} × {height} × {depth} mm ({totalWidthMm} mm)
-                  </span>
-                </div>
+            {/* Sağ: İkon Odaklı Kapasite, Fiyat ve Buzlu Cam Aksiyon Kapsülü */}
+            <div className="flex items-center gap-2 shrink-0 ml-auto">
+              <div className="hidden lg:flex items-center gap-2 px-2.5 h-8 rounded-xl birim-ice-btn text-[11px] font-mono font-bold text-[#141413]" title="Toplam Dolap Genişliği">
+                <span>↔ {isSimpleBlumMode ? `${totalWidthMm / 10}cm` : `${totalWidthMm}mm`}</span>
                 {!isSimpleBlumMode && (
-                  <>
-                    <div>
-                      <span className="text-[10px] text-[#78716C] block">Hacim</span>
-                      <span className="font-mono font-bold text-[#141413]">
-                        {totalVolM3.toLocaleString("tr-TR", {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}{" "}
-                        m³
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-[#78716C] block">Ağırlık</span>
-                      <span className="font-mono font-bold text-[#141413]">{estWeightKg} kg</span>
-                    </div>
-                  </>
+                  <span className="text-[#78716C] font-normal">• {estWeightKg}kg</span>
                 )}
+                <span data-testid="studio-footer-dimensions" className="sr-only">
+                  {width} × {height} × {depth} mm ({totalWidthMm} mm)
+                </span>
               </div>
 
               <button
                 type="button"
                 data-testid="studio-capacity-summary-pill"
                 onClick={() => setShowQuickSellModal(true)}
-                title="Depolama Kapasitesi ve Teklif Özeti"
-                className="hidden xl:flex items-center gap-2 h-9 px-3 rounded-lg bg-white hover:bg-[#EFECE5] border border-[#DED8CC] text-[11px] font-medium text-[#44403C] transition cursor-pointer"
+                title={`Depolama Kapasitesi: ~${liveCustomerAndFactoryStats.hangingGarments} Askı • ~${liveCustomerAndFactoryStats.foldedGarments} Katlı Raf • ${liveCustomerAndFactoryStats.sheetCount2800x2070} Plaka`}
+                className="hidden xl:flex items-center gap-1.5 h-8 px-2.5 rounded-xl birim-ice-btn text-[11px] font-mono font-semibold text-[#44403C] cursor-pointer"
               >
-                <span>~{liveCustomerAndFactoryStats.hangingGarments} Askı</span>
-                <span className="text-[#D6D0C4]">•</span>
-                <span>~{liveCustomerAndFactoryStats.foldedGarments} Katlı Raf</span>
+                <span>👔{liveCustomerAndFactoryStats.hangingGarments}</span>
+                <span>📚{liveCustomerAndFactoryStats.foldedGarments}</span>
                 {!isSimpleBlumMode && (
-                  <>
-                    <span className="text-[#D6D0C4]">•</span>
-                    <span className="font-mono font-semibold text-[#141413]">
-                      {liveCustomerAndFactoryStats.sheetCount2800x2070} Plaka
-                    </span>
-                  </>
+                  <span>🪵{liveCustomerAndFactoryStats.sheetCount2800x2070}</span>
                 )}
               </button>
 
-              <div className="h-7 w-px bg-[#DED8CC] hidden sm:block" />
-
-              <div className="text-right">
-                <span className="text-[10px] text-[#78716C] font-medium block">
-                  KDV Dahil Toplam
-                </span>
+              <div className="px-2.5 h-8 rounded-xl birim-ice-pill flex items-center">
                 <span
                   data-testid="studio-total-price"
-                  className="text-sm sm:text-base font-bold font-mono text-[#141413]"
+                  className="text-sm font-black font-mono text-[#141413]"
+                  title="KDV Dahil Toplam Fiyat"
                 >
                   €{" "}
                   {pricing.totalWithVatEur.toLocaleString("tr-TR", {
@@ -14188,7 +14261,7 @@ export const V3UnifiedWorkspace: React.FC<{
                 </span>
               </div>
 
-              <div className="flex items-center gap-1.5">
+              <div className="inline-flex items-center gap-1 p-0.5 rounded-2xl birim-ice-pill">
                 {!isSimpleBlumMode && (
                   <>
                     <button
@@ -14209,37 +14282,42 @@ export const V3UnifiedWorkspace: React.FC<{
                         }, 1500);
                       }}
                       title="Parça Kesim Listesi ve CNC Delik Çizimlerini DXF Olarak İndir"
-                      className="h-9 px-3 rounded-lg border border-[#DED8CC] bg-white hover:bg-[#EFECE5] text-xs font-semibold text-[#141413] flex items-center gap-1.5 transition cursor-pointer"
+                      className="w-8 h-8 rounded-xl hover:bg-white/75 text-[10px] font-mono font-extrabold text-[#141413] flex items-center justify-center transition cursor-pointer"
                     >
-                      <span>Kesim DXF</span>
+                      <span>DXF</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => setIsBomModalOpen(true)}
-                      title="BOM, Plaka Nesting ve .MPR/.CIX CNC Merkezi"
-                      className="h-9 px-2.5 rounded-lg border border-[#DED8CC] bg-white hover:bg-[#EFECE5] text-xs font-semibold text-[#141413] flex items-center justify-center transition cursor-pointer"
+                      title="BOM, Birim ERP Nesting ve CNC Merkezi"
+                      className="w-8 h-8 rounded-xl hover:bg-white/75 text-[#141413] flex items-center justify-center transition cursor-pointer"
                     >
-                      BOM
+                      <FileSpreadsheet className="w-4 h-4" />
+                      <span className="sr-only">BOM</span>
                     </button>
                   </>
                 )}
 
                 <button
                   type="button"
+                  title="Projeyi Kaydet / Aç"
                   onClick={() => setIsProjectModalOpen(true)}
-                  className="h-9 px-3.5 rounded-lg border border-[#DED8CC] bg-white hover:bg-[#EFECE5] text-xs font-semibold text-[#141413] transition cursor-pointer"
+                  className="w-8 h-8 rounded-xl hover:bg-white/75 text-[#141413] flex items-center justify-center transition cursor-pointer"
                 >
-                  Kaydet
+                  <FolderOpen className="w-4 h-4" />
+                  <span className="sr-only">Kaydet</span>
                 </button>
 
                 <button
                   type="button"
                   data-testid="studio-approve-btn"
+                  title="Sunum Stüdyosu ve Müşteri Teklifine Geç"
                   onClick={handleApprove}
-                  className="h-9 px-4 rounded-lg bg-[#141413] hover:bg-[#292524] text-[#FAF9F6] border border-[#141413] text-xs font-semibold flex items-center gap-1.5 transition active:scale-[0.99] cursor-pointer"
+                  className="h-8 px-3 rounded-xl birim-ice-btn-active text-xs font-semibold flex items-center gap-1 transition active:scale-[0.99] cursor-pointer"
                 >
-                  <span>Sunum &amp; Teklif</span>
-                  <span>›</span>
+                  <Eye className="w-3.5 h-3.5 text-[#E5D3B8]" />
+                  <span className="hidden sm:inline">Sunum</span>
+                  <span className="sr-only">Sunum &amp; Teklif</span>
                 </button>
               </div>
             </div>
@@ -14250,7 +14328,7 @@ export const V3UnifiedWorkspace: React.FC<{
       {mode === "plan" && (
         <footer
           data-testid="plan-contextual-bar"
-          className="bg-white/84 backdrop-blur-xl border-t border-white/80 ring-1 ring-slate-900/10 px-4 py-2 flex flex-col gap-1.5 shrink-0 z-30 text-xs shadow-[0_-8px_30px_-12px_rgba(15,23,42,0.12)]"
+          className="birim-ice-bar border-t px-3.5 py-1.5 flex flex-col gap-1.5 shrink-0 z-30 text-xs"
         >
           {/* PRIMARY ROW: ICON-FIRST COMPACT SPATIAL BADGES + QUICK TRAY TOGGLE */}
           <div className="flex flex-wrap items-center justify-between gap-2.5">
@@ -14267,7 +14345,7 @@ export const V3UnifiedWorkspace: React.FC<{
                 title="Hızlı Modül, Raf ve Renk Araçlarını Aç/Kapat"
               >
                 <SlidersHorizontal className="w-3.5 h-3.5" />
-                <span>Hızlı Araçlar</span>
+                <span className="sr-only">Hızlı Araçlar</span>
                 <ChevronDown
                   className={`w-3.5 h-3.5 transition-transform duration-200 ${
                     planShowQuickControls ? "rotate-180" : ""
@@ -14376,7 +14454,7 @@ export const V3UnifiedWorkspace: React.FC<{
                 title="5 Adımda Kolay Tasarım Sihirbazı"
               >
                 <span>🪄</span>
-                <span>Sihirbaz</span>
+                <span className="sr-only">Sihirbaz</span>
               </button>
               <button
                 type="button"
@@ -14386,7 +14464,7 @@ export const V3UnifiedWorkspace: React.FC<{
                 title="30 Saniyede Oto-Dizilim, 3'lü Bütçe Paketi, 2D Plaka Nesting ve Görsel Müşteri Sunum PDF'i"
               >
                 <Wand2 className="w-3.5 h-3.5 text-amber-300" />
-                <span>Showroom & Teklif</span>
+                <span className="sr-only">Showroom & Teklif</span>
               </button>
               <span
                 data-testid="plan-total-price"
@@ -14407,7 +14485,7 @@ export const V3UnifiedWorkspace: React.FC<{
                 className="px-3 py-1.5 rounded-xl bg-white hover:bg-slate-50 border border-slate-200/90 text-xs font-bold text-[#0F172A] flex items-center gap-1.5 shadow-2xs transition active:scale-95 cursor-pointer"
               >
                 <span>⚙️</span>
-                <span className="hidden sm:inline">Ortam</span>
+                <span className="sr-only">Ortam</span>
               </button>
 
               <button
@@ -14416,7 +14494,7 @@ export const V3UnifiedWorkspace: React.FC<{
                 onClick={() => setMode("studio")}
                 className="px-3.5 py-1.5 rounded-xl bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition active:scale-[0.98] cursor-pointer"
               >
-                <span>3D Stüdyo</span>
+                <span>3D</span>
                 <span>→</span>
               </button>
             </div>

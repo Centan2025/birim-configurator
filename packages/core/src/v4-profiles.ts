@@ -280,9 +280,19 @@ export function calculateFourSpaceDimensions(
   const gap = profile.doorPerimeterGapMm;
 
   const isWardrobe = isWardrobeModule(module);
+  const effPlinthConstruction =
+    module.carcass.plinthConstruction ||
+    (module.carcass.hasAdjustableLegs === false
+      ? isWardrobe
+        ? "gable_rails"
+        : "pedestal_box"
+      : isWardrobe
+      ? "pedestal_box"
+      : "adjustable_legs_clip");
+  const sideRunsToFloor = plinth > 0 && effPlinthConstruction === "gable_rails";
   const carcassBoxHeightMm = Math.max(0, roundIntMm(height - plinth));
-  const sidePanelHeightMm = isWardrobe ? roundIntMm(height) : carcassBoxHeightMm;
-  const sidePanelBottomYMm = isWardrobe ? 0 : roundIntMm(plinth);
+  const sidePanelHeightMm = sideRunsToFloor ? roundIntMm(height) : carcassBoxHeightMm;
+  const sidePanelBottomYMm = sideRunsToFloor ? 0 : roundIntMm(plinth);
   const horizontalPanelWidthMm = Math.max(0, roundIntMm(width - 2 * T));
   const netInnerHeightMm = calculateNetInnerHeight(module);
   const baseInnerDepthMm = calculateNetInnerDepth(module);

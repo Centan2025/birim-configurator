@@ -26,7 +26,7 @@ export const EmptyStageRecoveryCard: React.FC<EmptyStageRecoveryCardProps> = ({
       data-testid="v3-unified-root"
       className="flex flex-col items-center justify-center h-screen w-screen bg-[#F5F3EE] text-[#141413] p-6 select-none"
     >
-      <div className="max-w-xl w-full bg-white border border-[#E4DFD5] rounded-3xl p-8 shadow-[0_20px_60px_-24px_rgba(20,20,19,0.12)] space-y-6">
+      <div className="max-w-xl w-full birim-ice-popover rounded-3xl p-8 space-y-6">
         <div className="flex items-center justify-between border-b border-[#EFECE5] pb-4">
           <V3BrandBadge subtitle="Konfigüratör" />
           {canUndo && (

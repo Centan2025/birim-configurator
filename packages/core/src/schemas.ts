@@ -337,11 +337,19 @@ export const BayConfigSchema = z.object({
   door: DoorConfigSchema,
 });
 
+export const PlinthConstructionTypeSchema = z.enum([
+  "pedestal_box",
+  "adjustable_legs_clip",
+  "gable_rails",
+]);
+
 export const CarcassConfigSchema = z.object({
   panelThickness: z.number().min(12).max(36).default(18),
   backPanelThickness: z.number().min(3).max(19).default(8),
   backPanelType: BackPanelTypeSchema.default("grooved"),
   plinthHeight: z.number().min(0).max(250).default(80),
+  plinthConstruction: PlinthConstructionTypeSchema.optional(),
+  plinthSetbackMm: z.number().min(10).max(120).optional(),
   doorPerimeterGap: z.number().min(1).max(10).default(2),
   edgeBandThickness: z.number().min(0.4).max(3).default(1),
   bodyMaterialId: z.string().default("mat_melamine_white"),

@@ -1,14 +1,10 @@
 # Birim Configurator — Güncel Proje Durumu (L2 Cache)
 
 - **Last Verified Commit:** `fdd818f` (`main` dalı) — `[VERIFIED]`
-- **Son Güncelleme Tarihi:** `2026-11-11` (Europe/Istanbul)
+- **Son Güncelleme Tarihi:** `2026-11-08` (Europe/Istanbul)
 - **Çalışma Ağacı Durumu:** AI Context V2.1 (Context Capsule, Evidence Index, Handoff, Serena Level A/B, Measurement) aktif.
 
 ## 1. Tamamlanan Son İşler (Delta Özeti)
-- **[VERIFIED] SimpleCustomerInspector, Geometri/BOM Sürgü Referans Hataları ve Favicon 500 Düzeltmesi (2026-11-11):**
-  - `apps/configurator/src/v3/components/workspace/SimpleCustomerInspector.tsx` içinde `D` yerine `depth` kullanıldı ve tanımsız `isSlidingModule` / `hasInsetSlidingInMod` hesaplamaları eklendi (`Uncaught ReferenceError: D is not defined` giderildi).
-  - `packages/geometry/src/mesh-generator.ts` içinde sürgü kapak ray hesaplarındaki tanımsız `plinth` değişkenleri `plinthHeight` ile, `packages/manufacturing/src/bom-generator.ts` içindeki tanımsız `mod` referansları `module` ile düzeltildi.
-  - `apps/configurator/src/app/favicon.ico` ile çakışarak Next.js 15'te `500 Internal Server Error` (`conflicting-public-file-page`) üreten `apps/configurator/public/favicon.ico` kaldırıldı.
 - **[VERIFIED] 3D/2D Viewport Geçişlerinde React startTransition INP Optimizasyonu (2026-11-10):**
   - Üst bar `studio-view-switcher` (3D Sahne, 2D Cephe, 2D Kesit, 2D Plan) ve `onViewChange` event handler'ı React 18/19 `startTransition` kapsamına alındı.
   - Viewport geçişleri non-blocking moda geçirilerek ~385ms'lik senkron render UI kilitlenmesi (INP issue) giderildi.

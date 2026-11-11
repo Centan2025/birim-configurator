@@ -65,7 +65,7 @@ export const TapToPlaceController: React.FC<TapToPlaceControllerProps> = ({
   return (
     <div
       data-testid="tap-to-place-hud"
-      className="fixed bottom-20 left-1/2 -translate-x-1/2 z-40 w-[min(94vw,580px)] rounded-3xl bg-[#141413]/95 backdrop-blur-xl text-white border border-[#8C7A6B]/50 shadow-2xl p-4 space-y-3 select-none"
+      className="fixed bottom-20 left-1/2 -translate-x-1/2 z-40 w-[min(94vw,580px)] rounded-3xl birim-ice-dark-bar text-white border p-4 space-y-3 select-none"
     >
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2.5 min-w-0">

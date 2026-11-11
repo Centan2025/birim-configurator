@@ -111,7 +111,7 @@ export const V3PrototypeSwitcher: React.FC<{ dark?: boolean }> = ({ dark = false
       className={`inline-flex items-center p-1 rounded-xl border text-xs ${
         dark
           ? "bg-stone-900/80 border-stone-700/80 text-stone-300 backdrop-blur-md"
-          : "bg-[#F1F5F9] border-[#E2E8F0] text-[#44403C]"
+          : "birim-ice-pill text-[#44403C]"
       }`}
     >
       {routes.map((r) => {
@@ -161,16 +161,16 @@ export const V3Button: React.FC<V3ButtonProps> = ({
       : "min-h-[36px] px-3.5 py-1.5 text-xs font-bold rounded-xl";
 
   const variantCls = active
-    ? "bg-[#EEF3F8] text-[#1C1917] border border-[#CBD5E1] shadow-xs"
+    ? "birim-ice-btn-active"
     : variant === "primary"
-    ? "bg-[#EEF3F8] hover:bg-[#E4ECF4] text-[#1C1917] border border-[#CBD5E1] shadow-xs"
+    ? "birim-ice-btn-active hover:opacity-95"
     : variant === "outline"
-    ? "bg-white hover:bg-[#F8FAFC] text-[#1C1917] border border-[#CBD5E1] shadow-2xs"
+    ? "birim-ice-btn text-[#1C1917]"
     : variant === "danger"
-    ? "bg-[#FDF2F2] hover:bg-[#FCE4E4] text-[#9E2A2B] border border-[#F2C6C6]"
+    ? "bg-rose-500/15 hover:bg-rose-500/25 backdrop-blur-md text-[#9E2A2B] border border-rose-300/60"
     : variant === "ghost"
-    ? "bg-transparent hover:bg-[#EBE6DC] text-[#44403C]"
-    : "bg-[#F1F5F9] hover:bg-[#E8E3D9] text-[#1C1917] border border-[#CBD5E1]";
+    ? "bg-transparent hover:bg-white/55 text-[#44403C]"
+    : "birim-ice-btn text-[#1C1917]";
 
   return (
     <button
@@ -246,7 +246,7 @@ export const V3DimensionControl: React.FC<V3DimensionControlProps> = ({
   };
 
   return (
-    <div className="p-3 rounded-xl bg-white border border-[#E4DFD5] space-y-2.5 transition-colors hover:border-[#CFC8BA]">
+    <div className="p-3 rounded-2xl bg-white/58 backdrop-blur-xl border border-white/75 shadow-2xs space-y-2.5 transition-colors hover:bg-white/72">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <span className="w-6 h-6 rounded-lg bg-[#F5F3EE] border border-[#DED8CC] text-[#141413] font-mono text-xs font-bold flex items-center justify-center shrink-0">
