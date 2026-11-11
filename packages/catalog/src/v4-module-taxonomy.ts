@@ -15,6 +15,7 @@ export interface V4ModuleFamilyDefinition {
   targetTemplateCount: number;
 }
 
+export type V4ModuleTemplate = V4ModuleTemplateDefinition;
 export interface V4ModuleTemplateDefinition {
   templateId: string;
   familyId: ModuleFamilyId;

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { DesignProject, MaterialDefinition, calculateBayWidths } from "@birim/core";
 import { PricingBreakdown } from "@birim/pricing";
 import {
@@ -8,13 +8,10 @@ import {
   ChevronDown,
   Copy,
   ExternalLink,
-  FileText,
-  Layers,
   Link2,
   Printer,
   RefreshCw,
   SlidersHorizontal,
-  Sparkles,
   X,
 } from "lucide-react";
 
@@ -32,6 +29,15 @@ export interface CustomerAndFactoryStats {
   leftFillerMm: number;
   rightFillerMm: number;
 }
+
+type StudioPreviewMode = "3d_iso" | "3d_current" | "3d_front" | "elevation";
+
+type SnapshotWindow = Window & {
+  __birimCapture3DSnapshot?: (opts?: {
+    angle?: "current" | "iso" | "front";
+    hideOverlays?: boolean;
+  }) => string;
+};
 
 export interface PresentationQuoteModalProps {
   isOpen: boolean;
@@ -86,7 +92,7 @@ export const PresentationQuoteModal: React.FC<PresentationQuoteModalProps> = ({
   onOpenNestingModal,
   onOpenBomModal,
 }) => {
-  const [visualMode, setVisualMode] = useState<"3d" | "elevation">("3d");
+  const [visualMode, setVisualMode] = useState<StudioPreviewMode>("3d_iso");
   const [snapshotUrl, setSnapshotUrl] = useState<string>("");
   const [showConsultantTools, setShowConsultantTools] = useState<boolean>(false);
   const [clientName, setClientName] = useState<string>("");
@@ -98,23 +104,39 @@ export const PresentationQuoteModal: React.FC<PresentationQuoteModalProps> = ({
     copied: boolean;
   }>({ loading: false, url: null, copied: false });
 
-  const captureCanvasSnapshot = () => {
-    if (typeof document === "undefined") return;
-    try {
-      const canvas = document.querySelector("canvas") as HTMLCanvasElement | null;
-      if (canvas) {
-        setSnapshotUrl(canvas.toDataURL("image/png"));
+  const captureCanvasSnapshot = useCallback((modeOverride?: StudioPreviewMode) => {
+    if (typeof window === "undefined") return;
+    const targetMode = modeOverride ?? visualMode;
+    if (targetMode === "elevation") return;
+    const angle: "iso" | "current" | "front" =
+      targetMode === "3d_current"
+        ? "current"
+        : targetMode === "3d_front"
+        ? "front"
+        : "iso";
+
+    const win = window as SnapshotWindow;
+    if (typeof win.__birimCapture3DSnapshot === "function") {
+      const captured = win.__birimCapture3DSnapshot({
+        angle,
+        hideOverlays: true,
+      });
+      if (captured && captured.length > 1600) {
+        setSnapshotUrl(captured);
+        return;
       }
-    } catch {
-      // WebGL context or taint fallback
     }
-  };
+    setSnapshotUrl("");
+  }, [visualMode]);
 
   useEffect(() => {
-    if (isOpen) {
-      captureCanvasSnapshot();
-    }
-  }, [isOpen, project.version, activeConceptTier]);
+    if (!isOpen || visualMode === "elevation") return;
+    // Wait 1 animation frame so V3ThreeViewport mesh & material effects commit before synchronous WebGL render+capture
+    const rafId = window.requestAnimationFrame(() => {
+      captureCanvasSnapshot(visualMode);
+    });
+    return () => window.cancelAnimationFrame(rafId);
+  }, [isOpen, visualMode, project.version, activeConceptTier, ledEnabled, captureCanvasSnapshot]);
 
   const matMap = useMemo(() => new Map(materials.map((m) => [m.id, m])), [materials]);
 
@@ -139,7 +161,8 @@ export const PresentationQuoteModal: React.FC<PresentationQuoteModalProps> = ({
   );
 
   const primaryBodyMat = matMap.get(mainModules[0]?.carcass.bodyMaterialId || "") || materials[0];
-  const primaryDoorMat = matMap.get(mainModules[0]?.carcass.doorMaterialId || "") || materials[2] || materials[0];
+  const primaryDoorMat =
+    matMap.get(mainModules[0]?.carcass.doorMaterialId || "") || materials[2] || materials[0];
 
   const listTotalEur = pricing.totalWithVatEur;
   const discountEur = (listTotalEur * quoteDiscountPct) / 100;
@@ -237,13 +260,16 @@ export const PresentationQuoteModal: React.FC<PresentationQuoteModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Build crisp 2D All-Module Interior Elevation SVG for proposal inspection
   const elevSpanW = Math.max(
     stats.totalModWidth + 200,
     ...mainModules.map((m) => (m.position?.x || 0) + m.dimensions.width + 100),
     1200
   );
   const elevSpanH = Math.max(maxHeightMm + 280, 2480);
+
+  // Isometric 3D Vector Architectural Studio Fallback (used if WebGL context is unavailable)
+  const isoSkewX = Math.round(maxDepthMm * 0.42);
+  const isoSkewY = Math.round(maxDepthMm * 0.24);
 
   return (
     <div
@@ -307,7 +333,7 @@ export const PresentationQuoteModal: React.FC<PresentationQuoteModalProps> = ({
 
         {/* Scrollable Editorial Body */}
         <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-5">
-          {/* Collapsible Showroom Consultant & CNC Tools Drawer (Always mounted in DOM for instant access & tests, zero visual clutter by default) */}
+          {/* Collapsible Showroom Consultant & CNC Tools Drawer */}
           <div
             className={`grid transition-all duration-200 ease-out ${
               showConsultantTools
@@ -318,7 +344,6 @@ export const PresentationQuoteModal: React.FC<PresentationQuoteModalProps> = ({
             <div className="overflow-hidden">
               <div className="p-4 rounded-xl bg-white border border-[#E5E0D5] space-y-4 mb-1">
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  {/* Quick Wall Auto-Layout Presets */}
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#57534E]">
@@ -368,7 +393,6 @@ export const PresentationQuoteModal: React.FC<PresentationQuoteModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Quick Interior Upgrades & Production Links */}
                   <div className="space-y-2.5">
                     <div className="flex items-center justify-between">
                       <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#57534E]">
@@ -452,57 +476,135 @@ export const PresentationQuoteModal: React.FC<PresentationQuoteModalProps> = ({
             <div className="lg:col-span-7 space-y-5">
               {/* 1. Live 3D Studio Render / 2D All-Module Interior Elevation Card */}
               <div className="rounded-xl bg-white border border-[#E5E0D5] overflow-hidden shadow-2xs">
-                <div className="px-4 py-2.5 border-b border-[#EFECE5] flex items-center justify-between gap-2 bg-[#FAF9F6]/70">
-                  <div className="inline-flex items-center p-0.5 rounded-lg bg-[#EFECE5] border border-[#E2DDD3]">
-                    <button
-                      type="button"
-                      onClick={() => setVisualMode("3d")}
-                      className={`px-3 py-1 rounded-md text-xs font-semibold transition cursor-pointer ${
-                        visualMode === "3d"
-                          ? "bg-white text-[#141413] shadow-2xs"
-                          : "text-[#57534E] hover:text-[#141413]"
-                      }`}
-                    >
-                      3D Stüdyo Görünümü
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setVisualMode("elevation")}
-                      className={`px-3 py-1 rounded-md text-xs font-semibold transition cursor-pointer ${
-                        visualMode === "elevation"
-                          ? "bg-white text-[#141413] shadow-2xs"
-                          : "text-[#57534E] hover:text-[#141413]"
-                      }`}
-                    >
-                      2D Tüm-Modül İç Cephe
-                    </button>
+                <div className="px-4 py-2.5 border-b border-[#EFECE5] flex flex-wrap items-center justify-between gap-2 bg-[#FAF9F6]/70">
+                  <div className="inline-flex flex-wrap items-center p-0.5 rounded-lg bg-[#EFECE5] border border-[#E2DDD3] gap-0.5">
+                    {[
+                      { id: "3d_iso" as const, label: "3D Stüdyo" },
+                      { id: "3d_front" as const, label: "3D Ön Cephe" },
+                      { id: "3d_current" as const, label: "Mevcut Açı" },
+                      { id: "elevation" as const, label: "2D İç Cephe" },
+                    ].map((tab) => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setVisualMode(tab.id)}
+                        className={`px-2.5 py-1 rounded-md text-xs font-semibold transition cursor-pointer ${
+                          visualMode === tab.id
+                            ? "bg-white text-[#141413] shadow-2xs"
+                            : "text-[#57534E] hover:text-[#141413]"
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
                   </div>
 
-                  {visualMode === "3d" && (
+                  {visualMode !== "elevation" && (
                     <button
                       type="button"
-                      onClick={captureCanvasSnapshot}
+                      onClick={() => captureCanvasSnapshot(visualMode)}
                       className="px-2.5 py-1 rounded-md text-[11px] font-medium text-[#57534E] hover:text-[#141413] hover:bg-[#EFECE5] flex items-center gap-1 transition cursor-pointer"
                     >
                       <RefreshCw className="w-3 h-3" />
-                      <span>Açıyı Güncelle</span>
+                      <span>Görüntüyü Yenile</span>
                     </button>
                   )}
                 </div>
 
-                <div className="h-[268px] sm:h-[296px] bg-[#EDEAE4] flex items-center justify-center relative overflow-hidden">
-                  {visualMode === "3d" && snapshotUrl ? (
+                <div className="h-[272px] sm:h-[304px] bg-[#EDEAE4] flex items-center justify-center relative overflow-hidden">
+                  {visualMode !== "elevation" && snapshotUrl ? (
                     <img
                       src={snapshotUrl}
                       alt={project.title}
+                      data-testid="quote-studio-3d-snapshot-img"
                       className="w-full h-full object-contain"
                     />
+                  ) : visualMode !== "elevation" ? (
+                    /* Architectural 3D Isometric Studio Fallback if WebGL buffer is unavailable */
+                    <svg
+                      viewBox={`-120 ${-isoSkewY - 140} ${elevSpanW + isoSkewX + 240} ${maxHeightMm + isoSkewY + 260}`}
+                      className="w-full h-full bg-[#EDEAE4] p-3"
+                    >
+                      <ellipse
+                        cx={(stats.totalModWidth + isoSkewX) / 2}
+                        cy={maxHeightMm + 28}
+                        rx={Math.max(420, stats.totalModWidth * 0.56)}
+                        ry={48}
+                        fill="rgba(20,20,19,0.12)"
+                      />
+                      {mainModules.map((mod) => {
+                        const mx = mod.position?.x || 0;
+                        const mw = mod.dimensions.width;
+                        const mh = mod.dimensions.height;
+                        const my = maxHeightMm - (mod.position?.y || 0) - mh;
+                        const dMat = matMap.get(mod.carcass.doorMaterialId) || primaryDoorMat;
+                        const bMat = matMap.get(mod.carcass.bodyMaterialId) || primaryBodyMat;
+                        const doorHex = dMat?.colorHex || "#C8A982";
+                        const bodyHex = bMat?.colorHex || "#F5F5F4";
+                        const bayCnt = Math.max(1, mod.bays.length);
+                        const leafW = mw / bayCnt;
+                        return (
+                          <g key={`iso_${mod.id}`}>
+                            {/* Top 3D Extrusion Plane */}
+                            <polygon
+                              points={`${mx},${my} ${mx + isoSkewX},${my - isoSkewY} ${mx + mw + isoSkewX},${my - isoSkewY} ${mx + mw},${my}`}
+                              fill={bodyHex}
+                              stroke="#292524"
+                              strokeWidth={3}
+                            />
+                            {/* Right Side 3D Extrusion Plane */}
+                            <polygon
+                              points={`${mx + mw},${my} ${mx + mw + isoSkewX},${my - isoSkewY} ${mx + mw + isoSkewX},${my + mh - isoSkewY} ${mx + mw},${my + mh}`}
+                              fill={bodyHex}
+                              stroke="#292524"
+                              strokeWidth={3}
+                            />
+                            {/* Front Door Elevation */}
+                            <rect
+                              x={mx}
+                              y={my}
+                              width={mw}
+                              height={mh}
+                              fill={doorHex}
+                              stroke="#141413"
+                              strokeWidth={4}
+                            />
+                            {Array.from({ length: bayCnt }).map((_, bIdx) => {
+                              const lx = mx + bIdx * leafW;
+                              return (
+                                <g key={`leaf_${bIdx}`}>
+                                  {bIdx > 0 && (
+                                    <line
+                                      x1={lx}
+                                      y1={my + 6}
+                                      x2={lx}
+                                      y2={my + mh - (mod.carcass.plinthHeight ?? 80)}
+                                      stroke="#292524"
+                                      strokeWidth={3}
+                                    />
+                                  )}
+                                  <rect
+                                    x={lx + (bIdx % 2 === 0 ? leafW - 32 : 22)}
+                                    y={my + mh * 0.44}
+                                    width={8}
+                                    height={160}
+                                    rx={3}
+                                    fill="#CFC9BE"
+                                    stroke="#57534E"
+                                    strokeWidth={1.5}
+                                  />
+                                </g>
+                              );
+                            })}
+                          </g>
+                        );
+                      })}
+                    </svg>
                   ) : (
                     <svg
                       viewBox={`-100 -160 ${elevSpanW + 160} ${elevSpanH + 80}`}
                       className="w-full h-full bg-[#F7F5F0] p-3"
                     >
-                      {/* Floor Baseline */}
                       <line
                         x1={-60}
                         y1={maxHeightMm}
@@ -523,7 +625,6 @@ export const PresentationQuoteModal: React.FC<PresentationQuoteModalProps> = ({
                         let accBayX = mx + T;
                         return (
                           <g key={mod.id}>
-                            {/* Outer Carcass */}
                             <rect
                               x={mx}
                               y={my}
@@ -533,7 +634,6 @@ export const PresentationQuoteModal: React.FC<PresentationQuoteModalProps> = ({
                               stroke="#141413"
                               strokeWidth={6}
                             />
-                            {/* Plinth */}
                             {plinthH > 0 && (
                               <rect
                                 x={mx + T}
@@ -545,7 +645,6 @@ export const PresentationQuoteModal: React.FC<PresentationQuoteModalProps> = ({
                                 strokeWidth={3}
                               />
                             )}
-                            {/* Top Dimension */}
                             <line
                               x1={mx}
                               y1={my - 38}
@@ -565,7 +664,6 @@ export const PresentationQuoteModal: React.FC<PresentationQuoteModalProps> = ({
                             >
                               {`${(mw / 10).toFixed(0)} cm`}
                             </text>
-                            {/* Bays, Dividers, Shelves, Drawers, Rails */}
                             {mod.bays.map((bay, bIdx) => {
                               const bw =
                                 bayWidths[bIdx] ||
@@ -809,7 +907,6 @@ export const PresentationQuoteModal: React.FC<PresentationQuoteModalProps> = ({
                   </span>
                 </div>
 
-                {/* Clean Optional Client & Note Inputs */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <div>
                     <label className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#78716C] mb-1">
@@ -837,7 +934,6 @@ export const PresentationQuoteModal: React.FC<PresentationQuoteModalProps> = ({
                   </div>
                 </div>
 
-                {/* Itemized Module Breakdown */}
                 <div>
                   <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#78716C] mb-1.5">
                     Projeye Dahil Modüller ({project.modules.length})
@@ -870,7 +966,6 @@ export const PresentationQuoteModal: React.FC<PresentationQuoteModalProps> = ({
                   </div>
                 </div>
 
-                {/* Discount & Installment Segmented Pills */}
                 <div className="grid grid-cols-2 gap-3 pt-1">
                   <div>
                     <label className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#78716C] mb-1">

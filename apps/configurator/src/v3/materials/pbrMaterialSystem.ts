@@ -273,6 +273,71 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
 }
 
 const floorTextureCache = new Map<string, THREE.CanvasTexture>();
+const wallTextureCache = new Map<string, THREE.CanvasTexture>();
+
+export type ArchitecturalWallTone =
+  | "brut_concrete"
+  | "anthracite_gallery"
+  | "warm_taupe"
+  | "soft_plaster";
+
+/**
+ * Procedural Birim Architectural Fair-Faced Concrete ("Brüt Beton") & Gallery Wall Texture.
+ * Provides mid-tone mineral depth and subtle architectural formwork joints so both bright white
+ * and dark walnut/anthracite cabinets pop forward with unmistakable 3D separation.
+ */
+export function getArchitecturalWallTexture(
+  tone: ArchitecturalWallTone
+): THREE.CanvasTexture | null {
+  if (typeof document === "undefined") return null;
+  const cached = wallTextureCache.get(tone);
+  if (cached) return cached;
+
+  const S = 512;
+  const canvas = document.createElement("canvas");
+  canvas.width = S;
+  canvas.height = S;
+  const ctx = canvas.getContext("2d")!;
+  const img = ctx.createImageData(S, S);
+
+  const palette: Record<ArchitecturalWallTone, [number, number, number]> = {
+    brut_concrete: [158, 153, 145],     // Mid-tone architectural concrete (~58% luminance: high contrast vs white AND dark wood!)
+    anthracite_gallery: [68, 67, 65],   // Dramatic dark gallery charcoal (makes white/oak/cashmere glow!)
+    warm_taupe: [172, 163, 150],        // Warm greige stone
+    soft_plaster: [222, 217, 208],      // Soft limestone plaster (for very dark cabinets)
+  };
+  const [br, bg, bb] = palette[tone];
+  const isConcrete = tone === "brut_concrete" || tone === "anthracite_gallery";
+
+  for (let y = 0; y < S; y++) {
+    const ny = y / S;
+    for (let x = 0; x < S; x++) {
+      const nx = x / S;
+      const cloud = (fbm(nx * 4.5 + 1.3, ny * 4.5 + 2.7, 4) - 0.5) * (isConcrete ? 18 : 10);
+      const fineMineral = (hash2D(x * 0.7, y * 0.7) - 0.5) * 6;
+      // Subtle vertical architectural concrete formwork seam every 256px
+      const isFormworkJoint = isConcrete && (x % 256 === 0 || y % 256 === 0);
+      const seamDelta = isFormworkJoint ? -11 : 0;
+
+      const idx = (y * S + x) * 4;
+      img.data[idx] = clampByte(br + cloud + fineMineral + seamDelta);
+      img.data[idx + 1] = clampByte(bg + cloud + fineMineral + seamDelta);
+      img.data[idx + 2] = clampByte(bb + cloud + fineMineral + seamDelta);
+      img.data[idx + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+
+  const tex = markSharedTexture(new THREE.CanvasTexture(canvas));
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(3.5, 2.2);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  tex.needsUpdate = true;
+  wallTextureCache.set(tone, tex);
+  return tex;
+}
 
 export type ArchitecturalFloorStyle =
   | "oak_parquet"
@@ -325,11 +390,11 @@ export function getArchitecturalFloorTexture(
         const col = Math.floor(x / 85);
         const diag = col % 2 === 0 ? (x + y) % 85 : (x - y + 512) % 85;
         const isSeam = x % 85 === 0 || diag === 0;
-        const grain = (fbm((x / S) * 14, (y / S) * 14, 3) - 0.5) * 10;
-        const seamDrop = isSeam ? 14 : 0;
-        img.data[idx] = clampByte(218 + grain - seamDrop);
-        img.data[idx + 1] = clampByte(205 + grain * 0.92 - seamDrop);
-        img.data[idx + 2] = clampByte(186 + grain * 0.82 - seamDrop);
+        const grain = (fbm((x / S) * 14, (y / S) * 14, 3) - 0.5) * 13;
+        const seamDrop = isSeam ? 18 : 0;
+        img.data[idx] = clampByte(202 + grain - seamDrop);
+        img.data[idx + 1] = clampByte(184 + grain * 0.92 - seamDrop);
+        img.data[idx + 2] = clampByte(158 + grain * 0.82 - seamDrop);
         img.data[idx + 3] = 255;
       } else if (style === "neolith_calacatta") {
         const tileX = x % 256;
@@ -639,8 +704,8 @@ export function getV3PbrMaterial(
       specularIntensity: 0.72,
       clearcoat: clearcoatVal,
       clearcoatRoughness: surfaceFinishOverride === "gloss" ? 0.09 : 0.34,
-      reflectivity: 0.54,
-      envMapIntensity: 1.06,
+      reflectivity: 0.48,
+      envMapIntensity: 0.78,
       emissive,
       emissiveIntensity,
     });
@@ -685,8 +750,8 @@ export function getV3PbrMaterial(
       sheenColor: new THREE.Color("#fafaf9"),
       clearcoat: surfaceFinishOverride === "gloss" ? 0.88 : 0.32,
       clearcoatRoughness: surfaceFinishOverride === "gloss" ? 0.06 : 0.28,
-      reflectivity: 0.64,
-      envMapIntensity: 1.08,
+      reflectivity: 0.54,
+      envMapIntensity: 0.72,
       emissive,
       emissiveIntensity,
     });
@@ -699,17 +764,17 @@ export function getV3PbrMaterial(
   const mat = new THREE.MeshPhysicalMaterial({
     color: new THREE.Color(matDef.colorHex),
     roughnessMap: maps.roughnessMap || null,
-    roughness: surfaceFinishOverride === "gloss" ? 0.14 : 0.36,
+    roughness: surfaceFinishOverride === "gloss" ? 0.14 : 0.38,
     metalness: 0.01,
     ior: 1.48,
-    specularIntensity: 0.72,
-    sheen: 0.12,
-    sheenRoughness: 0.54,
+    specularIntensity: 0.65,
+    sheen: 0.1,
+    sheenRoughness: 0.56,
     sheenColor: new THREE.Color("#fafaf9"),
-    clearcoat: surfaceFinishOverride === "gloss" ? 0.8 : 0.22,
-    clearcoatRoughness: surfaceFinishOverride === "gloss" ? 0.08 : 0.32,
-    reflectivity: 0.56,
-    envMapIntensity: 1.02,
+    clearcoat: surfaceFinishOverride === "gloss" ? 0.76 : 0.18,
+    clearcoatRoughness: surfaceFinishOverride === "gloss" ? 0.08 : 0.34,
+    reflectivity: 0.48,
+    envMapIntensity: 0.68,
     emissive,
     emissiveIntensity,
   });

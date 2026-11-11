@@ -899,6 +899,8 @@ export const V3UnifiedWorkspace: React.FC<{
     equalizeBaysAndShelves,
     addInternalDrawer,
     removeBayAt,
+    removeBayAndShrinkModule,
+    shrinkDoubleBayToSingle,
     setModuleHingeHardware,
     setModuleDrawerRunnerHardware,
     toggleModuleLedLighting,
@@ -940,6 +942,7 @@ export const V3UnifiedWorkspace: React.FC<{
     removeActiveModule,
     removeModuleAt,
     removeSelectedInteriorComponent,
+    deleteActiveSelectionSmart,
     selectedComponentId,
     setSelectedComponentMaterial,
     setCountertopMaterial,
@@ -1012,6 +1015,7 @@ export const V3UnifiedWorkspace: React.FC<{
         setOpenRightDrawer(null);
         setShowCompatPopover(false);
         setApprovalBanner(null);
+        setPendingDeletePrompt(null);
         setHardwareValidationErrorMsg(null);
         setMaterialValidationErrorMsg(null);
       }
@@ -1054,6 +1058,17 @@ export const V3UnifiedWorkspace: React.FC<{
   const [approvalBanner, setApprovalBanner] = useState<{
     text: string;
     ok: boolean;
+  } | null>(null);
+  const [pendingDeletePrompt, setPendingDeletePrompt] = useState<{
+    kind: "door" | "structural";
+    partName: string;
+    bayIndex: number;
+    canRemoveDoor: boolean;
+    canDeleteBay: boolean;
+    canShrinkDouble: boolean;
+    canDeleteModule: boolean;
+    shrunkOuterCm: number;
+    halfShrunkOuterCm: number;
   } | null>(null);
   const [adminRefreshTick, setAdminRefreshTick] = useState(0);
   const [newDraftName, setNewDraftName] = useState("Özel V4.2 Dolap Şablonu");
@@ -1251,8 +1266,13 @@ export const V3UnifiedWorkspace: React.FC<{
       setDrawerOpenMm(drawerOpenMm > 10 ? 0 : 280);
     };
     const onDeleteActive = () => {
-      if (!removeSelectedInteriorComponent() && project.modules.length > 1) {
-        removeActiveModule();
+      const res = deleteActiveSelectionSmart();
+      if (res.action === "prompt") {
+        setPendingDeletePrompt(res);
+      } else {
+        setPendingDeletePrompt(null);
+        setApprovalBanner({ ok: res.ok, text: res.message });
+        setTimeout(() => setApprovalBanner(null), 2800);
       }
     };
     const onSelectBay3D = (ev: Event) => {
@@ -1324,7 +1344,7 @@ export const V3UnifiedWorkspace: React.FC<{
       window.removeEventListener("birim:toggle-drawer-open", onToggleDrawer);
       window.removeEventListener("birim:delete-active-selection", onDeleteActive);
     };
-  }, [toggleDoorOpen, removeSelectedInteriorComponent, project.modules.length, removeActiveModule]);
+  }, [toggleDoorOpen, deleteActiveSelectionSmart]);
 
   useEffect(() => {
     if (mode === "plan") return;
@@ -1343,8 +1363,13 @@ export const V3UnifiedWorkspace: React.FC<{
         redo();
       } else if (ev.key === "Delete" || ev.key === "Backspace") {
         ev.preventDefault();
-        if (!removeSelectedInteriorComponent() && project.modules.length > 1) {
-          removeActiveModule();
+        const res = deleteActiveSelectionSmart();
+        if (res.action === "prompt") {
+          setPendingDeletePrompt(res);
+        } else {
+          setPendingDeletePrompt(null);
+          setApprovalBanner({ ok: res.ok, text: res.message });
+          setTimeout(() => setApprovalBanner(null), 2800);
         }
       }
     };
@@ -1354,12 +1379,14 @@ export const V3UnifiedWorkspace: React.FC<{
     mode,
     undo,
     redo,
-    removeSelectedInteriorComponent,
-    project.modules.length,
-    removeActiveModule,
+    deleteActiveSelectionSmart,
   ]);
 
   // V4 Showroom Hızlı Satış, Oto-Dizilim, 3'lü Bütçe Paketi ve Müşteri Teklif Föyü Durumları
+  useEffect(() => {
+    setPendingDeletePrompt(null);
+  }, [selectedComponentId, activeModuleIndex, activeBayIndex]);
+
   const [showQuickSellModal, setShowQuickSellModal] = useState(false);
   const [showArAnd3DModal, setShowArAnd3DModal] = useState(false);
   const [armedTapItem, setArmedTapItem] = useState<TapToPlaceItemSpec | null>(null);
@@ -1553,9 +1580,21 @@ export const V3UnifiedWorkspace: React.FC<{
       if (typeof window === "undefined") return;
       let snapshot3DDataUrl = "";
       try {
-        const canvasEl = document.querySelector("canvas") as HTMLCanvasElement | null;
-        if (canvasEl) {
-          snapshot3DDataUrl = canvasEl.toDataURL("image/png");
+        const winCap = (
+          window as unknown as {
+            __birimCapture3DSnapshot?: (opts?: {
+              angle?: "current" | "iso" | "front";
+              hideOverlays?: boolean;
+            }) => string;
+          }
+        ).__birimCapture3DSnapshot;
+        if (typeof winCap === "function") {
+          snapshot3DDataUrl = winCap({ angle: "iso", hideOverlays: true });
+        } else {
+          const canvasEl = document.querySelector("canvas") as HTMLCanvasElement | null;
+          if (canvasEl) {
+            snapshot3DDataUrl = canvasEl.toDataURL("image/png");
+          }
         }
       } catch {
         // ignore cross-origin or context loss
@@ -2240,7 +2279,113 @@ export const V3UnifiedWorkspace: React.FC<{
         />
       )}
 
-            {/* Approval / Validation Notification Banner */}
+            {/* SMART 1-LINE DELETE INTENT CHOICE BAR (Appears when pressing Delete on Door or Carcass Panel) */}
+      {pendingDeletePrompt && (
+        <div
+          data-testid="smart-delete-choice-bar"
+          className="fixed top-[104px] left-1/2 -translate-x-1/2 z-[70] max-w-[92vw] px-3.5 py-2 rounded-2xl bg-[#FAF9F6]/98 backdrop-blur-xl border border-[#141413]/20 shadow-[0_18px_44px_rgba(20,20,19,0.22)] flex flex-wrap items-center gap-2 text-xs text-[#141413]"
+        >
+          <span className="font-semibold text-[#141413] mr-1">
+            {pendingDeletePrompt.kind === "door"
+              ? `"${pendingDeletePrompt.partName}" seçili — ne yapmak istersiniz?`
+              : `"${pendingDeletePrompt.partName}" sabit gövdedir — ne yapmak istersiniz?`}
+          </span>
+
+          {pendingDeletePrompt.canRemoveDoor && (
+            <button
+              type="button"
+              data-testid="smart-delete-opt-remove-door"
+              onClick={() => {
+                const bIdx = pendingDeletePrompt.bayIndex;
+                setPendingDeletePrompt(null);
+                setBayDoorType(bIdx, "open");
+                setApprovalBanner({
+                  ok: true,
+                  text: `${bIdx + 1}. Bölme kapağı kaldırıldı (Açık bölme • Ctrl+Z ile geri al).`,
+                });
+                setTimeout(() => setApprovalBanner(null), 2600);
+              }}
+              className="px-2.5 py-1 rounded-xl bg-[#141413] hover:bg-[#292524] text-white font-semibold transition cursor-pointer"
+            >
+              Kapağı Kaldır (Açık Yap)
+            </button>
+          )}
+
+          {pendingDeletePrompt.canShrinkDouble && (
+            <button
+              type="button"
+              data-testid="smart-delete-opt-shrink-double"
+              onClick={() => {
+                const bIdx = pendingDeletePrompt.bayIndex;
+                const nextCm = pendingDeletePrompt.halfShrunkOuterCm;
+                setPendingDeletePrompt(null);
+                shrinkDoubleBayToSingle(bIdx);
+                setApprovalBanner({
+                  ok: true,
+                  text: `${bIdx + 1}. Bölme tek kapağa düşürüldü (Dolap ~${nextCm} cm oldu • Ctrl+Z ile geri al).`,
+                });
+                setTimeout(() => setApprovalBanner(null), 2600);
+              }}
+              className="px-2.5 py-1 rounded-xl bg-white hover:bg-[#EFECE5] border border-[#DED8CC] text-[#141413] font-semibold transition cursor-pointer"
+            >
+              Tek Kapağa Düşür (~{pendingDeletePrompt.halfShrunkOuterCm} cm)
+            </button>
+          )}
+
+          {pendingDeletePrompt.canDeleteBay && (
+            <button
+              type="button"
+              data-testid="smart-delete-opt-delete-bay"
+              onClick={() => {
+                const bIdx = pendingDeletePrompt.bayIndex;
+                const nextCm = pendingDeletePrompt.shrunkOuterCm;
+                setPendingDeletePrompt(null);
+                removeBayAndShrinkModule(bIdx);
+                setApprovalBanner({
+                  ok: true,
+                  text: `${bIdx + 1}. Bölme silindi ve dolap ~${nextCm} cm genişliğe daraltıldı (Ctrl+Z ile geri al).`,
+                });
+                setTimeout(() => setApprovalBanner(null), 2600);
+              }}
+              className="px-2.5 py-1 rounded-xl bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 font-semibold transition cursor-pointer"
+            >
+              {pendingDeletePrompt.bayIndex + 1}. Bölmeyi Sil (~{pendingDeletePrompt.shrunkOuterCm} cm)
+            </button>
+          )}
+
+          {pendingDeletePrompt.canDeleteModule && (
+            <button
+              type="button"
+              data-testid="smart-delete-opt-delete-module"
+              onClick={() => {
+                const modName = activeModule?.name || "Modül";
+                setPendingDeletePrompt(null);
+                removeActiveModule();
+                setApprovalBanner({
+                  ok: true,
+                  text: `"${modName}" sahneden kaldırıldı (Ctrl+Z ile geri al).`,
+                });
+                setTimeout(() => setApprovalBanner(null), 2600);
+              }}
+              className="px-2.5 py-1 rounded-xl bg-white hover:bg-red-50 border border-[#DED8CC] hover:border-red-200 text-[#57534E] hover:text-red-700 font-semibold transition cursor-pointer"
+            >
+              Tüm Dolabı Sil
+            </button>
+          )}
+
+          <button
+            type="button"
+            data-testid="smart-delete-opt-cancel"
+            onClick={() => setPendingDeletePrompt(null)}
+            title="Vazgeç (Esc)"
+            className="px-2 py-1 rounded-xl hover:bg-[#EFECE5] text-[#78716C] hover:text-[#141413] font-medium transition cursor-pointer"
+          >
+            Vazgeç
+          </button>
+        </div>
+      )}
+
+      {/* Approval / Validation Notification Banner */}
       {approvalBanner && (
         <div
           className={`${
@@ -6686,6 +6831,8 @@ export const V3UnifiedWorkspace: React.FC<{
                   onSelectBay={setActiveBayIndex}
                   onSplitBay={splitBayIntoTwo}
                   onMergeBay={removeBayAt}
+                  onRemoveBayAndShrink={removeBayAndShrinkModule}
+                  onShrinkDoubleBay={shrinkDoubleBayToSingle}
                   onSetDimensions={setDimensions}
                   onToggleDoorOpen={toggleDoorOpen}
                   onSetBayDoorType={setBayDoorType}
@@ -6786,14 +6933,24 @@ export const V3UnifiedWorkspace: React.FC<{
                     </div>
                     <div className="flex items-center gap-1">
                       {activeModule.bays.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => removeBayAt(activeBayIndex)}
-                          title="Seçili bölmeyi yan bölmeyle birleştir (ara dikmeyi sil)"
-                          className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-red-50 text-slate-600 hover:text-red-600 text-[11px] font-bold transition cursor-pointer"
-                        >
-                          Birleştir
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => removeBayAt(activeBayIndex)}
+                            title="Ara dikmeyi kaldırıp yan bölmeyle birleştir (dolap dış genişliği sabit kalır)"
+                            className="px-2 py-1 rounded-lg bg-[#FAF9F6] hover:bg-[#EFECE5] border border-[#DED8CC] text-[#44403C] text-[11px] font-semibold transition cursor-pointer"
+                          >
+                            Birleştir
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removeBayAndShrinkModule(activeBayIndex)}
+                            title="Seçili bölmeyi kapak ve iç düzeniyle çıkar ve dolap genişliğini daralt"
+                            className="px-2 py-1 rounded-lg bg-[#FAF9F6] hover:bg-red-50 border border-[#DED8CC] hover:border-red-200 text-red-700 text-[11px] font-semibold transition cursor-pointer"
+                          >
+                            Bölmeyi Sil (Daralt)
+                          </button>
+                        </>
                       )}
                       <div
                         role="button"

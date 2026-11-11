@@ -300,7 +300,7 @@ function scheduleBackgroundStoreNesting(project: DesignProject, bom: Manufacturi
   }, 180);
 }
 
-function recompute(project: DesignProject) {
+function recompute(project: DesignProject, options?: { syncInitial?: boolean }) {
   const validationIssues = validateProject(project);
   const compat = evaluateProjectCompatibility(project);
   project.verificationSnapshot = {
@@ -309,12 +309,15 @@ function recompute(project: DesignProject) {
     unverifiedCount: compat.evidenceMatrix.unverifiedPartOrOpCount,
     evaluatedAt: compat.evidenceMatrix.evaluatedAt,
   };
-  const isBrowser = typeof window !== "undefined";
-  const bom = generateBOMForProject(project, undefined, { skipSyncNesting: isBrowser });
+  // SSR Hydration Determinism: initial store boot runs synchronous nesting on BOTH server & client
+  // so initial HTML and hydrated client DOM match byte-for-byte (e.g. € 2.589,62 === € 2.589,62).
+  // Subsequent interactive mutations in the browser offload nesting to the background Web Worker.
+  const skipNesting = Boolean(!options?.syncInitial && typeof window !== "undefined");
+  const bom = generateBOMForProject(project, undefined, { skipSyncNesting: skipNesting });
   const pricing = calculateProjectPrice(bom);
   const activeMod = project.modules[0] || createDefaultWardrobeModule();
   const smartAdvice = analyzeAndAdviseSpan(activeMod.dimensions.width, activeMod.dimensions.height);
-  if (isBrowser) {
+  if (skipNesting) {
     scheduleBackgroundStoreNesting(project, bom);
   }
   return { validationIssues, bom, pricing, smartAdvice };
@@ -326,7 +329,7 @@ function nextHistory(history: DesignProject[], current: DesignProject, batchStar
 }
 
 const initialProj = createInitialProject();
-const { validationIssues: initIssues, bom: initBom, pricing: initPricing, smartAdvice: initAdvice } = recompute(initialProj);
+const { validationIssues: initIssues, bom: initBom, pricing: initPricing, smartAdvice: initAdvice } = recompute(initialProj, { syncInitial: true });
 
 export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   project: initialProj,

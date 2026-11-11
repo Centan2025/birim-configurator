@@ -1,10 +1,14 @@
 # Birim Configurator — Güncel Proje Durumu (L2 Cache)
 
-- **Last Verified Commit:** `795f451` (`main` dalı) — `[VERIFIED]`
-- **Son Güncelleme Tarihi:** `2026-11-08` (Europe/Istanbul)
+- **Last Verified Commit:** `d7b262c` (`main` dalı) — `[VERIFIED]`
+- **Son Güncelleme Tarihi:** `2026-11-11` (Europe/Istanbul)
 - **Çalışma Ağacı Durumu:** AI Context V2.1 (Context Capsule, Evidence Index, Handoff, Serena Level A/B, Measurement) aktif.
 
 ## 1. Tamamlanan Son İşler (Delta Özeti)
+- **[VERIFIED] 3D Mimari Brüt Beton Duvar, Bölme Silme/Daraltma ve SSR Hydration İyileştirmesi (2026-11-11):**
+  - 3D sahnede mobilya ayrımını artıran prosedürel brüt beton ve galeri duvar kaplamaları eklendi.
+  - Basit müşteri panelinde bölme silme ve dolap daraltma kontrolleri (`removeBayAndShrinkModule`, `shrinkDoubleBay`) sunuldu.
+  - Presentation teklif modalı için anlık 3D/izometrik snapshot yakalama ve SSR/CSR fiyat hydration determinizmi sağlandı.
 - **[VERIFIED] PresentationQuoteModal ve 2D/3D Etkileşim İyileştirmeleri (2026-11-11):**
   - Müşteri ve bayi için canlı teklif sunum modalı (`PresentationQuoteModal.tsx`) eklendi.
   - 2D CAD ve 3D Three.js viewport etkileşimleri, PBR materyal sistemi ve BOM üretici entegrasyonu güncellendi.

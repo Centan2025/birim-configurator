@@ -16,6 +16,13 @@ const nextConfig = {
     "@birim/manufacturing",
     "@birim/integrations",
   ],
+  webpack: (config, { dev }) => {
+    if (dev) {
+      // Prevents stale .next/cache/webpack 404s on main-app.js when extracting updated files on Windows
+      config.cache = false;
+    }
+    return config;
+  },
 };
 
 export default nextConfig;

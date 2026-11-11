@@ -4039,7 +4039,8 @@ export function useV3Adapter() {
   );
 
   /**
-   * Remove a specific bay/compartment (merges divider and re-indexes remaining bays)
+   * Merge a bay into its neighbor by removing the vertical divider while KEEPING outer cabinet width constant.
+   * Automatically upgrades single hinged doors to double doors if the merged span exceeds 650 mm.
    */
   const removeBayAt = useCallback(
     (bayIdx: number) => {
@@ -4058,15 +4059,127 @@ export function useV3Adapter() {
           specialFittings: (b.specialFittings || []).map((f) => ({ ...f, bayIndex: idx })),
           subDividers: (b.subDividers || []).map((sd) => ({ ...sd, bayIndex: idx })),
         }));
+        const postFourSpace = calculateFourSpaceDimensions(mod);
+        mod.bays = mod.bays.map((b, idx) => {
+          const newClearW = postFourSpace.usableInternal.bayClearWidthsMm[idx] || 600;
+          const dType = b.door?.type;
+          if (newClearW > 650 && (dType === "single_left" || dType === "single_right")) {
+            return {
+              ...b,
+              door: {
+                ...b.door,
+                type: "double",
+                doorSystemId: "hinged_double",
+              },
+            };
+          }
+          return b;
+        });
         return mod;
       }, true);
+      setSelectedComponentId(null);
       const st = useConfiguratorStore.getState();
       const mod = st.project.modules[st.activeModuleIndex];
       if (mod) {
         setActiveBayIndex(Math.max(0, Math.min(bayIdx, mod.bays.length - 1)));
       }
     },
-    [commitActiveModuleUpdate, setActiveBayIndex]
+    [commitActiveModuleUpdate, setActiveBayIndex, setSelectedComponentId]
+  );
+
+  /**
+   * Remove a specific bay/compartment AND shrink the cabinet's outer width by that bay's clear width + 1 divider thickness.
+   * Preserves the widths and door configurations of all remaining compartments.
+   */
+  const removeBayAndShrinkModule = useCallback(
+    (bayIdx: number) => {
+      commitActiveModuleUpdate((mod) => {
+        if (mod.bays.length <= 1) return mod;
+        const targetIdx = Math.max(0, Math.min(mod.bays.length - 1, bayIdx));
+        const preFourSpace = calculateFourSpaceDimensions(mod);
+        const clearWidths = preFourSpace.usableInternal.bayClearWidthsMm;
+        const panelT = mod.carcass.panelThickness || 18;
+        const removedClearW =
+          clearWidths[targetIdx] ||
+          Math.max(300, Math.round((mod.dimensions.width - (mod.bays.length + 1) * panelT) / mod.bays.length));
+        const remainingClearWidths = clearWidths.filter((_, i) => i !== targetIdx);
+
+        mod.bays.splice(targetIdx, 1);
+        const nextOuterWidth = Math.max(
+          350,
+          Math.round(mod.dimensions.width - (removedClearW + panelT))
+        );
+        mod.dimensions.width = nextOuterWidth;
+
+        const singleRemaining = mod.bays.length === 1;
+        mod.bays = mod.bays.map((b, idx) => ({
+          ...b,
+          index: idx,
+          customWidth: singleRemaining ? undefined : remainingClearWidths[idx],
+          door: { ...b.door, bayIndex: idx, id: `${mod.id}_door_${idx}` },
+          shelves: (b.shelves || []).map((s) => ({ ...s, bayIndex: idx })),
+          hangingRails: (b.hangingRails || []).map((r) => ({ ...r, bayIndex: idx })),
+          drawers: (b.drawers || []).map((d) => ({ ...d, bayIndex: idx })),
+          specialFittings: (b.specialFittings || []).map((f) => ({ ...f, bayIndex: idx })),
+          subDividers: (b.subDividers || []).map((sd) => ({ ...sd, bayIndex: idx })),
+        }));
+        return mod;
+      }, true);
+      setSelectedComponentId(null);
+      const st = useConfiguratorStore.getState();
+      const mod = st.project.modules[st.activeModuleIndex];
+      if (mod) {
+        setActiveBayIndex(Math.max(0, Math.min(bayIdx, mod.bays.length - 1)));
+      }
+    },
+    [commitActiveModuleUpdate, setActiveBayIndex, setSelectedComponentId]
+  );
+
+  /**
+   * Convert a wide double-door compartment (e.g. 1171 mm in a 3-door 180 cm wardrobe) into a single-door compartment
+   * and narrow the cabinet's outer width by half of that compartment's clear width (e.g. 180 cm -> 121 cm, 3 doors -> 2 doors).
+   */
+  const shrinkDoubleBayToSingle = useCallback(
+    (bayIdx: number) => {
+      commitActiveModuleUpdate((mod) => {
+        const targetIdx = Math.max(0, Math.min(mod.bays.length - 1, bayIdx));
+        const targetBay = mod.bays[targetIdx];
+        if (!targetBay) return mod;
+        const preFourSpace = calculateFourSpaceDimensions(mod);
+        const clearWidths = preFourSpace.usableInternal.bayClearWidthsMm;
+        const curClearW = clearWidths[targetIdx] || 900;
+        if (curClearW < 760) return mod;
+
+        const nextBayClearW = Math.max(400, Math.round(curClearW * 0.5));
+        const deltaW = curClearW - nextBayClearW;
+        mod.dimensions.width = Math.max(400, Math.round(mod.dimensions.width - deltaW));
+
+        const singleRemaining = mod.bays.length === 1;
+        const preferredLeaf: "single_left" | "single_right" =
+          targetIdx === 0 && mod.bays.length > 1 ? "single_left" : "single_right";
+
+        mod.bays = mod.bays.map((b, idx) => {
+          if (idx !== targetIdx) {
+            return {
+              ...b,
+              customWidth: singleRemaining ? undefined : clearWidths[idx],
+            };
+          }
+          return {
+            ...b,
+            customWidth: singleRemaining ? undefined : nextBayClearW,
+            door: {
+              ...b.door,
+              type: b.door.type === "open" ? "open" : preferredLeaf,
+              doorSystemId: b.door.type === "open" ? "open" : "hinged_single",
+            },
+          };
+        });
+        return mod;
+      }, true);
+      setSelectedComponentId(null);
+    },
+    [commitActiveModuleUpdate, setSelectedComponentId]
   );
 
   /**
@@ -4620,6 +4733,164 @@ export function useV3Adapter() {
     removeSpecialFitting,
     removeSubDivider,
     setSelectedComponentId,
+  ]);
+
+  /**
+   * Smart CAD Delete Hierarchy for Delete / Backspace key & HUD Delete button:
+   * - Instant 0-click deletion for interior parts (shelf, drawer, rail, fitting, sub-divider) & vertical dividers.
+   * - Returns an inline intent-choice prompt when a Door or Structural Carcass Panel is selected so the user
+   *   can pick in 1 click between Removing Door (Open Bay), Deleting Compartment (Shrink), or Deleting Entire Module.
+   */
+  const deleteActiveSelectionSmart = useCallback(():
+    | { action: "executed"; ok: boolean; message: string }
+    | {
+        action: "prompt";
+        kind: "door" | "structural";
+        partName: string;
+        bayIndex: number;
+        canRemoveDoor: boolean;
+        canDeleteBay: boolean;
+        canShrinkDouble: boolean;
+        canDeleteModule: boolean;
+        shrunkOuterCm: number;
+        halfShrunkOuterCm: number;
+      } => {
+    const state = useConfiguratorStore.getState();
+    const selId = state.selectedComponentId;
+    const mod = state.project.modules[state.activeModuleIndex] || state.project.modules[0];
+    if (!mod) {
+      return { action: "executed", ok: false, message: "Aktif modül bulunamadı." };
+    }
+
+    if (selId) {
+      const bd = generateModuleGeometry(mod, { doorOpenAngleDeg: 0 });
+      const selPart = bd.components.find((c) => c.id === selId);
+      const partName = selPart ? selPart.label.split(" (")[0] : "Seçili parça";
+      const role = selPart?.role || "";
+
+      // 1. Removable interior component (shelf, drawer, rail, fitting, sub-divider) -> INSTANT DELETE
+      if (removeSelectedInteriorComponent()) {
+        return {
+          action: "executed",
+          ok: true,
+          message: `"${partName}" silindi (Ctrl+Z ile geri al).`,
+        };
+      }
+
+      // 2. Vertical carcass divider -> INSTANT MERGE
+      if (role === "carcass_divider") {
+        if (mod.bays.length > 1) {
+          const bIdx =
+            typeof selPart?.bayIndex === "number"
+              ? Math.max(0, Math.min(mod.bays.length - 1, selPart.bayIndex))
+              : Math.max(0, Math.min(mod.bays.length - 1, state.activeBayIndex));
+          removeBayAt(bIdx);
+          return {
+            action: "executed",
+            ok: true,
+            message: "Ara dikme kaldırıldı ve komşu bölmeler birleştirildi (Ctrl+Z ile geri al).",
+          };
+        }
+        return {
+          action: "executed",
+          ok: false,
+          message: "Tek bölmeli dolapta silinecek ara dikme yok.",
+        };
+      }
+
+      const bIdx =
+        typeof selPart?.bayIndex === "number"
+          ? Math.max(0, Math.min(mod.bays.length - 1, selPart.bayIndex))
+          : Math.max(0, Math.min(mod.bays.length - 1, state.activeBayIndex));
+      const fourSpace = calculateFourSpaceDimensions(mod);
+      const bayClearW = fourSpace.usableInternal.bayClearWidthsMm[bIdx] || 600;
+      const panelT = mod.carcass.panelThickness || 18;
+      const shrunkOuterCm = Math.max(
+        35,
+        Math.round((mod.dimensions.width - (bayClearW + panelT)) / 10)
+      );
+      const halfShrunkOuterCm = Math.max(
+        40,
+        Math.round((mod.dimensions.width - Math.round(bayClearW * 0.5)) / 10)
+      );
+      const targetBay = mod.bays[bIdx];
+      const canDeleteBay = mod.bays.length > 1;
+      const canShrinkDouble =
+        targetBay?.door?.type === "double" && bayClearW >= 760;
+      const canDeleteModule = state.project.modules.length > 1;
+
+      // 3. Door leaf or hinge -> SMART 1-LINE INTENT BAR
+      if (
+        role === "door_left" ||
+        role === "door_right" ||
+        role === "door_hinge" ||
+        selId.includes("_door_")
+      ) {
+        const canRemoveDoor = targetBay?.door?.type !== "open";
+        if (canRemoveDoor || canDeleteBay || canShrinkDouble || canDeleteModule) {
+          return {
+            action: "prompt",
+            kind: "door",
+            partName,
+            bayIndex: bIdx,
+            canRemoveDoor,
+            canDeleteBay,
+            canShrinkDouble,
+            canDeleteModule,
+            shrunkOuterCm,
+            halfShrunkOuterCm,
+          };
+        }
+        return {
+          action: "executed",
+          ok: false,
+          message: "Bu bölmede zaten kapak bulunmuyor.",
+        };
+      }
+
+      // 4. Structural outer carcass panel (top, bottom, sides, back, plinth, countertop) -> SMART 1-LINE INTENT BAR
+      if (canDeleteBay || canShrinkDouble || canDeleteModule) {
+        return {
+          action: "prompt",
+          kind: "structural",
+          partName,
+          bayIndex: bIdx,
+          canRemoveDoor: false,
+          canDeleteBay,
+          canShrinkDouble,
+          canDeleteModule,
+          shrunkOuterCm,
+          halfShrunkOuterCm,
+        };
+      }
+
+      return {
+        action: "executed",
+        ok: false,
+        message: `"${partName}" taşıyıcı ana gövde panelidir, tek başına silinemez.`,
+      };
+    }
+
+    // 5. No sub-component selected -> module-level deletion if multiple modules exist
+    if (state.project.modules.length > 1) {
+      const modName = mod.name || "Modül";
+      removeActiveModule();
+      return {
+        action: "executed",
+        ok: true,
+        message: `"${modName}" sahneden kaldırıldı (Ctrl+Z ile geri al).`,
+      };
+    }
+
+    return {
+      action: "executed",
+      ok: false,
+      message: "Sahnede tek modül var; silmek için önce bir iç parça veya bölme seçin.",
+    };
+  }, [
+    removeSelectedInteriorComponent,
+    removeBayAt,
+    removeActiveModule,
   ]);
 
 
@@ -5750,6 +6021,8 @@ export function useV3Adapter() {
     equalizeBaysAndShelves,
     addInternalDrawer,
     removeBayAt,
+    removeBayAndShrinkModule,
+    shrinkDoubleBayToSingle,
     setModuleHingeHardware,
     setModuleDrawerRunnerHardware,
     toggleModuleLedLighting,
@@ -5775,6 +6048,7 @@ export function useV3Adapter() {
     removeActiveModule,
     removeModuleAt,
     removeSelectedInteriorComponent,
+    deleteActiveSelectionSmart,
     moveActiveModule,
     toggleModuleSelection,
     selectAllModules,

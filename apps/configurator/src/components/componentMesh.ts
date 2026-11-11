@@ -170,9 +170,9 @@ const handleAccentMat = new THREE.MeshStandardMaterial({
   metalness: 0.88,
 });
 const revealShadowMat = new THREE.LineBasicMaterial({
-  color: 0x292524,
+  color: 0x1c1917,
   transparent: true,
-  opacity: 0.18,
+  opacity: 0.34,
 });
 const doorDirectionLineMat = new THREE.LineBasicMaterial({
   color: 0x64748b,

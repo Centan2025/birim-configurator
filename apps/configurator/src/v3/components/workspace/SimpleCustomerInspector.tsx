@@ -28,6 +28,8 @@ interface SimpleCustomerInspectorProps {
   onSelectBay: (idx: number) => void;
   onSplitBay: (idx: number) => void;
   onMergeBay: (idx: number) => void;
+  onRemoveBayAndShrink?: (idx: number) => void;
+  onShrinkDoubleBay?: (idx: number) => void;
   onSetDimensions: (w: number, h: number, d: number) => void;
   onToggleDoorOpen: () => void;
   onSetBayDoorType: (
@@ -151,6 +153,8 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
   onSelectBay,
   onSplitBay,
   onMergeBay,
+  onRemoveBayAndShrink,
+  onShrinkDoubleBay,
   onSetDimensions,
   onToggleDoorOpen,
   onSetBayDoorType,
@@ -575,17 +579,49 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
                 + Bölme
               </div>
 
-              {activeModule.bays.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => onMergeBay(activeBayIndex)}
-                  className="h-9 px-2.5 rounded-lg bg-[#FAF9F6] hover:bg-red-50 border border-[#DED8CC] text-[11px] font-medium text-[#57534E] hover:text-red-700 transition cursor-pointer"
-                  title="Seçili bölmeyi yan bölmeyle birleştir"
-                >
-                  Birleştir
-                </button>
-              )}
             </div>
+
+            {/* Explicit Compartment Removal / Merge Bar */}
+            {(activeModule.bays.length > 1 ||
+              (activeBay?.door?.type === "double" && (bayWidths[activeBayIndex] || 0) >= 760)) && (
+              <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                {activeModule.bays.length > 1 && (
+                  <button
+                    type="button"
+                    data-testid="simple-merge-selected-bay-btn"
+                    onClick={() => onMergeBay(activeBayIndex)}
+                    className="flex-1 min-w-[120px] py-1.5 px-2.5 rounded-lg bg-[#FAF9F6] hover:bg-[#EFECE5] border border-[#DED8CC] text-[10.5px] font-semibold text-[#44403C] transition cursor-pointer text-center"
+                    title="Ara dikmeyi kaldırıp yan bölmeyle birleştirir; dolap dış genişliği sabit kalır"
+                  >
+                    Dikmeyi Kaldır (Birleştir)
+                  </button>
+                )}
+                {activeModule.bays.length > 1 && onRemoveBayAndShrink && (
+                  <button
+                    type="button"
+                    data-testid="simple-delete-shrink-bay-btn"
+                    onClick={() => onRemoveBayAndShrink(activeBayIndex)}
+                    className="flex-1 min-w-[125px] py-1.5 px-2.5 rounded-lg bg-[#FAF9F6] hover:bg-red-50 border border-[#DED8CC] hover:border-red-200 text-[10.5px] font-semibold text-red-700 transition cursor-pointer text-center"
+                    title="Seçili bölmeyi kapak ve iç düzeniyle çıkarır; dolap genişliğini bu bölme kadar daraltır"
+                  >
+                    {activeBayIndex + 1}. Bölmeyi Sil (Daralt)
+                  </button>
+                )}
+                {activeBay?.door?.type === "double" &&
+                  (bayWidths[activeBayIndex] || 0) >= 760 &&
+                  onShrinkDoubleBay && (
+                    <button
+                      type="button"
+                      data-testid="simple-shrink-double-bay-btn"
+                      onClick={() => onShrinkDoubleBay(activeBayIndex)}
+                      className="w-full py-1.5 px-2.5 rounded-lg bg-[#FAF9F6] hover:bg-[#EFECE5] border border-[#DED8CC] text-[10.5px] font-semibold text-[#141413] transition cursor-pointer text-center"
+                      title="Çift kapaklı geniş bölmeyi tek kapaklı bölmeye düşürür ve dolap genişliğini daraltır"
+                    >
+                      Çift Kapağı Tek Kapağa Düşür (Daralt)
+                    </button>
+                  )}
+              </div>
+            )}
 
             {/* 1-Click Ready Interior Combos with Architectural Schematic Previews */}
             <div>
