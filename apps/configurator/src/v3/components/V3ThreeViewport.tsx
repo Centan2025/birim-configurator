@@ -613,8 +613,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       door: false,
       callouts: false,
     });
-    const [dockedToCorner, setDockedToCorner] = useState<boolean>(true);
-    const dockedToCornerRef = useRef<boolean>(true);
+    const [dockedToCorner, setDockedToCorner] = useState<boolean>(false);
+    const dockedToCornerRef = useRef<boolean>(false);
     useEffect(() => {
       dockedToCornerRef.current = dockedToCorner;
     }, [dockedToCorner]);
@@ -1389,14 +1389,22 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         }
       }
 
+      const rightInspectorEl =
+        typeof document !== "undefined"
+          ? document.querySelector('[data-testid="studio-right-inspector"]')
+          : null;
+      const rightPanelW = rightInspectorEl
+        ? rightInspectorEl.getBoundingClientRect().width + 16
+        : 24;
+      const maxSafeX = Math.max(76, w - rightPanelW - 304);
+
       if (bayPopoverDomRef.current) {
         const customBayPos = floatingPanelPosRef.current.bay;
         if (customBayPos) {
           bayPopoverDomRef.current.style.opacity = "1";
           bayPopoverDomRef.current.style.transform = `translate3d(${customBayPos.x}px, ${customBayPos.y}px, 0)`;
         } else if (dockedToCornerRef.current) {
-          // Default non-overlapping top-right dock position with full margin for w-72 (288px) card!
-          const dockX = Math.max(16, w - 304);
+          const dockX = maxSafeX;
           const dockY = 68;
           bayPopoverDomRef.current.style.opacity = "1";
           bayPopoverDomRef.current.style.transform = `translate3d(${Math.round(dockX)}px, ${dockY}px, 0)`;
@@ -1405,11 +1413,16 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           if (ndc.z > 1) {
             bayPopoverDomRef.current.style.opacity = "0";
           } else {
-            const px = Math.max(120, Math.min(w - 304, (ndc.x + 1) * 0.5 * w + 54));
-            const py = Math.max(80, Math.min(h - 240, (-ndc.y + 1) * 0.5 * h - 120));
+            const px = Math.max(76, Math.min(maxSafeX, (ndc.x + 1) * 0.5 * w + 30));
+            const py = Math.max(68, Math.min(h - 260, (-ndc.y + 1) * 0.5 * h - 80));
             bayPopoverDomRef.current.style.opacity = "1";
             bayPopoverDomRef.current.style.transform = `translate3d(${Math.round(px)}px, ${Math.round(py)}px, 0)`;
           }
+        } else {
+          const dockX = maxSafeX;
+          const dockY = 68;
+          bayPopoverDomRef.current.style.opacity = "1";
+          bayPopoverDomRef.current.style.transform = `translate3d(${Math.round(dockX)}px, ${dockY}px, 0)`;
         }
       }
       if (doorPopoverDomRef.current) {
@@ -1418,7 +1431,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           doorPopoverDomRef.current.style.opacity = "1";
           doorPopoverDomRef.current.style.transform = `translate3d(${customDoorPos.x}px, ${customDoorPos.y}px, 0)`;
         } else if (dockedToCornerRef.current) {
-          const dockX = Math.max(16, w - 304);
+          const dockX = maxSafeX;
           const dockY = 68;
           doorPopoverDomRef.current.style.opacity = "1";
           doorPopoverDomRef.current.style.transform = `translate3d(${Math.round(dockX)}px, ${dockY}px, 0)`;
@@ -1427,11 +1440,16 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           if (ndc.z > 1) {
             doorPopoverDomRef.current.style.opacity = "0";
           } else {
-            const px = Math.max(120, Math.min(w - 304, (ndc.x + 1) * 0.5 * w + 18));
-            const py = Math.max(80, Math.min(h - 240, (-ndc.y + 1) * 0.5 * h - 120));
+            const px = Math.max(76, Math.min(maxSafeX, (ndc.x + 1) * 0.5 * w + 20));
+            const py = Math.max(68, Math.min(h - 260, (-ndc.y + 1) * 0.5 * h - 80));
             doorPopoverDomRef.current.style.opacity = "1";
             doorPopoverDomRef.current.style.transform = `translate3d(${Math.round(px)}px, ${Math.round(py)}px, 0)`;
           }
+        } else {
+          const dockX = maxSafeX;
+          const dockY = 68;
+          doorPopoverDomRef.current.style.opacity = "1";
+          doorPopoverDomRef.current.style.transform = `translate3d(${Math.round(dockX)}px, ${dockY}px, 0)`;
         }
       }
       for (const hwAnchor of hwWorldAnchorsRef.current) {
@@ -5912,7 +5930,7 @@ const clear3DGhostPreview = useCallback(() => {
                   ? { left: `${floatingPanelPos.dim.x}px`, top: `${floatingPanelPos.dim.y}px`, transform: "none" }
                   : undefined
               }
-              className="absolute top-20 left-1/2 -translate-x-1/2 z-30 w-80 bg-white/98 backdrop-blur-md rounded-2xl border-2 border-[#CBD5E1] shadow-2xl p-4 space-y-3 text-xs text-[#111827] pointer-events-auto"
+              className="absolute top-20 left-1/2 -translate-x-1/2 z-30 w-80 birim-ice-popover rounded-3xl border border-white/85 shadow-2xl p-4 space-y-3 text-xs text-[#111827] pointer-events-auto"
             >
               <div
                 onMouseDown={(e) => startFloatingPanelDrag("dim", e)}
@@ -6261,7 +6279,7 @@ const clear3DGhostPreview = useCallback(() => {
                 data-testid="viewport-3d-floating-door-card"
                 onClick={(e) => e.stopPropagation()}
                 style={{ transform: "translate3d(-9999px, -9999px, 0)" }}
-                className={`absolute top-0 left-0 z-[25] w-72 bg-[#FAF9F6]/96 backdrop-blur-xl rounded-2xl border border-[#DED8CC] shadow-[0_16px_42px_rgba(20,20,19,0.16)] p-3 space-y-2 text-xs text-[#141413] transition-all duration-200 ${
+                className={`absolute top-0 left-0 z-50 w-72 birim-ice-popover rounded-3xl border border-white/85 shadow-2xl p-3 space-y-2 text-xs text-[#141413] transition-all duration-200 ${
                   isDraggingItemOver3D ? "opacity-15 pointer-events-none" : "pointer-events-auto"
                 }`}
               >
@@ -6798,7 +6816,7 @@ const clear3DGhostPreview = useCallback(() => {
                 data-testid="viewport-3d-floating-bay-card"
                 onClick={(e) => e.stopPropagation()}
                 style={{ transform: "translate3d(-9999px, -9999px, 0)" }}
-                className={`absolute top-0 left-0 z-[15] w-72 bg-[#FAF9F6]/96 backdrop-blur-xl rounded-2xl border border-[#DED8CC] shadow-[0_16px_42px_rgba(20,20,19,0.16)] p-3 space-y-2 text-xs text-[#141413] transition-all duration-200 ${
+                className={`absolute top-0 left-0 z-50 w-72 birim-ice-popover rounded-3xl border border-white/85 shadow-2xl p-3 space-y-2 text-xs text-[#141413] transition-all duration-200 ${
                   isDraggingItemOver3D ? "opacity-15 pointer-events-none" : "pointer-events-auto"
                 }`}
               >

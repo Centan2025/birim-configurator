@@ -246,7 +246,7 @@ export const V3DimensionControl: React.FC<V3DimensionControlProps> = ({
   };
 
   return (
-    <div className="p-3 rounded-2xl bg-white/58 backdrop-blur-xl border border-white/75 shadow-2xs space-y-2.5 transition-colors hover:bg-white/72">
+    <div className="p-3 rounded-2xl bg-white/44 backdrop-blur-2xl border border-white/85 shadow-2xs space-y-2.5 transition-colors hover:bg-white/60">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <span className="w-6 h-6 rounded-lg bg-[#F5F3EE] border border-[#DED8CC] text-[#141413] font-mono text-xs font-bold flex items-center justify-center shrink-0">
@@ -622,7 +622,7 @@ export const V3PremiumDropdown: React.FC<{
   return (
     <div
       data-testid={testId ? `${testId}-wrapper` : undefined}
-      className="rounded-2xl border border-slate-300/90 bg-white/85 backdrop-blur-xl overflow-hidden shadow-xs hover:border-blue-400 transition-all duration-200"
+      className="rounded-2xl border border-white/85 bg-white/55 backdrop-blur-2xl overflow-hidden shadow-xs hover:border-blue-400 transition-all duration-200"
     >
       {/* Hidden native select for automated test compatibility */}
       {testId && (

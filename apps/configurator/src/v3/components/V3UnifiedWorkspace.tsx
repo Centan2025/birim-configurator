@@ -336,6 +336,7 @@ import {
   Wand2,
   SlidersHorizontal,
   ChevronDown,
+  LayoutGrid,
 } from "lucide-react";
 
 const V3ThreeViewport = dynamic(() => import("./V3ThreeViewport"), {
@@ -2288,7 +2289,7 @@ export const V3UnifiedWorkspace: React.FC<{
       {pendingDeletePrompt && (
         <div
           data-testid="smart-delete-choice-bar"
-          className="fixed top-[104px] left-1/2 -translate-x-1/2 z-[70] max-w-[92vw] px-3.5 py-2 rounded-2xl bg-[#FAF9F6]/98 backdrop-blur-xl border border-[#141413]/20 shadow-[0_18px_44px_rgba(20,20,19,0.22)] flex flex-wrap items-center gap-2 text-xs text-[#141413]"
+          className="fixed top-[104px] left-1/2 -translate-x-1/2 z-[70] max-w-[92vw] px-4 py-2.5 rounded-3xl birim-ice-popover border border-white/85 shadow-2xl flex flex-wrap items-center gap-2 text-xs text-[#141413]"
         >
           <span className="font-semibold text-[#141413] mr-1">
             {pendingDeletePrompt.kind === "door"
@@ -2726,12 +2727,12 @@ export const V3UnifiedWorkspace: React.FC<{
       )}
 
       {/* 2. MAIN UNIFIED WORKSPACE STAGE (Persists WebGL Canvas without unmounting!) */}
-      <div className="flex-1 flex overflow-hidden relative">
+      <div className="flex-1 relative overflow-hidden">
         {/* EKRAN 7 (FAZ 1, 2 & 3): PLAN MODU SOL İKON SÜTUNU + MEKÂN ÇİZİMİ PANELİ (Matches image_da6ae9.jpg 1-to-1) */}
         {mode === "plan" && (
           <aside
             data-testid="plan-left-panel"
-            className={`border-r border-white/70 birim-ice-drawer text-[#111827] flex flex-row z-30 shrink-0 relative ${
+            className={`absolute left-2.5 top-2.5 bottom-2.5 rounded-3xl overflow-hidden border border-white/80 shadow-[0_16px_48px_rgba(15,23,42,0.18)] birim-ice-drawer text-[#111827] flex flex-row z-30 ${
               resizingPanel === "plan-left" ? "" : "transition-[width] duration-200 ease-out"
             }`}
             style={{
@@ -2868,8 +2869,8 @@ export const V3UnifiedWorkspace: React.FC<{
               <div
                 className={`flex-1 flex flex-col min-w-0 min-h-0 ${
                   isCompactViewport
-                    ? "fixed left-[56px] top-[94px] bottom-[48px] w-[320px] max-w-[calc(100vw-68px)] z-40 birim-ice-popover rounded-r-2xl"
-                    : "bg-white"
+                    ? "fixed left-[56px] top-[94px] bottom-[48px] w-[320px] max-w-[calc(100vw-68px)] z-40 birim-ice-popover rounded-2xl"
+                    : "bg-white/45 backdrop-blur-2xl"
                 }`}
               >
                 {/* Title + 2 Workflow Tabs */}
@@ -3387,7 +3388,7 @@ export const V3UnifiedWorkspace: React.FC<{
         {mode === "studio" && (
           <aside
             data-testid="studio-left-library"
-            className="border-r border-white/70 birim-ice-drawer text-[#111827] flex flex-row z-30 shrink-0 relative transition-[width] duration-200 ease-out"
+            className="absolute left-2.5 top-2.5 bottom-2.5 rounded-3xl overflow-hidden border border-white/80 shadow-[0_16px_48px_rgba(15,23,42,0.18)] birim-ice-drawer text-[#111827] flex flex-row z-30 transition-[width] duration-200 ease-out"
             style={{
               width: leftOpen
                 ? isCompactViewport
@@ -3563,8 +3564,8 @@ export const V3UnifiedWorkspace: React.FC<{
               <div
                 className={`flex-1 flex flex-col min-w-0 min-h-0 ${
                   isCompactViewport
-                    ? "fixed left-[56px] top-[50px] bottom-[52px] w-[340px] max-w-[calc(100vw-68px)] z-40 birim-ice-popover rounded-r-2xl"
-                    : "bg-white/55 backdrop-blur-2xl border-r border-white/70"
+                    ? "fixed left-[56px] top-[50px] bottom-[52px] w-[340px] max-w-[calc(100vw-68px)] z-40 birim-ice-popover rounded-2xl"
+                    : "bg-white/40 backdrop-blur-2xl border-r border-white/70"
                 }`}
               >
 
@@ -3574,10 +3575,10 @@ export const V3UnifiedWorkspace: React.FC<{
                       /* HIZLI GÖVDE SİHİRBAZI (CANLI ÖNİZLEME + ANINDA 3D SENKRONİZASYON) */
                   <div
                     data-testid="quick-cabinet-wizard-panel"
-                    className="flex-1 flex flex-col min-h-0 bg-white"
+                    className="flex-1 flex flex-col min-h-0 bg-transparent"
                   >
                     {/* Header */}
-                    <div className="px-4 py-3 border-b border-[#EFECE5] bg-[#FAF9F6]">
+                    <div className="px-4 py-3 border-b border-white/70 bg-white/35 backdrop-blur-xl">
                       <div className="flex items-center justify-between gap-2">
                         <div>
                           <h2 className="text-xs font-bold uppercase tracking-wider text-[#141413]">
@@ -3906,7 +3907,7 @@ export const V3UnifiedWorkspace: React.FC<{
                   if (leftTab === "interior" || (leftTab === "templates" && studioInspectorTab === "interior")) {
                     return (
                       /* 🚪 İÇ DÜZEN KÜTÜPHANESİ (FULL HEIGHT) */
-                  <div className="flex-1 flex flex-col min-h-0 bg-white">
+                  <div className="flex-1 flex flex-col min-h-0 bg-transparent">
                     {(() => {
                       const interiorLibraryCatalog = [
                         {
@@ -4265,7 +4266,7 @@ export const V3UnifiedWorkspace: React.FC<{
                   if (leftTab === "materials" || (leftTab === "templates" && studioInspectorTab === "material")) {
                     return (
                       /* 🎨 MALZEME KÜTÜPHANESİ (FULL HEIGHT) */
-                  <div className="flex-1 flex flex-col min-h-0 bg-white">
+                  <div className="flex-1 flex flex-col min-h-0 bg-transparent">
                     {(() => {
                       const classifyMatTab = (m: import("@birim/core").MaterialDefinition) => {
                         const n = m.name.toLowerCase();
@@ -4505,7 +4506,7 @@ export const V3UnifiedWorkspace: React.FC<{
                   if (leftTab === "hardware" || (leftTab === "templates" && studioInspectorTab === "all")) {
                     return (
                       /* ⚙️ DONANIM KÜTÜPHANESİ (FULL HEIGHT) */
-                  <div className="flex-1 flex flex-col min-h-0 bg-white">
+                  <div className="flex-1 flex flex-col min-h-0 bg-transparent">
                     {(() => {
                       const T_door =
                         activeBay?.door.doorThicknessMm || activeModule.carcass.doorThickness || 18;
@@ -4943,7 +4944,7 @@ export const V3UnifiedWorkspace: React.FC<{
                       return (
                         <div
                           data-testid="hardware-library-panel"
-                          className="bg-white flex flex-col flex-1 min-h-0"
+                          className="bg-transparent flex flex-col flex-1 min-h-0"
                         >
                           {/* Header: Donanım Kütüphanesi */}
                           <div className="px-3.5 pt-3 pb-1.5 flex items-center justify-between gap-2">
@@ -5204,7 +5205,7 @@ export const V3UnifiedWorkspace: React.FC<{
                   }
                   return (
                     /* 📦 MODÜL KÜTÜPHANESİ (FULL HEIGHT) */
-                  <div className="flex-1 flex flex-col min-h-0 bg-white">
+                  <div className="flex-1 flex flex-col min-h-0 bg-transparent">
                     {/* Header: Modül Kütüphanesi + Kart/Liste Switcher */}
                     <div className="px-3.5 pt-3 pb-2 flex items-center justify-between gap-2">
                       <h2 className="text-sm font-bold text-[#111827]">Modül Kütüphanesi</h2>
@@ -5627,8 +5628,10 @@ export const V3UnifiedWorkspace: React.FC<{
         {((mode === "plan" && planViewLayout !== "3d_only") || (mode === "studio" && studioView === "2d")) && (
           <div
             className={`${
-              mode === "plan" ? (planViewLayout === "2d_only" ? "flex-1" : "") : "flex-1"
-            } h-full relative flex flex-col shrink-0 min-w-0 overflow-hidden`}
+              mode === "plan" && planViewLayout === "split"
+                ? "relative flex-1 h-full"
+                : "absolute inset-0 w-full h-full z-10"
+            } flex flex-col shrink-0 min-w-0 overflow-hidden`}
             style={
               mode === "plan" && planViewLayout === "split"
                 ? { width: `calc(${planSplitRatioPct}% - 12px)` }
@@ -5788,7 +5791,7 @@ export const V3UnifiedWorkspace: React.FC<{
                 {planModDropdownOpen && (
                   <div
                     data-testid="plan-mod-hybrid-dropdown-menu"
-                    className="absolute top-full left-2.5 mt-1 z-50 w-80 max-w-[calc(100%-20px)] bg-white/95 backdrop-blur-xl rounded-2xl border border-slate-200 ring-1 ring-slate-900/10 shadow-[0_18px_40px_rgba(15,23,42,0.18)] p-2 space-y-1 max-h-72 overflow-y-auto"
+                    className="absolute top-full left-2.5 mt-1 z-50 w-80 max-w-[calc(100%-20px)] birim-ice-popover rounded-3xl border border-white/85 shadow-2xl p-2.5 space-y-1 max-h-72 overflow-y-auto"
                   >
                     <div className="flex items-center justify-between px-2 py-1 border-b border-slate-200/70">
                       <span className="text-[11px] font-extrabold text-[#0F172A]">
@@ -5861,7 +5864,7 @@ export const V3UnifiedWorkspace: React.FC<{
             {/* 2D VIEWPORT BODY (Flex-1 below Docked Header — Zero Overlap Possible!) */}
             <div className="flex-1 min-h-0 relative w-full">
               {mode === "studio" && studioView === "2d" && (
-                <div className="absolute left-4 top-14 z-30 flex flex-col items-center gap-1 bg-white/95 backdrop-blur-md p-1.5 rounded-2xl border border-[#E2E8F0] shadow-md text-[#2B2927] w-[62px]">
+                <div className="absolute left-4 top-14 z-30 flex flex-col items-center gap-1 birim-ice-pill p-1.5 rounded-2xl border border-white/80 shadow-md text-[#2B2927] w-[62px]">
                   {[
                     {
                       id: "3d",
@@ -6132,7 +6135,7 @@ export const V3UnifiedWorkspace: React.FC<{
             </div>
           )}
 
-                    <div className="relative flex-1 w-full h-full overflow-hidden flex flex-col">
+                    <div className="absolute inset-0 w-full h-full overflow-hidden flex flex-col z-0">
             <V3ThreeViewport
               theme={
                 canvasTheme === "dark"
@@ -6623,25 +6626,169 @@ export const V3UnifiedWorkspace: React.FC<{
           )}
         </main>
 
-        {/* Mobile/Tablet Floating Button to Reopen Right Inspector when collapsed */}
+        {/* Collapsed Right Inspector Rail (Symmetrical with left rail) */}
         {mode === "studio" && !studioRightOpen && (
-          <button
-            type="button"
-            title="Özellikler Panelini Aç"
-            data-testid="studio-reopen-right-inspector-btn"
-            onClick={() => setStudioRightOpen(true)}
-            className="fixed right-3.5 top-16 z-40 w-10 h-10 rounded-2xl birim-ice-pill text-[#111827] flex items-center justify-center cursor-pointer hover:scale-105 transition"
+          <aside
+            data-testid="studio-right-rail-collapsed"
+            className="absolute right-2.5 top-2.5 bottom-2.5 w-[56px] rounded-3xl overflow-hidden border border-white/80 shadow-[0_16px_48px_rgba(15,23,42,0.18)] birim-ice-drawer text-[#111827] flex flex-col z-30 select-none py-2.5 px-1.5 justify-between items-center transition-all duration-200 ease-out"
           >
-            <SlidersHorizontal className="w-4 h-4" />
-            <span className="sr-only">Gövde & Özellikler</span>
-          </button>
+            {/* Top Toggle Button */}
+            <div className="flex flex-col items-center gap-2">
+              <button
+                type="button"
+                data-testid="studio-reopen-right-inspector-btn"
+                title="Özellikler Panelini Aç"
+                onClick={() => setStudioRightOpen(true)}
+                className="w-10 h-10 rounded-xl birim-ice-btn flex items-center justify-center text-[#57534E] hover:text-[#141413] transition cursor-pointer"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                <span className="sr-only">Özellikler Panelini Aç</span>
+              </button>
+
+              <div className="w-7 h-px bg-slate-900/10 my-0.5" />
+
+              {/* Tab Quick-Jump Icons */}
+              <button
+                type="button"
+                data-testid="studio-rail-tab-dimensions"
+                title="Ölçüler"
+                onClick={() => {
+                  setStudioInspectorTab("dimensions");
+                  setStudioRightOpen(true);
+                }}
+                className={`w-10 h-10 rounded-xl flex items-center justify-center transition cursor-pointer ${
+                  studioInspectorTab === "dimensions"
+                    ? "birim-ice-btn-active"
+                    : "text-[#57534E] hover:bg-white/75 hover:text-[#141413]"
+                }`}
+              >
+                <SlidersHorizontal className="w-4 h-4" />
+                <span className="sr-only">Ölçüler</span>
+              </button>
+
+              <button
+                type="button"
+                data-testid="studio-rail-tab-carcass"
+                title="Gövde & Şablon"
+                onClick={() => {
+                  setStudioInspectorTab("carcass");
+                  setStudioRightOpen(true);
+                }}
+                className={`w-10 h-10 rounded-xl flex items-center justify-center transition cursor-pointer ${
+                  studioInspectorTab === "carcass"
+                    ? "birim-ice-btn-active"
+                    : "text-[#57534E] hover:bg-white/75 hover:text-[#141413]"
+                }`}
+              >
+                <Box className="w-4 h-4" />
+                <span className="sr-only">Gövde</span>
+              </button>
+
+              <button
+                type="button"
+                data-testid="studio-rail-tab-door"
+                title="Kapaklar"
+                onClick={() => {
+                  setStudioInspectorTab("door");
+                  setStudioRightOpen(true);
+                }}
+                className={`w-10 h-10 rounded-xl flex items-center justify-center transition cursor-pointer ${
+                  studioInspectorTab === "door"
+                    ? "birim-ice-btn-active"
+                    : "text-[#57534E] hover:bg-white/75 hover:text-[#141413]"
+                }`}
+              >
+                <DoorOpen className="w-4 h-4" />
+                <span className="sr-only">Kapaklar</span>
+              </button>
+
+              <button
+                type="button"
+                data-testid="studio-rail-tab-interior"
+                title="İç Düzen"
+                onClick={() => {
+                  setStudioInspectorTab("interior");
+                  setStudioRightOpen(true);
+                  if (doorOpenAngleDeg === 0 && !doorsHiddenStudio) {
+                    setDoorOpenAngleDeg(85);
+                  }
+                }}
+                className={`w-10 h-10 rounded-xl flex items-center justify-center transition cursor-pointer ${
+                  studioInspectorTab === "interior"
+                    ? "birim-ice-btn-active"
+                    : "text-[#57534E] hover:bg-white/75 hover:text-[#141413]"
+                }`}
+              >
+                <LayoutGrid className="w-4 h-4" />
+                <span className="sr-only">İç Düzen</span>
+              </button>
+
+              <button
+                type="button"
+                data-testid="studio-rail-tab-material"
+                title="Malzeme & Renk"
+                onClick={() => {
+                  setStudioInspectorTab("material");
+                  setStudioRightOpen(true);
+                }}
+                className={`w-10 h-10 rounded-xl flex items-center justify-center transition cursor-pointer ${
+                  studioInspectorTab === "material"
+                    ? "birim-ice-btn-active"
+                    : "text-[#57534E] hover:bg-white/75 hover:text-[#141413]"
+                }`}
+              >
+                <Palette className="w-4 h-4" />
+                <span className="sr-only">Malzeme</span>
+              </button>
+
+              <button
+                type="button"
+                data-testid="studio-rail-tab-all"
+                title="Donanım (Menteşe & Ray)"
+                onClick={() => {
+                  setStudioInspectorTab("all");
+                  setStudioRightOpen(true);
+                }}
+                className={`w-10 h-10 rounded-xl flex items-center justify-center transition cursor-pointer ${
+                  studioInspectorTab === "all"
+                    ? "birim-ice-btn-active"
+                    : "text-[#57534E] hover:bg-white/75 hover:text-[#141413]"
+                }`}
+              >
+                <Wrench className="w-4 h-4" />
+                <span className="sr-only">Donanım</span>
+              </button>
+            </div>
+
+            {/* Bottom Actions */}
+            <div className="flex flex-col items-center gap-1.5">
+              <button
+                type="button"
+                title="BOM & Kesim Listesi"
+                onClick={() => setIsBomModalOpen(true)}
+                className="w-10 h-10 rounded-xl flex items-center justify-center text-[#57534E] hover:bg-white/75 hover:text-[#141413] transition cursor-pointer"
+              >
+                <FileSpreadsheet className="w-4 h-4" />
+                <span className="sr-only">BOM</span>
+              </button>
+              <button
+                type="button"
+                title="Modülü Kopyala"
+                onClick={duplicateActiveModule}
+                className="w-10 h-10 rounded-xl flex items-center justify-center text-[#57534E] hover:bg-white/75 hover:text-[#141413] transition cursor-pointer"
+              >
+                <Copy className="w-4 h-4" />
+                <span className="sr-only">Kopyala</span>
+              </button>
+            </div>
+          </aside>
         )}
 
         {/* RIGHT PANEL — DESIGN STUDIO SMART PROPERTY EDITOR (5 Tabs: Ölçüler | Gövde | Kapak | İç Düzen | Donanım) */}
         {((mode === "studio" && studioRightOpen) || (mode === "plan" && showInspectorInPlan)) && (
           <aside
             data-testid="studio-right-inspector"
-            className="border-l border-white/70 birim-ice-drawer text-[#111827] flex flex-col z-30 shrink-0 relative max-xl:fixed max-xl:right-0 max-xl:top-13 max-xl:bottom-14 max-xl:shadow-[0_16px_44px_rgba(15,23,42,0.22)] max-xl:border-l max-xl:border-white/80 max-w-[92vw] transition-[width] duration-200 ease-out"
+            className="absolute right-2.5 top-2.5 bottom-2.5 rounded-3xl overflow-hidden border border-white/80 shadow-[0_16px_48px_rgba(15,23,42,0.18)] birim-ice-drawer text-[#111827] flex flex-col z-30 max-w-[92vw] transition-[width] duration-200 ease-out"
             style={{
               width: isCompactViewport
                 ? "min(392px, 92vw)"
@@ -6659,7 +6806,7 @@ export const V3UnifiedWorkspace: React.FC<{
             />
 
             {/* Module Title Header (Matches Design Studio Reference 1-to-1) */}
-            <div className="px-3.5 pt-3 pb-2 bg-white/45 backdrop-blur-md border-b border-white/70 flex items-start justify-between gap-2 relative">
+            <div className="px-3.5 pt-3 pb-2 bg-white/35 backdrop-blur-2xl border-b border-white/80 flex items-start justify-between gap-2 relative">
               <div className="flex items-start gap-2.5 min-w-0">
                 <div className="mt-0.5 text-[#57534E] shrink-0">
                   <Box className="w-4 h-4" />
@@ -14631,13 +14778,13 @@ export const V3UnifiedWorkspace: React.FC<{
         <div
           data-testid="v3-engineering-modal"
           onClick={() => setShowRulesModal(false)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/40 backdrop-blur-xs p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 backdrop-blur-2xl p-4"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="bg-white border border-stone-200 rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden text-stone-900"
+            className="birim-ice-popover border border-white/85 rounded-3xl shadow-2xl max-w-2xl w-full overflow-hidden text-stone-900"
           >
-            <div className="px-5 py-4 border-b border-stone-200 flex items-center justify-between bg-stone-50">
+            <div className="px-5 py-4 border-b border-white/70 flex items-center justify-between bg-white/40 backdrop-blur-xl">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="w-4 h-4 text-[#57534E]" />
                 <div>
@@ -14729,13 +14876,13 @@ export const V3UnifiedWorkspace: React.FC<{
         <div
           data-testid="v4-library-admin-modal"
           onClick={() => setShowAdminModal(false)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/40 backdrop-blur-xs p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 backdrop-blur-2xl p-4"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="bg-white border border-stone-200 rounded-2xl shadow-2xl max-w-3xl w-full overflow-hidden text-stone-900"
+            className="birim-ice-popover border border-white/85 rounded-3xl shadow-2xl max-w-3xl w-full overflow-hidden text-stone-900"
           >
-            <div className="px-5 py-4 border-b border-stone-200 flex items-center justify-between bg-stone-50">
+            <div className="px-5 py-4 border-b border-white/70 flex items-center justify-between bg-white/40 backdrop-blur-xl">
               <div className="flex items-center gap-2">
                 <Wrench className="w-4 h-4 text-[#57534E]" />
                 <h2 className="text-sm font-bold">
@@ -14952,14 +15099,14 @@ export const V3UnifiedWorkspace: React.FC<{
         <div
           data-testid="v4-floating-catalog-modal"
           onClick={() => setIsVisualCatalogOpen(false)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/50 backdrop-blur-xs p-4 sm:p-6"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 backdrop-blur-2xl p-4 sm:p-6"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="bg-white border border-stone-200 rounded-2xl shadow-2xl max-w-5xl w-full h-[85vh] flex flex-col overflow-hidden text-stone-900"
+            className="birim-ice-popover border border-white/85 rounded-3xl shadow-2xl max-w-5xl w-full h-[85vh] flex flex-col overflow-hidden text-stone-900"
           >
             {/* Header */}
-            <div className="px-5 py-3.5 border-b border-stone-200 bg-stone-50 flex flex-wrap items-center justify-between gap-3">
+            <div className="px-5 py-3.5 border-b border-white/70 bg-white/40 backdrop-blur-xl flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-xl bg-[#EEF3F8] text-[#1C1917] border border-[#CBD5E1] flex items-center justify-center font-bold">
                   <Package className="w-4 h-4" />
@@ -15221,15 +15368,15 @@ export const V3UnifiedWorkspace: React.FC<{
         return (
           <div
             data-testid="v4-step-wizard-modal"
-            className="fixed inset-0 z-[130] bg-slate-900/45 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 overflow-y-auto"
+            className="fixed inset-0 z-[130] bg-slate-950/50 backdrop-blur-2xl flex items-center justify-center p-3 sm:p-5 overflow-y-auto"
             onClick={() => setShowStepWizardModal(false)}
           >
             <div
-              className="bg-white rounded-xl border border-[#DED8CC] shadow-[0_24px_60px_rgba(15,23,42,0.18)] max-w-5xl w-full overflow-hidden text-slate-900 flex flex-col max-h-[92vh]"
+              className="birim-ice-popover rounded-3xl border border-white/85 shadow-[0_24px_60px_rgba(15,23,42,0.25)] max-w-5xl w-full overflow-hidden text-slate-900 flex flex-col max-h-[92vh]"
               onClick={(e) => e.stopPropagation()}
             >
               {/* B1R1M Mimari Sihirbaz Başlığı ve Adım Çubuğu */}
-              <div className="px-6 pt-5 pb-4 bg-[#FAF9F6] border-b border-[#DED8CC]">
+              <div className="px-6 pt-5 pb-4 bg-white/40 backdrop-blur-xl border-b border-white/70">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3">
                     <div className="w-9 h-9 rounded-lg bg-[#141413] text-[#FAF9F6] flex items-center justify-center shrink-0">

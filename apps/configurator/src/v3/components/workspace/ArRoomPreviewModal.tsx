@@ -193,10 +193,10 @@ export const ArRoomPreviewModal: React.FC<ArRoomPreviewModalProps> = ({
   return (
     <div
       data-testid="ar-and-3d-export-modal"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[#141413]/70 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#141413]/60 backdrop-blur-2xl p-4"
     >
-      <div className="max-w-2xl w-full birim-ice-popover rounded-3xl overflow-hidden text-[#141413]">
-        <div className="px-6 py-4 bg-white border-b border-[#E4DFD5] flex items-center justify-between">
+      <div className="max-w-2xl w-full birim-ice-popover rounded-3xl overflow-hidden text-[#141413] border border-white/85 shadow-2xl">
+        <div className="px-6 py-4 bg-white/40 backdrop-blur-xl border-b border-white/70 flex items-center justify-between">
           <div>
             <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#8C7A6B]">
               AR • Mimar 3D CAD • Doğrulanmış Paylaşım

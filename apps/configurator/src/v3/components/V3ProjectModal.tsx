@@ -69,10 +69,10 @@ export const V3ProjectModal: React.FC<{
   return (
     <div
       data-testid="v3-project-modal"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/40 backdrop-blur-xs p-4 select-none"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 backdrop-blur-2xl p-4 select-none"
     >
-      <div className="birim-ice-popover rounded-3xl max-w-lg w-full overflow-hidden text-stone-900">
-        <div className="px-5 py-4 border-b border-stone-200 flex items-center justify-between bg-stone-50">
+      <div className="birim-ice-popover rounded-3xl max-w-lg w-full overflow-hidden text-stone-900 border border-white/85 shadow-2xl">
+        <div className="px-5 py-4 border-b border-white/70 flex items-center justify-between bg-white/40 backdrop-blur-xl">
           <div className="flex items-center gap-2">
             <FolderOpen className="w-4 h-4 text-amber-700" />
             <h2 className="text-sm font-bold">Proje Kayıt & Yükleme</h2>

@@ -288,10 +288,10 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
   const shelfDeflections = bom.shelfDeflectionAnalyses || [];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 backdrop-blur-md p-4">
-      <div className="flex flex-col w-full max-w-6xl h-[88vh] birim-ice-dark-bar border rounded-2xl overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-2xl p-4">
+      <div className="flex flex-col w-full max-w-6xl h-[88vh] birim-ice-dark-bar border border-white/20 rounded-3xl overflow-hidden shadow-2xl">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 bg-slate-950/50 backdrop-blur-xl border-b border-white/10">
+        <div className="flex items-center justify-between px-5 py-3 bg-slate-950/60 backdrop-blur-2xl border-b border-white/10">
           <div>
             <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
               <span>BOM & İmalat Mühendisliği Portalı</span>

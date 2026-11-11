@@ -144,7 +144,7 @@ const DimensionField: React.FC<{
   };
 
   return (
-    <div className="p-2.5 rounded-2xl bg-white/52 backdrop-blur-md border border-white/75 shadow-2xs flex items-center justify-between gap-2">
+    <div className="p-2.5 rounded-2xl bg-white/40 backdrop-blur-2xl border border-white/85 shadow-2xs flex items-center justify-between gap-2">
       <div>
         <span className="text-xs font-bold text-[#141413] block">{label}</span>
         <span className="text-[10px] text-[#78716C]">
@@ -618,7 +618,7 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
           STEP 1: DOLAP DIŞ ÖLÇÜLERİ (Spacious Single-Column Stepper Inputs)
          ======================================================================== */}
       {(showAllSteps || activeStep === "dimensions") && (
-        <section className="p-3.5 rounded-2xl bg-white/58 backdrop-blur-xl border border-white/75 shadow-2xs space-y-3">
+        <section className="p-3.5 rounded-2xl bg-white/44 backdrop-blur-2xl border border-white/85 shadow-sm space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-[#141413]">Dolap Dış Ölçüsü</span>
             <div className="inline-flex rounded-lg bg-[#EFECE5] p-0.5 border border-[#DED8CC]">
@@ -859,7 +859,7 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
           STEP 2: BÖLMELER & İÇ DÜZEN (Spacious 2-Column Cards — Zero Squeezed Text!)
          ======================================================================== */}
       {(showAllSteps || activeStep === "interior") && (
-        <section className="p-3.5 rounded-2xl bg-white/58 backdrop-blur-xl border border-white/75 shadow-2xs space-y-3.5">
+        <section className="p-3.5 rounded-2xl bg-white/44 backdrop-blur-2xl border border-white/85 shadow-sm space-y-3.5">
           {/* Compartment Selector Pills */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -1244,7 +1244,7 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
           STEP 3: KAPAK SİSTEMİ, SÜRGÜ MONTAJ MEKANİZMALARI & KULP (Spacious 2-Col!)
          ======================================================================== */}
       {(showAllSteps || activeStep === "door") && (
-        <section className="p-3.5 rounded-2xl bg-white/58 backdrop-blur-xl border border-white/75 shadow-2xs space-y-3.5">
+        <section className="p-3.5 rounded-2xl bg-white/44 backdrop-blur-2xl border border-white/85 shadow-sm space-y-3.5">
           <div className="space-y-2">
             <div className="text-xs font-bold text-[#141413]">
               Kapak Açılma Sistemi ({activeBayIndex + 1}. Bölme)
@@ -2069,7 +2069,7 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
           STEP 5: MALZEME & RENK KARTELASI (Spacious 2-Column Untruncated Cards!)
          ======================================================================== */}
       {(showAllSteps || activeStep === "material") && (
-        <section className="p-3.5 rounded-2xl bg-white/58 backdrop-blur-xl border border-white/75 shadow-2xs space-y-3">
+        <section className="p-3.5 rounded-2xl bg-white/44 backdrop-blur-2xl border border-white/85 shadow-sm space-y-3">
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs font-bold text-[#141413]">Yüzey Seçimi</span>
             <div className="inline-flex rounded-xl bg-[#EFECE5] p-0.5 border border-[#DED8CC]">
