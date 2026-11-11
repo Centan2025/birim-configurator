@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { startTransition } from "react";
 import { V3BrandBadge } from "../../design-system";
 import type { UserExperienceTier } from "../../../store/useConfiguratorStore";
 import {
@@ -124,7 +124,11 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = ({
                 key={item.id}
                 type="button"
                 data-testid={item.testId}
-                onClick={() => onSetMode(item.id)}
+                onClick={() => {
+                  startTransition(() => {
+                    onSetMode(item.id);
+                  });
+                }}
                 className={`h-7 px-3 rounded-md font-semibold transition cursor-pointer ${
                   active
                     ? "bg-white text-[#141413] shadow-2xs border border-[#D6D0C4]"

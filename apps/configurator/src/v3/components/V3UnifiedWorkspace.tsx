@@ -2259,9 +2259,11 @@ export const V3UnifiedWorkspace: React.FC<{
             }
           }}
           onSetMode={(nextMode) => {
-            setMode(nextMode);
-            if (nextMode === "studio") setStudioView("3d");
-            if (nextMode !== "showroom") setZenMode(false);
+            startTransition(() => {
+              setMode(nextMode);
+              if (nextMode === "studio") setStudioView("3d");
+              if (nextMode !== "showroom") setZenMode(false);
+            });
           }}
           onSetStudioView={(v, m2d) => {
             startTransition(() => {
@@ -2908,8 +2910,10 @@ export const V3UnifiedWorkspace: React.FC<{
                             label: "Duvar",
                             testId: "plan-tool-wall",
                             onClick: () => {
-                              setPlanActiveDrawingTool("wall");
-                              dispatchPlanToolAction({ action: "draw_wall" });
+                              startTransition(() => {
+                                setPlanActiveDrawingTool("wall");
+                                dispatchPlanToolAction({ action: "draw_wall" });
+                              });
                             },
                             svg: (
                               <svg viewBox="0 0 36 28" className="w-7 h-6" fill="none">
@@ -2924,8 +2928,10 @@ export const V3UnifiedWorkspace: React.FC<{
                             label: "Oda",
                             testId: "plan-tool-room",
                             onClick: () => {
-                              setPlanActiveDrawingTool("room");
-                              dispatchPlanToolAction({ action: "draw_room" });
+                              startTransition(() => {
+                                setPlanActiveDrawingTool("room");
+                                dispatchPlanToolAction({ action: "draw_room" });
+                              });
                             },
                             svg: (
                               <svg viewBox="0 0 36 28" className="w-7 h-6" fill="none">
@@ -2939,11 +2945,13 @@ export const V3UnifiedWorkspace: React.FC<{
                             label: "Bölme",
                             testId: "plan-tool-partition",
                             onClick: () => {
-                              setPlanActiveDrawingTool("partition");
-                              dispatchPlanToolAction({
-                                action: "place_obstacle",
-                                obstacleType: "partition",
-                                immediate: true,
+                              startTransition(() => {
+                                setPlanActiveDrawingTool("partition");
+                                dispatchPlanToolAction({
+                                  action: "place_obstacle",
+                                  obstacleType: "partition",
+                                  immediate: true,
+                                });
                               });
                             },
                             svg: (
@@ -2958,11 +2966,13 @@ export const V3UnifiedWorkspace: React.FC<{
                             label: "Kapı",
                             testId: "plan-tool-door",
                             onClick: () => {
-                              setPlanActiveDrawingTool("door");
-                              dispatchPlanToolAction({
-                                action: "place_obstacle",
-                                obstacleType: "door",
-                                immediate: true,
+                              startTransition(() => {
+                                setPlanActiveDrawingTool("door");
+                                dispatchPlanToolAction({
+                                  action: "place_obstacle",
+                                  obstacleType: "door",
+                                  immediate: true,
+                                });
                               });
                             },
                             svg: (
@@ -2978,11 +2988,13 @@ export const V3UnifiedWorkspace: React.FC<{
                             label: "Pencere",
                             testId: "plan-tool-window",
                             onClick: () => {
-                              setPlanActiveDrawingTool("window");
-                              dispatchPlanToolAction({
-                                action: "place_obstacle",
-                                obstacleType: "window",
-                                immediate: true,
+                              startTransition(() => {
+                                setPlanActiveDrawingTool("window");
+                                dispatchPlanToolAction({
+                                  action: "place_obstacle",
+                                  obstacleType: "window",
+                                  immediate: true,
+                                });
                               });
                             },
                             svg: (
@@ -2998,11 +3010,13 @@ export const V3UnifiedWorkspace: React.FC<{
                             label: "Niş",
                             testId: "plan-tool-niche",
                             onClick: () => {
-                              setPlanActiveDrawingTool("niche");
-                              dispatchPlanToolAction({
-                                action: "place_obstacle",
-                                obstacleType: "niche",
-                                immediate: true,
+                              startTransition(() => {
+                                setPlanActiveDrawingTool("niche");
+                                dispatchPlanToolAction({
+                                  action: "place_obstacle",
+                                  obstacleType: "niche",
+                                  immediate: true,
+                                });
                               });
                             },
                             svg: (
@@ -3016,11 +3030,13 @@ export const V3UnifiedWorkspace: React.FC<{
                             label: "Kolon",
                             testId: "plan-tool-column",
                             onClick: () => {
-                              setPlanActiveDrawingTool("column");
-                              dispatchPlanToolAction({
-                                action: "place_obstacle",
-                                obstacleType: "column",
-                                immediate: true,
+                              startTransition(() => {
+                                setPlanActiveDrawingTool("column");
+                                dispatchPlanToolAction({
+                                  action: "place_obstacle",
+                                  obstacleType: "column",
+                                  immediate: true,
+                                });
                               });
                             },
                             svg: (
@@ -3036,11 +3052,13 @@ export const V3UnifiedWorkspace: React.FC<{
                             label: "Kiriş",
                             testId: "plan-tool-beam",
                             onClick: () => {
-                              setPlanActiveDrawingTool("beam");
-                              dispatchPlanToolAction({
-                                action: "place_obstacle",
-                                obstacleType: "beam",
-                                immediate: true,
+                              startTransition(() => {
+                                setPlanActiveDrawingTool("beam");
+                                dispatchPlanToolAction({
+                                  action: "place_obstacle",
+                                  obstacleType: "beam",
+                                  immediate: true,
+                                });
                               });
                             },
                             svg: (
@@ -3055,11 +3073,13 @@ export const V3UnifiedWorkspace: React.FC<{
                             label: "Çıkıntı",
                             testId: "plan-tool-protrusion",
                             onClick: () => {
-                              setPlanActiveDrawingTool("protrusion");
-                              dispatchPlanToolAction({
-                                action: "place_obstacle",
-                                obstacleType: "protrusion",
-                                immediate: true,
+                              startTransition(() => {
+                                setPlanActiveDrawingTool("protrusion");
+                                dispatchPlanToolAction({
+                                  action: "place_obstacle",
+                                  obstacleType: "protrusion",
+                                  immediate: true,
+                                });
                               });
                             },
                             svg: (
@@ -3370,8 +3390,10 @@ export const V3UnifiedWorkspace: React.FC<{
                   type="button"
                   data-testid="studio-tab-quick-wizard"
                   onClick={() => {
-                    setLeftTab("quick_wizard");
-                    setLeftOpen((prev) => (leftTab === "quick_wizard" ? !prev : true));
+                    startTransition(() => {
+                      setLeftTab("quick_wizard");
+                      setLeftOpen((prev) => (leftTab === "quick_wizard" ? !prev : true));
+                    });
                   }}
                   className={`w-full py-2 px-1 rounded-lg flex flex-col items-center justify-center gap-1 transition cursor-pointer border ${
                     leftOpen && leftTab === "quick_wizard"
@@ -3388,9 +3410,11 @@ export const V3UnifiedWorkspace: React.FC<{
                   type="button"
                   data-testid="studio-tab-templates"
                   onClick={() => {
-                    setLeftTab("templates");
-                    setStudioInspectorTab("dimensions");
-                    setLeftOpen(true);
+                    startTransition(() => {
+                      setLeftTab("templates");
+                      setStudioInspectorTab("dimensions");
+                      setLeftOpen(true);
+                    });
                   }}
                   className={`w-full py-2 px-1 rounded-lg flex flex-col items-center justify-center gap-1 transition cursor-pointer border ${
                     leftOpen && leftTab === "templates" && studioInspectorTab !== "interior" && studioInspectorTab !== "material" && studioInspectorTab !== "all"
@@ -3406,12 +3430,14 @@ export const V3UnifiedWorkspace: React.FC<{
                   type="button"
                   data-testid="studio-tab-interior"
                   onClick={() => {
-                    setLeftTab("interior");
-                    setStudioInspectorTab("interior");
-                    setLeftOpen(true);
-                    if (doorOpenAngleDeg === 0 && !doorsHiddenStudio) {
-                      setDoorOpenAngleDeg(85);
-                    }
+                    startTransition(() => {
+                      setLeftTab("interior");
+                      setStudioInspectorTab("interior");
+                      setLeftOpen(true);
+                      if (doorOpenAngleDeg === 0 && !doorsHiddenStudio) {
+                        setDoorOpenAngleDeg(85);
+                      }
+                    });
                   }}
                   className={`w-full py-2 px-1 rounded-lg flex flex-col items-center justify-center gap-1 transition cursor-pointer border ${
                     leftOpen && (leftTab === "interior" || studioInspectorTab === "interior")
@@ -3428,9 +3454,11 @@ export const V3UnifiedWorkspace: React.FC<{
                   type="button"
                   data-testid="studio-tab-materials"
                   onClick={() => {
-                    setLeftTab("materials");
-                    setStudioInspectorTab("material");
-                    setLeftOpen(true);
+                    startTransition(() => {
+                      setLeftTab("materials");
+                      setStudioInspectorTab("material");
+                      setLeftOpen(true);
+                    });
                   }}
                   className={`w-full py-2 px-1 rounded-lg flex flex-col items-center justify-center gap-1 transition cursor-pointer border ${
                     leftOpen && (leftTab === "materials" || studioInspectorTab === "material")
@@ -3446,9 +3474,11 @@ export const V3UnifiedWorkspace: React.FC<{
                   type="button"
                   data-testid="studio-tab-hardware"
                   onClick={() => {
-                    setLeftTab("hardware");
-                    setStudioInspectorTab("all");
-                    setLeftOpen(true);
+                    startTransition(() => {
+                      setLeftTab("hardware");
+                      setStudioInspectorTab("all");
+                      setLeftOpen(true);
+                    });
                   }}
                   className={`${
                     isSimpleBlumMode ? "sr-only" : "w-full py-2 px-1 rounded-lg flex flex-col items-center justify-center gap-1 transition cursor-pointer border"
@@ -5808,25 +5838,41 @@ export const V3UnifiedWorkspace: React.FC<{
                       id: "3d",
                       label: "3D Sahne",
                       active: false,
-                      onClick: () => setStudioView("3d"),
+                      onClick: () => {
+                        startTransition(() => {
+                          setStudioView("3d");
+                        });
+                      },
                     },
                     {
                       id: "elevation",
                       label: "2D Cephe",
                       active: studio2DMode === "elevation",
-                      onClick: () => setStudio2DMode("elevation"),
+                      onClick: () => {
+                        startTransition(() => {
+                          setStudio2DMode("elevation");
+                        });
+                      },
                     },
                     {
                       id: "section",
                       label: "2D Kesit",
                       active: studio2DMode === "section",
-                      onClick: () => setStudio2DMode("section"),
+                      onClick: () => {
+                        startTransition(() => {
+                          setStudio2DMode("section");
+                        });
+                      },
                     },
                     {
                       id: "plan",
                       label: "2D Plan",
                       active: studio2DMode === "plan",
-                      onClick: () => setStudio2DMode("plan"),
+                      onClick: () => {
+                        startTransition(() => {
+                          setStudio2DMode("plan");
+                        });
+                      },
                     },
                   ].map((b) => (
                     <button
@@ -5914,7 +5960,11 @@ export const V3UnifiedWorkspace: React.FC<{
                 <button
                   type="button"
                   data-testid="plan-layout-2d-only"
-                  onClick={() => setPlanViewLayout("2d_only")}
+                  onClick={() => {
+                    startTransition(() => {
+                      setPlanViewLayout("2d_only");
+                    });
+                  }}
                   className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
                     planViewLayout === "2d_only"
                       ? "bg-white text-[#111827] shadow-2xs"
@@ -5926,7 +5976,11 @@ export const V3UnifiedWorkspace: React.FC<{
                 <button
                   type="button"
                   data-testid="plan-layout-split"
-                  onClick={() => setPlanViewLayout("split")}
+                  onClick={() => {
+                    startTransition(() => {
+                      setPlanViewLayout("split");
+                    });
+                  }}
                   className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
                     planViewLayout === "split"
                       ? "bg-[#2563EB] text-white shadow-2xs"
@@ -5938,7 +5992,11 @@ export const V3UnifiedWorkspace: React.FC<{
                 <button
                   type="button"
                   data-testid="plan-layout-3d-only"
-                  onClick={() => setPlanViewLayout("3d_only")}
+                  onClick={() => {
+                    startTransition(() => {
+                      setPlanViewLayout("3d_only");
+                    });
+                  }}
                   className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
                     planViewLayout === "3d_only"
                       ? "bg-[#2563EB] text-white shadow-2xs"
