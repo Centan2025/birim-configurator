@@ -63,6 +63,7 @@ export const DoorSystemIdSchema = z
     "hinged_overlay_variant",
     "sliding_top_hung",
     "sliding_bottom_rolling",
+    "sliding_coplanar",
     "lift_parallel",
     "lift_bi_fold",
     "lift_up_stay",
@@ -287,6 +288,9 @@ export const DoorConfigSchema = z.object({
   bayIndex: z.number().int().min(0),
   type: DoorConfigTypeSchema,
   doorSystemId: DoorSystemIdSchema,
+  slidingMountingType: z
+    .enum(["inset_inside", "top_hung_exposed", "top_hung_pelmet", "coplanar_flush"])
+    .optional(),
   overlayType: DoorOverlayTypeSchema,
   openingTechnology: OpeningTechnologySchema,
   handleCategory: HandleCategorySchema,
@@ -357,8 +361,17 @@ export const CarcassConfigSchema = z.object({
   drawerDrillingSetId: z.string().optional(),
   cncProductionNote: z.string().optional(),
   ledLightingEnabled: z.boolean().optional(),
-  ledColorTempK: z.union([z.literal(3000), z.literal(4000)]).optional(),
+  ledColorTempK: z.union([z.literal(2700), z.literal(3000), z.literal(4000)]).optional(),
   ledSensorType: z.enum(["ir_door", "pir_motion", "manual_switch"]).optional(),
+  ledPlacementMode: z
+    .enum(["shelf_underside", "vertical_sides", "hanging_rod", "full_showcase"])
+    .optional(),
+  ledDimmerPct: z.number().min(10).max(100).optional(),
+  ledFrontSetbackMm: z.number().min(25).max(350).optional(),
+  ledShelfSetbackMm: z.number().min(25).max(350).optional(),
+  ledAlignShelfAndSide: z.boolean().optional(),
+  ledChannelWidthMm: z.number().min(6).max(35).optional(),
+  ledChannelDepthMm: z.number().min(3).max(20).optional(),
 });
 
 export const ModuleInstanceSchema = z.object({

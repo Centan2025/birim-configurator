@@ -1,8 +1,15 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import type { BayConfig, MaterialDefinition, ModuleInstance } from "@birim/core";
-import { useConfiguratorStore, type UserExperienceTier } from "../../../store/useConfiguratorStore";
+import type {
+  BayConfig,
+  DoorCrossSectionProfile,
+  HandleCategory,
+  MaterialDefinition,
+  ModuleInstance,
+  SlidingMountingType,
+} from "@birim/core";
+import { type UserExperienceTier } from "../../../store/useConfiguratorStore";
 import { startAccessorySilhouetteDrag } from "../../engine/kitchenSpatialEngine";
 import type { TapToPlaceItemSpec } from "./TapToPlaceController";
 import {
@@ -15,8 +22,20 @@ import {
   Lightbulb,
   Check,
   ArrowRight,
-  ChevronDown,
+  ArrowLeft,
 } from "lucide-react";
+
+export interface LedConfigOptions {
+  ledType?: "led_profile" | "led_vertical_strip" | "led_rod_strip" | "full_showcase";
+  colorTempK?: 2700 | 3000 | 4000;
+  sensorType?: "ir_door" | "pir_motion" | "manual_switch";
+  dimmerPct?: number;
+  frontSetbackMm?: number;
+  shelfSetbackMm?: number;
+  alignShelfAndSide?: boolean;
+  channelWidthMm?: number;
+  channelDepthMm?: number;
+}
 
 interface SimpleCustomerInspectorProps {
   activeModule: ModuleInstance;
@@ -36,6 +55,17 @@ interface SimpleCustomerInspectorProps {
     bayIdx: number,
     type: "single_left" | "single_right" | "double" | "sliding" | "open"
   ) => void;
+  onSetSlidingMountingType?: (mountingType: SlidingMountingType) => void;
+  onSetBayV4DoorConfig?: (
+    bayIdx: number,
+    patch: {
+      crossSectionProfile?: DoorCrossSectionProfile;
+      isGlassFramed?: boolean;
+      handleCategory?: HandleCategory;
+      handleProfileId?: string;
+      handleMaterialId?: string;
+    }
+  ) => void;
   onApplyBayPreset: (
     bayIdx: number,
     presetId: "shelves_4" | "rail_double" | "rail_drawers_3" | "mixed_combo"
@@ -51,7 +81,7 @@ interface SimpleCustomerInspectorProps {
   onRemoveHangingRail: (bayIdx: number, id: string) => void;
   onAddSpecialFitting: (bayIdx: number, type: "trouser_rack" | "shoe_rack") => void;
   onSetMaterials: (bodyMatId?: string, doorMatId?: string) => void;
-  onToggleLed: (enabled: boolean) => void;
+  onToggleLed: (enabled: boolean, options?: LedConfigOptions) => void;
   onSwitchTier: (tier: UserExperienceTier) => void;
   onArmTapToPlace?: (item: TapToPlaceItemSpec) => void;
   renderInteriorIcon: (
@@ -78,70 +108,93 @@ function cleanMaterialDisplayName(rawName: string): string {
     .trim();
 }
 
-const SafeUnitInput: React.FC<{
+const DimensionField: React.FC<{
   label: string;
   valueMm: number;
   minMm: number;
   maxMm: number;
+  stepMm?: number;
   unit: "cm" | "mm";
   onCommitMm: (nextMm: number) => void;
-}> = ({ label, valueMm, minMm, maxMm, unit, onCommitMm }) => {
-  const toDisplay = (mm: number) =>
-    unit === "cm" ? String(Math.round((mm / 10) * 10) / 10) : String(Math.round(mm));
-  const [draft, setDraft] = useState<string>(() => toDisplay(valueMm));
-  const [focused, setFocused] = useState(false);
+}> = ({ label, valueMm, minMm, maxMm, stepMm = 50, unit, onCommitMm }) => {
+  const displayVal = unit === "cm" ? Math.round(valueMm / 10) : Math.round(valueMm);
+  const [draft, setDraft] = useState<string>(String(displayVal));
 
   useEffect(() => {
-    if (!focused) {
-      setDraft(toDisplay(valueMm));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [valueMm, unit, focused]);
+    setDraft(String(unit === "cm" ? Math.round(valueMm / 10) : Math.round(valueMm)));
+  }, [valueMm, unit]);
 
-  const commit = (raw: string) => {
-    const parsed = Number(raw.replace(",", "."));
-    if (!Number.isFinite(parsed) || raw.trim() === "") {
-      setDraft(toDisplay(valueMm));
+  const commit = () => {
+    const parsed = Number(draft.replace(",", "."));
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      setDraft(String(displayVal));
       return;
     }
-    const mm = unit === "cm" ? Math.round(parsed * 10) : Math.round(parsed);
-    const clamped = Math.max(minMm, Math.min(maxMm, mm));
-    setDraft(toDisplay(clamped));
+    const rawMm = unit === "cm" ? Math.round(parsed * 10) : Math.round(parsed);
+    const clamped = Math.max(minMm, Math.min(maxMm, rawMm));
     onCommitMm(clamped);
+    setDraft(String(unit === "cm" ? Math.round(clamped / 10) : clamped));
   };
 
   return (
-    <div className="px-2.5 py-2 rounded-lg bg-[#FAF9F6] border border-[#DED8CC] focus-within:border-[#141413] focus-within:bg-white transition">
-      <div className="text-[10px] font-medium text-[#78716C] flex items-center justify-between">
-        <span>{label}</span>
-        <span className="font-mono text-[9px] uppercase">{unit}</span>
+    <div className="p-2.5 rounded-xl bg-[#FAF9F6] border border-[#DED8CC] flex items-center justify-between gap-2">
+      <div>
+        <span className="text-xs font-bold text-[#141413] block">{label}</span>
+        <span className="text-[10px] text-[#78716C]">
+          {unit === "cm"
+            ? `${Math.round(minMm / 10)}–${Math.round(maxMm / 10)} cm`
+            : `${minMm}–${maxMm} mm`}
+        </span>
       </div>
-      <input
-        type="text"
-        inputMode="decimal"
-        value={focused ? draft : toDisplay(valueMm)}
-        onFocus={() => {
-          setFocused(true);
-          setDraft(toDisplay(valueMm));
-        }}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={(e) => {
-          setFocused(false);
-          commit(e.target.value);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.currentTarget.blur();
-          } else if (e.key === "Escape") {
-            setFocused(false);
-            setDraft(toDisplay(valueMm));
-          }
-        }}
-        className="w-full text-center font-mono text-sm font-bold text-[#141413] bg-transparent focus:outline-none mt-0.5"
-      />
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => onCommitMm(Math.max(minMm, valueMm - stepMm))}
+          className="w-8 h-8 rounded-lg bg-white hover:bg-[#EFECE5] border border-[#DED8CC] text-sm font-bold text-[#141413] flex items-center justify-center transition cursor-pointer"
+          title="Azalt"
+        >
+          −
+        </button>
+        <div className="relative flex items-center">
+          <input
+            type="text"
+            inputMode="numeric"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.currentTarget.blur();
+              }
+            }}
+            className="w-20 h-8 pr-7 pl-2 rounded-lg bg-white border border-[#CFC8BA] focus:border-[#141413] focus:outline-none text-center font-mono text-sm font-bold text-[#141413]"
+          />
+          <span className="absolute right-2 text-[10px] font-mono text-[#78716C] pointer-events-none">
+            {unit}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={() => onCommitMm(Math.min(maxMm, valueMm + stepMm))}
+          className="w-8 h-8 rounded-lg bg-white hover:bg-[#EFECE5] border border-[#DED8CC] text-sm font-bold text-[#141413] flex items-center justify-center transition cursor-pointer"
+          title="Artır"
+        >
+          +
+        </button>
+      </div>
     </div>
   );
 };
+
+type CustomerStepId = "dimensions" | "interior" | "door" | "led" | "material";
+
+const STEP_ORDER: { id: CustomerStepId; shortLabel: string; Icon: React.ComponentType<{ className?: string }> }[] = [
+  { id: "dimensions", shortLabel: "Ölçü", Icon: Ruler },
+  { id: "interior", shortLabel: "Bölme", Icon: Columns },
+  { id: "door", shortLabel: "Kapak", Icon: DoorOpen },
+  { id: "led", shortLabel: "LED Işık", Icon: Lightbulb },
+  { id: "material", shortLabel: "Renk", Icon: Palette },
+];
 
 export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = ({
   activeModule,
@@ -158,6 +211,8 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
   onSetDimensions,
   onToggleDoorOpen,
   onSetBayDoorType,
+  onSetSlidingMountingType,
+  onSetBayV4DoorConfig,
   onApplyBayPreset,
   onAddShelf,
   onRemoveShelf,
@@ -175,28 +230,98 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
   onArmTapToPlace,
   renderInteriorIcon,
 }) => {
+  const [activeStep, setActiveStep] = useState<CustomerStepId>("interior");
+  const [showAllSteps, setShowAllSteps] = useState<boolean>(false);
   const [unit, setUnit] = useState<"cm" | "mm">("cm");
   const [matTarget, setMatTarget] = useState<"door" | "body">("door");
   const [tapModeEnabled, setTapModeEnabled] = useState<boolean>(false);
-  const [collapsedSteps, setCollapsedSteps] = useState<Record<number, boolean>>({
-    1: false,
-    2: false,
-    3: false,
-    4: false,
-  });
 
-  const toggleStep = (stepNum: number) => {
-    setCollapsedSteps((prev) => ({ ...prev, [stepNum]: !prev[stepNum] }));
-  };
+  // Sync active right-panel step automatically with 3D viewport clicks!
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onSelectBay = () => setActiveStep("interior");
+    const onSelectDoor = () => setActiveStep("door");
+    const onSelectMat = () => setActiveStep("material");
+    window.addEventListener("birim:select-bay-3d", onSelectBay);
+    window.addEventListener("birim:select-door-3d", onSelectDoor);
+    window.addEventListener("birim:select-material-part-3d", onSelectMat);
+    return () => {
+      window.removeEventListener("birim:select-bay-3d", onSelectBay);
+      window.removeEventListener("birim:select-door-3d", onSelectDoor);
+      window.removeEventListener("birim:select-material-part-3d", onSelectMat);
+    };
+  }, []);
 
   const { width, height, depth } = activeModule.dimensions;
-  const ledOn = Boolean(activeModule.carcass.ledLightingEnabled);
 
-  const curatedSwatches = materials
-    .filter((m) => m.id !== "mat_led_warm_3000k")
-    .slice(0, 10);
+  const hasAnyLedFitting = activeModule.bays.some((b) =>
+    (b.specialFittings || []).some((f) => f.type.startsWith("led_"))
+  );
+  const ledOn = Boolean(activeModule.carcass.ledLightingEnabled || hasAnyLedFitting);
+  const curLedTempK: 2700 | 3000 | 4000 = activeModule.carcass.ledColorTempK || 3000;
+  const curLedSensor = activeModule.carcass.ledSensorType || "ir_door";
+  const curLedDimmer = activeModule.carcass.ledDimmerPct ?? 100;
+  const panelThickMm = activeModule.carcass.panelThickness || 18;
+  const maxSafeLedSetback = Math.max(60, depth - 45);
+  const curLedAlign = activeModule.carcass.ledAlignShelfAndSide !== false;
+  const curLedFrontSetback = Math.max(
+    35,
+    Math.min(maxSafeLedSetback, activeModule.carcass.ledFrontSetbackMm ?? 75)
+  );
+  const curLedShelfSetback = curLedAlign
+    ? curLedFrontSetback
+    : Math.max(
+        35,
+        Math.min(maxSafeLedSetback, activeModule.carcass.ledShelfSetbackMm ?? curLedFrontSetback)
+      );
+  const curLedChanW = Math.max(6, Math.min(32, activeModule.carcass.ledChannelWidthMm ?? 12));
+  const maxSafeChanDepth = Math.max(5, panelThickMm - 4);
+  const curLedChanD = Math.max(
+    4,
+    Math.min(maxSafeChanDepth, activeModule.carcass.ledChannelDepthMm ?? 8)
+  );
+  const remainingWallMm = Math.max(3, panelThickMm - curLedChanD);
+  const hasHingedDoorInMod = activeModule.bays.some((b) => {
+    const dt = b.door?.type || "open";
+    const ds = b.door?.doorSystemId || "";
+    return (
+      dt === "single_left" ||
+      dt === "single_right" ||
+      dt === "double" ||
+      ds.startsWith("hinged")
+    );
+  });
+  const isSlidingModule = activeModule.bays.some((b) => {
+    const dt = b.door?.type || "open";
+    const ds = b.door?.doorSystemId || "";
+    return dt === "sliding" || dt === "sliding_bottom" || ds.startsWith("sliding");
+  });
+  const hasInsetSlidingInMod =
+    isSlidingModule &&
+    activeModule.bays.some(
+      (b) =>
+        b.door?.slidingMountingType === "inset_inside" ||
+        b.door?.doorSystemId === "sliding_bottom_rolling" ||
+        b.door?.type === "sliding_bottom"
+    );
 
-  // Detect active bay's current layout signature so preset thumbnails reflect real state!
+  const detectedLedType: "led_profile" | "led_vertical_strip" | "led_rod_strip" | "full_showcase" = (() => {
+    const mode = activeModule.carcass.ledPlacementMode;
+    if (mode === "full_showcase") return "full_showcase";
+    if (mode === "vertical_sides") return "led_vertical_strip";
+    if (mode === "hanging_rod") return "led_rod_strip";
+    if (mode === "shelf_underside") return "led_profile";
+    const fits = activeModule.bays.flatMap((b) => b.specialFittings || []);
+    const hasHoriz = fits.some((f) => f.type === "led_profile");
+    const hasVert = fits.some((f) => f.type === "led_vertical_strip");
+    if (hasHoriz && hasVert) return "full_showcase";
+    if (hasVert) return "led_vertical_strip";
+    if (fits.some((f) => f.type === "led_rod_strip")) return "led_rod_strip";
+    return "led_profile";
+  })();
+
+  const curatedSwatches = materials.filter((m) => m.id !== "mat_led_warm_3000k").slice(0, 12);
+
   const bayShelfCount = activeBay?.shelves.length || 0;
   const bayRailCount = activeBay?.hangingRails.length || 0;
   const bayDrawerCount = activeBay?.drawers.length || 0;
@@ -212,345 +337,358 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
       : null;
 
   const activeDoorMat = materials.find((m) => m.id === activeModule.carcass.doorMaterialId);
-  const activeDoorHex = activeDoorMat?.colorHex || "#D6C7B2";
+  const activeDoorHex = activeDoorMat?.colorHex || "#C8A982";
   const activeBodyMat = materials.find((m) => m.id === activeModule.carcass.bodyMaterialId);
   const activeBodyHex = activeBodyMat?.colorHex || "#F5F3EE";
 
+  const curDoorProf =
+    activeBay?.door?.crossSectionProfile ||
+    activeModule.carcass.crossSectionProfile ||
+    "flat_slab";
+  const curHandleSku = activeBay?.door?.handleProfileId || "K019";
+
+  const stepIndex = STEP_ORDER.findIndex((s) => s.id === activeStep);
+
   return (
-    <div data-testid="blum-clean-inspector-card" className="space-y-2.5">
-      {/* LIVE MINI VISUAL SUMMARY STRIP OF SELECTED MODULE & BAY (Updates Instantly on Every Change!) */}
-      <div className="p-2.5 rounded-xl bg-[#FAF9F6] border border-[#DED8CC] flex items-center gap-3">
-        <svg viewBox="0 0 88 64" className="w-16 h-12 shrink-0 select-none">
-          {/* Dynamic Module Proportional Preview */}
-          {(() => {
-            const drawW = Math.max(38, Math.min(76, Math.round((width / 2600) * 74)));
-            const drawH = Math.max(32, Math.min(54, Math.round((height / 2600) * 52)));
-            const sx = Math.round((88 - drawW) / 2);
-            const sy = 58 - drawH;
-            const nBays = Math.max(1, activeModule.bays.length);
-            const unitW = drawW / nBays;
-            return (
-              <g>
-                <rect
-                  x={sx}
-                  y={sy}
-                  width={drawW}
-                  height={drawH}
-                  rx="1.5"
-                  fill={activeBodyHex}
-                  stroke="#44403C"
-                  strokeWidth="1.4"
-                />
-                {activeModule.bays.map((b, idx) => {
-                  const bx = sx + idx * unitW;
-                  const isAct = idx === activeBayIndex;
-                  const dType = b.door?.type || "double";
-                  const showOpen =
-                    Boolean(activeModule.isOpenFront) ||
-                    dType === "open" ||
-                    doorOpenAngleDeg > 10 ||
-                    isAct;
-                  return (
-                    <g key={b.index}>
-                      {idx > 0 && (
-                        <line
-                          x1={bx}
-                          y1={sy}
-                          x2={bx}
-                          y2={sy + drawH}
-                          stroke="#57534E"
-                          strokeWidth="1.1"
-                        />
-                      )}
-                      {showOpen ? (
-                        <g>
-                          <rect
-                            x={bx + 1}
-                            y={sy + 1}
-                            width={Math.max(4, unitW - 2)}
-                            height={drawH - 2}
-                            fill={isAct ? "#FFFDF9" : activeBodyHex}
+    <div data-testid="blum-clean-inspector-card" className="space-y-3.5 pb-4">
+      {/* 1. INTERACTIVE VISUAL CABINET SUMMARY CARD + QUICK INTERIOR VIEW BUTTON */}
+      <div className="p-3 rounded-2xl bg-[#FAF9F6] border border-[#DED8CC] flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <svg viewBox="0 0 88 64" className="w-16 h-12 shrink-0 select-none">
+            {(() => {
+              const drawW = Math.max(40, Math.min(78, Math.round((width / 2600) * 76)));
+              const drawH = Math.max(34, Math.min(54, Math.round((height / 2600) * 52)));
+              const sx = Math.round((88 - drawW) / 2);
+              const sy = 58 - drawH;
+              const nBays = Math.max(1, activeModule.bays.length);
+              const unitW = drawW / nBays;
+              return (
+                <g>
+                  <rect
+                    x={sx}
+                    y={sy}
+                    width={drawW}
+                    height={drawH}
+                    rx="1.5"
+                    fill={activeBodyHex}
+                    stroke="#44403C"
+                    strokeWidth="1.4"
+                  />
+                  {activeModule.bays.map((b, idx) => {
+                    const bx = sx + idx * unitW;
+                    const isAct = idx === activeBayIndex;
+                    const dType = b.door?.type || "double";
+                    const showOpen =
+                      Boolean(activeModule.isOpenFront) ||
+                      dType === "open" ||
+                      doorOpenAngleDeg > 10 ||
+                      isAct;
+                    return (
+                      <g
+                        key={b.index}
+                        onClick={() => onSelectBay(idx)}
+                        className="cursor-pointer"
+                      >
+                        {idx > 0 && (
+                          <line
+                            x1={bx}
+                            y1={sy}
+                            x2={bx}
+                            y2={sy + drawH}
+                            stroke="#57534E"
+                            strokeWidth="1.1"
                           />
-                          {ledOn && (
-                            <line
-                              x1={bx + 2}
-                              y1={sy + 2.5}
-                              x2={bx + unitW - 2}
-                              y2={sy + 2.5}
-                              stroke="#F59E0B"
-                              strokeWidth="1.8"
+                        )}
+                        {showOpen ? (
+                          <g>
+                            <rect
+                              x={bx + 1}
+                              y={sy + 1}
+                              width={Math.max(4, unitW - 2)}
+                              height={drawH - 2}
+                              fill={isAct ? "#FFFDF9" : activeBodyHex}
                             />
-                          )}
-                          {(b.hangingRails || []).map((r, rI) => (
-                            <line
-                              key={r.id || rI}
-                              x1={bx + 2}
-                              y1={sy + 7 + rI * 14}
-                              x2={bx + unitW - 2}
-                              y2={sy + 7 + rI * 14}
-                              stroke="#57534E"
-                              strokeWidth="1.4"
-                            />
-                          ))}
-                          {(b.shelves || []).slice(0, 5).map((sh, sI) => {
-                            const ratio = Math.min(
-                              0.85,
-                              Math.max(0.16, 1 - sh.elevationY / Math.max(500, height - 120))
-                            );
-                            return (
+                            {ledOn && (
                               <line
-                                key={sh.id || sI}
-                                x1={bx + 1.5}
-                                y1={sy + drawH * ratio}
-                                x2={bx + unitW - 1.5}
-                                y2={sy + drawH * ratio}
-                                stroke="#8C7A6B"
-                                strokeWidth="1.1"
+                                x1={bx + 2}
+                                y1={sy + 2.5}
+                                x2={bx + unitW - 2}
+                                y2={sy + 2.5}
+                                stroke={curLedTempK === 4000 ? "#FDE68A" : "#F59E0B"}
+                                strokeWidth="2.2"
                               />
-                            );
-                          })}
-                          {(b.drawers || []).slice(0, 4).map((dr, dI) => {
-                            const dh = 4.5;
-                            const dy = sy + drawH - (dI + 1) * 5.2 - 1;
-                            return (
-                              <rect
-                                key={dr.id || dI}
-                                x={bx + 1.5}
-                                y={dy}
-                                width={Math.max(3, unitW - 3)}
-                                height={dh}
-                                fill={activeDoorHex}
+                            )}
+                            {(b.hangingRails || []).map((r, rI) => (
+                              <line
+                                key={r.id || rI}
+                                x1={bx + 2}
+                                y1={sy + 8 + rI * 14}
+                                x2={bx + unitW - 2}
+                                y2={sy + 8 + rI * 14}
                                 stroke="#57534E"
-                                strokeWidth="0.7"
+                                strokeWidth="1.4"
                               />
-                            );
-                          })}
-                        </g>
-                      ) : (
-                        <rect
-                          x={bx + 0.8}
-                          y={sy + 0.8}
-                          width={Math.max(4, unitW - 1.6)}
-                          height={drawH - 1.6}
-                          fill={activeDoorHex}
-                          stroke="#57534E"
-                          strokeWidth="0.9"
-                        />
-                      )}
-                      {isAct && (
-                        <rect
-                          x={bx + 0.5}
-                          y={sy + 0.5}
-                          width={Math.max(4, unitW - 1)}
-                          height={drawH - 1}
-                          fill="none"
-                          stroke="#141413"
-                          strokeWidth="1.4"
-                        />
-                      )}
-                    </g>
-                  );
-                })}
-              </g>
+                            ))}
+                            {(b.shelves || []).slice(0, 5).map((sh, sI) => {
+                              const ratio = Math.min(
+                                0.85,
+                                Math.max(0.16, 1 - sh.elevationY / Math.max(500, height - 120))
+                              );
+                              return (
+                                <g key={sh.id || sI}>
+                                  <line
+                                    x1={bx + 1.5}
+                                    y1={sy + drawH * ratio}
+                                    x2={bx + unitW - 1.5}
+                                    y2={sy + drawH * ratio}
+                                    stroke="#8C7A6B"
+                                    strokeWidth="1.1"
+                                  />
+                                  {ledOn &&
+                                    (detectedLedType === "led_profile" ||
+                                      detectedLedType === "full_showcase") && (
+                                      <line
+                                        x1={bx + 2}
+                                        y1={sy + drawH * ratio + 1.4}
+                                        x2={bx + unitW - 2}
+                                        y2={sy + drawH * ratio + 1.4}
+                                        stroke="#F59E0B"
+                                        strokeWidth="1.3"
+                                      />
+                                    )}
+                                </g>
+                              );
+                            })}
+                            {(b.drawers || []).slice(0, 4).map((dr, dI) => {
+                              const dh = 4.5;
+                              const dy = sy + drawH - (dI + 1) * 5.2 - 1;
+                              return (
+                                <rect
+                                  key={dr.id || dI}
+                                  x={bx + 1.5}
+                                  y={dy}
+                                  width={Math.max(3, unitW - 3)}
+                                  height={dh}
+                                  fill={activeDoorHex}
+                                  stroke="#57534E"
+                                  strokeWidth="0.7"
+                                />
+                              );
+                            })}
+                          </g>
+                        ) : (
+                          <rect
+                            x={bx + 0.8}
+                            y={sy + 0.8}
+                            width={Math.max(4, unitW - 1.6)}
+                            height={drawH - 1.6}
+                            fill={activeDoorHex}
+                            stroke="#57534E"
+                            strokeWidth="0.9"
+                          />
+                        )}
+                        {isAct && (
+                          <rect
+                            x={bx + 0.5}
+                            y={sy + 0.5}
+                            width={Math.max(4, unitW - 1)}
+                            height={drawH - 1}
+                            fill="none"
+                            stroke="#141413"
+                            strokeWidth="1.5"
+                          />
+                        )}
+                      </g>
+                    );
+                  })}
+                </g>
+              );
+            })()}
+          </svg>
+
+          <div className="min-w-0">
+            <div className="text-xs font-bold text-[#141413]">
+              {Math.round(width / 10)} × {Math.round(height / 10)} × {Math.round(depth / 10)} cm
+            </div>
+            <div className="text-[11px] text-[#57534E] mt-0.5">
+              {activeModule.bays.length} Bölme • Seçili: {activeBayIndex + 1}. Bölme
+            </div>
+            <div className="text-[10px] text-[#78716C] mt-0.5">
+              {ledOn ? `LED Açık (${curLedTempK}K)` : "LED Kapalı"}
+            </div>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={onToggleDoorOpen}
+          className={`shrink-0 h-9 px-3 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 border transition cursor-pointer ${
+            doorOpenAngleDeg > 0
+              ? "bg-[#141413] text-white border-[#141413]"
+              : "bg-white hover:bg-[#EFECE5] text-[#141413] border-[#DED8CC]"
+          }`}
+        >
+          {doorOpenAngleDeg > 0 ? (
+            <>
+              <EyeOff className="w-3.5 h-3.5" />
+              <span>Kapat</span>
+            </>
+          ) : (
+            <>
+              <Eye className="w-3.5 h-3.5" />
+              <span>İçini Gör</span>
+            </>
+          )}
+        </button>
+      </div>
+
+      {/* 2. SPACIOUS 5-STEP SEGMENTED NAVIGATION BAR (Eliminates Cramped Endless Scrolling!) */}
+      <div className="space-y-1.5">
+        <div className="p-1 rounded-2xl bg-[#EFECE5] border border-[#DED8CC] grid grid-cols-5 gap-1">
+          {STEP_ORDER.map((step) => {
+            const IconComp = step.Icon;
+            const isAct = !showAllSteps && activeStep === step.id;
+            const hasLedDot = step.id === "led" && ledOn;
+            return (
+              <button
+                key={step.id}
+                type="button"
+                data-testid={`customer-step-tab-${step.id}`}
+                onClick={() => {
+                  setShowAllSteps(false);
+                  setActiveStep(step.id);
+                }}
+                className={`py-2 px-1 rounded-xl flex flex-col items-center justify-center gap-1 transition cursor-pointer relative ${
+                  isAct
+                    ? "bg-[#141413] text-white shadow-xs font-bold"
+                    : "text-[#44403C] hover:text-[#141413] hover:bg-white/60 font-semibold"
+                }`}
+              >
+                {hasLedDot && (
+                  <span className="absolute top-1.5 right-2 w-2 h-2 rounded-full bg-amber-400 ring-2 ring-amber-200/60" />
+                )}
+                <IconComp className="w-4 h-4 shrink-0" />
+                <span className="text-[11px] leading-none">{step.shortLabel}</span>
+              </button>
             );
-          })()}
-        </svg>
-        <div className="min-w-0 flex-1">
-          <div className="text-[11px] font-bold text-[#141413] truncate">
-            {activeBayIndex + 1}. Bölme Seçili ({Math.round((bayWidths[activeBayIndex] || 0) / 10)} cm)
-          </div>
-          <div className="text-[10px] text-[#57534E] mt-0.5 leading-snug">
-            {bayRailCount} Askı • {bayShelfCount} Raf • {bayDrawerCount} Çekmece
-          </div>
-          <div className="text-[10px] text-[#8C7A6B] font-medium truncate mt-0.5">
-            {cleanMaterialDisplayName(activeDoorMat?.name || "Doğal Meşe")}
-          </div>
+          })}
+        </div>
+
+        <div className="flex items-center justify-between px-1">
+          <span className="text-[11px] text-[#78716C] font-medium">
+            {showAllSteps
+              ? "Tüm ayarlar tek listede açık"
+              : `Adım ${stepIndex + 1} / 5 — ${
+                  activeStep === "dimensions"
+                    ? "Dolap Dış Ölçüleri"
+                    : activeStep === "interior"
+                    ? "Bölmeler ve İç Düzen"
+                    : activeStep === "door"
+                    ? "Kapak, Sürgü Mekanizması ve Kulp"
+                    : activeStep === "led"
+                    ? "Mimari İç LED Aydınlatma"
+                    : "Kapak ve Gövde Malzemesi"
+                }`}
+          </span>
+          <button
+            type="button"
+            onClick={() => setShowAllSteps((v) => !v)}
+            className="text-[11px] font-semibold text-[#57534E] hover:text-[#141413] underline underline-offset-2 cursor-pointer"
+          >
+            {showAllSteps ? "Sekmeli Görünüm" : "Tümünü Aç"}
+          </button>
         </div>
       </div>
 
-      {/* 1. ÖLÇÜLER */}
-      <section className="rounded-xl bg-white border border-[#DED8CC] overflow-hidden">
-        <div className="px-3 py-2.5 flex items-center justify-between gap-2 bg-[#FAF9F6]/70 border-b border-[#EFECE5]">
-          <button
-            type="button"
-            onClick={() => toggleStep(1)}
-            className="flex items-center gap-2 text-left cursor-pointer flex-1 min-w-0"
-          >
-            <span className="w-5 h-5 rounded-md bg-[#141413] text-[#FAF9F6] text-[10px] font-bold flex items-center justify-center shrink-0">
-              1
-            </span>
-            <span className="text-xs font-bold text-[#141413]">Dolap Ölçüsü</span>
-            <span className="text-[10px] font-mono text-[#78716C] ml-auto mr-1">
-              {unit === "cm"
-                ? `${width / 10}×${height / 10}×${depth / 10}`
-                : `${width}×${height}×${depth}`}
-            </span>
-            <ChevronDown
-              className={`w-3.5 h-3.5 text-[#78716C] transition-transform ${
-                collapsedSteps[1] ? "-rotate-90" : ""
-              }`}
-            />
-          </button>
-
-          <div className="inline-flex rounded-md bg-[#EFECE5] p-0.5 text-[10px] font-bold border border-[#DED8CC]">
-            <button
-              type="button"
-              onClick={() => setUnit("cm")}
-              className={`px-2 py-0.5 rounded-xs cursor-pointer transition ${
-                unit === "cm" ? "bg-[#141413] text-white" : "text-[#57534E]"
-              }`}
-            >
-              cm
-            </button>
-            <button
-              type="button"
-              onClick={() => setUnit("mm")}
-              className={`px-2 py-0.5 rounded-xs cursor-pointer transition ${
-                unit === "mm" ? "bg-[#141413] text-white" : "text-[#57534E]"
-              }`}
-            >
-              mm
-            </button>
+      {/* ========================================================================
+          STEP 1: DOLAP DIŞ ÖLÇÜLERİ (Spacious Single-Column Stepper Inputs)
+         ======================================================================== */}
+      {(showAllSteps || activeStep === "dimensions") && (
+        <section className="p-3.5 rounded-2xl bg-white border border-[#DED8CC] space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-[#141413]">Dolap Dış Ölçüsü</span>
+            <div className="inline-flex rounded-lg bg-[#EFECE5] p-0.5 border border-[#DED8CC]">
+              {(["cm", "mm"] as const).map((u) => (
+                <button
+                  key={u}
+                  type="button"
+                  onClick={() => setUnit(u)}
+                  className={`px-2.5 py-0.5 rounded-md text-[11px] font-bold transition cursor-pointer ${
+                    unit === u ? "bg-white text-[#141413] shadow-2xs" : "text-[#78716C]"
+                  }`}
+                >
+                  {u}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
 
-        {!collapsedSteps[1] && (
-          <div className="p-3 space-y-2.5">
+          <div className="space-y-2">
+            <DimensionField
+              label="Genişlik"
+              valueMm={width}
+              minMm={400}
+              maxMm={3600}
+              stepMm={100}
+              unit={unit}
+              onCommitMm={(nextW) => onSetDimensions(nextW, height, depth)}
+            />
+            <DimensionField
+              label="Yükseklik"
+              valueMm={height}
+              minMm={600}
+              maxMm={2800}
+              stepMm={50}
+              unit={unit}
+              onCommitMm={(nextH) => onSetDimensions(width, nextH, depth)}
+            />
+            <DimensionField
+              label="Derinlik"
+              valueMm={depth}
+              minMm={320}
+              maxMm={800}
+              stepMm={20}
+              unit={unit}
+              onCommitMm={(nextD) => onSetDimensions(width, height, nextD)}
+            />
+          </div>
+
+          <div className="pt-1 space-y-1.5">
+            <div className="flex items-center justify-between text-[11px] text-[#78716C]">
+              <span>Standart Genişlik Seçimi</span>
+              <span className="font-mono font-bold text-[#141413]">{Math.round(width / 10)} cm</span>
+            </div>
             <div className="grid grid-cols-3 gap-1.5">
-              <SafeUnitInput
-                label="Genişlik"
-                valueMm={width}
-                minMm={300}
-                maxMm={3600}
-                unit={unit}
-                onCommitMm={(w) => onSetDimensions(w, height, depth)}
-              />
-              <SafeUnitInput
-                label="Yükseklik"
-                valueMm={height}
-                minMm={400}
-                maxMm={2800}
-                unit={unit}
-                onCommitMm={(h) => onSetDimensions(width, h, depth)}
-              />
-              <SafeUnitInput
-                label="Derinlik"
-                valueMm={depth}
-                minMm={250}
-                maxMm={900}
-                unit={unit}
-                onCommitMm={(d) => onSetDimensions(width, height, d)}
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <div className="grid grid-cols-5 gap-1">
-                {[800, 1200, 1600, 2000, 2400].map((presetW) => (
-                  <button
-                    key={presetW}
-                    type="button"
-                    onClick={() => onSetDimensions(presetW, height, depth)}
-                    className={`h-7 rounded-lg text-[11px] font-mono font-semibold transition cursor-pointer border ${
-                      width === presetW
-                        ? "bg-[#141413] text-white border-[#141413]"
-                        : "bg-[#FAF9F6] hover:bg-[#EFECE5] text-[#44403C] border-[#DED8CC]"
-                    }`}
-                  >
-                    {unit === "cm" ? `${presetW / 10}` : presetW}
-                  </button>
-                ))}
-              </div>
-              <input
-                type="range"
-                min={400}
-                max={3200}
-                step={50}
-                value={Math.min(3200, Math.max(400, width))}
-                onPointerDown={() => useConfiguratorStore.getState().beginHistoryTransaction()}
-                onPointerUp={() => useConfiguratorStore.getState().commitHistoryTransaction()}
-                onPointerCancel={() => useConfiguratorStore.getState().commitHistoryTransaction()}
-                onChange={(e) => onSetDimensions(Number(e.target.value), height, depth)}
-                className="w-full accent-[#141413] h-1.5 bg-[#E4DFD5] rounded-lg cursor-pointer"
-              />
+              {[900, 1200, 1600, 1800, 2000, 2400].map((presetW) => (
+                <button
+                  key={presetW}
+                  type="button"
+                  onClick={() => onSetDimensions(presetW, height, depth)}
+                  className={`py-1.5 px-2 rounded-xl text-xs font-semibold border transition cursor-pointer ${
+                    Math.abs(width - presetW) <= 20
+                      ? "bg-[#141413] text-white border-[#141413]"
+                      : "bg-[#FAF9F6] hover:bg-[#EFECE5] text-[#44403C] border-[#DED8CC]"
+                  }`}
+                >
+                  {presetW / 10} cm
+                </button>
+              ))}
             </div>
           </div>
-        )}
-      </section>
+        </section>
+      )}
 
-      {/* 2. BÖLMELER & TEK TIKLA İÇ DÜZEN */}
-      <section className="rounded-xl bg-white border border-[#DED8CC] overflow-hidden">
-        <div className="px-3 py-2.5 flex items-center justify-between gap-2 bg-[#FAF9F6]/70 border-b border-[#EFECE5]">
-          <button
-            type="button"
-            onClick={() => toggleStep(2)}
-            className="flex items-center gap-2 text-left cursor-pointer flex-1 min-w-0"
-          >
-            <span className="w-5 h-5 rounded-md bg-[#141413] text-[#FAF9F6] text-[10px] font-bold flex items-center justify-center shrink-0">
-              2
-            </span>
-            <span className="text-xs font-bold text-[#141413]">
-              Bölmeler ({activeModule.bays.length}) &amp; İç Düzen
-            </span>
-            <ChevronDown
-              className={`w-3.5 h-3.5 text-[#78716C] ml-auto transition-transform ${
-                collapsedSteps[2] ? "-rotate-90" : ""
-              }`}
-            />
-          </button>
-
-          <button
-            type="button"
-            onClick={onToggleDoorOpen}
-            className={`h-6 px-2.5 rounded-md text-[10px] font-semibold inline-flex items-center gap-1 border transition cursor-pointer ${
-              doorOpenAngleDeg > 0
-                ? "bg-[#141413] text-white border-[#141413]"
-                : "bg-white hover:bg-[#EFECE5] text-[#141413] border-[#DED8CC]"
-            }`}
-          >
-            {doorOpenAngleDeg > 0 ? (
-              <>
-                <EyeOff className="w-3 h-3" />
-                <span>Kapat</span>
-              </>
-            ) : (
-              <>
-                <Eye className="w-3 h-3" />
-                <span>İçini Gör</span>
-              </>
-            )}
-          </button>
-        </div>
-
-        {!collapsedSteps[2] && (
-          <div className="p-3 space-y-3">
-            {/* Bay Selector + Split / Merge */}
-            <div className="flex items-center gap-1.5 flex-wrap">
-              {activeModule.bays.map((b, idx) => {
-                const isAct = idx === activeBayIndex;
-                const bw = bayWidths[idx] || 0;
-                return (
-                  <button
-                    key={b.index}
-                    type="button"
-                    onClick={() => onSelectBay(idx)}
-                    className={`flex-1 min-w-[70px] py-1.5 px-2 rounded-lg border text-center transition cursor-pointer ${
-                      isAct
-                        ? "bg-[#141413] text-white border-[#141413]"
-                        : "bg-[#FAF9F6] hover:bg-[#EFECE5] text-[#44403C] border-[#DED8CC]"
-                    }`}
-                  >
-                    <span className="text-[11px] font-bold block">{idx + 1}. Bölme</span>
-                    <span
-                      className={`text-[10px] font-mono block ${
-                        isAct ? "text-[#D6C7B2]" : "text-[#78716C]"
-                      }`}
-                    >
-                      {unit === "cm" ? `${Math.round(bw / 10)} cm` : `${bw} mm`}
-                    </span>
-                  </button>
-                );
-              })}
-
+      {/* ========================================================================
+          STEP 2: BÖLMELER & İÇ DÜZEN (Spacious 2-Column Cards — Zero Squeezed Text!)
+         ======================================================================== */}
+      {(showAllSteps || activeStep === "interior") && (
+        <section className="p-3.5 rounded-2xl bg-white border border-[#DED8CC] space-y-3.5">
+          {/* Compartment Selector Pills */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-[#141413]">
+                Bölme Seçimi ({activeModule.bays.length} Bölme)
+              </span>
               <div
                 role="button"
                 tabIndex={0}
@@ -573,39 +711,68 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
                   }
                 }}
                 onClick={() => onSplitBay(activeBayIndex)}
-                className="h-9 px-2.5 rounded-lg bg-[#FAF9F6] hover:bg-[#EFECE5] border border-dashed border-[#8C7A6B] text-[#141413] text-[11px] font-semibold flex items-center justify-center cursor-pointer"
-                title="Seçili bölmeyi ikiye böl"
+                className="px-3 py-1.5 rounded-xl bg-[#141413] hover:bg-[#292524] text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
+                title="Seçili bölmeyi ortadan ikiye böler"
               >
-                + Bölme
+                + Bölme Ekle
               </div>
-
             </div>
 
-            {/* Explicit Compartment Removal / Merge Bar */}
+            <div className="grid grid-cols-2 gap-1.5">
+              {activeModule.bays.map((b, idx) => {
+                const isAct = idx === activeBayIndex;
+                const bw = bayWidths[idx] || 0;
+                return (
+                  <button
+                    key={b.index}
+                    type="button"
+                    onClick={() => onSelectBay(idx)}
+                    className={`py-2 px-3 rounded-xl border flex items-center justify-between transition cursor-pointer ${
+                      isAct
+                        ? "bg-[#141413] text-white border-[#141413]"
+                        : "bg-[#FAF9F6] hover:bg-[#EFECE5] text-[#141413] border-[#DED8CC]"
+                    }`}
+                  >
+                    <span className="text-xs font-bold">{idx + 1}. Bölme</span>
+                    <span
+                      className={`text-xs font-mono ${
+                        isAct ? "text-[#D6C7B2]" : "text-[#78716C]"
+                      }`}
+                    >
+                      {unit === "cm" ? `${Math.round(bw / 10)} cm` : `${bw} mm`}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Distinct Merge vs Shrink-Delete Bar */}
             {(activeModule.bays.length > 1 ||
               (activeBay?.door?.type === "double" && (bayWidths[activeBayIndex] || 0) >= 760)) && (
-              <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+              <div className="grid grid-cols-1 gap-1.5 pt-1">
                 {activeModule.bays.length > 1 && (
-                  <button
-                    type="button"
-                    data-testid="simple-merge-selected-bay-btn"
-                    onClick={() => onMergeBay(activeBayIndex)}
-                    className="flex-1 min-w-[120px] py-1.5 px-2.5 rounded-lg bg-[#FAF9F6] hover:bg-[#EFECE5] border border-[#DED8CC] text-[10.5px] font-semibold text-[#44403C] transition cursor-pointer text-center"
-                    title="Ara dikmeyi kaldırıp yan bölmeyle birleştirir; dolap dış genişliği sabit kalır"
-                  >
-                    Dikmeyi Kaldır (Birleştir)
-                  </button>
-                )}
-                {activeModule.bays.length > 1 && onRemoveBayAndShrink && (
-                  <button
-                    type="button"
-                    data-testid="simple-delete-shrink-bay-btn"
-                    onClick={() => onRemoveBayAndShrink(activeBayIndex)}
-                    className="flex-1 min-w-[125px] py-1.5 px-2.5 rounded-lg bg-[#FAF9F6] hover:bg-red-50 border border-[#DED8CC] hover:border-red-200 text-[10.5px] font-semibold text-red-700 transition cursor-pointer text-center"
-                    title="Seçili bölmeyi kapak ve iç düzeniyle çıkarır; dolap genişliğini bu bölme kadar daraltır"
-                  >
-                    {activeBayIndex + 1}. Bölmeyi Sil (Daralt)
-                  </button>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      type="button"
+                      data-testid="simple-merge-selected-bay-btn"
+                      onClick={() => onMergeBay(activeBayIndex)}
+                      className="py-2 px-2.5 rounded-xl bg-[#FAF9F6] hover:bg-[#EFECE5] border border-[#DED8CC] text-xs font-semibold text-[#44403C] transition cursor-pointer text-center"
+                      title="Ara dikmeyi kaldırır, dış genişlik sabit kalır"
+                    >
+                      Yanla Birleştir
+                    </button>
+                    {onRemoveBayAndShrink && (
+                      <button
+                        type="button"
+                        data-testid="simple-delete-shrink-bay-btn"
+                        onClick={() => onRemoveBayAndShrink(activeBayIndex)}
+                        className="py-2 px-2.5 rounded-xl bg-[#FAF9F6] hover:bg-red-50 border border-[#DED8CC] hover:border-red-200 text-xs font-semibold text-red-700 transition cursor-pointer text-center"
+                        title="Bu bölmeyi çıkarır ve dolabı daraltır"
+                      >
+                        {activeBayIndex + 1}. Bölmeyi Sil
+                      </button>
+                    )}
+                  </div>
                 )}
                 {activeBay?.door?.type === "double" &&
                   (bayWidths[activeBayIndex] || 0) >= 760 &&
@@ -614,246 +781,226 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
                       type="button"
                       data-testid="simple-shrink-double-bay-btn"
                       onClick={() => onShrinkDoubleBay(activeBayIndex)}
-                      className="w-full py-1.5 px-2.5 rounded-lg bg-[#FAF9F6] hover:bg-[#EFECE5] border border-[#DED8CC] text-[10.5px] font-semibold text-[#141413] transition cursor-pointer text-center"
-                      title="Çift kapaklı geniş bölmeyi tek kapaklı bölmeye düşürür ve dolap genişliğini daraltır"
+                      className="w-full py-2 px-3 rounded-xl bg-[#FAF9F6] hover:bg-[#EFECE5] border border-[#DED8CC] text-xs font-semibold text-[#141413] transition cursor-pointer"
                     >
-                      Çift Kapağı Tek Kapağa Düşür (Daralt)
+                      Çift Kapağı Tek Kapağa Düşür (Dolabı Daralt)
                     </button>
                   )}
               </div>
             )}
+          </div>
 
-            {/* 1-Click Ready Interior Combos with Architectural Schematic Previews */}
-            <div>
-              <div className="text-[10px] font-semibold text-[#78716C] mb-1.5">
-                Seçili Bölme İçin Hazır Düzen
-              </div>
-              <div className="grid grid-cols-4 gap-1.5">
-                {[
-                  {
-                    id: "rail_double" as const,
-                    label: "Çift Askı",
-                    svg: (
-                      <svg viewBox="0 0 28 32" className="w-6 h-7">
-                        <rect x="3" y="2" width="22" height="28" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
-                        <line x1="5" y1="8" x2="23" y2="8" stroke="currentColor" strokeWidth="1.5" />
-                        <line x1="5" y1="18" x2="23" y2="18" stroke="currentColor" strokeWidth="1.5" />
-                      </svg>
-                    ),
-                  },
-                  {
-                    id: "shelves_4" as const,
-                    label: "4 Raflı",
-                    svg: (
-                      <svg viewBox="0 0 28 32" className="w-6 h-7">
-                        <rect x="3" y="2" width="22" height="28" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
-                        <line x1="4" y1="8" x2="24" y2="8" stroke="currentColor" strokeWidth="1.3" />
-                        <line x1="4" y1="14" x2="24" y2="14" stroke="currentColor" strokeWidth="1.3" />
-                        <line x1="4" y1="20" x2="24" y2="20" stroke="currentColor" strokeWidth="1.3" />
-                        <line x1="4" y1="25" x2="24" y2="25" stroke="currentColor" strokeWidth="1.3" />
-                      </svg>
-                    ),
-                  },
-                  {
-                    id: "rail_drawers_3" as const,
-                    label: "Askı+Çek.",
-                    svg: (
-                      <svg viewBox="0 0 28 32" className="w-6 h-7">
-                        <rect x="3" y="2" width="22" height="28" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
-                        <line x1="5" y1="8" x2="23" y2="8" stroke="currentColor" strokeWidth="1.5" />
-                        <line x1="4" y1="19" x2="24" y2="19" stroke="currentColor" strokeWidth="1.3" />
-                        <line x1="4" y1="23" x2="24" y2="23" stroke="currentColor" strokeWidth="1.3" />
-                        <line x1="4" y1="27" x2="24" y2="27" stroke="currentColor" strokeWidth="1.3" />
-                      </svg>
-                    ),
-                  },
-                  {
-                    id: "mixed_combo" as const,
-                    label: "Tam Düzen",
-                    svg: (
-                      <svg viewBox="0 0 28 32" className="w-6 h-7">
-                        <rect x="3" y="2" width="22" height="28" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
-                        <line x1="4" y1="7" x2="24" y2="7" stroke="currentColor" strokeWidth="1.3" />
-                        <line x1="6" y1="10" x2="22" y2="10" stroke="currentColor" strokeWidth="1.5" />
-                        <line x1="4" y1="19" x2="24" y2="19" stroke="currentColor" strokeWidth="1.3" />
-                        <line x1="4" y1="24" x2="24" y2="24" stroke="currentColor" strokeWidth="1.3" />
-                      </svg>
-                    ),
-                  },
-                ].map((pr) => {
-                  const isActPreset = activePresetId === pr.id;
-                  return (
-                    <button
-                      key={pr.id}
-                      type="button"
-                      onClick={() => onApplyBayPreset(activeBayIndex, pr.id)}
-                      className={`py-2 px-1 rounded-lg border flex flex-col items-center gap-1 text-[10px] font-semibold transition cursor-pointer ${
-                        isActPreset
-                          ? "bg-[#141413] text-white border-[#141413]"
-                          : "bg-[#FAF9F6] hover:bg-[#EFECE5] border-[#DED8CC] text-[#141413]"
-                      }`}
-                    >
-                      {pr.svg}
-                      <span className="truncate max-w-full">{pr.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
+          {/* Spacious 2-Column Ready Interior Presets */}
+          <div className="pt-2 border-t border-[#EFECE5] space-y-2">
+            <div className="text-xs font-bold text-[#141413]">
+              {activeBayIndex + 1}. Bölme İçin Hazır Düzen Şablonu
             </div>
-
-            {/* Drag-or-Click / Tap-to-Place Individual Interior Parts */}
-            <div>
-              <div className="flex items-center justify-between text-[10px] text-[#78716C] mb-1.5 gap-2">
-                <span className="font-semibold">Tek Tek Parça Ekle</span>
-                {onArmTapToPlace && (
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                {
+                  id: "rail_double" as const,
+                  label: "Çift Askılı Düzen",
+                  desc: "Üst ve alt gömlek askısı",
+                },
+                {
+                  id: "shelves_4" as const,
+                  label: "4 Raflı İstif",
+                  desc: "Katlı kıyafet & kutular",
+                },
+                {
+                  id: "rail_drawers_3" as const,
+                  label: "Askı + 3 Çekmece",
+                  desc: "Üst askı, alt çekmece",
+                },
+                {
+                  id: "mixed_combo" as const,
+                  label: "Tam Karma Düzen",
+                  desc: "Raf, askı ve çekmece",
+                },
+              ].map((pr) => {
+                const isActPreset = activePresetId === pr.id;
+                return (
                   <button
+                    key={pr.id}
                     type="button"
-                    data-testid="toggle-tap-to-place-mode-btn"
-                    onClick={() => setTapModeEnabled((v) => !v)}
-                    className={`px-2 py-0.5 rounded-md border text-[10px] font-semibold transition cursor-pointer ${
-                      tapModeEnabled
+                    onClick={() => onApplyBayPreset(activeBayIndex, pr.id)}
+                    className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                      isActPreset
                         ? "bg-[#141413] text-white border-[#141413]"
-                        : "bg-[#FAF9F6] text-[#44403C] border-[#DED8CC]"
+                        : "bg-[#FAF9F6] hover:bg-[#EFECE5] text-[#141413] border-[#DED8CC]"
                     }`}
                   >
-                    {tapModeEnabled ? "Dokun-Yerleştir: Açık" : "Dokun-Yerleştir"}
-                  </button>
-                )}
-              </div>
-              <div className="grid grid-cols-4 gap-1.5">
-                {[
-                  {
-                    id: "lib_shelf",
-                    title: "Raf",
-                    visual: "shelf" as const,
-                    count: activeBay?.shelves.length || 0,
-                    onClick: () => onAddShelf(activeBayIndex),
-                  },
-                  {
-                    id: "lib_drawer",
-                    title: "Çekmece",
-                    visual: "drawer" as const,
-                    count: activeBay?.drawers.filter((d) => !d.isInternal).length || 0,
-                    onClick: () => onAddDrawer(activeBayIndex),
-                  },
-                  {
-                    id: "lib_internal_drawer",
-                    title: "İç Çekmece",
-                    visual: "internal_drawer" as const,
-                    count: activeBay?.drawers.filter((d) => d.isInternal).length || 0,
-                    onClick: () => onAddInternalDrawer(activeBayIndex, 140),
-                  },
-                  {
-                    id: "lib_rail",
-                    title: "Askılık",
-                    visual: "rail" as const,
-                    count: activeBay?.hangingRails.length || 0,
-                    onClick: () => onAddHangingRail(activeBayIndex),
-                  },
-                  {
-                    id: "lib_trouser_rack",
-                    title: "Pantolonluk",
-                    visual: "trouser_rack" as const,
-                    count:
-                      activeBay?.specialFittings?.filter((f) => f.type === "trouser_rack").length ||
-                      0,
-                    onClick: () => onAddSpecialFitting(activeBayIndex, "trouser_rack"),
-                  },
-                  {
-                    id: "lib_shoe_rack",
-                    title: "Ayakkabılık",
-                    visual: "shoe_rack" as const,
-                    count:
-                      activeBay?.specialFittings?.filter((f) => f.type === "shoe_rack").length || 0,
-                    onClick: () => onAddSpecialFitting(activeBayIndex, "shoe_rack"),
-                  },
-                  {
-                    id: "lib_sub_divider",
-                    title: "Ara Bölme",
-                    visual: "sub_divider" as const,
-                    count: activeBay?.subDividers?.length || 0,
-                    onClick: () => onAddSubDivider(activeBayIndex),
-                  },
-                  {
-                    id: "lib_carcass_divider",
-                    title: "Ana Dikme",
-                    visual: "carcass_divider" as const,
-                    count: Math.max(0, activeModule.bays.length - 1),
-                    onClick: () => onSplitBay(activeBayIndex),
-                  },
-                ].map((tile) => (
-                  <div
-                    key={tile.id}
-                    role="button"
-                    tabIndex={0}
-                    data-testid={`right-quick-drag-${tile.id}`}
-                    draggable={true}
-                    onDragStart={(e) =>
-                      startAccessorySilhouetteDrag(e, {
-                        id: tile.id,
-                        visual: tile.visual,
-                        title: tile.title,
-                        cat: "all",
-                        spec: tile.title,
-                      })
-                    }
-                    onDragEnd={() => {
-                      if (typeof window !== "undefined") {
-                        (
-                          window as unknown as { __birimActiveDraggedAccessory?: unknown }
-                        ).__birimActiveDraggedAccessory = null;
-                      }
-                    }}
-                    onClick={() => {
-                      if (tapModeEnabled && onArmTapToPlace) {
-                        const kindMap: Record<string, TapToPlaceItemSpec["kind"]> = {
-                          lib_shelf: "shelf",
-                          lib_drawer: "drawer",
-                          lib_internal_drawer: "internal_drawer",
-                          lib_rail: "rail",
-                          lib_trouser_rack: "trouser_rack",
-                          lib_shoe_rack: "shoe_rack",
-                          lib_sub_divider: "sub_divider",
-                          lib_carcass_divider: "carcass_divider",
-                        };
-                        onArmTapToPlace({
-                          id: tile.id,
-                          kind: kindMap[tile.id] || "shelf",
-                          label: tile.title.trim(),
-                        });
-                        return;
-                      }
-                      tile.onClick();
-                    }}
-                    className="p-2 rounded-lg bg-[#FAF9F6] hover:bg-[#EFECE5] border border-[#DED8CC] flex flex-col items-center justify-between gap-1 transition cursor-grab active:cursor-grabbing select-none relative"
-                  >
-                    {tile.count > 0 && (
-                      <span className="pointer-events-none absolute top-1 right-1 min-w-[15px] h-[15px] px-1 rounded-xs bg-[#141413] text-white text-[9px] font-bold flex items-center justify-center">
-                        {tile.count}
-                      </span>
-                    )}
-                    <div className="pointer-events-none py-0.5 flex items-center justify-center">
-                      {renderInteriorIcon(tile.visual, "sm")}
+                    <div className="text-xs font-bold">{pr.label}</div>
+                    <div
+                      className={`text-[10.5px] mt-0.5 ${
+                        isActPreset ? "text-[#D6C7B2]" : "text-[#78716C]"
+                      }`}
+                    >
+                      {pr.desc}
                     </div>
-                    <span className="pointer-events-none text-[10px] font-semibold text-[#141413] leading-tight text-center">
-                      {tile.title}
-                    </span>
-                  </div>
-                ))}
-              </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Spacious 2-Column Drag-or-Click Interior Accessories */}
+          <div className="pt-2 border-t border-[#EFECE5] space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-bold text-[#141413]">Tek Tek İç Parça Ekle</span>
+              {onArmTapToPlace && (
+                <button
+                  type="button"
+                  data-testid="toggle-tap-to-place-mode-btn"
+                  onClick={() => setTapModeEnabled((v) => !v)}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition cursor-pointer ${
+                    tapModeEnabled
+                      ? "bg-[#141413] text-white border-[#141413]"
+                      : "bg-[#FAF9F6] hover:bg-[#EFECE5] text-[#57534E] border-[#DED8CC]"
+                  }`}
+                >
+                  {tapModeEnabled ? "Tıkla-Yerleştir: Açık" : "Tıkla-Yerleştir"}
+                </button>
+              )}
             </div>
 
-            {/* Removable Chips for Active Bay */}
-            {activeBay &&
-              (activeBay.shelves.length > 0 ||
-                (activeBay.subDividers?.length || 0) > 0 ||
-                activeBay.drawers.length > 0 ||
-                activeBay.hangingRails.length > 0) && (
-                <div className="pt-2 border-t border-[#EFECE5] flex flex-wrap gap-1">
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                {
+                  id: "lib_shelf",
+                  title: "Hareketli Raf",
+                  visual: "shelf" as const,
+                  count: activeBay?.shelves.length || 0,
+                  onClick: () => onAddShelf(activeBayIndex),
+                },
+                {
+                  id: "lib_drawer",
+                  title: "Dış Çekmece",
+                  visual: "drawer" as const,
+                  count: activeBay?.drawers.filter((d) => !d.isInternal).length || 0,
+                  onClick: () => onAddDrawer(activeBayIndex),
+                },
+                {
+                  id: "lib_internal_drawer",
+                  title: "İç Çekmece (Gizli)",
+                  visual: "internal_drawer" as const,
+                  count: activeBay?.drawers.filter((d) => d.isInternal).length || 0,
+                  onClick: () => onAddInternalDrawer(activeBayIndex, 180),
+                },
+                {
+                  id: "lib_rail",
+                  title: "Elbise Askılığı",
+                  visual: "rail" as const,
+                  count: activeBay?.hangingRails.length || 0,
+                  onClick: () => onAddHangingRail(activeBayIndex),
+                },
+                {
+                  id: "lib_trouser_rack",
+                  title: "Teleskopik Pantolonluk",
+                  visual: "trouser_rack" as const,
+                  count:
+                    activeBay?.specialFittings?.filter((f) => f.type === "trouser_rack").length || 0,
+                  onClick: () => onAddSpecialFitting(activeBayIndex, "trouser_rack"),
+                },
+                {
+                  id: "lib_shoe_rack",
+                  title: "Eğimli Ayakkabılık",
+                  visual: "shoe_rack" as const,
+                  count:
+                    activeBay?.specialFittings?.filter((f) => f.type === "shoe_rack").length || 0,
+                  onClick: () => onAddSpecialFitting(activeBayIndex, "shoe_rack"),
+                },
+                {
+                  id: "lib_sub_divider",
+                  title: "Raf Arası Dikme",
+                  visual: "sub_divider" as const,
+                  count: activeBay?.subDividers?.length || 0,
+                  onClick: () => onAddSubDivider(activeBayIndex),
+                },
+                {
+                  id: "lib_carcass_divider",
+                  title: "Yeni Dikey Bölme",
+                  visual: "carcass_divider" as const,
+                  count: Math.max(0, activeModule.bays.length - 1),
+                  onClick: () => onSplitBay(activeBayIndex),
+                },
+              ].map((tile) => (
+                <div
+                  key={tile.id}
+                  role="button"
+                  tabIndex={0}
+                  data-testid={`right-quick-drag-${tile.id}`}
+                  draggable={true}
+                  onDragStart={(e) =>
+                    startAccessorySilhouetteDrag(e, {
+                      id: tile.id,
+                      visual: tile.visual,
+                      title: tile.title,
+                      cat: "all",
+                      spec: tile.title,
+                    })
+                  }
+                  onDragEnd={() => {
+                    if (typeof window !== "undefined") {
+                      (
+                        window as unknown as { __birimActiveDraggedAccessory?: unknown }
+                      ).__birimActiveDraggedAccessory = null;
+                    }
+                  }}
+                  onClick={() => {
+                    if (tapModeEnabled && onArmTapToPlace) {
+                      const kindMap: Record<string, TapToPlaceItemSpec["kind"]> = {
+                        lib_shelf: "shelf",
+                        lib_drawer: "drawer",
+                        lib_internal_drawer: "internal_drawer",
+                        lib_rail: "rail",
+                        lib_trouser_rack: "trouser_rack",
+                        lib_shoe_rack: "shoe_rack",
+                        lib_sub_divider: "sub_divider",
+                        lib_carcass_divider: "carcass_divider",
+                      };
+                      onArmTapToPlace({
+                        id: tile.id,
+                        kind: kindMap[tile.id] || "shelf",
+                        label: tile.title.trim(),
+                      });
+                      return;
+                    }
+                    tile.onClick();
+                  }}
+                  className="p-2.5 rounded-xl bg-[#FAF9F6] hover:bg-[#EFECE5] border border-[#DED8CC] flex items-center gap-2.5 transition cursor-grab active:cursor-grabbing select-none relative"
+                >
+                  <div className="pointer-events-none shrink-0 w-9 h-9 rounded-lg bg-white border border-[#E5E0D5] flex items-center justify-center">
+                    {renderInteriorIcon(tile.visual, "sm")}
+                  </div>
+                  <div className="pointer-events-none min-w-0 flex-1">
+                    <div className="text-xs font-semibold text-[#141413] leading-snug">
+                      {tile.title}
+                    </div>
+                    <div className="text-[10px] text-[#78716C]">
+                      {tile.count > 0 ? `${tile.count} adet mevcut` : "+ Tıkla veya sürükle"}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Removable Chips for Active Bay */}
+          {activeBay &&
+            (activeBay.shelves.length > 0 ||
+              (activeBay.subDividers?.length || 0) > 0 ||
+              activeBay.drawers.length > 0 ||
+              activeBay.hangingRails.length > 0) && (
+              <div className="pt-2 border-t border-[#EFECE5] space-y-1.5">
+                <div className="text-[11px] font-semibold text-[#78716C]">
+                  {activeBayIndex + 1}. Bölmedeki Parçalar (Silmek için ×)
+                </div>
+                <div className="flex flex-wrap gap-1.5">
                   {activeBay.shelves.map((sh, sIdx) => (
                     <span
                       key={sh.id}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#FAF9F6] border border-[#DED8CC] text-[10px] font-medium text-[#141413]"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#FAF9F6] border border-[#DED8CC] text-xs font-medium text-[#141413]"
                     >
                       <span>Raf {sIdx + 1}</span>
                       <button
@@ -868,9 +1015,9 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
                   {(activeBay.subDividers || []).map((sd, sdIdx) => (
                     <span
                       key={sd.id}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#FAF9F6] border border-[#DED8CC] text-[10px] font-medium text-[#141413]"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#FAF9F6] border border-[#DED8CC] text-xs font-medium text-[#141413]"
                     >
-                      <span>Dikme {sdIdx + 1}</span>
+                      <span>Ara Bölme {sdIdx + 1}</span>
                       <button
                         type="button"
                         onClick={() => onRemoveSubDivider(activeBayIndex, sd.id)}
@@ -883,7 +1030,7 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
                   {activeBay.drawers.map((dr, dIdx) => (
                     <span
                       key={dr.id}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#FAF9F6] border border-[#DED8CC] text-[10px] font-medium text-[#141413]"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#FAF9F6] border border-[#DED8CC] text-xs font-medium text-[#141413]"
                     >
                       <span>Çekmece {dIdx + 1}</span>
                       <button
@@ -898,7 +1045,7 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
                   {activeBay.hangingRails.map((rl, rIdx) => (
                     <span
                       key={rl.id}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#FAF9F6] border border-[#DED8CC] text-[10px] font-medium text-[#141413]"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#FAF9F6] border border-[#DED8CC] text-xs font-medium text-[#141413]"
                     >
                       <span>Askı {rIdx + 1}</span>
                       <button
@@ -911,238 +1058,962 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
                     </span>
                   ))}
                 </div>
-              )}
-          </div>
-        )}
-      </section>
+              </div>
+            )}
+        </section>
+      )}
 
-      {/* 3. KAPAK STİLİ & İÇ LED AYDINLATMA */}
-      <section className="rounded-xl bg-white border border-[#DED8CC] overflow-hidden">
-        <div className="px-3 py-2.5 flex items-center justify-between gap-2 bg-[#FAF9F6]/70 border-b border-[#EFECE5]">
-          <button
-            type="button"
-            onClick={() => toggleStep(3)}
-            className="flex items-center gap-2 text-left cursor-pointer flex-1 min-w-0"
-          >
-            <span className="w-5 h-5 rounded-md bg-[#141413] text-[#FAF9F6] text-[10px] font-bold flex items-center justify-center shrink-0">
-              3
-            </span>
-            <span className="text-xs font-bold text-[#141413]">Kapak &amp; Aydınlatma</span>
-            <ChevronDown
-              className={`w-3.5 h-3.5 text-[#78716C] ml-auto transition-transform ${
-                collapsedSteps[3] ? "-rotate-90" : ""
-              }`}
-            />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onToggleLed(!ledOn)}
-            className={`h-6 px-2.5 rounded-md text-[10px] font-semibold inline-flex items-center gap-1 border transition cursor-pointer ${
-              ledOn
-                ? "bg-[#FDF8EE] text-[#78531E] border-[#E6D2AE]"
-                : "bg-white text-[#57534E] border-[#DED8CC] hover:bg-[#EFECE5]"
-            }`}
-          >
-            <Lightbulb className="w-3 h-3" />
-            <span>{ledOn ? "3000K LED Açık" : "İç LED Ekle"}</span>
-          </button>
-        </div>
-
-        {!collapsedSteps[3] && (
-          <div className="p-3">
-            <div className="grid grid-cols-4 gap-1.5">
+      {/* ========================================================================
+          STEP 3: KAPAK SİSTEMİ, SÜRGÜ MONTAJ MEKANİZMALARI & KULP (Spacious 2-Col!)
+         ======================================================================== */}
+      {(showAllSteps || activeStep === "door") && (
+        <section className="p-3.5 rounded-2xl bg-white border border-[#DED8CC] space-y-3.5">
+          <div className="space-y-2">
+            <div className="text-xs font-bold text-[#141413]">
+              Kapak Açılma Sistemi ({activeBayIndex + 1}. Bölme)
+            </div>
+            <div className="grid grid-cols-2 gap-2">
               {[
                 {
                   id: "single_left" as const,
-                  label: "Sol Kapak",
+                  label: "Sol Menteşeli",
+                  sub: "Sola doğru açılır",
                   active: activeBay?.door?.type === "single_left",
-                  svg: (
-                    <svg viewBox="0 0 24 28" className="w-5 h-6">
-                      <rect x="3" y="2" width="18" height="24" rx="1" fill="none" stroke="currentColor" strokeWidth="1.4" />
-                      <polyline points="3,4 19,14 3,24" fill="none" stroke="currentColor" strokeWidth="1" strokeDasharray="2 1.5" />
-                      <line x1="18" y1="11" x2="18" y2="17" stroke="currentColor" strokeWidth="1.6" />
-                    </svg>
-                  ),
                 },
                 {
                   id: "single_right" as const,
-                  label: "Sağ Kapak",
+                  label: "Sağ Menteşeli",
+                  sub: "Sağa doğru açılır",
                   active: activeBay?.door?.type === "single_right",
-                  svg: (
-                    <svg viewBox="0 0 24 28" className="w-5 h-6">
-                      <rect x="3" y="2" width="18" height="24" rx="1" fill="none" stroke="currentColor" strokeWidth="1.4" />
-                      <polyline points="21,4 5,14 21,24" fill="none" stroke="currentColor" strokeWidth="1" strokeDasharray="2 1.5" />
-                      <line x1="6" y1="11" x2="6" y2="17" stroke="currentColor" strokeWidth="1.6" />
-                    </svg>
-                  ),
                 },
                 {
                   id: "double" as const,
                   label: "Çift Kapak",
+                  sub: "İki yana açılan çift kanat",
                   active: activeBay?.door?.type === "double",
-                  svg: (
-                    <svg viewBox="0 0 24 28" className="w-5 h-6">
-                      <rect x="2" y="2" width="20" height="24" rx="1" fill="none" stroke="currentColor" strokeWidth="1.4" />
-                      <line x1="12" y1="2" x2="12" y2="26" stroke="currentColor" strokeWidth="1.2" />
-                      <line x1="10" y1="11" x2="10" y2="17" stroke="currentColor" strokeWidth="1.4" />
-                      <line x1="14" y1="11" x2="14" y2="17" stroke="currentColor" strokeWidth="1.4" />
-                    </svg>
-                  ),
+                },
+                {
+                  id: "sliding" as const,
+                  label: "Sürgü Kapak Sistemi",
+                  sub: "Raylı kayar kapak mekanizması",
+                  active:
+                    activeBay?.door?.type === "sliding" ||
+                    activeBay?.door?.doorSystemId?.startsWith("sliding"),
                 },
                 {
                   id: "open" as const,
-                  label: "Kapaksız",
+                  label: "Kapaksız (Açık Raf)",
+                  sub: "Giyinme odası açık modül",
                   active: activeBay?.door?.type === "open" || Boolean(activeModule.isOpenFront),
-                  svg: (
-                    <svg viewBox="0 0 24 28" className="w-5 h-6">
-                      <rect x="3" y="2" width="18" height="24" rx="1" fill="none" stroke="currentColor" strokeWidth="1.4" />
-                      <line x1="4" y1="9" x2="20" y2="9" stroke="currentColor" strokeWidth="1.2" />
-                      <line x1="4" y1="17" x2="20" y2="17" stroke="currentColor" strokeWidth="1.2" />
-                    </svg>
-                  ),
                 },
               ].map((dBtn) => (
                 <button
                   key={dBtn.id}
                   type="button"
                   onClick={() => onSetBayDoorType(activeBayIndex, dBtn.id)}
-                  className={`py-2 px-1 rounded-lg border flex flex-col items-center gap-1 text-[10px] font-semibold transition cursor-pointer ${
+                  className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                    dBtn.id === "open" ? "col-span-2" : ""
+                  } ${
                     dBtn.active
                       ? "bg-[#141413] text-white border-[#141413]"
-                      : "bg-[#FAF9F6] hover:bg-[#EFECE5] text-[#44403C] border-[#DED8CC]"
+                      : "bg-[#FAF9F6] hover:bg-[#EFECE5] text-[#141413] border-[#DED8CC]"
                   }`}
                 >
-                  {dBtn.svg}
-                  <span>{dBtn.label}</span>
+                  <div className="text-xs font-bold">{dBtn.label}</div>
+                  <div
+                    className={`text-[10.5px] mt-0.5 ${
+                      dBtn.active ? "text-[#D6C7B2]" : "text-[#78716C]"
+                    }`}
+                  >
+                    {dBtn.sub}
+                  </div>
                 </button>
               ))}
             </div>
           </div>
-        )}
-      </section>
 
-      {/* 4. BİRİM MALZEME & DOKU KARTELASI */}
-      <section className="rounded-xl bg-white border border-[#DED8CC] overflow-hidden">
-        <div className="px-3 py-2.5 flex items-center justify-between gap-2 bg-[#FAF9F6]/70 border-b border-[#EFECE5]">
-          <button
-            type="button"
-            onClick={() => toggleStep(4)}
-            className="flex items-center gap-2 text-left cursor-pointer flex-1 min-w-0"
+          {/* 4 REAL-WORLD SLIDING DOOR MOUNTING ARCHITECTURE CARDS */}
+          {(activeBay?.door?.type === "sliding" ||
+            activeBay?.door?.doorSystemId?.startsWith("sliding")) &&
+            onSetSlidingMountingType && (
+              <div className="p-3 rounded-xl bg-[#FAF9F6] border border-[#DED8CC] space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-[#141413]">
+                    Sürgü Montaj &amp; Mekanizma Tipi
+                  </span>
+                  <span className="text-[10px] font-mono text-[#78716C]">Hettich / Häfele</span>
+                </div>
+                <div className="space-y-1.5">
+                  {(
+                    [
+                      {
+                        id: "inset_inside" as const,
+                        title: "1. İçten Çalışan (Gömme Çift Kanal Ray)",
+                        sub: "Kapaklar yan dikmelerin ve üst/alt tablanın içinde kayar; dış karkas çerçevesi görünür (SlideLine M / Slido).",
+                      },
+                      {
+                        id: "top_hung_exposed" as const,
+                        title: "2. Üstten Askılı (Dıştan Açık Raylı)",
+                        sub: "Üst tablanın üzerine monte edilen alüminyum taşıyıcı ray ve çelik askı arabalarıyla gövde önünde çalışır (TopLine XL).",
+                      },
+                      {
+                        id: "top_hung_pelmet" as const,
+                        title: "3. Üstten Askılı & Üstü Kapalı (Alın Valanslı)",
+                        sub: "Üstteki taşıyıcı ray ve tekerlekler kapak rengindeki L-alın kapama bandıyla (valans) tamamen gizlenir.",
+                      },
+                      {
+                        id: "coplanar_flush" as const,
+                        title: "4. Hemzemin Koplanar (Kapalıyken Tek Düzlem)",
+                        sub: "Kapalıyken menteşeli kapak gibi sıfıra sıfır düz durur; açılırken pantograf kollarla öne çıkıp kayar (InLine XL).",
+                      },
+                    ] as const
+                  ).map((sm) => {
+                    const curMount =
+                      activeBay?.door?.slidingMountingType ||
+                      (activeBay?.door?.doorSystemId === "sliding_bottom_rolling"
+                        ? "inset_inside"
+                        : activeBay?.door?.doorSystemId === "sliding_coplanar"
+                        ? "coplanar_flush"
+                        : "top_hung_pelmet");
+                    const isSelMount = curMount === sm.id;
+                    return (
+                      <button
+                        key={sm.id}
+                        type="button"
+                        data-testid={`sliding-mount-${sm.id}`}
+                        onClick={() => onSetSlidingMountingType(sm.id)}
+                        className={`w-full p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                          isSelMount
+                            ? "bg-[#141413] text-white border-[#141413]"
+                            : "bg-white hover:bg-[#EFECE5] text-[#141413] border-[#DED8CC]"
+                        }`}
+                      >
+                        <div className="text-xs font-bold">{sm.title}</div>
+                        <div
+                          className={`text-[10.5px] mt-0.5 leading-snug ${
+                            isSelMount ? "text-[#D6C7B2]" : "text-[#78716C]"
+                          }`}
+                        >
+                          {sm.sub}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+          {/* Door Cross-Section Profile & Handle Selector */}
+          {onSetBayV4DoorConfig && activeBay?.door?.type !== "open" && (
+            <div className="pt-2 border-t border-[#EFECE5] space-y-3">
+              <div className="space-y-1.5">
+                <div className="text-xs font-bold text-[#141413]">Kapak Yüzey Modeli</div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {[
+                    { id: "flat_slab" as const, label: "Düz Modern Kapak" },
+                    { id: "shaker_frame" as const, label: "Çerçeveli (Shaker)" },
+                    { id: "fluted_ribbed" as const, label: "Fitilli (CNC Çıtalı)" },
+                    { id: "glass_frame" as const, label: "Füme Cam Vitrin" },
+                    { id: "mirror_door" as const, label: "Aynalı Kapak" },
+                    { id: "bevel_45" as const, label: "45° Pahlı Kesit" },
+                  ].map((pf) => (
+                    <button
+                      key={pf.id}
+                      type="button"
+                      onClick={() =>
+                        onSetBayV4DoorConfig(activeBayIndex, {
+                          crossSectionProfile: pf.id,
+                          isGlassFramed: pf.id === "glass_frame",
+                        })
+                      }
+                      className={`py-2 px-3 rounded-xl border text-xs font-semibold text-left transition cursor-pointer ${
+                        curDoorProf === pf.id
+                          ? "bg-[#141413] text-white border-[#141413]"
+                          : "bg-[#FAF9F6] hover:bg-[#EFECE5] text-[#141413] border-[#DED8CC]"
+                      }`}
+                    >
+                      {pf.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="text-xs font-bold text-[#141413]">Kulp Rengi &amp; Modeli</div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {[
+                    { sku: "K019", label: "Mat Siyah Bar Kulp", mat: "mat_handle_matte_black", hex: "#1D1D1B" },
+                    { sku: "K020", label: "Saten Inox Kulp", mat: "mat_handle_inox", hex: "#D4CFC6" },
+                    { sku: "K021", label: "Fırçalı Pirinç Kulp", mat: "mat_handle_brass", hex: "#BFA065" },
+                    { sku: "K022", label: "Antrasit Titanyum", mat: "mat_handle_anthracite", hex: "#3D3E42" },
+                  ].map((hk) => (
+                    <button
+                      key={hk.sku}
+                      type="button"
+                      onClick={() =>
+                        onSetBayV4DoorConfig(activeBayIndex, {
+                          handleCategory: "bar_handle",
+                          handleProfileId: hk.sku,
+                          handleMaterialId: hk.mat,
+                        })
+                      }
+                      className={`py-2 px-2.5 rounded-xl border text-xs font-semibold flex items-center gap-2 text-left transition cursor-pointer ${
+                        curHandleSku === hk.sku
+                          ? "bg-[#141413] text-white border-[#141413]"
+                          : "bg-[#FAF9F6] hover:bg-[#EFECE5] text-[#141413] border-[#DED8CC]"
+                      }`}
+                    >
+                      <span
+                        className="w-3.5 h-3.5 rounded-full border border-black/20 shrink-0"
+                        style={{ backgroundColor: hk.hex }}
+                      />
+                      <span>{hk.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* ========================================================================
+          STEP 4: MİMARİ İÇ LED AYDINLATMA SİSTEMİ (Dedicated Studio Control!)
+         ======================================================================== */}
+      {(showAllSteps || activeStep === "led") && (
+        <section
+          data-testid="customer-led-studio-section"
+          className="p-3.5 rounded-2xl bg-white border border-[#DED8CC] space-y-3.5"
+        >
+          {/* Master Toggle Card */}
+          <div
+            className={`p-3 rounded-xl border flex items-center justify-between gap-3 transition ${
+              ledOn
+                ? "bg-[#FDF8EE] border-[#E6C891]"
+                : "bg-[#FAF9F6] border-[#DED8CC]"
+            }`}
           >
-            <span className="w-5 h-5 rounded-md bg-[#141413] text-[#FAF9F6] text-[10px] font-bold flex items-center justify-center shrink-0">
-              4
-            </span>
-            <span className="text-xs font-bold text-[#141413]">Doku &amp; Malzeme</span>
-            <ChevronDown
-              className={`w-3.5 h-3.5 text-[#78716C] ml-auto transition-transform ${
-                collapsedSteps[4] ? "-rotate-90" : ""
-              }`}
-            />
-          </button>
+            <div className="min-w-0">
+              <div className="text-xs font-bold text-[#141413] flex items-center gap-1.5">
+                <Lightbulb
+                  className={`w-4 h-4 ${ledOn ? "text-amber-600 fill-amber-300" : "text-[#78716C]"}`}
+                />
+                <span>Häfele Loox5 Entegre İç LED Sistemi</span>
+              </div>
+              <div className="text-[11px] text-[#57534E] mt-0.5 leading-snug">
+                {ledOn
+                  ? `${curLedTempK}K ışık rengi aktif • 24V gizli sürücü dahil`
+                  : "Dolap içi rafları ve askılıkları homojen aydınlatır"}
+              </div>
+            </div>
 
-          <div className="inline-flex rounded-md bg-[#EFECE5] p-0.5 text-[10px] font-bold border border-[#DED8CC]">
             <button
               type="button"
-              onClick={() => setMatTarget("door")}
-              className={`px-2 py-0.5 rounded-xs cursor-pointer transition ${
-                matTarget === "door" ? "bg-[#141413] text-white" : "text-[#57534E]"
+              data-testid="led-master-toggle-btn"
+              onClick={() =>
+                onToggleLed(!ledOn, {
+                  ledType: detectedLedType,
+                  colorTempK: curLedTempK,
+                  sensorType: curLedSensor,
+                  dimmerPct: curLedDimmer,
+                })
+              }
+              className={`shrink-0 px-3.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+                ledOn
+                  ? "bg-[#141413] text-white"
+                  : "bg-amber-500 hover:bg-amber-600 text-white shadow-xs"
               }`}
             >
-              Kapak
-            </button>
-            <button
-              type="button"
-              onClick={() => setMatTarget("body")}
-              className={`px-2 py-0.5 rounded-xs cursor-pointer transition ${
-                matTarget === "body" ? "bg-[#141413] text-white" : "text-[#57534E]"
-              }`}
-            >
-              Gövde
+              {ledOn ? "Kapat" : "LED'i Aç"}
             </button>
           </div>
-        </div>
 
-        {!collapsedSteps[4] && (
-          <div className="p-3 grid grid-cols-2 gap-1.5">
+          {/* 1. LED Placement Zone Cards */}
+          <div className="space-y-2">
+            <div className="text-xs font-bold text-[#141413]">1. LED Yerleşim Şekli</div>
+            <div className="space-y-1.5">
+              {[
+                {
+                  id: "led_profile" as const,
+                  title: "Raf Altı + Üst Tabla Gömme LED",
+                  sub: "Üst tabla ve tüm rafların altına boydan boya alüminyum difüzör profil açılır (Önerilen katalog görünümü).",
+                },
+                {
+                  id: "led_vertical_strip" as const,
+                  title: "Yan Dikme Boy LED Kanalı",
+                  sub: "Her bölmenin sol ve sağ iç dikmelerine yukarıdan aşağıya gömme ışık kanalı açılır.",
+                },
+                {
+                  id: "led_rod_strip" as const,
+                  title: "Işıklı Elbise Askı Borusu",
+                  sub: "Askı borusunun altındaki difüzörden doğrudan gömlek ve ceketlerin üzerine ışık süzülür.",
+                },
+                {
+                  id: "full_showcase" as const,
+                  title: "Tam Vitrin Paketi (Raf Altı + Yan Dikme)",
+                  sub: "Cam kapaklı ve giyinme odası dolapları için hem raf altı hem yan dikme kombine aydınlatma.",
+                },
+              ].map((zone) => {
+                const isActZone = ledOn && detectedLedType === zone.id;
+                return (
+                  <button
+                    key={zone.id}
+                    type="button"
+                    data-testid={`led-zone-${zone.id}`}
+                    onClick={() =>
+                      onToggleLed(true, {
+                        ledType: zone.id,
+                        colorTempK: curLedTempK,
+                        sensorType: curLedSensor,
+                        dimmerPct: curLedDimmer,
+                      })
+                    }
+                    className={`w-full p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                      isActZone
+                        ? "bg-[#141413] text-white border-[#141413]"
+                        : "bg-[#FAF9F6] hover:bg-[#EFECE5] text-[#141413] border-[#DED8CC]"
+                    }`}
+                  >
+                    <div className="text-xs font-bold">{zone.title}</div>
+                    <div
+                      className={`text-[10.5px] mt-0.5 leading-snug ${
+                        isActZone ? "text-[#E6D2AE]" : "text-[#78716C]"
+                      }`}
+                    >
+                      {zone.sub}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 2. Ön Kenardan Mesafe (Hizalama) & LED Kanal Ölçüleri (Genişlik × Derinlik) */}
+          <div className="space-y-3 pt-2.5 border-t border-[#EFECE5]">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <div className="text-xs font-bold text-[#141413]">
+                  2. Ön Kenar Hizası &amp; Kanal Kesiti
+                </div>
+                <div className="text-[10.5px] text-[#78716C] leading-snug">
+                  Raf ve dikme LED kanallarının önden mesafesi ve CNC freze yuvası
+                </div>
+              </div>
+            </div>
+
+            {/* Ortak Hiza vs Ayrı Hiza Segmented Switch */}
+            <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-[#EFECE5] border border-[#DED8CC]">
+              <button
+                type="button"
+                data-testid="led-align-locked-btn"
+                onClick={() =>
+                  onToggleLed(true, {
+                    ledType: detectedLedType,
+                    colorTempK: curLedTempK,
+                    sensorType: curLedSensor,
+                    dimmerPct: curLedDimmer,
+                    alignShelfAndSide: true,
+                    frontSetbackMm: curLedFrontSetback,
+                    shelfSetbackMm: curLedFrontSetback,
+                    channelWidthMm: curLedChanW,
+                    channelDepthMm: curLedChanD,
+                  })
+                }
+                className={`py-2 px-2.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                  curLedAlign
+                    ? "bg-[#141413] text-white shadow-xs"
+                    : "text-[#57534E] hover:text-[#141413]"
+                }`}
+              >
+                Ortak Hiza (Önerilen)
+              </button>
+              <button
+                type="button"
+                data-testid="led-align-split-btn"
+                onClick={() =>
+                  onToggleLed(true, {
+                    ledType: detectedLedType,
+                    colorTempK: curLedTempK,
+                    sensorType: curLedSensor,
+                    dimmerPct: curLedDimmer,
+                    alignShelfAndSide: false,
+                    frontSetbackMm: curLedFrontSetback,
+                    shelfSetbackMm: curLedShelfSetback,
+                    channelWidthMm: curLedChanW,
+                    channelDepthMm: curLedChanD,
+                  })
+                }
+                className={`py-2 px-2.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                  !curLedAlign
+                    ? "bg-[#141413] text-white shadow-xs"
+                    : "text-[#57534E] hover:text-[#141413]"
+                }`}
+              >
+                Raf / Dikme Ayrı
+              </button>
+            </div>
+
+            {/* Önden Mesafe (Setback) Slider + Quick Presets */}
+            <div className="p-2.5 rounded-xl bg-[#FAF9F6] border border-[#DED8CC] space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-[#141413]">
+                  {curLedAlign ? "Ön Kenardan Mesafe (Ortak Aks)" : "Dikme LED Önden Mesafe"}
+                </span>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    data-testid="led-front-setback-input"
+                    min={35}
+                    max={maxSafeLedSetback}
+                    step={1}
+                    value={curLedFrontSetback}
+                    onChange={(e) => {
+                      const v = Number(e.target.value);
+                      if (!Number.isNaN(v)) {
+                        onToggleLed(true, {
+                          ledType: detectedLedType,
+                          colorTempK: curLedTempK,
+                          sensorType: curLedSensor,
+                          dimmerPct: curLedDimmer,
+                          alignShelfAndSide: curLedAlign,
+                          frontSetbackMm: v,
+                          shelfSetbackMm: curLedAlign ? v : curLedShelfSetback,
+                          channelWidthMm: curLedChanW,
+                          channelDepthMm: curLedChanD,
+                        });
+                      }
+                    }}
+                    className="w-14 px-1.5 py-0.5 rounded-lg bg-white border border-[#DED8CC] text-right font-mono text-xs font-bold text-[#141413]"
+                  />
+                  <span className="text-[11px] font-semibold text-[#57534E]">mm</span>
+                </div>
+              </div>
+
+              <input
+                type="range"
+                data-testid="led-front-setback-slider"
+                min={35}
+                max={Math.min(240, maxSafeLedSetback)}
+                step={1}
+                value={Math.min(240, curLedFrontSetback)}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  onToggleLed(true, {
+                    ledType: detectedLedType,
+                    colorTempK: curLedTempK,
+                    sensorType: curLedSensor,
+                    dimmerPct: curLedDimmer,
+                    alignShelfAndSide: curLedAlign,
+                    frontSetbackMm: v,
+                    shelfSetbackMm: curLedAlign ? v : curLedShelfSetback,
+                    channelWidthMm: curLedChanW,
+                    channelDepthMm: curLedChanD,
+                  });
+                }}
+                className="w-full accent-[#141413] h-1.5 bg-[#DED8CC] rounded-lg cursor-pointer"
+              />
+
+              <div className="grid grid-cols-4 gap-1">
+                {[
+                  { mm: 50, label: "50 mm" },
+                  { mm: 75, label: "75 mm ★" },
+                  { mm: 100, label: "100 mm" },
+                  { mm: 140, label: "140 mm" },
+                ]
+                  .filter((p) => p.mm <= maxSafeLedSetback)
+                  .map((p) => (
+                    <button
+                      key={p.mm}
+                      type="button"
+                      onClick={() =>
+                        onToggleLed(true, {
+                          ledType: detectedLedType,
+                          colorTempK: curLedTempK,
+                          sensorType: curLedSensor,
+                          dimmerPct: curLedDimmer,
+                          alignShelfAndSide: curLedAlign,
+                          frontSetbackMm: p.mm,
+                          shelfSetbackMm: curLedAlign ? p.mm : curLedShelfSetback,
+                          channelWidthMm: curLedChanW,
+                          channelDepthMm: curLedChanD,
+                        })
+                      }
+                      className={`py-1 px-1.5 rounded-lg text-[11px] font-bold border transition cursor-pointer ${
+                        curLedFrontSetback === p.mm
+                          ? "bg-[#141413] text-white border-[#141413]"
+                          : "bg-white hover:bg-[#EFECE5] text-[#44403C] border-[#DED8CC]"
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+              </div>
+
+              {hasHingedDoorInMod && curLedFrontSetback <= 46 && (
+                <div className="text-[10.5px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 leading-snug">
+                  37 mm menteşe tabanı / raf pimi delik aksına çok yakın. Çakışmaması için{" "}
+                  <b>70–75 mm</b> önerilir.
+                </div>
+              )}
+              {hasInsetSlidingInMod && curLedFrontSetback < 65 && (
+                <div className="text-[10.5px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 leading-snug">
+                  İçten çalışan sürgü rayı ilk 58 mm alanı kullanır. Rayla çakışmaması için{" "}
+                  <b>en az 70 mm</b> önerilir.
+                </div>
+              )}
+
+              {!curLedAlign && (
+                <div className="pt-2 mt-1 border-t border-[#E5E0D5] space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-semibold text-[#141413]">
+                      Raf Altı &amp; Üst LED Önden Mesafe
+                    </span>
+                    <span className="font-mono text-xs font-bold text-[#141413]">
+                      {curLedShelfSetback} mm
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    data-testid="led-shelf-setback-slider"
+                    min={35}
+                    max={Math.min(240, maxSafeLedSetback)}
+                    step={1}
+                    value={Math.min(240, curLedShelfSetback)}
+                    onChange={(e) =>
+                      onToggleLed(true, {
+                        ledType: detectedLedType,
+                        colorTempK: curLedTempK,
+                        sensorType: curLedSensor,
+                        dimmerPct: curLedDimmer,
+                        alignShelfAndSide: false,
+                        frontSetbackMm: curLedFrontSetback,
+                        shelfSetbackMm: Number(e.target.value),
+                        channelWidthMm: curLedChanW,
+                        channelDepthMm: curLedChanD,
+                      })
+                    }
+                    className="w-full accent-[#141413] h-1.5 bg-[#DED8CC] rounded-lg cursor-pointer"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Farklı LED Kanal Profilleri (Hazır Kesitler + Özel Genişlik & Derinlik) */}
+            <div className="p-2.5 rounded-xl bg-[#FAF9F6] border border-[#DED8CC] space-y-2.5">
+              <div className="text-xs font-semibold text-[#141413]">
+                LED Kanal Profili (Genişlik × Derinlik)
+              </div>
+
+              <div className="grid grid-cols-2 gap-1.5">
+                {[
+                  { w: 8, d: 6, title: "İnce COB Mikro", spec: "8 × 6 mm" },
+                  { w: 12, d: 8, title: "Standart Loox5", spec: "12 × 8 mm" },
+                  { w: 16, d: 10, title: "Geniş Mimari", spec: "16 × 10 mm" },
+                  { w: 22, d: 12, title: "Çift Şerit Vitrin", spec: "22 × 12 mm" },
+                ].map((preset) => {
+                  const effD = Math.min(maxSafeChanDepth, preset.d);
+                  const isActivePreset = curLedChanW === preset.w && curLedChanD === effD;
+                  return (
+                    <button
+                      key={preset.title}
+                      type="button"
+                      onClick={() =>
+                        onToggleLed(true, {
+                          ledType: detectedLedType,
+                          colorTempK: curLedTempK,
+                          sensorType: curLedSensor,
+                          dimmerPct: curLedDimmer,
+                          alignShelfAndSide: curLedAlign,
+                          frontSetbackMm: curLedFrontSetback,
+                          shelfSetbackMm: curLedShelfSetback,
+                          channelWidthMm: preset.w,
+                          channelDepthMm: effD,
+                        })
+                      }
+                      className={`p-2 rounded-xl border text-left transition cursor-pointer ${
+                        isActivePreset
+                          ? "bg-[#141413] text-white border-[#141413]"
+                          : "bg-white hover:bg-[#EFECE5] text-[#141413] border-[#DED8CC]"
+                      }`}
+                    >
+                      <div className="text-[11.5px] font-bold leading-tight">{preset.title}</div>
+                      <div
+                        className={`text-[10.5px] font-mono mt-0.5 ${
+                          isActivePreset ? "text-[#E6D2AE]" : "text-[#78716C]"
+                        }`}
+                      >
+                        {preset.spec}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Özel Kanal Genişliği (mm) */}
+              <div className="space-y-1 pt-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11.5px] font-semibold text-[#44403C]">
+                    Kanal Genişliği (Freze Ağzı)
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      data-testid="led-channel-width-input"
+                      min={6}
+                      max={32}
+                      step={1}
+                      value={curLedChanW}
+                      onChange={(e) => {
+                        const v = Number(e.target.value);
+                        if (!Number.isNaN(v)) {
+                          onToggleLed(true, {
+                            ledType: detectedLedType,
+                            colorTempK: curLedTempK,
+                            sensorType: curLedSensor,
+                            dimmerPct: curLedDimmer,
+                            alignShelfAndSide: curLedAlign,
+                            frontSetbackMm: curLedFrontSetback,
+                            shelfSetbackMm: curLedShelfSetback,
+                            channelWidthMm: v,
+                            channelDepthMm: curLedChanD,
+                          });
+                        }
+                      }}
+                      className="w-12 px-1 py-0.5 rounded-lg bg-white border border-[#DED8CC] text-right font-mono text-xs font-bold text-[#141413]"
+                    />
+                    <span className="text-[11px] font-semibold text-[#57534E]">mm</span>
+                  </div>
+                </div>
+                <input
+                  type="range"
+                  data-testid="led-channel-width-slider"
+                  min={6}
+                  max={30}
+                  step={1}
+                  value={Math.min(30, curLedChanW)}
+                  onChange={(e) =>
+                    onToggleLed(true, {
+                      ledType: detectedLedType,
+                      colorTempK: curLedTempK,
+                      sensorType: curLedSensor,
+                      dimmerPct: curLedDimmer,
+                      alignShelfAndSide: curLedAlign,
+                      frontSetbackMm: curLedFrontSetback,
+                      shelfSetbackMm: curLedShelfSetback,
+                      channelWidthMm: Number(e.target.value),
+                      channelDepthMm: curLedChanD,
+                    })
+                  }
+                  className="w-full accent-[#141413] h-1.5 bg-[#DED8CC] rounded-lg cursor-pointer"
+                />
+              </div>
+
+              {/* Özel Kanal Derinliği (mm) + Kalan Panel Et Kalınlığı */}
+              <div className="space-y-1 pt-0.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11.5px] font-semibold text-[#44403C]">
+                    Kanal Derinliği (Gömme Payı)
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      data-testid="led-channel-depth-input"
+                      min={4}
+                      max={maxSafeChanDepth}
+                      step={1}
+                      value={curLedChanD}
+                      onChange={(e) => {
+                        const v = Number(e.target.value);
+                        if (!Number.isNaN(v)) {
+                          onToggleLed(true, {
+                            ledType: detectedLedType,
+                            colorTempK: curLedTempK,
+                            sensorType: curLedSensor,
+                            dimmerPct: curLedDimmer,
+                            alignShelfAndSide: curLedAlign,
+                            frontSetbackMm: curLedFrontSetback,
+                            shelfSetbackMm: curLedShelfSetback,
+                            channelWidthMm: curLedChanW,
+                            channelDepthMm: v,
+                          });
+                        }
+                      }}
+                      className="w-12 px-1 py-0.5 rounded-lg bg-white border border-[#DED8CC] text-right font-mono text-xs font-bold text-[#141413]"
+                    />
+                    <span className="text-[11px] font-semibold text-[#57534E]">mm</span>
+                  </div>
+                </div>
+                <input
+                  type="range"
+                  data-testid="led-channel-depth-slider"
+                  min={4}
+                  max={maxSafeChanDepth}
+                  step={1}
+                  value={curLedChanD}
+                  onChange={(e) =>
+                    onToggleLed(true, {
+                      ledType: detectedLedType,
+                      colorTempK: curLedTempK,
+                      sensorType: curLedSensor,
+                      dimmerPct: curLedDimmer,
+                      alignShelfAndSide: curLedAlign,
+                      frontSetbackMm: curLedFrontSetback,
+                      shelfSetbackMm: curLedShelfSetback,
+                      channelWidthMm: curLedChanW,
+                      channelDepthMm: Number(e.target.value),
+                    })
+                  }
+                  className="w-full accent-[#141413] h-1.5 bg-[#DED8CC] rounded-lg cursor-pointer"
+                />
+                <div className="flex items-center justify-between text-[10.5px] text-[#57534E] pt-0.5">
+                  <span>{panelThickMm} mm panel içinde CNC yuva</span>
+                  <span className="font-semibold text-emerald-800">
+                    Kalan et kalınlığı: {remainingWallMm} mm
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 3. Kelvin Color Temperature */}
+          <div className="space-y-2 pt-2 border-t border-[#EFECE5]">
+            <div className="text-xs font-bold text-[#141413]">3. Işık Sıcaklığı (Kelvin)</div>
+            <div className="grid grid-cols-3 gap-1.5">
+              {(
+                [
+                  { k: 2700 as const, label: "2700K", sub: "Loş Kehribar", swatch: "#FFB65C" },
+                  { k: 3000 as const, label: "3000K", sub: "Sıcak Beyaz", swatch: "#FFD48A" },
+                  { k: 4000 as const, label: "4000K", sub: "Doğal Gün Işığı", swatch: "#FFF3DC" },
+                ] as const
+              ).map((kt) => {
+                const isSelK = curLedTempK === kt.k && ledOn;
+                return (
+                  <button
+                    key={kt.k}
+                    type="button"
+                    data-testid={`led-kelvin-${kt.k}`}
+                    onClick={() =>
+                      onToggleLed(true, {
+                        ledType: detectedLedType,
+                        colorTempK: kt.k,
+                        sensorType: curLedSensor,
+                        dimmerPct: curLedDimmer,
+                      })
+                    }
+                    className={`p-2 rounded-xl border text-center transition cursor-pointer flex flex-col items-center gap-1 ${
+                      isSelK
+                        ? "bg-[#141413] text-white border-[#141413]"
+                        : "bg-[#FAF9F6] hover:bg-[#EFECE5] text-[#141413] border-[#DED8CC]"
+                    }`}
+                  >
+                    <span
+                      className="w-5 h-2.5 rounded-full border border-black/15"
+                      style={{ backgroundColor: kt.swatch }}
+                    />
+                    <span className="text-xs font-bold">{kt.label}</span>
+                    <span
+                      className={`text-[10px] leading-tight ${
+                        isSelK ? "text-[#D6C7B2]" : "text-[#78716C]"
+                      }`}
+                    >
+                      {kt.sub}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 4. Dimmer & Sensor */}
+          <div className="space-y-2.5 pt-2 border-t border-[#EFECE5]">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-[#141413]">4. Parlaklık (Dimmer)</span>
+              <span className="text-xs font-mono font-bold text-[#57534E]">%{curLedDimmer}</span>
+            </div>
+            <div className="grid grid-cols-4 gap-1.5">
+              {[25, 50, 75, 100].map((pct) => (
+                <button
+                  key={pct}
+                  type="button"
+                  onClick={() =>
+                    onToggleLed(true, {
+                      ledType: detectedLedType,
+                      colorTempK: curLedTempK,
+                      sensorType: curLedSensor,
+                      dimmerPct: pct,
+                    })
+                  }
+                  className={`py-1.5 rounded-xl border text-xs font-bold transition cursor-pointer ${
+                    ledOn && curLedDimmer === pct
+                      ? "bg-[#141413] text-white border-[#141413]"
+                      : "bg-[#FAF9F6] hover:bg-[#EFECE5] text-[#44403C] border-[#DED8CC]"
+                  }`}
+                >
+                  %{pct}
+                </button>
+              ))}
+            </div>
+
+            <div className="space-y-1.5 pt-1">
+              <div className="text-xs font-bold text-[#141413]">Sensör &amp; Kontrol Tipi</div>
+              <div className="grid grid-cols-1 gap-1.5">
+                {[
+                  { id: "ir_door" as const, label: "Kapak Açılınca Otomatik Yanan (IR Sensör)" },
+                  { id: "pir_motion" as const, label: "Yaklaşınca Yanan Hareket Sensörü (PIR)" },
+                  { id: "manual_switch" as const, label: "Gömme Dokunmatik Dimmer Anahtar" },
+                ].map((sn) => (
+                  <button
+                    key={sn.id}
+                    type="button"
+                    onClick={() =>
+                      onToggleLed(true, {
+                        ledType: detectedLedType,
+                        colorTempK: curLedTempK,
+                        sensorType: sn.id,
+                        dimmerPct: curLedDimmer,
+                      })
+                    }
+                    className={`py-2 px-3 rounded-xl border text-xs font-semibold text-left transition cursor-pointer ${
+                      ledOn && curLedSensor === sn.id
+                        ? "bg-[#141413] text-white border-[#141413]"
+                        : "bg-[#FAF9F6] hover:bg-[#EFECE5] text-[#141413] border-[#DED8CC]"
+                    }`}
+                  >
+                    {sn.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ========================================================================
+          STEP 5: MALZEME & RENK KARTELASI (Spacious 2-Column Untruncated Cards!)
+         ======================================================================== */}
+      {(showAllSteps || activeStep === "material") && (
+        <section className="p-3.5 rounded-2xl bg-white border border-[#DED8CC] space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-bold text-[#141413]">Yüzey Seçimi</span>
+            <div className="inline-flex rounded-xl bg-[#EFECE5] p-0.5 border border-[#DED8CC]">
+              <button
+                type="button"
+                onClick={() => setMatTarget("door")}
+                className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                  matTarget === "door"
+                    ? "bg-[#141413] text-white"
+                    : "text-[#57534E] hover:text-[#141413]"
+                }`}
+              >
+                Kapak Yüzeyi
+              </button>
+              <button
+                type="button"
+                onClick={() => setMatTarget("body")}
+                className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                  matTarget === "body"
+                    ? "bg-[#141413] text-white"
+                    : "text-[#57534E] hover:text-[#141413]"
+                }`}
+              >
+                İç Gövde
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
             {curatedSwatches.map((mat) => {
               const currentId =
                 matTarget === "door"
                   ? activeModule.carcass.doorMaterialId
                   : activeModule.carcass.bodyMaterialId;
-              const selected = currentId === mat.id;
-              const shortLabel = cleanMaterialDisplayName(mat.name);
-              const isLight =
-                mat.colorHex.toLowerCase() === "#ffffff" ||
-                mat.colorHex.toLowerCase() === "#f3f4f6" ||
-                mat.colorHex.toLowerCase() === "#f8fafc" ||
-                mat.colorHex.toLowerCase() === "#ede8d0";
-
+              const isSelected = currentId === mat.id;
               return (
                 <button
                   key={mat.id}
                   type="button"
-                  title={mat.name}
                   onClick={() =>
                     matTarget === "door"
-                      ? onSetMaterials(activeModule.carcass.bodyMaterialId, mat.id)
-                      : onSetMaterials(mat.id, activeModule.carcass.doorMaterialId)
+                      ? onSetMaterials(undefined, mat.id)
+                      : onSetMaterials(mat.id, undefined)
                   }
-                  className={`p-2 rounded-lg border flex items-center gap-2 text-left transition cursor-pointer ${
-                    selected
-                      ? "bg-[#FAF9F6] border-[#141413] ring-1 ring-[#141413]"
-                      : "bg-white hover:bg-[#FAF9F6] border-[#DED8CC]"
+                  className={`p-2.5 rounded-xl border flex items-center gap-2.5 text-left transition cursor-pointer ${
+                    isSelected
+                      ? "bg-[#FAF9F6] border-2 border-[#141413] shadow-2xs"
+                      : "bg-[#FAF9F6]/60 hover:bg-[#EFECE5] border-[#DED8CC]"
                   }`}
                 >
                   <span
-                    className="w-7 h-7 rounded-md border border-[#D6D0C4] shrink-0 flex items-center justify-center relative overflow-hidden"
+                    className="w-8 h-8 rounded-lg border border-black/15 shrink-0 flex items-center justify-center relative overflow-hidden"
                     style={{ backgroundColor: mat.colorHex }}
                   >
-                    {(mat.category === "wood" || (mat.category === "laminate" && mat.hasGrain)) && (
-                      <svg
-                        viewBox="0 0 28 28"
-                        className="absolute inset-0 w-full h-full opacity-25 pointer-events-none"
-                      >
-                        <path
-                          d="M6 0 Q9 14 6 28 M14 0 Q18 14 14 28 M22 0 Q19 14 22 28"
-                          fill="none"
-                          stroke="#2C1810"
-                          strokeWidth="1.1"
-                        />
-                      </svg>
-                    )}
-                    {selected && (
+                    {isSelected && (
                       <Check
-                        className={`w-3.5 h-3.5 relative z-10 ${
-                          isLight ? "text-[#141413]" : "text-white"
+                        className={`w-4 h-4 ${
+                          mat.id.includes("white") || mat.id.includes("cream")
+                            ? "text-[#141413]"
+                            : "text-white"
                         }`}
                       />
                     )}
                   </span>
-                  <span className="text-[11px] font-semibold text-[#141413] truncate">
-                    {shortLabel}
+                  <span className="min-w-0 flex-1">
+                    <span className="text-xs font-semibold text-[#141413] block leading-snug break-words">
+                      {cleanMaterialDisplayName(mat.name)}
+                    </span>
+                    <span className="text-[10px] text-[#78716C] block">
+                      {mat.category === "wood"
+                        ? "Doğal Ahşap Doku"
+                        : mat.category === "lacquer"
+                        ? "İpek Mat Lake"
+                        : mat.category === "glass"
+                        ? "Temperli Vitrin Cam"
+                        : mat.category === "mirror"
+                        ? "Bronz / Gümüş Ayna"
+                        : "MDFLam Yüzey"}
+                    </span>
                   </span>
                 </button>
               );
             })}
           </div>
-        )}
-      </section>
+        </section>
+      )}
 
-      {/* Progressive Disclosure Bridge for Architects & CNC Engineers */}
-      <div className="px-3 py-2.5 rounded-xl bg-[#FAF9F6] border border-[#DED8CC] flex items-center justify-between gap-2">
-        <span className="text-[11px] text-[#57534E]">
-          Kesit, kulp, priz kesimi veya CNC ayarları:
-        </span>
-        <button
-          type="button"
-          onClick={() => onSwitchTier("architect")}
-          className="text-[11px] font-bold text-[#141413] hover:text-[#8C7A6B] inline-flex items-center gap-1 cursor-pointer shrink-0"
-        >
-          <span>Mimar Modu</span>
-          <ArrowRight className="w-3 h-3" />
-        </button>
-      </div>
+      {/* PREV / NEXT STEP FOOTER + ARCHITECT SWITCH */}
+      {!showAllSteps && (
+        <div className="flex items-center justify-between gap-2 pt-1">
+          <button
+            type="button"
+            disabled={stepIndex <= 0}
+            onClick={() => stepIndex > 0 && setActiveStep(STEP_ORDER[stepIndex - 1].id)}
+            className="h-9 px-3.5 rounded-xl bg-white hover:bg-[#EFECE5] disabled:opacity-40 border border-[#DED8CC] text-xs font-semibold text-[#141413] inline-flex items-center gap-1.5 transition cursor-pointer"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Önceki</span>
+          </button>
+
+          {stepIndex < STEP_ORDER.length - 1 ? (
+            <button
+              type="button"
+              onClick={() => setActiveStep(STEP_ORDER[stepIndex + 1].id)}
+              className="h-9 px-4 rounded-xl bg-[#141413] hover:bg-[#292524] text-white text-xs font-semibold inline-flex items-center gap-1.5 transition cursor-pointer"
+            >
+              <span>Sonraki: {STEP_ORDER[stepIndex + 1].shortLabel}</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => onSwitchTier("architect")}
+              className="h-9 px-3.5 rounded-xl bg-[#FAF9F6] hover:bg-[#EFECE5] border border-[#DED8CC] text-xs font-semibold text-[#44403C] inline-flex items-center gap-1.5 transition cursor-pointer"
+            >
+              <span>Mimar Detay Modu</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 };

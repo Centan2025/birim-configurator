@@ -605,12 +605,67 @@ export function generateBOMForProject(
               selectedHw?.name || "Blum AVENTOS Yukarı Kalkar Mekanizma Seti";
             const liftPrice = selectedHw?.unitPriceEur || 52.0;
             addHardware(liftSku, liftName, "special", 1, "takım", liftPrice);
-          } else if (dSys.startsWith("sliding")) {
-            const slideSku = selectedHw?.sku || "TopLineL_50";
-            const slideName =
-              selectedHw?.name || "Hettich TopLine L Yavaşlatıcılı Sürgü Sistemi";
-            const slidePrice = selectedHw?.unitPriceEur || 135.0;
-            addHardware(slideSku, slideName, "slide", 1, "takım", slidePrice);
+          } else if (dSys.startsWith("sliding") || bay?.door.type === "sliding" || bay?.door.type === "sliding_bottom") {
+            const sMount =
+              bay?.door.slidingMountingType ||
+              (dSys === "sliding_bottom_rolling" ? "inset_inside" : dSys === "sliding_coplanar" ? "coplanar_flush" : "top_hung_pelmet");
+            if (bayIdx === 0) {
+              const trackMeters = Number((module.dimensions.width / 1000).toFixed(2));
+              if (sMount === "inset_inside") {
+                addHardware(
+                  "HT_SLIDELINE_M_SET",
+                  "Hettich SlideLine M İçten Çalışan Çift Kanal Sürgü & Fren Seti",
+                  "slide",
+                  1,
+                  "takım",
+                  118.0
+                );
+                addHardware(
+                  "HF_SLIDO_INSET_TRACK",
+                  "Gömme Çift Kanallı Eloksallı Alüminyum Üst/Alt Sürgü Rayı",
+                  "slide",
+                  Number((trackMeters * 2).toFixed(2)),
+                  "metre",
+                  19.5
+                );
+              } else if (sMount === "coplanar_flush") {
+                addHardware(
+                  "HT_INLINE_XL_SET",
+                  "Hettich InLine XL Hemzemin (Koplanar) Sürgü Mekanizma Seti",
+                  "slide",
+                  1,
+                  "takım",
+                  365.0
+                );
+              } else {
+                addHardware(
+                  selectedHw?.sku || "HT_TOPLINE_XL_SET",
+                  "Hettich TopLine XL Üstten Askılı Yavaşlatıcılı Sürgü Araba & STB-19 Kılavuz Seti",
+                  "slide",
+                  1,
+                  "takım",
+                  168.0
+                );
+                addHardware(
+                  "HT_TOPLINE_TRACK_2R",
+                  "TopLine XL Üstten Askılı Çift Yollu Alüminyum Taşıyıcı Ray",
+                  "slide",
+                  trackMeters,
+                  "metre",
+                  28.0
+                );
+                if (sMount === "top_hung_pelmet") {
+                  addHardware(
+                    "HF_SLIDO_FASCIA_CLIP",
+                    "Häfele Slido Üst Alın Kapama (Valans) Montaj Klips Takımı",
+                    "special",
+                    Math.max(4, Math.ceil(module.dimensions.width / 450)),
+                    "adet",
+                    2.8
+                  );
+                }
+              }
+            }
           } else if (dSys === "folding_side") {
             const foldSku = selectedHw?.sku || "WingLineL_25";
             const foldName =
@@ -933,13 +988,20 @@ export function generateBOMForProject(
                   price: 24.0,
                 };
           const ledKelvin = module.carcass.ledColorTempK || 3000;
+          const chanW = module.carcass.ledChannelWidthMm ?? 12;
+          const chanD = module.carcass.ledChannelDepthMm ?? 8;
+          const setbackMm =
+            fit.type === "led_profile" && module.carcass.ledAlignShelfAndSide === false
+              ? module.carcass.ledShelfSetbackMm ?? module.carcass.ledFrontSetbackMm ?? 75
+              : module.carcass.ledFrontSetbackMm ?? 75;
+          const unitPricePerMeter = Number((13.5 + chanW * 0.25).toFixed(2));
           addHardware(
-            "833.74.700",
-            `Häfele Loox5 Alüminyum Gömme LED Profil + ${ledKelvin}K Şerit LED`,
+            `LED.CH.${chanW}X${chanD}`,
+            `Alüminyum Gömme LED Kanal (${chanW}×${chanD}mm, Önden ${setbackMm}mm CNC Freze) + ${ledKelvin}K COB LED`,
             "special",
             Math.max(1, ledMeters),
             "metre",
-            16.5
+            unitPricePerMeter
           );
           addHardware(driverSpec.sku, driverSpec.name, "special", 1, "adet", driverSpec.price);
           addHardware(

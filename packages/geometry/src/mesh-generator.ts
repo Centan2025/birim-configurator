@@ -1014,12 +1014,32 @@ export function generateModuleGeometry(
 
   // 7. Bays, Internal Dividers, Shelves, Rails, Drawers & All 12 V4 Door Systems
   let currentX = T;
-  const moduleVertLedSpec = module.bays
-    .flatMap((b) => b.specialFittings || [])
-    .find((f) => f.type === "led_vertical_strip");
-  const moduleHorizLedSpec = module.bays
-    .flatMap((b) => b.specialFittings || [])
-    .find((f) => f.type === "led_profile");
+  const ledKelvinVal = module.carcass.ledColorTempK || 3000;
+  const ledMatId =
+    ledKelvinVal <= 2800
+      ? "mat_led_warm_2700k"
+      : ledKelvinVal >= 3800
+      ? "mat_led_neutral_4000k"
+      : "mat_led_warm_3000k";
+  const ledMode = module.carcass.ledPlacementMode;
+  const moduleHasVertLed =
+    (Boolean(module.carcass.ledLightingEnabled) &&
+      (ledMode === "vertical_sides" || ledMode === "full_showcase")) ||
+    module.bays.some((b) =>
+      (b.specialFittings || []).some((f) => !f.isHidden && f.type === "led_vertical_strip")
+    );
+  const moduleHasHorizLed =
+    (Boolean(module.carcass.ledLightingEnabled) &&
+      (ledMode === "top_and_shelves" || ledMode === "full_showcase")) ||
+    module.bays.some((b) =>
+      (b.specialFittings || []).some((f) => !f.isHidden && f.type === "led_profile")
+    );
+  const moduleHasRodLed =
+    (Boolean(module.carcass.ledLightingEnabled) &&
+      (ledMode === "hanging_rod" || ledMode === "full_showcase")) ||
+    module.bays.some((b) =>
+      (b.specialFittings || []).some((f) => !f.isHidden && f.type === "led_rod_strip")
+    );
 
   module.bays.forEach((bay, bayIdx) => {
     const bayW = bayWidths[bayIdx] || 0;
@@ -1041,73 +1061,142 @@ export function generateModuleGeometry(
       });
     }
 
-    // Multi-Door / Multi-Bay Automatic Recessed Vertical Side LEDs on BOTH left & right panels of EVERY bay!
-    if (moduleVertLedSpec) {
-      const hasOwnVertLed = (bay.specialFittings || []).some((f) => f.type === "led_vertical_strip");
-      if (!hasOwnVertLed) {
-        const chanW = Math.max(6, Math.min(40, moduleVertLedSpec.width || 14));
-        const chanSetbackD = Math.max(20, Math.min(depth - 40, moduleVertLedSpec.depth || 75));
-        const vLedH = Math.max(160, netInnerH - 24);
-        const ledZ = Math.max(24, depth - chanSetbackD);
+    // Compute bottom drawer stack ceiling so vertical LEDs sit cleanly in the open upper bay (never behind closed external drawers!)
+    const bottomDrawersInBay = bay.drawers.filter((d) => d.elevationY < netInnerH * 0.55);
+    const extBottomDrawersInBay = bottomDrawersInBay.filter((d) => !d.isInternal);
+    const extDrawerTopLocalY =
+      extBottomDrawersInBay.length > 0
+        ? Math.max(...extBottomDrawersInBay.map((d) => d.elevationY + d.height)) + T
+        : 0;
+
+    // Parametric CNC LED Channel Dimensions & Aligned/Independent Front Setback
+    const ledChanWidth = Math.max(6, Math.min(32, module.carcass.ledChannelWidthMm ?? 12));
+    const ledChanRouteDepth = Math.max(
+      4,
+      Math.min(Math.max(5, T - 4), module.carcass.ledChannelDepthMm ?? 8)
+    );
+    const ledAligned = module.carcass.ledAlignShelfAndSide !== false;
+    const vertFrontSetback = Math.max(
+      35,
+      Math.min(Math.max(60, depth - 45), module.carcass.ledFrontSetbackMm ?? 75)
+    );
+    const horizFrontSetback = ledAligned
+      ? vertFrontSetback
+      : Math.max(
+          35,
+          Math.min(Math.max(60, depth - 45), module.carcass.ledShelfSetbackMm ?? vertFrontSetback)
+        );
+    // Subtle physical bezel step scales slightly with channel routing depth while staying < 1.75mm so shelves never collide
+    const flushStepMm = Number(
+      Math.min(1.7, 1.25 + (ledChanRouteDepth - 4) * 0.045).toFixed(2)
+    );
+
+    // Unified Single-Channel Architectural Recessed LED Profiles (Zero duplicates, zero Z-fighting!)
+    if (moduleHasVertLed) {
+      const ledZ = Math.max(28, Math.round(depth - vertFrontSetback - ledChanWidth / 2));
+      const vStartY = plinthHeight + T + extDrawerTopLocalY + 4;
+      const topJoinOffset = moduleHasHorizLed && ledAligned ? 2 : 6;
+      const vLedH = Math.max(120, netInnerH - extDrawerTopLocalY - 4 - topJoinOffset);
+      if (vLedH >= 120) {
         components.push(
           {
             id: `${module.id}_bay_${bayIdx}_recessed_led_vert_left`,
             role: "special_fitting",
-            label: `B${bayIdx + 1} Sol Yan Gömme LED Kanal 3000K (${chanW}×${chanSetbackD}mm)`,
+            label: `B${bayIdx + 1} Sol Dikme Gömme LED ${ledKelvinVal}K (${ledChanWidth}×${ledChanRouteDepth}mm, Önden ${vertFrontSetback}mm)`,
             bayIndex: bayIdx,
-            dimensions: { width: 4, height: vLedH, depth: chanW },
-            position: { x: bayStartX - 1.5, y: plinthHeight + T + 12, z: ledZ },
-            materialId: "mat_led_warm_3000k",
+            dimensions: { width: flushStepMm, height: vLedH, depth: ledChanWidth },
+            position: { x: bayStartX + 0.25, y: vStartY, z: ledZ },
+            materialId: ledMatId,
             isManufacturablePanel: false,
           },
           {
             id: `${module.id}_bay_${bayIdx}_recessed_led_vert_right`,
             role: "special_fitting",
-            label: `B${bayIdx + 1} Sağ Yan Gömme LED Kanal 3000K (${chanW}×${chanSetbackD}mm)`,
+            label: `B${bayIdx + 1} Sağ Dikme Gömme LED ${ledKelvinVal}K (${ledChanWidth}×${ledChanRouteDepth}mm, Önden ${vertFrontSetback}mm)`,
             bayIndex: bayIdx,
-            dimensions: { width: 4, height: vLedH, depth: chanW },
-            position: { x: bayStartX + bayW - 2.5, y: plinthHeight + T + 12, z: ledZ },
-            materialId: "mat_led_warm_3000k",
+            dimensions: { width: flushStepMm, height: vLedH, depth: ledChanWidth },
+            position: { x: bayStartX + bayW - flushStepMm - 0.25, y: vStartY, z: ledZ },
+            materialId: ledMatId,
             isManufacturablePanel: false,
           }
         );
       }
     }
 
-    // Multi-Door / Multi-Bay Automatic Recessed Top & Under-Shelf LEDs on EVERY bay!
-    if (moduleHorizLedSpec) {
-      const hasOwnHorizLed = (bay.specialFittings || []).some((f) => f.type === "led_profile");
-      if (!hasOwnHorizLed) {
-        const spanW = Math.max(60, Math.min(bayW - 4, moduleHorizLedSpec.width || bayW - 12));
-        const chanD = Math.max(8, Math.min(60, moduleHorizLedSpec.depth || 18));
-        const xOff = bayStartX + Math.round((bayW - spanW) / 2);
-        const zPos = Math.max(50, depth - 95);
-        components.push({
-          id: `${module.id}_bay_${bayIdx}_recessed_led_top`,
-          role: "special_fitting",
-          label: `B${bayIdx + 1} Üst Tabla Gömme LED Kanal 3000K (${spanW}×${chanD}mm)`,
-          bayIndex: bayIdx,
-          dimensions: { width: spanW, height: 4, depth: chanD },
-          position: { x: xOff, y: plinthHeight + T + netInnerH - 2.5, z: zPos },
-          materialId: "mat_led_warm_3000k",
-          isManufacturablePanel: false,
-        });
-        bay.shelves.forEach((sh, shIdx) => {
+    if (moduleHasHorizLed) {
+      // When aligned with vertical side LEDs, span almost full bay width (bayW - 4mm) so corners meet in a continuous U-frame!
+      const sideMargin = moduleHasVertLed && ledAligned ? 2 : 6;
+      const spanW = Math.max(60, bayW - sideMargin * 2);
+      const xOff = bayStartX + sideMargin;
+      const zPos = Math.max(28, Math.round(depth - horizFrontSetback - ledChanWidth / 2));
+      components.push({
+        id: `${module.id}_bay_${bayIdx}_recessed_led_top`,
+        role: "special_fitting",
+        label: `B${bayIdx + 1} Üst Tabla Gömme LED ${ledKelvinVal}K (${ledChanWidth}×${ledChanRouteDepth}mm, Önden ${horizFrontSetback}mm)`,
+        bayIndex: bayIdx,
+        dimensions: { width: spanW, height: flushStepMm, depth: ledChanWidth },
+        position: { x: xOff, y: plinthHeight + T + netInnerH - flushStepMm - 0.2, z: zPos },
+        materialId: ledMatId,
+        isManufacturablePanel: false,
+      });
+      bay.shelves.forEach((sh, shIdx) => {
+        if (sh.isHidden) return;
+        const clampedShY = Math.max(
+          24,
+          Math.min(Math.max(48, netInnerH - (sh.thickness || T) - 16), sh.elevationY)
+        );
+        if (clampedShY > extDrawerTopLocalY + 60) {
           components.push({
             id: `${module.id}_bay_${bayIdx}_recessed_led_sh_${shIdx}`,
             role: "special_fitting",
-            label: `B${bayIdx + 1} Raf #${shIdx + 1} Altı Gömme LED 3000K (${spanW}×${chanD}mm)`,
+            label: `B${bayIdx + 1} Raf #${shIdx + 1} Altı Gömme LED ${ledKelvinVal}K (${ledChanWidth}×${ledChanRouteDepth}mm, Önden ${horizFrontSetback}mm)`,
             bayIndex: bayIdx,
-            dimensions: { width: spanW, height: 4, depth: chanD },
-            position: { x: xOff, y: plinthHeight + T + sh.elevationY - 2.5, z: zPos },
-            materialId: "mat_led_warm_3000k",
+            dimensions: { width: spanW, height: flushStepMm, depth: ledChanWidth },
+            position: { x: xOff, y: plinthHeight + T + clampedShY - flushStepMm - 0.2, z: zPos },
+            materialId: ledMatId,
             isManufacturablePanel: false,
           });
+        }
+      });
+    }
+
+    if (moduleHasRodLed) {
+      const spanW = Math.max(60, bayW - 20);
+      const xOff = bayStartX + Math.round((bayW - spanW) / 2);
+      if (bay.hangingRails.length > 0) {
+        bay.hangingRails.forEach((rl, rlIdx) => {
+          if (rl.isHidden) return;
+          const clampedRailY = Math.max(
+            48,
+            Math.min(Math.max(80, netInnerH - 36), rl.elevationY)
+          );
+          components.push({
+            id: `${module.id}_bay_${bayIdx}_recessed_led_rod_${rlIdx}`,
+            role: "special_fitting",
+            label: `B${bayIdx + 1} Sensörlü Işıklı Askı Borusu LED ${ledKelvinVal}K`,
+            bayIndex: bayIdx,
+            dimensions: { width: spanW, height: 3.2, depth: 8 },
+            position: { x: xOff, y: plinthHeight + T + clampedRailY - 3.0, z: depth / 2 - 4 },
+            materialId: ledMatId,
+            isManufacturablePanel: false,
+          });
+        });
+      } else {
+        const fallbackRodY = Math.max(extDrawerTopLocalY + 200, Math.round(netInnerH * 0.78));
+        components.push({
+          id: `${module.id}_bay_${bayIdx}_recessed_led_rod_0`,
+          role: "special_fitting",
+          label: `B${bayIdx + 1} Sensörlü Işıklı Askı Borusu LED ${ledKelvinVal}K`,
+          bayIndex: bayIdx,
+          dimensions: { width: spanW, height: 3.2, depth: 8 },
+          position: { x: xOff, y: plinthHeight + T + fallbackRodY, z: depth / 2 - 4 },
+          materialId: ledMatId,
+          isManufacturablePanel: false,
         });
       }
     }
 
-    // Shelves
+    // Shelves (2mm per-side clearance so shelves never overlap flush 1.6mm recessed side-panel LEDs!)
     bay.shelves.forEach((shelf, sIdx) => {
       if (shelf.isHidden) return;
       const shelfT = shelf.thickness || T;
@@ -1116,8 +1205,8 @@ export function generateModuleGeometry(
         role: "shelf",
         label: `Raf B${bayIdx + 1}-${sIdx + 1} (${shelf.isAdjustable ? "Hareketli" : "Sabit"})`,
         bayIndex: bayIdx,
-        dimensions: { width: bayW - 2, height: shelfT, depth: netInnerD - 10 },
-        position: { x: bayStartX + 1, y: plinthHeight + T + Math.max(24, Math.min(Math.max(48, netInnerH - shelfT - 16), shelf.elevationY)), z: 20 },
+        dimensions: { width: bayW - 4, height: shelfT, depth: netInnerD - 10 },
+        position: { x: bayStartX + 2, y: plinthHeight + T + Math.max(24, Math.min(Math.max(48, netInnerH - shelfT - 16), shelf.elevationY)), z: 20 },
         materialId: bodyMaterialId,
         isManufacturablePanel: true,
         thicknessAxis: "y",
@@ -1125,7 +1214,6 @@ export function generateModuleGeometry(
     });
 
     // Mandatory fixed shelf directly above bottom drawer stack when upper bay space exists
-    const bottomDrawersInBay = bay.drawers.filter((d) => d.elevationY < netInnerH * 0.55);
     if (bottomDrawersInBay.length > 0) {
       const maxDrawerTopEle = Math.max(...bottomDrawersInBay.map((d) => d.elevationY + d.height));
       const hasShelfAboveDrawers = bay.shelves.some(
@@ -1137,8 +1225,8 @@ export function generateModuleGeometry(
           role: "shelf",
           label: `Çekmece Üstü Sabit Tabla B${bayIdx + 1}`,
           bayIndex: bayIdx,
-          dimensions: { width: bayW - 2, height: T, depth: netInnerD - 10 },
-          position: { x: bayStartX + 1, y: plinthHeight + T + maxDrawerTopEle, z: 20 },
+          dimensions: { width: bayW - 4, height: T, depth: netInnerD - 10 },
+          position: { x: bayStartX + 2, y: plinthHeight + T + maxDrawerTopEle, z: 20 },
           materialId: bodyMaterialId,
           isManufacturablePanel: true,
           thicknessAxis: "y",
@@ -1193,6 +1281,10 @@ export function generateModuleGeometry(
         fit.type === "led_profile" ||
         fit.type === "led_vertical_strip" ||
         fit.type === "led_rod_strip";
+      if (isLedFitting) {
+        // Handled cleanly in the unified bay recessed LED block above (zero duplicate bars!)
+        return;
+      }
 
       const ledChanW =
         fit.type === "led_vertical_strip"
@@ -1669,29 +1761,151 @@ export function generateModuleGeometry(
           thicknessAxis: "z",
         });
       } else if (dSys === "sliding_top_hung" || dSys === "sliding_bottom_rolling" || dSys === "sliding_coplanar" || dType === "sliding" || dType === "sliding_bottom") {
-        const doorW = leafSpec.leafWidthMm;
-        const isFrontTrack = bayIdx % 2 === 1 || module.bays.length === 1;
-        const slideDir = bayIdx >= module.bays.length - 1 ? -1 : 1;
-        const rawSlideOffset = isFrontTrack ? openRatio * (bayW * 0.78) * slideDir : 0;
-        const closedX = Math.max(0, Math.min(width - doorW, doorX0));
-        const clampedSlideX = Math.max(0, Math.min(width - doorW, closedX + rawSlideOffset));
-        const trackZOffset = dSys === "sliding_bottom_rolling" ? -18 : bayIdx % 2 === 0 ? 0 : 24;
-        components.push({
-          id: `${bay.door.id}_sliding`,
-          role: "door_left",
-          label: `${dSys === "sliding_bottom_rolling" ? "Alttan Sürgülü" : "Üstten Sürgülü"} Kapak B${bayIdx + 1}`,
-          bayIndex: bayIdx,
-          dimensions: { width: doorW, height: doorH, depth: T_door },
-          position: {
-            x: clampedSlideX,
-            y: doorY,
-            z: doorZ + trackZOffset,
-          },
-          materialId: doorMatId,
-          isFrontFacing: true,
-          isManufacturablePanel: true,
-          thicknessAxis: "z",
-        });
+        const mountKind =
+          bay.door.slidingMountingType ||
+          (dSys === "sliding_bottom_rolling" || dType === "sliding_bottom"
+            ? "inset_inside"
+            : dSys === "sliding_coplanar"
+            ? "coplanar_flush"
+            : "top_hung_pelmet");
+
+        const totalBays = Math.max(1, module.bays.length);
+        const isFrontTrack = bayIdx % 2 === 1 || totalBays === 1;
+        const slideDir = bayIdx >= totalBays - 1 ? -1 : 1;
+
+        // Calculate realistic door width, Y-span, and Z-plane per mounting system
+        let effDoorW = leafSpec.leafWidthMm;
+        let effDoorH = doorH;
+        let effDoorY = doorY;
+        let baseClosedX = Math.max(0, Math.min(width - effDoorW, doorX0));
+        let leafZ = doorZ;
+
+        if (mountKind === "inset_inside") {
+          // 1. INSET DUAL-TRACK (Hettich SlideLine M / Häfele Slido F-Line21):
+          // Runs strictly INSIDE carcass side panels & top/bottom horizontal boards with 24mm center overlap!
+          const innerClearSpanW = Math.max(240, width - 2 * T);
+          const overlapMm = totalBays > 1 ? 22 : 0;
+          effDoorW = Math.round((innerClearSpanW + overlapMm * (totalBays - 1)) / totalBays);
+          baseClosedX = Math.round(
+            T + bayIdx * ((innerClearSpanW - effDoorW) / Math.max(1, totalBays - 1))
+          );
+          effDoorY = plinthHeight + T + 12; // 12mm bottom recessed track clearance
+          effDoorH = Math.max(160, height - plinthHeight - 2 * T - 24); // 12mm top + 12mm bottom track clearance
+          leafZ = isFrontTrack ? depth - T_door - 4 : depth - 2 * T_door - 12;
+        } else if (mountKind === "coplanar_flush") {
+          // 4. COPLANAR FLUSH (Hettich InLine XL / Cinetto PS48):
+          // Completely flush in a single Z plane when closed; active front leaf pops out +48mm on pantograph arms then slides!
+          const popProgress = Math.min(1, openRatio * 3.5);
+          const slideProgress = Math.max(0, (openRatio - 0.22) / 0.78);
+          const popZ = isFrontTrack ? popProgress * 48 : 0;
+          effDoorY = plinthHeight + 4;
+          effDoorH = Math.max(160, height - plinthHeight - 6);
+          leafZ = depth + 4 + popZ;
+          const coplanarSlideOffset = isFrontTrack ? slideProgress * (bayW * 0.84) * slideDir : 0;
+          baseClosedX = Math.max(0, Math.min(width - effDoorW, doorX0));
+          const coplanarX = Math.max(0, Math.min(width - effDoorW, baseClosedX + coplanarSlideOffset));
+
+          components.push({
+            id: `${bay.door.id}_sliding_${isFrontTrack ? "front" : "rear"}`,
+            role: "door_left",
+            label: `Hemzemin Koplanar Sürgü Kapak B${bayIdx + 1}`,
+            bayIndex: bayIdx,
+            dimensions: { width: effDoorW, height: effDoorH, depth: T_door },
+            position: { x: coplanarX, y: effDoorY, z: leafZ },
+            materialId: doorMatId,
+            isFrontFacing: true,
+            isManufacturablePanel: true,
+            thicknessAxis: "z",
+          });
+
+          // Top & Bottom Pantograph Carriage Units attached to leaf
+          components.push({
+            id: `${bay.door.id}_sliding_coplanar_mech_top`,
+            role: "special_fitting",
+            label: `InLine XL Üst Koplanar Pantograf Mekanizması B${bayIdx + 1}`,
+            bayIndex: bayIdx,
+            dimensions: { width: Math.min(260, effDoorW * 0.42), height: 34, depth: 52 + popZ },
+            position: {
+              x: coplanarX + effDoorW * 0.29,
+              y: height - 2,
+              z: depth - 42,
+            },
+            materialId: "mat_metal_chrome",
+          });
+        } else {
+          // 2 & 3. TOP-HUNG EXTERNAL OVERLAY (Exposed TopLine XL vs Concealed Pelmet Fascia):
+          const overlapMm = totalBays > 1 ? 26 : 0;
+          effDoorW = Math.round((width + overlapMm * (totalBays - 1)) / totalBays);
+          baseClosedX = Math.round(
+            bayIdx * ((width - effDoorW) / Math.max(1, totalBays - 1))
+          );
+          effDoorY = plinthHeight + 4;
+          effDoorH = Math.max(160, height - plinthHeight - 4);
+          leafZ = isFrontTrack ? depth + 34 : depth + 8;
+        }
+
+        if (mountKind !== "coplanar_flush") {
+          const maxLeft = mountKind === "inset_inside" ? T : 0;
+          const maxRight = mountKind === "inset_inside" ? width - T - effDoorW : width - effDoorW;
+          const rawSlideOffset = isFrontTrack ? openRatio * (bayW * 0.82) * slideDir : 0;
+          const clampedSlideX = Math.max(maxLeft, Math.min(maxRight, baseClosedX + rawSlideOffset));
+
+          const mountTitle =
+            mountKind === "inset_inside"
+              ? "İçten Raylı Sürgü Kapak"
+              : mountKind === "top_hung_pelmet"
+              ? "Üstü Kapamalı Sürgü Kapak"
+              : "Üstten Askılı Sürgü Kapak";
+
+          components.push({
+            id: `${bay.door.id}_sliding_${isFrontTrack && totalBays > 1 ? "front" : totalBays > 1 ? "rear" : "front"}`,
+            role: "door_left",
+            label: `${mountTitle} B${bayIdx + 1}`,
+            bayIndex: bayIdx,
+            dimensions: { width: effDoorW, height: effDoorH, depth: T_door },
+            position: {
+              x: clampedSlideX,
+              y: effDoorY,
+              z: leafZ,
+            },
+            materialId: doorMatId,
+            isFrontFacing: true,
+            isManufacturablePanel: true,
+            thicknessAxis: "z",
+          });
+
+          // Emit 2 Roller Carriages + Silent-System Soft-Close Damper per Sliding Door Leaf!
+          [0.16, 0.84].forEach((xFrac, cIdx) => {
+            const carrX = clampedSlideX + effDoorW * xFrac - 48;
+            if (mountKind === "inset_inside") {
+              // Bottom recessed ball-bearing wheel carriage + top guide roller
+              components.push({
+                id: `${bay.door.id}_sliding_carriage_inset_${cIdx}`,
+                role: "special_fitting",
+                label: `SlideLine M Gömme Tekerlek & Fren Arabası #${cIdx + 1} B${bayIdx + 1}`,
+                bayIndex: bayIdx,
+                dimensions: { width: 96, height: 28, depth: 18 },
+                position: { x: carrX, y: effDoorY - 6, z: leafZ - 8 },
+                materialId: "mat_metal_chrome",
+              });
+            } else {
+              // Top-hung gooseneck steel bracket + twin roller carriage riding on top track
+              components.push({
+                id: `${bay.door.id}_sliding_carriage_top_${cIdx}`,
+                role: "special_fitting",
+                label: `TopLine XL Üstten Askı Tekerlek & Fren Arabası #${cIdx + 1} B${bayIdx + 1}`,
+                bayIndex: bayIdx,
+                dimensions: { width: 108, height: 42, depth: isFrontTrack ? 48 : 24 },
+                position: {
+                  x: carrX,
+                  y: height - 18,
+                  z: depth - 4,
+                },
+                materialId: "mat_metal_chrome",
+              });
+            }
+          });
+        }
       } else if (dSys === "lift_up_stay" || dType === "lift_up_stay") {
         components.push({
           id: `${bay.door.id}_lift_stay`,
@@ -1973,6 +2187,127 @@ export function generateModuleGeometry(
     currentX += bayW + T;
   });
 
+  // MODULE-WIDE SLIDING DOOR TRACK RAILS, STB-19 BOTTOM GUIDES & CONCEALED TOP PELMET FASCIA VALANCE
+  const firstSlidingBay = !module.isOpenFront
+    ? module.bays.find((b) => {
+        const ds = b.door?.doorSystemId || inferDoorSystemIdFromType(b.door?.type || "open");
+        return (
+          b.door &&
+          b.door.type !== "open" &&
+          (ds.startsWith("sliding") || b.door.type === "sliding" || b.door.type === "sliding_bottom")
+        );
+      })
+    : undefined;
+
+  if (firstSlidingBay) {
+    const dSysSlide =
+      firstSlidingBay.door.doorSystemId || inferDoorSystemIdFromType(firstSlidingBay.door.type);
+    const mountKind =
+      firstSlidingBay.door.slidingMountingType ||
+      (dSysSlide === "sliding_bottom_rolling" || firstSlidingBay.door.type === "sliding_bottom"
+        ? "inset_inside"
+        : dSysSlide === "sliding_coplanar"
+        ? "coplanar_flush"
+        : "top_hung_pelmet");
+    const pelmetMatId = firstSlidingBay.door.doorMaterialId || doorMaterialId;
+
+    if (mountKind === "inset_inside") {
+      // Recessed Double-Channel Anodized Aluminum Upper Guide Track & Lower Running Track inside Carcass
+      const trackSpanW = Math.max(180, width - 2 * T);
+      components.push({
+        id: `${module.id}_sliding_track_inset_top`,
+        role: "special_fitting",
+        label: "Üst Çift Kanallı Gömme Alüminyum Sürgü Rayı (SlideLine M / Slido)",
+        dimensions: { width: trackSpanW, height: 14, depth: 54 },
+        position: { x: T, y: height - T - 14, z: depth - 58 },
+        materialId: "mat_metal_chrome",
+      });
+      components.push({
+        id: `${module.id}_sliding_track_inset_bottom`,
+        role: "special_fitting",
+        label: "Alt Çift Kanallı Gömme Alüminyum Taşıyıcı Ray (SlideLine M / Slido)",
+        dimensions: { width: trackSpanW, height: 12, depth: 54 },
+        position: { x: T, y: plinthHeight + T, z: depth - 58 },
+        materialId: "mat_metal_chrome",
+      });
+    } else if (mountKind === "coplanar_flush") {
+      // Concealed Roof-Mounted Coplanar Pantograph Track Housing + Under-Floor Guide Rail
+      components.push({
+        id: `${module.id}_sliding_track_coplanar_top`,
+        role: "special_fitting",
+        label: "InLine XL Üst Koplanar Senkronize Ray Kasası",
+        dimensions: { width: width - 16, height: 26, depth: 78 },
+        position: { x: 8, y: height, z: depth - 82 },
+        materialId: "mat_metal_chrome",
+      });
+      components.push({
+        id: `${module.id}_sliding_guide_bottom`,
+        role: "special_fitting",
+        label: "InLine XL Alt Gizli Koplanar Kılavuz Rayı",
+        dimensions: { width: width - 24, height: 14, depth: 52 },
+        position: { x: 12, y: Math.max(0, plinthHeight - 14), z: depth - 46 },
+        materialId: "mat_metal_chrome",
+      });
+    } else {
+      // Top-Hung Roof-Mounted Heavy-Duty Twin Aluminum Track (TopLine XL) + Concealed Bottom STB-19 Guide
+      components.push({
+        id: `${module.id}_sliding_track_top_hung`,
+        role: "special_fitting",
+        label: "Hettich TopLine XL Üstten Askılı Çift Yollu Alüminyum Taşıyıcı Ray",
+        dimensions: { width, height: 28, depth: 66 },
+        position: { x: 0, y: height, z: depth - 8 },
+        materialId: "mat_metal_chrome",
+      });
+      components.push({
+        id: `${module.id}_sliding_guide_bottom`,
+        role: "special_fitting",
+        label: "STB 19 Alt Tabla Altı Gizli Sürgü Kılavuz Profili",
+        dimensions: { width: width - 16, height: 12, depth: 48 },
+        position: { x: 8, y: Math.max(0, plinthHeight - 12), z: depth + 4 },
+        materialId: "mat_metal_chrome",
+      });
+
+      // Architectural Top Pelmet / Fascia Cover + Left/Right Side End-Caps (Üstü Kapalı / Alın Kapamalı Sistem!)
+      if (mountKind === "top_hung_pelmet") {
+        const fasciaH = 62;
+        const overhangZ = 60;
+        components.push({
+          id: `${module.id}_sliding_pelmet_fascia`,
+          role: "carcass_top",
+          label: "Sürgü Üst Alın Kapama Bandı (Gizli Ray Valansı)",
+          dimensions: { width, height: fasciaH, depth: T },
+          position: { x: 0, y: height - 18, z: depth + overhangZ - T },
+          materialId: pelmetMatId,
+          isFrontFacing: true,
+          isManufacturablePanel: true,
+          thicknessAxis: "z",
+        });
+        components.push({
+          id: `${module.id}_sliding_pelmet_cap_top`,
+          role: "carcass_top",
+          label: "Sürgü Üst Ray Toz Kapama Kepi",
+          dimensions: { width, height: T, depth: overhangZ },
+          position: { x: 0, y: height + fasciaH - 18, z: depth },
+          materialId: pelmetMatId,
+          isManufacturablePanel: true,
+          thicknessAxis: "y",
+        });
+        [0, width - T].forEach((endX, sSide) => {
+          components.push({
+            id: `${module.id}_sliding_pelmet_end_${sSide}`,
+            role: "carcass_side_left",
+            label: `Sürgü Üst Valans ${sSide === 0 ? "Sol" : "Sağ"} Yan Kapama`,
+            dimensions: { width: T, height: fasciaH, depth: overhangZ - T },
+            position: { x: endX, y: height - 18, z: depth },
+            materialId: pelmetMatId,
+            isManufacturablePanel: true,
+            thicknessAxis: "x",
+          });
+        });
+      }
+    }
+  }
+
   // Explicit motion transforms are consumed identically by both renderers and 2D.
   const fronts = components.filter(c => c.role === "door_left" || c.role === "door_right" || c.role === "drawer_front");
   for (const front of fronts) {
@@ -1989,8 +2324,17 @@ export function generateModuleGeometry(
         z: front.position.z + (topPivot ? 0 : front.dimensions.depth),
       };
     }
-    if (front.role === "drawer_front" && bay.drawers.find(d => `${d.id}_front` === front.id)?.isInternal) continue;
-    const category = bay.door.handleCategory ?? (bay.door.handleType === "none" || bay.door.handleType === "push_to_open" ? "handleless_plain" : "bar_handle");
+    if (front.role === "drawer_front" && bay.drawers.find(d => `${d.id}_front` === front.id)?.isInternal) {
+      front.isInternalDrawer = true;
+      continue;
+    }
+    const isRearSlidingLeaf = front.id.includes("_sliding_rear");
+    const rawCategory =
+      bay.door.handleCategory ??
+      (bay.door.handleType === "none" || bay.door.handleType === "push_to_open"
+        ? "handleless_plain"
+        : "bar_handle");
+    const category = isRearSlidingLeaf ? "recessed_grip" : rawCategory;
     components.push(
       ...generateHandleGeometry(front, category, {
         moduleCategory: module.category,

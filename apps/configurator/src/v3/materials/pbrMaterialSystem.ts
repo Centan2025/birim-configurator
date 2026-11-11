@@ -5,6 +5,7 @@ import { markSharedMaterial, markSharedTexture } from "./webglResourceGuard";
 interface CachedTextureSet {
   colorMap?: THREE.CanvasTexture;
   roughnessMap?: THREE.CanvasTexture;
+  normalMap?: THREE.CanvasTexture;
   bumpMap?: THREE.CanvasTexture;
 }
 
@@ -12,10 +13,6 @@ const textureCache = new Map<string, CachedTextureSet>();
 const rotatedTexCache = new Map<string, THREE.CanvasTexture>();
 const pbrMaterialCache = new Map<string, THREE.MeshPhysicalMaterial>();
 
-/**
- * Deterministic pseudo-random noise helpers for realistic rift-cut / quarter-sawn
- * architectural wood fibers, medullary rays, pores, and honed stone veining.
- */
 function fract(x: number): number {
   return x - Math.floor(x);
 }
@@ -24,30 +21,48 @@ function hash2D(x: number, y: number): number {
   return fract(Math.sin(x * 127.1 + y * 311.7) * 43758.5453123);
 }
 
-function smoothNoise(x: number, y: number): number {
+/**
+ * Periodic seamless value noise so tileable textures wrap across [0..period] with zero seam lines.
+ */
+function periodicNoise(x: number, y: number, periodX: number, periodY: number): number {
+  const px = Math.max(1, Math.round(periodX));
+  const py = Math.max(1, Math.round(periodY));
   const ix = Math.floor(x);
   const iy = Math.floor(y);
   const fx = x - ix;
   const fy = y - iy;
 
+  const x0 = ((ix % px) + px) % px;
+  const x1 = (x0 + 1) % px;
+  const y0 = ((iy % py) + py) % py;
+  const y1 = (y0 + 1) % py;
+
   const u = fx * fx * (3.0 - 2.0 * fx);
   const v = fy * fy * (3.0 - 2.0 * fy);
 
-  const a = hash2D(ix, iy);
-  const b = hash2D(ix + 1, iy);
-  const c = hash2D(ix, iy + 1);
-  const d = hash2D(ix + 1, iy + 1);
+  const a = hash2D(x0, y0);
+  const b = hash2D(x1, y0);
+  const c = hash2D(x0, y1);
+  const d = hash2D(x1, y1);
 
   return a * (1 - u) * (1 - v) + b * u * (1 - v) + c * (1 - u) * v + d * u * v;
 }
 
-function fbm(x: number, y: number, octaves = 4): number {
+function periodicFbm(
+  nx: number,
+  ny: number,
+  baseFreqX: number,
+  baseFreqY: number,
+  octaves = 4
+): number {
   let val = 0;
   let amp = 0.5;
-  let freq = 1;
+  let fx = baseFreqX;
+  let fy = baseFreqY;
   for (let i = 0; i < octaves; i++) {
-    val += amp * smoothNoise(x * freq, y * freq);
-    freq *= 2.03;
+    val += amp * periodicNoise(nx * fx, ny * fy, fx, fy);
+    fx *= 2;
+    fy *= 2;
     amp *= 0.5;
   }
   return val;
@@ -65,9 +80,71 @@ function clampByte(v: number): number {
 }
 
 /**
- * Generates seamless, non-periodic Rift-Cut European Oak / American Walnut Veneer,
- * Silk-Matte Supramat micro-roughness, or Honed Sintered Stone CanvasTextures once
- * and caches them permanently on GPU.
+ * Converts a seamless [0..1] heightfield into a true RGB Tangent-Space Normal Map via 3x3 Sobel gradients.
+ */
+function buildNormalMapFromHeightField(
+  heights: Float32Array,
+  W: number,
+  H: number,
+  strength: number,
+  repeatX = 1,
+  repeatY = 1
+): THREE.CanvasTexture {
+  const nCanvas = document.createElement("canvas");
+  nCanvas.width = W;
+  nCanvas.height = H;
+  const nCtx = nCanvas.getContext("2d")!;
+  const nImg = nCtx.createImageData(W, H);
+
+  const sample = (x: number, y: number): number => {
+    const wx = ((x % W) + W) % W;
+    const wy = ((y % H) + H) % H;
+    return heights[wy * W + wx];
+  };
+
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const tl = sample(x - 1, y - 1);
+      const t = sample(x, y - 1);
+      const tr = sample(x + 1, y - 1);
+      const l = sample(x - 1, y);
+      const r = sample(x + 1, y);
+      const bl = sample(x - 1, y + 1);
+      const b = sample(x, y + 1);
+      const br = sample(x + 1, y + 1);
+
+      const dX = tr + 2 * r + br - (tl + 2 * l + bl);
+      const dY = bl + 2 * b + br - (tl + 2 * t + tr);
+
+      let nx = -dX * strength;
+      let ny = -dY * strength;
+      let nz = 1.0;
+      const invLen = 1.0 / Math.sqrt(nx * nx + ny * ny + nz * nz);
+      nx *= invLen;
+      ny *= invLen;
+      nz *= invLen;
+
+      const idx = (y * W + x) * 4;
+      nImg.data[idx] = clampByte((nx * 0.5 + 0.5) * 255);
+      nImg.data[idx + 1] = clampByte((ny * 0.5 + 0.5) * 255);
+      nImg.data[idx + 2] = clampByte((nz * 0.5 + 0.5) * 255);
+      nImg.data[idx + 3] = 255;
+    }
+  }
+
+  nCtx.putImageData(nImg, 0, 0);
+  const normalTex = markSharedTexture(new THREE.CanvasTexture(nCanvas));
+  normalTex.wrapS = THREE.RepeatWrapping;
+  normalTex.wrapT = THREE.RepeatWrapping;
+  normalTex.repeat.set(repeatX, repeatY);
+  normalTex.anisotropy = 8;
+  normalTex.needsUpdate = true;
+  return normalTex;
+}
+
+/**
+ * Generates high-definition 3-Channel PBR Texture Suites (Albedo + Micro-Roughness + Sobel Tangent Normal Map)
+ * cached once per material on GPU.
  */
 function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet {
   const cached = textureCache.get(matDef.id);
@@ -77,66 +154,75 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     return {};
   }
 
-  // 1. ARCHITECTURAL RIFT-CUT / QUARTER-SAWN WOOD VENEERS & GRAINED LAMINATES
-  // Zero periodic sine-wave "zebra stripes" — pure organic longitudinal fiber bundles, micro-pores & warm heartwood drift.
+  // 1. HIGH-DEFINITION RIFT-CUT / CATHEDRAL ARCHITECTURAL WOOD VENEERS (768x768 3-Map PBR)
   if (matDef.category === "wood" || (matDef.category === "laminate" && matDef.hasGrain)) {
-    const W = 512;
-    const H = 512;
+    const W = 768;
+    const H = 768;
     const colorCanvas = document.createElement("canvas");
     colorCanvas.width = W;
     colorCanvas.height = H;
     const cCtx = colorCanvas.getContext("2d")!;
 
-    const bumpCanvas = document.createElement("canvas");
-    bumpCanvas.width = W;
-    bumpCanvas.height = H;
-    const bCtx = bumpCanvas.getContext("2d")!;
+    const roughCanvas = document.createElement("canvas");
+    roughCanvas.width = W;
+    roughCanvas.height = H;
+    const rCtx = roughCanvas.getContext("2d")!;
 
     const cImg = cCtx.createImageData(W, H);
-    const bImg = bCtx.createImageData(W, H);
+    const rImg = rCtx.createImageData(W, H);
+    const heightField = new Float32Array(W * H);
 
     const idLow = matDef.id.toLowerCase();
     const isWalnut = idLow.includes("walnut") || idLow.includes("ceviz");
     const isSmoked = idLow.includes("smoked") || idLow.includes("fume");
-    const [hr, hg, hb] = hexToRgb(
-      matDef.colorHex || (isWalnut ? "#684936" : isSmoked ? "#4a3b31" : "#c8a982")
-    );
+    const isNaturalOak = idLow.includes("oak") || idLow.includes("mese");
+    // Rich warm golden-honey European Rift-Cut Oak (#c38d52) & deep American Walnut (#5e402d) matching studio showroom reference
+    const calibratedWoodHex = isWalnut
+      ? "#5e402d"
+      : isSmoked
+      ? "#46372c"
+      : isNaturalOak
+      ? "#c38d52"
+      : matDef.colorHex || "#c38d52";
+    const [hr, hg, hb] = hexToRgb(calibratedWoodHex);
 
-    // Tileable periodic domain wrap helper via 2-angle blend along X/Y
     for (let y = 0; y < H; y++) {
       const ny = y / H;
       for (let x = 0; x < W; x++) {
         const nx = x / W;
 
-        // Gentle organic lateral fiber meander (keeps grain natural, never ruler-straight or zebra-striped)
-        const meander = (fbm(nx * 3.2 + 5.1, ny * 1.4 + 2.3, 3) - 0.5) * 0.14;
-        const ux = nx + meander;
+        // Pure longitudinal rift-cut fiber meander (zero horizontal banding)
+        const meander = (periodicFbm(nx, ny, 3, 1, 3) - 0.5) * 0.09;
+        const ux = fract(nx + meander);
+        const uy = ny;
 
-        // Multi-scale rift-cut longitudinal wood fiber bands (stretched 14x vertically along Y)
-        const broadTone = fbm(ux * 5.5 + 1.7, ny * 0.85 + 0.4, 3); // soft heartwood/sapwood warmth
-        const mediumFibers = fbm(ux * (isWalnut ? 22.0 : 28.0) + 3.4, ny * 2.2, 4);
-        const fineFibers = smoothNoise(ux * 78.0 + 7.2, ny * 6.5);
+        const broadHeartwood = periodicFbm(ux, uy, 4, 1, 3);
+        const mediumFibers = periodicFbm(ux, uy, isWalnut ? 20 : 26, 2, 4);
+        const fineGrain = periodicNoise(ux * 84, uy * 8, 84, 8);
 
-        // Open-pore wood vessels (tiny dark recessed vertical capillaries characteristic of real oak & walnut)
-        const poreField = smoothNoise(ux * 155.0 + 11.3, ny * 24.0 + 4.1);
-        const poreDepth = poreField > 0.79 ? Math.min(1, (poreField - 0.79) * 4.2) : 0;
+        // Open-pore longitudinal wood vessels (characteristic recessed capillaries of European Oak & American Walnut)
+        const poreNoise = periodicNoise(ux * 168 + 0.37, uy * 28 + 0.19, 168, 28);
+        const poreDepth = poreNoise > 0.77 ? Math.min(1, (poreNoise - 0.77) * 4.4) : 0;
 
-        // Delicate quarter-sawn medullary fleck shimmer on Oak
-        const rayShimmer = !isWalnut
-          ? Math.max(0, smoothNoise(ux * 9.0 + 19.0, ny * 46.0) - 0.74) * 0.9
+        // Delicate quarter-sawn silver medullary ray shimmer on Oak
+        const medullaryRay = !isWalnut
+          ? Math.max(0, periodicNoise(ux * 10 + 0.61, uy * 52, 10, 52) - 0.75) * 0.95
           : 0;
 
-        // Subtle, refined architectural contrast (around +-9% luminance modulation — calm gallery luxury)
-        const fiberDelta =
-          (broadTone - 0.5) * (isWalnut ? 0.22 : 0.16) +
-          (mediumFibers - 0.5) * (isWalnut ? 0.18 : 0.14) +
-          (fineFibers - 0.5) * 0.06 +
-          rayShimmer * 0.07 -
-          poreDepth * (isWalnut ? 0.16 : 0.13);
+        // Organic non-periodic latewood fiber density (zero periodic sine stripes)
+        const latewoodBand = periodicFbm(ux + 0.41, uy, isWalnut ? 10 : 14, 1, 3);
 
-        const r = hr * (1 + fiberDelta * 0.96);
-        const g = hg * (1 + fiberDelta * 0.99);
-        const b = hb * (1 + fiberDelta * 1.05);
+        const fiberDelta =
+          (broadHeartwood - 0.5) * (isWalnut ? 0.24 : 0.21) +
+          (mediumFibers - 0.5) * (isWalnut ? 0.21 : 0.18) +
+          (latewoodBand - 0.5) * (isWalnut ? 0.13 : 0.11) +
+          (fineGrain - 0.5) * 0.065 +
+          medullaryRay * 0.08 -
+          poreDepth * (isWalnut ? 0.21 : 0.18);
+
+        const r = hr * (1 + fiberDelta * 1.04);
+        const g = hg * (1 + fiberDelta * 0.98);
+        const b = hb * (1 + fiberDelta * 0.9);
 
         const idx = (y * W + x) * 4;
         cImg.data[idx] = clampByte(r);
@@ -144,56 +230,77 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
         cImg.data[idx + 2] = clampByte(b);
         cImg.data[idx + 3] = 255;
 
-        // Micro-bump & roughness map: wood pores are slightly recessed & matte; latewood fibers satin-smooth
-        const roughVal = clampByte(152 + (mediumFibers - 0.5) * 28 + poreDepth * 58 - rayShimmer * 18);
-        bImg.data[idx] = roughVal;
-        bImg.data[idx + 1] = roughVal;
-        bImg.data[idx + 2] = roughVal;
-        bImg.data[idx + 3] = 255;
+        // Physical Roughness Map: open pores are recessed & matte (high roughness); latewood ridges are satin-smooth
+        const roughByte = clampByte(
+          126 + (mediumFibers - 0.5) * 32 + poreDepth * 82 - (latewoodBand - 0.5) * 20 - medullaryRay * 22
+        );
+        rImg.data[idx] = roughByte;
+        rImg.data[idx + 1] = roughByte;
+        rImg.data[idx + 2] = roughByte;
+        rImg.data[idx + 3] = 255;
+
+        // Physical Micro-Heightfield for Sobel Tangent Normal Map
+        heightField[y * W + x] =
+          0.55 +
+          (mediumFibers - 0.5) * 0.22 +
+          (fineGrain - 0.5) * 0.09 +
+          (latewoodBand - 0.5) * 0.1 -
+          poreDepth * 0.42;
       }
     }
 
     cCtx.putImageData(cImg, 0, 0);
-    bCtx.putImageData(bImg, 0, 0);
+    rCtx.putImageData(rImg, 0, 0);
 
     const colorMap = markSharedTexture(new THREE.CanvasTexture(colorCanvas));
     colorMap.wrapS = THREE.RepeatWrapping;
     colorMap.wrapT = THREE.RepeatWrapping;
-    colorMap.repeat.set(1.15, 1.65);
     colorMap.colorSpace = THREE.SRGBColorSpace;
-    colorMap.anisotropy = 4;
+    colorMap.anisotropy = 8;
     colorMap.needsUpdate = true;
 
-    const bumpMap = markSharedTexture(new THREE.CanvasTexture(bumpCanvas));
-    bumpMap.wrapS = THREE.RepeatWrapping;
-    bumpMap.wrapT = THREE.RepeatWrapping;
-    bumpMap.repeat.set(1.15, 1.65);
-    bumpMap.anisotropy = 4;
-    bumpMap.needsUpdate = true;
+    const roughnessMap = markSharedTexture(new THREE.CanvasTexture(roughCanvas));
+    roughnessMap.wrapS = THREE.RepeatWrapping;
+    roughnessMap.wrapT = THREE.RepeatWrapping;
+    roughnessMap.anisotropy = 8;
+    roughnessMap.needsUpdate = true;
 
-    const set: CachedTextureSet = { colorMap, bumpMap, roughnessMap: bumpMap };
+    const normalMap = buildNormalMapFromHeightField(heightField, W, H, 1.85, 1, 1);
+
+    const set: CachedTextureSet = {
+      colorMap,
+      roughnessMap,
+      normalMap,
+      bumpMap: roughnessMap,
+    };
     textureCache.set(matDef.id, set);
     return set;
   }
 
-  // 2. SILK MATTE LACQUER & SUPRAMAT MELAMINE (Ultra-fine architectural micro-velvet roughness)
-  if (matDef.category === "lacquer" || matDef.category === "laminate") {
-    const S = 128;
+  // 2. BRUSHED ARCHITECTURAL METALS (Anodized Black, Brushed Brass, Inox, Anthracite)
+  if (matDef.category === "metal") {
+    const S = 256;
     const roughCanvas = document.createElement("canvas");
     roughCanvas.width = S;
     roughCanvas.height = S;
     const rCtx = roughCanvas.getContext("2d")!;
     const rImg = rCtx.createImageData(S, S);
+    const heightField = new Float32Array(S * S);
 
     for (let y = 0; y < S; y++) {
+      const ny = y / S;
       for (let x = 0; x < S; x++) {
-        const n = hash2D(x * 0.9, y * 0.9);
-        const v = Math.round(206 + n * 18);
+        const nx = x / S;
+        // Directional fine linear brushing along Y
+        const brush = periodicNoise(nx * 128, ny * 6, 128, 6);
+        const micro = hash2D(x * 0.8, y * 0.15);
         const idx = (y * S + x) * 4;
-        rImg.data[idx] = v;
-        rImg.data[idx + 1] = v;
-        rImg.data[idx + 2] = v;
+        const rv = clampByte(138 + (brush - 0.5) * 38 + (micro - 0.5) * 16);
+        rImg.data[idx] = rv;
+        rImg.data[idx + 1] = rv;
+        rImg.data[idx + 2] = rv;
         rImg.data[idx + 3] = 255;
+        heightField[y * S + x] = 0.5 + (brush - 0.5) * 0.25 + (micro - 0.5) * 0.1;
       }
     }
     rCtx.putImageData(rImg, 0, 0);
@@ -201,23 +308,73 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     const roughnessMap = markSharedTexture(new THREE.CanvasTexture(roughCanvas));
     roughnessMap.wrapS = THREE.RepeatWrapping;
     roughnessMap.wrapT = THREE.RepeatWrapping;
-    roughnessMap.repeat.set(3, 3);
+    roughnessMap.anisotropy = 8;
     roughnessMap.needsUpdate = true;
 
-    const set: CachedTextureSet = { roughnessMap };
+    const normalMap = buildNormalMapFromHeightField(heightField, S, S, 0.9, 1, 1);
+    const set: CachedTextureSet = { roughnessMap, normalMap };
     textureCache.set(matDef.id, set);
     return set;
   }
 
-  // 3. NEOLITH SINTERED STONE, DEKTON, BELENCO, ÇİMSTONE & HONED MARBLE VEINING
+  // 3. SILK MATTE ITALIAN LACQUER & SUPRAMAT MELAMINE (Micro-velvet roughness + subtle sprayed lacquer skin normal)
+  if (matDef.category === "lacquer" || matDef.category === "laminate") {
+    const S = 256;
+    const roughCanvas = document.createElement("canvas");
+    roughCanvas.width = S;
+    roughCanvas.height = S;
+    const rCtx = roughCanvas.getContext("2d")!;
+    const rImg = rCtx.createImageData(S, S);
+    const heightField = new Float32Array(S * S);
+
+    for (let y = 0; y < S; y++) {
+      const ny = y / S;
+      for (let x = 0; x < S; x++) {
+        const nx = x / S;
+        const softSkin = periodicFbm(nx, ny, 12, 12, 3);
+        const fineVelvet = hash2D(x * 0.9, y * 0.9);
+        const v = clampByte(192 + (softSkin - 0.5) * 18 + (fineVelvet - 0.5) * 12);
+        const idx = (y * S + x) * 4;
+        rImg.data[idx] = v;
+        rImg.data[idx + 1] = v;
+        rImg.data[idx + 2] = v;
+        rImg.data[idx + 3] = 255;
+        heightField[y * S + x] = 0.5 + (softSkin - 0.5) * 0.12 + (fineVelvet - 0.5) * 0.04;
+      }
+    }
+    rCtx.putImageData(rImg, 0, 0);
+
+    const roughnessMap = markSharedTexture(new THREE.CanvasTexture(roughCanvas));
+    roughnessMap.wrapS = THREE.RepeatWrapping;
+    roughnessMap.wrapT = THREE.RepeatWrapping;
+    roughnessMap.repeat.set(2.5, 2.5);
+    roughnessMap.anisotropy = 4;
+    roughnessMap.needsUpdate = true;
+
+    const normalMap = buildNormalMapFromHeightField(heightField, S, S, 0.35, 2.5, 2.5);
+
+    const set: CachedTextureSet = { roughnessMap, normalMap };
+    textureCache.set(matDef.id, set);
+    return set;
+  }
+
+  // 4. NEOLITH SINTERED STONE, DEKTON, BELENCO & HONED MARBLE VEINING (768x768 3-Map PBR)
   if (matDef.category === "stone") {
-    const W = 512;
-    const H = 512;
+    const W = 768;
+    const H = 768;
     const colorCanvas = document.createElement("canvas");
     colorCanvas.width = W;
     colorCanvas.height = H;
     const cCtx = colorCanvas.getContext("2d")!;
     const cImg = cCtx.createImageData(W, H);
+
+    const roughCanvas = document.createElement("canvas");
+    roughCanvas.width = W;
+    roughCanvas.height = H;
+    const rCtx = roughCanvas.getContext("2d")!;
+    const rImg = rCtx.createImageData(W, H);
+    const heightField = new Float32Array(W * H);
+
     const [br, bg, bb] = hexToRgb(matDef.colorHex || "#f4f3ef");
 
     const idLower = matDef.id.toLowerCase();
@@ -235,17 +392,17 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
       : [148, 146, 142];
 
     for (let y = 0; y < H; y++) {
+      const ny = y / H;
       for (let x = 0; x < W; x++) {
         const nx = x / W;
-        const ny = y / H;
-        const warp = fbm(nx * 4.2, ny * 4.2);
+        const warp = periodicFbm(nx, ny, 4, 4, 4);
         const vein1 = Math.pow(
-          Math.max(0, 1 - Math.abs(Math.sin((nx * 2.8 + ny * 2.0 + warp * 1.65) * Math.PI)) * 4.8),
+          Math.max(0, 1 - Math.abs(Math.sin((nx * 2.0 + ny * 2.0 + warp * 1.65) * Math.PI)) * 4.8),
           2.4
         );
         const vein2 =
           Math.pow(
-            Math.max(0, 1 - Math.abs(Math.sin((nx * 6.2 - ny * 3.8 + warp * 2.2) * Math.PI)) * 6.5),
+            Math.max(0, 1 - Math.abs(Math.sin((nx * 4.0 - ny * 4.0 + warp * 2.2) * Math.PI)) * 6.5),
             2.9
           ) * 0.55;
         const vFactor = Math.min(1, vein1 + vein2);
@@ -255,16 +412,35 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
         cImg.data[idx + 1] = clampByte(bg * (1 - vFactor * strength) + veinRgb[1] * vFactor * strength);
         cImg.data[idx + 2] = clampByte(bb * (1 - vFactor * strength) + veinRgb[2] * vFactor * strength);
         cImg.data[idx + 3] = 255;
+
+        const rv = clampByte(72 + warp * 26 + vFactor * 28);
+        rImg.data[idx] = rv;
+        rImg.data[idx + 1] = rv;
+        rImg.data[idx + 2] = rv;
+        rImg.data[idx + 3] = 255;
+
+        heightField[y * W + x] = 0.5 + (warp - 0.5) * 0.14 - vFactor * 0.08;
       }
     }
     cCtx.putImageData(cImg, 0, 0);
+    rCtx.putImageData(rImg, 0, 0);
+
     const colorMap = markSharedTexture(new THREE.CanvasTexture(colorCanvas));
     colorMap.wrapS = THREE.RepeatWrapping;
     colorMap.wrapT = THREE.RepeatWrapping;
     colorMap.colorSpace = THREE.SRGBColorSpace;
-    colorMap.anisotropy = 4;
+    colorMap.anisotropy = 8;
     colorMap.needsUpdate = true;
-    const set: CachedTextureSet = { colorMap };
+
+    const roughnessMap = markSharedTexture(new THREE.CanvasTexture(roughCanvas));
+    roughnessMap.wrapS = THREE.RepeatWrapping;
+    roughnessMap.wrapT = THREE.RepeatWrapping;
+    roughnessMap.anisotropy = 8;
+    roughnessMap.needsUpdate = true;
+
+    const normalMap = buildNormalMapFromHeightField(heightField, W, H, 0.75, 1, 1);
+
+    const set: CachedTextureSet = { colorMap, roughnessMap, normalMap };
     textureCache.set(matDef.id, set);
     return set;
   }
@@ -273,7 +449,9 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
 }
 
 const floorTextureCache = new Map<string, THREE.CanvasTexture>();
+const floorNormalCache = new Map<string, THREE.CanvasTexture>();
 const wallTextureCache = new Map<string, THREE.CanvasTexture>();
+const wallNormalCache = new Map<string, THREE.CanvasTexture>();
 
 export type ArchitecturalWallTone =
   | "brut_concrete"
@@ -282,9 +460,8 @@ export type ArchitecturalWallTone =
   | "soft_plaster";
 
 /**
- * Procedural Birim Architectural Fair-Faced Concrete ("Brüt Beton") & Gallery Wall Texture.
- * Provides mid-tone mineral depth and subtle architectural formwork joints so both bright white
- * and dark walnut/anthracite cabinets pop forward with unmistakable 3D separation.
+ * Procedural Birim Architectural Fair-Faced Concrete ("Brüt Beton") & Micro-Troweled Gallery Wall Texture
+ * with paired Sobel Tangent Normal Map for subtle formwork joints and mineral plaster relief.
  */
 export function getArchitecturalWallTexture(
   tone: ArchitecturalWallTone
@@ -299,12 +476,13 @@ export function getArchitecturalWallTexture(
   canvas.height = S;
   const ctx = canvas.getContext("2d")!;
   const img = ctx.createImageData(S, S);
+  const heightField = new Float32Array(S * S);
 
   const palette: Record<ArchitecturalWallTone, [number, number, number]> = {
-    brut_concrete: [158, 153, 145],     // Mid-tone architectural concrete (~58% luminance: high contrast vs white AND dark wood!)
-    anthracite_gallery: [68, 67, 65],   // Dramatic dark gallery charcoal (makes white/oak/cashmere glow!)
-    warm_taupe: [172, 163, 150],        // Warm greige stone
-    soft_plaster: [222, 217, 208],      // Soft limestone plaster (for very dark cabinets)
+    brut_concrete: [132, 127, 120],
+    anthracite_gallery: [56, 55, 53],
+    warm_taupe: [152, 143, 131],
+    soft_plaster: [204, 199, 190],
   };
   const [br, bg, bb] = palette[tone];
   const isConcrete = tone === "brut_concrete" || tone === "anthracite_gallery";
@@ -313,17 +491,31 @@ export function getArchitecturalWallTexture(
     const ny = y / S;
     for (let x = 0; x < S; x++) {
       const nx = x / S;
-      const cloud = (fbm(nx * 4.5 + 1.3, ny * 4.5 + 2.7, 4) - 0.5) * (isConcrete ? 18 : 10);
-      const fineMineral = (hash2D(x * 0.7, y * 0.7) - 0.5) * 6;
-      // Subtle vertical architectural concrete formwork seam every 256px
+      const cloud = (periodicFbm(nx, ny, 4, 4, 4) - 0.5) * (isConcrete ? 20 : 11);
+      const trowel = (periodicFbm(nx + 0.3, ny + 0.7, 12, 8, 3) - 0.5) * (isConcrete ? 9 : 6);
+      const fineMineral = (hash2D(x * 0.7, y * 0.7) - 0.5) * 5;
       const isFormworkJoint = isConcrete && (x % 256 === 0 || y % 256 === 0);
-      const seamDelta = isFormworkJoint ? -11 : 0;
+
+      // Subtle architectural concrete tie-cone dimples at panel centers
+      const dxTie = ((x + 128) % 256) - 128;
+      const dyTie = ((y + 128) % 256) - 128;
+      const distTie = Math.sqrt(dxTie * dxTie + dyTie * dyTie);
+      const isTieCone = isConcrete && distTie < 3.6;
+
+      const seamDelta = isFormworkJoint ? -13 : isTieCone ? -18 : 0;
 
       const idx = (y * S + x) * 4;
-      img.data[idx] = clampByte(br + cloud + fineMineral + seamDelta);
-      img.data[idx + 1] = clampByte(bg + cloud + fineMineral + seamDelta);
-      img.data[idx + 2] = clampByte(bb + cloud + fineMineral + seamDelta);
+      img.data[idx] = clampByte(br + cloud + trowel + fineMineral + seamDelta);
+      img.data[idx + 1] = clampByte(bg + cloud + trowel + fineMineral + seamDelta);
+      img.data[idx + 2] = clampByte(bb + cloud + trowel + fineMineral + seamDelta);
       img.data[idx + 3] = 255;
+
+      heightField[y * S + x] =
+        0.5 +
+        cloud * 0.008 +
+        trowel * 0.01 -
+        (isFormworkJoint ? 0.32 : 0) -
+        (isTieCone ? 0.4 : 0);
     }
   }
   ctx.putImageData(img, 0, 0);
@@ -331,12 +523,26 @@ export function getArchitecturalWallTexture(
   const tex = markSharedTexture(new THREE.CanvasTexture(canvas));
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(3.5, 2.2);
+  tex.repeat.set(3.2, 2.1);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
+  tex.anisotropy = 8;
   tex.needsUpdate = true;
   wallTextureCache.set(tone, tex);
+
+  const nTex = buildNormalMapFromHeightField(heightField, S, S, 1.35, 3.2, 2.1);
+  wallNormalCache.set(tone, nTex);
+
   return tex;
+}
+
+export function getArchitecturalWallNormalMap(
+  tone: ArchitecturalWallTone
+): THREE.CanvasTexture | null {
+  if (typeof document === "undefined") return null;
+  if (!wallNormalCache.has(tone)) {
+    getArchitecturalWallTexture(tone);
+  }
+  return wallNormalCache.get(tone) || null;
 }
 
 export type ArchitecturalFloorStyle =
@@ -348,10 +554,6 @@ export type ArchitecturalFloorStyle =
   | "microcement"
   | "studio";
 
-/**
- * Calm, wide-format architectural gallery floor textures with subtle micro-bevel joints
- * so the furniture remains the visual focal point (zero harsh cartoon grids).
- */
 export function getArchitecturalFloorTexture(
   style: ArchitecturalFloorStyle
 ): THREE.CanvasTexture | null {
@@ -365,85 +567,111 @@ export function getArchitecturalFloorTexture(
   canvas.height = S;
   const ctx = canvas.getContext("2d")!;
   const img = ctx.createImageData(S, S);
+  const heightField = new Float32Array(S * S);
 
   for (let y = 0; y < S; y++) {
+    const ny = y / S;
     for (let x = 0; x < S; x++) {
+      const nx = x / S;
       const idx = (y * S + x) * 4;
       if (style === "oak_parquet" || style === "walnut_parquet") {
         const isWalnut = style === "walnut_parquet";
-        const plankRow = Math.floor(y / 85);
-        const plankX = (x + (plankRow % 2) * 192) % 384;
-        const plankY = y % 85;
+        const plankRow = Math.floor(y / 64);
+        const plankX = (x + (plankRow % 2) * 128) % 256;
+        const plankY = y % 64;
         const isMicroJoint = plankX === 0 || plankY === 0;
-        const plankSeed = hash2D(plankRow, Math.floor((x + (plankRow % 2) * 192) / 384));
+        const plankSeed = hash2D(plankRow, Math.floor((x + (plankRow % 2) * 128) / 256));
         const fiber =
-          (fbm((x / S) * 6, (y / S) * 42, 3) - 0.5) * 12 + (plankSeed - 0.5) * 8;
-        const baseR = isWalnut ? 136 : 216;
-        const baseG = isWalnut ? 108 : 202;
-        const baseB = isWalnut ? 86 : 182;
-        const seamDrop = isMicroJoint ? 16 : 0;
+          (periodicFbm(nx, ny, 8, 40, 3) - 0.5) * 14 + (plankSeed - 0.5) * 9;
+        const baseR = isWalnut ? 118 : 182;
+        const baseG = isWalnut ? 90 : 162;
+        const baseB = isWalnut ? 70 : 136;
+        const seamDrop = isMicroJoint ? 22 : 0;
         img.data[idx] = clampByte(baseR + fiber - seamDrop);
         img.data[idx + 1] = clampByte(baseG + fiber * 0.92 - seamDrop);
         img.data[idx + 2] = clampByte(baseB + fiber * 0.82 - seamDrop);
         img.data[idx + 3] = 255;
+        heightField[y * S + x] = 0.5 + fiber * 0.008 - (isMicroJoint ? 0.36 : 0);
       } else if (style === "herringbone_oak") {
-        const col = Math.floor(x / 85);
-        const diag = col % 2 === 0 ? (x + y) % 85 : (x - y + 512) % 85;
-        const isSeam = x % 85 === 0 || diag === 0;
-        const grain = (fbm((x / S) * 14, (y / S) * 14, 3) - 0.5) * 13;
-        const seamDrop = isSeam ? 18 : 0;
-        img.data[idx] = clampByte(202 + grain - seamDrop);
-        img.data[idx + 1] = clampByte(184 + grain * 0.92 - seamDrop);
-        img.data[idx + 2] = clampByte(158 + grain * 0.82 - seamDrop);
+        const col = Math.floor(x / 64);
+        const diag = col % 2 === 0 ? (x + y) % 64 : (x - y + 512) % 64;
+        const isSeam = x % 64 === 0 || diag === 0;
+        const plankId = Math.floor((col % 2 === 0 ? x + y : x - y + 512) / 64);
+        const plankTint = (hash2D(col, plankId) - 0.5) * 9;
+        const grain = (periodicFbm(nx, ny, 16, 16, 3) - 0.5) * 14 + plankTint;
+        const seamDrop = isSeam ? 28 : 0;
+        img.data[idx] = clampByte(178 + grain - seamDrop);
+        img.data[idx + 1] = clampByte(158 + grain * 0.92 - seamDrop);
+        img.data[idx + 2] = clampByte(132 + grain * 0.82 - seamDrop);
         img.data[idx + 3] = 255;
+        heightField[y * S + x] = 0.5 + grain * 0.007 - (isSeam ? 0.35 : 0);
       } else if (style === "neolith_calacatta") {
         const tileX = x % 256;
         const tileY = y % 256;
         const isGrout = tileX === 0 || tileY === 0;
-        const warp = fbm((x / S) * 3.5, (y / S) * 3.5, 3);
+        const warp = periodicFbm(nx, ny, 4, 4, 3);
         const vein = Math.pow(
-          Math.max(0, 1 - Math.abs(Math.sin(((x / S) * 2.5 + (y / S) * 1.8 + warp * 1.4) * Math.PI)) * 5.2),
+          Math.max(0, 1 - Math.abs(Math.sin((nx * 2.0 + ny * 2.0 + warp * 1.4) * Math.PI)) * 5.2),
           2.5
         );
-        img.data[idx] = isGrout ? 222 : clampByte(242 - vein * 28);
-        img.data[idx + 1] = isGrout ? 219 : clampByte(239 - vein * 30);
-        img.data[idx + 2] = isGrout ? 213 : clampByte(233 - vein * 34);
+        img.data[idx] = isGrout ? 214 : clampByte(240 - vein * 28);
+        img.data[idx + 1] = isGrout ? 211 : clampByte(237 - vein * 30);
+        img.data[idx + 2] = isGrout ? 205 : clampByte(231 - vein * 34);
         img.data[idx + 3] = 255;
+        heightField[y * S + x] = isGrout ? 0.2 : 0.5 - vein * 0.05;
       } else if (style === "microcement") {
-        const n = (fbm((x / S) * 5, (y / S) * 5, 4) - 0.5) * 10;
-        img.data[idx] = clampByte(229 + n);
-        img.data[idx + 1] = clampByte(225 + n);
-        img.data[idx + 2] = clampByte(218 + n);
+        const n = (periodicFbm(nx, ny, 6, 6, 4) - 0.5) * 12;
+        img.data[idx] = clampByte(224 + n);
+        img.data[idx + 1] = clampByte(220 + n);
+        img.data[idx + 2] = clampByte(213 + n);
         img.data[idx + 3] = 255;
+        heightField[y * S + x] = 0.5 + n * 0.01;
       } else {
-        // Honed Roman Travertine large architectural slabs
         const tileX = x % 256;
         const tileY = y % 256;
         const isGrout = tileX === 0 || tileY === 0;
-        const n = (fbm((x / S) * 7, (y / S) * 3.5, 3) - 0.5) * 12;
-        img.data[idx] = isGrout ? 208 : clampByte(228 + n);
-        img.data[idx + 1] = isGrout ? 202 : clampByte(222 + n);
-        img.data[idx + 2] = isGrout ? 192 : clampByte(210 + n);
+        const n = (periodicFbm(nx, ny, 8, 4, 3) - 0.5) * 13;
+        img.data[idx] = isGrout ? 202 : clampByte(226 + n);
+        img.data[idx + 1] = isGrout ? 196 : clampByte(220 + n);
+        img.data[idx + 2] = isGrout ? 186 : clampByte(208 + n);
         img.data[idx + 3] = 255;
+        heightField[y * S + x] = isGrout ? 0.22 : 0.5 + n * 0.008;
       }
     }
   }
   ctx.putImageData(img, 0, 0);
+  const rep = style === "microcement" ? 3 : 4.5;
   const tex = markSharedTexture(new THREE.CanvasTexture(canvas));
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(style === "microcement" ? 3 : 4.5, style === "microcement" ? 3 : 4.5);
+  tex.repeat.set(rep, rep);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
+  tex.anisotropy = 8;
   tex.needsUpdate = true;
   floorTextureCache.set(style, tex);
+
+  const nTex = buildNormalMapFromHeightField(heightField, S, S, 1.1, rep, rep);
+  floorNormalCache.set(style, nTex);
+
   return tex;
+}
+
+export function getArchitecturalFloorNormalMap(
+  style: ArchitecturalFloorStyle
+): THREE.CanvasTexture | null {
+  if (typeof document === "undefined" || style === "studio") return null;
+  if (!floorNormalCache.has(style)) {
+    getArchitecturalFloorTexture(style);
+  }
+  return floorNormalCache.get(style) || null;
 }
 
 let cachedStudioEnvTexture: THREE.DataTexture | null = null;
 const pmremTargetByRenderer = new WeakMap<THREE.WebGLRenderer, THREE.WebGLRenderTarget>();
 
-export function disposeRendererPmremEnvironment(renderer: THREE.WebGLRenderer | null | undefined): void {
+export function disposeRendererPmremEnvironment(
+  renderer: THREE.WebGLRenderer | null | undefined
+): void {
   if (!renderer) return;
   const target = pmremTargetByRenderer.get(renderer);
   if (target) {
@@ -453,10 +681,10 @@ export function disposeRendererPmremEnvironment(renderer: THREE.WebGLRenderer | 
 }
 
 /**
- * Generates an asymmetric Architectural Daylight Gallery PMREM environment map
- * (floor-to-ceiling north window key + soft skylight diffuser + warm limestone floor bounce)
- * so wood satin clearcoat, brushed hardware, Supramat lacquer, and smoked glass exhibit
- * genuine sculptural light-to-shadow modeling.
+ * High-Contrast Architectural Photography Studio HDRI Rig (PMREM IBL):
+ * - Dark gallery negative-fill enclosure ([0.16, 0.15, 0.14]) for luxury Fresnel contrast on glass, mirrors & lacquer
+ * - 4-Bay Floor-to-Ceiling North Daylight Window Wall with dark structural mullions (creates crisp architectural window reflections!)
+ * - Diffused overhead architectural softbox scrim + warm indirect travertine/oak floor & cove bounce
  */
 export function getStudioPmremEnvironment(renderer: THREE.WebGLRenderer): THREE.Texture {
   const existingTarget = pmremTargetByRenderer.get(renderer);
@@ -467,20 +695,27 @@ export function getStudioPmremEnvironment(renderer: THREE.WebGLRenderer): THREE.
 
     const envScene = new THREE.Scene();
 
-    // Calm gallery plaster enclosure (darker side opposite key window for crisp form contrast)
+    // Rich architectural charcoal-stone negative fill enclosure so glass & satin lacquer reflections never wash out
     const roomBox = new THREE.Mesh(
-      new THREE.BoxGeometry(38, 26, 38),
-      new THREE.MeshBasicMaterial({ color: new THREE.Color(0.62, 0.6, 0.57), side: THREE.BackSide })
+      new THREE.BoxGeometry(40, 28, 40),
+      new THREE.MeshBasicMaterial({
+        color: new THREE.Color(0.22, 0.21, 0.195),
+        side: THREE.BackSide,
+      })
     );
     envScene.add(roomBox);
 
-    // Warm travertine / oak floor bounce
+    // Warm oak / limestone floor bounce
     const floorBounce = new THREE.Mesh(
-      new THREE.PlaneGeometry(34, 34),
-      new THREE.MeshBasicMaterial({ color: new THREE.Color(0.86, 0.82, 0.75), side: THREE.DoubleSide })
+      new THREE.PlaneGeometry(36, 36),
+      new THREE.MeshBasicMaterial({
+        color: new THREE.Color(0.68, 0.59, 0.48),
+        side: THREE.DoubleSide,
+        toneMapped: false,
+      })
     );
     floorBounce.rotation.x = -Math.PI / 2;
-    floorBounce.position.set(0, -12.2, 0);
+    floorBounce.position.set(0, -13.2, 0);
     envScene.add(floorBounce);
 
     const addLightformer = (
@@ -503,16 +738,39 @@ export function getStudioPmremEnvironment(renderer: THREE.WebGLRenderer): THREE.
       envScene.add(m);
     };
 
-    // Overhead gallery skylight diffuser
-    addLightformer(20, 14, [2, 12.4, 3], [Math.PI / 2, 0, 0], [2.9, 2.86, 2.78]);
-    // Tall floor-to-ceiling architectural window key light (right-front)
-    addLightformer(14, 20, [18.0, 2.5, 7], [0, -Math.PI / 2, 0], [4.6, 4.45, 4.2]);
-    // Subtle opposite fill wall reflection (left)
-    addLightformer(12, 16, [-18.0, 2.0, 4], [0, Math.PI / 2, 0], [1.65, 1.62, 1.58]);
-    // Soft front studio fill strip for brushed metal handles & glass reflections
-    addLightformer(18, 6, [0, 6.5, 18.2], [0, Math.PI, 0], [2.4, 2.36, 2.3]);
+    // 1. 4-Bay Floor-to-Ceiling North Daylight Window Bank (Right-Front: creates real mullion reflections on glass & lacquer!)
+    const bayZPositions = [-4.5, 1.5, 7.5, 13.5];
+    bayZPositions.forEach((bz, idx) => {
+      const skyBoost = 1 - idx * 0.05;
+      // Upper sky pane
+      addLightformer(
+        4.9,
+        10.5,
+        [19.2, 6.2, bz],
+        [0, -Math.PI / 2, 0],
+        [6.4 * skyBoost, 6.18 * skyBoost, 5.85 * skyBoost]
+      );
+      // Lower garden/horizon pane
+      addLightformer(
+        4.9,
+        9.5,
+        [19.2, -4.4, bz],
+        [0, -Math.PI / 2, 0],
+        [3.9 * skyBoost, 3.72 * skyBoost, 3.45 * skyBoost]
+      );
+    });
 
-    const renderTarget = pmremGenerator.fromScene(envScene, 0.04);
+    // 2. Overhead Architectural Softbox Ceiling Scrim
+    addLightformer(18, 14, [1.5, 13.4, 4], [Math.PI / 2, 0, 0], [3.35, 3.28, 3.16]);
+
+    // 3. Warm Opposite Plaster Bounce Wall + Warm 3000K Cove Accent (Left)
+    addLightformer(16, 18, [-19.2, 1.5, 4], [0, Math.PI / 2, 0], [1.45, 1.35, 1.22]);
+    addLightformer(14, 1.8, [-18.8, 10.5, 5], [0, Math.PI / 2, 0], [3.1, 2.35, 1.55]);
+
+    // 4. Subtle Front Fill Strip for Handle & Bevel Edge Specular Glints
+    addLightformer(20, 5.5, [-1.5, 5.8, 19.2], [0, Math.PI, 0], [2.45, 2.4, 2.32]);
+
+    const renderTarget = pmremGenerator.fromScene(envScene, 0.03);
     markSharedTexture(renderTarget.texture);
     pmremTargetByRenderer.set(renderer, renderTarget);
 
@@ -545,13 +803,13 @@ export function getStudioEnvironmentTexture(): THREE.DataTexture {
       const softboxFill = Math.exp(-Math.pow((u - 0.78) * 5.0, 2) - Math.pow((v - 0.56) * 5.0, 2));
       const topSkylight = Math.exp(-Math.pow((v - 0.92) * 4.0, 2));
 
-      const skyR = 196 + softboxKey * 54 + softboxFill * 28 + topSkylight * 32;
-      const skyG = 193 + softboxKey * 52 + softboxFill * 27 + topSkylight * 31;
-      const skyB = 188 + softboxKey * 48 + softboxFill * 25 + topSkylight * 30;
+      const skyR = 186 + softboxKey * 66 + softboxFill * 30 + topSkylight * 36;
+      const skyG = 182 + softboxKey * 64 + softboxFill * 28 + topSkylight * 35;
+      const skyB = 176 + softboxKey * 58 + softboxFill * 26 + topSkylight * 33;
 
-      const groundR = 152;
-      const groundG = 145;
-      const groundB = 135;
+      const groundR = 132;
+      const groundG = 124;
+      const groundB = 112;
 
       const blend = Math.pow(v, 0.78);
       const r = clampByte(groundR * (1 - blend) + skyR * blend);
@@ -575,6 +833,25 @@ export function getStudioEnvironmentTexture(): THREE.DataTexture {
   return tex;
 }
 
+function getRotatedClone(
+  baseTex: THREE.CanvasTexture | undefined,
+  cacheKey: string,
+  rotRad: number
+): THREE.CanvasTexture | null {
+  if (!baseTex) return null;
+  if (rotRad === 0) return baseTex;
+  let rot = rotatedTexCache.get(cacheKey);
+  if (!rot) {
+    rot = baseTex.clone();
+    rot.center.set(0.5, 0.5);
+    rot.rotation = rotRad;
+    rot.needsUpdate = true;
+    markSharedTexture(rot);
+    rotatedTexCache.set(cacheKey, rot);
+  }
+  return rot;
+}
+
 /**
  * Returns a calibrated, GPU-cached `THREE.MeshPhysicalMaterial` for any Birim material definition.
  */
@@ -590,34 +867,63 @@ export function getV3PbrMaterial(
   if (existing) return existing;
 
   const emissive = isSelected ? new THREE.Color(0x1d4ed8) : new THREE.Color(0x000000);
-  const emissiveIntensity = isSelected ? 0.24 : 0.0;
+  const emissiveIntensity = isSelected ? 0.18 : 0.0;
 
-  // 0. Warm 3000K Recessed LED Channel Emissive Material
-  if (matDef.id === "mat_led_warm_3000k") {
+  // 0. Multi-Kelvin Architectural Recessed LED Diffuser Materials (2700K / 3000K / 4000K)
+  if (matDef.id.startsWith("mat_led_")) {
+    const is2700 = matDef.id.includes("2700");
+    const is4000 = matDef.id.includes("4000");
+    const emissiveHex = is2700 ? "#ffb04a" : is4000 ? "#fff1d8" : "#ffce70";
+    const coreHex = is2700 ? "#ffe4b8" : is4000 ? "#ffffff" : "#fff2d6";
     const ledMat = new THREE.MeshPhysicalMaterial({
-      color: new THREE.Color("#fff9e6"),
-      emissive: new THREE.Color("#ffbe3d"),
-      emissiveIntensity: isSelected ? 2.2 : 1.75,
-      roughness: 0.12,
-      metalness: 0.05,
-      clearcoat: 0.85,
+      color: new THREE.Color(coreHex),
+      emissive: new THREE.Color(emissiveHex),
+      emissiveIntensity: isSelected ? 4.0 : 3.45,
+      roughness: 0.16,
+      metalness: 0.0,
+      envMapIntensity: 0.12,
+      clearcoat: 0.4,
     });
     markSharedMaterial(ledMat);
     pbrMaterialCache.set(key, ledMat);
     return ledMat;
   }
 
-  // 1. Brushed Anodized Champagne / Satin Inox Hardware (Handles, Hanging Rails, Gola, Hinges)
+  // 1. Brushed Architectural Hardware (Honors Matte Black K019, Satin Inox K020, Brushed Brass K021, Anthracite K022!)
   if (isRailOrMetalFitting || matDef.category === "metal") {
+    const idLow = matDef.id.toLowerCase();
+    const isMatteBlack = idLow.includes("black") || idLow.includes("siyah");
+    const isBrass = idLow.includes("brass") || idLow.includes("pirinc") || idLow.includes("bronze");
+    const isAnthracite = idLow.includes("anthracite") || idLow.includes("antrasit");
+
+    const metalColor = isMatteBlack
+      ? "#1d1d1b"
+      : isBrass
+      ? "#bfa065"
+      : isAnthracite
+      ? "#3d3e42"
+      : matDef.category === "metal" && matDef.colorHex
+      ? matDef.colorHex
+      : "#d4cfc6";
+
+    const metalMaps = getOrCreateProceduralMaps({
+      ...matDef,
+      id: `metal_brush_${isMatteBlack ? "blk" : isBrass ? "brs" : isAnthracite ? "ant" : "inx"}`,
+      category: "metal",
+    });
+
     const mat = new THREE.MeshPhysicalMaterial({
-      color: new THREE.Color("#cfc9be"),
-      metalness: 0.88,
-      roughness: 0.24,
-      clearcoat: 0.35,
-      clearcoatRoughness: 0.2,
-      ior: 1.6,
-      reflectivity: 0.92,
-      envMapIntensity: 1.28,
+      color: new THREE.Color(metalColor),
+      metalness: isMatteBlack ? 0.72 : 0.92,
+      roughness: isMatteBlack ? 0.38 : isBrass ? 0.24 : 0.2,
+      roughnessMap: metalMaps.roughnessMap || null,
+      normalMap: metalMaps.normalMap || null,
+      normalScale: new THREE.Vector2(0.16, 0.16),
+      clearcoat: isMatteBlack ? 0.12 : 0.4,
+      clearcoatRoughness: 0.22,
+      ior: 1.65,
+      reflectivity: 0.95,
+      envMapIntensity: isMatteBlack ? 1.15 : 1.45,
       emissive,
       emissiveIntensity,
     });
@@ -626,21 +932,41 @@ export function getV3PbrMaterial(
     return mat;
   }
 
-  // 2. Architectural Smoked / Fluted Showcase Glass
+  // 2. Architectural Bronze / Silver Mirror
+  if (matDef.category === "mirror" || matDef.id.includes("mirror") || matDef.id.includes("ayna")) {
+    const isBronze = matDef.id.toLowerCase().includes("bronze") || matDef.id.toLowerCase().includes("bronz");
+    const mat = new THREE.MeshPhysicalMaterial({
+      color: new THREE.Color(isBronze ? "#cbb69e" : "#e6eaef"),
+      metalness: 0.98,
+      roughness: 0.025,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.02,
+      ior: 1.55,
+      reflectivity: 1.0,
+      envMapIntensity: 1.55,
+      emissive,
+      emissiveIntensity,
+    });
+    markSharedMaterial(mat);
+    pbrMaterialCache.set(key, mat);
+    return mat;
+  }
+
+  // 3. Architectural Smoked / Fluted Showcase Glass (Rimadesio-grade Fresnel reflections)
   if (matDef.category === "glass" || matDef.id.includes("glass")) {
     const mat = new THREE.MeshPhysicalMaterial({
-      color: new THREE.Color(matDef.colorHex || "#334155"),
-      metalness: 0.08,
-      roughness: 0.06,
-      transmission: 0.68,
+      color: new THREE.Color(matDef.colorHex || "#2d3748"),
+      metalness: 0.06,
+      roughness: 0.04,
+      transmission: 0.72,
       transparent: true,
-      opacity: 0.82,
+      opacity: 0.84,
       depthWrite: false,
       ior: 1.52,
-      reflectivity: 0.96,
+      reflectivity: 0.98,
       clearcoat: 1.0,
-      clearcoatRoughness: 0.04,
-      envMapIntensity: 1.38,
+      clearcoatRoughness: 0.03,
+      envMapIntensity: 1.65,
       emissive,
       emissiveIntensity,
     });
@@ -651,61 +977,43 @@ export function getV3PbrMaterial(
 
   const maps = getOrCreateProceduralMaps(matDef);
 
-  // 3. Natural Rift-Cut Wood Veneers (Oak & Walnut) with Two-Component Italian Satin Furniture Finish
+  // 4. Natural Rift-Cut Wood Veneers (Oak & Walnut) with 3-Map PBR (Albedo + Pore Roughness + Sobel Normal)
   if (matDef.category === "wood" || (matDef.category === "laminate" && matDef.hasGrain)) {
-    let colorTex = maps.colorMap || null;
-    let bumpTex = maps.bumpMap || null;
-    if (colorTex && grainDirection !== "lengthwise") {
-      const rotRad = grainDirection === "crosswise" ? Math.PI / 2 : Math.PI / 4;
-      const rotColorKey = `${matDef.id}_color_rot_${grainDirection}`;
-      let cachedRotColor = rotatedTexCache.get(rotColorKey);
-      if (!cachedRotColor) {
-        cachedRotColor = colorTex.clone();
-        cachedRotColor.center.set(0.5, 0.5);
-        cachedRotColor.rotation = rotRad;
-        cachedRotColor.needsUpdate = true;
-        markSharedTexture(cachedRotColor);
-        rotatedTexCache.set(rotColorKey, cachedRotColor);
-      }
-      colorTex = cachedRotColor;
-      if (bumpTex) {
-        const rotBumpKey = `${matDef.id}_bump_rot_${grainDirection}`;
-        let cachedRotBump = rotatedTexCache.get(rotBumpKey);
-        if (!cachedRotBump) {
-          cachedRotBump = bumpTex.clone();
-          cachedRotBump.center.set(0.5, 0.5);
-          cachedRotBump.rotation = rotRad;
-          cachedRotBump.needsUpdate = true;
-          markSharedTexture(cachedRotBump);
-          rotatedTexCache.set(rotBumpKey, cachedRotBump);
-        }
-        bumpTex = cachedRotBump;
-      }
-    }
+    const rotRad =
+      grainDirection === "lengthwise"
+        ? 0
+        : grainDirection === "crosswise"
+        ? Math.PI / 2
+        : Math.PI / 4;
+    const colorTex = getRotatedClone(maps.colorMap, `${matDef.id}_c_${grainDirection}`, rotRad);
+    const roughTex = getRotatedClone(maps.roughnessMap, `${matDef.id}_r_${grainDirection}`, rotRad);
+    const normTex = getRotatedClone(maps.normalMap, `${matDef.id}_n_${grainDirection}`, rotRad);
+
     const roughVal =
       surfaceFinishOverride === "gloss"
         ? 0.16
         : surfaceFinishOverride === "satin"
-        ? 0.34
+        ? 0.36
         : surfaceFinishOverride === "matte"
-        ? 0.52
-        : 0.4;
+        ? 0.56
+        : 0.44;
     const clearcoatVal =
-      surfaceFinishOverride === "gloss" ? 0.82 : surfaceFinishOverride === "matte" ? 0.14 : 0.28;
+      surfaceFinishOverride === "gloss" ? 0.85 : surfaceFinishOverride === "matte" ? 0.12 : 0.26;
+
     const mat = new THREE.MeshPhysicalMaterial({
       color: new THREE.Color("#ffffff"),
       map: colorTex,
-      bumpMap: bumpTex,
-      bumpScale: 0.0018,
-      roughnessMap: bumpTex,
+      roughnessMap: roughTex,
+      normalMap: normTex,
+      normalScale: new THREE.Vector2(0.38, 0.38),
       roughness: roughVal,
       metalness: 0.01,
-      ior: 1.49,
-      specularIntensity: 0.72,
+      ior: 1.5,
+      specularIntensity: 0.82,
       clearcoat: clearcoatVal,
-      clearcoatRoughness: surfaceFinishOverride === "gloss" ? 0.09 : 0.34,
-      reflectivity: 0.48,
-      envMapIntensity: 0.78,
+      clearcoatRoughness: surfaceFinishOverride === "gloss" ? 0.08 : 0.32,
+      reflectivity: 0.56,
+      envMapIntensity: 0.92,
       emissive,
       emissiveIntensity,
     });
@@ -714,19 +1022,22 @@ export function getV3PbrMaterial(
     return mat;
   }
 
-  // 3b. Honed / Polished Calacatta Marble & Sintered Stone Countertop
+  // 5. Honed / Polished Calacatta Marble & Sintered Stone Countertop
   if (matDef.category === "stone" || matDef.id.includes("stone") || matDef.id.includes("calacatta")) {
     const mat = new THREE.MeshPhysicalMaterial({
       color: new THREE.Color("#ffffff"),
       map: maps.colorMap || null,
-      roughness: 0.16,
+      roughnessMap: maps.roughnessMap || null,
+      normalMap: maps.normalMap || null,
+      normalScale: new THREE.Vector2(0.22, 0.22),
+      roughness: 0.18,
       metalness: 0.02,
       ior: 1.54,
-      specularIntensity: 0.92,
-      clearcoat: 0.78,
-      clearcoatRoughness: 0.1,
-      reflectivity: 0.9,
-      envMapIntensity: 1.22,
+      specularIntensity: 0.94,
+      clearcoat: 0.82,
+      clearcoatRoughness: 0.09,
+      reflectivity: 0.92,
+      envMapIntensity: 1.28,
       emissive,
       emissiveIntensity,
     });
@@ -735,23 +1046,28 @@ export function getV3PbrMaterial(
     return mat;
   }
 
-  // 4. Silk Matte Lacquer & Soft-Touch Supramat — Velvety micro-sheen
+  // 6. Silk Matte Italian Lacquer & Soft-Touch Supramat (with physical 85% diffuse ceiling so whites sculpt in 3D!)
   if (matDef.category === "lacquer") {
-    const [r, g, b] = hexToRgb(matDef.colorHex);
+    const [rawR, rawG, rawB] = hexToRgb(matDef.colorHex);
+    const r = Math.min(226, Math.round(rawR * 0.91));
+    const g = Math.min(224, Math.round(rawG * 0.905));
+    const b = Math.min(219, Math.round(rawB * 0.895));
     const mat = new THREE.MeshPhysicalMaterial({
       color: new THREE.Color(`rgb(${r}, ${g}, ${b})`),
       roughnessMap: maps.roughnessMap || null,
-      roughness: surfaceFinishOverride === "gloss" ? 0.1 : 0.3,
+      normalMap: maps.normalMap || null,
+      normalScale: new THREE.Vector2(0.05, 0.05),
+      roughness: surfaceFinishOverride === "gloss" ? 0.09 : 0.29,
       metalness: 0.01,
-      ior: 1.49,
-      specularIntensity: 0.76,
-      sheen: 0.2,
-      sheenRoughness: 0.48,
+      ior: 1.5,
+      specularIntensity: 0.85,
+      sheen: 0.24,
+      sheenRoughness: 0.45,
       sheenColor: new THREE.Color("#fafaf9"),
-      clearcoat: surfaceFinishOverride === "gloss" ? 0.88 : 0.32,
-      clearcoatRoughness: surfaceFinishOverride === "gloss" ? 0.06 : 0.28,
-      reflectivity: 0.54,
-      envMapIntensity: 0.72,
+      clearcoat: surfaceFinishOverride === "gloss" ? 0.92 : 0.34,
+      clearcoatRoughness: surfaceFinishOverride === "gloss" ? 0.05 : 0.26,
+      reflectivity: 0.62,
+      envMapIntensity: 0.88,
       emissive,
       emissiveIntensity,
     });
@@ -760,21 +1076,27 @@ export function getV3PbrMaterial(
     return mat;
   }
 
-  // 5. Calibrated Architectural Melamine / MDF-Lam (Kastamonu / Yıldız / AGT / Çamsan)
+  // 7. Calibrated Architectural Melamine / MDF-Lam (physical 85% max albedo prevents flat #FFFFFF blowout!)
+  const [mRawR, mRawG, mRawB] = hexToRgb(matDef.colorHex);
+  const mR = Math.min(225, Math.round(mRawR * 0.905));
+  const mG = Math.min(223, Math.round(mRawG * 0.9));
+  const mB = Math.min(218, Math.round(mRawB * 0.89));
   const mat = new THREE.MeshPhysicalMaterial({
-    color: new THREE.Color(matDef.colorHex),
+    color: new THREE.Color(`rgb(${mR}, ${mG}, ${mB})`),
     roughnessMap: maps.roughnessMap || null,
-    roughness: surfaceFinishOverride === "gloss" ? 0.14 : 0.38,
+    normalMap: maps.normalMap || null,
+    normalScale: new THREE.Vector2(0.04, 0.04),
+    roughness: surfaceFinishOverride === "gloss" ? 0.13 : 0.36,
     metalness: 0.01,
-    ior: 1.48,
-    specularIntensity: 0.65,
-    sheen: 0.1,
-    sheenRoughness: 0.56,
+    ior: 1.49,
+    specularIntensity: 0.72,
+    sheen: 0.12,
+    sheenRoughness: 0.52,
     sheenColor: new THREE.Color("#fafaf9"),
-    clearcoat: surfaceFinishOverride === "gloss" ? 0.76 : 0.18,
-    clearcoatRoughness: surfaceFinishOverride === "gloss" ? 0.08 : 0.34,
-    reflectivity: 0.48,
-    envMapIntensity: 0.68,
+    clearcoat: surfaceFinishOverride === "gloss" ? 0.8 : 0.22,
+    clearcoatRoughness: surfaceFinishOverride === "gloss" ? 0.07 : 0.32,
+    reflectivity: 0.54,
+    envMapIntensity: 0.82,
     emissive,
     emissiveIntensity,
   });
@@ -785,21 +1107,23 @@ export function getV3PbrMaterial(
 
 export function getPbrCacheStats(): { texturesCount: number; materialsCount: number } {
   return {
-    texturesCount: textureCache.size + rotatedTexCache.size + floorTextureCache.size,
+    texturesCount:
+      textureCache.size * 3 +
+      rotatedTexCache.size +
+      floorTextureCache.size +
+      floorNormalCache.size +
+      wallTextureCache.size +
+      wallNormalCache.size,
     materialsCount: pbrMaterialCache.size,
   };
 }
 
-/**
- * WP-10: Computes physical millimeter-based UV repeat factors and rotation
- * for panel dimensions (in mm) and wood grain direction.
- */
 export function computePhysicalUvScale(
   widthMm: number,
   heightMm: number,
   grain: "lengthwise" | "crosswise" | "none" = "lengthwise"
 ): { repeatX: number; repeatY: number; rotationRad: number } {
-  const referenceTileMm = 600;
+  const referenceTileMm = 650;
   const repeatX = Math.max(0.1, Number((widthMm / referenceTileMm).toFixed(3)));
   const repeatY = Math.max(0.1, Number((heightMm / referenceTileMm).toFixed(3)));
   const rotationRad = grain === "crosswise" ? Math.PI / 2 : 0;

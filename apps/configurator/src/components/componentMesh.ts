@@ -136,6 +136,224 @@ function getCachedBevel45Frustum(
   return entry;
 }
 
+const microBevelPanelCache = new Map<string, THREE.BufferGeometry>();
+
+function hashStringSeed(str: string): [number, number] {
+  let h1 = 2166136261;
+  let h2 = 16777619;
+  for (let i = 0; i < str.length; i++) {
+    const c = str.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 16777619);
+    h2 = Math.imul(h2 ^ (c + 31), 2166136261);
+  }
+  return [((h1 >>> 0) % 1000) / 1000, ((h2 >>> 0) % 1000) / 1000];
+}
+
+/**
+ * Builds a watertight 3D Micro-Beveled Panel Geometry (smooth 2-segment rounded edges + corner fillets)
+ * with analytical surface normals so studio HDRI light catches realistic 1.5mm specular edge highlights,
+ * plus physical millimeter-scaled UVs so wood grain never stretches across tall doors vs short drawers.
+ */
+function createMicroBeveledBoxGeometry(
+  w: number,
+  h: number,
+  d: number,
+  radiusMm: number,
+  seedU: number,
+  seedV: number
+): THREE.BufferGeometry {
+  const hw = Math.max(2, w / 2);
+  const hh = Math.max(2, h / 2);
+  const hd = Math.max(1.5, d / 2);
+  const r = Math.min(radiusMm, hw * 0.28, hh * 0.28, hd * 0.42);
+  const ix = hw - r;
+  const iy = hh - r;
+  const iz = hd - r;
+
+  // 6 profile samples per axis: [-1, -0.707, 0] on negative core, [0, +0.707, +1] on positive core
+  const profDirs = [-1, -Math.SQRT1_2, 0, 0, Math.SQRT1_2, 1];
+  const profSigns = [-1, -1, -1, 1, 1, 1];
+  const N = profDirs.length; // 6
+
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+
+  const emitFaceGrid = (
+    evalNode: (i: number, j: number) => {
+      sx: number;
+      sy: number;
+      sz: number;
+      dx: number;
+      dy: number;
+      dz: number;
+    },
+    flipWinding: boolean
+  ) => {
+    const baseVertex = positions.length / 3;
+    for (let j = 0; j < N; j++) {
+      for (let i = 0; i < N; i++) {
+        const { sx, sy, sz, dx, dy, dz } = evalNode(i, j);
+        const len = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+        const nx = dx / len;
+        const ny = dy / len;
+        const nz = dz / len;
+
+        const vx = sx * ix + r * nx;
+        const vy = sy * iy + r * ny;
+        const vz = sz * iz + r * nz;
+
+        positions.push(vx, vy, vz);
+        normals.push(nx, ny, nz);
+
+        // Full-Sheet 2800mm Continuous Veneer Leaf UV Mapping (ZERO horizontal seam across 220cm doors!)
+        const ax = Math.abs(nx);
+        const ay = Math.abs(ny);
+        const az = Math.abs(nz);
+        let u = 0;
+        let v = 0;
+        if (az >= ax && az >= ay) {
+          u = (vx + hw) / 780 + seedU;
+          v = (vy + hh) / 2850 + seedV * 0.08;
+        } else if (ax >= ay) {
+          u = (vz + hd) / 780 + seedU;
+          v = (vy + hh) / 2850 + seedV * 0.08;
+        } else {
+          u = (vx + hw) / 780 + seedU;
+          v = (vz + hd) / 780 + seedV * 0.08;
+        }
+        uvs.push(u, v);
+      }
+    }
+
+    for (let j = 0; j < N - 1; j++) {
+      for (let i = 0; i < N - 1; i++) {
+        const a = baseVertex + j * N + i;
+        const b = a + 1;
+        const c = a + N + 1;
+        const dIdx = a + N;
+        if (flipWinding) {
+          indices.push(a, c, b, a, dIdx, c);
+        } else {
+          indices.push(a, b, c, a, c, dIdx);
+        }
+      }
+    }
+  };
+
+  // +Z Front & -Z Back
+  emitFaceGrid(
+    (i, j) => ({
+      sx: profSigns[i],
+      sy: profSigns[j],
+      sz: 1,
+      dx: profDirs[i],
+      dy: profDirs[j],
+      dz: 1,
+    }),
+    false
+  );
+  emitFaceGrid(
+    (i, j) => ({
+      sx: profSigns[i],
+      sy: profSigns[j],
+      sz: -1,
+      dx: profDirs[i],
+      dy: profDirs[j],
+      dz: -1,
+    }),
+    true
+  );
+
+  // +X Right & -X Left
+  emitFaceGrid(
+    (i, j) => ({
+      sx: 1,
+      sy: profSigns[j],
+      sz: profSigns[i],
+      dx: 1,
+      dy: profDirs[j],
+      dz: profDirs[i],
+    }),
+    true
+  );
+  emitFaceGrid(
+    (i, j) => ({
+      sx: -1,
+      sy: profSigns[j],
+      sz: profSigns[i],
+      dx: -1,
+      dy: profDirs[j],
+      dz: profDirs[i],
+    }),
+    false
+  );
+
+  // +Y Top & -Y Bottom
+  emitFaceGrid(
+    (i, j) => ({
+      sx: profSigns[i],
+      sy: 1,
+      sz: profSigns[j],
+      dx: profDirs[i],
+      dy: 1,
+      dz: profDirs[j],
+    }),
+    true
+  );
+  emitFaceGrid(
+    (i, j) => ({
+      sx: profSigns[i],
+      sy: -1,
+      sz: profSigns[j],
+      dx: profDirs[i],
+      dy: -1,
+      dz: profDirs[j],
+    }),
+    false
+  );
+
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geom.setAttribute("normal", new THREE.Float32BufferAttribute(normals, 3));
+  geom.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geom.setIndex(indices);
+  geom.computeBoundingBox();
+  geom.computeBoundingSphere();
+  return geom;
+}
+
+function getCachedBeveledPanelGeometry(
+  w: number,
+  h: number,
+  d: number,
+  radiusMm: number,
+  seedKey: string
+): THREE.BufferGeometry {
+  const bucket = Math.abs(seedKey.split("").reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 7)) % 6;
+  const key = `bv_${Math.round(w)}_${Math.round(h)}_${Math.round(d * 10)}_r${Math.round(radiusMm * 10)}_s${bucket}`;
+  const cached = microBevelPanelCache.get(key);
+  if (cached) return cached;
+
+  if (microBevelPanelCache.size >= 180) {
+    const oldest = microBevelPanelCache.keys().next().value;
+    if (oldest) {
+      const ev = microBevelPanelCache.get(oldest);
+      if (ev) {
+        delete ev.userData.__birimSharedResource;
+        ev.dispose();
+      }
+      microBevelPanelCache.delete(oldest);
+    }
+  }
+
+  const [su, sv] = hashStringSeed(`s_${bucket}`);
+  const geo = markSharedGeometry(createMicroBeveledBoxGeometry(w, h, d, radiusMm, su, sv));
+  microBevelPanelCache.set(key, geo);
+  return geo;
+}
+
 const darkDamperMat = new THREE.MeshStandardMaterial({
   color: 0x1e293b,
   roughness: 0.32,
@@ -182,25 +400,45 @@ const doorDirectionLineMat = new THREE.LineBasicMaterial({
 
 const sharedSmokedGlassPaneMat = markSharedMaterial(
   new THREE.MeshPhysicalMaterial({
-    color: 0x334155,
-    roughness: 0.08,
-    metalness: 0.15,
+    color: 0x28313b,
+    roughness: 0.035,
+    metalness: 0.08,
+    transmission: 0.66,
+    ior: 1.52,
+    reflectivity: 0.98,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.02,
+    envMapIntensity: 1.75,
     transparent: true,
-    opacity: 0.36,
+    opacity: 0.54,
+    depthWrite: false,
   })
 );
 const sharedBronzeMirrorPaneMat = markSharedMaterial(
-  new THREE.MeshStandardMaterial({
-    color: 0xc2b29f,
-    roughness: 0.03,
-    metalness: 0.95,
+  new THREE.MeshPhysicalMaterial({
+    color: 0xcbb69e,
+    roughness: 0.02,
+    metalness: 0.98,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.015,
+    envMapIntensity: 1.6,
   })
 );
 const sharedSilverMirrorPaneMat = markSharedMaterial(
+  new THREE.MeshPhysicalMaterial({
+    color: 0xe6eaef,
+    roughness: 0.02,
+    metalness: 0.98,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.015,
+    envMapIntensity: 1.6,
+  })
+);
+const fugaShadowGapMat = markSharedMaterial(
   new THREE.MeshStandardMaterial({
-    color: 0xe2e8f0,
-    roughness: 0.03,
-    metalness: 0.95,
+    color: 0x0e0d0c,
+    roughness: 0.96,
+    metalness: 0.0,
   })
 );
 
@@ -227,6 +465,7 @@ const customAccentMaterials = new Set<THREE.Material>([
   sharedSmokedGlassPaneMat,
   sharedBronzeMirrorPaneMat,
   sharedSilverMirrorPaneMat,
+  fugaShadowGapMat,
 ]);
 
 function tagSubMesh(
@@ -403,23 +642,39 @@ export function createComponentMesh(
     return group;
   }
 
-  // 1C. RECESSED ALUMINUM LED CHANNEL WITH FLUSH 3000K OPAL DIFFUSER (_recessed_led_)
+  // 1C. FLUSH RECESSED ARCHITECTURAL LED CHANNEL WITH GLOWING OPAL DIFFUSER (_recessed_led_)
   if (comp.id.includes("_recessed_led_")) {
     const w = comp.dimensions.width;
     const h = comp.dimensions.height;
     const d = comp.dimensions.depth;
-    // Anodized recessed aluminum housing milled into the panel
-    const housing = new THREE.Mesh(box, screwHeadMat);
-    housing.scale.set(w, h, d);
-    housing.position.set(cx, cy, cz);
-    tagSubMesh(housing, userData, comp);
-    group.add(housing);
+    const isVerticalSideChannel = h > w * 2;
 
-    // Warm 3000K glowing opal diffuser core flush with the panel face
+    // Delicate 1mm satin-silver anodized trim lip on front/back edges (NEVER dark black screwHeadMat!)
+    const bezel = new THREE.Mesh(box, chromeHardwareMat);
+    if (isVerticalSideChannel) {
+      bezel.scale.set(Math.max(0.6, w * 0.52), h, d + 2.0);
+      bezel.position.set(cx, cy, cz);
+    } else {
+      bezel.scale.set(w, Math.max(0.6, h * 0.52), d + 2.0);
+      bezel.position.set(cx, cy + h * 0.2, cz);
+    }
+    tagSubMesh(bezel, userData, comp);
+    bezel.castShadow = false;
+    bezel.receiveShadow = false;
+    group.add(bezel);
+
+    // Pure self-luminous warm opal PMMA diffuser core proud of the trim along the inward axis
     const diffuser = new THREE.Mesh(box, material);
-    diffuser.scale.set(Math.max(3, w * 0.86), Math.max(3, h * 0.86), Math.max(3, d * 0.86));
-    diffuser.position.set(cx, cy, cz + 0.5);
+    if (isVerticalSideChannel) {
+      diffuser.scale.set(w, Math.max(4, h - 1.5), Math.max(4, d - 1.2));
+      diffuser.position.set(cx, cy, cz);
+    } else {
+      diffuser.scale.set(Math.max(4, w - 1.5), h, Math.max(4, d - 1.2));
+      diffuser.position.set(cx, cy - 0.15, cz);
+    }
     tagSubMesh(diffuser, userData, comp);
+    diffuser.castShadow = false;
+    diffuser.receiveShadow = false;
     group.add(diffuser);
 
     return group;
@@ -455,30 +710,12 @@ export function createComponentMesh(
     tagSubMesh(rod, userData, comp);
     group.add(rod);
 
-    // Top Dark Anti-Slip Rubber Insert Strip
+    // Top Dark Anti-Slip Rubber Insert Strip (sculpted wooden hangers & collared shirts are added by wardrobePropsBuilder)
     const rubberStrip = new THREE.Mesh(box, darkDamperMat);
     rubberStrip.scale.set(Math.max(40, w - 12), 3, 6);
     rubberStrip.position.set(cx, cy + 12.5, cz);
     tagSubMesh(rubberStrip, userData, comp);
     group.add(rubberStrip);
-
-    // Subtle Realistic Coat Hanger Hooks & Shoulder Bars along the rail
-    const hangerCount = Math.min(5, Math.max(2, Math.floor((w - 120) / 110)));
-    const hStep = (w - 160) / Math.max(1, hangerCount - 1);
-    for (let i = 0; i < hangerCount; i++) {
-      const hx = cx - (w - 160) / 2 + i * hStep;
-      const hook = new THREE.Mesh(cylinderY, chromeHardwareMat);
-      hook.scale.set(3.5, 36, 3.5);
-      hook.position.set(hx, cy - 18, cz);
-      tagSubMesh(hook, userData, comp);
-      group.add(hook);
-
-      const shoulder = new THREE.Mesh(box, screwHeadMat);
-      shoulder.scale.set(14, 18, Math.min(340, comp.position.z * 1.45));
-      shoulder.position.set(hx, cy - 42, cz);
-      tagSubMesh(shoulder, userData, comp);
-      group.add(shoulder);
-    }
 
     return group;
   }
@@ -639,6 +876,124 @@ export function createComponentMesh(
       group.add(divZ);
     }
     return group;
+  }
+
+  // 1H-SLIDE. REALISTIC 3D SLIDING DOOR TRACKS, ROLLER CARRIAGES, DAMPERS & COPLANAR PANTOGRAPHS
+  if (
+    comp.id.includes("_sliding_track_") ||
+    comp.id.includes("_sliding_guide_bottom") ||
+    comp.id.includes("_sliding_carriage_") ||
+    comp.id.includes("_sliding_coplanar_mech_")
+  ) {
+    const w = comp.dimensions.width;
+    const h = comp.dimensions.height;
+    const d = comp.dimensions.depth;
+
+    // A) Extruded Twin-Channel Anodized Aluminum Track Profile (Inset or Top-Hung)
+    if (comp.id.includes("_sliding_track_") || comp.id.includes("_sliding_guide_bottom")) {
+      const basePlate = new THREE.Mesh(box, screwHeadMat);
+      basePlate.scale.set(w, Math.max(4, h * 0.28), d);
+      basePlate.position.set(cx, cy + (comp.id.includes("_bottom") ? -h * 0.34 : h * 0.34), cz);
+      tagSubMesh(basePlate, userData, comp);
+      group.add(basePlate);
+
+      // Front, Center & Rear Extruded Track Ribs forming Dual Running Channels + Dark Dust Brush Strips
+      [-d * 0.42, 0, d * 0.42].forEach((rz) => {
+        const rib = new THREE.Mesh(box, chromeHardwareMat);
+        rib.scale.set(w, h * 0.85, 4.2);
+        rib.position.set(cx, cy, cz + rz);
+        tagSubMesh(rib, userData, comp);
+        group.add(rib);
+      });
+
+      [-d * 0.21, d * 0.21].forEach((czOff) => {
+        const grooveShadow = new THREE.Mesh(box, darkCavityMat);
+        grooveShadow.scale.set(Math.max(20, w - 4), Math.max(3, h * 0.4), Math.max(6, d * 0.3));
+        grooveShadow.position.set(cx, cy - h * 0.1, cz + czOff);
+        tagSubMesh(grooveShadow, userData, comp);
+        group.add(grooveShadow);
+      });
+
+      // Left & Right Integrated Silent-System Hydraulic Soft-Close Damper Cartridges inside Track Ends
+      if (!comp.id.includes("_guide_bottom") && w >= 500) {
+        [-w / 2 + 95, w / 2 - 95].forEach((dx) => {
+          const damperBody = new THREE.Mesh(box, darkDamperMat);
+          damperBody.scale.set(140, Math.max(8, h * 0.55), 16);
+          damperBody.position.set(cx + dx, cy, cz + d * 0.2);
+          tagSubMesh(damperBody, userData, comp);
+          group.add(damperBody);
+
+          const pistonRod = new THREE.Mesh(cylinderY, chromeHardwareMat);
+          pistonRod.rotation.z = Math.PI / 2;
+          pistonRod.scale.set(5, 48, 5);
+          pistonRod.position.set(cx + dx + (dx < 0 ? 85 : -85), cy, cz + d * 0.2);
+          tagSubMesh(pistonRod, userData, comp);
+          group.add(pistonRod);
+        });
+      }
+      return group;
+    }
+
+    // B) Top-Hung Gooseneck Steel Bracket + Twin Ball-Bearing Roller Carriage (TopLine XL) or Inset Roller
+    if (comp.id.includes("_sliding_carriage_")) {
+      const isTopHung = comp.id.includes("_top_");
+      // Door-back mounting plate
+      const doorPlate = new THREE.Mesh(box, chromeHardwareMat);
+      doorPlate.scale.set(w * 0.72, h * 0.68, 5);
+      doorPlate.position.set(cx, cy - h * 0.18, cz + d * 0.36);
+      tagSubMesh(doorPlate, userData, comp);
+      group.add(doorPlate);
+
+      if (isTopHung) {
+        // Gooseneck curved steel hanger arm reaching over cabinet roof onto the twin track
+        const neckVert = new THREE.Mesh(box, screwHeadMat);
+        neckVert.scale.set(28, h * 0.95, 7);
+        neckVert.position.set(cx, cy + h * 0.15, cz + d * 0.32);
+        tagSubMesh(neckVert, userData, comp);
+        group.add(neckVert);
+
+        const neckHoriz = new THREE.Mesh(box, screwHeadMat);
+        neckHoriz.scale.set(32, 7, Math.max(16, d * 0.88));
+        neckHoriz.position.set(cx, cy + h * 0.55, cz);
+        tagSubMesh(neckHoriz, userData, comp);
+        group.add(neckHoriz);
+      }
+
+      // Twin Precision Delrin/Steel Ball-Bearing Rollers
+      [-w * 0.26, w * 0.26].forEach((wx) => {
+        const wheel = new THREE.Mesh(cylinder, darkDamperMat);
+        wheel.scale.set(22, 22, 8);
+        wheel.position.set(cx + wx, cy + (isTopHung ? h * 0.38 : 0), cz - d * 0.28);
+        tagSubMesh(wheel, userData, comp);
+        group.add(wheel);
+
+        const hub = new THREE.Mesh(cylinder, chromeHardwareMat);
+        hub.scale.set(9, 9, 10);
+        hub.position.set(cx + wx, cy + (isTopHung ? h * 0.38 : 0), cz - d * 0.28);
+        tagSubMesh(hub, userData, comp);
+        group.add(hub);
+      });
+      return group;
+    }
+
+    // C) Coplanar Pantograph Swing-Out Mechanism (Hettich InLine XL)
+    if (comp.id.includes("_sliding_coplanar_mech_")) {
+      const housing = new THREE.Mesh(box, darkDamperMat);
+      housing.scale.set(w, h * 0.65, Math.min(44, d));
+      housing.position.set(cx, cy, cz - d * 0.22);
+      tagSubMesh(housing, userData, comp);
+      group.add(housing);
+
+      [-w * 0.32, w * 0.32].forEach((ax) => {
+        const swingArm = new THREE.Mesh(box, chromeHardwareMat);
+        swingArm.scale.set(16, 8, Math.max(28, d * 0.86));
+        swingArm.position.set(cx + ax, cy - 2, cz + d * 0.12);
+        swingArm.rotation.y = d > 60 ? 0.28 : 0.04;
+        tagSubMesh(swingArm, userData, comp);
+        group.add(swingArm);
+      });
+      return group;
+    }
   }
 
   // 1I. REALISTIC 3D WIRE MESH BASKET (Häfele Tel Sepet)
@@ -1063,44 +1418,97 @@ export function createComponentMesh(
       group.add(post);
     });
 
-    const barMesh = new THREE.Mesh(box, material);
-    barMesh.scale.set(barW, barH, barD);
+    const barGeo = getCachedBeveledPanelGeometry(barW, barH, barD, 1.8, comp.id);
+    const barMesh = new THREE.Mesh(barGeo, material);
     // Sits directly on the outer tips of the two standoff posts with 2mm overlap — zero gap!
     barMesh.position.set(cx, cy, doorFaceZ + postLen - 3 + barD / 2);
     tagSubMesh(barMesh, userData, comp);
-    barMesh.add(new THREE.LineSegments(edges, revealShadowMat));
     group.add(barMesh);
     return group;
   }
 
-  // 6. STANDARD PANEL & COMPONENT MESH WITH REALISTIC REVEAL SEAM DEFINITION + DOOR OPENING DIRECTION INDICATOR
+  // 6. ARCHITECTURAL MICRO-BEVELED PANEL & DOOR MESH WITH PHYSICAL FUGA SHADOW REVEAL
+  const isBeveledFrontRole =
+    (!comp.primitive || comp.primitive === "box") &&
+    (comp.role === "door_left" ||
+      comp.role === "door_right" ||
+      comp.role === "drawer_front" ||
+      comp.role === "countertop" ||
+      comp.role === "carcass_side_left" ||
+      comp.role === "carcass_side_right" ||
+      comp.role === "carcass_top" ||
+      comp.role === "carcass_bottom" ||
+      comp.role === "carcass_divider" ||
+      comp.role === "shelf" ||
+      comp.role === "plinth");
+
+  const bevelRadiusMm =
+    comp.role === "door_left" || comp.role === "door_right" || comp.role === "drawer_front"
+      ? 1.7
+      : comp.role === "countertop"
+      ? 2.0
+      : 0.9;
+
+  const useTrueBevelGeo =
+    isBeveledFrontRole &&
+    comp.dimensions.width >= 12 &&
+    comp.dimensions.height >= 12 &&
+    comp.dimensions.depth >= 8 &&
+    comp.crossSectionProfile !== "bevel_45";
+
   const mesh = new THREE.Mesh(
     comp.primitive === "sphere"
       ? sphere
       : comp.primitive === "cylinder"
       ? cylinder
+      : useTrueBevelGeo
+      ? getCachedBeveledPanelGeometry(
+          comp.dimensions.width,
+          comp.dimensions.height,
+          comp.dimensions.depth,
+          bevelRadiusMm,
+          comp.id
+        )
       : box,
     material
   );
-  mesh.scale.set(comp.dimensions.width, comp.dimensions.height, comp.dimensions.depth);
+  if (!useTrueBevelGeo) {
+    mesh.scale.set(comp.dimensions.width, comp.dimensions.height, comp.dimensions.depth);
+  }
   mesh.position.set(cx, cy, cz);
   tagSubMesh(mesh, userData, comp);
 
   if (!comp.primitive || comp.primitive === "box") {
+    const cadFrameHolder = new THREE.Group();
+    cadFrameHolder.position.set(cx, cy, cz);
+    cadFrameHolder.scale.set(comp.dimensions.width, comp.dimensions.height, comp.dimensions.depth);
+
     const primaryEdgeLines = new THREE.LineSegments(edges, edgeMaterial);
     primaryEdgeLines.userData.isPrimaryEdge = true;
-    mesh.add(primaryEdgeLines);
-    // Subtle physical 2mm shadow seam on doors, drawer fronts, and countertops
+    cadFrameHolder.add(primaryEdgeLines);
+
+    // Physical dark recessed shadow backing behind doors & drawer fronts for authentic 2-3mm joinery reveal depth!
+    const isTranslucentGlassFront =
+      comp.crossSectionProfile === "glass_frame" ||
+      String(comp.materialId || "").includes("glass");
     if (
-      comp.role === "door_left" ||
-      comp.role === "door_right" ||
-      comp.role === "drawer_front" ||
-      comp.role === "countertop"
+      !isTranslucentGlassFront &&
+      (comp.role === "door_left" ||
+        comp.role === "door_right" ||
+        comp.role === "drawer_front")
     ) {
-      const revealFrame = new THREE.LineSegments(edges, revealShadowMat);
-      revealFrame.scale.set(1.0015, 1.0015, 1.0015);
-      revealFrame.userData.isRevealSeam = true;
-      mesh.add(revealFrame);
+      const fugaPlate = new THREE.Mesh(box, fugaShadowGapMat);
+      fugaPlate.scale.set(
+        Math.max(10, comp.dimensions.width + 2.2),
+        Math.max(10, comp.dimensions.height + 2.2),
+        1.4
+      );
+      fugaPlate.position.set(cx, cy, cz - comp.dimensions.depth * 0.5 - 0.9);
+      fugaPlate.castShadow = false;
+      fugaPlate.receiveShadow = false;
+      fugaPlate.raycast = () => {};
+      fugaPlate.userData = { preserveCustomMaterial: true, isFugaBacking: true };
+      group.add(fugaPlate);
     }
 
     // Technical CAD Opening-Direction V-Lines on Hinged Cabinet Doors (shown ONLY in Technical CAD mode!)
@@ -1114,10 +1522,24 @@ export function createComponentMesh(
       const swingLines = new THREE.LineSegments(sharedDirGeo, doorDirectionLineMat);
       swingLines.userData.isCadSwingLine = true;
       swingLines.visible = false;
-      mesh.add(swingLines);
+      cadFrameHolder.add(swingLines);
     }
+
+    group.add(cadFrameHolder);
   }
   group.add(mesh);
+
+  // 6A-INT. SLEEK RECESSED TOP FINGER-PULL CUTOUT ON INTERNAL DRAWERS (Matches Reference Studio Wardrobe!)
+  if (comp.role === "drawer_front" && (comp as { isInternalDrawer?: boolean }).isInternalDrawer) {
+    const gripW = Math.min(180, Math.max(90, comp.dimensions.width * 0.32));
+    const gripH = 18;
+    const gripWell = new THREE.Mesh(box, darkCavityMat);
+    gripWell.scale.set(gripW, gripH, comp.dimensions.depth + 2.4);
+    gripWell.position.set(cx, cy + comp.dimensions.height / 2 - gripH / 2 + 0.5, cz);
+    gripWell.raycast = () => {};
+    gripWell.userData = { preserveCustomMaterial: true };
+    group.add(gripWell);
+  }
 
   // 6B. 3D CNC DOOR CROSS-SECTION PROFILE RENDERING (Shaker Frame / Fluted Ribbed / 45° Bevel / Custom DXF-SVG CAD Profile)
   if (comp.role === "door_left" || comp.role === "door_right" || comp.role === "drawer_front") {

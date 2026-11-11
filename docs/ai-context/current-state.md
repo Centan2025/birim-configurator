@@ -1,18 +1,14 @@
 # Birim Configurator — Güncel Proje Durumu (L2 Cache)
 
-- **Last Verified Commit:** `d7b262c` (`main` dalı) — `[VERIFIED]`
+- **Last Verified Commit:** `fdd818f` (`main` dalı) — `[VERIFIED]`
 - **Son Güncelleme Tarihi:** `2026-11-11` (Europe/Istanbul)
 - **Çalışma Ağacı Durumu:** AI Context V2.1 (Context Capsule, Evidence Index, Handoff, Serena Level A/B, Measurement) aktif.
 
 ## 1. Tamamlanan Son İşler (Delta Özeti)
-- **[VERIFIED] 3D Mimari Brüt Beton Duvar, Bölme Silme/Daraltma ve SSR Hydration İyileştirmesi (2026-11-11):**
-  - 3D sahnede mobilya ayrımını artıran prosedürel brüt beton ve galeri duvar kaplamaları eklendi.
-  - Basit müşteri panelinde bölme silme ve dolap daraltma kontrolleri (`removeBayAndShrinkModule`, `shrinkDoubleBay`) sunuldu.
-  - Presentation teklif modalı için anlık 3D/izometrik snapshot yakalama ve SSR/CSR fiyat hydration determinizmi sağlandı.
-- **[VERIFIED] PresentationQuoteModal ve 2D/3D Etkileşim İyileştirmeleri (2026-11-11):**
-  - Müşteri ve bayi için canlı teklif sunum modalı (`PresentationQuoteModal.tsx`) eklendi.
-  - 2D CAD ve 3D Three.js viewport etkileşimleri, PBR materyal sistemi ve BOM üretici entegrasyonu güncellendi.
-  - Regresyon ve ticari uzantı testleri doğrulandı (`10/10 PASS`).
+- **[VERIFIED] SimpleCustomerInspector, Geometri/BOM Sürgü Referans Hataları ve Favicon 500 Düzeltmesi (2026-11-11):**
+  - `apps/configurator/src/v3/components/workspace/SimpleCustomerInspector.tsx` içinde `D` yerine `depth` kullanıldı ve tanımsız `isSlidingModule` / `hasInsetSlidingInMod` hesaplamaları eklendi (`Uncaught ReferenceError: D is not defined` giderildi).
+  - `packages/geometry/src/mesh-generator.ts` içinde sürgü kapak ray hesaplarındaki tanımsız `plinth` değişkenleri `plinthHeight` ile, `packages/manufacturing/src/bom-generator.ts` içindeki tanımsız `mod` referansları `module` ile düzeltildi.
+  - `apps/configurator/src/app/favicon.ico` ile çakışarak Next.js 15'te `500 Internal Server Error` (`conflicting-public-file-page`) üreten `apps/configurator/public/favicon.ico` kaldırıldı.
 - **[VERIFIED] 3D/2D Viewport Geçişlerinde React startTransition INP Optimizasyonu (2026-11-10):**
   - Üst bar `studio-view-switcher` (3D Sahne, 2D Cephe, 2D Kesit, 2D Plan) ve `onViewChange` event handler'ı React 18/19 `startTransition` kapsamına alındı.
   - Viewport geçişleri non-blocking moda geçirilerek ~385ms'lik senkron render UI kilitlenmesi (INP issue) giderildi.

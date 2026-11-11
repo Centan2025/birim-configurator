@@ -882,6 +882,7 @@ export const V3UnifiedWorkspace: React.FC<{
     setMaterials,
     setBayCount,
     setBayDoorType,
+    setModuleSlidingMountingType,
     flipActiveDoorDirection,
     setBayV4DoorConfig,
     copyDoorConfigToAllBays,
@@ -1150,7 +1151,7 @@ export const V3UnifiedWorkspace: React.FC<{
       componentMaterialOverrides?: Record<string, string>;
     };
   }>(null);
-  const [studioRightWidthPx, setStudioRightWidthPx] = useState<number>(356);
+  const [studioRightWidthPx, setStudioRightWidthPx] = useState<number>(396);
   const [planLeftWidthPx, setPlanLeftWidthPx] = useState<number>(330);
   const [planSplitRatioPct, setPlanSplitRatioPct] = useState<number>(58);
   const [resizingPanel, setResizingPanel] = useState<
@@ -1576,9 +1577,9 @@ export const V3UnifiedWorkspace: React.FC<{
 
   // Tek Sayfa Görsel Müşteri Sunum & Teklif PDF'i (3D Stüdyo + 2D Tüm-Modül İç Cephe Şeması + Gerçek Malzeme Adları)
   const handlePrintVisualCustomerPresentation = useCallback(
-    (meta?: { clientName?: string; projectNote?: string }) => {
+    (meta?: { clientName?: string; projectNote?: string; snapshotDataUrl?: string }) => {
       if (typeof window === "undefined") return;
-      let snapshot3DDataUrl = "";
+      let snapshot3DDataUrl = meta?.snapshotDataUrl || "";
       try {
         const winCap = (
           window as unknown as {
@@ -1588,7 +1589,7 @@ export const V3UnifiedWorkspace: React.FC<{
             }) => string;
           }
         ).__birimCapture3DSnapshot;
-        if (typeof winCap === "function") {
+        if (!snapshot3DDataUrl && typeof winCap === "function") {
           snapshot3DDataUrl = winCap({ angle: "iso", hideOverlays: true });
         } else {
           const canvasEl = document.querySelector("canvas") as HTMLCanvasElement | null;
@@ -6592,8 +6593,8 @@ export const V3UnifiedWorkspace: React.FC<{
             className="border-l border-[#E2E8F0] bg-white/95 backdrop-blur-xl text-[#111827] flex flex-col z-30 shrink-0 relative max-xl:fixed max-xl:right-0 max-xl:top-13 max-xl:bottom-16 max-xl:shadow-[0_16px_44px_rgba(15,23,42,0.22)] max-xl:border-l max-xl:border-white/80 max-w-[92vw] transition-[width] duration-200 ease-out"
             style={{
               width: isCompactViewport
-                ? "min(350px, 88vw)"
-                : `min(${studioRightWidthPx}px, clamp(280px, 24vw, 420px))`,
+                ? "min(392px, 92vw)"
+                : `clamp(376px, ${studioRightWidthPx}px, min(520px, 92vw))`,
             }}
           >
             <div
@@ -6721,7 +6722,7 @@ export const V3UnifiedWorkspace: React.FC<{
 
             {/* 6 ICON-DRIVEN TABS: Shown in Mimar & Üretim modes (hidden in Kolay mode for zero clutter) */}
             {!isSimpleBlumMode && (
-            <div className="px-2.5 py-1.5 bg-[#FAF9F6] border-b border-[#E4DFD5] grid grid-cols-6 gap-1 shrink-0">
+            <div className="px-3 py-2 bg-[#FAF9F6] border-b border-[#E4DFD5] grid grid-cols-3 gap-1.5 shrink-0">
               {[
                 { id: "dimensions", label: "Ölçü", Icon: Ruler },
                 { id: "carcass", label: "Gövde", Icon: Box },
@@ -6805,14 +6806,14 @@ export const V3UnifiedWorkspace: React.FC<{
                         );
                       }
                     }}
-                    className={`py-1.5 px-1 rounded-xl transition cursor-pointer flex flex-col items-center justify-center gap-0.5 text-center border ${
+                    className={`py-2 px-2.5 rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 text-center border ${
                       isAct
-                        ? "bg-[#EFF6FF] border-2 border-[#2563EB] text-[#111827] font-bold shadow-2xs"
-                        : "bg-white border-[#E2E8F0] text-[#475569] hover:text-[#111827] hover:bg-[#F1F5F9] font-semibold"
+                        ? "bg-[#141413] border-[#141413] text-white font-bold shadow-2xs"
+                        : "bg-white border-[#DED8CC] text-[#44403C] hover:text-[#141413] hover:bg-[#EFECE5] font-semibold"
                     }`}
                   >
-                    <TabIcon className={`w-3.5 h-3.5 ${isAct ? "text-[#2563EB]" : "text-[#64748B]"}`} />
-                    <span className="text-[10px] leading-tight truncate">{sec.label}</span>
+                    <TabIcon className={`w-3.5 h-3.5 shrink-0 ${isAct ? "text-[#D6C7B2]" : "text-[#78716C]"}`} />
+                    <span className="text-xs leading-none">{sec.label}</span>
                   </button>
                 );
               })}
@@ -6836,6 +6837,8 @@ export const V3UnifiedWorkspace: React.FC<{
                   onSetDimensions={setDimensions}
                   onToggleDoorOpen={toggleDoorOpen}
                   onSetBayDoorType={setBayDoorType}
+                  onSetSlidingMountingType={setModuleSlidingMountingType}
+                  onSetBayV4DoorConfig={setBayV4DoorConfig}
                   onApplyBayPreset={(bIdx, preset) => applyBayInteriorPreset(bIdx, preset)}
                   onAddShelf={addShelf}
                   onRemoveShelf={removeShelf}
@@ -6848,13 +6851,7 @@ export const V3UnifiedWorkspace: React.FC<{
                   onRemoveHangingRail={removeHangingRail}
                   onAddSpecialFitting={(bIdx, fType) => addSpecialFitting(bIdx, fType)}
                   onSetMaterials={setMaterials}
-                  onToggleLed={(en) =>
-                    toggleModuleLedLighting(en, {
-                      ledType: "led_vertical_strip",
-                      colorTempK: 3000,
-                      sensorType: "ir_door",
-                    })
-                  }
+                  onToggleLed={(en, opts) => toggleModuleLedLighting(en, opts)}
                   onSwitchTier={setExperienceTier}
                   onArmTapToPlace={(spec) => setArmedTapItem(spec)}
                   renderInteriorIcon={(kind, sz) => renderInteriorComponentIllustration(kind, sz)}
@@ -12804,8 +12801,105 @@ export const V3UnifiedWorkspace: React.FC<{
                             </div>
                           </div>
 
+                          {/* Parametric CNC Setback & Channel Dimensions in Architect Mode */}
+                          <div className="pt-2 border-t border-[#CBD5E1] space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-semibold text-[#334155]">
+                                Önden Mesafe (Setback):
+                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    toggleModuleLedLighting(true, {
+                                      alignShelfAndSide:
+                                        activeModule.carcass.ledAlignShelfAndSide === false,
+                                    })
+                                  }
+                                  className={`px-2 py-0.5 rounded-md text-[10.5px] font-bold border cursor-pointer ${
+                                    activeModule.carcass.ledAlignShelfAndSide !== false
+                                      ? "bg-[#1E293B] text-white border-[#1E293B]"
+                                      : "bg-white text-[#475569] border-[#CBD5E1]"
+                                  }`}
+                                >
+                                  {activeModule.carcass.ledAlignShelfAndSide !== false
+                                    ? "Raf+Dikme Ortak Aks"
+                                    : "Ayrı Aks"}
+                                </button>
+                                <span className="font-mono text-xs font-bold text-[#0F172A]">
+                                  {activeModule.carcass.ledFrontSetbackMm ?? 75} mm
+                                </span>
+                              </div>
+                            </div>
+                            <input
+                              type="range"
+                              min={35}
+                              max={Math.max(60, Math.min(240, activeModule.dimensions.depth - 45))}
+                              step={1}
+                              value={activeModule.carcass.ledFrontSetbackMm ?? 75}
+                              onChange={(e) =>
+                                toggleModuleLedLighting(true, {
+                                  frontSetbackMm: Number(e.target.value),
+                                })
+                              }
+                              className="w-full accent-[#2563EB] h-1.5 bg-[#CBD5E1] rounded-lg cursor-pointer"
+                            />
+
+                            <div className="grid grid-cols-2 gap-2 pt-1">
+                              <div className="space-y-1">
+                                <div className="flex items-center justify-between text-[11px] font-semibold text-[#475569]">
+                                  <span>Kanal Genişliği</span>
+                                  <span className="font-mono font-bold text-[#0F172A]">
+                                    {activeModule.carcass.ledChannelWidthMm ?? 12} mm
+                                  </span>
+                                </div>
+                                <input
+                                  type="range"
+                                  min={6}
+                                  max={30}
+                                  step={1}
+                                  value={activeModule.carcass.ledChannelWidthMm ?? 12}
+                                  onChange={(e) =>
+                                    toggleModuleLedLighting(true, {
+                                      channelWidthMm: Number(e.target.value),
+                                    })
+                                  }
+                                  className="w-full accent-[#2563EB] h-1.5 bg-[#CBD5E1] rounded-lg cursor-pointer"
+                                />
+                              </div>
+
+                              <div className="space-y-1">
+                                <div className="flex items-center justify-between text-[11px] font-semibold text-[#475569]">
+                                  <span>Kanal Derinliği</span>
+                                  <span className="font-mono font-bold text-[#0F172A]">
+                                    {activeModule.carcass.ledChannelDepthMm ?? 8} mm
+                                  </span>
+                                </div>
+                                <input
+                                  type="range"
+                                  min={4}
+                                  max={Math.max(5, (activeModule.carcass.panelThickness || 18) - 4)}
+                                  step={1}
+                                  value={activeModule.carcass.ledChannelDepthMm ?? 8}
+                                  onChange={(e) =>
+                                    toggleModuleLedLighting(true, {
+                                      channelDepthMm: Number(e.target.value),
+                                    })
+                                  }
+                                  className="w-full accent-[#2563EB] h-1.5 bg-[#CBD5E1] rounded-lg cursor-pointer"
+                                />
+                              </div>
+                            </div>
+                          </div>
+
                           <div className="p-2 rounded-xl bg-amber-50/80 border border-amber-200 text-xs text-amber-950">
-                            <b>⚡ Elektriksel & Teknik Doğrulama Notu:</b> 3D sahnedeki ışık efekti görsel önizlemedir; BOM listesine Häfele Loox5 24V trafo (833.95.001/002) ve IR sensör otomatik eklenir, kablo kanalı frezelemesi saha montaj kontrolü gerektirir.
+                            <b>⚡ CNC &amp; Elektriksel Doğrulama:</b> BOM listesine seçilen{" "}
+                            <b>
+                              {activeModule.carcass.ledChannelWidthMm ?? 12}×
+                              {activeModule.carcass.ledChannelDepthMm ?? 8} mm
+                            </b>{" "}
+                            gömme profil (önden {activeModule.carcass.ledFrontSetbackMm ?? 75} mm aks),
+                            24V trafo ve sensör otomatik işlenir.
                           </div>
                         </div>
                       )}

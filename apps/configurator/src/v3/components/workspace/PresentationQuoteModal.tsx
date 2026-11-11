@@ -37,6 +37,12 @@ type SnapshotWindow = Window & {
     angle?: "current" | "iso" | "front";
     hideOverlays?: boolean;
   }) => string;
+  __birimRenderUltraStudioPhoto?: (opts?: {
+    angle?: "current" | "iso" | "front";
+    width?: number;
+    height?: number;
+    onProgress?: (pct: number) => void;
+  }) => Promise<string>;
 };
 
 export interface PresentationQuoteModalProps {
@@ -62,7 +68,7 @@ export interface PresentationQuoteModalProps {
   onApplyGlassDoorUpsell: () => void;
   onFix32mmCollisions: () => void;
   compatibilityStatus: string;
-  onPrintVisualPdf: (meta?: { clientName?: string; projectNote?: string }) => void;
+  onPrintVisualPdf: (meta?: { clientName?: string; projectNote?: string; snapshotDataUrl?: string }) => void;
   onOpenNestingModal: () => void;
   onOpenBomModal: () => void;
 }
@@ -94,6 +100,8 @@ export const PresentationQuoteModal: React.FC<PresentationQuoteModalProps> = ({
 }) => {
   const [visualMode, setVisualMode] = useState<StudioPreviewMode>("3d_iso");
   const [snapshotUrl, setSnapshotUrl] = useState<string>("");
+  const [ultraProgress, setUltraProgress] = useState<number | null>(null);
+  const [isUltraRendered, setIsUltraRendered] = useState<boolean>(false);
   const [showConsultantTools, setShowConsultantTools] = useState<boolean>(false);
   const [clientName, setClientName] = useState<string>("");
   const [projectNote, setProjectNote] = useState<string>("");
@@ -123,6 +131,7 @@ export const PresentationQuoteModal: React.FC<PresentationQuoteModalProps> = ({
       });
       if (captured && captured.length > 1600) {
         setSnapshotUrl(captured);
+        setIsUltraRendered(false);
         return;
       }
     }
@@ -500,14 +509,82 @@ export const PresentationQuoteModal: React.FC<PresentationQuoteModalProps> = ({
                   </div>
 
                   {visualMode !== "elevation" && (
-                    <button
-                      type="button"
-                      onClick={() => captureCanvasSnapshot(visualMode)}
-                      className="px-2.5 py-1 rounded-md text-[11px] font-medium text-[#57534E] hover:text-[#141413] hover:bg-[#EFECE5] flex items-center gap-1 transition cursor-pointer"
-                    >
-                      <RefreshCw className="w-3 h-3" />
-                      <span>Görüntüyü Yenile</span>
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        data-testid="quote-ultra-studio-render-btn"
+                        disabled={ultraProgress !== null}
+                        onClick={async () => {
+                          if (typeof window === "undefined") return;
+                          const win = window as SnapshotWindow;
+                          if (typeof win.__birimRenderUltraStudioPhoto !== "function") {
+                            captureCanvasSnapshot(visualMode);
+                            return;
+                          }
+                          const angle: "iso" | "current" | "front" =
+                            visualMode === "3d_current"
+                              ? "current"
+                              : visualMode === "3d_front"
+                              ? "front"
+                              : "iso";
+                          setUltraProgress(0);
+                          const ultraUrl = await win.__birimRenderUltraStudioPhoto({
+                            angle,
+                            width: 2048,
+                            height: 1280,
+                            onProgress: (p) => setUltraProgress(p),
+                          });
+                          setUltraProgress(null);
+                          if (ultraUrl && ultraUrl.length > 1600) {
+                            setSnapshotUrl(ultraUrl);
+                            setIsUltraRendered(true);
+                          }
+                        }}
+                        className={`px-2.5 py-1 rounded-md text-[11px] font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                          isUltraRendered
+                            ? "bg-[#1E3F2F] text-white"
+                            : "bg-[#141413] hover:bg-[#292524] text-[#FAF9F6]"
+                        } disabled:opacity-60`}
+                        title="16 katmanlı yumuşak alan gölgesi ve kenar yumuşatma ile 2K katalog kalitesinde stüdyo fotoğrafı üretir"
+                      >
+                        <span>
+                          {ultraProgress !== null
+                            ? `2K Render %${ultraProgress}`
+                            : isUltraRendered
+                            ? "✓ 2K Stüdyo Hazır"
+                            : "Stüdyo Render Al (2K)"}
+                        </span>
+                      </button>
+
+                      {snapshotUrl && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const a = document.createElement("a");
+                            a.href = snapshotUrl;
+                            a.download = `Birim_Teklif_Render_${project.id}.png`;
+                            document.body.appendChild(a);
+                            a.click();
+                            setTimeout(() => {
+                              if (a.parentNode) a.parentNode.removeChild(a);
+                            }, 1000);
+                          }}
+                          className="px-2 py-1 rounded-md text-[11px] font-medium bg-white hover:bg-[#EFECE5] border border-[#DED8CC] text-[#141413] transition cursor-pointer"
+                          title="Mevcut stüdyo görselini yüksek çözünürlüklü PNG olarak indir"
+                        >
+                          PNG İndir
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => captureCanvasSnapshot(visualMode)}
+                        className="p-1 rounded-md text-[#57534E] hover:text-[#141413] hover:bg-[#EFECE5] transition cursor-pointer"
+                        title="Görüntüyü Yenile"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   )}
                 </div>
 

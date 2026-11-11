@@ -32,6 +32,7 @@ export type DoorSystemId =
   | "hinged_overlay_variant"
   | "sliding_top_hung"
   | "sliding_bottom_rolling"
+  | "sliding_coplanar"
   | "lift_parallel"
   | "lift_bi_fold"
   | "lift_up_stay"
@@ -41,6 +42,12 @@ export type DoorSystemId =
   | "open";
 
 export type DoorOverlayType = "full_overlay" | "half_overlay" | "inset";
+
+export type SlidingMountingType =
+  | "inset_inside"
+  | "top_hung_exposed"
+  | "top_hung_pelmet"
+  | "coplanar_flush";
 
 export type HandleCategory =
   | "knob"
@@ -288,6 +295,7 @@ export interface DoorConfig {
     | "pocket"
     | "tambour";
   doorSystemId?: DoorSystemId;
+  slidingMountingType?: SlidingMountingType;
   overlayType?: DoorOverlayType;
   openingTechnology?: OpeningTechnology;
   handleCategory?: HandleCategory;
@@ -358,8 +366,15 @@ export interface CarcassConfig {
   drawerDrillingSetId?: string;
   cncProductionNote?: string;
   ledLightingEnabled?: boolean;
-  ledColorTempK?: 3000 | 4000;
+  ledColorTempK?: 2700 | 3000 | 4000;
   ledSensorType?: "ir_door" | "pir_motion" | "manual_switch";
+  ledPlacementMode?: "shelf_underside" | "vertical_sides" | "hanging_rod" | "full_showcase";
+  ledDimmerPct?: number;
+  ledFrontSetbackMm?: number; // Default 75mm from front carcass edge (System-32 safe axis)
+  ledShelfSetbackMm?: number; // Independent shelf LED setback when ledAlignShelfAndSide === false
+  ledAlignShelfAndSide?: boolean; // Default true: locks shelf & vertical LEDs on one continuous plane
+  ledChannelWidthMm?: number; // Default 12mm CNC groove width (6..32mm)
+  ledChannelDepthMm?: number; // Default 8mm CNC groove depth (4..15mm)
 }
 
 export interface ModuleInstance {

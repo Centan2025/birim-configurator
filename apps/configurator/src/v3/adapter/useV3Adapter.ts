@@ -14,6 +14,7 @@ import {
   computeCornerFillerAutoFix,
   type PanelCutoutConfig,
   DoorSystemId,
+  SlidingMountingType,
   DoorOverlayType,
   HandleCategory,
   OpeningTechnology,
@@ -643,6 +644,53 @@ export function useV3Adapter() {
   }, []);
   const setBayCount = useConfiguratorStore((s) => s.setBayCount);
   const setBayDoorType = useConfiguratorStore((s) => s.setBayDoorType);
+
+  const setModuleSlidingMountingType = useCallback(
+    (mountingType: SlidingMountingType) => {
+      const state = useConfiguratorStore.getState();
+      const curProj = state.project;
+      const modIdx = state.activeModuleIndex;
+      const mod = curProj.modules[modIdx];
+      if (!mod) return;
+      const nextModules = curProj.modules.map((m, idx) => {
+        if (idx !== modIdx) return m;
+        return {
+          ...m,
+          isOpenFront: false,
+          bays: m.bays.map((b, bIdx) => ({
+            ...b,
+            door: {
+              ...b.door,
+              type: "sliding" as const,
+              doorSystemId: (mountingType === "inset_inside"
+                ? "sliding_bottom_rolling"
+                : mountingType === "coplanar_flush"
+                ? "sliding_coplanar"
+                : "sliding_top_hung") as DoorSystemId,
+              slidingMountingType: mountingType,
+              overlayType: (mountingType === "inset_inside" ? "inset" : "full_overlay") as DoorOverlayType,
+              handleCategory:
+                bIdx % 2 === 0 && m.bays.length > 1
+                  ? ("recessed_grip" as HandleCategory)
+                  : b.door.handleCategory || ("bar_handle" as HandleCategory),
+            },
+          })),
+        };
+      });
+      const nextProj = {
+        ...curProj,
+        version: (curProj.version || 1) + 1,
+        modules: nextModules,
+        updatedAt: new Date().toISOString(),
+      };
+      commitAdapterState({
+        history: [...state.history.slice(-15), curProj],
+        future: [],
+        project: nextProj,
+      });
+    },
+    []
+  );
 
   const addShelf = useConfiguratorStore((s) => s.addShelf);
   const removeShelf = useConfiguratorStore((s) => s.removeShelf);
@@ -4302,21 +4350,93 @@ export function useV3Adapter() {
     (
       enabled: boolean,
       options?: {
-        ledType?: "led_profile" | "led_vertical_strip" | "led_rod_strip";
-        colorTempK?: 3000 | 4000;
+        ledType?: "led_profile" | "led_vertical_strip" | "led_rod_strip" | "full_showcase";
+        colorTempK?: 2700 | 3000 | 4000;
         sensorType?: "ir_door" | "pir_motion" | "manual_switch";
+        dimmerPct?: number;
+        frontSetbackMm?: number;
+        shelfSetbackMm?: number;
+        alignShelfAndSide?: boolean;
+        channelWidthMm?: number;
+        channelDepthMm?: number;
       }
     ) => {
       commitActiveModuleUpdate((mod) => {
+        mod.carcass.ledLightingEnabled = enabled;
         if (options?.colorTempK) {
           mod.carcass.ledColorTempK = options.colorTempK;
+        } else if (!mod.carcass.ledColorTempK) {
+          mod.carcass.ledColorTempK = 3000;
         }
         if (options?.sensorType) {
           mod.carcass.ledSensorType = options.sensorType;
+        } else if (!mod.carcass.ledSensorType) {
+          mod.carcass.ledSensorType = "ir_door";
         }
-        const targetType = options?.ledType || "led_profile";
+        if (typeof options?.dimmerPct === "number") {
+          mod.carcass.ledDimmerPct = options.dimmerPct;
+        } else if (typeof mod.carcass.ledDimmerPct !== "number") {
+          mod.carcass.ledDimmerPct = 100;
+        }
+
+        const pThick = mod.carcass.panelThickness || 18;
+        const maxSafeSetback = Math.max(60, mod.dimensions.depth - 45);
+        if (typeof options?.alignShelfAndSide === "boolean") {
+          mod.carcass.ledAlignShelfAndSide = options.alignShelfAndSide;
+        } else if (typeof mod.carcass.ledAlignShelfAndSide !== "boolean") {
+          mod.carcass.ledAlignShelfAndSide = true;
+        }
+        if (typeof options?.frontSetbackMm === "number") {
+          mod.carcass.ledFrontSetbackMm = Math.max(35, Math.min(maxSafeSetback, Math.round(options.frontSetbackMm)));
+        } else if (typeof mod.carcass.ledFrontSetbackMm !== "number") {
+          mod.carcass.ledFrontSetbackMm = 75;
+        }
+        if (typeof options?.shelfSetbackMm === "number") {
+          mod.carcass.ledShelfSetbackMm = Math.max(35, Math.min(maxSafeSetback, Math.round(options.shelfSetbackMm)));
+        } else if (typeof mod.carcass.ledShelfSetbackMm !== "number") {
+          mod.carcass.ledShelfSetbackMm = mod.carcass.ledFrontSetbackMm;
+        }
+        if (mod.carcass.ledAlignShelfAndSide) {
+          mod.carcass.ledShelfSetbackMm = mod.carcass.ledFrontSetbackMm;
+        }
+        if (typeof options?.channelWidthMm === "number") {
+          mod.carcass.ledChannelWidthMm = Math.max(6, Math.min(32, Math.round(options.channelWidthMm)));
+        } else if (typeof mod.carcass.ledChannelWidthMm !== "number") {
+          mod.carcass.ledChannelWidthMm = 12;
+        }
+        if (typeof options?.channelDepthMm === "number") {
+          mod.carcass.ledChannelDepthMm = Math.max(4, Math.min(Math.max(5, pThick - 4), Math.round(options.channelDepthMm)));
+        } else if (typeof mod.carcass.ledChannelDepthMm !== "number") {
+          mod.carcass.ledChannelDepthMm = 8;
+        }
+
+        const existingMode = mod.carcass.ledPlacementMode;
+        const fallbackType =
+          existingMode === "full_showcase"
+            ? "full_showcase"
+            : existingMode === "vertical_sides"
+            ? "led_vertical_strip"
+            : existingMode === "hanging_rod"
+            ? "led_rod_strip"
+            : "led_profile";
+        const targetType = options?.ledType || fallbackType;
+        mod.carcass.ledPlacementMode =
+          targetType === "full_showcase"
+            ? "full_showcase"
+            : targetType === "led_vertical_strip"
+            ? "vertical_sides"
+            : targetType === "led_rod_strip"
+            ? "hanging_rod"
+            : "shelf_underside";
+
         const netH = calculateNetInnerHeight(mod);
         const bayWidths = calculateBayWidths(mod);
+        const nowStamp = Date.now();
+        const chanW = mod.carcass.ledChannelWidthMm;
+        const sideSetback = mod.carcass.ledFrontSetbackMm;
+        const shelfSetback = mod.carcass.ledAlignShelfAndSide
+          ? sideSetback
+          : mod.carcass.ledShelfSetbackMm;
 
         mod.bays.forEach((b, bIdx) => {
           b.specialFittings = (b.specialFittings || []).filter(
@@ -4324,26 +4444,69 @@ export function useV3Adapter() {
           );
           if (enabled) {
             const bw = bayWidths[bIdx] || 550;
-            b.specialFittings.push({
-              id: `fit_${targetType}_${mod.id}_${bIdx}_${Date.now()}`,
-              bayIndex: bIdx,
-              type: targetType,
-              elevationY:
-                targetType === "led_rod_strip"
-                  ? Math.max(300, netH - 120)
-                  : targetType === "led_profile"
-                  ? Math.max(200, netH - 20)
-                  : 20,
-              height: targetType === "led_vertical_strip" ? Math.max(160, netH - 24) : 16,
-              width: targetType === "led_vertical_strip" ? 14 : Math.max(60, bw - 12),
-              depth: targetType === "led_vertical_strip" ? 75 : 18,
-            });
+            if (targetType === "led_profile" || targetType === "full_showcase") {
+              b.specialFittings.push({
+                id: `fit_led_profile_${mod.id}_${bIdx}_${nowStamp}`,
+                bayIndex: bIdx,
+                type: "led_profile",
+                elevationY: Math.max(200, netH - 20),
+                height: mod.carcass.ledChannelDepthMm,
+                width: Math.max(60, bw - 12),
+                depth: shelfSetback,
+              });
+            }
+            if (targetType === "led_vertical_strip" || targetType === "full_showcase") {
+              b.specialFittings.push({
+                id: `fit_led_vert_${mod.id}_${bIdx}_${nowStamp}`,
+                bayIndex: bIdx,
+                type: "led_vertical_strip",
+                elevationY: 20,
+                height: Math.max(160, netH - 24),
+                width: chanW,
+                depth: sideSetback,
+              });
+            }
+            if (targetType === "led_rod_strip") {
+              const topRailY =
+                b.hangingRails && b.hangingRails.length > 0
+                  ? Math.max(...b.hangingRails.map((r) => r.elevationY))
+                  : Math.max(300, netH - 120);
+              b.specialFittings.push({
+                id: `fit_led_rod_${mod.id}_${bIdx}_${nowStamp}`,
+                bayIndex: bIdx,
+                type: "led_rod_strip",
+                elevationY: topRailY - 8,
+                height: 16,
+                width: Math.max(60, bw - 12),
+                depth: 18,
+              });
+            }
           }
         });
         return mod;
       }, true);
+
+      // If turning interior LED ON while solid doors are completely closed, gently open doors to 75°
+      // so the user immediately sees the warm interior LED illumination in 3D!
+      if (enabled) {
+        const curState = useConfiguratorStore.getState();
+        const curMod = curState.project.modules[curState.activeModuleIndex];
+        const allClosedOpaque =
+          curMod &&
+          !curMod.isOpenFront &&
+          curState.doorOpenAngleDeg < 5 &&
+          curMod.bays.every(
+            (b) =>
+              b.door.type !== "open" &&
+              !b.door.isGlassFramed &&
+              b.door.crossSectionProfile !== "glass_frame"
+          );
+        if (allClosedOpaque) {
+          setDoorOpenAngleDeg(75);
+        }
+      }
     },
-    [commitActiveModuleUpdate]
+    [commitActiveModuleUpdate, setDoorOpenAngleDeg]
   );
 
   /**
@@ -6005,6 +6168,7 @@ export function useV3Adapter() {
     updateCarcassConfig,
     setBayCount,
     setBayDoorType,
+    setModuleSlidingMountingType,
     flipActiveDoorDirection,
     setBayV4DoorConfig,
     applyV4Template,

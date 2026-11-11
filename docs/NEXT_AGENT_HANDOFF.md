@@ -1,14 +1,15 @@
 # Sonraki ajan için devir notu
 
-Son güncelleme: **2026-11-05 — Europe/Istanbul**.
+Son güncelleme: **2026-11-11 — Europe/Istanbul**.
 
 Bu dosya kısa başlangıç noktasıdır. Ayrıntılı uygulama sırası ve iş kabul koşulları [yürütme yol haritasındadır](V42_PLUS_EXECUTION_ROADMAP.md).
 
 ## 1. Şu an nerede kaldık?
 
-- Proje: `F:\birim-configurator`.
-- Son gözlenen dal: `codex/v41-independent-audit`.
-- Son gözlenen HEAD: `27e3938` — `feat(v4): universal furniture module & hardware library v4`.
+- Proje: `birim-configurator`.
+- Son gözlenen dal: `main`.
+- Son gözlenen HEAD: `fdd818f`.
+- Son delta (2026-11-11): `SimpleCustomerInspector.tsx` (`D` -> `depth`, `isSlidingModule` tanımı), `mesh-generator.ts` (`plinth` -> `plinthHeight`), `bom-generator.ts` (`mod` -> `module`) çalışma zamanı `ReferenceError` hataları ve çakışan `public/favicon.ico` kaynaklı `500` hatası giderildi.
 - **V4.1 düzeltmeleri, raporları ve bu devam belgeleri henüz commitlenmiş değildir.** Yeni oturumda Git durumunu tekrar kontrol et; bu bilgi sonraki commitlerden sonra değişebilir.
 - V4.1 + V4.2 temel sözleşme sonucu: **KISMİ KABUL (Yazılım Sözleşmeleri İlerletildi, Üretim Kapısı Fail-Closed Korundu)**. Tüm ürün/üretim sistemi fiziksel fabrika kanıtı olmadan tamamlanmış sayılmaz.
 - Son kayıtlı test kanıtı (2026-11-05):

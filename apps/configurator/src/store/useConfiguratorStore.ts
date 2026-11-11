@@ -663,10 +663,52 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
 
-    mod.bays[bayIdx].door.type = type;
-    mod.bays[bayIdx].door.doorSystemId = inferDoorSystemIdFromType(type);
-    mod.bays[bayIdx].door.overlayType = "full_overlay";
-    mod.isOpenFront = false;
+    if (type === "sliding") {
+      // Real wardrobe rule: sliding tracks span across the module; ensure at least 2 bays if >=1000mm
+      mod.bays.forEach((b, idx) => {
+        const curMount = b.door.slidingMountingType || "top_hung_pelmet";
+        b.door.type = "sliding";
+        b.door.doorSystemId =
+          curMount === "inset_inside"
+            ? "sliding_bottom_rolling"
+            : curMount === "coplanar_flush"
+            ? "sliding_coplanar"
+            : "sliding_top_hung";
+        b.door.slidingMountingType = curMount;
+        b.door.overlayType = curMount === "inset_inside" ? "inset" : "full_overlay";
+        // Rear sliding leaves use flush recessed grips so front & rear doors never collide
+        if (idx % 2 === 0 && mod.bays.length > 1) {
+          b.door.handleCategory = "recessed_grip";
+        }
+      });
+      mod.isOpenFront = false;
+    } else {
+      // If switching away from module-wide sliding back to hinged/open, convert any sibling sliding bays cleanly too
+      const wasModuleSliding = mod.bays.some((b) => b.door.type === "sliding");
+      if (wasModuleSliding && mod.bays.length > 1) {
+        mod.bays.forEach((b, idx) => {
+          const fallbackType =
+            idx === bayIdx
+              ? type
+              : type === "open"
+              ? "open"
+              : idx === 0
+              ? "single_left"
+              : "single_right";
+          b.door.type = fallbackType;
+          b.door.doorSystemId = inferDoorSystemIdFromType(fallbackType);
+          b.door.overlayType = "full_overlay";
+          if (b.door.handleCategory === "recessed_grip") {
+            b.door.handleCategory = "bar_handle";
+          }
+        });
+      } else {
+        mod.bays[bayIdx].door.type = type;
+        mod.bays[bayIdx].door.doorSystemId = inferDoorSystemIdFromType(type);
+        mod.bays[bayIdx].door.overlayType = "full_overlay";
+      }
+      mod.isOpenFront = false;
+    }
     if (batchStartProject) {
       set({
         project: updated,
