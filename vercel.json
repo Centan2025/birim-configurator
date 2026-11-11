@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "npm --workspace=apps/configurator run build",
-  "installCommand": "npm install",
-  "outputDirectory": "apps/configurator/.next",
+  "buildCommand": "node -e \"if(require('fs').existsSync('apps/configurator')){require('child_process').execSync('npm --workspace=apps/configurator run build',{stdio:'inherit'})}else{require('child_process').execSync('npm run build',{stdio:'inherit'})}\"",
+  "installCommand": "node -e \"if(require('fs').existsSync('../../package.json')){require('child_process').execSync('npm install --prefix ../..',{stdio:'inherit'})}else{require('child_process').execSync('npm install',{stdio:'inherit'})}\"",
   "framework": "nextjs"
 }
+
