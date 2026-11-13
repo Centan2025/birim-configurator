@@ -191,9 +191,9 @@ export const StudioRenderModal: React.FC<StudioRenderModalProps> = ({
         <div
           onPointerDown={(e) => startZeroLagModalDrag(e)}
           title="Pencereyi taşımak için sürükleyin"
-          className="px-5 py-3.5 birim-ice-shell-header flex flex-wrap items-center justify-between gap-3 cursor-grab active:cursor-grabbing select-none"
+          className="px-5 py-3.5 birim-ice-shell-header flex items-center justify-between gap-3 cursor-grab active:cursor-grabbing select-none"
         >
-          <div className="flex items-center gap-3 min-w-0">
+          <div className="flex flex-1 items-center gap-3 min-w-0">
             <BirimLogo className="h-5 w-auto text-[#141413] shrink-0" />
             <div className="h-4 w-px bg-slate-900/15 shrink-0" />
             <div className="min-w-0">
@@ -219,7 +219,7 @@ export const StudioRenderModal: React.FC<StudioRenderModalProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <div className="hidden md:flex items-center gap-2 px-2.5 py-1 rounded-xl bg-white/60 border border-white/75 text-[10px] font-mono text-slate-700">
               <Gauge className="w-3.5 h-3.5 text-slate-600" />
               <span>Draw: <b>{sceneMetrics.drawCalls}</b></span>
@@ -477,7 +477,7 @@ export const StudioRenderModal: React.FC<StudioRenderModalProps> = ({
             <div className="text-[11px] text-slate-700">
               <b>Mimari Not:</b> Path-Tracing modu çoklu yumuşak alan ışığı penumbrası, dolaylı zemin/tavan ışık sıçraması (GI bounce), füme cam iç raf geçirgenliği ve mikro-pah yansımalarını biriktirir.
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
                 disabled={!rasterUrl}

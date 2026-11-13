@@ -2564,11 +2564,22 @@ export const V3UnifiedWorkspace: React.FC<{
       {approvalBanner && (
         <div
           className={`${
-            approvalBanner.ok ? "bg-[#E5EFEA] text-[#1E3F2F]" : "bg-red-100 text-red-900"
-          } text-white px-5 py-2 text-xs font-semibold flex items-center justify-between z-30`}
+            approvalBanner.ok
+              ? "bg-[#E5EFEA] text-[#1E3F2F] border-[#B9D6C8]"
+              : "bg-red-100 text-red-900 border-red-300"
+          } ${
+            mode !== "plan"
+              ? "fixed top-[62px] left-1/2 -translate-x-1/2 z-40 rounded-2xl border shadow-lg px-4 py-2 max-w-[90vw]"
+              : "px-5 py-2 border-b z-30"
+          } text-xs font-semibold flex items-center justify-between gap-3`}
         >
           <span>{approvalBanner.text}</span>
-          <button onClick={() => setApprovalBanner(null)} className="cursor-pointer">
+          <button
+            type="button"
+            onClick={() => setApprovalBanner(null)}
+            className="cursor-pointer opacity-70 hover:opacity-100 px-1"
+            aria-label="Bildirimi kapat"
+          >
             ✕
           </button>
         </div>
@@ -2930,9 +2941,13 @@ export const V3UnifiedWorkspace: React.FC<{
                     label: "Mekân",
                     testId: "plan-rail-mekan",
                     onClick: () => {
-                      setPlanLeftRailTab("mekan");
-                      setPlanLeftWorkflowTab("wall_structure");
-                      setPlanLeftOpen(true);
+                      if (planLeftOpen && planLeftRailTab === "mekan") {
+                        setPlanLeftOpen(false);
+                      } else {
+                        setPlanLeftRailTab("mekan");
+                        setPlanLeftWorkflowTab("wall_structure");
+                        setPlanLeftOpen(true);
+                      }
                     },
                     icon: (
                       <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.9">
@@ -2945,9 +2960,13 @@ export const V3UnifiedWorkspace: React.FC<{
                     label: "Modüller",
                     testId: "plan-rail-moduller",
                     onClick: () => {
-                      setPlanLeftRailTab("moduller");
-                      setPlanLeftWorkflowTab("furniture_placement");
-                      setPlanLeftOpen(true);
+                      if (planLeftOpen && planLeftRailTab === "moduller") {
+                        setPlanLeftOpen(false);
+                      } else {
+                        setPlanLeftRailTab("moduller");
+                        setPlanLeftWorkflowTab("furniture_placement");
+                        setPlanLeftOpen(true);
+                      }
                     },
                     icon: <Package className="w-4 h-4" />,
                   },
@@ -2956,9 +2975,12 @@ export const V3UnifiedWorkspace: React.FC<{
                     label: "Ölçü",
                     testId: "plan-rail-olcu",
                     onClick: () => {
-                      setPlanLeftRailTab("olcu");
-                      setShow3DDimensions((prev) => !prev);
-                      dispatchPlanToolAction({ action: "toggle_dimensions" });
+                      if (planLeftOpen && planLeftRailTab === "olcu") {
+                        setPlanLeftOpen(false);
+                      } else {
+                        setPlanLeftRailTab("olcu");
+                        setPlanLeftOpen(true);
+                      }
                     },
                     icon: <Ruler className="w-4 h-4" />,
                   },
@@ -2967,8 +2989,12 @@ export const V3UnifiedWorkspace: React.FC<{
                     label: "Katmanlar",
                     testId: "plan-rail-katmanlar",
                     onClick: () => {
-                      setPlanLeftRailTab("katmanlar");
-                      dispatchPlanToolAction({ action: "toggle_grid" });
+                      if (planLeftOpen && planLeftRailTab === "katmanlar") {
+                        setPlanLeftOpen(false);
+                      } else {
+                        setPlanLeftRailTab("katmanlar");
+                        setPlanLeftOpen(true);
+                      }
                     },
                     icon: <Layers className="w-4 h-4" />,
                   },
@@ -2977,10 +3003,12 @@ export const V3UnifiedWorkspace: React.FC<{
                     label: "Görünüm",
                     testId: "plan-rail-gorunum",
                     onClick: () => {
-                      setPlanLeftRailTab("gorunum");
-                      setPlanViewLayout((prev) =>
-                        prev === "split" ? "2d_only" : prev === "2d_only" ? "3d_only" : "split"
-                      );
+                      if (planLeftOpen && planLeftRailTab === "gorunum") {
+                        setPlanLeftOpen(false);
+                      } else {
+                        setPlanLeftRailTab("gorunum");
+                        setPlanLeftOpen(true);
+                      }
                     },
                     icon: <Eye className="w-4 h-4" />,
                   },
@@ -2989,8 +3017,12 @@ export const V3UnifiedWorkspace: React.FC<{
                     label: "DXF / DWG",
                     testId: "plan-rail-dxf",
                     onClick: () => {
-                      setPlanLeftRailTab("dxf");
-                      dispatchPlanToolAction({ action: "open_dxf_upload" });
+                      if (planLeftOpen && planLeftRailTab === "dxf") {
+                        setPlanLeftOpen(false);
+                      } else {
+                        setPlanLeftRailTab("dxf");
+                        setPlanLeftOpen(true);
+                      }
                     },
                     icon: <FileSpreadsheet className="w-4 h-4" />,
                   },
@@ -2999,8 +3031,12 @@ export const V3UnifiedWorkspace: React.FC<{
                     label: "Ayarlar",
                     testId: "plan-rail-ayarlar",
                     onClick: () => {
-                      setPlanLeftRailTab("ayarlar");
-                      dispatchPlanToolAction({ action: "toggle_cad_bar" });
+                      if (planLeftOpen && planLeftRailTab === "ayarlar") {
+                        setPlanLeftOpen(false);
+                      } else {
+                        setPlanLeftRailTab("ayarlar");
+                        setPlanLeftOpen(true);
+                      }
                     },
                     icon: <Wrench className="w-4 h-4" />,
                   },
@@ -3056,6 +3092,8 @@ export const V3UnifiedWorkspace: React.FC<{
                     : `${Math.max(240, planLeftWidthPx - 56)}px`,
                 }}
               >
+                {(planLeftRailTab === "mekan" || planLeftRailTab === "moduller") ? (
+                  <>
                 {/* Title + 2 Workflow Tabs */}
                 <div className="px-3.5 pt-3 pb-2 border-b border-[#E2E8F0] space-y-2.5">
                   <div className="flex items-center justify-between">
@@ -3559,6 +3597,182 @@ export const V3UnifiedWorkspace: React.FC<{
                           </div>
                         ))}
                       </div>
+                    </div>
+                  </div>
+                )}
+                  </>
+                ) : planLeftRailTab === "olcu" ? (
+                  <div className="flex-1 overflow-y-auto px-3.5 py-3 space-y-3 text-xs">
+                    <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-2">
+                      <h2 className="text-sm font-extrabold text-[#111827]">Ölçü & Hizalama</h2>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShow3DDimensions((prev) => !prev);
+                        dispatchPlanToolAction({ action: "toggle_dimensions" });
+                      }}
+                      className={`w-full px-3 py-2 rounded-xl border text-left font-bold flex items-center justify-between cursor-pointer transition ${
+                        show3DDimensions
+                          ? "bg-[#EFF6FF] border-[#93C5FD] text-[#1D4ED8]"
+                          : "bg-white border-[#E2E8F0] text-[#334155] hover:bg-slate-50"
+                      }`}
+                    >
+                      <span>📏 2D / 3D Ölçü Çizgileri</span>
+                      <span>{show3DDimensions ? "Açık" : "Kapalı"}</span>
+                    </button>
+                    <div className="p-2.5 rounded-xl bg-white/80 border border-[#E2E8F0] space-y-2">
+                      <div className="font-bold text-[#334155]">Izgara / Adım Hassasiyeti (mm)</div>
+                      <div className="grid grid-cols-5 gap-1">
+                        {[1, 10, 25, 50, 100].map((s) => (
+                          <button
+                            key={s}
+                            type="button"
+                            onClick={() => setSnapMm(s)}
+                            className={`py-1.5 rounded-lg font-mono font-bold border cursor-pointer transition ${
+                              snapMm === s
+                                ? "bg-[#2563EB] text-white border-[#2563EB]"
+                                : "bg-white text-[#334155] border-[#E2E8F0] hover:bg-slate-50"
+                            }`}
+                          >
+                            {s}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => dispatchPlanToolAction({ action: "toggle_snaps" })}
+                      className="w-full px-3 py-2 rounded-xl border border-[#E2E8F0] bg-white hover:bg-slate-50 text-left font-bold text-[#111827] cursor-pointer transition"
+                    >
+                      🧲 Mıknatıslı Yapışmayı Aç / Kapat
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => dispatchPlanToolAction({ action: "offset_wall", offsetMm: 100 })}
+                      className="w-full px-3 py-2 rounded-xl border border-[#E2E8F0] bg-white hover:bg-slate-50 text-left font-bold text-[#111827] cursor-pointer transition"
+                    >
+                      ↔️ Duvar Ofseti (+100 mm)
+                    </button>
+                  </div>
+                ) : planLeftRailTab === "katmanlar" ? (
+                  <div className="flex-1 overflow-y-auto px-3.5 py-3 space-y-3 text-xs">
+                    <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-2">
+                      <h2 className="text-sm font-extrabold text-[#111827]">Katmanlar</h2>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => dispatchPlanToolAction({ action: "toggle_grid" })}
+                      className="w-full px-3 py-2 rounded-xl border border-[#E2E8F0] bg-white hover:bg-slate-50 text-left font-bold text-[#111827] cursor-pointer transition"
+                    >
+                      ⊞ Zemin Izgarasını (Grid) Aç / Kapat
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShow3DDimensions((prev) => !prev);
+                        dispatchPlanToolAction({ action: "toggle_dimensions" });
+                      }}
+                      className="w-full px-3 py-2 rounded-xl border border-[#E2E8F0] bg-white hover:bg-slate-50 text-left font-bold flex items-center justify-between text-[#111827] cursor-pointer transition"
+                    >
+                      <span>📐 Ölçü Katmanı</span>
+                      <span className="text-[#2563EB]">{show3DDimensions ? "Görünür" : "Gizli"}</span>
+                    </button>
+                    <div className="p-2.5 rounded-xl bg-white/80 border border-[#E2E8F0] space-y-1.5 text-[#334155]">
+                      <div className="font-bold text-[#111827]">Sahne Özeti</div>
+                      <div className="flex justify-between"><span>Duvarlar</span><span className="font-mono font-bold">{project.space.walls.length}</span></div>
+                      <div className="flex justify-between"><span>Yapı Elemanları</span><span className="font-mono font-bold">{project.space.elements.length}</span></div>
+                      <div className="flex justify-between"><span>Dolap / Modüller</span><span className="font-mono font-bold">{project.modules.length}</span></div>
+                    </div>
+                  </div>
+                ) : planLeftRailTab === "gorunum" ? (
+                  <div className="flex-1 overflow-y-auto px-3.5 py-3 space-y-3 text-xs">
+                    <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-2">
+                      <h2 className="text-sm font-extrabold text-[#111827]">Görünüm Düzeni</h2>
+                    </div>
+                    <div className="space-y-1.5">
+                      {[
+                        { id: "split" as const, label: "◫ 2D Plan + 3D Bölünmüş" },
+                        { id: "2d_only" as const, label: "🗺️ Tam Ekran 2D Plan" },
+                        { id: "3d_only" as const, label: "🧊 Tam Ekran 3D Sahne" },
+                      ].map((opt) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => setPlanViewLayout(opt.id)}
+                          className={`w-full px-3 py-2 rounded-xl border text-left font-bold cursor-pointer transition ${
+                            planViewLayout === opt.id
+                              ? "bg-[#2563EB] text-white border-[#2563EB]"
+                              : "bg-white text-[#111827] border-[#E2E8F0] hover:bg-slate-50"
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                    {planViewLayout === "split" && (
+                      <div className="p-2.5 rounded-xl bg-white/80 border border-[#E2E8F0] space-y-2">
+                        <div className="flex justify-between font-bold text-[#334155]">
+                          <span>2D / 3D Bölme Oranı</span>
+                          <span className="font-mono">%{planSplitRatioPct}</span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-1">
+                          {[40, 50, 60].map((pct) => (
+                            <button
+                              key={pct}
+                              type="button"
+                              onClick={() => setPlanSplitRatioPct(pct)}
+                              className={`py-1.5 rounded-lg font-mono font-bold border cursor-pointer transition ${
+                                Math.round(planSplitRatioPct) === pct
+                                  ? "bg-[#2563EB] text-white border-[#2563EB]"
+                                  : "bg-white text-[#334155] border-[#E2E8F0] hover:bg-slate-50"
+                              }`}
+                            >
+                              %{pct}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : planLeftRailTab === "dxf" ? (
+                  <div className="flex-1 overflow-y-auto px-3.5 py-3 space-y-3 text-xs">
+                    <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-2">
+                      <h2 className="text-sm font-extrabold text-[#111827]">DXF / DWG & Altlık</h2>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => dispatchPlanToolAction({ action: "open_dxf_upload" })}
+                      className="w-full px-3 py-2.5 rounded-xl bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-bold cursor-pointer transition"
+                    >
+                      📂 DXF / DWG veya Kroki Yükle
+                    </button>
+                    <p className="text-[11px] text-[#475569] leading-relaxed">
+                      Mimari DXF/DWG planınızı veya PNG/JPG krokinizi yükleyerek duvarları ölçekli olarak sahneye aktarabilirsiniz.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="flex-1 overflow-y-auto px-3.5 py-3 space-y-3 text-xs">
+                    <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-2">
+                      <h2 className="text-sm font-extrabold text-[#111827]">Plan Ayarları</h2>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => dispatchPlanToolAction({ action: "toggle_cad_bar" })}
+                      className="w-full px-3 py-2 rounded-xl border border-[#E2E8F0] bg-white hover:bg-slate-50 text-left font-bold text-[#111827] cursor-pointer transition"
+                    >
+                      🧰 Alt CAD Araç Çubuğunu Aç / Gizle
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => dispatchPlanToolAction({ action: "toggle_snaps" })}
+                      className="w-full px-3 py-2 rounded-xl border border-[#E2E8F0] bg-white hover:bg-slate-50 text-left font-bold text-[#111827] cursor-pointer transition"
+                    >
+                      🧲 Mıknatıslı Snap Aç / Kapat
+                    </button>
+                    <div className="p-2.5 rounded-xl bg-white/80 border border-[#E2E8F0] space-y-1 text-[#334155]">
+                      <div className="flex justify-between"><span>Tavan Yüksekliği</span><span className="font-mono font-bold">{project.space.ceilingHeight} mm</span></div>
+                      <div className="flex justify-between"><span>Snap Adımı</span><span className="font-mono font-bold">{snapMm} mm</span></div>
                     </div>
                   </div>
                 )}

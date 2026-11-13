@@ -9141,8 +9141,19 @@ const clear3DGhostPreview = useCallback(() => {
               {renderMenuOpen && (
                 <div className="absolute bottom-full right-0 mb-2.5 w-64 birim-ice-popover rounded-2xl p-3 space-y-3 z-30 text-xs">
                   <div>
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-[#57534E] mb-1.5">
-                      Görünüm
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-[#57534E]">
+                        Görünüm
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setRenderMenuOpen(false)}
+                        title="Kapat"
+                        aria-label="Render panelini kapat"
+                        className="w-6 h-6 rounded-lg flex items-center justify-center text-[#57534E] hover:text-[#141413] hover:bg-black/5 cursor-pointer transition"
+                      >
+                        ✕
+                      </button>
                     </div>
                     <div className="grid grid-cols-2 gap-1">
                       <button

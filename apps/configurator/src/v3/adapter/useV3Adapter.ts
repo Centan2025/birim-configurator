@@ -1001,7 +1001,11 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
       commitAdapterState({
         project: {
           ...curProj,
-          space: { ...curProj.space, elements: remaining },
+          space: {
+            ...curProj.space,
+            elements: remaining,
+            wizardCleanRoom: true,
+          } as typeof curProj.space,
         },
       });
     },
@@ -1182,12 +1186,14 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
     const mod = curProj.modules[idx];
     if (!mod) return null;
     const walls = getEffectiveSpaceWalls(curProj);
+    const angledWalls = walls.filter((w) => ((w.rotationY || 0) % 90 + 90) % 90 !== 0);
+    const candidateWalls = !forceWallId && angledWalls.length > 0 ? angledWalls : walls;
     const sol = solveAngledWallSnapForModule({
       mod,
       modIdx: idx,
       candidatePosX: mod.position.x,
       candidatePosZ: mod.position.z,
-      walls,
+      walls: candidateWalls,
       allModules: curProj.modules,
       maxPerpSnapDistMm: 99999,
       forceWallId,

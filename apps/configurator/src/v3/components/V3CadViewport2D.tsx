@@ -1473,11 +1473,21 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             }
 
             setActiveSnapTarget(null);
-            const delta = resizingPlanObject.isSideWall ? dzMm : dxMm;
-            const newLen = Math.max(
-              300,
-              Math.min(12000, Math.round((resizingPlanObject.startWidthOrLen + delta) / 50) * 50)
-            );
+            const rotDeg = targetWall?.rotationY || 0;
+            const isCustomAngleWall = rotDeg !== 0 && rotDeg !== 90;
+            let newLen: number;
+            if (isCustomAngleWall) {
+              const rad = (rotDeg * Math.PI) / 180;
+              const projLen =
+                (rawPt.x - startPt.x) * Math.cos(rad) + (rawPt.z - startPt.z) * Math.sin(rad);
+              newLen = Math.max(300, Math.min(12000, Math.round(projLen / 50) * 50));
+            } else {
+              const delta = resizingPlanObject.isSideWall ? dzMm : dxMm;
+              newLen = Math.max(
+                300,
+                Math.min(12000, Math.round((resizingPlanObject.startWidthOrLen + delta) / 50) * 50)
+              );
+            }
             updateWallSegment(wallId, { length: newLen });
             setPlanRowSnapBanner(`📐 Duvar Uzunluğu: ${newLen} mm`);
             return;
@@ -1705,6 +1715,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             nextZ = angledSol.snappedPositionZ;
             const curModRot = (((dragMod.rotation?.y || 0) % 360) + 360) % 360;
             if (Math.abs(curModRot - angledSol.moduleRotationYDeg) > 0.5) {
+              if (draggingModIdx !== activeModuleIndex) setActiveModuleIndex(draggingModIdx);
               rotateActiveModule90(angledSol.moduleRotationYDeg - curModRot);
             }
             activeSnapMsg = `🧲📐 "${angledSol.wallName}" Açılı Duvarına Paralel Yaslandı (${angledSol.moduleRotationYDeg}°)`;
@@ -2287,6 +2298,27 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     >
                       <span>{magnetEnabled ? "🧲" : "🔓"}</span><span className="sr-only">{magnetEnabled ? "Snap" : "Serbest"}</span>
                     </button>
+
+                    {spaceWalls.some((w) => ((w.rotationY || 0) % 90 + 90) % 90 !== 0) && (
+                      <button
+                        type="button"
+                        data-testid="plan-selected-mod-snap-wall-btn"
+                        onClick={() => {
+                          const sol = snapModuleToAngledWall(activeModuleIndex);
+                          if (sol) {
+                            setPlanRowSnapBanner(
+                              `📐 "${sol.wallName}" duvarına paralel (${sol.moduleRotationYDeg}°) hizalandı`
+                            );
+                            setTimeout(() => setPlanRowSnapBanner(null), 2600);
+                          }
+                        }}
+                        className="px-2 py-1 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-[11px] inline-flex items-center gap-1 shadow-2xs transition active:scale-95 cursor-pointer shrink-0 whitespace-nowrap"
+                        title="Seçili dolabı eğimli duvara paralel yasla"
+                      >
+                        <span>📐</span>
+                        <span>Duvara Yasla</span>
+                      </button>
+                    )}
                   </>
                 )}
 
@@ -2369,6 +2401,27 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                           className="w-13 px-1 py-0.5 rounded border border-slate-300 bg-white font-mono font-bold"
                         />
                       </div>
+                    )}
+
+                    {project.modules[activeModuleIndex] && (
+                      <button
+                        type="button"
+                        data-testid="plan-selected-wall-snap-mod-btn"
+                        onClick={() => {
+                          const sol = snapModuleToAngledWall(activeModuleIndex, selectedWallObj.id);
+                          if (sol) {
+                            setPlanRowSnapBanner(
+                              `📐 Seçili dolap "${sol.wallName}" duvarına paralel (${sol.moduleRotationYDeg}°) hizalandı`
+                            );
+                            setTimeout(() => setPlanRowSnapBanner(null), 2600);
+                          }
+                        }}
+                        className="px-2 py-1 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-[11px] inline-flex items-center gap-1 shadow-2xs transition active:scale-95 cursor-pointer shrink-0 whitespace-nowrap"
+                        title="Aktif dolabı bu duvara paralel yasla"
+                      >
+                        <span>📐</span>
+                        <span>Dolabı Yasla</span>
+                      </button>
                     )}
                   </>
                 )}
@@ -3295,6 +3348,49 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     >
                       {wallText}
                     </text>
+                    {isSelectedWall && (
+                      <g
+                        data-testid={`plan-wall-resize-end-${wall.id}`}
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                          const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
+                          beginHistoryTransaction();
+                          setResizingPlanObject({
+                            kind: "wall_end",
+                            targetIdxOrId: wall.id,
+                            startClientX: e.clientX,
+                            startClientY: e.clientY,
+                            startWidthOrLen: wall.length,
+                            startPosX: wall.position.x,
+                            startPosZ: wall.position.z,
+                            isSideWall: false,
+                            mmPerPx: svgEl ? getSvgMmPerPx(svgEl) : 4,
+                          });
+                        }}
+                        className="cursor-ew-resize"
+                      >
+                        <rect
+                          x={wall.position.x + wall.length - 22}
+                          y={wall.position.z - wall.thickness - 10}
+                          width={44}
+                          height={wall.thickness + 20}
+                          rx={8}
+                          fill="#059669"
+                          stroke="#FFFFFF"
+                          strokeWidth="3"
+                        />
+                        <text
+                          x={wall.position.x + wall.length}
+                          y={wall.position.z - wall.thickness / 2 + 8}
+                          textAnchor="middle"
+                          fill="#FFFFFF"
+                          fontSize="24"
+                          fontWeight="900"
+                        >
+                          ↔
+                        </text>
+                      </g>
+                    )}
                   </g>
                 );
               }
