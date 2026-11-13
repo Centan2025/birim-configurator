@@ -1,10 +1,463 @@
 "use client";
 
 import React, { useState, useMemo, useRef } from "react";
-import type { DesignProject, ManufacturingBOM } from "@birim/core";
+import type { DesignProject, ModuleInstance } from "@birim/core";
+import type { ManufacturingBOM } from "@birim/manufacturing";
 import { BirimLogo } from "../../design-system";
 import { startZeroLagModalDrag } from "../../design-system/zeroLagDrag";
 import { Printer, Download, CheckCircle2, X, Layers, Wrench } from "lucide-react";
+
+interface IsoBoxSpec {
+  id: string;
+  code: string;
+  x0: number;
+  y0: number;
+  z0: number;
+  x1: number;
+  y1: number;
+  z1: number;
+  frontFill: string;
+  sideFill: string;
+  topFill: string;
+  stroke: string;
+  strokeWidth?: number;
+  opacity?: number;
+  kind?: "carcass" | "back" | "plinth" | "shelf" | "drawer" | "door" | "rail";
+  hingeSide?: "left" | "right" | "none";
+  handlePos?: "left" | "right" | "bottom-center" | "none";
+  hasSys32?: boolean;
+}
+
+function projectIsoPoint(x: number, y: number, z: number): { u: number; v: number } {
+  return {
+    u: x - z * 0.42,
+    v: -y + z * 0.24,
+  };
+}
+
+function computeModuleBayRanges(mod: ModuleInstance): Array<{ x0: number; x1: number; width: number }> {
+  const W = mod.dimensions.width;
+  const T = mod.carcass.panelThickness || 18;
+  const bayCount = Math.max(1, mod.bays.length);
+  const innerW = Math.max(100, W - 2 * T - Math.max(0, bayCount - 1) * T);
+
+  let fixedSum = 0;
+  let flexWeightSum = 0;
+  const rawWidths = mod.bays.map((b) => {
+    if (typeof b.customWidth === "number" && b.customWidth > 0) {
+      fixedSum += b.customWidth;
+      return b.customWidth;
+    }
+    const w = typeof b.widthRatio === "number" && b.widthRatio > 0 ? b.widthRatio : 1 / bayCount;
+    flexWeightSum += w;
+    return -w;
+  });
+
+  const remainingW = Math.max(60, innerW - fixedSum);
+  const widths = rawWidths.map((rw) =>
+    rw > 0 ? rw : (Math.abs(rw) / Math.max(0.001, flexWeightSum)) * remainingW
+  );
+
+  const ranges: Array<{ x0: number; x1: number; width: number }> = [];
+  let cursorX = T;
+  for (let i = 0; i < mod.bays.length; i++) {
+    const bw = widths[i] ?? innerW / bayCount;
+    ranges.push({ x0: cursorX, x1: cursorX + bw, width: bw });
+    cursorX += bw + T;
+  }
+  return ranges;
+}
+
+function buildExplodedIsoBoxes(
+  mod: ModuleInstance,
+  isWallCab: boolean,
+  topStretcherMode: boolean
+): {
+  boxes: IsoBoxSpec[];
+  explodeX: number;
+  explodeY: number;
+  explodeZ: number;
+  explodeDrawerZ: number;
+  explodeDoorZ: number;
+  bayRanges: Array<{ x0: number; x1: number; width: number }>;
+} {
+  const W = mod.dimensions.width;
+  const H = mod.dimensions.height;
+  const D = mod.dimensions.depth;
+  const T = mod.carcass.panelThickness || 18;
+  const backT = mod.carcass.backPanelThickness || 8;
+  const plinthH = isWallCab ? 0 : mod.carcass.plinthHeight ?? 80;
+
+  const explodeX = Math.max(460, Math.round(W * 0.36));
+  const explodeY = Math.max(200, Math.round(H * 0.14));
+  const explodeZ = Math.max(320, Math.round(D * 0.72));
+  const explodeDrawerZ = Math.max(360, Math.round(D * 0.80));
+  const explodeDoorZ = Math.max(660, Math.round(D * 1.38));
+
+  const bayRanges = computeModuleBayRanges(mod);
+  const boxes: IsoBoxSpec[] = [];
+
+  // ⑥ Back panel (exploded rear + slightly up)
+  boxes.push({
+    id: "back-panel",
+    code: "⑥",
+    x0: T - 6,
+    y0: plinthH + T - 6 + 90,
+    z0: -explodeZ,
+    x1: W - T + 6,
+    y1: H - T + 6 + 90,
+    z1: -explodeZ + backT,
+    frontFill: "#E2DDD3",
+    sideFill: "#CBD5E1",
+    topFill: "#EDE9E0",
+    stroke: "#475569",
+    strokeWidth: 1.4,
+    kind: "back",
+  });
+
+  // ⑦ Plinth (exploded down)
+  if (!isWallCab && plinthH > 0) {
+    boxes.push({
+      id: "plinth-base",
+      code: "⑦",
+      x0: 18,
+      y0: -explodeY,
+      z0: 36,
+      x1: W - 18,
+      y1: plinthH - explodeY,
+      z1: D - 24,
+      frontFill: "#CBD5E1",
+      sideFill: "#94A3B8",
+      topFill: "#E2E8F0",
+      stroke: "#334155",
+      strokeWidth: 1.5,
+      opacity: 0.9,
+      kind: "plinth",
+    });
+  }
+
+  // ① Left side panel (exploded left)
+  boxes.push({
+    id: "left-side",
+    code: "①",
+    x0: -explodeX,
+    y0: plinthH,
+    z0: 0,
+    x1: T - explodeX,
+    y1: H,
+    z1: D,
+    frontFill: "#D8B892",
+    sideFill: "#C7A379",
+    topFill: "#E5CBA8",
+    stroke: "#57534E",
+    strokeWidth: 1.6,
+    kind: "carcass",
+    hasSys32: true,
+  });
+
+  // ② Right side panel (exploded right)
+  boxes.push({
+    id: "right-side",
+    code: "②",
+    x0: W - T + explodeX,
+    y0: plinthH,
+    z0: 0,
+    x1: W + explodeX,
+    y1: H,
+    z1: D,
+    frontFill: "#D8B892",
+    sideFill: "#C7A379",
+    topFill: "#E5CBA8",
+    stroke: "#57534E",
+    strokeWidth: 1.6,
+    kind: "carcass",
+  });
+
+  // ③ Bottom panel
+  boxes.push({
+    id: "bottom-panel",
+    code: "③",
+    x0: T,
+    y0: plinthH,
+    z0: 0,
+    x1: W - T,
+    y1: plinthH + T,
+    z1: D,
+    frontFill: "#D8B892",
+    sideFill: "#C7A379",
+    topFill: "#E7CFAF",
+    stroke: "#57534E",
+    strokeWidth: 1.6,
+    kind: "carcass",
+  });
+
+  // ④ Top panel or 90mm stretchers (exploded up)
+  if (topStretcherMode) {
+    boxes.push({
+      id: "top-stretcher-rear",
+      code: "④",
+      x0: T,
+      y0: H - T + explodeY,
+      z0: 0,
+      x1: W - T,
+      y1: H + explodeY,
+      z1: 90,
+      frontFill: "#DFC3A0",
+      sideFill: "#C7A379",
+      topFill: "#EAD2B3",
+      stroke: "#57534E",
+      strokeWidth: 1.5,
+      kind: "carcass",
+    });
+    boxes.push({
+      id: "top-stretcher-front",
+      code: "④",
+      x0: T,
+      y0: H - T + explodeY,
+      z0: D - 90,
+      x1: W - T,
+      y1: H + explodeY,
+      z1: D,
+      frontFill: "#DFC3A0",
+      sideFill: "#C7A379",
+      topFill: "#EAD2B3",
+      stroke: "#57534E",
+      strokeWidth: 1.5,
+      kind: "carcass",
+    });
+  } else {
+    boxes.push({
+      id: "top-panel",
+      code: "④",
+      x0: T,
+      y0: H - T + explodeY,
+      z0: 0,
+      x1: W - T,
+      y1: H + explodeY,
+      z1: D,
+      frontFill: "#D8B892",
+      sideFill: "#C7A379",
+      topFill: "#EAD2B3",
+      stroke: "#57534E",
+      strokeWidth: 1.6,
+      kind: "carcass",
+    });
+  }
+
+  // ⑤ Vertical dividers between bays
+  for (let i = 0; i < bayRanges.length - 1; i++) {
+    const divX = bayRanges[i].x1;
+    boxes.push({
+      id: `divider-${i}`,
+      code: "⑤",
+      x0: divX,
+      y0: plinthH + T,
+      z0: 18,
+      x1: divX + T,
+      y1: H - T,
+      z1: D - 18,
+      frontFill: "#DFC4A2",
+      sideFill: "#C9A67D",
+      topFill: "#EAD2B3",
+      stroke: "#57534E",
+      strokeWidth: 1.4,
+      kind: "carcass",
+    });
+  }
+
+  // Bay interiors + doors
+  const innerBottomY = plinthH + T;
+  const innerTopY = H - T;
+
+  mod.bays.forEach((bay, bIdx) => {
+    const range = bayRanges[bIdx];
+    if (!range) return;
+
+    // ⑧ Shelves
+    (bay.shelves || []).forEach((shelf, sIdx) => {
+      if (shelf.isHidden) return;
+      const shT = shelf.thickness || T;
+      const sy = Math.min(innerTopY - shT, Math.max(innerBottomY, innerBottomY + shelf.elevationY));
+      boxes.push({
+        id: `shelf-${bIdx}-${sIdx}`,
+        code: "⑧",
+        x0: range.x0 + 2,
+        y0: sy,
+        z0: 22,
+        x1: range.x1 - 2,
+        y1: sy + shT,
+        z1: D - (shelf.frontSetbackMm ?? 16),
+        frontFill: shelf.isGlass ? "#BAE6FD" : "#EFE6D8",
+        sideFill: shelf.isGlass ? "#7DD3FC" : "#DDD0BE",
+        topFill: shelf.isGlass ? "#E0F2FE" : "#F5EFE6",
+        stroke: "#64748B",
+        strokeWidth: 1.1,
+        opacity: shelf.isGlass ? 0.65 : 0.96,
+        kind: "shelf",
+      });
+    });
+
+    // Hanging rails (tagged under ⑧)
+    (bay.hangingRails || []).forEach((rail, rIdx) => {
+      if (rail.isHidden) return;
+      const ry = Math.min(innerTopY - 30, Math.max(innerBottomY + 20, innerBottomY + rail.elevationY));
+      boxes.push({
+        id: `rail-${bIdx}-${rIdx}`,
+        code: "⑧",
+        x0: range.x0 + 4,
+        y0: ry,
+        z0: D * 0.48,
+        x1: range.x1 - 4,
+        y1: ry + 26,
+        z1: D * 0.48 + 16,
+        frontFill: "#94A3B8",
+        sideFill: "#64748B",
+        topFill: "#CBD5E1",
+        stroke: "#334155",
+        strokeWidth: 1.1,
+        kind: "rail",
+      });
+    });
+
+    // ⑨ Drawers (exploded forward)
+    let externalDrawerMaxTopY = 0;
+    const visibleDrawers = (bay.drawers || []).filter((d) => !d.isHidden);
+    visibleDrawers.forEach((drw, dIdx) => {
+      const dh = Math.max(100, drw.height || 180);
+      const dy0 = innerBottomY + drw.elevationY;
+      const dy1 = Math.min(innerTopY, dy0 + dh);
+      if (!drw.isInternal && dy1 > externalDrawerMaxTopY) {
+        externalDrawerMaxTopY = dy1;
+      }
+      const zShift = drw.isInternal ? explodeDrawerZ * 0.72 : explodeDrawerZ + dIdx * 24;
+      const boxDepth = Math.min(D - 40, 460);
+
+      // Drawer carcass box
+      boxes.push({
+        id: `drawer-box-${bIdx}-${dIdx}`,
+        code: "⑨",
+        x0: range.x0 + 8,
+        y0: dy0 + 8,
+        z0: D - boxDepth + zShift,
+        x1: range.x1 - 8,
+        y1: dy1 - 14,
+        z1: D - 18 + zShift,
+        frontFill: "#FDBA74",
+        sideFill: "#FB923C",
+        topFill: "#FDE68A",
+        stroke: "#9A3412",
+        strokeWidth: 1.2,
+        kind: "drawer",
+      });
+
+      // Drawer front panel
+      boxes.push({
+        id: `drawer-front-${bIdx}-${dIdx}`,
+        code: "⑨",
+        x0: drw.isInternal ? range.x0 + 10 : range.x0 - (bIdx === 0 ? T - 2 : T / 2 - 1),
+        y0: dy0 + 2,
+        z0: D - 18 + zShift,
+        x1: drw.isInternal ? range.x1 - 10 : range.x1 + (bIdx === mod.bays.length - 1 ? T - 2 : T / 2 - 1),
+        y1: dy1 - 2,
+        z1: D + zShift,
+        frontFill: drw.isInternal ? "#FEF3C7" : "#D6AE7E",
+        sideFill: "#B88C5A",
+        topFill: "#E8C99E",
+        stroke: drw.isInternal ? "#9A3412" : "#292524",
+        strokeWidth: 1.4,
+        kind: "drawer",
+        handlePos: drw.isInternal ? "none" : "bottom-center",
+      });
+    });
+
+    // ⑩ Doors (exploded furthest forward)
+    const door = bay.door;
+    if (!mod.isOpenFront && door && door.type !== "open" && door.doorSystemId !== "open") {
+      const doorX0 = range.x0 - (bIdx === 0 ? T - 2 : T / 2 - 1);
+      const doorX1 = range.x1 + (bIdx === mod.bays.length - 1 ? T - 2 : T / 2 - 1);
+      const doorY0 = externalDrawerMaxTopY > innerBottomY ? externalDrawerMaxTopY + 3 : plinthH + 2;
+      const doorY1 = H - 2;
+
+      if (doorY1 - doorY0 > 80) {
+        const isDouble =
+          door.type === "double" ||
+          door.doorSystemId === "hinged_double" ||
+          door.type === "sliding";
+        if (isDouble) {
+          const midX = (doorX0 + doorX1) / 2;
+          boxes.push({
+            id: `door-l-${bIdx}`,
+            code: "⑩",
+            x0: doorX0,
+            y0: doorY0,
+            z0: D - T + explodeDoorZ,
+            x1: midX - 2,
+            y1: doorY1,
+            z1: D + explodeDoorZ,
+            frontFill: "#D6AE7E",
+            sideFill: "#B88C5A",
+            topFill: "#E8C99E",
+            stroke: "#1E293B",
+            strokeWidth: 1.6,
+            opacity: 0.78,
+            kind: "door",
+            hingeSide: "left",
+            handlePos: "right",
+          });
+          boxes.push({
+            id: `door-r-${bIdx}`,
+            code: "⑩",
+            x0: midX + 2,
+            y0: doorY0,
+            z0: D - T + explodeDoorZ + (door.type === "sliding" ? 28 : 0),
+            x1: doorX1,
+            y1: doorY1,
+            z1: D + explodeDoorZ + (door.type === "sliding" ? 28 : 0),
+            frontFill: "#D6AE7E",
+            sideFill: "#B88C5A",
+            topFill: "#E8C99E",
+            stroke: "#1E293B",
+            strokeWidth: 1.6,
+            opacity: 0.78,
+            kind: "door",
+            hingeSide: "right",
+            handlePos: "left",
+          });
+        } else {
+          const hingeRight = door.type === "single_right" || door.type === "inset_right";
+          boxes.push({
+            id: `door-s-${bIdx}`,
+            code: "⑩",
+            x0: doorX0,
+            y0: doorY0,
+            z0: D - T + explodeDoorZ,
+            x1: doorX1,
+            y1: doorY1,
+            z1: D + explodeDoorZ,
+            frontFill: "#D6AE7E",
+            sideFill: "#B88C5A",
+            topFill: "#E8C99E",
+            stroke: "#1E293B",
+            strokeWidth: 1.6,
+            opacity: 0.78,
+            kind: "door",
+            hingeSide: hingeRight ? "right" : "left",
+            handlePos: hingeRight ? "left" : "right",
+          });
+        }
+      }
+    }
+  });
+
+  // Painter's algorithm sort: back-left-bottom first, front-right-top last
+  boxes.sort((a, b) => {
+    const da = ((a.z0 + a.z1) / 2) * 1.0 + ((a.x0 + a.x1) / 2) * 0.35 + ((a.y0 + a.y1) / 2) * 0.12;
+    const db = ((b.z0 + b.z1) / 2) * 1.0 + ((b.x0 + b.x1) / 2) * 0.35 + ((b.y0 + b.y1) / 2) * 0.12;
+    return da - db;
+  });
+
+  return { boxes, explodeX, explodeY, explodeZ, explodeDrawerZ, explodeDoorZ, bayRanges };
+}
 
 interface AssemblyDiagramModalProps {
   isOpen: boolean;
@@ -56,7 +509,7 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
     const jointTopology = mod.carcass.carcassJoineryTopology || "type_a_top_bottom_between_sides";
     const isMiter45 = jointTopology === "type_c_miter_45_clamex";
 
-    const modCutPieces = bom.cutList.filter((p) => p.moduleId === mod.id);
+    const modCutPieces = (bom?.cutList || []).filter((p) => p.moduleId === mod.id);
     const totalHoles = modCutPieces.reduce((acc, p) => acc + (p.holes?.length || 0), 0);
 
     const joineryLabel = isMiter45
@@ -146,7 +599,217 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
     };
   }, [mod, bom.cutList, mainModules.length]);
 
-  if (!isOpen || !mod || !assemblyData) return null;
+  const isoScene = useMemo(() => {
+    if (!mod || !assemblyData) return null;
+    const { boxes, explodeX, explodeY, explodeZ, explodeDrawerZ, explodeDoorZ } = buildExplodedIsoBoxes(
+      mod,
+      assemblyData.isWallCab,
+      assemblyData.topStretcherMode
+    );
+
+    let minU = Infinity;
+    let maxU = -Infinity;
+    let minV = Infinity;
+    let maxV = -Infinity;
+
+    for (const b of boxes) {
+      const corners = [
+        [b.x0, b.y0, b.z0],
+        [b.x1, b.y0, b.z0],
+        [b.x0, b.y1, b.z0],
+        [b.x1, b.y1, b.z0],
+        [b.x0, b.y0, b.z1],
+        [b.x1, b.y0, b.z1],
+        [b.x0, b.y1, b.z1],
+        [b.x1, b.y1, b.z1],
+      ];
+      for (const [cx, cy, cz] of corners) {
+        const p = projectIsoPoint(cx, cy, cz);
+        if (p.u < minU) minU = p.u;
+        if (p.u > maxU) maxU = p.u;
+        if (p.v < minV) minV = p.v;
+        if (p.v > maxV) maxV = p.v;
+      }
+    }
+
+    const svgW = 680;
+    const svgH = 460;
+    const padX = 76;
+    const padY = 48;
+    const spanU = Math.max(1, maxU - minU);
+    const spanV = Math.max(1, maxV - minV);
+    const scale = Math.min((svgW - 2 * padX) / spanU, (svgH - 2 * padY) / spanV);
+    const offsetX = (svgW - spanU * scale) / 2 - minU * scale;
+    const offsetY = (svgH - spanV * scale) / 2 - minV * scale;
+
+    const toSvg = (x: number, y: number, z: number) => {
+      const p = projectIsoPoint(x, y, z);
+      return {
+        x: Math.round((p.u * scale + offsetX) * 10) / 10,
+        y: Math.round((p.v * scale + offsetY) * 10) / 10,
+      };
+    };
+
+    const ptsStr = (pts: Array<{ x: number; y: number }>) =>
+      pts.map((p) => `${p.x},${p.y}`).join(" ");
+
+    const renderedBoxes = boxes.map((b) => {
+      const p001 = toSvg(b.x0, b.y0, b.z1);
+      const p101 = toSvg(b.x1, b.y0, b.z1);
+      const p111 = toSvg(b.x1, b.y1, b.z1);
+      const p011 = toSvg(b.x0, b.y1, b.z1);
+
+      const p100 = toSvg(b.x1, b.y0, b.z0);
+      const p110 = toSvg(b.x1, b.y1, b.z0);
+      const p010 = toSvg(b.x0, b.y1, b.z0);
+
+      const frontPoly = ptsStr([p001, p101, p111, p011]);
+      const rightPoly = ptsStr([p101, p100, p110, p111]);
+      const topPoly = ptsStr([p011, p111, p110, p010]);
+
+      // Optional handle & hinge cups on doors / drawer fronts
+      let handleLine: { x1: number; y1: number; x2: number; y2: number } | null = null;
+      const hingeCups: Array<{ cx: number; cy: number }> = [];
+
+      if (b.handlePos === "bottom-center") {
+        const hx0 = b.x0 + (b.x1 - b.x0) * 0.36;
+        const hx1 = b.x0 + (b.x1 - b.x0) * 0.64;
+        const hy = b.y0 + (b.y1 - b.y0) * 0.55;
+        const hStart = toSvg(hx0, hy, b.z1 + 2);
+        const hEnd = toSvg(hx1, hy, b.z1 + 2);
+        handleLine = { x1: hStart.x, y1: hStart.y, x2: hEnd.x, y2: hEnd.y };
+      } else if (b.handlePos === "left" || b.handlePos === "right") {
+        const hx = b.handlePos === "left" ? b.x0 + 36 : b.x1 - 36;
+        const midY = Math.min(b.y1 - 90, Math.max(b.y0 + 180, (b.y0 + b.y1) * 0.42));
+        const hStart = toSvg(hx, midY - 95, b.z1 + 2);
+        const hEnd = toSvg(hx, midY + 95, b.z1 + 2);
+        handleLine = { x1: hStart.x, y1: hStart.y, x2: hEnd.x, y2: hEnd.y };
+      }
+
+      if (b.kind === "door" && b.hingeSide && b.hingeSide !== "none") {
+        const cupX = b.hingeSide === "left" ? b.x0 + 26 : b.x1 - 26;
+        const hSpan = b.y1 - b.y0;
+        const cupCount = hSpan > 1500 ? 4 : hSpan > 900 ? 3 : 2;
+        for (let ci = 0; ci < cupCount; ci++) {
+          const frac = 0.1 + (0.8 * ci) / (cupCount - 1);
+          const cp = toSvg(cupX, b.y0 + hSpan * frac, b.z1 + 2);
+          hingeCups.push({ cx: cp.x, cy: cp.y });
+        }
+      }
+
+      const sys32Pts: Array<{ cx: number; cy: number }> = [];
+      let grooveLine: { x1: number; y1: number; x2: number; y2: number } | null = null;
+      if (b.hasSys32) {
+        for (let i = 0; i < 6; i++) {
+          const sy = b.y0 + 120 + ((b.y1 - b.y0 - 240) * i) / 5;
+          const sp = toSvg(b.x1 + 1, sy, b.z1 - 45);
+          sys32Pts.push({ cx: sp.x, cy: sp.y });
+        }
+        const g1 = toSvg(b.x1 + 1, b.y0 + 10, b.z0 + 20);
+        const g2 = toSvg(b.x1 + 1, b.y1 - 10, b.z0 + 20);
+        grooveLine = { x1: g1.x, y1: g1.y, x2: g2.x, y2: g2.y };
+      }
+
+      return {
+        ...b,
+        frontPoly,
+        rightPoly,
+        topPoly,
+        handleLine,
+        hingeCups,
+        sys32Pts,
+        grooveLine,
+      };
+    });
+
+    const W = mod.dimensions.width;
+    const H = mod.dimensions.height;
+    const D = mod.dimensions.depth;
+    const plinthH = assemblyData.isWallCab ? 0 : assemblyData.plinthH;
+    const midY = (plinthH + H) / 2;
+
+    const arrows = [
+      {
+        code: "①",
+        from: toSvg(-explodeX + 20, midY, D / 2),
+        to: toSvg(0, midY, D / 2),
+      },
+      {
+        code: "②",
+        from: toSvg(W + explodeX - 20, midY, D / 2),
+        to: toSvg(W, midY, D / 2),
+      },
+      {
+        code: "④",
+        from: toSvg(W / 2, H + explodeY - 20, D / 2),
+        to: toSvg(W / 2, H, D / 2),
+      },
+      {
+        code: "⑥",
+        from: toSvg(W / 2, midY, -explodeZ + 20),
+        to: toSvg(W / 2, midY, 0),
+      },
+      ...(assemblyData.hasDoors
+        ? [
+            {
+              code: "⑩",
+              from: toSvg(W * 0.72, midY, D + explodeDoorZ - 25),
+              to: toSvg(W * 0.72, midY, D + 10),
+            },
+          ]
+        : []),
+      ...(assemblyData.drawerCount > 0
+        ? [
+            {
+              code: "⑨",
+              from: toSvg(W * 0.65, plinthH + 180, D + explodeDrawerZ - 20),
+              to: toSvg(W * 0.65, plinthH + 180, D + 10),
+            },
+          ]
+        : []),
+      ...(!assemblyData.isWallCab && plinthH > 0
+        ? [
+            {
+              code: "⑦",
+              from: toSvg(W / 2, plinthH - explodeY + 15, D / 2),
+              to: toSvg(W / 2, plinthH, D / 2),
+            },
+          ]
+        : []),
+    ];
+
+    const callouts: Array<{ code: string; num: string; label: string; x: number; y: number }> = [
+      { code: "①", num: "1", label: `Sol Dikme (${assemblyData.T}mm)`, ...toSvg(-explodeX - 40, H * 0.85, D * 0.35) },
+      { code: "②", num: "2", label: `Sağ Dikme (${assemblyData.T}mm)`, ...toSvg(W + explodeX + 35, H * 0.82, D * 0.2) },
+      { code: "③", num: "3", label: "Alt Tabla", ...toSvg(W * 0.15, plinthH - 25, D * 1.05) },
+      {
+        code: "④",
+        num: "4",
+        label: assemblyData.topStretcherMode ? "90mm Kayıt" : "Üst Tabla",
+        ...toSvg(W * 0.25, H + explodeY + 95, D * 0.4),
+      },
+      ...(assemblyData.dividerCount > 0
+        ? [{ code: "⑤", num: "5", label: `Ara Dikme (${assemblyData.dividerCount}x)`, ...toSvg(W * 0.45, H + 55, D * 0.5) }]
+        : []),
+      { code: "⑥", num: "6", label: "8mm Arkalık", ...toSvg(W * 0.72, H + 145, -explodeZ) },
+      ...(!assemblyData.isWallCab && plinthH > 0
+        ? [{ code: "⑦", num: "7", label: `Baza (${plinthH}mm)`, ...toSvg(W * 0.5, -explodeY - 75, D * 0.7) }]
+        : []),
+      ...(assemblyData.shelfCount > 0
+        ? [{ code: "⑧", num: "8", label: `Raf (${assemblyData.shelfCount}x)`, ...toSvg(W * 0.2, midY + 90, D * 0.35) }]
+        : []),
+      ...(assemblyData.drawerCount > 0
+        ? [{ code: "⑨", num: "9", label: `Çekmece (${assemblyData.drawerCount}x)`, ...toSvg(W * 0.78, plinthH + 40, D + explodeDrawerZ + 80) }]
+        : []),
+      ...(assemblyData.hasDoors
+        ? [{ code: "⑩", num: "10", label: `Kapak (${assemblyData.doorLeavesCount}x)`, ...toSvg(W * 0.78, H * 0.45, D + explodeDoorZ + 90) }]
+        : []),
+    ];
+
+    return { renderedBoxes, arrows, callouts };
+  }, [mod, assemblyData]);
+
+  if (!isOpen || !mod || !assemblyData || !isoScene) return null;
 
   const isHighlighted = (code: string) => {
     if (activeStep === 0) return true;
@@ -173,7 +836,7 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
   const printAssemblySheet = () => {
     if (!svgRef.current) return;
     const svgMarkup = new XMLSerializer().serializeToString(svgRef.current);
-    const hwRows = bom.hardware
+    const hwRows = (bom?.hardwareList || [])
       .map(
         (h) =>
           `<tr><td><code>${h.sku}</code></td><td>${h.name}</td><td style="text-align:right"><b>${h.quantity} ${h.unit}</b></td></tr>`
@@ -218,18 +881,28 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
       <div
         data-draggable-shell="assembly-diagram-modal"
         onClick={(e) => e.stopPropagation()}
-        className="birim-ice-modal rounded-[28px] max-w-5xl w-full max-h-[92vh] flex flex-col overflow-hidden text-[#141413]"
+        className="relative birim-ice-modal rounded-[28px] max-w-5xl w-full max-h-[92vh] flex flex-col overflow-hidden text-[#141413]"
       >
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Kapat"
+          title="Kapat"
+          className="absolute top-3 right-3 z-20 w-8 h-8 rounded-full bg-white/95 border border-slate-300 shadow-sm flex items-center justify-center text-slate-700 hover:text-slate-950 hover:bg-white cursor-pointer"
+        >
+          <X className="w-4 h-4" />
+        </button>
+
         {/* Header with Official Birim Logo */}
         <div
           onPointerDown={(e) => startZeroLagModalDrag(e)}
           title="Pencereyi taşımak için sürükleyin"
-          className="px-5 py-3.5 birim-ice-shell-header flex flex-wrap items-center justify-between gap-3 cursor-grab active:cursor-grabbing select-none"
+          className="px-5 py-3.5 pr-14 birim-ice-shell-header flex items-center justify-between gap-3 cursor-grab active:cursor-grabbing select-none"
         >
-          <div className="flex items-center gap-3 min-w-0">
+          <div className="flex items-center gap-3 flex-1 min-w-0 overflow-hidden">
             <BirimLogo className="h-5 w-auto text-[#141413] shrink-0" />
             <div className="h-4 w-px bg-slate-900/15 shrink-0" />
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <h2 className="text-sm font-bold text-[#141413] truncate">
                 Patlatılmış İzometrik Montaj Şeması &amp; Kurulum Kılavuzu
               </h2>
@@ -239,12 +912,12 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             {mainModules.length > 1 && (
               <select
                 value={selectedModIdx}
                 onChange={(e) => setSelectedModIdx(Number(e.target.value))}
-                className="px-2.5 py-1.5 rounded-xl bg-white/80 border border-slate-300 text-xs font-bold text-[#141413]"
+                className="max-w-[160px] px-2.5 py-1.5 rounded-xl bg-white/80 border border-slate-300 text-xs font-bold text-[#141413] truncate"
               >
                 {mainModules.map((m, idx) => (
                   <option key={m.id} value={idx}>
@@ -270,13 +943,6 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
             >
               <Printer className="w-3.5 h-3.5 text-amber-300" />
               <span>A4 Montaj Föyü Yazdır</span>
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="w-8 h-8 rounded-xl birim-ice-btn flex items-center justify-center text-slate-700 hover:text-slate-950 cursor-pointer"
-            >
-              <X className="w-4 h-4" />
             </button>
           </div>
         </div>
@@ -316,178 +982,118 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
                 {/* Subtle Technical Grid Backdrop */}
                 <rect x="8" y="8" width="664" height="444" rx="16" fill="#F8FAFC" stroke="#E2E8F0" />
 
-                {/* ⑥ 8mm Grooved Back Panel (Exploded Rear-Up-Right) */}
-                <g opacity={isHighlighted("⑥") ? 1 : 0.22}>
-                  <polygon
-                    points="275,46 455,22 455,232 275,256"
-                    fill="#E2DDD3"
-                    stroke="#475569"
-                    strokeWidth="1.8"
+                {/* Dynamic 3D-to-2D Isometric Exploded Parts (Painter's Order) */}
+                {isoScene.renderedBoxes.map((box) => {
+                  const active = isHighlighted(box.code);
+                  const baseOpacity = box.opacity ?? 1;
+                  return (
+                    <g key={box.id} opacity={active ? baseOpacity : 0.16}>
+                      <polygon
+                        points={box.topPoly}
+                        fill={box.topFill}
+                        stroke={box.stroke}
+                        strokeWidth={box.strokeWidth ?? 1.4}
+                        strokeLinejoin="round"
+                      />
+                      <polygon
+                        points={box.rightPoly}
+                        fill={box.sideFill}
+                        stroke={box.stroke}
+                        strokeWidth={box.strokeWidth ?? 1.4}
+                        strokeLinejoin="round"
+                      />
+                      <polygon
+                        points={box.frontPoly}
+                        fill={box.frontFill}
+                        stroke={box.stroke}
+                        strokeWidth={box.strokeWidth ?? 1.5}
+                        strokeLinejoin="round"
+                      />
+                      {box.grooveLine && (
+                        <line
+                          x1={box.grooveLine.x1}
+                          y1={box.grooveLine.y1}
+                          x2={box.grooveLine.x2}
+                          y2={box.grooveLine.y2}
+                          stroke="#7c2d12"
+                          strokeWidth="1.2"
+                          strokeDasharray="3 2"
+                        />
+                      )}
+                      {box.sys32Pts.map((pt, idx) => (
+                        <circle key={idx} cx={pt.cx} cy={pt.cy} r="1.7" fill="#0369a1" />
+                      ))}
+                      {box.hingeCups.map((cup, idx) => (
+                        <circle
+                          key={idx}
+                          cx={cup.cx}
+                          cy={cup.cy}
+                          r="3.6"
+                          fill="#f59e0b"
+                          stroke="#78350f"
+                          strokeWidth="1"
+                        />
+                      ))}
+                      {box.handleLine && (
+                        <line
+                          x1={box.handleLine.x1}
+                          y1={box.handleLine.y1}
+                          x2={box.handleLine.x2}
+                          y2={box.handleLine.y2}
+                          stroke="#141413"
+                          strokeWidth="2.8"
+                          strokeLinecap="round"
+                        />
+                      )}
+                    </g>
+                  );
+                })}
+
+                {/* Exploded Assembly Direction Arrows */}
+                {isoScene.arrows.map((arr, idx) => (
+                  <line
+                    key={`arrow-${idx}`}
+                    x1={arr.from.x}
+                    y1={arr.from.y}
+                    x2={arr.to.x}
+                    y2={arr.to.y}
+                    stroke="#0284c7"
+                    strokeWidth="1.3"
+                    strokeDasharray="4 3"
+                    markerEnd="url(#asm-arrow)"
+                    opacity={isHighlighted(arr.code) ? 0.9 : 0.18}
                   />
-                  <line x1="275" y1="150" x2="235" y2="178" stroke="#0284c7" strokeWidth="1.3" strokeDasharray="4 3" markerEnd="url(#asm-arrow)" />
-                  <circle cx="368" cy="30" r="12" fill="#0f172a" />
-                  <text x="368" y="34" textAnchor="middle" fill="#ffffff" fontSize="11" fontWeight="800">6</text>
-                  <text x="386" y="34" fill="#0f172a" fontSize="10" fontWeight="700">8mm Kanallı Arkalık</text>
-                </g>
+                ))}
 
-                {/* ① Left Side Panel (Exploded Left) */}
-                <g opacity={isHighlighted("①") ? 1 : 0.22}>
-                  <polygon
-                    points="64,122 118,92 118,324 64,354"
-                    fill="#D8B892"
-                    stroke="#57534E"
-                    strokeWidth="2"
-                  />
-                  {/* 8mm Back Groove Line + System 32 Holes */}
-                  <line x1="110" y1="98" x2="110" y2="320" stroke="#7c2d12" strokeWidth="1.4" strokeDasharray="3 2" />
-                  {[135, 175, 215, 255, 295].map((yy) => (
-                    <circle key={yy} cx="84" cy={yy} r="1.8" fill="#0369a1" />
-                  ))}
-                  <line x1="122" y1="220" x2="176" y2="220" stroke="#0284c7" strokeWidth="1.4" strokeDasharray="4 3" markerEnd="url(#asm-arrow)" />
-                  <circle cx="52" cy="112" r="12" fill="#0f172a" />
-                  <text x="52" y="116" textAnchor="middle" fill="#ffffff" fontSize="11" fontWeight="800">1</text>
-                  <text x="52" y="372" textAnchor="middle" fill="#334155" fontSize="9.5" fontWeight="700">Sol Dikme ({assemblyData.T}mm)</text>
-                </g>
-
-                {/* ④ Top Panel or 90mm Kitchen Stretchers (Exploded Up) */}
-                <g opacity={isHighlighted("④") ? 1 : 0.22}>
-                  {assemblyData.topStretcherMode ? (
-                    <>
-                      <polygon points="185,96 385,70 402,80 202,106" fill="#DFC3A0" stroke="#57534E" strokeWidth="1.8" />
-                      <polygon points="212,114 412,88 428,98 228,124" fill="#DFC3A0" stroke="#57534E" strokeWidth="1.8" />
-                    </>
-                  ) : (
-                    <polygon
-                      points="182,96 384,68 432,96 230,124"
-                      fill="#E5CBA8"
-                      stroke="#57534E"
-                      strokeWidth="2"
-                    />
-                  )}
-                  <line x1="295" y1="115" x2="295" y2="152" stroke="#0284c7" strokeWidth="1.4" strokeDasharray="4 3" markerEnd="url(#asm-arrow)" />
-                  <circle cx="170" cy="82" r="12" fill="#0f172a" />
-                  <text x="170" y="86" textAnchor="middle" fill="#ffffff" fontSize="11" fontWeight="800">4</text>
-                  <text x="188" y="85" fill="#0f172a" fontSize="10" fontWeight="700">
-                    {assemblyData.topStretcherMode ? "90mm Ön/Arka Kayıt" : "Üst Tabla"}
-                  </text>
-                </g>
-
-                {/* ⑤ Center Vertical Divider(s) */}
-                {assemblyData.dividerCount > 0 && (
-                  <g opacity={isHighlighted("⑤") ? 1 : 0.22}>
-                    <polygon
-                      points="286,154 328,130 328,318 286,342"
-                      fill="#DFC4A2"
-                      stroke="#57534E"
-                      strokeWidth="1.8"
-                    />
-                    <circle cx="308" cy="142" r="11" fill="#0f172a" />
-                    <text x="308" y="146" textAnchor="middle" fill="#ffffff" fontSize="10.5" fontWeight="800">5</text>
-                  </g>
-                )}
-
-                {/* ⑧ Interior Shelves */}
-                {assemblyData.shelfCount > 0 && (
-                  <g opacity={isHighlighted("⑧") ? 1 : 0.22}>
-                    <polygon
-                      points="192,216 282,204 316,222 226,234"
-                      fill="#EFE6D8"
-                      stroke="#64748B"
-                      strokeWidth="1.5"
-                    />
-                    <polygon
-                      points="192,262 282,250 316,268 226,280"
-                      fill="#EFE6D8"
-                      stroke="#64748B"
-                      strokeWidth="1.5"
-                    />
-                    <circle cx="204" cy="204" r="11" fill="#0f172a" />
-                    <text x="204" y="208" textAnchor="middle" fill="#ffffff" fontSize="10.5" fontWeight="800">8</text>
-                  </g>
-                )}
-
-                {/* ③ Bottom Panel */}
-                <g opacity={isHighlighted("③") ? 1 : 0.22}>
-                  <polygon
-                    points="182,344 384,316 432,344 230,372"
-                    fill="#E5CBA8"
-                    stroke="#57534E"
-                    strokeWidth="2"
-                  />
-                  <circle cx="170" cy="356" r="12" fill="#0f172a" />
-                  <text x="170" y="360" textAnchor="middle" fill="#ffffff" fontSize="11" fontWeight="800">3</text>
-                </g>
-
-                {/* ⑦ Plinth / Adjustable Base Frame (Exploded Down) */}
-                {!assemblyData.isWallCab && (
-                  <g opacity={isHighlighted("⑦") ? 1 : 0.22}>
-                    <polygon
-                      points="194,404 392,378 424,398 226,424"
-                      fill="#94A3B8"
-                      fillOpacity="0.45"
-                      stroke="#334155"
-                      strokeWidth="1.8"
-                    />
-                    <line x1="295" y1="395" x2="295" y2="366" stroke="#0284c7" strokeWidth="1.3" strokeDasharray="4 3" markerEnd="url(#asm-arrow)" />
-                    <circle cx="182" cy="418" r="12" fill="#0f172a" />
-                    <text x="182" y="422" textAnchor="middle" fill="#ffffff" fontSize="11" fontWeight="800">7</text>
-                    <text x="295" y="440" textAnchor="middle" fill="#334155" fontSize="10" fontWeight="700">
-                      Baza &amp; Ayarlı Ayak Grubu ({assemblyData.plinthH} mm)
-                    </text>
-                  </g>
-                )}
-
-                {/* ② Right Side Panel (Exploded Right) */}
-                <g opacity={isHighlighted("②") ? 1 : 0.22}>
-                  <polygon
-                    points="478,96 532,66 532,298 478,328"
-                    fill="#D8B892"
-                    stroke="#57534E"
-                    strokeWidth="2"
-                  />
-                  <line x1="474" y1="205" x2="424" y2="205" stroke="#0284c7" strokeWidth="1.4" strokeDasharray="4 3" markerEnd="url(#asm-arrow)" />
-                  <circle cx="546" cy="82" r="12" fill="#0f172a" />
-                  <text x="546" y="86" textAnchor="middle" fill="#ffffff" fontSize="11" fontWeight="800">2</text>
-                  <text x="512" y="346" textAnchor="middle" fill="#334155" fontSize="9.5" fontWeight="700">Sağ Dikme ({assemblyData.T}mm)</text>
-                </g>
-
-                {/* ⑨ Grooved Drawer Box + Concealed Runner (Exploded Forward-Left) */}
-                {assemblyData.drawerCount > 0 && (
-                  <g opacity={isHighlighted("⑨") ? 1 : 0.22}>
-                    {/* Drawer Back + Sides + Grooved 8mm Bottom + Front */}
-                    <polygon points="315,286 402,274 428,290 341,302" fill="#FDE68A" stroke="#9A3412" strokeWidth="1.5" />
-                    <polygon points="315,264 402,252 402,274 315,286" fill="#FDBA74" stroke="#7C2D12" strokeWidth="1.5" />
-                    <polygon points="338,278 432,265 432,306 338,319" fill="#FEF3C7" stroke="#9A3412" strokeWidth="1.8" />
-                    <circle cx="384" cy="328" r="11" fill="#9A3412" />
-                    <text x="384" y="332" textAnchor="middle" fill="#ffffff" fontSize="10.5" fontWeight="800">9</text>
-                    <text x="384" y="348" textAnchor="middle" fill="#7C2D12" fontSize="9.5" fontWeight="700">
-                      Kanallı Çekmece + Arkalık
-                    </text>
-                  </g>
-                )}
-
-                {/* ⑩ Hinged / Sliding Door Leaf + Ø35mm Cup Hinge + C-C Handle (Exploded Front-Right) */}
-                {assemblyData.hasDoors && (
-                  <g opacity={isHighlighted("⑩") ? 1 : 0.22}>
-                    <polygon
-                      points="548,148 638,128 638,376 548,396"
-                      fill="#EAE3D7"
-                      fillOpacity="0.92"
-                      stroke="#1E293B"
-                      strokeWidth="2"
-                    />
-                    {/* Ø35mm Hinge Cups + Handle Bar */}
-                    <circle cx="558" cy="178" r="5" fill="#f59e0b" stroke="#78350f" strokeWidth="1.2" />
-                    <circle cx="558" cy="356" r="5" fill="#f59e0b" stroke="#78350f" strokeWidth="1.2" />
-                    <line x1="624" y1="238" x2="624" y2="288" stroke="#141413" strokeWidth="3.5" strokeLinecap="round" />
-                    <line x1="544" y1="255" x2="496" y2="245" stroke="#0284c7" strokeWidth="1.4" strokeDasharray="4 3" markerEnd="url(#asm-arrow)" />
-                    <circle cx="648" cy="142" r="12" fill="#0f172a" />
-                    <text x="648" y="146" textAnchor="middle" fill="#ffffff" fontSize="10.5" fontWeight="800">10</text>
-                    <text x="594" y="414" textAnchor="middle" fill="#0f172a" fontSize="9.5" fontWeight="700">
-                      Kapak &amp; Ø35 Menteşe ({assemblyData.doorLeavesCount}x)
-                    </text>
-                  </g>
-                )}
+                {/* Dynamic Part Number Callouts */}
+                {isoScene.callouts.map((c) => {
+                  const clampedX = Math.max(24, Math.min(585, c.x));
+                  const clampedY = Math.max(24, Math.min(436, c.y));
+                  return (
+                    <g key={`callout-${c.num}`} opacity={isHighlighted(c.code) ? 1 : 0.2}>
+                      <circle cx={clampedX} cy={clampedY} r="10.5" fill="#0f172a" />
+                      <text
+                        x={clampedX}
+                        y={clampedY + 3.5}
+                        textAnchor="middle"
+                        fill="#ffffff"
+                        fontSize="10"
+                        fontWeight="800"
+                      >
+                        {c.num}
+                      </text>
+                      <text
+                        x={clampedX + 14}
+                        y={clampedY + 3.5}
+                        fill="#0f172a"
+                        fontSize="9.5"
+                        fontWeight="700"
+                      >
+                        {c.label}
+                      </text>
+                    </g>
+                  );
+                })}
               </svg>
             </div>
 
@@ -498,7 +1104,7 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
                 <span>Montaj Hırdavat &amp; Donanım Paketi Kontrol Listesi</span>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-40 overflow-y-auto pr-1">
-                {bom.hardware.map((hw) => (
+                {(bom?.hardwareList || []).map((hw) => (
                   <div
                     key={hw.sku}
                     className="px-2.5 py-1.5 rounded-xl bg-white/70 border border-white/85 flex items-center justify-between gap-2"

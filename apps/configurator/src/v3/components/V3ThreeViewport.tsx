@@ -618,6 +618,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       drawerOpenMm,
       setDrawerOpenMm,
       explodedFactor,
+      setExplodedFactor,
       isOrthographic,
       cameraPreset,
       selectedComponentId,
@@ -748,6 +749,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
     const [section3DAxis, setSection3DAxis] = useState<null | "X" | "Z">(null);
     const [section3DRatio, setSection3DRatio] = useState<number>(0.55);
     const [section3DMenuOpen, setSection3DMenuOpen] = useState<boolean>(false);
+    const [explode3DMenuOpen, setExplode3DMenuOpen] = useState<boolean>(false);
     const customLabelOffsetsRef = useRef<Record<string, { dx: number; dy: number }>>({});
     const [, setCustomLabelTick] = useState(0);
 
@@ -1005,6 +1007,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
     const [active3DSnap, setActive3DSnap] = useState<ElevationSnapTarget | null>(null);
     const roomArchGroupRef = useRef<THREE.Group | null>(null);
     const [dragDropSnapBanner, setDragDropSnapBanner] = useState<string | null>(null);
+    const [webglUnavailable, setWebglUnavailable] = useState<boolean>(false);
+    const [webglRetryKey, setWebglRetryKey] = useState<number>(0);
     const hoverBadgeDomRef = useRef<HTMLDivElement | null>(null);
     const hoverBadgeTextRef = useRef<HTMLSpanElement | null>(null);
     const solidMeshesCacheRef = useRef<{ open: THREE.Mesh[]; closed: THREE.Mesh[]; dirty: boolean }>({
@@ -1051,6 +1055,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           setEditingBadge(null);
           setRenderMenuOpen(false);
           setHardwareViewMenuOpen(false);
+          setSection3DMenuOpen(false);
+          setExplode3DMenuOpen(false);
           setDismissedBayPopover(true);
           setDragDropSnapBanner(null);
         }
@@ -1759,11 +1765,34 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       orthoCamera.position.set(2150, 1260, 4680);
       orthoCamRef.current = orthoCamera;
 
-      const renderer = new THREE.WebGLRenderer({
+      const glCanvas = document.createElement("canvas");
+      const glOptions: WebGLContextAttributes = {
         antialias: true,
         alpha: false,
         powerPreference: "high-performance",
-      });
+      };
+      const hasWebGL = !!(
+        glCanvas.getContext("webgl2", glOptions) ||
+        glCanvas.getContext("webgl", glOptions) ||
+        glCanvas.getContext("webgl2", { antialias: false, alpha: false, powerPreference: "default" }) ||
+        glCanvas.getContext("webgl", { antialias: false, alpha: false, powerPreference: "default" })
+      );
+      if (!hasWebGL) {
+        setWebglUnavailable(true);
+        return;
+      }
+      setWebglUnavailable(false);
+
+      let renderer: THREE.WebGLRenderer;
+      try {
+        renderer = new THREE.WebGLRenderer({
+          canvas: glCanvas,
+          ...glOptions,
+        });
+      } catch {
+        setWebglUnavailable(true);
+        return;
+      }
       renderer.setSize(width, height);
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.25));
       renderer.shadowMap.enabled = true;
@@ -3468,7 +3497,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         }
       };
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [webglRetryKey]);
 
     // Update Theme, Lighting Atmosphere Preset & CAD Shadow Fast-Path
     useEffect(() => {
@@ -6273,6 +6302,38 @@ const clear3DGhostPreview = useCallback(() => {
         onDrop={handle3DDrop}
         className="relative w-full h-full select-none overflow-hidden"
       >
+        {webglUnavailable && (
+          <div
+            data-testid="viewport-3d-webgl-unavailable"
+            className="absolute inset-0 z-40 flex items-center justify-center bg-stone-100/95 backdrop-blur-sm p-6"
+          >
+            <div className="max-w-md w-full rounded-2xl bg-white border border-stone-200 shadow-xl p-6 text-center space-y-3">
+              <div className="text-sm font-semibold text-stone-900">
+                3D WebGL Bağlamı Başlatılamadı
+              </div>
+              <p className="text-xs text-stone-600 leading-relaxed">
+                Tarayıcınız art arda GPU bağlam kaybı nedeniyle WebGL&apos;i geçici olarak devre dışı bırakmış olabilir.
+                Diğer ağır 3D sekmeleri kapatıp tekrar deneyin veya sayfayı/tarayıcıyı yenileyin.
+              </p>
+              <div className="flex items-center justify-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setWebglRetryKey((k) => k + 1)}
+                  className="px-3.5 py-1.5 rounded-lg bg-stone-900 text-white text-xs font-medium hover:bg-stone-800 cursor-pointer"
+                >
+                  3D Sahneyi Yeniden Dene
+                </button>
+                <button
+                  type="button"
+                  onClick={() => window.location.reload()}
+                  className="px-3.5 py-1.5 rounded-lg border border-stone-300 text-stone-700 text-xs font-medium hover:bg-stone-50 cursor-pointer"
+                >
+                  Sayfayı Yenile
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {dragDropSnapBanner && (
           <div
             data-testid="viewport-3d-dragdrop-snap-banner"
@@ -9113,6 +9174,109 @@ const clear3DGhostPreview = useCallback(() => {
                       />
                     </div>
                   )}
+                </div>
+              )}
+            </div>
+
+            {/* Canlı 3D Patlatma (Exploded View) Slider Popover */}
+            <div className="relative">
+              <button
+                type="button"
+                data-testid="viewport-3d-explode-toggle-btn"
+                onClick={() => {
+                  setExplode3DMenuOpen((v) => !v);
+                  setSection3DMenuOpen(false);
+                  setHardwareViewMenuOpen(false);
+                  setRenderMenuOpen(false);
+                }}
+                className={`w-9 h-9 rounded-xl flex items-center justify-center transition cursor-pointer ${
+                  explodedFactor > 0.01
+                    ? "birim-ice-btn-active"
+                    : "text-[#44403C] hover:bg-white/70 hover:text-[#141413]"
+                }`}
+                data-tooltip={
+                  explodedFactor > 0.01
+                    ? `Canlı Patlatma: %${Math.round(explodedFactor * 100)}`
+                    : "3D Canlı Patlatma Görünümü"
+                }
+                title="3D Canlı Patlatma Görünümü"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 2L3 7l9 5 9-5-9-5z" />
+                  <path d="M3 12l9 5 9-5" />
+                  <path d="M3 17l9 5 9-5" />
+                </svg>
+                <span className="sr-only">
+                  {explodedFactor > 0.01
+                    ? `Patlatma (%${Math.round(explodedFactor * 100)})`
+                    : "Canlı Patlatma"}
+                </span>
+              </button>
+
+              {explode3DMenuOpen && (
+                <div
+                  data-testid="viewport-3d-explode-popover"
+                  onClick={(e) => e.stopPropagation()}
+                  className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2.5 w-60 birim-ice-popover rounded-2xl p-3 space-y-2.5 z-30 text-xs"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-extrabold text-slate-900">💥 Canlı Patlatma</span>
+                    <button
+                      type="button"
+                      onClick={() => setExplode3DMenuOpen(false)}
+                      aria-label="Patlatma panelini kapat"
+                      className="text-slate-500 hover:text-slate-900 font-bold cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="font-semibold text-slate-600">Ayrılma Oranı</span>
+                      <span
+                        data-testid="viewport-3d-explode-value"
+                        className="font-mono font-extrabold text-slate-900"
+                      >
+                        %{Math.round(explodedFactor * 100)}
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      data-testid="viewport-3d-explode-slider"
+                      aria-label="Canlı patlatma oranı"
+                      min={0}
+                      max={1}
+                      step={0.02}
+                      value={explodedFactor}
+                      onChange={(e) => setExplodedFactor(Number(e.target.value))}
+                      className="w-full accent-[#141413] h-1.5 bg-slate-200 rounded-lg cursor-pointer"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-1 pt-1 border-t border-slate-200/70">
+                    {[
+                      { value: 0, label: "Normal" },
+                      { value: 0.5, label: "%50" },
+                      { value: 1, label: "%100" },
+                    ].map((preset) => {
+                      const isActive = Math.abs(explodedFactor - preset.value) < 0.015;
+                      return (
+                        <button
+                          key={preset.label}
+                          type="button"
+                          onClick={() => setExplodedFactor(preset.value)}
+                          className={`py-1.5 px-2 rounded-xl font-bold text-[11px] transition cursor-pointer ${
+                            isActive
+                              ? "birim-ice-btn-active"
+                              : "birim-ice-btn text-slate-800"
+                          }`}
+                        >
+                          {preset.label}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </div>
