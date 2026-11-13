@@ -7,21 +7,22 @@ import {
 } from "./wardrobeGlbAssetLoader";
 
 /**
- * Ready-Made 3D .GLB Wardrobe Interior Accessories Bridge (V6.2):
- * Per user requirement ("ceket ayakkabı gömlek içi gibi iç aksesuarlar için sitelerden hazır düzgün modeller bul, sen çizme"),
- * all procedural hand-drawn clothing, rods, sleeves, boxes, and footwear primitives have been completely removed
- * and delegated 100% to verified ready-made 3D .GLB models loaded via GLTFLoader + DRACOLoader in wardrobeGlbAssetLoader.ts.
+ * Ready-Made 3D .GLB Wardrobe Interior Accessories Bridge (V6.5):
+ * Delegates 100% to verified ready-made 3D .GLB models loaded via GLTFLoader + DRACOLoader
+ * with strict 3-axis cabinet containment, non-overlapping hanger slots, and vertex-measured collar fit.
  */
 
 export function createSculptedHangingShirtGroup(
   variantIndex: number,
-  garmentHeightMm = 880,
-  cabinetDepthMm = 520
+  garmentHeightMm = 820,
+  cabinetDepthMm = 490,
+  maxSlotWidthMm = 146
 ): THREE.Group {
   return createReadyMadeHangingGarmentGroup(
     variantIndex,
     garmentHeightMm,
-    cabinetDepthMm
+    cabinetDepthMm,
+    maxSlotWidthMm
   );
 }
 
@@ -55,6 +56,9 @@ export function createLiddedStorageBoxGroup(
   );
 }
 
-export function createSculptedShoePairGroup(variantIndex = 0): THREE.Group {
-  return createReadyMadeShoePairGroup(variantIndex);
+export function createSculptedShoePairGroup(
+  variantIndex = 0,
+  maxDepthMm = 320
+): THREE.Group {
+  return createReadyMadeShoePairGroup(variantIndex, maxDepthMm);
 }

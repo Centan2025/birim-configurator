@@ -47,6 +47,8 @@ import { ArRoomPreviewModal } from "./workspace/ArRoomPreviewModal";
 import { PanelCutoutInspector } from "./workspace/PanelCutoutInspector";
 import { GuidedWizardLivePreview } from "./workspace/GuidedWizardLivePreview";
 import { PresentationQuoteModal } from "./workspace/PresentationQuoteModal";
+import { MepCoordinationModal } from "./workspace/MepCoordinationModal";
+import { decodeProjectFromShareHash } from "../utils/projectShareCodec";
 import type { ExportBoxPart } from "@birim/geometry";
 
 function escapeHtmlPrint(raw: unknown): string {
@@ -853,6 +855,8 @@ function renderVariationMiniWardrobeSvg(doorHex: string, bodyHex: string) {
 export const V3UnifiedWorkspace: React.FC<{
   initialMode?: V3WorkspaceMode;
 }> = ({ initialMode = "studio" }) => {
+  const [priceCurrency, setPriceCurrency] = useState<"TRY" | "EUR">("TRY");
+  const eurToTryRate = 41.8;
   const {
     project,
     activeModule,
@@ -1102,6 +1106,20 @@ export const V3UnifiedWorkspace: React.FC<{
   const [showStudioRenderModal, setShowStudioRenderModal] = useState(false);
   const [showCustomHardwareModal, setShowCustomHardwareModal] = useState(false);
   const [showIslandTableModal, setShowIslandTableModal] = useState(false);
+  const [showMepModal, setShowMepModal] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const applyHashIfPresent = () => {
+      const sharedProj = decodeProjectFromShareHash(window.location.hash);
+      if (sharedProj) {
+        useConfiguratorStore.setState({ project: sharedProj, activeModuleIndex: 0, activeBayIndex: 0 });
+      }
+    };
+    applyHashIfPresent();
+    window.addEventListener("hashchange", applyHashIfPresent);
+    return () => window.removeEventListener("hashchange", applyHashIfPresent);
+  }, []);
   const [interiorPropsVisible, setInteriorPropsVisible] = useState(true);
   const [customCatalogTick, setCustomCatalogTick] = useState(0);
   void customCatalogTick;
@@ -1479,6 +1497,67 @@ export const V3UnifiedWorkspace: React.FC<{
   const [quoteInstallments, setQuoteInstallments] = useState<number>(6);
   const [activeConceptTier, setActiveConceptTier] = useState<"eco" | "smart" | "signature">("smart");
   const [copiedWhatsappQuote, setCopiedWhatsappQuote] = useState(false);
+
+  const handleToggle3DDimensions = useCallback(() => {
+    setShow3DDimensions((prev) => !prev);
+  }, []);
+
+  const viewportSafeInsets = useMemo(() => {
+    if (mode === "studio") {
+      return {
+        topPx: 64,
+        bottomPx: 66,
+        leftPx: studioSplitView
+          ? 14
+          : leftOpen && !isCompactViewport
+          ? Math.min(studioLeftWidthPx, 460) + 28
+          : 82,
+        rightPx:
+          studioRightOpen && !isCompactViewport
+            ? studioRightWidthPx + 28
+            : 18,
+      };
+    }
+    if (mode === "showroom" && !zenMode) {
+      return { topPx: 66, bottomPx: 72, leftPx: 20, rightPx: 84 };
+    }
+    return undefined;
+  }, [
+    mode,
+    studioSplitView,
+    leftOpen,
+    isCompactViewport,
+    studioLeftWidthPx,
+    studioRightOpen,
+    studioRightWidthPx,
+    zenMode,
+  ]);
+
+  const cad2DSafeInsets = useMemo(() => {
+    if (mode !== "studio") return undefined;
+    return {
+      topPx: 58,
+      bottomPx: 66,
+      leftPx: leftOpen
+        ? isCompactViewport
+          ? 84
+          : Math.min(studioLeftWidthPx, 460) + 28
+        : 84,
+      rightPx: studioSplitView
+        ? 16
+        : studioRightOpen && !isCompactViewport
+        ? Math.min(520, Math.max(376, studioRightWidthPx)) + 28
+        : 64,
+    };
+  }, [
+    mode,
+    leftOpen,
+    isCompactViewport,
+    studioLeftWidthPx,
+    studioSplitView,
+    studioRightOpen,
+    studioRightWidthPx,
+  ]);
 
   // Canlı Müşteri Depolama Kapasitesi ve Gerçek BOM/Nesting Plaka & Kenar Bandı Özeti
   const liveCustomerAndFactoryStats = useMemo(() => {
@@ -2224,7 +2303,13 @@ export const V3UnifiedWorkspace: React.FC<{
     clone.isOpenFront = quickFrontType === "open";
     const targetBays = quickCabinetType === "wardrobe" && quickCabinetWidth >= 1200 ? 2 : 1;
     clone.bays = Array.from({ length: targetBays }).map((_, idx) => {
-      const baseBay = clone.bays[0] || activeModule.bays[0];
+      const baseBay = clone.bays?.[0] || activeModule.bays?.[0];
+      const baseDoor = baseBay?.door ?? {
+        id: `qp_door_${idx}`,
+        bayIndex: idx,
+        type: "double" as const,
+        softClose: true,
+      };
       const drawerCount =
         quickFrontType === "drawers_3"
           ? 3
@@ -2237,6 +2322,7 @@ export const V3UnifiedWorkspace: React.FC<{
         ...baseBay,
         index: idx,
         customWidth: undefined,
+        specialFittings: baseBay?.specialFittings ?? [],
         shelves:
           drawerCount > 0 && quickFrontType !== "space_tower"
             ? []
@@ -2257,7 +2343,9 @@ export const V3UnifiedWorkspace: React.FC<{
           slideType: "soft_close" as const,
         })),
         door: {
-          ...baseBay.door,
+          ...baseDoor,
+          id: baseDoor.id || `qp_door_${idx}`,
+          bayIndex: idx,
           type:
             quickFrontType === "open"
               ? "open"
@@ -2270,7 +2358,7 @@ export const V3UnifiedWorkspace: React.FC<{
             quickFrontType === "open"
               ? "open"
               : quickFrontType === "aventos_hf"
-              ? "lift_bifold"
+              ? "lift_bi_fold"
               : quickFrontType === "single_door_left" || quickFrontType === "single_door_right"
               ? "hinged_single"
               : "hinged_double",
@@ -2306,6 +2394,7 @@ export const V3UnifiedWorkspace: React.FC<{
           onToggleStudioSplitView={toggleStudioSplitView}
           onToggleCncXrayMode={toggleCncXrayMode}
           experienceTier={experienceTier}
+          leadTimeLabel={pricing.leadTime?.label}
           canUndo={canUndo}
           canRedo={canRedo}
           canApproveProduction={v4CompatibilityReport.canApproveProduction}
@@ -2317,6 +2406,7 @@ export const V3UnifiedWorkspace: React.FC<{
           }}
           onOpenQuickSell={() => setShowQuickSellModal(true)}
           onOpenBomModal={() => setIsBomModalOpen(true)}
+          onOpenMepModal={() => setShowMepModal(true)}
           onOpenAssemblyModal={() => setShowAssemblyModal(true)}
           onOpenStudioRenderModal={() => setShowStudioRenderModal(true)}
           onOpenCustomHardwareModal={() => setShowCustomHardwareModal(true)}
@@ -2327,7 +2417,11 @@ export const V3UnifiedWorkspace: React.FC<{
           onOpenAdminModal={() => setShowAdminModal(true)}
           onChangeExperienceTier={(tier) => {
             setExperienceTier(tier);
-            if (tier === "factory") {
+            if (tier === "simple") {
+              if (cncXrayMode) toggleCncXrayMode();
+              if (studioSplitView) toggleStudioSplitView();
+              setStudioView("3d");
+            } else if (tier === "factory") {
               setStudioRightOpen(true);
               setStudioInspectorTab("all");
             } else if (tier === "architect") {
@@ -2966,23 +3060,12 @@ export const V3UnifiedWorkspace: React.FC<{
                 <div className="px-3.5 pt-3 pb-2 border-b border-[#E2E8F0] space-y-2.5">
                   <div className="flex items-center justify-between">
                     <h2 className="text-sm font-extrabold text-[#111827]">Mekân Çizimi</h2>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[11px] font-mono text-[#64748B]">
-                        {activeSpatialMetrics.roomAreaM2.toLocaleString("tr-TR", {
-                          minimumFractionDigits: 2,
-                        })}{" "}
-                        m²
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setPlanLeftOpen(false)}
-                        title="Kataloğu Kapat"
-                        aria-label="Kapat"
-                        className="w-7 h-7 rounded-xl bg-[#F1F5F9] hover:bg-[#E2E8F0] text-[#475569] hover:text-[#111827] flex items-center justify-center transition cursor-pointer shrink-0"
-                      >
-                        ✕
-                      </button>
-                    </div>
+                    <span className="text-[11px] font-mono text-[#64748B]">
+                      {activeSpatialMetrics.roomAreaM2.toLocaleString("tr-TR", {
+                        minimumFractionDigits: 2,
+                      })}{" "}
+                      m²
+                    </span>
                   </div>
 
                   <div className="grid grid-cols-2 gap-1 p-1 rounded-xl bg-[#F1F5F9] border border-[#E2E8F0]">
@@ -3771,29 +3854,18 @@ export const V3UnifiedWorkspace: React.FC<{
                             Seçimleriniz anında sağdaki 3D modele yansır
                           </p>
                         </div>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => setQuickLiveSync((v) => !v)}
-                            className={`px-2 py-1 rounded-md border text-[10px] font-semibold transition cursor-pointer ${
-                              quickLiveSync
-                                ? "bg-[#141413] text-[#FAF9F6] border-[#141413]"
-                                : "bg-white text-[#57534E] border-[#DED8CC]"
-                            }`}
-                            title="Seçimleri tıkladığınız anda sağdaki 3D sahneye uygular"
-                          >
-                            {quickLiveSync ? "Canlı 3D: Açık" : "Canlı 3D: Kapalı"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setLeftOpen(false)}
-                            title="Kataloğu Kapat"
-                            aria-label="Kapat"
-                            className="w-7 h-7 rounded-xl bg-white/80 hover:bg-white border border-[#DED8CC] text-[#57534E] hover:text-[#141413] flex items-center justify-center transition cursor-pointer"
-                          >
-                            ✕
-                          </button>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setQuickLiveSync((v) => !v)}
+                          className={`px-2 py-1 rounded-md border text-[10px] font-semibold transition cursor-pointer ${
+                            quickLiveSync
+                              ? "bg-[#141413] text-[#FAF9F6] border-[#141413]"
+                              : "bg-white text-[#57534E] border-[#DED8CC]"
+                          }`}
+                          title="Seçimleri tıkladığınız anda sağdaki 3D sahneye uygular"
+                        >
+                          {quickLiveSync ? "Canlı 3D: Açık" : "Canlı 3D: Kapalı"}
+                        </button>
                       </div>
 
                       {/* Live Isometric Preview Card inside Wizard */}
@@ -4274,20 +4346,9 @@ export const V3UnifiedWorkspace: React.FC<{
                                 Seçili: Bölme {activeBayIndex + 1} ({currentBayWidthMm} mm)
                               </span>
                             </div>
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              <span className="px-2 py-0.5 rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] text-[10px] font-bold text-[#1D4ED8]">
-                                🖐️ Sürükle-Bırak
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => setLeftOpen(false)}
-                                title="Kataloğu Kapat"
-                                aria-label="Kapat"
-                                className="w-7 h-7 rounded-xl bg-[#F1F5F9] hover:bg-[#E2E8F0] text-[#475569] hover:text-[#111827] flex items-center justify-center transition cursor-pointer"
-                              >
-                                ✕
-                              </button>
-                            </div>
+                            <span className="px-2 py-0.5 rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] text-[10px] font-bold text-[#1D4ED8]">
+                              🖐️ Sürükle-Bırak veya Tıkla
+                            </span>
                           </div>
 
                           {/* Search Bar */}
@@ -4574,15 +4635,6 @@ export const V3UnifiedWorkspace: React.FC<{
                                   : "Aynı Malzemeli Parçalar"}
                               </span>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => setLeftOpen(false)}
-                              title="Kataloğu Kapat"
-                              aria-label="Kapat"
-                              className="w-7 h-7 rounded-xl bg-[#F1F5F9] hover:bg-[#E2E8F0] text-[#475569] hover:text-[#111827] flex items-center justify-center transition cursor-pointer shrink-0"
-                            >
-                              ✕
-                            </button>
                           </div>
 
                           {/* Search Bar + Filter Button */}
@@ -5186,15 +5238,6 @@ export const V3UnifiedWorkspace: React.FC<{
                                 {hardwareCatalog.length} gerçek katalog SKU • BOM & Fiyat senkron
                               </span>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => setLeftOpen(false)}
-                              title="Kataloğu Kapat"
-                              aria-label="Kapat"
-                              className="w-7 h-7 rounded-xl bg-[#F1F5F9] hover:bg-[#E2E8F0] text-[#475569] hover:text-[#111827] flex items-center justify-center transition cursor-pointer shrink-0"
-                            >
-                              ✕
-                            </button>
                           </div>
 
                           {/* Search Bar + Filter Funnel Button */}
@@ -5368,19 +5411,8 @@ export const V3UnifiedWorkspace: React.FC<{
                       /* TAB 2: AKSESUARLAR */
                   <div className="flex-1 overflow-y-auto p-3.5 space-y-4">
                     <div className="space-y-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-xs font-bold text-[#111827]">
-                          Hazır Oda & Mutfak Dizilimleri
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setLeftOpen(false)}
-                          title="Kataloğu Kapat"
-                          aria-label="Kapat"
-                          className="w-7 h-7 rounded-xl bg-[#F1F5F9] hover:bg-[#E2E8F0] text-[#475569] hover:text-[#111827] flex items-center justify-center transition cursor-pointer shrink-0"
-                        >
-                          ✕
-                        </button>
+                      <div className="text-xs font-bold text-[#111827]">
+                        Hazır Oda & Mutfak Dizilimleri
                       </div>
                       <div className="grid grid-cols-2 gap-2">
                         {WARDROBE_TEMPLATES.map((tpl) => (
@@ -5459,41 +5491,30 @@ export const V3UnifiedWorkspace: React.FC<{
                     {/* Header: Modül Kütüphanesi + Kart/Liste Switcher */}
                     <div className="px-3.5 pt-3 pb-2 flex items-center justify-between gap-2">
                       <h2 className="text-sm font-bold text-[#111827]">Modül Kütüphanesi</h2>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <div className="inline-flex items-center p-0.5 rounded-lg bg-[#F1F5F9] border border-[#E2E8F0] shrink-0">
-                          <button
-                            type="button"
-                            data-testid="catalog-view-grid"
-                            onClick={() => setCatalogViewMode("grid")}
-                            className={`px-2 py-0.5 rounded-md text-[10px] font-bold cursor-pointer transition ${
-                              catalogViewMode === "grid"
-                                ? "bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1]"
-                                : "text-[#64748B] hover:text-[#111827]"
-                            }`}
-                          >
-                            ⊞ Kart
-                          </button>
-                          <button
-                            type="button"
-                            data-testid="catalog-view-list"
-                            onClick={() => setCatalogViewMode("list")}
-                            className={`px-2 py-0.5 rounded-md text-[10px] font-bold cursor-pointer transition ${
-                              catalogViewMode === "list"
-                                ? "bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1]"
-                                : "text-[#64748B] hover:text-[#111827]"
-                            }`}
-                          >
-                            ☰ Liste
-                          </button>
-                        </div>
+                      <div className="inline-flex items-center p-0.5 rounded-lg bg-[#F1F5F9] border border-[#E2E8F0] shrink-0">
                         <button
                           type="button"
-                          onClick={() => setLeftOpen(false)}
-                          title="Kataloğu Kapat"
-                          aria-label="Kapat"
-                          className="w-7 h-7 rounded-xl bg-[#F1F5F9] hover:bg-[#E2E8F0] text-[#475569] hover:text-[#111827] flex items-center justify-center transition cursor-pointer shrink-0"
+                          data-testid="catalog-view-grid"
+                          onClick={() => setCatalogViewMode("grid")}
+                          className={`px-2 py-0.5 rounded-md text-[10px] font-bold cursor-pointer transition ${
+                            catalogViewMode === "grid"
+                              ? "bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1]"
+                              : "text-[#64748B] hover:text-[#111827]"
+                          }`}
                         >
-                          ✕
+                          ⊞ Kart
+                        </button>
+                        <button
+                          type="button"
+                          data-testid="catalog-view-list"
+                          onClick={() => setCatalogViewMode("list")}
+                          className={`px-2 py-0.5 rounded-md text-[10px] font-bold cursor-pointer transition ${
+                            catalogViewMode === "list"
+                              ? "bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1]"
+                              : "text-[#64748B] hover:text-[#111827]"
+                          }`}
+                        >
+                          ☰ Liste
                         </button>
                       </div>
                     </div>
@@ -6192,24 +6213,7 @@ export const V3UnifiedWorkspace: React.FC<{
                 mode={mode === "plan" ? "plan" : studio2DMode}
                 interactivePlan={mode === "plan" || (mode === "studio" && studio2DMode === "plan")}
                 snapMm={snapMm}
-                studioSafeInsets={
-                  mode === "studio"
-                    ? {
-                        topPx: 58,
-                        bottomPx: 66,
-                        leftPx: leftOpen
-                          ? isCompactViewport
-                            ? 84
-                            : Math.min(studioLeftWidthPx, 460) + 28
-                          : 84,
-                        rightPx: studioSplitView
-                          ? 16
-                          : studioRightOpen && !isCompactViewport
-                          ? Math.min(520, Math.max(376, studioRightWidthPx)) + 28
-                          : 64,
-                      }
-                    : undefined
-                }
+                studioSafeInsets={cad2DSafeInsets}
               />
             </div>
           </div>
@@ -6436,26 +6440,8 @@ export const V3UnifiedWorkspace: React.FC<{
               showGrid={!(mode === "showroom" && zenMode)}
               showInCanvasHud={mode === "studio"}
               showDimensions={show3DDimensions}
-              stageSafeInsets={
-                mode === "studio"
-                  ? {
-                      topPx: 64,
-                      bottomPx: 66,
-                      leftPx: studioSplitView
-                        ? 14
-                        : leftOpen && !isCompactViewport
-                        ? Math.min(studioLeftWidthPx, 460) + 28
-                        : 82,
-                      rightPx:
-                        studioRightOpen && !isCompactViewport
-                          ? studioRightWidthPx + 28
-                          : 18,
-                    }
-                  : mode === "showroom" && !zenMode
-                  ? { topPx: 66, bottomPx: 72, leftPx: 20, rightPx: 84 }
-                  : undefined
-              }
-              onToggleDimensions={() => setShow3DDimensions((prev) => !prev)}
+              stageSafeInsets={viewportSafeInsets}
+              onToggleDimensions={handleToggle3DDimensions}
             />
 
             {mode === "plan" &&
@@ -9629,19 +9615,8 @@ export const V3UnifiedWorkspace: React.FC<{
 
                       {openRightDrawer === "material" && (
                         <div className="p-2.5 rounded-2xl bg-white border border-[#CBD5E1] space-y-2 max-h-60 overflow-y-auto shadow-sm">
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="text-xs font-bold uppercase tracking-wider text-[#78716C]">
-                              Kapak Malzemesi Seçin
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => setOpenRightDrawer(null)}
-                              title="Kapat"
-                              aria-label="Kapat"
-                              className="w-6 h-6 rounded-lg bg-[#F1F5F9] hover:bg-[#E2E8F0] text-[#64748B] hover:text-[#111827] flex items-center justify-center transition cursor-pointer shrink-0"
-                            >
-                              ✕
-                            </button>
+                          <div className="text-xs font-bold uppercase tracking-wider text-[#78716C]">
+                            Kapak Malzemesi Seçin
                           </div>
                           {DEFAULT_MATERIALS.filter((m) => m.id !== "mat_led_warm_3000k").map(
                             (mat) => (
@@ -9697,22 +9672,7 @@ export const V3UnifiedWorkspace: React.FC<{
                       </button>
 
                       {openRightDrawer === "handle" && activeBay && (
-                        <div className="p-2.5 rounded-2xl bg-white border border-[#CBD5E1] space-y-2 shadow-sm">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs font-bold uppercase tracking-wider text-[#78716C]">
-                              Kulp Modeli Seçin
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => setOpenRightDrawer(null)}
-                              title="Kapat"
-                              aria-label="Kapat"
-                              className="w-6 h-6 rounded-lg bg-[#F1F5F9] hover:bg-[#E2E8F0] text-[#64748B] hover:text-[#111827] flex items-center justify-center transition cursor-pointer shrink-0"
-                            >
-                              ✕
-                            </button>
-                          </div>
-                          <div className="grid grid-cols-2 gap-1.5">
+                        <div className="p-2.5 rounded-2xl bg-white border border-[#CBD5E1] grid grid-cols-2 gap-1.5 shadow-sm">
                           {[
                             { cat: "bar_handle", code: "K019", label: "Mat Siyah Çubuk" },
                             { cat: "knob", code: "D008", label: "Düğme Kulp" },
@@ -9743,7 +9703,6 @@ export const V3UnifiedWorkspace: React.FC<{
                               </button>
                             );
                           })}
-                          </div>
                         </div>
                       )}
                     </div>
@@ -9785,20 +9744,6 @@ export const V3UnifiedWorkspace: React.FC<{
 
                       {openRightDrawer === "soket" && (
                         <div className="p-2.5 rounded-2xl bg-white border border-[#CBD5E1] space-y-1.5 shadow-sm">
-                          <div className="flex items-center justify-between gap-2 pb-1">
-                            <span className="text-xs font-bold uppercase tracking-wider text-[#78716C]">
-                              Baza / Soket Yüzeyi Seçin
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => setOpenRightDrawer(null)}
-                              title="Kapat"
-                              aria-label="Kapat"
-                              className="w-6 h-6 rounded-lg bg-[#F1F5F9] hover:bg-[#E2E8F0] text-[#64748B] hover:text-[#111827] flex items-center justify-center transition cursor-pointer shrink-0"
-                            >
-                              ✕
-                            </button>
-                          </div>
                           {[
                             {
                               id: "mat_lacquer_sage",
@@ -12300,18 +12245,16 @@ export const V3UnifiedWorkspace: React.FC<{
                           data-testid="door-screen3-handle-customizer"
                           className="p-3 rounded-2xl bg-[#F8FAFC] border border-[#CBD5E1] space-y-2.5"
                         >
-                          <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center justify-between">
                             <span className="text-[13px] font-bold text-[#111827]">
                               Kulp Modeli, Yönü & Konum Parametreleri
                             </span>
                             <button
                               type="button"
                               onClick={() => setOpenRightDrawer(null)}
-                              title="Kapat"
-                              aria-label="Kapat"
-                              className="w-6 h-6 rounded-lg bg-white hover:bg-[#E2E8F0] border border-[#CBD5E1] text-[#64748B] hover:text-[#111827] flex items-center justify-center transition cursor-pointer shrink-0"
+                              className="text-xs text-[#64748B] hover:text-[#111827] cursor-pointer"
                             >
-                              ✕
+                              Kapat ▲
                             </button>
                           </div>
 
@@ -12479,20 +12422,6 @@ export const V3UnifiedWorkspace: React.FC<{
                           data-testid="door-screen3-material-picker-drawer"
                           className="p-3 rounded-2xl bg-[#F8FAFC] border border-[#CBD5E1] space-y-2.5"
                         >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs font-bold text-[#111827]">
-                              Kapak Malzemesi &amp; Uygulama Kapsamı
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => setOpenRightDrawer(null)}
-                              title="Kapat"
-                              aria-label="Kapat"
-                              className="w-6 h-6 rounded-lg bg-white hover:bg-[#E2E8F0] border border-[#CBD5E1] text-[#64748B] hover:text-[#111827] flex items-center justify-center transition cursor-pointer shrink-0"
-                            >
-                              ✕
-                            </button>
-                          </div>
                           {/* Scope Selector: Tek Kapak | Seçili Bölme | Tüm Kapaklar */}
                           <div className="grid grid-cols-3 gap-1">
                             {[
@@ -15167,19 +15096,24 @@ export const V3UnifiedWorkspace: React.FC<{
                 )}
               </button>
 
-              <div className="px-2.5 h-8 rounded-xl birim-ice-pill flex items-center">
+              <button
+                type="button"
+                onClick={() => setPriceCurrency((c) => (c === "TRY" ? "EUR" : "TRY"))}
+                className="px-2.5 h-8 rounded-xl birim-ice-pill flex items-center gap-1.5 cursor-pointer hover:bg-white/70 transition"
+                title="KDV Dahil Toplam Fiyat (₺ TL / € EUR değiştirmek için tıklayın)"
+              >
                 <span
                   data-testid="studio-total-price"
                   className="text-sm font-black font-mono text-[#141413]"
-                  title="KDV Dahil Toplam Fiyat"
                 >
-                  €{" "}
-                  {pricing.totalWithVatEur.toLocaleString("tr-TR", {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}
+                  {priceCurrency === "TRY"
+                    ? `₺ ${Math.round(pricing.totalWithVatEur * eurToTryRate).toLocaleString("tr-TR")}`
+                    : `€ ${pricing.totalWithVatEur.toLocaleString("tr-TR", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}`}
                 </span>
-              </div>
+              </button>
 
               <div className="inline-flex items-center gap-1 p-0.5 rounded-2xl birim-ice-pill">
                 {!isSimpleBlumMode && (
@@ -15910,11 +15844,9 @@ export const V3UnifiedWorkspace: React.FC<{
                   type="button"
                   data-testid="v4-floating-catalog-close"
                   onClick={() => setIsVisualCatalogOpen(false)}
-                  title="Kataloğu Kapat"
-                  aria-label="Kapat"
-                  className="w-8 h-8 rounded-xl bg-stone-200/80 hover:bg-stone-300 text-stone-700 hover:text-stone-950 flex items-center justify-center transition cursor-pointer shrink-0"
+                  className="px-3 py-1.5 rounded-xl bg-stone-200 hover:bg-stone-300 text-stone-800 text-xs font-bold cursor-pointer"
                 >
-                  <X className="w-4 h-4" />
+                  Kapat ✕
                 </button>
               </div>
             </div>
@@ -16887,6 +16819,12 @@ export const V3UnifiedWorkspace: React.FC<{
           </div>
         );
       })()}
+
+      <MepCoordinationModal
+        isOpen={showMepModal}
+        project={project}
+        onClose={() => setShowMepModal(false)}
+      />
 
       <PresentationQuoteModal
         isOpen={showQuickSellModal}

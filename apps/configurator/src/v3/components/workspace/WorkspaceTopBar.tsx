@@ -29,6 +29,9 @@ import {
   ScanLine,
   Wrench,
   Camera,
+  Zap,
+  Clock,
+  Share2,
 } from "lucide-react";
 
 interface WorkspaceTopBarProps {
@@ -39,6 +42,7 @@ interface WorkspaceTopBarProps {
   studioSplitView?: boolean;
   cncXrayMode?: boolean;
   experienceTier: UserExperienceTier;
+  leadTimeLabel?: string;
   canUndo: boolean;
   canRedo: boolean;
   canApproveProduction: boolean;
@@ -48,6 +52,7 @@ interface WorkspaceTopBarProps {
   onOpenStepWizard: () => void;
   onOpenQuickSell: () => void;
   onOpenBomModal: () => void;
+  onOpenMepModal?: () => void;
   onOpenAssemblyModal?: () => void;
   onOpenStudioRenderModal?: () => void;
   onOpenCustomHardwareModal?: () => void;
@@ -76,6 +81,7 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = ({
   studioSplitView = false,
   cncXrayMode = false,
   experienceTier,
+  leadTimeLabel,
   canUndo,
   canRedo,
   canApproveProduction,
@@ -85,6 +91,7 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = ({
   onOpenStepWizard,
   onOpenQuickSell,
   onOpenBomModal,
+  onOpenMepModal,
   onOpenAssemblyModal,
   onOpenStudioRenderModal,
   onOpenVisualCatalog,
@@ -102,6 +109,9 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = ({
   onUndo,
   onRedo,
 }) => {
+  const isCustomerMode = experienceTier === "simple";
+  const isFactoryMode = experienceTier === "factory";
+
   return (
     <header
       className={
@@ -110,10 +120,10 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = ({
           : "h-[52px] bg-transparent px-3.5 pt-2 pb-1 flex items-center justify-between gap-2 shrink-0 z-40"
       }
     >
-      {/* Sol Yüzen Füme Cam Kapsülü: Marka + Proje + Sihirbaz */}
+      {/* Sol Yüzen Füme Cam Kapsülü: Marka + Proje/QR Paylaşım + Sihirbaz */}
       <div className="pointer-events-auto inline-flex items-center gap-1.5 p-1 rounded-[22px] birim-ice-pill min-w-0">
         <div className="pl-2 pr-0.5">
-          <V3BrandBadge subtitle="V5.9" dark={false} />
+          <V3BrandBadge subtitle="V6.6" dark={false} />
         </div>
 
         <div className="h-4 w-px bg-slate-900/10 mx-0.5 hidden sm:block" />
@@ -121,14 +131,18 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = ({
         <button
           type="button"
           onClick={onOpenProjectModal}
-          data-tooltip={`Projeler & Kayıt — Aktif proje "${projectTitle}" ayarlarını, kayıtlı şablonları ve dışa aktarma seçeneklerini açar.`}
-          data-tooltip-badge="PROJE YÖNETİMİ"
-          className="hidden sm:inline-flex items-center gap-1.5 h-8 px-2.5 rounded-2xl birim-ice-btn text-xs text-[#141413] cursor-pointer max-w-[175px]"
+          data-tooltip={`Proje Kayıt & Mobil QR Paylaşım — "${projectTitle}" tasarımını kaydedin veya QR/link ile telefonda açın.`}
+          data-tooltip-badge="KAYIT & QR LİNK"
+          className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-2xl birim-ice-btn text-xs text-[#141413] cursor-pointer max-w-[165px]"
         >
-          <FolderOpen className="w-3.5 h-3.5 text-[#8C7A6B] shrink-0" />
+          {isCustomerMode ? (
+            <Share2 className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+          ) : (
+            <FolderOpen className="w-3.5 h-3.5 text-[#8C7A6B] shrink-0" />
+          )}
           <span
             data-testid="v3-project-title"
-            className="font-semibold text-[11px] text-[#141413] truncate"
+            className="font-semibold text-[11px] text-[#141413] truncate hidden sm:inline"
           >
             {projectTitle}
           </span>
@@ -145,9 +159,32 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = ({
           <Sparkles className="w-3.5 h-3.5 text-[#E5D3B8]" />
           <span className="hidden lg:inline">Sihirbaz</span>
         </button>
+
+        <button
+          type="button"
+          data-testid="topbar-share-qr-btn"
+          onClick={onOpenProjectModal}
+          className="hidden md:inline-flex h-8 px-2.5 rounded-2xl font-semibold text-[11px] items-center justify-center gap-1.5 birim-ice-btn text-[#141413] cursor-pointer shrink-0"
+          data-tooltip="Taşınabilir Proje Linki (#birim_share) & Mobil QR Paylaşım"
+        >
+          <Share2 className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+          <span>Paylaş</span>
+        </button>
+
+        {isCustomerMode && leadTimeLabel && (
+          <div
+            data-testid="customer-lead-time-pill"
+            data-tooltip="Seçilen gövde/kapak malzemesine göre gerçek fabrika üretim ve teslimat termin tahmini."
+            data-tooltip-badge="TESLİMAT TERMİNİ"
+            className="hidden xl:inline-flex items-center gap-1 h-7 px-2.5 rounded-full bg-emerald-600/12 text-emerald-900 text-[10px] font-bold"
+          >
+            <Clock className="w-3 h-3 text-emerald-700 shrink-0" />
+            <span>Termin: {leadTimeLabel}</span>
+          </div>
+        )}
       </div>
 
-      {/* Orta Yüzen Kapsüller: Sahne Modu & Hover'da Yumuşakça Genişleyen Görünüm Seçici */}
+      {/* Orta Yüzen Kapsüller: Müşteri Modunda Sadeleştirilmiş, Mimar/Üretim Modunda Tam CAD/X-Ray */}
       <div className="pointer-events-auto flex items-center gap-1.5">
         <nav
           aria-label="Tasarım Aşaması"
@@ -155,9 +192,9 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = ({
           className="inline-flex items-center p-1 rounded-[22px] birim-ice-pill text-xs gap-0.5"
         >
           {[
-            { id: "studio" as const, short: "3D", full: "3D Stüdyo", testId: "v3-mode-studio", Icon: Box },
-            { id: "plan" as const, short: "Plan", full: "Mekân & Plan", testId: "v3-mode-plan", Icon: Compass },
-            { id: "showroom" as const, short: "Sunum", full: "Sunum Stüdyosu", testId: "v3-mode-showroom", Icon: Eye },
+            { id: "studio" as const, short: "3D", full: "3D Tasarım Sahnesi", testId: "v3-mode-studio", Icon: Box },
+            { id: "plan" as const, short: isCustomerMode ? "Odam" : "Plan", full: "Oda & Yerleşim Planı", testId: "v3-mode-plan", Icon: Compass },
+            { id: "showroom" as const, short: "Sunum", full: "Tam Ekran Müşteri Sunumu", testId: "v3-mode-showroom", Icon: Eye },
           ].map((item) => {
             const active = mode === item.id;
             const ItemIcon = item.Icon;
@@ -189,7 +226,9 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = ({
         {mode === "studio" && (
           <div
             data-testid="studio-view-switcher"
-            className="inline-flex items-center p-1 rounded-[22px] birim-ice-pill gap-0.5 birim-expand-all-group"
+            className={`${
+              isCustomerMode ? "sr-only" : "inline-flex"
+            } items-center p-1 rounded-[22px] birim-ice-pill gap-0.5 birim-expand-all-group`}
           >
             <button
               type="button"
@@ -291,16 +330,32 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = ({
               </button>
             )}
 
+            {onOpenMepModal && (
+              <button
+                type="button"
+                data-testid="open-mep-plan-header-btn"
+                data-tooltip="Şantiye Elektrik & Sıhhi Tesisat Aks Paftası (Priz, Su, Gider, Baca + AutoCAD .DXF)"
+                data-tooltip-badge="MİMARİ MEP PAFTASI"
+                onClick={onOpenMepModal}
+                className="h-8 rounded-2xl birim-expand-btn text-amber-900 bg-amber-500/15 hover:bg-amber-500/25 cursor-pointer"
+              >
+                <Zap className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                <span className="birim-expand-label">Tesisat MEP</span>
+              </button>
+            )}
+
             {onToggleCncXrayMode && (
               <>
-                <div className="h-4 w-px bg-slate-900/10 mx-0.5" />
+                <div className={isFactoryMode ? "h-4 w-px bg-slate-900/10 mx-0.5" : "sr-only"} />
                 <button
                   type="button"
                   data-testid="studio-toggle-xray"
                   data-active={cncXrayMode ? "true" : "false"}
                   data-tooltip="CNC X-Ray Delik & Bağlantı Görünümü"
                   onClick={onToggleCncXrayMode}
-                  className={`h-8 rounded-2xl birim-expand-btn cursor-pointer ${
+                  className={`${
+                    isFactoryMode ? "inline-flex" : "sr-only"
+                  } h-8 rounded-2xl birim-expand-btn cursor-pointer ${
                     cncXrayMode
                       ? "bg-sky-600 text-white shadow-sm"
                       : "text-[#57534E] hover:text-[#141413] hover:bg-white/65"
@@ -357,17 +412,17 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = ({
         )}
       </div>
 
-      {/* Sağ Yüzen Füme Cam Aksiyon Kapsülleri (Hover'da Yumuşakça Genişleyen Düğme Grupları) */}
+      {/* Sağ Yüzen Füme Cam Aksiyon Kapsülleri: 3 Rol (Müşteri / Mimar / Üretim) Keskin Ayrımı */}
       <div className="pointer-events-auto flex items-center gap-1.5 shrink-0">
         <div
           role="group"
           aria-label="Kullanıcı Deneyim Seviyesi"
-          className="hidden md:inline-flex items-center p-1 rounded-[22px] birim-ice-pill gap-0.5 birim-expand-all-group"
+          className="inline-flex items-center p-1 rounded-[22px] birim-ice-pill gap-0.5 birim-expand-all-group"
         >
           {[
-            { id: "simple" as const, short: "Müşteri", label: "Kolay Mod (Müşteri) — Sadeleştirilmiş malzeme, kapak ve fiyat kontrolleri.", Icon: User },
-            { id: "architect" as const, short: "Mimar", label: "Mimar Modu (Detaylı Tasarım) — Tüm parametrik ölçü, bölme, kapak kesiti ve mekanizma ayarları.", Icon: DraftingCompass },
-            { id: "factory" as const, short: "Üretim", label: "Üretim & ERP Modu — CNC delik protokolleri, plaka kesim optimizasyonu ve BOM mühendislik denetimi.", Icon: Factory },
+            { id: "simple" as const, short: "Müşteri", label: "Müşteri / Vitrin Modu — Mühendislik terimlerini gizler; malzeme, iç düzen, termin ve net fiyat sunar.", Icon: User },
+            { id: "architect" as const, short: "Mimar", label: "İç Mimar Modu — 2D cephe/kesit, şantiye MEP elektrik/su paftası, ada & açılı masa ve AutoCAD .DXF araçlarını açar.", Icon: DraftingCompass },
+            { id: "factory" as const, short: "Üretim", label: "Üretici / CNC Modu — CNC X-Ray delik kontrolü, plaka nesting, Zebra .ZPL barkod etiketi ve ERP üretim emrini açar.", Icon: Factory },
           ].map((tier) => {
             const active = experienceTier === tier.id;
             const TierIcon = tier.Icon;
@@ -377,7 +432,7 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = ({
                 type="button"
                 data-active={active ? "true" : "false"}
                 data-tooltip={tier.label}
-                data-tooltip-badge="KULLANICI SEVİYESİ"
+                data-tooltip-badge="AKTİF ROL MODU"
                 data-testid={
                   tier.id === "architect"
                     ? "toggle-simple-blum-mode-btn"
@@ -386,21 +441,21 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = ({
                 onClick={() =>
                   onChangeExperienceTier(active && tier.id === "architect" ? "simple" : tier.id)
                 }
-                className={`h-8 rounded-2xl birim-expand-btn cursor-pointer ${
+                className={`h-8 px-2.5 rounded-2xl inline-flex items-center gap-1.5 font-bold text-[11px] transition cursor-pointer ${
                   active
                     ? "birim-ice-charcoal-pill"
                     : "text-[#57534E] hover:text-[#141413] hover:bg-white/65"
                 }`}
               >
                 <TierIcon className="w-3.5 h-3.5 shrink-0" />
-                <span className="birim-expand-label">{tier.short}</span>
+                <span className="hidden sm:inline">{tier.short}</span>
                 <span className="sr-only">{tier.label}</span>
               </button>
             );
           })}
         </div>
 
-        <div className="inline-flex items-center rounded-[22px] birim-ice-pill p-1 gap-0.5 birim-expand-group">
+        <div className="hidden sm:inline-flex items-center rounded-[22px] birim-ice-pill p-1 gap-0.5 birim-expand-group">
           <button
             type="button"
             data-testid="v3-undo-btn"
@@ -460,7 +515,9 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = ({
               data-testid="open-assembly-diagram-header-btn"
               onClick={onOpenAssemblyModal}
               data-tooltip="Patlatılmış İzometrik Montaj Şeması"
-              className="h-8 rounded-2xl birim-expand-btn text-[#141413] hover:bg-white/75 cursor-pointer"
+              className={`${
+                isCustomerMode ? "sr-only" : "inline-flex"
+              } h-8 rounded-2xl birim-expand-btn text-[#141413] hover:bg-white/75 cursor-pointer`}
             >
               <Wrench className="w-3.5 h-3.5 text-[#0F172A] shrink-0" />
               <span className="birim-expand-label">Montaj</span>
@@ -484,20 +541,22 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = ({
             type="button"
             data-testid="showroom-zen-toggle"
             onClick={onEnterZenShowroom}
-            data-tooltip="Tam Ekran Zen Sunum — Yan panelleri gizleyerek dolabı tam ekran inceler."
+            data-tooltip="Tam Ekran Tablet / Kiosk Sunum Modu — Yan panelleri gizleyerek dolabı tam ekran inceler."
             data-tooltip-shortcut="F"
             className="h-8 rounded-2xl birim-expand-btn text-[#44403C] hover:text-[#141413] hover:bg-white/75 cursor-pointer"
           >
             <Maximize2 className="w-3.5 h-3.5 shrink-0" />
-            <span className="birim-expand-label">Tam Ekran</span>
+            <span className="birim-expand-label">Sunum</span>
           </button>
 
           <button
             type="button"
             data-testid="open-bom-modal-btn"
             onClick={onOpenBomModal}
-            data-tooltip="BOM Malzeme Listesi & CNC Kesim Şeması"
-            className="h-8 rounded-2xl birim-expand-btn text-[#141413] bg-amber-500/15 hover:bg-amber-500/25 cursor-pointer"
+            data-tooltip="BOM Kesim & Bant Listesi, Nesting Plaka Şeması, Homag/Biesse CNC ve Zebra .ZPL Barkod Etiketi"
+            className={`${
+              isCustomerMode ? "sr-only" : "inline-flex"
+            } h-8 rounded-2xl birim-expand-btn text-[#141413] bg-amber-500/15 hover:bg-amber-500/25 cursor-pointer`}
           >
             <FileSpreadsheet className="w-3.5 h-3.5 text-[#8C5A2B] shrink-0" />
             <span className="birim-expand-label">BOM &amp; CNC</span>
@@ -510,7 +569,7 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = ({
             data-tooltip={`Üretim & Statik Denetimi — ${humanCompatStatusLabel}`}
             data-tooltip-badge="MÜHENDİSLİK ONAYI"
             className={`${
-              experienceTier === "simple" ? "sr-only" : "inline-flex"
+              isCustomerMode ? "sr-only" : "inline-flex"
             } h-8 rounded-2xl birim-expand-btn cursor-pointer ${
               canApproveProduction
                 ? "bg-emerald-500/15 text-[#2E6F40] hover:bg-emerald-500/25"
@@ -526,7 +585,7 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = ({
             <span className="sr-only">{humanCompatStatusLabel}</span>
           </button>
 
-          {experienceTier !== "simple" ? (
+          {!isCustomerMode ? (
             <button
               type="button"
               data-testid="v4-library-admin-btn"
@@ -555,11 +614,11 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = ({
           data-testid="open-quick-sell-header-btn"
           onClick={onOpenQuickSell}
           className="h-10 px-3.5 rounded-[22px] font-semibold text-[11px] inline-flex items-center gap-1.5 birim-ice-charcoal-pill cursor-pointer"
-          data-tooltip="Müşteri Teklif Föyü — PDF teklif özeti, kapasite analizi ve akıllı otomatik oda dizilimi."
+          data-tooltip="Müşteri Teklif & Sipariş Özeti — KDV, nakliye/montaj ve termin dahil teklif föyü."
           data-tooltip-badge="SATIŞ & TEKLİF"
         >
           <ReceiptText className="w-3.5 h-3.5 text-[#E5D3B8] shrink-0" />
-          <span className="hidden xl:inline">Teklif</span>
+          <span className="hidden xl:inline">{isCustomerMode ? "Fiyat & Sipariş" : "Teklif"}</span>
         </button>
       </div>
     </header>

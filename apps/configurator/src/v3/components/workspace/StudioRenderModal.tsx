@@ -3,6 +3,7 @@
 import React, { useState, useCallback, useEffect } from "react";
 import { BirimLogo } from "../../design-system";
 import { startZeroLagModalDrag } from "../../design-system/zeroLagDrag";
+import { checkBlenderRenderStatus, type BlenderEngineStatus } from "../../engine/blenderRenderClient";
 import { Camera, Sparkles, Download, SplitSquareHorizontal, RefreshCw, X, Gauge } from "lucide-react";
 
 export interface StudioRenderPerfMetrics {
@@ -28,7 +29,15 @@ interface StudioRenderWindow {
     bounces?: number;
     onProgress?: (pct: number, currentPreviewUrl?: string) => void;
     shouldCancel?: () => boolean;
-  }) => Promise<{ dataUrl: string; elapsedMs: number; samplesCompleted: number; metrics: StudioRenderPerfMetrics }>;
+  }) => Promise<{
+    dataUrl: string;
+    elapsedMs: number;
+    samplesCompleted: number;
+    metrics: StudioRenderPerfMetrics;
+    engine?: string;
+    device?: string;
+    error?: string;
+  }>;
   __birimGetLiveSceneStats?: () => StudioRenderPerfMetrics;
 }
 
@@ -57,8 +66,11 @@ export const StudioRenderModal: React.FC<StudioRenderModalProps> = ({
 
   const [activeEngineRunning, setActiveEngineRunning] = useState<null | "raster" | "pathtrace" | "both">(null);
   const [progressPct, setProgressPct] = useState<number>(0);
-  const [viewTab, setViewTab] = useState<"compare" | "pathtrace" | "raster">("compare");
+  const [viewTab, setViewTab] = useState<"compare" | "pathtrace" | "raster">("pathtrace");
   const [wipePct, setWipePct] = useState<number>(50);
+  const [blenderStatus, setBlenderStatus] = useState<BlenderEngineStatus | null>(null);
+  const [renderEngineLabel, setRenderEngineLabel] = useState<string>("Blender Cycles (OIDN)");
+  const [renderError, setRenderError] = useState<string | null>(null);
   const [sceneMetrics, setSceneMetrics] = useState<StudioRenderPerfMetrics>({
     drawCalls: 0,
     triangles: 0,
@@ -84,6 +96,7 @@ export const StudioRenderModal: React.FC<StudioRenderModalProps> = ({
       if (typeof window === "undefined") return;
       const win = window as unknown as StudioRenderWindow;
       cancelFlagRef.current = false;
+      setRenderError(null);
       setActiveEngineRunning(mode);
       setProgressPct(2);
       refreshLiveMetrics();
@@ -113,7 +126,7 @@ export const StudioRenderModal: React.FC<StudioRenderModalProps> = ({
             width: targetW,
             height: targetH,
             samples: ptSamples,
-            bounces: 2,
+            bounces: 5,
             shouldCancel: () => cancelFlagRef.current,
             onProgress: (pct, preview) => {
               setProgressPct(mode === "both" ? 30 + Math.round(pct * 0.7) : pct);
@@ -126,8 +139,11 @@ export const StudioRenderModal: React.FC<StudioRenderModalProps> = ({
             setPathTraceMs(Math.round(res.elapsedMs));
             setCompletedSpp(res.samplesCompleted);
             setSceneMetrics(res.metrics);
+            if (res.engine) setRenderEngineLabel(res.engine);
+          } else if (res?.error) {
+            setRenderError(res.error);
           }
-          setViewTab(mode === "both" ? "compare" : "pathtrace");
+          setViewTab(mode === "both" && rasterUrl ? "compare" : "pathtrace");
         }
       }
 
@@ -139,11 +155,12 @@ export const StudioRenderModal: React.FC<StudioRenderModalProps> = ({
 
   useEffect(() => {
     if (!isOpen) return;
+    void checkBlenderRenderStatus().then(setBlenderStatus);
     refreshLiveMetrics();
-    if (!rasterUrl && !pathTraceUrl && activeEngineRunning === null) {
-      void runComparisonRender("both");
+    if (!pathTraceUrl && activeEngineRunning === null) {
+      void runComparisonRender("pathtrace");
     }
-  }, [isOpen, rasterUrl, pathTraceUrl, activeEngineRunning, refreshLiveMetrics, runComparisonRender]);
+  }, [isOpen, pathTraceUrl, activeEngineRunning, refreshLiveMetrics, runComparisonRender]);
 
   if (!isOpen) return null;
 
@@ -181,10 +198,23 @@ export const StudioRenderModal: React.FC<StudioRenderModalProps> = ({
             <div className="h-4 w-px bg-slate-900/15 shrink-0" />
             <div className="min-w-0">
               <h2 className="text-sm font-bold text-[#141413] truncate flex items-center gap-2">
-                <span>Bağımsız Stüdyo Render &amp; GPU Path-Tracing Karşılaştırma Laboratuvarı</span>
+                <span>Bağımsız Stüdyo Render &amp; {renderEngineLabel}</span>
+                {blenderStatus && (
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-mono ${
+                      blenderStatus.available
+                        ? "bg-emerald-950/90 text-emerald-200"
+                        : "bg-rose-950/90 text-rose-200"
+                    }`}
+                  >
+                    {blenderStatus.available
+                      ? `Blender ${blenderStatus.version ?? "Ready"}`
+                      : "Blender Bulunamadı"}
+                  </span>
+                )}
               </h2>
               <p className="text-[11px] text-[#475569] truncate">
-                {projectTitle} • Aynı 2K sahnede Mevcut Multi-Sample PBR ile Kontrollü Monte Carlo Path-Tracing kalite ve süre testi
+                {projectTitle} • Yerel Blender Cycles (AgX + OpenImageDenoise) ile gerçek ışın izlemeli (Ray-Traced) stüdyo render
               </p>
             </div>
           </div>
@@ -305,7 +335,7 @@ export const StudioRenderModal: React.FC<StudioRenderModalProps> = ({
                   className="px-2.5 py-1.5 rounded-xl birim-ice-btn font-bold text-[11px] flex items-center gap-1 cursor-pointer"
                 >
                   <Sparkles className="w-3.5 h-3.5 text-amber-700" />
-                  <span>Yalnız Path-Trace</span>
+                  <span>Yalnız Cycles Render</span>
                 </button>
               </>
             )}
@@ -318,8 +348,8 @@ export const StudioRenderModal: React.FC<StudioRenderModalProps> = ({
             <div className="inline-flex items-center p-1 rounded-2xl birim-ice-pill gap-1 text-xs">
               {[
                 { id: "compare" as const, lbl: "Yan Yana Perde Karşılaştırma (A/B)" },
-                { id: "pathtrace" as const, lbl: `GPU Path-Tracing GI (${completedSpp || ptSamples} SPP)` },
-                { id: "raster" as const, lbl: "Mevcut 2K Multi-Sample PBR (16 SPP)" },
+                { id: "pathtrace" as const, lbl: `${renderEngineLabel} (${completedSpp || ptSamples} SPP)` },
+                { id: "raster" as const, lbl: "Hızlı 2K Ön İzleme (16 SPP)" },
               ].map((vt) => (
                 <button
                   key={vt.id}
@@ -412,10 +442,15 @@ export const StudioRenderModal: React.FC<StudioRenderModalProps> = ({
                 alt="Path-Tracing GI Render"
                 className="w-full h-full object-contain"
               />
+            ) : renderError ? (
+              <div className="w-full h-full flex flex-col items-center justify-center text-rose-300 gap-2 text-xs px-6 text-center">
+                <span className="font-bold text-sm">Blender Cycles Render Hatası</span>
+                <span className="text-rose-200/80 max-w-lg">{renderError}</span>
+              </div>
             ) : (
               <div className="w-full h-full flex flex-col items-center justify-center text-white/80 gap-2 text-xs">
                 <Sparkles className="w-6 h-6 text-amber-300 animate-pulse" />
-                <span>2K Sahne Örneklemesi Hazırlanıyor (%{progressPct})...</span>
+                <span>Blender Cycles Stüdyo Render Hazırlanıyor (%{progressPct})...</span>
               </div>
             )}
 
@@ -430,8 +465,8 @@ export const StudioRenderModal: React.FC<StudioRenderModalProps> = ({
                 </div>
                 <span className="text-[10px] text-slate-300 shrink-0">
                   {activeEngineRunning === "both" && progressPct < 30
-                    ? "1/2 Mevcut 2K Raster..."
-                    : `Monte Carlo Alan Işığı & GI Biriktiriliyor (${completedSpp}/${ptSamples} SPP)`}
+                    ? "1/2 Hızlı 2K Ön İzleme..."
+                    : `Blender Cycles + OpenImageDenoise Render Alınıyor (${ptSamples} SPP)`}
                 </span>
               </div>
             )}

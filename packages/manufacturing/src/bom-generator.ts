@@ -12,6 +12,9 @@ import {
   isBuiltInOvenOrFridgeTower,
   computeGolaSidePanelNotches,
   computeDividerTJunctionYs,
+  isSinkModule,
+  isCooktopModule,
+  evaluateCornerAndSweepCollisions,
   roundIntMm,
   roundMm,
 } from "@birim/core";
@@ -620,6 +623,7 @@ export function generateBOMForProject(
       let bottomJointOffsetY = 0;
       let hasPartBackGroove = false;
       let hasSinkOrHobCutout = false;
+      const countertopCutouts: import("@birim/core").PanelCutoutConfig[] = [];
       let cutoutWidthMm: number | undefined;
       let cutoutDepthMm: number | undefined;
 
@@ -741,18 +745,84 @@ export function generateBOMForProject(
         }
       } else if (comp.role === "countertop") {
         mat = materialsMap.get(comp.materialId) || bodyMat;
-        length = comp.dimensions.width;
-        width = comp.dimensions.depth;
-        edgeBanding = { top: true, bottom: true, left: true, right: true, thickness: 2 };
-        // Only cut sink/hob aperture if the module (or complementary countertop's project) actually has a sink/cooktop!
-        const shouldCut =
-          module.category === "complementary"
-            ? module.complementaryRole === "countertop" && projectHasSinkOrHob
-            : hasSinkOrCooktopAppliance(module);
-        if (shouldCut && length >= 550 && width >= 480) {
-          hasSinkOrHobCutout = true;
-          cutoutWidthMm = Math.min(560, Math.max(320, roundIntMm(length - 120)));
-          cutoutDepthMm = Math.min(480, Math.max(280, roundIntMm(width - 100)));
+        // Waterfall vertical leg has thicknessAxis === "x" (width=40mm thickness, height=legH, depth=tableDepth)!
+        if (comp.thicknessAxis === "x") {
+          length = comp.dimensions.height;
+          width = comp.dimensions.depth;
+        } else {
+          length = comp.dimensions.width;
+          width = comp.dimensions.depth;
+          // Angled attached table scarf/miter joint blank allowance so angled cut sits flush against island without overlapping!
+          const tblAngle = module.attachedTableConfig?.angleDeg ?? 0;
+          if (module.complementaryRole === "attached_table" && Math.abs(tblAngle) % 90 !== 0) {
+            const rad = Math.min(Math.PI / 3, Math.abs((tblAngle * Math.PI) / 180));
+            const scarfAllowance = Math.ceil(width * 0.5 * Math.tan(rad));
+            length += scarfAllowance;
+          }
+        }
+        const isStoneOrCompact = mat.category === "stone" || mat.category === "compact";
+        edgeBanding = isStoneOrCompact
+          ? { top: false, bottom: false, left: false, right: false, thickness: 0 }
+          : { top: true, bottom: true, left: true, right: false, thickness: 2 };
+
+        // Compute exact per-appliance CNC apertures along continuous or single countertops!
+        if (length >= 520 && width >= 460) {
+          if (module.category === "complementary" && module.complementaryRole === "countertop") {
+            const ctopStartX = module.position.x;
+            const ctopEndX = ctopStartX + length;
+            const ctopRot = (((module.rotation?.y ?? 0) % 360) + 360) % 360;
+            project.modules.forEach((cand) => {
+              if (cand.id === module.id || cand.category === "complementary") return;
+              const candRot = (((cand.rotation?.y ?? 0) % 360) + 360) % 360;
+              if (Math.abs(candRot - ctopRot) > 5) return;
+              const isSink = isSinkModule(cand);
+              const isHob = isCooktopModule(cand) || (!isSink && hasSinkOrCooktopAppliance(cand));
+              if (!isSink && !isHob) return;
+              const candCenterAlong = cand.position.x + cand.dimensions.width / 2;
+              if (candCenterAlong >= ctopStartX - 25 && candCenterAlong <= ctopEndX + 25) {
+                const localAlongY = Math.max(
+                  220,
+                  Math.min(length - 220, roundMm(candCenterAlong - ctopStartX, 1))
+                );
+                const apLengthAlong = isSink
+                  ? Math.min(560, Math.max(320, roundIntMm(cand.dimensions.width - 80)))
+                  : Math.min(580, Math.max(320, roundIntMm(cand.dimensions.width - 80)));
+                const apDepthAcross = isSink
+                  ? Math.min(460, Math.max(280, roundIntMm(width - 130)))
+                  : Math.min(490, Math.max(280, roundIntMm(width - 110)));
+                countertopCutouts.push({
+                  id: `cutout_${isSink ? "sink" : "hob"}_${cand.id}`,
+                  targetPanel: "bottom",
+                  shape: "rect",
+                  centerXMm: roundMm(width * 0.52, 1),
+                  centerYMm: localAlongY,
+                  widthMm: apDepthAcross,
+                  heightMm: apLengthAlong,
+                  cornerRadiusMm: 10,
+                  label: isSink ? `Eviye Boşaltması (${cand.name})` : `Ocak Boşaltması (${cand.name})`,
+                });
+                hasSinkOrHobCutout = true;
+              }
+            });
+          } else if (hasSinkOrCooktopAppliance(module)) {
+            const isSink = isSinkModule(module);
+            const apLengthAlong = Math.min(560, Math.max(320, roundIntMm(length - 110)));
+            const apDepthAcross = Math.min(480, Math.max(280, roundIntMm(width - 115)));
+            hasSinkOrHobCutout = true;
+            cutoutWidthMm = apLengthAlong;
+            cutoutDepthMm = apDepthAcross;
+            countertopCutouts.push({
+              id: `cutout_${isSink ? "sink" : "hob"}_${module.id}`,
+              targetPanel: "bottom",
+              shape: "rect",
+              centerXMm: roundMm(width * 0.52, 1),
+              centerYMm: roundMm(length / 2, 1),
+              widthMm: apDepthAcross,
+              heightMm: apLengthAlong,
+              cornerRadiusMm: 10,
+              label: isSink ? "Eviye Boşaltması" : "Ocak Boşaltması",
+            });
+          }
         }
       } else if (comp.role.includes("door")) {
         mat = materialsMap.get(comp.materialId) || doorMat;
@@ -1310,15 +1380,21 @@ export function generateBOMForProject(
 
       const ebT = edgeBanding.thickness || 0;
       const preMillMm = Math.max(0, module.carcass.preMillingMm ?? 0);
-      const netEbDeductionPerEdge = Math.max(0, ebT - preMillMm);
-      const lengthDeduction =
-        (edgeBanding.top ? netEbDeductionPerEdge : 0) +
-        (edgeBanding.bottom ? netEbDeductionPerEdge : 0);
-      const widthDeduction =
-        (edgeBanding.left ? netEbDeductionPerEdge : 0) +
-        (edgeBanding.right ? netEbDeductionPerEdge : 0);
+      // Signed edge delta:
+      // - When ebT > preMillMm (e.g. 2mm band, 0mm pre-mill): positive delta -> cut smaller by +2mm per banded edge
+      // - When ebT === preMillMm (e.g. 1mm band, 1mm pre-mill): 0 delta -> cut equals finished size
+      // - When preMillMm > ebT (e.g. 0.8mm band, 1.5mm pre-mill): negative delta (-0.7mm) -> cut LARGER by +0.7mm per banded edge!
+      const netEbDeltaPerEdge = ebT - preMillMm;
+      const topDelta = edgeBanding.top ? netEbDeltaPerEdge : 0;
+      const bottomDelta = edgeBanding.bottom ? netEbDeltaPerEdge : 0;
+      const leftDelta = edgeBanding.left ? netEbDeltaPerEdge : 0;
+      const rightDelta = edgeBanding.right ? netEbDeltaPerEdge : 0;
+      const lengthDeduction = topDelta + bottomDelta;
+      const widthDeduction = leftDelta + rightDelta;
       const netCutLengthMm = Math.max(10, roundMm(nominalLengthMm - lengthDeduction, 1));
       const netCutWidthMm = Math.max(10, roundMm(nominalWidthMm - widthDeduction, 1));
+      const rawOriginOffsetXMm = roundMm(leftDelta, 2);
+      const rawOriginOffsetYMm = roundMm(bottomDelta, 2);
 
       const drawerMatchForGrain =
         comp.role === "drawer_front"
@@ -1343,6 +1419,20 @@ export function generateBOMForProject(
         netCutLengthMm,
         netCutWidthMm,
         preMillingMm: preMillMm,
+        rawOriginOffsetXMm,
+        rawOriginOffsetYMm,
+        miterBevelAngleDeg:
+          module.complementaryRole === "attached_table" &&
+          comp.id.endsWith("_table_top") &&
+          module.attachedTableConfig?.angleDeg
+            ? module.attachedTableConfig.angleDeg
+            : undefined,
+        miterBevelEdge:
+          module.complementaryRole === "attached_table" &&
+          comp.id.endsWith("_table_top") &&
+          module.attachedTableConfig?.angleDeg
+            ? "left"
+            : undefined,
         edgeBandCode: formatEdgeBandCode(edgeBanding),
         thicknessMm,
         quantity: 1,
@@ -1366,7 +1456,7 @@ export function generateBOMForProject(
           ((comp.role === "carcass_side_left" || (comp.role === "carcass_side" && comp.id.includes("left"))) && co.targetPanel === "left_side") ||
           ((comp.role === "carcass_side_right" || (comp.role === "carcass_side" && comp.id.includes("right"))) && co.targetPanel === "right_side") ||
           (comp.role === "carcass_bottom" && co.targetPanel === "bottom")
-        ).concat(baseboardCutouts),
+        ).concat(baseboardCutouts, countertopCutouts),
         cutoutWidthMm,
         cutoutDepthMm,
         carcassJoineryTopology: partJoineryTopology,
@@ -1561,6 +1651,47 @@ export function generateBOMForProject(
         }
       });
     });
+
+    // Attached Island/Countertop Table Structural Hardware (Cantilever Steel Flange + Support Leg + Worktop Bolts)
+    if (module.complementaryRole === "attached_table" && module.attachedTableConfig) {
+      addHardware(
+        "HW_TABLE_CANTILEVER_FLANGE",
+        "Ağır Hizmet Ada/Tezgâh Çelik Konsol Bağlantı Plakası + 2×Gizli Çektirme Mili",
+        "connector",
+        1,
+        "takım",
+        34.0
+      );
+      const legStyle = module.attachedTableConfig.legStyle || "metal_u_frame";
+      if (legStyle === "metal_u_frame") {
+        addHardware(
+          "HW_TABLE_LEG_U_FRAME",
+          "Elektrostatik Mat Siyah Çelik U-Profil Masa Ayağı (50×25mm Kutu Profil)",
+          "leg",
+          1,
+          "adet",
+          58.0
+        );
+      } else if (legStyle === "pedestal_column") {
+        addHardware(
+          "HW_TABLE_PEDESTAL_COL",
+          "Silindirik Çelik Sütun Masa Ayağı + Ağır Taban Flanşı",
+          "leg",
+          1,
+          "adet",
+          74.0
+        );
+      } else {
+        addHardware(
+          "HW_WATERFALL_MITER_DOWEL_SET",
+          "Şelale Yan İniş 45° Lamello Clamex P-14 & Ayarlı Zemin Pabucu Seti",
+          "connector",
+          1,
+          "takım",
+          22.0
+        );
+      }
+    }
 
     const hasExplicitLedFit = module.bays.some((b) =>
       (b.specialFittings || []).some((f) => !f.isHidden && f.type.startsWith("led_"))

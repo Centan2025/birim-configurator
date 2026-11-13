@@ -341,7 +341,7 @@ function renderSinglePieceEntities(
 
   // 1b. Industrial CAM Net-Cut Closed Counter-Clockwise LWPOLYLINE (`OUTLINE_T<thickness>`)
   const preMill = piece.preMillingMm ?? 0;
-  const effEbDeduct = Math.max(0, ebT - preMill);
+  const effEbDeduct = ebT - preMill;
   const insetLeft = eb?.left ? effEbDeduct : 0;
   const insetBottom = eb?.bottom ? effEbDeduct : 0;
   const outlineLayer = `OUTLINE_T${Math.round(piece.thicknessMm || 18)}`;
@@ -353,7 +353,7 @@ function renderSinglePieceEntities(
     netH
   );
 
-  // 2. Saw net-cut perimeter properly inset by left & bottom edge-banding thickness (NET_CUT_CONTOUR)
+  // 2. Saw net-cut perimeter properly inset/outset by signed edge-banding minus pre-milling (NET_CUT_CONTOUR)
   if (netW !== w || netH !== h) {
     writer.addRect(
       "NET_CUT_CONTOUR",
@@ -362,6 +362,15 @@ function renderSinglePieceEntities(
       netW,
       netH
     );
+  }
+
+  // 2a-miter. Angled attached table / 45° scarf joint bevel vector (`MITER_BEVEL_JOINT`)
+  if (piece.miterBevelAngleDeg) {
+    const bevelInset = Math.min(
+      w * 0.45,
+      Math.round(Math.abs(Math.tan((piece.miterBevelAngleDeg * Math.PI) / 180)) * piece.thicknessMm)
+    );
+    writer.addLine("MITER_BEVEL_JOINT", offsetX, offsetY + Math.max(8, bevelInset), offsetX + w, offsetY);
   }
 
   // 2b. Gola L/C Notches on front edge (`NOTCH_GOLA_L` / `NOTCH_GOLA_C`)
@@ -395,8 +404,12 @@ function renderSinglePieceEntities(
     }
   }
 
-  // 3. Explicit CNC Sink / Cooktop Cut-out ONLY when piece.hasSinkOrHobCutout === true!
-  if (piece.componentRole === "countertop" && piece.hasSinkOrHobCutout) {
+  const hasExplicitSinkHobCutouts = Boolean(
+    piece.utilityCutouts?.some((c) => c.id.startsWith("cutout_sink_") || c.id.startsWith("cutout_hob_"))
+  );
+
+  // 3. Explicit CNC Sink / Cooktop Cut-out fallback when no per-module coordinate cutouts exist
+  if (piece.componentRole === "countertop" && piece.hasSinkOrHobCutout && !hasExplicitSinkHobCutouts) {
     const cutLong = piece.cutoutWidthMm || Math.min(560, Math.max(w, h) - 120);
     const cutShort = piece.cutoutDepthMm || Math.min(480, Math.min(w, h) - 100);
     const cutW = w >= h ? cutLong : cutShort;
@@ -408,10 +421,15 @@ function renderSinglePieceEntities(
     }
   }
 
-  // 3b. Parametric Socket / Cable Grommet / Plumbing / Baseboard Notch Cutouts
+  // 3b. Parametric Socket / Cable Grommet / Plumbing / Baseboard Notch / Multi-Sink-Hob Cutouts
   if (piece.utilityCutouts && piece.utilityCutouts.length > 0) {
     for (const co of piece.utilityCutouts) {
-      const layerName = co.shape === "corner_notch" ? "NOTCH_BASEBOARD" : "CUTOUT_UTILITY";
+      const isSinkOrHob = co.id.startsWith("cutout_sink_") || co.id.startsWith("cutout_hob_");
+      const layerName = isSinkOrHob
+        ? "CUTOUT_SINK_HOB"
+        : co.shape === "corner_notch"
+        ? "NOTCH_BASEBOARD"
+        : "CUTOUT_UTILITY";
       if (co.shape === "circle") {
         const rad = roundMm((co.diameterMm ?? co.widthMm) / 2, 2);
         writer.addCircle(layerName, roundMm(offsetX + co.centerXMm, 2), roundMm(offsetY + co.centerYMm, 2), rad);

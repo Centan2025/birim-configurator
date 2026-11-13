@@ -416,7 +416,31 @@ export function getBayShelfIntervalsForSubDivider(
   });
 }
 
-export function useV3Adapter() {
+const EMPTY_VALIDATION_ISSUES: ReturnType<typeof useConfiguratorStore.getState>["validationIssues"] = [];
+const EMPTY_REVISIONS: ReturnType<typeof useConfiguratorStore.getState>["revisions"] = [];
+const EMPTY_FOUR_SPACE = calculateFourSpaceDimensions(
+  createDefaultWardrobeModule("empty_scene_placeholder")
+);
+const LITE_COMPATIBILITY_REPORT = {
+  overallStatus: "COMPATIBLE" as const,
+  canApproveProduction: false,
+  checkedCategoriesCount: 0,
+  issues: EMPTY_VALIDATION_ISSUES,
+  evidenceMatrix: {
+    projectId: "",
+    evaluatedAt: "",
+    totalCheckedCount: 0,
+    verifiedCompatibleCount: 0,
+    incompatibleCount: 0,
+    unverifiedPartOrOpCount: 0,
+    records: [],
+  },
+};
+const CACHED_HANDLE_PROFILES = getAllHandleProfiles();
+const CACHED_HARDWARE_CATALOG = getAllHardwareProducts();
+
+export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
+  const isLite = Boolean(options?.lightweightViewport);
   const project = useConfiguratorStore((s) => s.project);
   const activeModuleIndex = useConfiguratorStore((s) => s.activeModuleIndex);
   const activeBayIndex = useConfiguratorStore((s) => s.activeBayIndex);
@@ -435,13 +459,21 @@ export function useV3Adapter() {
   const toggleStudioSplitView = useConfiguratorStore((s) => s.toggleStudioSplitView);
   const autoFixProjectIssues = useConfiguratorStore((s) => s.autoFixProjectIssues);
   const cameraPreset = useConfiguratorStore((s) => s.cameraPreset);
-  const baseValidationIssues = useConfiguratorStore((s) => s.validationIssues);
-  const bom = useConfiguratorStore((s) => s.bom);
-  const pricing = useConfiguratorStore((s) => s.pricing);
-  const smartAdvice = useConfiguratorStore((s) => s.smartAdvice);
-  const history = useConfiguratorStore((s) => s.history);
-  const future = useConfiguratorStore((s) => s.future);
-  const revisions = useConfiguratorStore((s) => s.revisions);
+  const baseValidationIssues = useConfiguratorStore((s) =>
+    isLite ? EMPTY_VALIDATION_ISSUES : s.validationIssues
+  );
+  const bom = useConfiguratorStore((s) => (isLite ? null : s.bom)) as ReturnType<
+    typeof useConfiguratorStore.getState
+  >["bom"];
+  const pricing = useConfiguratorStore((s) => (isLite ? null : s.pricing)) as ReturnType<
+    typeof useConfiguratorStore.getState
+  >["pricing"];
+  const smartAdvice = useConfiguratorStore((s) => (isLite ? null : s.smartAdvice)) as ReturnType<
+    typeof useConfiguratorStore.getState
+  >["smartAdvice"];
+  const canUndo = useConfiguratorStore((s) => (isLite ? false : s.history.length > 0));
+  const canRedo = useConfiguratorStore((s) => (isLite ? false : s.future.length > 0));
+  const revisions = useConfiguratorStore((s) => (isLite ? EMPTY_REVISIONS : s.revisions));
 
   // Store Actions
   const setActiveModuleIndex = useConfiguratorStore((s) => s.setActiveModuleIndex);
@@ -1020,8 +1052,8 @@ export function useV3Adapter() {
 
   // V4 4-space dimensions & universal compatibility evaluation
   const fourSpaceDimensions = useMemo(
-    () => (activeModule ? calculateFourSpaceDimensions(activeModule) : null),
-    [activeModule]
+    () => (isLite ? EMPTY_FOUR_SPACE : calculateFourSpaceDimensions(activeModule)),
+    [isLite, activeModule]
   );
   const batchStartProject = useConfiguratorStore((s) => s.batchStartProject);
   const isDraggingActive = batchStartProject !== null;
@@ -1039,25 +1071,10 @@ export function useV3Adapter() {
 
   const v4CompatibilityReport = useMemo(
     () =>
-      isDraggingActive
-        ? {
-            overallStatus: "COMPATIBLE" as const,
-            canApproveProduction: false,
-            checkedCategoriesCount: 0,
-            issues: [],
-            evidenceMatrix: {
-              projectId: project.id,
-              evaluatedAt: project.updatedAt,
-              totalCheckedCount: 0,
-              verifiedCompatibleCount: 0,
-              incompatibleCount: 0,
-              unverifiedPartOrOpCount: 0,
-              records: [],
-            },
-          }
+      isLite || isDraggingActive
+        ? LITE_COMPATIBILITY_REPORT
         : getMemoizedProjectCompatibility(project),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [isDraggingActive ? null : project]
+    [isLite, isDraggingActive, project]
   );
 
   // Spatial obstacles & walls memoized by spaceSignature so cabinet drags never rebuild 3D room architecture
@@ -1072,12 +1089,12 @@ export function useV3Adapter() {
     [spaceSignature]
   );
   const spatialIssues = useMemo(
-    () => (isDraggingActive ? [] : getMemoizedSpatialValidation(project)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [isDraggingActive ? null : project]
+    () => (isLite || isDraggingActive ? EMPTY_VALIDATION_ISSUES : getMemoizedSpatialValidation(project)),
+    [isLite, isDraggingActive, project]
   );
 
   const validationIssues = useMemo(() => {
+    if (isLite) return EMPTY_VALIDATION_ISSUES;
     const seen = new Set<string>();
     const combined = [...baseValidationIssues, ...spatialIssues, ...v4CompatibilityReport.issues];
     return combined.filter((item) => {
@@ -1086,7 +1103,7 @@ export function useV3Adapter() {
       seen.add(k);
       return true;
     });
-  }, [baseValidationIssues, spatialIssues, v4CompatibilityReport.issues]);
+  }, [isLite, baseValidationIssues, spatialIssues, v4CompatibilityReport.issues]);
 
   /**
    * Fast component selection handler
@@ -2058,37 +2075,34 @@ export function useV3Adapter() {
           project: nextProj,
         });
         if (typeof window !== "undefined") {
-          const w = window as any;
+          const w = window as unknown as {
+            __birimLiveDragBomTimer?: ReturnType<typeof setTimeout>;
+          };
           if (w.__birimLiveDragBomTimer) clearTimeout(w.__birimLiveDragBomTimer);
           w.__birimLiveDragBomTimer = setTimeout(() => {
             const latestProj = useConfiguratorStore.getState().project;
-            const dIssues = validateProject(latestProj);
-            const dBom = generateBOMForProject(latestProj);
-            const dPricing = calculateProjectPrice(dBom);
+            const dBom = generateBOMForProject(latestProj, undefined, { skipSyncNesting: true });
             commitAdapterState({
-              validationIssues: dIssues,
+              validationIssues: validateProject(latestProj),
               bom: dBom,
-              pricing: dPricing,
+              pricing: calculateProjectPrice(dBom),
             });
           }, 180);
         }
         return;
       }
 
-      if (typeof window !== "undefined" && (window as any).__birimLiveDragBomTimer) {
-        clearTimeout((window as any).__birimLiveDragBomTimer);
+      if (typeof window !== "undefined") {
+        const w = window as unknown as {
+          __birimLiveDragBomTimer?: ReturnType<typeof setTimeout>;
+        };
+        if (w.__birimLiveDragBomTimer) clearTimeout(w.__birimLiveDragBomTimer);
       }
-      const nextIssues = validateProject(nextProj);
-      const nextBom = generateBOMForProject(nextProj);
-      const nextPricing = calculateProjectPrice(nextBom);
 
       commitAdapterState({
-        history: pushHistory ? [...state.history.slice(-50), curProj] : state.history,
-        future: pushHistory ? [] : state.future,
+        history: [...state.history.slice(-50), curProj],
+        future: [],
         project: nextProj,
-        validationIssues: nextIssues,
-        bom: nextBom,
-        pricing: nextPricing,
       });
     },
     []
@@ -2498,9 +2512,6 @@ export function useV3Adapter() {
         updatedAt: new Date().toISOString(),
         modules: nextModules,
       };
-      const nextIssues = validateProject(nextProj);
-      const nextBom = generateBOMForProject(nextProj);
-      const nextPricing = calculateProjectPrice(nextBom);
 
       commitAdapterState({
         history: [...state.history.slice(-50), curProj],
@@ -2511,9 +2522,6 @@ export function useV3Adapter() {
         activeBayIndex: 0,
         doorOpenAngleDeg: 0,
         drawerOpenMm: 0,
-        validationIssues: nextIssues,
-        bom: nextBom,
-        pricing: nextPricing,
       });
 
       return {
@@ -2569,9 +2577,6 @@ export function useV3Adapter() {
       updatedAt: new Date().toISOString(),
       modules: nextModules,
     };
-    const nextIssues = validateProject(nextProj);
-    const nextBom = generateBOMForProject(nextProj);
-    const nextPricing = calculateProjectPrice(nextBom);
 
     commitAdapterState({
       history: [...state.history.slice(-50), curProj],
@@ -2581,9 +2586,6 @@ export function useV3Adapter() {
       activeBayIndex: 0,
       doorOpenAngleDeg: 0,
       drawerOpenMm: 0,
-      validationIssues: nextIssues,
-      bom: nextBom,
-      pricing: nextPricing,
     });
   }, []);
 
@@ -2807,9 +2809,6 @@ export function useV3Adapter() {
       updatedAt: new Date().toISOString(),
       modules: chosen.buildModules(),
     };
-    const nextIssues = validateProject(nextProj);
-    const nextBom = generateBOMForProject(nextProj);
-    const nextPricing = calculateProjectPrice(nextBom);
 
     commitAdapterState({
       history: [...state.history.slice(-50), curProj],
@@ -2817,9 +2816,6 @@ export function useV3Adapter() {
       project: nextProj,
       activeModuleIndex: 0,
       activeBayIndex: 0,
-      validationIssues: nextIssues,
-      bom: nextBom,
-      pricing: nextPricing,
     });
   }, []);
 
@@ -2837,17 +2833,11 @@ export function useV3Adapter() {
       updatedAt: new Date().toISOString(),
       modules: updatedModules,
     };
-    const nextIssues = validateProject(nextProj);
-    const nextBom = generateBOMForProject(nextProj);
-    const nextPricing = calculateProjectPrice(nextBom);
 
     commitAdapterState({
       history: [...state.history.slice(-50), curProj],
       future: [],
       project: nextProj,
-      validationIssues: nextIssues,
-      bom: nextBom,
-      pricing: nextPricing,
     });
   }, []);
 
@@ -2865,17 +2855,11 @@ export function useV3Adapter() {
       updatedAt: new Date().toISOString(),
       modules: nextModules,
     };
-    const nextIssues = validateProject(nextProj);
-    const nextBom = generateBOMForProject(nextProj);
-    const nextPricing = calculateProjectPrice(nextBom);
 
     commitAdapterState({
       history: [...state.history.slice(-50), curProj],
       future: [],
       project: nextProj,
-      validationIssues: nextIssues,
-      bom: nextBom,
-      pricing: nextPricing,
     });
   }, []);
 
@@ -3323,10 +3307,6 @@ export function useV3Adapter() {
         modules: builtModules,
       };
 
-      const nextIssues = validateProject(nextProj);
-      const nextBom = generateBOMForProject(nextProj);
-      const nextPricing = calculateProjectPrice(nextBom);
-
       commitAdapterState({
         history: [...state.history.slice(-50), curProj],
         future: [],
@@ -3334,9 +3314,6 @@ export function useV3Adapter() {
         activeModuleIndex: 0,
         activeBayIndex: 0,
         selectedComponentId: null,
-        validationIssues: nextIssues,
-        bom: nextBom,
-        pricing: nextPricing,
       });
     },
     []
@@ -6102,8 +6079,8 @@ export function useV3Adapter() {
    * Blum Cabinet Configurator (E-SERVICES) live engineering summary for activeModule
    */
   const activeBlumEngineering = useMemo(
-    () => (activeModule ? calculateBlumEngineeringSummary(activeModule) : null),
-    [activeModule]
+    () => (!isLite && activeModule ? calculateBlumEngineeringSummary(activeModule) : null),
+    [isLite, activeModule]
   );
 
   /**
@@ -6144,16 +6121,12 @@ export function useV3Adapter() {
         updatedAt: new Date().toISOString(),
         modules: nextModules,
       };
-      const nextBom = generateBOMForProject(nextProj);
       commitAdapterState({
         history: [...curState.history.slice(-50), curProj],
         future: [],
         project: nextProj,
         activeModuleIndex: appendToProject ? nextModules.length - 1 : curState.activeModuleIndex,
         selectedModuleIds: [newMod.id],
-        validationIssues: validateProject(nextProj),
-        bom: nextBom,
-        pricing: calculateProjectPrice(nextBom),
       });
       return { ok: true, name: parsed.name };
     },
@@ -6572,8 +6545,8 @@ export function useV3Adapter() {
 
 
   const continuousKitchenLayers = useMemo(
-    () => computeContinuousKitchenLayers(project),
-    [project]
+    () => (isLite ? [] : computeContinuousKitchenLayers(project)),
+    [isLite, project]
   );
 
   const exportCamZipBytes = useCallback(
@@ -6638,16 +6611,16 @@ export function useV3Adapter() {
     pricing,
     smartAdvice,
     revisions,
-    canUndo: history.length > 0,
-    canRedo: future.length > 0,
+    canUndo,
+    canRedo,
 
     // V4 Catalog Data
     v4ModuleFamilies: V4_MODULE_FAMILIES,
     v4ModuleTemplates: V4_MODULE_TEMPLATES,
     doorSystemDefinitions: DOOR_SYSTEM_DEFINITIONS,
-    handleProfiles: getAllHandleProfiles(),
+    handleProfiles: CACHED_HANDLE_PROFILES,
     openingMechanisms: OPENING_MECHANISM_DEFINITIONS,
-    hardwareCatalog: getAllHardwareProducts(),
+    hardwareCatalog: CACHED_HARDWARE_CATALOG,
     drillingTemplates: HARDWARE_DRILLING_TEMPLATES,
     wardrobeWizards: WARDROBE_INTERIOR_WIZARDS,
     libraryAdminStore: defaultLibraryAdminStore,

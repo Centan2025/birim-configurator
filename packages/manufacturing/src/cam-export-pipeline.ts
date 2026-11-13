@@ -1,6 +1,7 @@
 import { DesignProject, roundMm } from "@birim/core";
 import { CutPiece, ManufacturingBOM } from "./types";
 import { generatePanelDXF } from "./technical-outputs";
+import { generateMepCoordinationPlanSvg, exportArchitecturalMepDxf } from "./mep-architectural-plan";
 
 function csvCell(val: string | number | undefined | null): string {
   const s = String(val ?? "");
@@ -42,6 +43,7 @@ export function exportOptiCutCutListCsv(bom: ManufacturingBOM): string {
     if (p.ledGrooveSpec?.enabled) notes.push(`LED:${p.ledGrooveSpec.widthMm}x${p.ledGrooveSpec.depthMm}mm`);
     if (p.golaNotches?.length) notes.push(`Gola:${p.golaNotches.map((g) => g.kind).join("+")}`);
     if (p.siphonCutout) notes.push(`U-Sifon:${p.siphonCutout.widthMm}x${p.siphonCutout.depthMm}mm`);
+    if (p.miterBevelAngleDeg) notes.push(`Acili_Pah:${p.miterBevelAngleDeg}deg`);
     if (p.holes?.length) notes.push(`${p.holes.length} Delik`);
 
     return [
@@ -244,6 +246,61 @@ export function generateThermalPartLabelsHtml(project: DesignProject, bom: Manuf
 </html>`;
 }
 
+
+/**
+ * 4b. Industrial Zebra ZPL II (203 dpi, 800x400 dots = 100x50 mm) Thermal Printer Barcode Stream
+ * Ready for direct raw socket/USB spooling on factory edge-banding & beam-saw stations.
+ */
+export function generateThermalPartLabelsZpl(project: DesignProject, bom: ManufacturingBOM): string {
+  const cleanAscii = (str: string) =>
+    (str || "")
+      .replace(/ğ/g, "g").replace(/Ğ/g, "G")
+      .replace(/ü/g, "u").replace(/Ü/g, "U")
+      .replace(/ş/g, "s").replace(/Ş/g, "S")
+      .replace(/ı/g, "i").replace(/İ/g, "I")
+      .replace(/ö/g, "o").replace(/Ö/g, "O")
+      .replace(/ç/g, "c").replace(/Ç/g, "C")
+      .replace(/[\^~"]/g, " ")
+      .trim();
+
+  const customer = cleanAscii(project.customerName || "Birim Musteri").slice(0, 26);
+  const total = bom.cutList.length;
+
+  return bom.cutList
+    .map((p, idx) => {
+      const eb = p.edgeBanding;
+      const ebFlags = [
+        eb.top ? `UST:${eb.thickness}` : "-",
+        eb.bottom ? `ALT:${eb.thickness}` : "-",
+        eb.left ? `SOL:${eb.thickness}` : "-",
+        eb.right ? `SAG:${eb.thickness}` : "-",
+      ].join(" ");
+      const netL = p.netCutLengthMm ?? p.lengthMm;
+      const netW = p.netCutWidthMm ?? p.widthMm;
+      const cncId = cleanAscii((p.cncFileName || p.id).replace(/\.dxf$/i, "")).slice(0, 24);
+      const grainTxt = p.grain === "lengthwise" ? "SUYOLU:BOY" : p.grain === "crosswise" ? "SUYOLU:EN" : "DUZ";
+
+      return [
+        "^XA",
+        "^PW800",
+        "^LL400",
+        "^CI28",
+        `^FO24,18^A0N,22,22^FDB1R1M FABRIKA  #${idx + 1}/${total}  |  ${customer}^FS`,
+        `^FO24,48^A0N,30,30^FD${cleanAscii(p.pieceName).slice(0, 32)}^FS`,
+        `^FO24,86^A0N,22,22^FDModul: ${cleanAscii(p.moduleName).slice(0, 28)} (${cleanAscii(p.moduleId)})^FS`,
+        "^FO24,116^GB752,2,2^FS",
+        `^FO24,128^A0N,26,26^FDNET KESIM: ${netL} x ${netW} x ${p.thicknessMm} mm^FS`,
+        `^FO24,162^A0N,22,22^FDBITMIS: ${p.lengthMm} x ${p.widthMm} mm   |   ${grainTxt}^FS`,
+        `^FO24,194^A0N,22,22^FDMalzeme: ${cleanAscii(p.materialName).slice(0, 34)}^FS`,
+        `^FO24,224^A0N,22,22^FDBant [${cleanAscii(p.edgeBandCode || "Yok")}]: ${ebFlags}^FS`,
+        "^FO24,258^BY2,2,64^BCN,64,Y,N,N",
+        `^FD${cncId}^FS`,
+        "^XZ",
+      ].join("\r\n");
+    })
+    .join("\r\n\r\n");
+}
+
 // ============================================================================
 // PURE TYPESCRIPT IEEE 802.3 CRC32 ZIP ARCHIVE BUILDER (ZERO EXTERNAL DEPS!)
 // Packs individual `<part>.dxf` files + OptiCut CSV + BOM CSV + Nesting SVG + Thermal Labels!
@@ -371,9 +428,16 @@ export function buildZipFromEntries(entries: { fileName: string; content: string
  * - `Termal_Barkod_Etiketleri_100x50mm.html`
  */
 export function exportIndustrialCamZipArchive(
-  project: DesignProject,
-  bom: ManufacturingBOM
+  projectOrBom: DesignProject | ManufacturingBOM,
+  maybeBom?: ManufacturingBOM
 ): Uint8Array {
+  const isSingleArgBom = !maybeBom && "cutList" in projectOrBom;
+  const bom: ManufacturingBOM = isSingleArgBom
+    ? (projectOrBom as ManufacturingBOM)
+    : (maybeBom as ManufacturingBOM);
+  const project: DesignProject = isSingleArgBom
+    ? ({ id: "birim_proj", title: "Birim Proje", version: 1, modules: [] } as unknown as DesignProject)
+    : (projectOrBom as DesignProject);
   const entries: { fileName: string; content: string | Uint8Array }[] = [];
 
   bom.cutList.forEach((piece) => {
@@ -399,6 +463,18 @@ export function exportIndustrialCamZipArchive(
   entries.push({
     fileName: "Termal_Barkod_Etiketleri_100x50mm.html",
     content: generateThermalPartLabelsHtml(project, bom),
+  });
+  entries.push({
+    fileName: "Termal_Barkod_Zebra_100x50mm.zpl",
+    content: generateThermalPartLabelsZpl(project, bom),
+  });
+  entries.push({
+    fileName: "Mimari_Tesisat_ve_Elektrik_Paftasi_MEP.svg",
+    content: generateMepCoordinationPlanSvg(project),
+  });
+  entries.push({
+    fileName: "Mimari_Tesisat_ve_Elektrik_Paftasi_MEP.dxf",
+    content: exportArchitecturalMepDxf(project),
   });
 
   return buildZipFromEntries(entries);

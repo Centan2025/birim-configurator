@@ -3,12 +3,18 @@ export interface PricingParameters {
   laborRatePerHourEur: number; // e.g. 28 EUR / hr
   estimatedHoursPerM2: number; // e.g. 0.65 hr / m²
   operationalOverheadPercent: number; // e.g. 10 (%)
-  assemblyCostEur: number; // e.g. 95 EUR
+  assemblyCostEur: number; // Base on-site installation fee (EUR)
+  perModuleInstallEur?: number; // Additional installation fee per module (EUR)
+  deliveryBaseEur?: number; // Urban transport & floor carry base fee (EUR)
   cncCostPerHoleEur: number; // e.g. 0.04 EUR per hole
   packagingCostEur: number; // e.g. 35 EUR
   targetMarginPercent: number; // e.g. 35 (%)
+  minSpecialDecorBoardFraction?: number; // Default 0.5 sheet (2.898 m²) minimum factory board open rule for special colors
+  lacquerPaintshopMatteEurPerM2?: number; // Default 18 EUR/m² booth primer + topcoat
+  lacquerPaintshopGlossEurPerM2?: number; // Default 26 EUR/m² high-gloss buffing
+  miter45LinearMeterEur?: number; // Default 9.5 EUR/m 5-axis aggregate bevel cut
   currency: "EUR" | "TRY";
-  eurTryExchangeRate: number; // e.g. 38.5
+  eurTryExchangeRate: number; // Dynamic EUR/TRY rate (default 41.80)
 }
 
 export interface MaterialAlternativeComparison {
@@ -18,6 +24,14 @@ export interface MaterialAlternativeComparison {
   totalWithVatTry: number;
   diffEur: number;
   diffPercent: number;
+  leadTimeLabel?: string;
+}
+
+export interface LeadTimeEstimate {
+  minBusinessDays: number;
+  maxBusinessDays: number;
+  label: string;
+  reason: string;
 }
 
 export interface PricingBreakdown {
@@ -30,6 +44,10 @@ export interface PricingBreakdown {
   hardwareCostEur?: number;
   laborCostEur?: number;
   cncDrillingCost: number;
+  paintshopLacquerCostEur: number;
+  miterAndSpecialCncCostEur: number;
+  glassAndAluminumFrameCostEur: number;
+  deliveryAndInstallationEur: number;
   rawMaterialsTotal: number;
   laborCost: number;
   operationalOverhead: number;
@@ -44,9 +62,17 @@ export interface PricingBreakdown {
   vatAmountTry: number;
   totalWithVatEur: number;
   totalWithVatTry: number;
+  leadTime: LeadTimeEstimate;
   details: {
-    materialLines: { name: string; grossAreaM2: number; rateEur: number; totalEur: number }[];
+    materialLines: {
+      name: string;
+      grossAreaM2: number;
+      rateEur: number;
+      totalEur: number;
+      minSheetApplied?: boolean;
+    }[];
     hardwareLines: { name: string; qty: number; unitPriceEur: number; totalEur: number }[];
+    surchargeLines: { label: string; totalEur: number }[];
     totalEdgeBandMeters: number;
     totalHolesCount: number;
   };

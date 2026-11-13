@@ -985,6 +985,47 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
             )}
           </div>
 
+          {/* EN 14749 Live Span Deflection Engineering Alert + 1-Click Auto-Divider Support */}
+          {(() => {
+            const wideSpanWarnings = activeModule.bays
+              .map((b, idx) => ({
+                idx,
+                bw: bayWidths[idx] || 0,
+                hasLoad: (b.shelves?.length || 0) > 0 || (b.hangingRails?.length || 0) > 0,
+              }))
+              .filter((x) => x.bw > 980 && x.hasLoad);
+            if (wideSpanWarnings.length === 0) return null;
+            return (
+              <div
+                data-testid="simple-engineering-span-warning"
+                className="p-3 rounded-2xl bg-amber-50/90 border border-amber-300/80 space-y-2"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11.5px] font-bold text-amber-950">
+                    ⚠️ Mühendislik Uyarısı ({wideSpanWarnings.length})
+                  </span>
+                  <button
+                    type="button"
+                    data-testid="simple-auto-support-span-btn"
+                    onClick={() => onSplitBay(wideSpanWarnings[0].idx)}
+                    className="px-2.5 py-1 rounded-full bg-[#141413] hover:bg-stone-800 text-white text-[10.5px] font-bold cursor-pointer shrink-0"
+                    title="Geniş açıklığa otomatik taşıyıcı ara dikme ekler"
+                  >
+                    ✦ Oto-Destek
+                  </button>
+                </div>
+                {wideSpanWarnings.map((w) => (
+                  <div
+                    key={w.idx}
+                    className="p-2 rounded-xl bg-white/80 border border-amber-200/70 text-[10.5px] text-stone-700 leading-snug"
+                  >
+                    <strong>{w.idx + 1}. Bölme ({w.bw} mm):</strong> EN 14749 standardına göre 980 mm üzeri açıklıklarda 18 mm raf ve askı borusu esneme yapar; 25 mm raf veya ara dikme önerilir.
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+
           {/* Spacious 2-Column Ready Interior Presets */}
           <div className="pt-2 border-t border-[#EFECE5] space-y-2">
             <div className="text-xs font-bold text-[#141413]">

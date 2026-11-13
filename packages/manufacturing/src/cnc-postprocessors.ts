@@ -40,6 +40,10 @@ export interface CncPieceInput {
   widthMm: number;
   netCutLengthMm?: number;
   netCutWidthMm?: number;
+  rawOriginOffsetXMm?: number;
+  rawOriginOffsetYMm?: number;
+  /** Default "pre_banding_raw" shifts bore coordinates to raw pre-banded panel edges when netCut differs from nominal */
+  boreReferenceMode?: "pre_banding_raw" | "post_banding_finished";
   mirrorInnerFaceX?: boolean;
   hasBackGroove?: boolean;
   backGrooveOffsetMm?: number;
@@ -92,6 +96,21 @@ function isHorizontalEdgeOp(face: CncDrillOpInput["face"]): boolean {
  *   1) `_SETUP1_TOP.mpr` (Primary Setup + Horizontal Edge Boring + Grooves + Pockets)
  *   2) `_SETUP2_FLIP_BOTTOM.mpr` (Mirrored LPY=B-x Flip Setup so stop-pins match!)
  */
+function adjustOpToWorkpieceOrigin(
+  op: CncDrillOpInput,
+  piece: CncPieceInput
+): { x: number; y: number } {
+  const useRawPreBand =
+    (piece.boreReferenceMode ?? "pre_banding_raw") === "pre_banding_raw" &&
+    (piece.netCutLengthMm !== undefined || piece.netCutWidthMm !== undefined);
+  const offX = useRawPreBand ? (piece.rawOriginOffsetXMm ?? 0) : 0;
+  const offY = useRawPreBand ? (piece.rawOriginOffsetYMm ?? 0) : 0;
+  return {
+    x: op.x - offX,
+    y: op.y - offY,
+  };
+}
+
 export function generateHomagMprPrograms(piece: CncPieceInput): CncProgramFile[] {
   const L = piece.netCutLengthMm ?? piece.lengthMm;
   const B = piece.netCutWidthMm ?? piece.widthMm;
@@ -103,8 +122,9 @@ export function generateHomagMprPrograms(piece: CncPieceInput): CncProgramFile[]
   const oppositeVertOps = piece.drillingOperations.filter((op) => isOppositeFaceOp(op.face));
   const horizOps = piece.drillingOperations.filter((op) => isHorizontalEdgeOp(op.face));
   const cutouts = [...(piece.utilityCutouts || [])];
+  const hasExplicitSinkHobUtility = cutouts.some((c) => c.id.startsWith("cutout_"));
 
-  if (piece.partRole === "countertop" && piece.hasSinkOrHobCutout) {
+  if (piece.partRole === "countertop" && piece.hasSinkOrHobCutout && !hasExplicitSinkHobUtility) {
     cutouts.push({
       id: `${piece.id}_sink_cutout`,
       shape: "rect",
@@ -164,8 +184,9 @@ export function generateHomagMprPrograms(piece: CncPieceInput): CncProgramFile[]
     let opCount = 0;
 
     for (const op of vertOps) {
-      const mprX = Math.max(0, Math.min(L, op.y));
-      const rawY = Math.max(0, Math.min(B, op.x));
+      const adj = adjustOpToWorkpieceOrigin(op, piece);
+      const mprX = Math.max(0, Math.min(L, adj.y));
+      const rawY = Math.max(0, Math.min(B, adj.x));
       const mprY = isFlipSetup ? Math.max(0, B - rawY) : rawY;
       lines.push(
         "<102 \\BohrVert\\",
@@ -185,9 +206,10 @@ export function generateHomagMprPrograms(piece: CncPieceInput): CncProgramFile[]
 
     if (includeHorizAndGroove) {
       for (const hop of horizOps) {
+        const adjH = adjustOpToWorkpieceOrigin(hop, piece);
         const zCenter = fmtNum(D / 2);
-        let xa = fmtNum(Math.max(0, Math.min(L, hop.y)));
-        let ya = fmtNum(Math.max(0, Math.min(B, hop.x)));
+        let xa = fmtNum(Math.max(0, Math.min(L, adjH.y)));
+        let ya = fmtNum(Math.max(0, Math.min(B, adjH.x)));
         let bm = "XP";
         if (hop.face === "edge_bottom") {
           xa = "0.00";
@@ -328,8 +350,9 @@ export function generateBiesseCixProgram(piece: CncPieceInput): CncProgramFile {
   let hasBottomSide = false;
 
   for (const op of piece.drillingOperations) {
-    const xVal = Math.max(0, Math.min(LPX, op.y));
-    const yVal = Math.max(0, Math.min(LPY, op.x));
+    const adj = adjustOpToWorkpieceOrigin(op, piece);
+    const xVal = Math.max(0, Math.min(LPX, adj.y));
+    const yVal = Math.max(0, Math.min(LPY, adj.x));
 
     if (isHorizontalEdgeOp(op.face)) {
       const cixSide =
@@ -402,7 +425,25 @@ export function generateBiesseCixProgram(piece: CncPieceInput): CncProgramFile {
     );
   }
 
-  for (const co of piece.utilityCutouts || []) {
+  const cixCutouts = [...(piece.utilityCutouts || [])];
+  if (
+    piece.partRole === "countertop" &&
+    piece.hasSinkOrHobCutout &&
+    !cixCutouts.some((c) => c.id.startsWith("cutout_"))
+  ) {
+    cixCutouts.push({
+      id: `${piece.id}_sink_cutout`,
+      shape: "rect",
+      centerXMm: LPY / 2,
+      centerYMm: LPX / 2,
+      widthMm: piece.cutoutDepthMm ?? Math.min(490, LPY - 110),
+      heightMm: piece.cutoutWidthMm ?? Math.min(560, LPX - 120),
+      cornerRadiusMm: 10,
+      label: "Eviye / Ocak Kesimi",
+    });
+  }
+
+  for (const co of cixCutouts) {
     const cx = Math.max(0, Math.min(LPX, co.centerYMm));
     const cy = Math.max(0, Math.min(LPY, co.centerXMm));
     const dia = co.diameterMm ?? co.widthMm;

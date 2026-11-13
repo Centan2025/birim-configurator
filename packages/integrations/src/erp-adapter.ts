@@ -193,3 +193,130 @@ export class MockERPAdapter implements IERPAdapter {
     return this.auditLogs;
   }
 }
+
+
+export interface RemnantSheetRecord {
+  remnantId: string;
+  materialId: string;
+  materialName: string;
+  lengthMm: number;
+  widthMm: number;
+  areaM2: number;
+  sourceOrderId: string;
+  createdAt: string;
+}
+
+const REMNANT_STORAGE_KEY = "birim_erp_remnant_stock_v1";
+
+export function listSavedRemnantSheets(): RemnantSheetRecord[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(REMNANT_STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as RemnantSheetRecord[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function registerBomRemnantsToStock(
+  bom: ManufacturingBOM,
+  orderId: string
+): RemnantSheetRecord[] {
+  const created: RemnantSheetRecord[] = [];
+  bom.nestingResults.forEach((nr) => {
+    nr.sheets.forEach((sh, sIdx) => {
+      (sh.usableRemnants || []).forEach((rm, rIdx) => {
+        const areaM2 = Math.round(((rm.length * rm.width) / 1_000_000) * 1000) / 1000;
+        if (areaM2 >= 0.45) {
+          created.push({
+            remnantId: `REM_${orderId}_${sIdx + 1}_${rIdx + 1}`,
+            materialId: nr.materialId,
+            materialName: sh.materialName,
+            lengthMm: rm.length,
+            widthMm: rm.width,
+            areaM2,
+            sourceOrderId: orderId,
+            createdAt: new Date().toISOString(),
+          });
+        }
+      });
+    });
+  });
+
+  if (typeof window !== "undefined" && created.length > 0) {
+    try {
+      const existing = listSavedRemnantSheets().filter((r) => r.sourceOrderId !== orderId);
+      window.localStorage.setItem(
+        REMNANT_STORAGE_KEY,
+        JSON.stringify([...created, ...existing].slice(0, 120))
+      );
+    } catch {
+      // Ignore quota errors
+    }
+  }
+  return created;
+}
+
+/**
+ * Production-ready Hybrid Supabase/REST + Offline Persistent ERP Adapter.
+ * Automatically dispatches to `NEXT_PUBLIC_BIRIM_PORTAL_API_URL` or Supabase REST when configured,
+ * while registering reusable offcut remnants (`>= 0.45 m²`) to stock.
+ */
+export class BirimHybridERPAdapter extends MockERPAdapter {
+  constructor(
+    private readonly endpointUrl?: string,
+    private readonly apiKey?: string
+  ) {
+    super();
+  }
+
+  override async publishProductionBlueprint(
+    project: DesignProject,
+    bom: ManufacturingBOM,
+    orderId = `SIP_${project.id}`,
+    idempotencyKey?: string,
+    nestingOptions?: BirimErpNestingBuildOptions
+  ) {
+    const baseRes = await super.publishProductionBlueprint(
+      project,
+      bom,
+      orderId,
+      idempotencyKey,
+      nestingOptions
+    );
+    registerBomRemnantsToStock(bom, orderId);
+
+    const apiBase =
+      this.endpointUrl ||
+      (typeof process !== "undefined"
+        ? process.env?.NEXT_PUBLIC_BIRIM_PORTAL_API_URL || process.env?.NEXT_PUBLIC_SUPABASE_URL
+        : undefined);
+
+    if (apiBase && typeof fetch === "function") {
+      try {
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+        };
+        if (this.apiKey) {
+          headers["apikey"] = this.apiKey;
+          headers["Authorization"] = `Bearer ${this.apiKey}`;
+        }
+        await fetch(`${apiBase.replace(/\/$/, "")}/rest/v1/production_blueprints`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            blueprint_id: baseRes.blueprintId,
+            order_id: orderId,
+            project_id: project.id,
+            items_count: baseRes.itemsCount,
+            sheets_used: baseRes.totalSheetsUsed,
+            nesting_bundle: baseRes.nestingBundle,
+          }),
+        });
+      } catch {
+        // Keep local blueprint commit if remote network is unreachable
+      }
+    }
+    return baseRes;
+  }
+}

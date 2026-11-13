@@ -649,7 +649,7 @@ function resolveSmartPlacement(
 }
 
 function findTooltipAnchor(target: EventTarget | null): HTMLElement | null {
-  if (!target || !(target instanceof HTMLElement)) return null;
+  if (!target || !(target instanceof Element)) return null;
   if (target.closest("[data-no-tooltip='true']")) return null;
 
   const candidate = target.closest(
@@ -750,6 +750,7 @@ export const BirimTooltipPortal: React.FC = () => {
   const showTimerRef = useRef<number | null>(null);
   const hideTimerRef = useRef<number | null>(null);
   const unmountTimerRef = useRef<number | null>(null);
+  const showRafRef = useRef<number | null>(null);
   const lastShownAtRef = useRef<number>(0);
 
   useEffect(() => {
@@ -778,6 +779,10 @@ export const BirimTooltipPortal: React.FC = () => {
       if (unmountTimerRef.current !== null) {
         window.clearTimeout(unmountTimerRef.current);
         unmountTimerRef.current = null;
+      }
+      if (showRafRef.current !== null) {
+        window.cancelAnimationFrame(showRafRef.current);
+        showRafRef.current = null;
       }
     };
 
@@ -819,7 +824,11 @@ export const BirimTooltipPortal: React.FC = () => {
         placement,
         anchorRect: rect,
       });
-      requestAnimationFrame(() => {
+      if (showRafRef.current !== null) {
+        window.cancelAnimationFrame(showRafRef.current);
+      }
+      showRafRef.current = requestAnimationFrame(() => {
+        showRafRef.current = null;
         setVisible(true);
         lastShownAtRef.current = performance.now();
       });
@@ -834,13 +843,21 @@ export const BirimTooltipPortal: React.FC = () => {
 
       const anchor = findTooltipAnchor(e.target);
       if (!anchor) {
-        if (activeAnchorRef.current) {
-          hideImmediately(false);
+        if (activeAnchorRef.current && hideTimerRef.current === null) {
+          hideTimerRef.current = window.setTimeout(() => {
+            hideImmediately(false);
+          }, 65);
         }
         return;
       }
 
-      if (anchor === activeAnchorRef.current) return;
+      if (anchor === activeAnchorRef.current) {
+        if (hideTimerRef.current !== null) {
+          window.clearTimeout(hideTimerRef.current);
+          hideTimerRef.current = null;
+        }
+        return;
+      }
 
       clearTimers();
       activeAnchorRef.current = anchor;

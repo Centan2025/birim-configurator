@@ -23,9 +23,15 @@ export interface CutPiece {
   widthMm: UnitLength; // Nominal finished width (En — across grain, X axis in panel DXF)
   nominalLengthMm?: UnitLength; // Bitmiş / Anma Boy (mm)
   nominalWidthMm?: UnitLength; // Bitmiş / Anma En (mm)
-  netCutLengthMm?: UnitLength; // Testere Net Kesim Boyu (Bant - Ön Freze düşülmüş, mm)
-  netCutWidthMm?: UnitLength; // Testere Net Kesim Eni (Bant - Ön Freze düşülmüş, mm)
+  netCutLengthMm?: UnitLength; // Testere Net Kesim Boyu (İşaretli Bant - Ön Freze uygulanmış, mm)
+  netCutWidthMm?: UnitLength; // Testere Net Kesim Eni (İşaretli Bant - Ön Freze uygulanmış, mm)
   preMillingMm?: UnitLength; // Kenar bantlama ön freze bıçak kazıma payı (mm)
+  /** Bant öncesi Nesting CNC referans kayması (sol/alt ham kesim kenarından bitmiş kenara fark, mm) */
+  rawOriginOffsetXMm?: number;
+  rawOriginOffsetYMm?: number;
+  /** Açılı masa veya 45° gönye birleşim pah açısı (derece) */
+  miterBevelAngleDeg?: number;
+  miterBevelEdge?: "left" | "right" | "top" | "bottom";
   edgeBandCode?: string; // Fabrika kenar bant kodu (ör. "1B 1mm", "4K 1mm", "Bantsız")
   thicknessMm: UnitLength; // Thickness (Kalınlık)
   quantity: number;

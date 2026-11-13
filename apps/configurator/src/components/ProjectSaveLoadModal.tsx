@@ -253,6 +253,16 @@ export const ProjectSaveLoadModal: React.FC<ProjectSaveLoadModalProps> = ({
             )}
           </div>
         </div>
+
+        {/* Footer */}
+        <div className="px-6 py-3 border-t border-slate-800 bg-slate-950 flex justify-end">
+          <button
+            onClick={onClose}
+            className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-xs font-medium transition"
+          >
+            Kapat
+          </button>
+        </div>
       </div>
     </div>
   );

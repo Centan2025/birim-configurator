@@ -30,6 +30,8 @@ import {
   exportHardwareBomCsv,
   generateNestingDiagramSvg,
   generateThermalPartLabelsHtml,
+  generateThermalPartLabelsZpl,
+  exportArchitecturalMepDxf,
   generateBlumBxfXml,
   calculateBlumEngineeringSummary,
   generateProjectCncPostProcessorBundle,
@@ -206,7 +208,7 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
 
 
   const downloadCamZipArchive = () => {
-    const zipBytes = exportIndustrialCamZipArchive(bom);
+    const zipBytes = exportIndustrialCamZipArchive(project, bom);
     const blob = new Blob([zipBytes], { type: "application/zip" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -252,11 +254,29 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
 
   const downloadThermalLabelsHtml = () => {
     const matMap = new Map(DEFAULT_MATERIALS.map((m) => [m.id, m]));
-    const htmlOut = generateThermalPartLabelsHtml(project, bom, matMap);
+    const htmlOut = generateThermalPartLabelsHtml(project, bom);
     downloadFile(
       htmlOut,
       `Termal_Barkod_Etiketler_100x50_${project.id}_v${project.version}.html`,
       "text/html;charset=utf-8"
+    );
+  };
+
+  const downloadThermalLabelsZpl = () => {
+    const zplOut = generateThermalPartLabelsZpl(project, bom);
+    downloadFile(
+      zplOut,
+      `Termal_Zebra_Barkod_100x50_${project.id}_v${project.version}.zpl`,
+      "text/plain;charset=utf-8"
+    );
+  };
+
+  const downloadArchitectMepDxf = () => {
+    const dxfOut = exportArchitecturalMepDxf(project);
+    downloadFile(
+      dxfOut,
+      `Santiye_MEP_Tesisat_Paftasi_${project.id}_v${project.version}.dxf`,
+      "application/dxf"
     );
   };
 
@@ -425,6 +445,24 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
             >
               <Download className="w-3.5 h-3.5" />
               Etiket 100×50
+            </button>
+            <button
+              onClick={downloadThermalLabelsZpl}
+              data-testid="bom-download-zpl-labels-btn"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl bg-stone-700 hover:bg-stone-600 text-white shadow transition cursor-pointer"
+              title="Zebra Termal Yazıcı için Doğrudan Ham .ZPL II (203dpi, 100×50mm Code-128 Barkod) Akışını İndir"
+            >
+              <Download className="w-3.5 h-3.5" />
+              Zebra .ZPL
+            </button>
+            <button
+              onClick={downloadArchitectMepDxf}
+              data-testid="bom-download-mep-dxf-btn"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl bg-amber-700 hover:bg-amber-600 text-white shadow transition cursor-pointer"
+              title="İç Mimar Şantiye Elektrik, Priz, Su, Gider ve Davlumbaz Baca Aks Paftası (Çok Katmanlı AIA .DXF)"
+            >
+              <FileCode className="w-3.5 h-3.5" />
+              MEP .DXF
             </button>
             <button
               onClick={downloadErpNestingJson}

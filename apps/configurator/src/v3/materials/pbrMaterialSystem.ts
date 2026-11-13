@@ -137,7 +137,7 @@ function buildNormalMapFromHeightField(
   normalTex.wrapS = THREE.RepeatWrapping;
   normalTex.wrapT = THREE.RepeatWrapping;
   normalTex.repeat.set(repeatX, repeatY);
-  normalTex.anisotropy = 8;
+  normalTex.anisotropy = 4;
   normalTex.needsUpdate = true;
   return normalTex;
 }
@@ -203,7 +203,7 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     colorMap.wrapT = THREE.RepeatWrapping;
     colorMap.repeat.set(2.4, 2.4);
     colorMap.colorSpace = THREE.SRGBColorSpace;
-    colorMap.anisotropy = 8;
+    colorMap.anisotropy = 4;
     colorMap.needsUpdate = true;
 
     const roughnessMap = markSharedTexture(new THREE.CanvasTexture(roughCanvas));
@@ -337,13 +337,13 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     colorMap.wrapS = THREE.RepeatWrapping;
     colorMap.wrapT = THREE.RepeatWrapping;
     colorMap.colorSpace = THREE.SRGBColorSpace;
-    colorMap.anisotropy = 8;
+    colorMap.anisotropy = 4;
     colorMap.needsUpdate = true;
 
     const roughnessMap = markSharedTexture(new THREE.CanvasTexture(roughCanvas));
     roughnessMap.wrapS = THREE.RepeatWrapping;
     roughnessMap.wrapT = THREE.RepeatWrapping;
-    roughnessMap.anisotropy = 8;
+    roughnessMap.anisotropy = 4;
     roughnessMap.needsUpdate = true;
 
     const normalMap = buildNormalMapFromHeightField(heightField, W, H, 1.85, 1, 1);
@@ -389,7 +389,7 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     const roughnessMap = markSharedTexture(new THREE.CanvasTexture(roughCanvas));
     roughnessMap.wrapS = THREE.RepeatWrapping;
     roughnessMap.wrapT = THREE.RepeatWrapping;
-    roughnessMap.anisotropy = 8;
+    roughnessMap.anisotropy = 4;
     roughnessMap.needsUpdate = true;
 
     const normalMap = buildNormalMapFromHeightField(heightField, S, S, 0.9, 1, 1);
@@ -510,13 +510,13 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     colorMap.wrapS = THREE.RepeatWrapping;
     colorMap.wrapT = THREE.RepeatWrapping;
     colorMap.colorSpace = THREE.SRGBColorSpace;
-    colorMap.anisotropy = 8;
+    colorMap.anisotropy = 4;
     colorMap.needsUpdate = true;
 
     const roughnessMap = markSharedTexture(new THREE.CanvasTexture(roughCanvas));
     roughnessMap.wrapS = THREE.RepeatWrapping;
     roughnessMap.wrapT = THREE.RepeatWrapping;
-    roughnessMap.anisotropy = 8;
+    roughnessMap.anisotropy = 4;
     roughnessMap.needsUpdate = true;
 
     const normalMap = buildNormalMapFromHeightField(heightField, W, H, 0.75, 1, 1);
@@ -606,7 +606,7 @@ export function getArchitecturalWallTexture(
   tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(3.2, 2.1);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 8;
+  tex.anisotropy = 4;
   tex.needsUpdate = true;
   wallTextureCache.set(tone, tex);
 
@@ -727,7 +727,7 @@ export function getArchitecturalFloorTexture(
   tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(rep, rep);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 8;
+  tex.anisotropy = 4;
   tex.needsUpdate = true;
   floorTextureCache.set(style, tex);
 
@@ -1033,24 +1033,20 @@ export function getV3PbrMaterial(
     return mat;
   }
 
-  // 3. Architectural Smoked / Fluted Showcase Glass (Thin-walled physical glass with interior shelf visibility)
+  // 3. 60-FPS Architectural Smoked / Fluted Showcase Glass (Zero transmissionRenderTarget double-pass!)
   if (matDef.category === "glass" || matDef.id.includes("glass")) {
     const mat = new THREE.MeshPhysicalMaterial({
       color: new THREE.Color(matDef.colorHex || "#2b333d"),
-      metalness: 0.04,
-      roughness: 0.03,
-      transmission: 0.74,
-      thickness: 6.0,
-      attenuationDistance: 52,
-      attenuationColor: new THREE.Color("#3a424d"),
+      metalness: 0.12,
+      roughness: 0.06,
+      transmission: 0,
       transparent: true,
-      opacity: 0.56,
+      opacity: 0.38,
       depthWrite: false,
-      ior: 1.52,
-      reflectivity: 0.98,
-      clearcoat: 1.0,
-      clearcoatRoughness: 0.02,
-      envMapIntensity: 1.85,
+      reflectivity: 0.92,
+      clearcoat: 0.55,
+      clearcoatRoughness: 0.04,
+      envMapIntensity: 1.45,
       emissive,
       emissiveIntensity,
     });
@@ -1104,8 +1100,7 @@ export function getV3PbrMaterial(
         : surfaceFinishOverride === "matte"
         ? 0.56
         : 0.44;
-    const clearcoatVal =
-      surfaceFinishOverride === "gloss" ? 0.85 : surfaceFinishOverride === "matte" ? 0.12 : 0.26;
+    const clearcoatVal = surfaceFinishOverride === "gloss" ? 0.78 : 0;
 
     const mat = new THREE.MeshPhysicalMaterial({
       color: new THREE.Color("#ffffff"),
@@ -1168,10 +1163,8 @@ export function getV3PbrMaterial(
       metalness: 0.01,
       ior: 1.5,
       specularIntensity: 0.85,
-      sheen: 0.24,
-      sheenRoughness: 0.45,
-      sheenColor: new THREE.Color("#fafaf9"),
-      clearcoat: surfaceFinishOverride === "gloss" || (matDef.roughness ?? 0.35) <= 0.12 ? 0.98 : 0.34,
+      sheen: 0,
+      clearcoat: surfaceFinishOverride === "gloss" || (matDef.roughness ?? 0.35) <= 0.12 ? 0.88 : 0,
       clearcoatRoughness: surfaceFinishOverride === "gloss" ? 0.05 : 0.26,
       reflectivity: 0.62,
       envMapIntensity: 0.88,
@@ -1197,10 +1190,8 @@ export function getV3PbrMaterial(
     metalness: 0.01,
     ior: 1.49,
     specularIntensity: 0.72,
-    sheen: 0.12,
-    sheenRoughness: 0.52,
-    sheenColor: new THREE.Color("#fafaf9"),
-    clearcoat: surfaceFinishOverride === "gloss" ? 0.8 : 0.22,
+    sheen: 0,
+    clearcoat: surfaceFinishOverride === "gloss" ? 0.75 : 0,
     clearcoatRoughness: surfaceFinishOverride === "gloss" ? 0.07 : 0.32,
     reflectivity: 0.54,
     envMapIntensity: 0.82,

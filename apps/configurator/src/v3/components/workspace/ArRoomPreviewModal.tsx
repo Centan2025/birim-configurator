@@ -145,7 +145,7 @@ export const ArRoomPreviewModal: React.FC<ArRoomPreviewModalProps> = ({
   const handleCreateServerVerifiedLink = async () => {
     setServerShareState((s) => ({ ...s, loading: true, error: null }));
     try {
-      const res = await fetch("/api/quotes", {
+      const res = await fetch(`${typeof window !== "undefined" ? window.location.origin : ""}/api/quotes`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

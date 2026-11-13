@@ -29,21 +29,25 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
   const mapX = (xFromFrontEdge: number): number =>
     roundMm(mirrorX ? width - xFromFrontEdge : xFromFrontEdge, 2);
 
-  // Helper: compute joint X positions per MD Spec Section 10.1
+  // Helper: compute joint X positions strictly aligned to European System 32 (37mm + k * 32mm)
   const buildJointSpecs = (panelDepthW: number) => {
-    const frontBoltX = 50;
-    const rearBoltX = Math.max(114, panelDepthW - 50);
+    const frontBoltX = part.isInsetDoor ? 57 : 37;
     if (panelDepthW < 180) {
       return [{ boltFromFront: Math.round(panelDepthW / 2), dowelFromFront: null as number | null }];
     }
     if (panelDepthW < 250) {
+      const kSmall = Math.max(2, Math.floor((panelDepthW - frontBoltX - 28) / 32));
       return [
-        { boltFromFront: 37, dowelFromFront: null as number | null },
-        { boltFromFront: Math.max(96, panelDepthW - 37), dowelFromFront: null as number | null },
+        { boltFromFront: frontBoltX, dowelFromFront: null as number | null },
+        { boltFromFront: frontBoltX + kSmall * 32, dowelFromFront: null as number | null },
       ];
     }
-    if (part.useDepthBasedConnectorRule && panelDepthW > 500) {
-      const midBoltX = Math.round(panelDepthW / 2);
+    // Keep >= 37mm rear margin so rear minifix never collides with 18-20mm back groove!
+    const kSteps = Math.max(3, Math.floor((panelDepthW - frontBoltX - 37) / 32));
+    const rearBoltX = frontBoltX + kSteps * 32;
+    if (part.useDepthBasedConnectorRule && panelDepthW > 500 && kSteps >= 6) {
+      const midSteps = Math.floor(kSteps / 2);
+      const midBoltX = frontBoltX + midSteps * 32;
       return [
         { boltFromFront: frontBoltX, dowelFromFront: frontBoltX + 32 },
         { boltFromFront: midBoltX, dowelFromFront: midBoltX + 32 },

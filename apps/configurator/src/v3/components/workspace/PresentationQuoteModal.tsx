@@ -194,7 +194,7 @@ export const PresentationQuoteModal: React.FC<PresentationQuoteModalProps> = ({
   const handleCreateShareLink = async () => {
     setShareState((prev) => ({ ...prev, loading: true }));
     try {
-      const res = await fetch("/api/quotes", {
+      const res = await fetch(`${typeof window !== "undefined" ? window.location.origin : ""}/api/quotes`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
