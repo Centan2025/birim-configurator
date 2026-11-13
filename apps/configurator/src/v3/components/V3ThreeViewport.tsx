@@ -1561,7 +1561,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
     const lastAccessoryDropTargetRef = useRef<{ bayIndex: number; elevationY: number; offsetX?: number; accessory: any } | null>(null);
     const selectionFrameGroupRef = useRef<THREE.Group | null>(null);
     const activeModFrameGroupRef = useRef<THREE.Group | null>(null);
-    const dimWorldAnchorsRef = useRef<{ id: string; worldPos: THREE.Vector3 }[]>([]);
+    const dimWorldAnchorsRef = useRef<{ id: string; worldPos: THREE.Vector3; isActiveMod?: boolean }[]>([]);
+    const liveDimDeltaRef = useRef<{ dx: number; dz: number }>({ dx: 0, dz: 0 });
     const dimLabelDomMapRef = useRef<Map<string, HTMLDivElement>>(new Map());
     const gridRef = useRef<THREE.GridHelper | null>(null);
     const shadowPlaneRef = useRef<THREE.Mesh | null>(null);
@@ -1602,8 +1603,12 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       cam.updateMatrixWorld();
       const placed: { id: string; x: number; y: number; visible: boolean }[] = [];
 
+      const { dx: dimDx, dz: dimDz } = liveDimDeltaRef.current;
       for (const item of dimWorldAnchorsRef.current) {
-        const ndc = item.worldPos.clone().project(cam);
+        const anchorPos = item.isActiveMod && (dimDx !== 0 || dimDz !== 0)
+          ? new THREE.Vector3(item.worldPos.x + dimDx, item.worldPos.y, item.worldPos.z + dimDz)
+          : item.worldPos.clone();
+        const ndc = anchorPos.project(cam);
         if (ndc.z > 1) {
           placed.push({ id: item.id, x: 0, y: 0, visible: false });
           continue;
@@ -2554,6 +2559,12 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               if (activeModFrameGroupRef.current) {
                 activeModFrameGroupRef.current.position.set(deltaLiveX, 0, deltaLiveZ);
               }
+              const actDim = dimGroupRef.current?.children.find((c) => c.userData?.isActiveModuleDim);
+              if (actDim && actDim.userData.baseOrigin instanceof THREE.Vector3) {
+                const base = actDim.userData.baseOrigin as THREE.Vector3;
+                actDim.position.set(base.x + deltaLiveX, base.y, base.z + deltaLiveZ);
+              }
+              liveDimDeltaRef.current = { dx: deltaLiveX, dz: deltaLiveZ };
               needsRenderRef.current = true;
             } else if (nextX !== dragMod.position.x || targetZ !== dragMod.position.z) {
               state.setModulePosition(activeDrag3D.modIdx, nextX, targetZ, 1);
@@ -2660,6 +2671,15 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           }
           const state = latestStateRef.current;
           if (dragKind === "module_3d" || dragKind === "obstacle_3d") {
+            if (dragKind === "module_3d") {
+              liveDimDeltaRef.current = { dx: 0, dz: 0 };
+              if (!moved) {
+                const actDim = dimGroupRef.current?.children.find((c) => c.userData?.isActiveModuleDim);
+                if (actDim && actDim.userData.baseOrigin instanceof THREE.Vector3) {
+                  actDim.position.copy(actDim.userData.baseOrigin);
+                }
+              }
+            }
             if (ghostSnapGroupRef.current) {
               disposeObject3DTree(ghostSnapGroupRef.current);
               ghostSnapGroupRef.current.clear();
@@ -5553,6 +5573,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       disposeObject3DTree(dimGroup);
       dimGroup.clear();
       dimGroup.visible = effectiveShowDimensions;
+      liveDimDeltaRef.current = { dx: 0, dz: 0 };
 
       const mod = project.modules[activeModuleIndex] || project.modules[0];
       if (!effectiveShowDimensions || !mod) {
@@ -5562,6 +5583,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       }
 
       const modDimContainer = createModuleGroup(mod);
+      modDimContainer.userData.isActiveModuleDim = true;
+      modDimContainer.userData.baseOrigin = modDimContainer.position.clone();
       const { width: W, height: H, depth: D } = mod.dimensions;
       const T = mod.carcass.panelThickness;
       const fourSpaces = calculateFourSpaceDimensions(mod);
@@ -5664,9 +5687,10 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             dimGroup.add(modDimContainer);
       modDimContainer.updateMatrixWorld(true);
 
-      const allWorldAnchors: { id: string; worldPos: THREE.Vector3 }[] = localAnchors.map((a) => ({
+      const allWorldAnchors: { id: string; worldPos: THREE.Vector3; isActiveMod?: boolean }[] = localAnchors.map((a) => ({
         id: a.id,
         worldPos: a.localMidpoint.clone().applyMatrix4(modDimContainer.matrixWorld),
+        isActiveMod: true,
       }));
 
       // Build 3D Dimension Rods & Anchors for ALL other modules in the scene
