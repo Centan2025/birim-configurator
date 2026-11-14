@@ -2,6 +2,7 @@ import {
   DEFAULT_MATERIALS,
   DesignProject,
   evaluateProjectCompatibility,
+  evaluateUnifiedEngineeringModel,
 } from "@birim/core";
 import {
   ManufacturingBOM,
@@ -23,7 +24,7 @@ export class MockERPAdapter implements IERPAdapter {
     orderId = `SIPARIS_${project.id}`,
     nestingOptions?: BirimErpNestingBuildOptions
   ): BirimErpNestingExportBundle {
-    const materialsMap = new Map(DEFAULT_MATERIALS.map((m) => [m.id, m]));
+    const materialsMap = new Map([...DEFAULT_MATERIALS, ...(project.customMaterials || [])].map((m) => [m.id, m]));
     return buildBirimErpNestingBundle(project, bom, materialsMap, {
       organizationId: project.branchId || "org_birim_fabrika",
       orderRef: orderId,
@@ -54,10 +55,21 @@ export class MockERPAdapter implements IERPAdapter {
       );
     }
 
-    const compatibility = evaluateProjectCompatibility(project);
-    if (compatibility.overallStatus === "INCOMPATIBLE" || compatibility.overallStatus === "UNVERIFIED") {
+    const unified = evaluateUnifiedEngineeringModel(project);
+    if (!unified.canExportToCncAndSaw) {
+      const firstErr = unified.blockingSafetyAndEngineeringErrors[0];
       throw new Error(
-        `Üretim engeli (${compatibility.overallStatus}): Tasarım uyumsuz kurallar içeriyor, ERP/CNC'ye aktarılamaz.`
+        `Üretim engeli (${firstErr?.code || "ERR_UNIFIED_GATE"}): ${firstErr?.message || "Tasarım kritik mühendislik hataları içeriyor, ERP/CNC'ye aktarılamaz."}`
+      );
+    }
+    const compatibility = evaluateProjectCompatibility(project);
+    if (
+      compatibility.overallStatus === "INCOMPATIBLE" ||
+      compatibility.overallStatus === "UNVERIFIED" ||
+      !unified.canApproveFinalErpRelease
+    ) {
+      throw new Error(
+        `Üretim engeli (${compatibility.overallStatus}): Tasarım uyumsuz veya doğrulanmamış kurallar içeriyor, ERP/CNC'ye aktarılamaz.`
       );
     }
 

@@ -11,7 +11,14 @@ import {
   inferDoorSystemIdFromType,
   getModuleFrontSweepBounds,
   calculateModulePlacement,
+  doModulesOverlapOBB2D,
+  computeProjectGrainContinuityMap,
 } from "@birim/core";
+import {
+  ElevationCeilingSectionSvg,
+  ElevationMultiHoleAndGrainSvg,
+  CeilingAndEngineeringQuickPopover,
+} from "./workspace/CeilingAndGrain2DOverlays";
 import {
   useV3Adapter,
   generateModuleGeometry,
@@ -71,6 +78,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       spaceObstacles,
       spaceWalls,
       validationIssues,
+      unifiedEngineeringReport,
       selectedModuleIds,
       toggleModuleSelection,
       selectAllModules,
@@ -79,6 +87,9 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       batchRemoveSelectedModules,
       removeActiveModule,
       setRoomDimensions,
+      updateCeilingConfig,
+      setFacadeGrainContinuity,
+      updateCarcassConfig,
       addWallSegment,
       updateWallSegment,
       removeWallSegment,
@@ -94,6 +105,9 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       activeSpatialMetrics,
       applyRoomShapePreset,
       addInteriorItemAtElevation,
+      setModuleOffsetFromLeftWall,
+      selectedSceneObjectId,
+      setSelectedSceneObjectId,
       undo,
       redo,
     } = useV3Adapter();
@@ -119,6 +133,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       setZoom((prev) => Math.max(0.4, Math.min(3.5, +(prev + delta).toFixed(2))));
     }, []);
     const [showDoorsIn2D, setShowDoorsIn2D] = useState(false);
+    const grainContinuityMap2D = useMemo(() => computeProjectGrainContinuityMap(project), [project]);
     const [showRoomContextInElev, setShowRoomContextInElev] = useState(true);
     const [isDrawingWall, setIsDrawingWall] = useState(false);
     const [chainOriginPoint, setChainOriginPoint] = useState<{ x: number; z: number } | null>(null);
@@ -182,6 +197,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         | "module_right"
         | "module_top"
         | "module_depth"
+        | "angled_module_length"
         | "obstacle_start"
         | "obstacle_end"
         | "wall_end";
@@ -194,6 +210,9 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       startPosZ: number;
       isSideWall?: boolean;
       isRotated90?: boolean;
+      rotYDeg?: number;
+      anchorOriginX?: number;
+      anchorOriginZ?: number;
       mmPerPx: number;
     } | null>(null);
     const lockedPlanVbRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
@@ -566,7 +585,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
 
           const xHit = f1.x < f2.x + f2.planWidth - 4 && f1.x + f1.planWidth > f2.x + 4;
           const zHit = f1.z < f2.z + f2.planDepth - 4 && f1.z + f1.planDepth > f2.z + 4;
-          if (xHit && zHit) {
+          if (xHit && zHit && doModulesOverlapOBB2D(m1, m2, 2.5)) {
             alerts.push({
               id: `mod_overlap_${m1.id}_${m2.id}`,
               kind: "module_overlap",
@@ -625,8 +644,32 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         }
       }
 
+      // Merge centralized EngineeringValidationFinding spatial anchors (Tip-over, Hinge-Drawer Clash, Sink Siphon, Stacked Overhang, MEP)
+      (unifiedEngineeringReport?.findings || []).forEach((ef) => {
+        if (!ef.worldPositionMm) return;
+        if (ef.severity !== "error" && ef.ruleNature !== "VERIFICATION_REQUIRED") return;
+        const dup = alerts.some(
+          (a) => Math.abs(a.x - ef.worldPositionMm!.x) < 60 && a.title.includes(ef.code)
+        );
+        if (dup) return;
+        const mIdx = project.modules.findIndex((m) => m.id === ef.targetModuleId);
+        alerts.push({
+          id: `eng_spatial_${ef.code}_${ef.targetComponentId || ef.targetId || alerts.length}`,
+          kind: ef.code.includes("SWING") ? "door_swing" : ef.code.includes("MEP") ? "plumbing" : "module_overlap",
+          severity: ef.severity === "error" ? "error" : "warning",
+          title: `${ef.code}`,
+          detail: ef.message,
+          x: Math.round(ef.worldPositionMm.x),
+          z: Math.round(ef.worldPositionMm.z),
+          y: Math.round(ef.worldPositionMm.y),
+          w: 220,
+          h: 180,
+          modIdx: mIdx >= 0 ? mIdx : undefined,
+        });
+      });
+
       return alerts;
-    }, [footprints, project.modules, spaceObstacles, spaceWalls]);
+    }, [footprints, project.modules, spaceObstacles, spaceWalls, unifiedEngineeringReport]);
 
     const handleDeleteSelectedObject = useCallback(() => {
       if (!selectedPlanObject) {
@@ -976,27 +1019,41 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         rotationY: 0,
       };
       const underlay = project.space.floorPlanUnderlay;
+      const minPlanX = Math.min(
+        0,
+        ...spaceWalls.map((w) => w.position.x),
+        ...footprints.map((fp) => fp.x),
+        ...(project.sceneObjects || []).map((s) => s.position.x)
+      );
+      const minPlanZ = Math.min(
+        0,
+        ...spaceWalls.map((w) => w.position.z),
+        ...footprints.map((fp) => fp.z),
+        ...(project.sceneObjects || []).map((s) => s.position.z)
+      );
       const totalModExtentX = Math.max(
         mainWall.length + 300,
         underlay?.widthMm || 0,
         ...spaceWalls.map((w) => w.position.x + w.length + 300),
-        ...footprints.map((fp) => fp.x + fp.planWidth + 300)
+        ...footprints.map((fp) => fp.x + fp.planWidth + 300),
+        ...(project.sceneObjects || []).map((s) => s.position.x + s.dimensions.width + 300)
       );
       const maxDepthZ = Math.max(
         1800,
         underlay?.depthMm || 0,
         ...spaceWalls.map((w) => w.position.z + w.length * 0.6 + 450),
-        ...footprints.map((fp) => fp.z + fp.planDepth + 520)
+        ...footprints.map((fp) => fp.z + fp.planDepth + 520),
+        ...(project.sceneObjects || []).map((s) => s.position.z + s.dimensions.depth + 520)
       );
 
-      const padX = 400;
+      const padX = 420;
       const padTop = 420;
-      const padBottom = 420;
+      const padBottom = 440;
       const computedVb = {
-        x: -padX,
-        y: -padTop,
-        width: totalModExtentX + padX * 2,
-        height: maxDepthZ + padTop + padBottom,
+        x: minPlanX - padX,
+        y: minPlanZ - padTop,
+        width: totalModExtentX - minPlanX + padX * 2,
+        height: maxDepthZ - minPlanZ + padTop + padBottom,
       };
       const isAnyPlanDragActive =
         draggingModIdx !== null ||
@@ -1366,6 +1423,32 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             }
             return;
           }
+          if (resizingPlanObject.kind === "angled_module_length") {
+            const modIdx = Number(resizingPlanObject.targetIdxOrId);
+            const rotDeg = resizingPlanObject.rotYDeg || 0;
+            const rad = (rotDeg * Math.PI) / 180;
+            // Project screen delta (dxMm, dzMm) onto rotated module's +X length axis (cos(rad), -sin(rad))
+            const projDeltaLen = dxMm * Math.cos(rad) + dzMm * -Math.sin(rad);
+            const newLen = Math.max(
+              500,
+              Math.min(3600, Math.round((resizingPlanObject.startWidthOrLen + projDeltaLen) / 10) * 10)
+            );
+            const ox = resizingPlanObject.anchorOriginX ?? resizingPlanObject.startPosX;
+            const oz = resizingPlanObject.anchorOriginZ ?? resizingPlanObject.startPosZ;
+            const d = resizingPlanObject.startDepth || 850;
+            const c = Math.cos(rad);
+            const s = Math.sin(rad);
+            const corners = [0, newLen].flatMap((lx) =>
+              [0, d].map((lz) => ({ x: lx * c + lz * s, z: -lx * s + lz * c }))
+            );
+            const minX = Math.min(...corners.map((p) => p.x));
+            const minZ = Math.min(...corners.map((p) => p.z));
+            const nextPosX = Math.round(ox + minX);
+            const nextPosZ = Math.round(oz + minZ);
+            resizeModuleParametric(modIdx, newLen, nextPosX, d, undefined, nextPosZ);
+            setPlanRowSnapBanner(`📐 Açılı Masa / Modül Boyu: ${newLen} mm (Sabit Pivot)`);
+            return;
+          }
           if (resizingPlanObject.kind === "module_depth") {
             const modIdx = Number(resizingPlanObject.targetIdxOrId);
             if (resizingPlanObject.isRotated90) {
@@ -1580,16 +1663,26 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         const mmPerPx = dragStartClient.mmPerPx || vb.width / Math.max(1, svgEl.getBoundingClientRect().width * zoom);
         const dxMm = (e.clientX - dragStartClient.x) * mmPerPx;
         const dzMm = (e.clientY - dragStartClient.z) * mmPerPx;
-        const rawNextX = Math.max(0, dragStartClient.startModX + dxMm);
-        const rawNextZ = Math.max(0, dragStartClient.startModZ + dzMm);
+        const dragMod = project.modules[draggingModIdx];
+        const isFreeTableOrIsland = Boolean(
+          dragMod &&
+            (dragMod.complementaryRole === "attached_table" ||
+              dragMod.category === "kitchen_island" ||
+              (dragMod.carcass.hullShape && dragMod.carcass.hullShape !== "rectangular"))
+        );
+        const rawNextX = isFreeTableOrIsland
+          ? dragStartClient.startModX + dxMm
+          : Math.max(0, dragStartClient.startModX + dxMm);
+        const rawNextZ = isFreeTableOrIsland
+          ? dragStartClient.startModZ + dzMm
+          : Math.max(0, dragStartClient.startModZ + dzMm);
         let nextX = rawNextX;
         let nextZ = rawNextZ;
         let activeSnapMsg: string | null = null;
         let snappedEdgeX: number | null = null;
 
-        // Smooth Magnetic Edge-to-Edge Snapping with Instant Breakaway Hysteresis (never locks the module!)
-        const dragMod = project.modules[draggingModIdx];
-        const useMagnet = magnetEnabled && !e.altKey;
+        // Smooth Magnetic Edge-to-Edge Snapping with Instant Breakaway Hysteresis (never locks free angled tables!)
+        const useMagnet = magnetEnabled && !e.altKey && !isFreeTableOrIsland;
         const SNAP_THRESHOLD_MM = 22;
 
         if (dragMod && useMagnet) {
@@ -2092,11 +2185,11 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                             const plumbObs = spaceObstacles.find((o) => o.type === "plumbing");
                             if (typeof al.modIdx === "number") {
                               setActiveModuleIndex(al.modIdx);
-                              dropV4TemplateWithSnap("tpl_kb_06_sink_double_door", plumbObs ? plumbObs.position.x : al.x);
+                              dropV4TemplateWithSnap("tpl_kb_08_sink_base", plumbObs ? plumbObs.position.x : al.x);
                               setPlanRowSnapBanner("✨ Tesisat önüne uyumlu Eviye (Sink) Alt Modülü yerleştirildi");
                               setTimeout(() => setPlanRowSnapBanner(null), 3000);
                             } else if (plumbObs) {
-                              dropV4TemplateWithSnap("tpl_kb_06_sink_double_door", Math.max(0, plumbObs.position.x - 200));
+                              dropV4TemplateWithSnap("tpl_kb_08_sink_base", Math.max(0, plumbObs.position.x - 200));
                               setPlanRowSnapBanner("✨ Açıkta kalan tesisat aksına Eviye (Sink) Alt Modülü eklendi");
                               setTimeout(() => setPlanRowSnapBanner(null), 3000);
                             }
@@ -4754,7 +4847,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
 
                     const modRotDeg = (((mod?.rotation?.y ?? fp.rotationY ?? 0) % 360) + 360) % 360;
                     const isRotatedMod = Math.abs(modRotDeg) > 0.05;
-                    const modPlace = mod && isRotatedMod ? calculateModulePlacement(mod) : null;
+                    const modPlace = mod ? calculateModulePlacement(mod) : null;
                     const localW = mod ? mod.dimensions.width : mw;
                     const localD = mod ? mod.dimensions.depth : md;
                     const lx0 = isRotatedMod ? 0 : mx;
@@ -4763,20 +4856,156 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       isRotatedMod && modPlace
                         ? `translate(${modPlace.origin.x}, ${modPlace.origin.z}) rotate(${-modRotDeg})`
                         : undefined;
+                    const isAttachedTable = mod?.complementaryRole === "attached_table";
+                    const isCapsuleHull =
+                      mod?.carcass.hullShape === "capsule_stadium" ||
+                      mod?.carcass.hullShape === "capsule_table";
+                    const isTableVisual = isAttachedTable || mod?.carcass.hullShape === "capsule_table";
+                    const shapeRx = isCapsuleHull
+                      ? Math.round(
+                          Math.min(localD / 2, localW / 2, mod?.carcass.cornerRadiusMm || localD / 2)
+                        )
+                      : isTableVisual
+                      ? 18
+                      : 6;
+                    const seatCountPerSide = isTableVisual
+                      ? Math.max(1, Math.min(4, Math.floor((localW - 220) / 560)))
+                      : 0;
 
                     return (
                       <g transform={localGroupTransform}>
+                        {/* Subtle Architectural Chair Tuck Outlines on Both Long Sides of Angled / Capsule Tables */}
+                        {isTableVisual &&
+                          Array.from({ length: seatCountPerSide }).map((_, sIdx) => {
+                            const chairW = Math.min(420, Math.round((localW - 260) / seatCountPerSide) - 40);
+                            const step = (localW - 220) / seatCountPerSide;
+                            const cxChair = lx0 + 110 + sIdx * step + (step - chairW) * 0.5;
+                            return (
+                              <g key={`tbl_chair_${sIdx}`} className="pointer-events-none" opacity={0.62}>
+                                {/* Top/Rear Seating Arc */}
+                                <rect
+                                  x={cxChair}
+                                  y={lz0 - 95}
+                                  width={chairW}
+                                  height={85}
+                                  rx={24}
+                                  fill="#F8FAFC"
+                                  stroke="#64748B"
+                                  strokeWidth="2.2"
+                                  strokeDasharray="8 5"
+                                />
+                                {/* Bottom/Front Seating Arc */}
+                                <rect
+                                  x={cxChair}
+                                  y={lz0 + localD + 10}
+                                  width={chairW}
+                                  height={85}
+                                  rx={24}
+                                  fill="#F8FAFC"
+                                  stroke="#64748B"
+                                  strokeWidth="2.2"
+                                  strokeDasharray="8 5"
+                                />
+                              </g>
+                            );
+                          })}
+
                         <rect
                           x={lx0}
                           y={lz0}
                           width={localW}
                           height={localD}
-                          rx={6}
-                          fill={fp.category === "complementary" ? "rgba(216, 184, 146, 0.55)" : carcassFill}
-                          stroke={carcassStroke}
+                          rx={shapeRx}
+                          fill={
+                            isTableVisual
+                              ? isAct
+                                ? "#DBEAFE"
+                                : "#EFE6D8"
+                              : fp.category === "complementary"
+                              ? "rgba(216, 184, 146, 0.55)"
+                              : carcassFill
+                          }
+                          stroke={isTableVisual ? (isAct ? "#2563EB" : "#78350F") : carcassStroke}
                           strokeWidth={strokeW}
                           strokeDasharray={fp.category === "kitchen_wall" ? "10 5" : undefined}
                         />
+
+                        {/* Architectural Table Details: Pivot Joint, Centerline Axis & Leg/Pedestal Footprints */}
+                        {isTableVisual && (
+                          <g className="pointer-events-none">
+                            <line
+                              x1={lx0 + 48}
+                              y1={lz0 + localD / 2}
+                              x2={lx0 + localW - 48}
+                              y2={lz0 + localD / 2}
+                              stroke="#92400E"
+                              strokeOpacity={0.32}
+                              strokeWidth="2"
+                              strokeDasharray="14 8"
+                            />
+                            {isAttachedTable && (
+                              <>
+                                {/* Mounting Pivot Anchor Point at lx0 */}
+                                <circle
+                                  cx={lx0 + 20}
+                                  cy={lz0 + localD / 2}
+                                  r={16}
+                                  fill="#0284C7"
+                                  stroke="#FFFFFF"
+                                  strokeWidth="3.5"
+                                />
+                                {/* Far-End Support Leg / Pedestal Schematic */}
+                                {mod?.attachedTableConfig?.legStyle === "pedestal_column" ? (
+                                  <circle
+                                    cx={lx0 + Math.max(180, localW - 260)}
+                                    cy={lz0 + localD / 2}
+                                    r={Math.min(95, localD * 0.14)}
+                                    fill="none"
+                                    stroke="#451A03"
+                                    strokeWidth="3"
+                                    strokeDasharray="8 4"
+                                  />
+                                ) : (
+                                  <rect
+                                    x={lx0 + Math.max(80, localW - 90)}
+                                    y={lz0 + 45}
+                                    width={46}
+                                    height={Math.max(80, localD - 90)}
+                                    rx={6}
+                                    fill="none"
+                                    stroke="#451A03"
+                                    strokeWidth="2.8"
+                                    strokeDasharray="8 4"
+                                  />
+                                )}
+                              </>
+                            )}
+                            {mod?.carcass.hullShape === "capsule_table" && (
+                              <>
+                                <circle
+                                  cx={lx0 + localW * 0.27}
+                                  cy={lz0 + localD / 2}
+                                  r={Math.min(145, localD * 0.18)}
+                                  fill="none"
+                                  stroke="#78350F"
+                                  strokeOpacity={0.55}
+                                  strokeWidth="3"
+                                  strokeDasharray="8 5"
+                                />
+                                <circle
+                                  cx={lx0 + localW * 0.73}
+                                  cy={lz0 + localD / 2}
+                                  r={Math.min(145, localD * 0.18)}
+                                  fill="none"
+                                  stroke="#78350F"
+                                  strokeOpacity={0.55}
+                                  strokeWidth="3"
+                                  strokeDasharray="8 5"
+                                />
+                              </>
+                            )}
+                          </g>
+                        )}
 
                         {/* 18mm Carcass Side & Back Panel Inner Lines (Preserved at ALL angles 0°/45°/90°/180°/270°!) */}
                         {fp.category !== "complementary" && (
@@ -5221,12 +5450,25 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   })()}
 
 
-                  {/* Unmistakable Selected Module Halo, Proportional Ribbon Badge, 90° Rotate Buttons & Edge Resize Handles */}
+                  {/* Unmistakable Selected Module Halo, Proportional Ribbon Badge, Rotate Buttons & Edge Resize Handles */}
                   {isAct && (() => {
+                    const mRot = (((mod?.rotation?.y ?? fp.rotationY ?? 0) % 360) + 360) % 360;
+                    const isCustomAngled =
+                      Math.abs(mRot % 90) > 0.5 ||
+                      mod?.complementaryRole === "attached_table" ||
+                      mod?.carcass.hullShape === "capsule_table" ||
+                      mod?.carcass.hullShape === "capsule_stadium";
+                    const mPlace = mod ? calculateModulePlacement(mod) : null;
+                    const locW = mod ? mod.dimensions.width : mw;
+                    const locD = mod ? mod.dimensions.depth : md;
+                    const isCap =
+                      mod?.carcass.hullShape === "capsule_stadium" ||
+                      mod?.carcass.hullShape === "capsule_table";
+                    const haloRx = isCap ? Math.round(locD / 2) + 8 : 12;
+
                     const ribFont = Math.round(20 * ts);
                     const ribW = Math.round(220 * ts);
                     const ribH = Math.round(36 * ts);
-                    const ribCenterY = mz - Math.round(32 * ts);
                     const rotR = Math.round(22 * ts);
                     const rotOffset = Math.round(ribW / 2 + rotR + 10 * ts);
                     const sideHandleW = Math.round(30 * ts);
@@ -5235,6 +5477,224 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     const topBotHandleH = Math.round(28 * ts);
                     const handleFont = Math.round(19 * ts);
 
+                    if (isCustomAngled && mPlace) {
+                      const rad = mPlace.rotationYRad;
+                      const cxW =
+                        mPlace.origin.x + (locW * 0.5) * Math.cos(rad) + (locD * 0.5) * Math.sin(rad);
+                      const czW =
+                        mPlace.origin.z - (locW * 0.5) * Math.sin(rad) + (locD * 0.5) * Math.cos(rad);
+                      // Far-end tip of the angled table/module at (locW, locD/2) in local coordinates
+                      const tipX = mPlace.origin.x + locW * Math.cos(rad) + (locD * 0.5) * Math.sin(rad);
+                      const tipZ = mPlace.origin.z - locW * Math.sin(rad) + (locD * 0.5) * Math.cos(rad);
+                      const topCtrlY = Math.min(mz - Math.round(34 * ts), czW - locD * 0.5 - Math.round(44 * ts));
+
+                      return (
+                        <g>
+                          {/* Tightly-Fitted Oriented Selection Halo (Rotates with the Angled Table!) */}
+                          <g
+                            transform={`translate(${mPlace.origin.x}, ${mPlace.origin.z}) rotate(${-mRot})`}
+                            className="pointer-events-none"
+                          >
+                            <rect
+                              x={-10}
+                              y={-10}
+                              width={locW + 20}
+                              height={locD + 20}
+                              rx={haloRx}
+                              fill="none"
+                              stroke="#D97706"
+                              strokeWidth={Math.round(3.5 * ts)}
+                              strokeDasharray="12 6"
+                            />
+                          </g>
+
+                          {/* Floating Upright Selection & Angle Control Bar (-45°, -15°, SEÇİLİ, +15°, +45°) */}
+                          <g
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              rotateActiveModule90(15);
+                            }}
+                            className="cursor-pointer"
+                          >
+                            <circle
+                              cx={cxW - rotOffset - rotR * 2.2}
+                              cy={topCtrlY}
+                              r={rotR}
+                              fill="#0F172A"
+                              stroke="#FFFFFF"
+                              strokeWidth="2.5"
+                            />
+                            <text
+                              x={cxW - rotOffset - rotR * 2.2}
+                              y={topCtrlY + Math.round(ribFont * 0.3)}
+                              textAnchor="middle"
+                              fill="#FFFFFF"
+                              fontSize={Math.round(15 * ts)}
+                              fontWeight="900"
+                            >
+                              -15°
+                            </text>
+                          </g>
+
+                          <g
+                            data-testid={`plan-oncanvas-rotate-ccw-mod-${idx}`}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              rotateActiveModule90(45);
+                            }}
+                            className="cursor-pointer"
+                          >
+                            <circle
+                              cx={cxW - rotOffset}
+                              cy={topCtrlY}
+                              r={rotR}
+                              fill="#D97706"
+                              stroke="#FFFFFF"
+                              strokeWidth="2.5"
+                            />
+                            <text
+                              x={cxW - rotOffset}
+                              y={topCtrlY + Math.round(ribFont * 0.3)}
+                              textAnchor="middle"
+                              fill="#FFFFFF"
+                              fontSize={Math.round(15 * ts)}
+                              fontWeight="900"
+                            >
+                              -45°
+                            </text>
+                          </g>
+
+                          <rect
+                            x={cxW - ribW / 2}
+                            y={topCtrlY - ribH / 2}
+                            width={ribW}
+                            height={ribH}
+                            rx={Math.round(9 * ts)}
+                            fill="#B45309"
+                            stroke="#FFFFFF"
+                            strokeWidth="2.5"
+                            className="pointer-events-none"
+                          />
+                          <text
+                            x={cxW}
+                            y={topCtrlY + Math.round(ribFont * 0.35)}
+                            textAnchor="middle"
+                            fill="#FFFFFF"
+                            fontSize={ribFont}
+                            fontWeight="900"
+                            fontFamily="monospace"
+                            className="pointer-events-none"
+                          >
+                            {`★ SEÇİLİ #${idx + 1}`}
+                          </text>
+
+                          <g
+                            data-testid={`plan-oncanvas-rotate-mod-${idx}`}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              rotateActiveModule90(-45);
+                            }}
+                            className="cursor-pointer"
+                          >
+                            <circle
+                              cx={cxW + rotOffset}
+                              cy={topCtrlY}
+                              r={rotR}
+                              fill="#D97706"
+                              stroke="#FFFFFF"
+                              strokeWidth="2.5"
+                            />
+                            <text
+                              x={cxW + rotOffset}
+                              y={topCtrlY + Math.round(ribFont * 0.3)}
+                              textAnchor="middle"
+                              fill="#FFFFFF"
+                              fontSize={Math.round(15 * ts)}
+                              fontWeight="900"
+                            >
+                              +45°
+                            </text>
+                          </g>
+
+                          <g
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              rotateActiveModule90(-15);
+                            }}
+                            className="cursor-pointer"
+                          >
+                            <circle
+                              cx={cxW + rotOffset + rotR * 2.2}
+                              cy={topCtrlY}
+                              r={rotR}
+                              fill="#0F172A"
+                              stroke="#FFFFFF"
+                              strokeWidth="2.5"
+                            />
+                            <text
+                              x={cxW + rotOffset + rotR * 2.2}
+                              y={topCtrlY + Math.round(ribFont * 0.3)}
+                              textAnchor="middle"
+                              fill="#FFFFFF"
+                              fontSize={Math.round(15 * ts)}
+                              fontWeight="900"
+                            >
+                              +15°
+                            </text>
+                          </g>
+
+                          {/* Angled End-Tip Length Resize Handle (Lengthens/Shortens along exact table angle!) */}
+                          <g
+                            data-testid={`plan-mod-resize-right-${idx}`}
+                            onMouseDown={(e) => {
+                              e.stopPropagation();
+                              const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
+                              beginHistoryTransaction();
+                              setResizingPlanObject({
+                                kind: "angled_module_length",
+                                targetIdxOrId: idx,
+                                startClientX: e.clientX,
+                                startClientY: e.clientY,
+                                startWidthOrLen: locW,
+                                startDepth: locD,
+                                startPosX: fp.x,
+                                startPosZ: fp.z,
+                                rotYDeg: mRot,
+                                anchorOriginX: mPlace.origin.x,
+                                anchorOriginZ: mPlace.origin.z,
+                                mmPerPx: svgEl ? getSvgMmPerPx(svgEl) : 4,
+                              });
+                            }}
+                            className="cursor-grab active:cursor-grabbing"
+                          >
+                            <circle
+                              cx={tipX}
+                              cy={tipZ}
+                              r={Math.round(22 * ts)}
+                              fill="#059669"
+                              stroke="#FFFFFF"
+                              strokeWidth="3"
+                            />
+                            <text
+                              x={tipX}
+                              y={tipZ + Math.round(handleFont * 0.34)}
+                              textAnchor="middle"
+                              fill="#FFFFFF"
+                              fontSize={handleFont}
+                              fontWeight="900"
+                            >
+                              ↔
+                            </text>
+                          </g>
+                        </g>
+                      );
+                    }
+
+                    const ribCenterY = mz - Math.round(32 * ts);
                     return (
                       <g>
                         <rect
@@ -5520,23 +5980,99 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     );
                   })()}
 
-                  {/* Module Name & Dimensions (Concise Title without redundant 'Modülü' + Goldilocks Scale `ts`) */}
+                  {/* Module Name & Dimensions (Aligned along True Oriented Axis for Angled Tables & Modules!) */}
                   {(() => {
+                    const mRot = (((mod?.rotation?.y ?? fp.rotationY ?? 0) % 360) + 360) % 360;
+                    const isAngledLabel = Math.abs(mRot % 90) > 0.5;
+                    const mPlace = mod && isAngledLabel ? calculateModulePlacement(mod) : null;
+                    const effSpanW = isAngledLabel ? fp.rawWidth : mw;
+                    const conciseName = fp.name.replace(/\s*Modülü/gi, "").trim();
+                    const alreadyHasDeg = conciseName.includes("°");
+                    const planDegDisplay = mRot > 180 ? 360 - mRot : mRot;
+                    const fullTitle = `#${idx + 1} ${conciseName}${
+                      fp.rotationY > 0 && !alreadyHasDeg ? ` (${planDegDisplay}°)` : ""
+                    }`;
+                    const maxAllowedNameFont = Math.floor(
+                      (Math.max(420, effSpanW) - 32) / Math.max(7, fullTitle.length * 0.52)
+                    );
+                    const nameFont = Math.max(22, Math.min(Math.round(25 * ts), maxAllowedNameFont));
+                    const dimFont = Math.max(
+                      20,
+                      Math.min(Math.round(22 * ts), Math.floor((Math.max(420, effSpanW) - 36) / 9.8))
+                    );
+                    const dimLabel = `${fp.rawWidth}×${fp.rawDepth} (H:${fp.rawHeight})`;
+                    const innerPillH = Math.round(dimFont * 1.72);
+                    const innerPillW = Math.min(
+                      Math.max(360, effSpanW - 24),
+                      Math.max(Math.round(160 * ts), Math.round(dimLabel.length * dimFont * 0.6 + 24 * ts))
+                    );
+
+                    if (isAngledLabel && mPlace) {
+                      const rad = mPlace.rotationYRad;
+                      const cxW =
+                        mPlace.origin.x +
+                        (fp.rawWidth * 0.5) * Math.cos(rad) +
+                        (fp.rawDepth * 0.5) * Math.sin(rad);
+                      const czW =
+                        mPlace.origin.z -
+                        (fp.rawWidth * 0.5) * Math.sin(rad) +
+                        (fp.rawDepth * 0.5) * Math.cos(rad);
+                      // Keep SVG text readable right-side-up in [-89°..+89°]
+                      let svgRot = -mRot;
+                      while (svgRot <= -180) svgRot += 360;
+                      while (svgRot > 180) svgRot -= 360;
+                      if (svgRot > 90) svgRot -= 180;
+                      if (svgRot < -90) svgRot += 180;
+
+                      return (
+                        <g
+                          transform={`translate(${cxW}, ${czW}) rotate(${svgRot})`}
+                          className="pointer-events-none"
+                        >
+                          <text
+                            x={0}
+                            y={-Math.round(10 * ts)}
+                            textAnchor="middle"
+                            fill="#0F172A"
+                            stroke="#FFFFFF"
+                            strokeWidth={Math.round(5 * ts)}
+                            paintOrder="stroke"
+                            fontSize={nameFont}
+                            fontWeight="800"
+                            fontFamily="sans-serif"
+                          >
+                            {fullTitle}
+                          </text>
+                          <rect
+                            x={-innerPillW / 2}
+                            y={Math.round(2 * ts)}
+                            width={innerPillW}
+                            height={innerPillH}
+                            rx={8}
+                            fill="#FFFFFF"
+                            stroke={hasCollisionError ? "#DC2626" : isAct ? "#2563EB" : "#94A3B8"}
+                            strokeWidth="2"
+                            opacity={0.96}
+                          />
+                          <text
+                            x={0}
+                            y={Math.round(2 * ts) + Math.round(innerPillH * 0.72)}
+                            textAnchor="middle"
+                            fill={hasCollisionError ? "#DC2626" : "#0F172A"}
+                            fontSize={dimFont}
+                            fontWeight="800"
+                            fontFamily="monospace"
+                          >
+                            {dimLabel}
+                          </text>
+                        </g>
+                      );
+                    }
+
                     const labelCenterY =
                       fp.cornerType === "l_corner" && (fp.rotationY === 0 || fp.rotationY === 90)
                         ? mz + Math.min(fp.wingDepthMm || 580, md) * 0.42
                         : mz + md * 0.43;
-                    const conciseName = fp.name.replace(/\s*Modülü/gi, "").trim();
-                    const fullTitle = `#${idx + 1} ${conciseName}${fp.rotationY > 0 ? ` (${fp.rotationY}°)` : ""}`;
-                    const maxAllowedNameFont = Math.floor((mw - 32) / Math.max(7, fullTitle.length * 0.52));
-                    const nameFont = Math.max(24, Math.min(Math.round(26 * ts), maxAllowedNameFont));
-                    const dimFont = Math.max(22, Math.min(Math.round(23 * ts), Math.floor((mw - 36) / 9.8)));
-                    const dimLabel = `${fp.rawWidth}×${fp.rawDepth} (H:${fp.rawHeight})`;
-                    const innerPillH = Math.round(dimFont * 1.72);
-                    const innerPillW = Math.min(
-                      mw - 24,
-                      Math.max(Math.round(160 * ts), Math.round(dimLabel.length * dimFont * 0.6 + 24 * ts))
-                    );
                     return (
                       <g className="pointer-events-none">
                         <text
@@ -5579,8 +6115,63 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     );
                   })()}
 
-                  {/* Width Callout with Clean Proportional Pill & Architectural Ticks */}
+                  {/* Width / Length Callout: Aligned Parallel to Angled Edge (Shows True Length `rawWidth`, NEVER diagonal AABB!) */}
                   {showPlanDimensions && (() => {
+                    const mRot = (((mod?.rotation?.y ?? fp.rotationY ?? 0) % 360) + 360) % 360;
+                    const isCustomAng = Math.abs(mRot % 90) > 0.5;
+                    if (isCustomAng && mod) {
+                      const mPl = calculateModulePlacement(mod);
+                      const locW = mod.dimensions.width;
+                      const locD = mod.dimensions.depth;
+                      const offZ = locD + Math.round(56 * ts);
+                      const calloutText = `${locW} × ${locD} mm`;
+                      const calloutFont = Math.round(21 * ts);
+                      const pillH = Math.round(36 * ts);
+                      const pillW = Math.max(
+                        Math.round(150 * ts),
+                        Math.round(calloutText.length * calloutFont * 0.62 + 24 * ts)
+                      );
+                      let flipText = false;
+                      let normSvg = -mRot;
+                      while (normSvg <= -180) normSvg += 360;
+                      while (normSvg > 180) normSvg -= 360;
+                      if (normSvg > 90 || normSvg < -90) flipText = true;
+
+                      return (
+                        <g
+                          transform={`translate(${mPl.origin.x}, ${mPl.origin.z}) rotate(${-mRot})`}
+                          className="pointer-events-none"
+                        >
+                          <line x1={0} y1={offZ - 14} x2={0} y2={offZ + 14} stroke="#9A3412" strokeWidth="2.5" />
+                          <line x1={locW} y1={offZ - 14} x2={locW} y2={offZ + 14} stroke="#9A3412" strokeWidth="2.5" />
+                          <line x1={0} y1={offZ} x2={locW} y2={offZ} stroke="#9A3412" strokeWidth="2.5" />
+                          <g transform={`translate(${locW / 2}, ${offZ}) rotate(${flipText ? 180 : 0})`}>
+                            <rect
+                              x={-pillW / 2}
+                              y={-pillH / 2}
+                              width={pillW}
+                              height={pillH}
+                              rx={9}
+                              fill="#FFFFFF"
+                              stroke="#9A3412"
+                              strokeWidth="2.5"
+                            />
+                            <text
+                              x={0}
+                              y={Math.round(calloutFont * 0.35)}
+                              textAnchor="middle"
+                              fill="#7C2D12"
+                              fontSize={calloutFont}
+                              fontWeight="800"
+                              fontFamily="monospace"
+                            >
+                              {calloutText}
+                            </text>
+                          </g>
+                        </g>
+                      );
+                    }
+
                     const calloutY = mz + md + Math.round(52 * ts);
                     const calloutText = `${mw} mm`;
                     const calloutFont = Math.round(23 * ts);
@@ -6197,6 +6788,79 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 })()}
               </g>
             )}
+
+            {/* V5 SceneObjects in Interactive 2D Room Plan (Respecting Exact Rotation Angle `so.rotation.y`!) */}
+            {(project.sceneObjects || [])
+              .filter((so) => !so.isHidden)
+              .map((so) => {
+                const sc = so.scaleFactor || 1;
+                const sw = so.dimensions.width * sc;
+                const sd = so.dimensions.depth * sc;
+                const sx = so.position.x;
+                const sz = so.position.z;
+                const rotY = so.rotation?.y || 0;
+                const cx = sx + sw / 2;
+                const cz = sz + sd / 2;
+                const isSelObj = selectedSceneObjectId === so.id;
+                const isTableObj =
+                  so.visualKind === "dining_table" ||
+                  so.visualKind === "coffee_table" ||
+                  so.name.toLowerCase().includes("masa");
+                let textRot = 0;
+                let normRot = -rotY;
+                while (normRot <= -180) normRot += 360;
+                while (normRot > 180) normRot -= 360;
+                if (normRot > 90 || normRot < -90) textRot = 180;
+
+                return (
+                  <g
+                    key={`plan_so_${so.id}`}
+                    data-testid={`plan-scene-object-${so.id}`}
+                    transform={`rotate(${-rotY}, ${cx}, ${cz})`}
+                    onClick={(ev) => {
+                      ev.stopPropagation();
+                      setSelectedSceneObjectId(so.id);
+                    }}
+                    className="cursor-pointer"
+                  >
+                    <rect
+                      x={sx}
+                      y={sz}
+                      width={sw}
+                      height={sd}
+                      rx={isTableObj ? 18 : 10}
+                      fill={isSelObj ? "#DBEAFE" : isTableObj ? "#EFE6D8" : "#F8FAFC"}
+                      fillOpacity={0.92}
+                      stroke={isSelObj ? "#2563EB" : isTableObj ? "#78350F" : "#475569"}
+                      strokeWidth={isSelObj ? 6 : 3.5}
+                      strokeDasharray={so.category === "architectural_prop" ? "16 8" : undefined}
+                    />
+                    <g transform={`translate(${cx}, ${cz}) rotate(${textRot})`}>
+                      <text
+                        x={0}
+                        y={-12}
+                        textAnchor="middle"
+                        fill="#0F172A"
+                        fontSize={Math.max(22, Math.min(34, sw * 0.055))}
+                        fontWeight="800"
+                      >
+                        {so.name}
+                      </text>
+                      <text
+                        x={0}
+                        y={18}
+                        textAnchor="middle"
+                        fill="#475569"
+                        fontSize={Math.max(18, Math.min(26, sw * 0.045))}
+                        fontWeight="700"
+                        fontFamily="monospace"
+                      >
+                        {`${Math.round(sw)}×${Math.round(sd)} mm${rotY ? ` • ${Math.round(rotY)}°` : ""}`}
+                      </text>
+                    </g>
+                  </g>
+                );
+              })}
 
           </svg>
         </div>
@@ -6994,6 +7658,19 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 </div>
               )}
 
+              {activeModule && (
+                <CeilingAndEngineeringQuickPopover
+                  project={project}
+                  activeModule={activeModule}
+                  surface="2d_elevation"
+                  onUpdateCeiling={updateCeilingConfig}
+                  onUpdateCeilingHeightMm={(h) =>
+                    setRoomDimensions(spaceWalls?.[0]?.length || 3600, h)
+                  }
+                  onUpdateCarcass={updateCarcassConfig}
+                  onSetFacadeGrainContinuity={setFacadeGrainContinuity}
+                />
+              )}
               <button
                 type="button"
                 data-testid="cad-elevation-toggle-room"
@@ -7164,6 +7841,15 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
           />
 
           {/* ROOM WALL ELEVATION BACKDROP, OTHER MODULES & ARCHITECTURAL OBSTACLES (WINDOW, DOOR, PLUMBING, COLUMN, BEAM) */}
+          {mode === "elevation" && !showRoomContextInElev && project.space.ceilingConfig?.enabled && activeModule && (
+            <ElevationCeilingSectionSvg
+              project={project}
+              activeModule={activeModule}
+              wallLeftSvgX={-activeModule.position.x}
+              floorSvgY={breakdown.overall.height}
+              mainWallLen={Math.max(spaceWalls?.[0]?.length || 3600, activeModule.position.x + activeModule.dimensions.width + 200)}
+            />
+          )}
           {mode === "elevation" && showRoomContextInElev && (() => {
             const floorSvgY = breakdown.overall.height + activeModOffY;
             const ceilingSvgY = floorSvgY - ceilingH;
@@ -7193,7 +7879,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 />
                 <text
                   x={wallLeftSvgX + 20}
-                  y={ceilingSvgY - 22}
+                  y={ceilingSvgY - (project.space.ceilingConfig?.enabled ? 132 : 22)}
                   fill="#44403C"
                   fontSize="28"
                   fontWeight="800"
@@ -7201,6 +7887,15 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 >
                   {`🏠 DUVAR CEPHESİ: ${mainWallLen}mm × Tavan ${ceilingH}mm (Zemin Y: 0mm)`}
                 </text>
+                {activeModule && (
+                  <ElevationCeilingSectionSvg
+                    project={project}
+                    activeModule={activeModule}
+                    wallLeftSvgX={wallLeftSvgX}
+                    floorSvgY={floorSvgY}
+                    mainWallLen={mainWallLen}
+                  />
+                )}
 
                 {/* Architectural Obstacles in Elevation (Window, Plumbing, Door, Column, Beam) */}
                 {spaceObstacles.map((obs) => {
@@ -8367,6 +9062,13 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       : 0.98
                   }
                 />
+                {mode === "elevation" && activeModule && (
+                  <ElevationMultiHoleAndGrainSvg
+                    el={el}
+                    activeModule={activeModule}
+                    grainAssignment={grainContinuityMap2D.get(el.id)}
+                  />
+                )}
                 {mode === "section" && el.role === "drawer_back" && el.height >= 36 && (
                   <text
                     x={sectionDirection2D === "Z" ? el.x + el.width + 14 : el.x + el.width / 2}
@@ -9163,7 +9865,95 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
               </g>
             </g>
           )}
+          {/* V5 2D CAD SceneObjects (Appliances, Sinks, Freestanding Birim Furniture) */}
+          {(project.sceneObjects || []).filter((so) => !so.isHidden).map((so) => {
+            const sx = so.position.x;
+            const sy = mode === "plan" ? so.position.z : Math.max(0, (project.space.ceilingHeight || 2600) - so.position.y - so.dimensions.height);
+            const sw = so.dimensions.width;
+            const sh = mode === "plan" ? so.dimensions.depth : so.dimensions.height;
+            const isSelObj = selectedSceneObjectId === so.id;
+            return (
+              <g
+                key={so.id}
+                transform={
+                  mode === "plan" && so.rotation?.y
+                    ? `rotate(${-so.rotation.y}, ${sx + sw / 2}, ${sy + sh / 2})`
+                    : undefined
+                }
+                onClick={(ev) => {
+                  ev.stopPropagation();
+                  setSelectedSceneObjectId(so.id);
+                }}
+                className="cursor-pointer"
+              >
+                <rect
+                  x={sx}
+                  y={sy}
+                  width={sw}
+                  height={sh}
+                  rx={8}
+                  fill={isSelObj ? "#DBEAFE" : "#F8FAFC"}
+                  fillOpacity={0.86}
+                  stroke={isSelObj ? "#2563EB" : "#475569"}
+                  strokeWidth={isSelObj ? 6 : 3}
+                  strokeDasharray={so.category === "architectural_prop" ? "18 10" : undefined}
+                />
+                <text
+                  x={sx + sw / 2}
+                  y={sy + sh / 2}
+                  textAnchor="middle"
+                  dominantBaseline="central"
+                  fill="#0F172A"
+                  fontSize={Math.max(26, Math.min(44, sw * 0.08))}
+                  fontWeight="700"
+                >
+                  {so.sku}
+                </text>
+              </g>
+            );
+          })}
         </svg>
+
+        {/* V5 Interactive 2D Live Dimension Chain Quick-Editor */}
+        {activeModule && (
+          <div
+            data-testid="v5-2d-live-dimension-chain-bar"
+            className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 px-3 py-1.5 rounded-2xl bg-white/92 backdrop-blur-md border border-slate-300 shadow-md flex items-center gap-2.5 text-[11px] text-[#141413]"
+          >
+            <span className="font-bold truncate max-w-[150px]">{activeModule.name}</span>
+            <label className="inline-flex items-center gap-1 font-mono">
+              <span className="text-slate-500">Sol Duvar X:</span>
+              <input
+                type="number"
+                step={10}
+                value={Math.round(activeModule.position.x)}
+                onChange={(e) => setModuleOffsetFromLeftWall(activeModule.id, Number(e.target.value) || 0)}
+                className="w-18 px-1.5 py-0.5 rounded-lg bg-slate-100 border border-slate-300 font-bold text-[#141413]"
+              />
+              <span>mm</span>
+            </label>
+            <label className="inline-flex items-center gap-1 font-mono">
+              <span className="text-slate-500">Genişlik W:</span>
+              <input
+                type="number"
+                step={10}
+                min={150}
+                max={3600}
+                value={Math.round(activeModule.dimensions.width)}
+                onChange={(e) =>
+                  resizeModuleParametric(
+                    activeModuleIndex,
+                    Number(e.target.value) || activeModule.dimensions.width,
+                    activeModule.dimensions.height,
+                    activeModule.dimensions.depth
+                  )
+                }
+                className="w-18 px-1.5 py-0.5 rounded-lg bg-slate-100 border border-slate-300 font-bold text-[#141413]"
+              />
+              <span>mm</span>
+            </label>
+          </div>
+        )}
       </div>
     );
   }

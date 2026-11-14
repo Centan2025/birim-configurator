@@ -241,23 +241,33 @@ export function evaluateModuleCompatibility(module: ModuleInstance): ValidationI
 
     // Category 3: Door Weight & Power Factor (LF) Limits
     if (leafInfo && leafInfo.leafCount > 0) {
+      const maxKgByHinges: Record<number, number> = { 1: 6, 2: 12, 3: 17, 4: 22, 5: 28 };
+      const activeHingeCount = Math.max(2, Math.min(5, leafInfo.effectiveHingeCount || 2));
+      const maxAllowedLeafKg = maxKgByHinges[activeHingeCount] ?? 28;
       if (
-        (dSys === "hinged_single" || dSys === "hinged_double" || dSys === "hinged_inset") &&
-        leafInfo.leafWeightKg > 28
+        (dSys === "hinged_single" || dSys === "hinged_double" || dSys === "hinged_inset" || dSys === "hinged_overlay_variant") &&
+        leafInfo.leafWeightKg > maxAllowedLeafKg
       ) {
+        const exceedsAbsoluteMax = leafInfo.leafWeightKg > 28;
         issues.push({
           severity: "error",
           code: "CHK_03_DOOR_WEIGHT_EXCEEDS_HINGE_LIMIT",
-          message: `Bölme ${bayIdx + 1} kapak kanat ağırlığı (${leafInfo.leafWeightKg} kg), 5 menteşe için azami 28 kg taşıma sınırını aşıyor.`,
+          message: exceedsAbsoluteMax
+            ? `Bölme ${bayIdx + 1} kapak kanat ağırlığı (${leafInfo.leafWeightKg} kg), 5 menteşe için bile azami 28 kg taşıma sınırını aşıyor.`
+            : `Bölme ${bayIdx + 1} kapak kanat ağırlığı (${leafInfo.leafWeightKg} kg), seçili ${activeHingeCount} adet menteşenin güvenli taşıma sınırını (${maxAllowedLeafKg} kg) aşıyor (en az ${leafInfo.recommendedHingesPerLeaf} menteşe gerekir).`,
           targetId: bay.door.id,
           blockingProduction: true,
           compatibilityStatus: "INCOMPATIBLE",
           categoryIndex: 3,
-          suggestions: [
-            "Daha hafif bir kapak malzemesi seçin (Melamin veya MDF Lake).",
-            "Tek kapağı Çift Kapağa (hinged_double) bölün.",
-            "Bölme genişliğini daraltın.",
-          ],
+          suggestions: exceedsAbsoluteMax
+            ? [
+                "Tek kapağı Çift Kapağa (hinged_double) bölün veya bölme genişliğini daraltın.",
+                "Aynalı/ağır kapak yerine daha hafif kapak malzemesi seçin.",
+              ]
+            : [
+                `Menteşe sayısını en az ${leafInfo.recommendedHingesPerLeaf} adede yükseltin.`,
+                "Tek kapağı Çift Kapağa (hinged_double) bölün.",
+              ],
           sourceId: "SRC_BLUM_CAT_HINGE",
         });
       }
@@ -357,6 +367,25 @@ export function evaluateModuleCompatibility(module: ModuleInstance): ValidationI
         suggestions: [
           "Tek kapak yerine Çift Kapak (hinged_double) seçin.",
           "Menteşe sayısını +1 artırın.",
+        ],
+        sourceId: "SRC_BLUM_CAT_HINGE",
+      });
+    } else if (
+      leafInfo &&
+      leafInfo.leafCount === 1 &&
+      (dSys === "hinged_single" || dSys === "hinged_inset") &&
+      leafInfo.leafWidthMm > 650
+    ) {
+      issues.push({
+        severity: "warning",
+        code: "CHK_05_SINGLE_LEAF_SAG_ADVISORY",
+        message: `Bölme ${bayIdx + 1} tek kanat menteşeli kapak genişliği (${leafInfo.leafWidthMm}mm > 650mm) uzun dönemde menteşe sarkma momenti oluşturabilir.`,
+        targetId: bay.door.id,
+        compatibilityStatus: "COMPATIBLE_WITH_CONDITIONS",
+        categoryIndex: 5,
+        suggestions: [
+          "Kullanıcı onayıyla Çift Kanatlı Kapak (hinged_double) sistemine geçin.",
+          "Geniş tek kanatta +1 ilave menteşe kullanın.",
         ],
         sourceId: "SRC_BLUM_CAT_HINGE",
       });

@@ -9,3 +9,7 @@ export * from "./floorplan-parser";
 export * from "./sweep-collision";
 export * from "./panel-cutouts";
 export * from "./parametric-spec-engine";
+export * from "./scene-objects-engine";
+export * from "./tolerance-policy";
+export * from "./engineering-validation-engine";
+export * from "./ceiling-and-grain-engine";

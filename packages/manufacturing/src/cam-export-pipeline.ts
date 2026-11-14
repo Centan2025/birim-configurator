@@ -1,6 +1,7 @@
-import { DesignProject, roundMm } from "@birim/core";
+import { DesignProject, roundMm, assertProductionExportAllowed, evaluateUnifiedEngineeringModel, computeProjectGrainNeighborMap } from "@birim/core";
 import { CutPiece, ManufacturingBOM } from "./types";
 import { generatePanelDXF } from "./technical-outputs";
+import { generateProjectCncPostProcessorBundle, mapCutPieceToCncPieceInput } from "./cnc-postprocessors";
 import { generateMepCoordinationPlanSvg, exportArchitecturalMepDxf } from "./mep-architectural-plan";
 
 function csvCell(val: string | number | undefined | null): string {
@@ -14,7 +15,16 @@ function csvCell(val: string | number | undefined | null): string {
  * Columns: [Sıra No, Modül Kodu, Parça Adı, Malzeme Adı, Kalınlık, Net Kesim Boy, Net Kesim En,
  *           Bitmiş Boy, Bitmiş En, Adet, Suyolu (0/1), Bant Uzun-1, Bant Uzun-2, Bant Kısa-1, Bant Kısa-2, CNC Dosya Adı, Açıklama]
  */
-export function exportOptiCutCutListCsv(bom: ManufacturingBOM): string {
+export function exportOptiCutCutListCsv(
+  bom: ManufacturingBOM,
+  _materialsOrOptions?: unknown,
+  options?: { allowBlockedDraftExport?: boolean }
+): string {
+  if (bom.engineeringReadiness && !bom.engineeringReadiness.canExportToCncAndSaw && !options?.allowBlockedDraftExport) {
+    throw new Error(
+      `ÜRETİM ENGELİ: Tasarımda ${bom.engineeringReadiness.blockingErrorCount} adet kritik mühendislik/güvenlik hatası bulunduğundan OptiCut kesim listesi üretilemez.`
+    );
+  }
   const headers = [
     "Sira_No",
     "Modul_Kodu",
@@ -119,8 +129,21 @@ export function generateNestingDiagramSvg(bom: ManufacturingBOM): string {
         const pw = Math.max(4, Math.round(pl.width * scale));
         const ph = Math.max(4, Math.round(pl.length * scale));
         const label = pl.pieceName.replace(/[<>&"]/g, "");
+        const polySvg =
+          pl.polygonContourMm && pl.polygonContourMm.length >= 3
+            ? (() => {
+                const pts = pl.polygonContourMm
+                  .map(([lx, ly]) => {
+                    const sx = pl.isRotated ? px + Math.round(ly * scale) : px + Math.round(lx * scale);
+                    const sy = pl.isRotated ? py + Math.round(lx * scale) : py + Math.round(ly * scale);
+                    return `${sx},${sy}`;
+                  })
+                  .join(" ");
+                return `<rect x="${px}" y="${py}" width="${pw}" height="${ph}" fill="none" stroke="#94a3b8" stroke-dasharray="2 2" stroke-width="0.7"/><polygon points="${pts}" fill="#dbeafe" stroke="#1d4ed8" stroke-width="1.2"/>`;
+              })()
+            : `<rect x="${px}" y="${py}" width="${pw}" height="${ph}" fill="#dbeafe" stroke="#1d4ed8" stroke-width="1"/>`;
         return `<g>
-          <rect x="${px}" y="${py}" width="${pw}" height="${ph}" fill="#dbeafe" stroke="#1d4ed8" stroke-width="1"/>
+          ${polySvg}
           ${
             pw > 38 && ph > 18
               ? `<text x="${px + 4}" y="${py + 13}" font-family="monospace" font-size="9" fill="#0f172a">${label.slice(0, 18)} (${pl.width}×${pl.length})</text>`
@@ -165,6 +188,7 @@ export function generateNestingDiagramSvg(bom: ManufacturingBOM): string {
 export function generateThermalPartLabelsHtml(project: DesignProject, bom: ManufacturingBOM): string {
   const customer = (project.customerName || "Birim Müşterisi").replace(/[<>&"]/g, "");
   const projTitle = (project.title || "Birim Proje").replace(/[<>&"]/g, "");
+  const grainNeighborMap = computeProjectGrainNeighborMap(project);
 
   const renderCode128BarsSvg = (code: string) => {
     let hash = 2166136261;
@@ -174,44 +198,63 @@ export function generateThermalPartLabelsHtml(project: DesignProject, bom: Manuf
       hash = Math.imul(hash ^ code.charCodeAt(i % code.length), 16777619);
       const w1 = ((hash >>> 0) % 3) + 1;
       const gap = (((hash >>> 4) % 2) + 1);
-      bars.push(`<rect x="${x}" y="0" width="${w1}" height="22" fill="#0f172a"/>`);
+      bars.push(`<rect x="${x}" y="0" width="${w1}" height="20" fill="#0f172a"/>`);
       x += w1 + gap;
       if (x > 136) break;
     }
-    return `<svg width="142" height="22" viewBox="0 0 142 22">${bars.join("")}</svg>`;
+    return `<svg width="142" height="20" viewBox="0 0 142 20">${bars.join("")}</svg>`;
   };
 
   const cards = bom.cutList
     .map((p, idx) => {
-      const eb = p.edgeBanding;
-      const topStroke = eb.top ? 3.5 : 0.8;
-      const botStroke = eb.bottom ? 3.5 : 0.8;
-      const leftStroke = eb.left ? 3.5 : 0.8;
-      const rightStroke = eb.right ? 3.5 : 0.8;
-      const grainArrow =
-        p.grain === "lengthwise" ? "↕ SUYOLU" : p.grain === "crosswise" ? "↔ YATAY" : "Ø DÜZ";
+      const eb = p.edgeBanding || { top: false, bottom: false, left: false, right: false, thickness: 0 };
+      // P3-01 Axis Alignment: Horizontal long SVG span (52px) = Boy (`lengthMm`, banded by `eb.left`=U1 & `eb.right`=U2);
+      // Vertical short SVG span (34px) = En (`widthMm`, banded by `eb.bottom`=K1 & `eb.top`=K2).
+      const longU1Stroke = eb.left ? 3.6 : 0.8;
+      const longU2Stroke = eb.right ? 3.6 : 0.8;
+      const shortK1Stroke = eb.bottom ? 3.6 : 0.8;
+      const shortK2Stroke = eb.top ? 3.6 : 0.8;
+      const gInfo = grainNeighborMap.get(p.id);
+      const grainArrow = gInfo
+        ? `${gInfo.arrowSymbol} DT ${gInfo.shortSeqBadge}`
+        : p.grain === "lengthwise"
+        ? "══► BOY"
+        : p.grain === "crosswise"
+        ? "↕ EN"
+        : "Ø DÜZ";
       const cncCode = (p.cncFileName || `${p.id}.dxf`).replace(/\.dxf$/i, "");
 
-      return `<div class="label-card">
+      return `<div class="label-card${gInfo ? " label-card-dt" : ""}">
         <div class="lbl-top">
           <div>
-            <div class="brand">B1R1M CNC • #${idx + 1}/${bom.cutList.length}</div>
+            <div class="brand">B1R1M CNC • #${idx + 1}/${bom.cutList.length}${
+              gInfo
+                ? ` <span class="dt-badge">DESEN ${gInfo.shortSeqBadge} ${gInfo.arrowSymbol}</span>`
+                : ""
+            }</div>
             <div class="part-name">${p.pieceName.replace(/[<>&"]/g, "")}</div>
             <div class="mod-name">${p.moduleName.replace(/[<>&"]/g, "")} • ${customer}</div>
           </div>
-          <svg width="68" height="46" viewBox="0 0 68 46" class="edge-box">
-            <line x1="8" y1="6" x2="60" y2="6" stroke="#0f172a" stroke-width="${topStroke}"/>
-            <line x1="8" y1="40" x2="60" y2="40" stroke="#0f172a" stroke-width="${botStroke}"/>
-            <line x1="8" y1="6" x2="8" y2="40" stroke="#0f172a" stroke-width="${leftStroke}"/>
-            <line x1="60" y1="6" x2="60" y2="40" stroke="#0f172a" stroke-width="${rightStroke}"/>
-            <text x="34" y="25" text-anchor="middle" font-size="6.5" font-family="monospace" fill="#334155">${grainArrow}</text>
+          <svg width="74" height="48" viewBox="0 0 74 48" class="edge-box">
+            ${gInfo ? `<rect x="10.5" y="8.5" width="53" height="31" fill="#fffbeb"/>` : ""}
+            <line x1="10" y1="40" x2="64" y2="40" stroke="#0f172a" stroke-width="${longU1Stroke}"/>
+            <line x1="10" y1="8" x2="64" y2="8" stroke="#0f172a" stroke-width="${longU2Stroke}"/>
+            <line x1="10" y1="8" x2="10" y2="40" stroke="#0f172a" stroke-width="${shortK1Stroke}"/>
+            <line x1="64" y1="8" x2="64" y2="40" stroke="#0f172a" stroke-width="${shortK2Stroke}"/>
+            <circle cx="10" cy="40" r="2.2" fill="#dc2626"/>
+            <text x="37" y="26" text-anchor="middle" font-size="6.2" font-weight="${gInfo ? "800" : "600"}" font-family="monospace" fill="${gInfo ? "#b45309" : "#334155"}">${grainArrow}</text>
+            <text x="37" y="46.5" text-anchor="middle" font-size="5.2" font-family="monospace" fill="#475569">U1:${eb.left ? eb.thickness : 0} [0,0]</text>
           </svg>
         </div>
         <div class="dims-row">
           <span><b>NET:</b> ${p.netCutLengthMm ?? p.lengthMm} × ${p.netCutWidthMm ?? p.widthMm} × ${p.thicknessMm} mm</span>
           <span><b>BİTMİŞ:</b> ${p.lengthMm}×${p.widthMm}</span>
         </div>
-        <div class="mat-row">${p.materialName.replace(/[<>&"]/g, "")} • Bant: ${p.edgeBandCode || "Yok"}</div>
+        ${
+          gInfo
+            ? `<div class="dt-row"><b>${gInfo.directionLabelTr} ${gInfo.shortSeqBadge}:</b> ${gInfo.compactNeighborTextTr}</div>`
+            : `<div class="mat-row">${p.materialName.replace(/[<>&"]/g, "")} • Bant: ${p.edgeBandCode || "Yok"}</div>`
+        }
         <div class="bar-row">
           ${renderCode128BarsSvg(cncCode)}
           <span class="cnc-id">${cncCode.slice(0, 22)}</span>
@@ -229,15 +272,18 @@ export function generateThermalPartLabelsHtml(project: DesignProject, bom: Manuf
   @page { size: 100mm 50mm; margin: 0; }
   body { font-family: Inter, -apple-system, BlinkMacSystemFont, sans-serif; margin: 12px; background: #f1f5f9; color: #0f172a; }
   .grid { display: flex; flex-wrap: wrap; gap: 10px; }
-  .label-card { width: 100mm; height: 50mm; box-sizing: border-box; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 3.2mm 3.8mm; display: flex; flex-direction: column; justify-content: space-between; page-break-after: always; }
+  .label-card { width: 100mm; height: 50mm; box-sizing: border-box; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 2.8mm 3.6mm; display: flex; flex-direction: column; justify-content: space-between; page-break-after: always; }
+  .label-card-dt { border: 1.5px solid #d97706; }
   .lbl-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; }
-  .brand { font-size: 7.5pt; font-weight: 800; letter-spacing: 0.06em; color: #475569; }
-  .part-name { font-size: 9.5pt; font-weight: 800; line-height: 1.15; margin-top: 1px; }
-  .mod-name { font-size: 7pt; color: #64748b; margin-top: 1px; }
-  .dims-row { display: flex; justify-content: space-between; font-size: 8pt; font-family: monospace; background: #f8fafc; padding: 2px 4px; border-radius: 3px; }
-  .mat-row { font-size: 7pt; font-weight: 600; color: #334155; }
+  .brand { font-size: 7.2pt; font-weight: 800; letter-spacing: 0.04em; color: #475569; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+  .dt-badge { background: #92400e; color: #fffbeb; padding: 0.5px 4px; border-radius: 3px; font-size: 6.8pt; font-family: monospace; font-weight: 900; }
+  .part-name { font-size: 9.2pt; font-weight: 800; line-height: 1.12; margin-top: 1px; }
+  .mod-name { font-size: 6.8pt; color: #64748b; margin-top: 1px; }
+  .dims-row { display: flex; justify-content: space-between; font-size: 7.8pt; font-family: monospace; background: #f8fafc; padding: 1.5px 4px; border-radius: 3px; }
+  .mat-row { font-size: 6.8pt; font-weight: 600; color: #334155; }
+  .dt-row { font-size: 6.6pt; font-family: monospace; background: #fffbeb; border: 1px solid #fcd34d; color: #78350f; padding: 1.5px 4px; border-radius: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .bar-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding-top: 1px; border-top: 0.5px dashed #cbd5e1; }
-  .cnc-id { font-size: 6.5pt; font-family: monospace; color: #475569; }
+  .cnc-id { font-size: 6.3pt; font-family: monospace; color: #475569; }
 </style>
 </head>
 <body>
@@ -265,6 +311,7 @@ export function generateThermalPartLabelsZpl(project: DesignProject, bom: Manufa
 
   const customer = cleanAscii(project.customerName || "Birim Musteri").slice(0, 26);
   const total = bom.cutList.length;
+  const grainNeighborMap = computeProjectGrainNeighborMap(project);
 
   return bom.cutList
     .map((p, idx) => {
@@ -278,25 +325,46 @@ export function generateThermalPartLabelsZpl(project: DesignProject, bom: Manufa
       const netL = p.netCutLengthMm ?? p.lengthMm;
       const netW = p.netCutWidthMm ?? p.widthMm;
       const cncId = cleanAscii((p.cncFileName || p.id).replace(/\.dxf$/i, "")).slice(0, 24);
-      const grainTxt = p.grain === "lengthwise" ? "SUYOLU:BOY" : p.grain === "crosswise" ? "SUYOLU:EN" : "DUZ";
+      const gInfo = grainNeighborMap.get(p.id);
+      const grainTxt = gInfo
+        ? `DT ${gInfo.shortSeqBadge} ${gInfo.directionLabelAscii}`
+        : p.grain === "lengthwise"
+        ? "SUYOLU:BOY"
+        : p.grain === "crosswise"
+        ? "SUYOLU:EN"
+        : "DUZ";
 
-      return [
+      const lines: string[] = [
         "^XA",
         "^PW800",
         "^LL400",
         "^CI28",
-        `^FO24,18^A0N,22,22^FDB1R1M FABRIKA  #${idx + 1}/${total}  |  ${customer}^FS`,
-        `^FO24,48^A0N,30,30^FD${cleanAscii(p.pieceName).slice(0, 32)}^FS`,
-        `^FO24,86^A0N,22,22^FDModul: ${cleanAscii(p.moduleName).slice(0, 28)} (${cleanAscii(p.moduleId)})^FS`,
-        "^FO24,116^GB752,2,2^FS",
-        `^FO24,128^A0N,26,26^FDNET KESIM: ${netL} x ${netW} x ${p.thicknessMm} mm^FS`,
-        `^FO24,162^A0N,22,22^FDBITMIS: ${p.lengthMm} x ${p.widthMm} mm   |   ${grainTxt}^FS`,
-        `^FO24,194^A0N,22,22^FDMalzeme: ${cleanAscii(p.materialName).slice(0, 34)}^FS`,
-        `^FO24,224^A0N,22,22^FDBant [${cleanAscii(p.edgeBandCode || "Yok")}]: ${ebFlags}^FS`,
-        "^FO24,258^BY2,2,64^BCN,64,Y,N,N",
-        `^FD${cncId}^FS`,
-        "^XZ",
-      ].join("\r\n");
+        `^FO24,16^A0N,22,22^FDB1R1M FABRIKA  #${idx + 1}/${total}${gInfo ? `  [DT ${gInfo.shortSeqBadge}]` : ""}  |  ${customer}^FS`,
+        `^FO24,44^A0N,28,28^FD${cleanAscii(p.pieceName).slice(0, 34)}^FS`,
+        `^FO24,78^A0N,21,21^FDModul: ${cleanAscii(p.moduleName).slice(0, 28)} (${cleanAscii(p.moduleId)})^FS`,
+        "^FO24,106^GB752,2,2^FS",
+        `^FO24,116^A0N,25,25^FDNET KESIM: ${netL} x ${netW} x ${p.thicknessMm} mm^FS`,
+        `^FO24,148^A0N,21,21^FDBITMIS: ${p.lengthMm} x ${p.widthMm} mm   |   ${grainTxt}^FS`,
+        `^FO24,176^A0N,21,21^FDMalzeme: ${cleanAscii(p.materialName).slice(0, 36)}^FS`,
+        `^FO24,204^A0N,21,21^FDBant [${cleanAscii(p.edgeBandCode || "Yok")}]: ${ebFlags}^FS`,
+      ];
+
+      if (gInfo) {
+        lines.push(
+          "^FO24,232^GB752,28,28^FS",
+          `^FO32,237^FR^A0N,20,20^FDDESEN SIRA ${gInfo.shortSeqBadge} ${gInfo.directionLabelAscii} | KOMSU -> ${cleanAscii(gInfo.compactNeighborAscii).slice(0, 36)}^FS`,
+          "^FO24,270^BY2,2,54^BCN,54,Y,N,N",
+          `^FD${cncId}^FS`
+        );
+      } else {
+        lines.push(
+          "^FO24,254^BY2,2,64^BCN,64,Y,N,N",
+          `^FD${cncId}^FS`
+        );
+      }
+
+      lines.push("^XZ");
+      return lines.join("\r\n");
     })
     .join("\r\n\r\n");
 }
@@ -429,16 +497,47 @@ export function buildZipFromEntries(entries: { fileName: string; content: string
  */
 export function exportIndustrialCamZipArchive(
   projectOrBom: DesignProject | ManufacturingBOM,
-  maybeBom?: ManufacturingBOM
+  maybeBom?: ManufacturingBOM,
+  options?: { bypassBlockingGateForDiagnostics?: boolean }
 ): Uint8Array {
   const isSingleArgBom = !maybeBom && "cutList" in projectOrBom;
   const bom: ManufacturingBOM = isSingleArgBom
     ? (projectOrBom as ManufacturingBOM)
     : (maybeBom as ManufacturingBOM);
   const project: DesignProject = isSingleArgBom
-    ? ({ id: "birim_proj", title: "Birim Proje", version: 1, modules: [] } as unknown as DesignProject)
+    ? ({ id: "birim_proj", title: "Birim Proje", version: 1, space: { id: "sp", name: "Oda", type: "room", walls: [], ceilingHeight: 2600, elements: [] }, modules: [] } as unknown as DesignProject)
     : (projectOrBom as DesignProject);
+
+  // P0-02 Central Production Readiness Gate: Block CAM ZIP export if blocking safety/engineering errors exist!
+  const engReport =
+    !isSingleArgBom && project.modules?.length > 0
+      ? options?.bypassBlockingGateForDiagnostics
+        ? evaluateUnifiedEngineeringModel(project)
+        : assertProductionExportAllowed(project)
+      : null;
+
   const entries: { fileName: string; content: string | Uint8Array }[] = [];
+  if (engReport) {
+    entries.push({
+      fileName: "00_MUHENDISLIK_DOGRULAMA_RAPORU.json",
+      content: JSON.stringify(
+        {
+          projectId: project.id,
+          version: project.version,
+          canExportToCncAndSaw: engReport.canExportToCncAndSaw,
+          canApproveFinalErpRelease: engReport.canApproveFinalErpRelease,
+          verificationNotice:
+            engReport.verificationRequiredFindings.length > 0
+              ? "DOGRULAMA_GEREKTIRIR: Fabrika fiziksel numune onayi bekleyen kurallar mevcuttur."
+              : "TAM_DOGRULANMIS",
+          blockingErrorCount: engReport.blockingSafetyAndEngineeringErrors.length,
+          verificationRequiredCount: engReport.verificationRequiredFindings.length,
+        },
+        null,
+        2
+      ),
+    });
+  }
 
   bom.cutList.forEach((piece) => {
     const safeName = (piece.cncFileName || `${piece.id}.dxf`).replace(/[^a-zA-Z0-9._-]/g, "_");
@@ -446,6 +545,19 @@ export function exportIndustrialCamZipArchive(
       fileName: `dxf/${safeName}`,
       content: generatePanelDXF(piece),
     });
+  });
+
+  const cncBundle = generateProjectCncPostProcessorBundle(
+    bom.cutList.map((piece) => mapCutPieceToCncPieceInput(piece))
+  );
+  cncBundle.homagMprFiles.forEach((mpr) => {
+    entries.push({ fileName: `mpr/${mpr.fileName}`, content: mpr.content });
+  });
+  cncBundle.biesseCixFiles.forEach((cix) => {
+    entries.push({ fileName: `cix/${cix.fileName}`, content: cix.content });
+  });
+  cncBundle.scmXcsFiles.forEach((xcs) => {
+    entries.push({ fileName: `xcs/${xcs.fileName}`, content: xcs.content });
   });
 
   entries.push({

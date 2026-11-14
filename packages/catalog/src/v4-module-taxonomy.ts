@@ -1,3 +1,4 @@
+import { V5_SPECIALIZED_MODULE_TEMPLATES, loadSavedCustomModuleTemplates } from "./v5-scene-object-catalog";
 import {
   DoorOverlayType,
   DoorSystemId,
@@ -472,7 +473,10 @@ const TEMPLATE_SEEDS: TemplateSeed[] = [
   { templateId: "tpl_cm_15_service_spacer", familyId: "fam_complementary", category: "complementary", name: "Montaj / Tesisat Servis Boşluğu Elemanı", description: "600x2150x50mm arka havalandırma ve tesisat boşluk modülü", w: 600, h: 2150, d: 50, minW: 200, maxW: 1200, minH: 300, maxH: 2600, minD: 20, maxD: 150, doorSystemId: "open", isOpenFront: true, shelvesPerBay: 0, complementaryRole: "service_spacer" },
 ];
 
-export const V4_MODULE_TEMPLATES: V4ModuleTemplateDefinition[] = TEMPLATE_SEEDS.map(buildTemplateFromSeed);
+export const V4_MODULE_TEMPLATES: V4ModuleTemplateDefinition[] = [
+  ...TEMPLATE_SEEDS.map(buildTemplateFromSeed),
+  ...V5_SPECIALIZED_MODULE_TEMPLATES,
+];
 
 export function getTemplatesByFamily(familyId: ModuleFamilyId): V4ModuleTemplateDefinition[] {
   return V4_MODULE_TEMPLATES.filter((t) => t.familyId === familyId);
@@ -481,11 +485,36 @@ export function getTemplatesByFamily(familyId: ModuleFamilyId): V4ModuleTemplate
 export function getV4TemplateById(templateId: string): V4ModuleTemplateDefinition | undefined {
   const direct = V4_MODULE_TEMPLATES.find((t) => t.templateId === templateId);
   if (direct) return direct;
+  const savedCustom = loadSavedCustomModuleTemplates().find((c) => c.templateId === templateId);
+  if (savedCustom) {
+    return {
+      templateId: savedCustom.templateId,
+      familyId: savedCustom.familyId,
+      category: savedCustom.category,
+      name: savedCustom.name,
+      description: savedCustom.description,
+      defaultDimensions: { ...savedCustom.baseDimensions },
+      dimensionLimits: { minW: 200, maxW: 3600, minH: 200, maxH: 2850, minD: 200, maxD: 1000 },
+      defaultDoorSystemId: "hinged_double",
+      compatibleDoorSystems: ["hinged_single", "hinged_double", "sliding_top_hung", "open"],
+      createInstance: (id: string, customName?: string) => {
+        const cloned = structuredClone(savedCustom.serializedModuleSnapshot);
+        cloned.id = id;
+        cloned.templateId = savedCustom.templateId;
+        if (customName) cloned.name = customName;
+        return cloned;
+      },
+    };
+  }
   // Aliases for legacy/shorthand template IDs
   const aliasMap: Record<string, string> = {
     tpl_kt_01_single_door_pantry: "tpl_kt_01_pantry_shelved",
     tpl_kt_03_space_tower: "tpl_kt_03_pantry_internal_drawers",
     tpl_kb_04_three_drawer: "tpl_kb_05_three_drawers",
+    tpl_kb_06_sink_double_door: "tpl_kb_08_sink_base",
+    tpl_wd_03_two_door_wardrobe: "tpl_wd_02_two_door",
+    tpl_kw_01_single_wall: "tpl_kw_01_single_door",
+    v5_tv_floating_console_240: "v5_tv_media_console_240",
   };
   const alias = aliasMap[templateId];
   return alias ? V4_MODULE_TEMPLATES.find((t) => t.templateId === alias) : undefined;

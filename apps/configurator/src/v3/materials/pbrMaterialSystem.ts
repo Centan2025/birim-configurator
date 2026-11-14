@@ -12,6 +12,48 @@ interface CachedTextureSet {
 const textureCache = new Map<string, CachedTextureSet>();
 const rotatedTexCache = new Map<string, THREE.CanvasTexture>();
 const pbrMaterialCache = new Map<string, THREE.MeshPhysicalMaterial>();
+const customImageTexCache = new Map<string, THREE.Texture>();
+
+export function invalidateCustomMaterialCache(matId?: string): void {
+  if (!matId) {
+    pbrMaterialCache.clear();
+    swatchDataUrlCache.clear();
+    customImageTexCache.clear();
+    return;
+  }
+  swatchDataUrlCache.delete(matId);
+  for (const k of Array.from(pbrMaterialCache.keys())) {
+    if (k.includes(matId)) pbrMaterialCache.delete(k);
+  }
+  for (const k of Array.from(customImageTexCache.keys())) {
+    if (k.startsWith(matId)) customImageTexCache.delete(k);
+  }
+}
+
+function getOrLoadCustomImageTexture(
+  matDef: MaterialDefinition,
+  rotRad: number
+): THREE.Texture | null {
+  if (!matDef.textureUrl || typeof document === "undefined") return null;
+  const cKey = `${matDef.id}_rot:${rotRad.toFixed(2)}`;
+  const hit = customImageTexCache.get(cKey);
+  if (hit) return hit;
+
+  const loader = new THREE.TextureLoader();
+  const tex = loader.load(matDef.textureUrl);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(1.2, 1.2);
+  if (rotRad !== 0) {
+    tex.center.set(0.5, 0.5);
+    tex.rotation = rotRad;
+  }
+  markSharedTexture(tex);
+  customImageTexCache.set(cKey, tex);
+  return tex;
+}
+
 
 function fract(x: number): number {
   return x - Math.floor(x);
@@ -950,6 +992,39 @@ export function getV3PbrMaterial(
   const emissive = isSelected ? new THREE.Color(0x1d4ed8) : new THREE.Color(0x000000);
   const emissiveIntensity = isSelected ? 0.18 : 0.0;
 
+  // 0A. Custom User-Uploaded Texture (.JPG / .PNG DataURL or URL)
+  if (matDef.textureUrl) {
+    const rotRad =
+      grainDirection === "crosswise"
+        ? Math.PI / 2
+        : grainDirection === "custom"
+        ? Math.PI / 4
+        : 0;
+    const userTex = getOrLoadCustomImageTexture(matDef, rotRad);
+    const effRough =
+      surfaceFinishOverride === "gloss"
+        ? 0.08
+        : surfaceFinishOverride === "satin"
+        ? 0.32
+        : surfaceFinishOverride === "matte"
+        ? 0.68
+        : matDef.roughness ?? 0.48;
+    const customMat = new THREE.MeshPhysicalMaterial({
+      color: new THREE.Color("#ffffff"),
+      map: userTex,
+      roughness: effRough,
+      metalness: matDef.metalness ?? 0.04,
+      clearcoat: effRough < 0.2 ? 0.85 : 0.15,
+      clearcoatRoughness: effRough < 0.2 ? 0.06 : 0.35,
+      envMapIntensity: 1.05,
+      emissive,
+      emissiveIntensity,
+    });
+    markSharedMaterial(customMat);
+    pbrMaterialCache.set(key, customMat);
+    return customMat;
+  }
+
   // 0. Multi-Kelvin Architectural Recessed LED Diffuser Materials (2700K / 3000K / 4000K)
   if (matDef.id.startsWith("mat_led_")) {
     const is2700 = matDef.id.includes("2700");
@@ -1351,6 +1426,14 @@ export function getMaterialSwatchStyle(
   matDef: MaterialDefinition | undefined | null
 ): { backgroundColor: string; backgroundImage?: string; backgroundSize?: string; backgroundPosition?: string } {
   const fallbackHex = matDef?.colorHex || "#d6d3cd";
+  if (matDef?.textureUrl) {
+    return {
+      backgroundColor: fallbackHex,
+      backgroundImage: `url("${matDef.textureUrl}")`,
+      backgroundSize: "cover",
+      backgroundPosition: "center",
+    };
+  }
   const url = getMaterialPreviewDataUrl(matDef);
   if (!url) return { backgroundColor: fallbackHex };
   return {

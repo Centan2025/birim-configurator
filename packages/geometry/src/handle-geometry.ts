@@ -1,4 +1,4 @@
-import { HandleCategory, ModuleCategory } from "@birim/core";
+import { HandleCategory, ModuleCategory, resolveCanonicalHandlePlacement } from "@birim/core";
 import { ComponentGeometry } from "./types";
 
 export interface HandlePlacementContext {
@@ -11,6 +11,9 @@ export interface HandlePlacementContext {
   handleLengthMm?: number;
   handleMaterialId?: string;
   handleProfileId?: string;
+  crossSectionProfile?: string;
+  openingTechnology?: string;
+  spacingCcMm?: number;
 }
 
 /** Representative visual geometry for all V4 handle & profile systems (Bar, Knob, Long Profile, Gola, J-Pull, Recessed Grip, Edge Profile). */
@@ -19,7 +22,30 @@ export function generateHandleGeometry(
   category: HandleCategory,
   context?: HandlePlacementContext
 ): ComponentGeometry[] {
-  if (category === "handleless_plain") return [];
+  if (
+    category === "handleless_plain" ||
+    front.id.includes("_lift_bifold_top") ||
+    front.label.includes("Katlanır Kalkar Üst Kanat")
+  ) {
+    return [];
+  }
+  const canon = resolveCanonicalHandlePlacement({
+    partRole: front.role,
+    partId: front.id,
+    partLabel: front.label,
+    frontWidthMm: front.dimensions.width,
+    frontHeightMm: front.dimensions.height,
+    frontElevationYMm: front.position.y,
+    moduleCategory: context?.moduleCategory,
+    moduleElevationYMm: context?.moduleElevationY,
+    handleCategory: category,
+    openingTechnology: context?.openingTechnology,
+    crossSectionProfile: context?.crossSectionProfile,
+    spacingCcMm: context?.spacingCcMm ?? (context?.handleLengthMm ? Math.max(32, context.handleLengthMm - 24) : 160),
+    handleOrientation: context?.handleOrientation,
+    handleOffsetY: context?.handleOffsetY,
+    handleEdgeInsetX: context?.handleEdgeInsetX,
+  });
   const drawer = front.role === "drawer_front";
   const isWallOrHighFront =
     !drawer &&
@@ -83,7 +109,7 @@ export function generateHandleGeometry(
     front.role === "door_right"
       ? Math.min(edgeInset, front.dimensions.width / 2)
       : Math.max(front.dimensions.width / 2, front.dimensions.width - edgeInset);
-  const cx = horizontal ? front.dimensions.width / 2 : openingSideX;
+  const cx = canon.centerXMm;
 
   // Ergonomic vertical placement:
   // - Drawers: centered vertically when front height <= 260mm (so handles never overflow top edge), or upper ergonomic zone for deep drawers
@@ -116,10 +142,7 @@ export function generateHandleGeometry(
         front.dimensions.height - Math.max(60, Math.round(span / 2 + 32))
       );
 
-  const cy =
-    !drawer && typeof context?.handleOffsetY === "number" && context.handleOffsetY >= 30
-      ? Math.max(36, Math.min(front.dimensions.height - 36, context.handleOffsetY))
-      : defaultCy;
+  const cy = canon.centerYMm;
 
   // Resolve handle finish material ID from K019 / K020 / K021 / K022 or explicit handleMaterialId
   const resolvedHandleMatId =

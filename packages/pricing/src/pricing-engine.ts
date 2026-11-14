@@ -87,7 +87,8 @@ export function calculateProjectPrice(
   params: PricingParameters = DEFAULT_PRICING_PARAMS,
   materialsMap: Map<string, MaterialDefinition> = new Map(
     DEFAULT_MATERIALS.map((m) => [m.id, m])
-  )
+  ),
+  sceneObjects: import("@birim/core").SceneObjectInstance[] = []
 ): PricingBreakdown {
   const materialLines: PricingBreakdown["details"]["materialLines"] = [];
   const surchargeLines: PricingBreakdown["details"]["surchargeLines"] = [];
@@ -259,8 +260,25 @@ export function calculateProjectPrice(
   const marginAmount =
     (netProductionCost + logisticsTotal) * (params.targetMarginPercent / 100);
 
+  // 9b. Commercial Scene Objects (Quoted Appliances, Sinks, Faucets & Birim Freestanding Furniture)
+  const commercialObjectLines: NonNullable<PricingBreakdown["details"]["commercialObjectLines"]> = [];
+  let commercialObjectsCostEur = 0;
+  for (const obj of sceneObjects) {
+    if (obj.isHidden || obj.commercialRole !== "quoted_product" || obj.unitPriceEur <= 0) continue;
+    const qty = Math.max(1, obj.quantity || 1);
+    const lineTot = roundMm(qty * obj.unitPriceEur, 2);
+    commercialObjectsCostEur += lineTot;
+    commercialObjectLines.push({
+      sku: obj.sku,
+      name: obj.name,
+      qty,
+      unitPriceEur: obj.unitPriceEur,
+      totalEur: lineTot,
+    });
+  }
+
   // 10. Net subtotal before VAT
-  const subtotalNetEur = netProductionCost + logisticsTotal + marginAmount;
+  const subtotalNetEur = netProductionCost + logisticsTotal + marginAmount + commercialObjectsCostEur;
   const subtotalNetTry = subtotalNetEur * params.eurTryExchangeRate;
 
   // 11. VAT (KDV %20)
@@ -351,6 +369,7 @@ export function calculateProjectPrice(
     miterAndSpecialCncCostEur: roundMm(miterAndSpecialCncCostEur, 2),
     glassAndAluminumFrameCostEur: roundMm(glassAndAluminumFrameCostEur, 2),
     deliveryAndInstallationEur: roundMm(deliveryAndInstallationEur, 2),
+    commercialObjectsCostEur: roundMm(commercialObjectsCostEur, 2),
     rawMaterialsTotal: roundMm(rawMaterialsTotal, 2),
     laborCost: roundMm(laborCost, 2),
     operationalOverhead: roundMm(operationalOverhead, 2),
@@ -370,6 +389,7 @@ export function calculateProjectPrice(
       materialLines,
       hardwareLines,
       surchargeLines,
+      commercialObjectLines,
       totalEdgeBandMeters: bom.summary.totalEdgeBandMeters,
       totalHolesCount,
     },

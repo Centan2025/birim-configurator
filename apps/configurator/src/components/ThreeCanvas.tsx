@@ -9,10 +9,14 @@ import { generateModuleGeometry } from "@birim/geometry";
 import { DEFAULT_MATERIALS, MaterialDefinition } from "@birim/core";
 import {
   attachWebGLContextRecovery,
+  createSafeWebGL2Renderer,
   disposeObject3DTree,
+  disposeWebGLRendererCleanly,
   markSharedGeometry,
   markSharedMaterial,
+  type WebGL2CapabilityReport,
 } from "../v3/materials/webglResourceGuard";
+import { Software3DFallbackViewport } from "../v3/components/Software3DFallbackViewport";
 
 // 1. Shared Unit Geometries (Never recreated, GPU buffer persists across life of app)
 const UNIT_BOX_GEO = markSharedGeometry(new THREE.BoxGeometry(1, 1, 1));
@@ -85,6 +89,8 @@ export default function ThreeCanvas() {
   const meshGroupRef = useRef<THREE.Group | null>(null);
   const needsRenderRef = useRef<boolean>(true);
   const [contextLost, setContextLost] = useState(false);
+  const [webglUnavailable, setWebglUnavailable] = useState(false);
+  const [webglCap, setWebglCap] = useState<WebGL2CapabilityReport | null>(null);
 
   const requestRender = useCallback(() => {
     needsRenderRef.current = true;
@@ -119,10 +125,18 @@ export default function ThreeCanvas() {
     orthoCamera.position.set(2400, 2200, 3400);
     orthoCameraRef.current = orthoCamera;
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
+    const safeGl = createSafeWebGL2Renderer({ preferAlpha: false });
+    setWebglCap(safeGl.ok ? safeGl.bundle.capability : safeGl.capability);
+    if (!safeGl.ok) {
+      setWebglUnavailable(true);
+      return;
+    }
+    setWebglUnavailable(false);
+    const renderer = safeGl.bundle.renderer;
+    const isLegacyGpu = safeGl.bundle.capability.isLegacyOrLowSpecGpu;
     renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.shadowMap.enabled = true;
+    renderer.setPixelRatio(isLegacyGpu ? 1 : Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = !isLegacyGpu;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     rendererRef.current = renderer;
     container.appendChild(renderer.domElement);
@@ -272,7 +286,7 @@ export default function ThreeCanvas() {
       renderer.domElement.removeEventListener("click", handleClick);
       controls.dispose();
       disposeObject3DTree(scene);
-      renderer.dispose();
+      disposeWebGLRendererCleanly(renderer);
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
       }

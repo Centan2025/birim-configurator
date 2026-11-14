@@ -48,6 +48,7 @@ export interface PricingBreakdown {
   miterAndSpecialCncCostEur: number;
   glassAndAluminumFrameCostEur: number;
   deliveryAndInstallationEur: number;
+  commercialObjectsCostEur?: number;
   rawMaterialsTotal: number;
   laborCost: number;
   operationalOverhead: number;
@@ -73,6 +74,7 @@ export interface PricingBreakdown {
     }[];
     hardwareLines: { name: string; qty: number; unitPriceEur: number; totalEur: number }[];
     surchargeLines: { label: string; totalEur: number }[];
+    commercialObjectLines?: { sku: string; name: string; qty: number; unitPriceEur: number; totalEur: number }[];
     totalEdgeBandMeters: number;
     totalHolesCount: number;
   };

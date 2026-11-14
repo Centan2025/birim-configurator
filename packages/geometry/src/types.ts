@@ -26,6 +26,12 @@ export type ComponentRole =
   | "drawer_slide"
   | "door_left"
   | "door_right"
+  | "door_stile_left"
+  | "door_stile_right"
+  | "door_rail_top"
+  | "door_rail_bottom"
+  | "door_center_panel"
+  | "kerf_curve"
   | "countertop";
 
 export type PanelThicknessAxis = "x" | "y" | "z";
@@ -64,6 +70,17 @@ export interface ComponentGeometry {
   isManufacturablePanel?: boolean;
   /** Explicit axis along which panel thickness lies ("x" for vertical sides/dividers, "y" for horizontal shelves/top/bottom, "z" for fronts/backs) */
   thicknessAxis?: PanelThicknessAxis;
+  /** True 2D CNC outer polygon vertices [xMm, yMm][] for non-rectangular panels (sloped ceiling, capsule stadium) */
+  polygonContourMm?: [number, number][];
+  /** Parametric CNC kerf-bending engineering data for curved shells */
+  kerfBendingMeta?: {
+    outerRadiusMm: number;
+    bendAngleDeg: number;
+    unfoldedArcLengthMm: number;
+    kerfCount: number;
+    kerfSpacingMm: number;
+    residualWebMm: number;
+  };
 }
 
 export interface ModuleGeometryBreakdown {

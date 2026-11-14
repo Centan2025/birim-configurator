@@ -145,7 +145,11 @@ self.onmessage = function(e) {
               y: chosen.y,
               width: placeW,
               length: placeH,
-              isRotated: bestRotate
+              isRotated: bestRotate,
+              hasGroove: Boolean(item.piece.hasBackGroove),
+              grooveOffset: item.piece.backGrooveOffsetMm,
+              grainDirection: item.piece.grain === "none" ? "none" : "vertical",
+              polygonContourMm: item.piece.polygonContourMm
             });
             cur.sheet.netUsedAreaM2 += (placeW * placeH) / 1000000;
             cur.freeRects.splice(bestRectIdx, 1);
@@ -175,7 +179,11 @@ self.onmessage = function(e) {
               y: firstRect.y,
               width: pw,
               length: ph,
-              isRotated: rotNew
+              isRotated: rotNew,
+              hasGroove: Boolean(item.piece.hasBackGroove),
+              grooveOffset: item.piece.backGrooveOffsetMm,
+              grainDirection: item.piece.grain === "none" ? "none" : "vertical",
+              polygonContourMm: item.piece.polygonContourMm
             });
             newEntry.sheet.netUsedAreaM2 += (pw * ph) / 1000000;
             newEntry.freeRects.splice(0, 1);

@@ -11,7 +11,14 @@ import {
   CheckCircle,
   AlertTriangle,
 } from "lucide-react";
-import { DesignProject } from "@birim/core";
+import {
+  DesignProject,
+  evaluateUnifiedEngineeringModel,
+  applyApprovedRemediationProposal,
+  REGIONAL_ERGONOMIC_PROFILES,
+  type RegionErgonomicProfileId,
+  type RemediationProposal,
+} from "@birim/core";
 
 interface TechnicalInspectorProps {
   onOpenBom: () => void;
@@ -29,6 +36,23 @@ export const TechnicalInspector: React.FC<TechnicalInspectorProps> = ({
 
   const activeMod = project.modules[activeModIndex] || project.modules[0];
   if (!activeMod) return null;
+
+  const unifiedReport = evaluateUnifiedEngineeringModel(project);
+
+  const handleErgonomicProfileChange = (profId: RegionErgonomicProfileId) => {
+    useConfiguratorStore.setState({
+      project: {
+        ...project,
+        ergonomicProfileId: profId,
+        version: (project.version || 1) + 1,
+      },
+    });
+  };
+
+  const handleApplyProposal = (proposal: RemediationProposal) => {
+    const updated = applyApprovedRemediationProposal(project, proposal);
+    useConfiguratorStore.setState({ project: updated });
+  };
 
   const handleJointTypeChange = (joint: "minifix_dowel" | "confirmat" | "dowel_only") => {
     const updated: DesignProject = {
@@ -232,14 +256,87 @@ export const TechnicalInspector: React.FC<TechnicalInspectorProps> = ({
         </button>
       </div>
 
+      {/* 5b. Regional & Accessibility Standard Profile (P2-02) */}
+      <div className="p-3.5 bg-slate-900/80 rounded-xl border border-slate-800 space-y-2">
+        <h4 className="font-bold text-slate-200 text-xs uppercase tracking-wider">
+          Standart & Erişilebilirlik Profili
+        </h4>
+        <select
+          value={project.ergonomicProfileId || "TR_RESIDENTIAL"}
+          onChange={(e) => handleErgonomicProfileChange(e.target.value as RegionErgonomicProfileId)}
+          className="w-full p-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 text-xs"
+        >
+          {Object.values(REGIONAL_ERGONOMIC_PROFILES).map((prof) => (
+            <option key={prof.id} value={prof.id}>
+              {prof.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* 5c. Central Engineering & Safety Diagnostics + User-Approved Fixes (P0-02, P2-04) */}
+      <div className="p-3.5 bg-slate-900/80 rounded-xl border border-slate-800 space-y-2.5">
+        <div className="flex items-center justify-between">
+          <h4 className="font-bold text-slate-200 text-xs uppercase tracking-wider flex items-center gap-1.5">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+            Merkezi Mühendislik Doğrulaması
+          </h4>
+          <span
+            className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+              unifiedReport.canExportToCncAndSaw
+                ? "bg-emerald-900/60 text-emerald-300"
+                : "bg-red-900/70 text-red-200"
+            }`}
+          >
+            {unifiedReport.canExportToCncAndSaw
+              ? "CNC KESİME UYGUN"
+              : `${unifiedReport.blockingSafetyAndEngineeringErrors.length} ENGEL`}
+          </span>
+        </div>
+
+        {unifiedReport.blockingSafetyAndEngineeringErrors.slice(0, 4).map((err) => (
+          <div
+            key={`${err.code}_${err.targetId}`}
+            className="p-2.5 rounded-lg bg-red-950/40 border border-red-800/60 space-y-1.5 text-[11px]"
+          >
+            <div className="font-semibold text-red-300">
+              [{err.ruleNature === "MANDATORY_SAFETY" ? "ZORUNLU GÜVENLİK" : "MÜHENDİSLİK"}] {err.code}
+            </div>
+            <div className="text-slate-200">{err.message}</div>
+            {err.worldPositionMm && (
+              <div className="font-mono text-[10px] text-slate-400">
+                3B Konum: X={err.worldPositionMm.x} • Y={err.worldPositionMm.y} • Z={err.worldPositionMm.z} mm
+              </div>
+            )}
+            {err.remediationProposals && err.remediationProposals.length > 0 && (
+              <div className="flex flex-col gap-1 pt-1">
+                {err.remediationProposals.map((prop) => (
+                  <button
+                    key={prop.id}
+                    type="button"
+                    onClick={() => handleApplyProposal(prop)}
+                    className="w-full py-1.5 px-2.5 rounded bg-emerald-700 hover:bg-emerald-600 text-white font-semibold text-[11px] text-left transition cursor-pointer"
+                  >
+                    ✓ Onayla: {prop.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
       {/* 6. Production Approval */}
       <div className="pt-2 border-t border-slate-800">
         <button
           onClick={approveProduction}
-          className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg flex items-center justify-center gap-2 shadow-lg transition"
+          disabled={!unifiedReport.canExportToCncAndSaw}
+          className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold rounded-lg flex items-center justify-center gap-2 shadow-lg transition"
         >
           <CheckCircle className="w-4 h-4" />
-          Üretime Resmi Onay Ver
+          {unifiedReport.canExportToCncAndSaw
+            ? "Üretime Resmi Onay Ver"
+            : "Kritik Hataları Çözmeden Onay Verilemez"}
         </button>
       </div>
     </div>

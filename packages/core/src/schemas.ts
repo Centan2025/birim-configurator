@@ -116,6 +116,8 @@ export const DoorCrossSectionProfileSchema = z
     "glass_frame",
     "mirror_door",
     "bevel_45",
+    "j_pull_bevel",
+    "cove_arch",
     "custom_cad_profile",
   ])
   .optional();
@@ -195,7 +197,12 @@ export const ShelfConfigSchema = z.preprocess(
     bayIndex: z.number().int().min(0),
     elevationY: z.number().min(0),
     isAdjustable: z.boolean().default(true),
-    thickness: z.number().min(8).max(50).optional(),
+    isFixed: z.boolean().optional(),
+    thickness: z.number().min(4).max(50).optional(),
+    frontSetbackMm: z.number().min(0).max(300).optional(),
+    pinHoleGroup: z.enum(["single", "triple_32", "five_64", "full_line"]).optional(),
+    isGlass: z.boolean().optional(),
+    materialId: z.string().optional(),
     isHidden: z.boolean().optional(),
   })
 );
@@ -204,6 +211,8 @@ export const HangingRailConfigSchema = z.object({
   id: z.string(),
   bayIndex: z.number().int().min(0),
   elevationY: z.number().min(0),
+  profileType: z.enum(["oval_30x15", "round_25"]).optional(),
+  hasIntegratedLed: z.boolean().optional(),
   isLiftMechanism: z.boolean().optional(),
   isHidden: z.boolean().optional(),
 });
@@ -236,7 +245,22 @@ export const DrawerConfigSchema = z.preprocess(
         "servo_electric",
       ])
       .default("soft_close"),
+    boxSystemType: z
+      .enum([
+        "wooden_undermount",
+        "metal_box_legrabox",
+        "metal_box_tandembox",
+        "metal_box_avantech",
+        "ball_bearing_side",
+      ])
+      .optional(),
+    boxSideProfileCode: z.enum(["N", "M", "K", "C", "F"]).optional(),
     isInternal: z.boolean().optional(),
+    hasSiphonCutout: z.boolean().optional(),
+    siphonCutoutWidthMm: z.number().min(40).max(1000).optional(),
+    siphonCutoutDepthMm: z.number().min(40).max(800).optional(),
+    hasCooktopHeatShield: z.boolean().optional(),
+    grainGroupId: z.string().optional(),
     frontMaterialId: z.string().optional(),
     hardwareProductId: z.string().optional(),
     nominalLengthMm: z.number().min(200).max(800).optional(),
@@ -271,11 +295,18 @@ export const SpecialFittingConfigSchema = z.preprocess(
       "wardrobe_lift",
       "jewelry_tray",
       "corner_lemans",
+      "magic_corner",
+      "carousel_half_moon",
       "pantry_pullout",
       "waste_bin",
       "spice_pullout",
+      "dish_drainer",
+      "imove_pull_down",
+      "foldable_ironing_board",
+      "swivel_mirror",
       "cutlery_tray",
     ]),
+    swingDirection: z.enum(["left", "right"]).optional(),
     height: z.number().min(8).max(2800),
     width: z.number().min(8).max(3600).optional(),
     depth: z.number().min(8).max(1200).optional(),
@@ -299,6 +330,8 @@ export const DoorConfigSchema = z.object({
   hardwareProductId: z.string().optional(),
   doorThicknessMm: z.number().min(8).max(40).optional(),
   doorMaterialId: z.string().optional(),
+  grainGroupId: z.string().optional(),
+  bottomOverhangMm: z.number().min(-100).max(100).optional(),
   handleType: z.enum(["standard", "integrated_profile", "push_to_open", "none"]).optional(),
   softClose: z.boolean().default(true),
   hingeCount: z.number().int().min(0).max(8).optional(),
@@ -314,6 +347,7 @@ export const DoorConfigSchema = z.object({
   handleLengthMm: z.number().min(20).max(2800).optional(),
   handleMaterialId: z.string().optional(),
   doorEdgeBandThicknessMm: z.number().min(0.4).max(3).optional(),
+  doorFrameConstruction: z.enum(["monoblock_cnc", "five_piece_rail_stile"]).optional(),
 });
 
 export const SubDividerConfigSchema = z.object({
@@ -344,14 +378,54 @@ export const PlinthConstructionTypeSchema = z.enum([
   "gable_rails",
 ]);
 
+export const SlopedCeilingConfigSchema = z.object({
+  mode: z.enum(["none", "back_slope", "left_slope", "right_slope"]),
+  kneeHeightMm: z.number().min(100).max(3200),
+  slopeAngleDeg: z.number().min(1).max(85),
+  topFlatSpanMm: z.number().min(0).max(3600).optional(),
+});
+
+export const BaseboardNotchConfigSchema = z.object({
+  enabled: z.boolean(),
+  depthMm: z.number().min(5).max(150),
+  heightMm: z.number().min(10).max(300),
+});
+
 export const CarcassConfigSchema = z.object({
   panelThickness: z.number().min(12).max(36).default(18),
   backPanelThickness: z.number().min(3).max(19).default(8),
   backPanelType: BackPanelTypeSchema.default("grooved"),
+  backOffsetMm: z.number().min(0).max(120).optional(),
+  preMillingMm: z.number().min(0).max(3).optional(),
+  allowJumboSheet3660: z.boolean().optional(),
+  carcassJoineryTopology: z
+    .enum(["sides_through", "top_bottom_through", "miter_45", "kitchen_stretchers"])
+    .optional(),
+  kitchenTopStretcherMode: z
+    .enum(["horizontal", "vertical_sink", "aluminum_reinforced"])
+    .optional(),
+  appliedEndPanelLeft: z.enum(["none", "carcass_height", "floor_to_top"]).optional(),
+  appliedEndPanelRight: z.enum(["none", "carcass_height", "floor_to_top"]).optional(),
+  baseboardNotch: BaseboardNotchConfigSchema.optional(),
+  slopedCeiling: SlopedCeilingConfigSchema.optional(),
+  hasPlinthDrawer: z.boolean().optional(),
+  hasWaterfallLeft: z.boolean().optional(),
+  hasWaterfallRight: z.boolean().optional(),
+  countertopJointMode: z.enum(["butt_90", "miter_45", "masons_miter"]).optional(),
+  hasCountertopUpstand: z.boolean().optional(),
+  hasUnderSinkAluminumTray: z.boolean().optional(),
+  islandBackCladding: z.boolean().optional(),
+  islandOverhangRearMm: z.number().min(0).max(800).optional(),
+  internalDrawerHingeSolution: z.enum(["auto_155_hinge", "spacer_block_25mm"]).optional(),
+  wallSuspensionType: z.enum(["visible_bracket", "concealed_camar_807"]).optional(),
+  wallAnchored: z.boolean().optional(),
+  floorAnchored: z.boolean().optional(),
+  useDepthBasedConnectors: z.boolean().optional(),
   plinthHeight: z.number().min(0).max(250).default(80),
   plinthConstruction: PlinthConstructionTypeSchema.optional(),
-  plinthSetbackMm: z.number().min(10).max(120).optional(),
+  plinthSetbackMm: z.number().min(0).max(150).optional(),
   doorPerimeterGap: z.number().min(1).max(10).default(2),
+  centerRevealGapMm: z.number().min(1).max(12).optional(),
   edgeBandThickness: z.number().min(0.4).max(3).default(1),
   bodyMaterialId: z.string().default("mat_melamine_white"),
   doorMaterialId: z.string().default("mat_lacquer_cream"),
@@ -361,6 +435,9 @@ export const CarcassConfigSchema = z.object({
   crossSectionProfile: DoorCrossSectionProfileSchema,
   customCadProfileName: z.string().optional(),
   customCadPolygon: z.array(CadPolygonPointSchema).optional(),
+  hullShape: z.enum(["rectangular", "capsule_stadium", "capsule_table", "rounded_corners"]).optional(),
+  cornerRadiusMm: z.number().min(10).max(2000).optional(),
+  tambourSlatPitchMm: z.number().min(12).max(80).optional(),
   jointType: JointTypeSchema.default("minifix_dowel"),
   doorThickness: z.number().min(10).max(36).optional(),
   overlayDistance: z.number().optional(),
@@ -373,7 +450,7 @@ export const CarcassConfigSchema = z.object({
   ledColorTempK: z.union([z.literal(2700), z.literal(3000), z.literal(4000)]).optional(),
   ledSensorType: z.enum(["ir_door", "pir_motion", "manual_switch"]).optional(),
   ledPlacementMode: z
-    .enum(["shelf_underside", "vertical_sides", "hanging_rod", "full_showcase"])
+    .enum(["shelf_underside", "vertical_sides", "hanging_rod", "full_showcase", "top_and_shelves"])
     .optional(),
   ledDimmerPct: z.number().min(10).max(100).optional(),
   ledFrontSetbackMm: z.number().min(25).max(350).optional(),
@@ -381,6 +458,17 @@ export const CarcassConfigSchema = z.object({
   ledAlignShelfAndSide: z.boolean().optional(),
   ledChannelWidthMm: z.number().min(6).max(35).optional(),
   ledChannelDepthMm: z.number().min(3).max(20).optional(),
+  multiHoleMode: z
+    .enum(["full_system_32", "zone_32", "cluster_5", "cluster_3", "single_pin", "none"])
+    .optional(),
+  multiHoleRowCount: z.union([z.literal(2), z.literal(3)]).optional(),
+  multiHoleFrontSetbackMm: z.number().min(20).max(150).optional(),
+  multiHoleEdgeMarginMm: z.number().min(32).max(256).optional(),
+  multiHoleDividerThroughBore: z.boolean().optional(),
+  showMultiHolesIn3D: z.boolean().optional(),
+  grainContinuityMode: z
+    .enum(["none", "module_vertical", "module_4way", "facade_continuous"])
+    .optional(),
 });
 
 export const ModuleInstanceSchema = z.object({
@@ -392,12 +480,16 @@ export const ModuleInstanceSchema = z.object({
   position: Position3DSchema,
   rotation: Rotation3DSchema,
   dimensions: Dimensions3DSchema,
-  bays: z.array(BayConfigSchema).min(1, "Modül en az 1 bölme içermelidir"),
+  bays: z.array(BayConfigSchema).default([]),
+  rootCell: z.any().optional(),
   carcass: CarcassConfigSchema,
+  bodyMaterialId: z.string().optional(),
+  doorMaterialId: z.string().optional(),
   isOpenFront: z.boolean().optional(),
   isCorner: z.boolean().optional(),
   cornerAngleDeg: z.number().optional(),
   isFixedWidth: z.boolean().optional(),
+  isFreestandingDishwasher: z.boolean().optional(),
   complementaryRole: z
     .enum([
       "plinth_strip",
@@ -417,6 +509,22 @@ export const ModuleInstanceSchema = z.object({
       "service_spacer",
       "attached_table",
     ])
+    .optional(),
+  islandCountertopConfig: z
+    .object({
+      barOverhangMm: z.number().optional(),
+      waterfallLeft: z.boolean().optional(),
+      waterfallRight: z.boolean().optional(),
+      countertopMaterialId: z.string().optional(),
+    })
+    .optional(),
+  attachedTableConfig: z
+    .object({
+      anchorModuleId: z.string().optional(),
+      angleDeg: z.number().optional(),
+      legStyle: z.enum(["waterfall_slab", "metal_u_frame", "pedestal_column"]).optional(),
+      topThicknessMm: z.number().optional(),
+    })
     .optional(),
   requiresFactoryValidation: z.boolean().optional(),
   componentMaterialOverrides: z.record(z.string()).optional(),
@@ -461,12 +569,17 @@ export const ArchitecturalElementSchema = z.object({
     "plumbing",
     "electrical",
     "ventilation",
+    "gas_valve",
+    "flue_duct",
+    "radiator",
+    "baseboard",
     "niche",
     "protrusion",
     "partition",
   ]),
   rotationY: z.number().optional(),
   doorSwing: z.enum(["left", "right"]).optional(),
+  sillProtrusionMm: z.number().optional(),
   name: z.string(),
   position: Position3DSchema,
   dimensions: Dimensions3DSchema,
@@ -522,12 +635,53 @@ export const SpaceTypeSchema = z.preprocess(
   ])
 );
 
+export const SpaceCeilingConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  ceilingType: z
+    .enum([
+      "flat_plaster",
+      "dropped_perimeter_cove",
+      "gypsum_soffit_bulkhead",
+      "exposed_wood_beams",
+      "coffered_baffle",
+      "sloped_attic",
+    ])
+    .default("flat_plaster"),
+  showIn3D: z.boolean().optional(),
+  showInElevation2D: z.boolean().optional(),
+  translucentCutawayIn3D: z.boolean().optional(),
+  dropHeightMm: z.number().min(0).max(1500).optional(),
+  soffitDepthMm: z.number().min(100).max(2000).optional(),
+  beamHeightMm: z.number().min(30).max(800).optional(),
+  beamWidthMm: z.number().min(30).max(500).optional(),
+  beamSpacingMm: z.number().min(200).max(3000).optional(),
+  bafflePitchMm: z.number().min(40).max(600).optional(),
+  hasHiddenLedCove: z.boolean().optional(),
+  hasRecessedSpots: z.boolean().optional(),
+  slopeKneeHeightMm: z.number().min(400).max(5000).optional(),
+  slopeAngleDeg: z.number().min(3).max(75).optional(),
+  slopeDirection: z.enum(["left_to_right", "right_to_left", "back_to_front"]).optional(),
+  colorHex: z.string().optional(),
+});
+
 export const SpaceDefinitionSchema = z.object({
+  ceilingConfig: SpaceCeilingConfigSchema.optional(),
   id: z.string(),
   name: z.string(),
   type: SpaceTypeSchema.default("room"),
   walls: z.array(WallDefinitionSchema).default([]),
   ceilingHeight: z.number().positive().default(2600),
+  wallSubstrateType: z
+    .enum([
+      "reinforced_concrete",
+      "solid_brick",
+      "hollow_brick",
+      "aerated_concrete",
+      "drywall_reinforced",
+      "drywall_unreinforced",
+    ])
+    .optional(),
+  slopedCeiling: SlopedCeilingConfigSchema.optional(),
   elements: z.array(ArchitecturalElementSchema).default([]),
   floorPlanUnderlay: FloorPlanUnderlaySchema.optional(),
 });
@@ -542,6 +696,139 @@ export const ProjectVerificationSnapshotSchema = z.object({
   canApproveProduction: z.boolean(),
   unverifiedCount: z.number().int().min(0),
   evaluatedAt: z.string(),
+});
+
+
+export const SceneObjectInstanceSchema = z.object({
+  id: z.string(),
+  catalogId: z.string(),
+  sku: z.string().default("OBJ-CUSTOM"),
+  name: z.string(),
+  brand: z.string().optional(),
+  category: z.enum([
+    "appliance",
+    "plumbing_fixture",
+    "freestanding_furniture",
+    "lighting_electronics",
+    "architectural_prop",
+    "custom_glb",
+  ]),
+  anchorMode: z.enum([
+    "wall_base",
+    "wall_elevated",
+    "countertop_cutout",
+    "module_cavity",
+    "free_floor",
+    "surface_raycast",
+    "ceiling",
+  ]),
+  visualKind: z.string(),
+  position: Position3DSchema,
+  rotation: z.object({
+    x: z.number().default(0),
+    y: z.number().default(0),
+    z: z.number().default(0),
+  }),
+  dimensions: z.object({
+    width: z.number().min(10).max(10000),
+    height: z.number().min(5).max(6000),
+    depth: z.number().min(10).max(10000),
+  }),
+  scaleFactor: z.number().positive().optional(),
+  primaryColorHex: z.string().optional(),
+  secondaryColorHex: z.string().optional(),
+  metalness: z.number().min(0).max(1).optional(),
+  roughness: z.number().min(0).max(1).optional(),
+  glbUrl: z.string().optional(),
+  localAssetKey: z.string().optional(),
+  hostModuleId: z.string().optional(),
+  hostWallId: z.string().optional(),
+  commercialRole: z.enum(["quoted_product", "client_supplied", "decor_only"]).default("quoted_product"),
+  unitPriceEur: z.number().min(0).default(0),
+  quantity: z.number().int().min(1).optional(),
+  clearance: z
+    .object({
+      frontSwingMm: z.number().optional(),
+      topVentMm: z.number().optional(),
+      rearVentMm: z.number().optional(),
+      sideLeftMm: z.number().optional(),
+      sideRightMm: z.number().optional(),
+      minWalkwayFrontMm: z.number().optional(),
+    })
+    .optional(),
+  cutoutTrigger: z
+    .object({
+      kind: z.enum(["sink", "cooktop", "cable_port"]),
+      cutoutWidthMm: z.number(),
+      cutoutDepthMm: z.number(),
+      cornerRadiusMm: z.number().optional(),
+      requiresUnderSinkSiphonCutout: z.boolean().optional(),
+      requiresUnderSinkDripTray: z.boolean().optional(),
+      requiresCooktopHeatShield: z.boolean().optional(),
+    })
+    .optional(),
+  mepTriggers: z
+    .array(
+      z.object({
+        discipline: z.enum([
+          "plumbing_cold",
+          "plumbing_hot",
+          "plumbing_drain",
+          "elec_appliance",
+          "elec_counter",
+          "elec_led_driver",
+          "hvac_hood_flue",
+        ]),
+        label: z.string(),
+        offsetXFromCenterMm: z.number(),
+        elevationFromFloorMm: z.number(),
+        diameterOrSpec: z.string(),
+        codeNote: z.string(),
+      })
+    )
+    .optional(),
+  lightEmission: z
+    .object({
+      enabled: z.boolean(),
+      colorTempK: z.union([z.literal(2700), z.literal(3000), z.literal(4000)]),
+      lumens: z.number(),
+    })
+    .optional(),
+  doorSwing: z.enum(["left", "right"]).optional(),
+  isLocked: z.boolean().optional(),
+  isHidden: z.boolean().optional(),
+});
+
+export const CustomModuleTemplateRecordSchema = z.object({
+  templateId: z.string(),
+  name: z.string(),
+  description: z.string().default(""),
+  familyId: ModuleFamilyIdSchema.default("fam_wardrobe"),
+  category: ModuleCategorySchema,
+  createdAt: z.string(),
+  baseDimensions: Dimensions3DSchema,
+  serializedModuleSnapshot: ModuleInstanceSchema,
+});
+
+export const CustomMaterialDefinitionSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  brand: z.string().optional(),
+  decorCode: z.string().optional(),
+  surfaceFinish: z.string().optional(),
+  category: z.enum(["wood", "lacquer", "laminate", "glass", "stone", "metal", "mirror", "compact"]),
+  thickness: z.number().min(4).max(60).default(18),
+  densityKgPerM3: z.number().optional(),
+  elasticModulusMpa: z.number().positive().optional(),
+  mechanicalDataVerified: z.boolean().optional(),
+  finish: z.string().optional(),
+  colorHex: z.string(),
+  roughness: z.number().min(0).max(1),
+  metalness: z.number().min(0).max(1),
+  textureUrl: z.string().optional(),
+  costPerM2: z.number().min(0),
+  edgeBandCostPerM: z.number().min(0),
+  hasGrain: z.boolean(),
 });
 
 export const DesignProjectSchema = z.object({
@@ -560,6 +847,11 @@ export const DesignProjectSchema = z.object({
   revisionId: z.string().optional(),
   libraryVersionId: z.string().optional(),
   constructionProfileId: z.string().optional(),
+  ergonomicProfileId: z
+    .enum(["TR_RESIDENTIAL", "EU_EN_STANDARD", "ACCESSIBLE_EN17210"])
+    .optional(),
+  displayUnit: z.enum(["mm", "cm"]).optional(),
+  facadeGrainContinuity: z.boolean().optional(),
   title: z.string().min(1),
   customerName: z.string().optional(),
   branchId: z.string().default("branch_main"),
@@ -574,6 +866,10 @@ export const DesignProjectSchema = z.object({
     .default("draft"),
   space: SpaceDefinitionSchema,
   modules: z.array(ModuleInstanceSchema).min(1, "Proje en az 1 modül içermelidir"),
+  sceneObjects: z.array(SceneObjectInstanceSchema).default([]).optional(),
+  customModuleTemplates: z.array(CustomModuleTemplateRecordSchema).default([]).optional(),
+  customMaterials: z.array(CustomMaterialDefinitionSchema).default([]).optional(),
+  continuousLayers: z.any().optional(),
   verificationSnapshot: ProjectVerificationSnapshotSchema.optional(),
   createdAt: z.string().default(() => new Date().toISOString()),
   updatedAt: z.string().default(() => new Date().toISOString()),
@@ -621,18 +917,21 @@ export function migrateProjectPayload(raw: unknown): unknown {
  */
 export function parseAndMigrateProject(
   raw: unknown
-): { ok: true; project: DesignProject } | { ok: false; error: string } {
+):
+  | { ok: true; success: true; project: DesignProject; data: DesignProject }
+  | { ok: false; success: false; error: string } {
   const preNormalized = migrateProjectPayload(raw);
   const parsed = DesignProjectSchema.safeParse(preNormalized);
   if (!parsed.success) {
     const firstIssue = parsed.error.issues[0];
     return {
       ok: false,
+      success: false,
       error: firstIssue
         ? `${firstIssue.path.join(".")}: ${firstIssue.message}`
         : "Geçersiz proje şeması.",
     };
   }
-  const migrated = migrateV3ProjectToV4(parsed.data as DesignProject);
-  return { ok: true, project: migrated };
+  const migrated = migrateV3ProjectToV4(parsed.data as unknown as DesignProject);
+  return { ok: true, success: true, project: migrated, data: migrated };
 }

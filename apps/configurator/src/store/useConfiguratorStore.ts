@@ -9,6 +9,9 @@ import {
   ModuleInstance,
   DesignProjectSchema,
   evaluateProjectCompatibility,
+  evaluateUnifiedEngineeringModel,
+  applyApprovedRemediationProposal,
+  type RemediationProposal,
   migrateV3ProjectToV4,
   parseAndMigrateProject,
   getMaxSafeBayCount,
@@ -20,6 +23,12 @@ import {
   WallDefinition,
   FloorPlanUnderlay,
   convertUnderlayPolylinesToWalls,
+  SceneObjectInstance,
+  CustomModuleTemplateRecord,
+  WallFreeGapSlot,
+  computeAutoFillersAndTrimForProject,
+  autoNotchModulesAroundObstacles,
+  parseRoomPlanScanJson,
 } from "@birim/core";
 import { generateBOMForProject, ManufacturingBOM } from "@birim/manufacturing";
 import { calculateProjectPrice, PricingBreakdown } from "@birim/pricing";
@@ -33,7 +42,15 @@ import {
   analyzeAndAdviseSpan,
   SmartAdvisorFeedback,
   HANDLE_PROFILES,
+  V5_COMPOSITE_ASSEMBLIES,
+  createSceneObjectInstanceFromCatalog,
+  loadSavedCustomModuleTemplates,
+  persistCustomModuleTemplates,
 } from "@birim/catalog";
+import {
+  computeMultiWallModuleSnap,
+  solveSceneObjectPlacementSnap,
+} from "../v3/engine/multiWallSnapAndBvhEngine";
 
 export type ViewMode = "3d" | "2d_elevation" | "2d_plan" | "2d_section";
 export type CameraPreset = "front" | "side" | "top" | "iso";
@@ -96,6 +113,7 @@ interface ConfiguratorState {
   revisions: ProjectRevisionSnapshot[];
   batchStartProject: DesignProject | null;
   selectedModuleIds: string[];
+  selectedSceneObjectId: string | null;
 
   // Actions
   setUiMode: (mode: "simple" | "technical") => void;
@@ -151,6 +169,8 @@ interface ConfiguratorState {
 
   // Room, Wall, Obstacle & Floorplan Underlay (WP-06)
   setRoomDimensions: (mainWallLengthMm: number, ceilingHeightMm?: number) => void;
+  updateCeilingConfig: (patch: Partial<import("@birim/core").SpaceCeilingConfig>) => void;
+  setFacadeGrainContinuity: (enabled: boolean) => void;
   addWallSegment: (wall: {
     name?: string;
     length: number;
@@ -204,9 +224,33 @@ interface ConfiguratorState {
 
   // Production approval
   approveProduction: () => { success: boolean; message: string };
+  applyApprovedEngineeringFix: (proposal: RemediationProposal) => void;
 
   // Smart advisor
   applySmartSpan: (spanWidth: number) => void;
+
+  // V5 Multi-Module, Fit-to-Gap, SceneObjects, Auto-Fillers & LiDAR Actions
+  setSelectedSceneObjectId: (id: string | null) => void;
+  appendModuleWithMultiWallSnap: (
+    templateId: string,
+    opts?: { wallId?: string; worldX?: number; worldZ?: number; insertBetween?: boolean }
+  ) => ModuleInstance | null;
+  fillWallGapWithParametricModule: (gap: WallFreeGapSlot, templateId?: string) => void;
+  addCompositeAssemblyPreset: (presetId: string) => void;
+  saveActiveModuleAsCustomTemplate: (name: string, familyId: import("@birim/core").ModuleFamilyId) => string;
+  deleteCustomModuleTemplate: (templateId: string) => void;
+  addSceneObjectFromCatalog: (
+    catalogId: string,
+    cursorWorld?: { x: number; z: number }
+  ) => SceneObjectInstance | null;
+  addCustomSceneObject: (obj: SceneObjectInstance) => void;
+  updateSceneObject: (id: string, patch: Partial<SceneObjectInstance>) => void;
+  duplicateSceneObject: (id: string) => void;
+  removeSceneObject: (id: string) => void;
+  runAutoFillersAndCrown: () => { count: number; notes: string[] };
+  runAutoNotchObstacles: () => { count: number; notes: string[] };
+  importRoomPlanLiDARJson: (rawJson: string) => { ok: boolean; summary: string };
+  setModuleOffsetFromLeftWall: (moduleId: string, newOffsetXMm: number) => void;
 
   // History & Templates
   undo: () => void;
@@ -246,6 +290,8 @@ function cloneProject(project: DesignProject): DesignProject {
         ? structuredClone(project.space.floorPlanUnderlay)
         : undefined,
     },
+    sceneObjects: (project.sceneObjects || []).map((so) => structuredClone(so)),
+    customModuleTemplates: (project.customModuleTemplates || []).map((ct) => structuredClone(ct)),
     modules: project.modules.map((m) => ({
       ...m,
       dimensions: { ...m.dimensions },
@@ -301,7 +347,7 @@ function scheduleBackgroundStoreNesting(project: DesignProject, bom: Manufacturi
         const refreshedBom = { ...latest.bom, nestingResults: workerSheets };
         useConfiguratorStore.setState({
           bom: refreshedBom,
-          pricing: calculateProjectPrice(refreshedBom),
+          pricing: calculateProjectPrice(refreshedBom, undefined, undefined, latest.project.sceneObjects || []),
         });
       }
     });
@@ -311,10 +357,22 @@ function scheduleBackgroundStoreNesting(project: DesignProject, bom: Manufacturi
 function recompute(project: DesignProject, options?: { syncInitial?: boolean }) {
   const validationIssues = validateProject(project);
   const compat = evaluateProjectCompatibility(project);
+  const unifiedEng = evaluateUnifiedEngineeringModel(project);
   project.verificationSnapshot = {
-    overallStatus: compat.overallStatus,
-    canApproveProduction: compat.canApproveProduction,
-    unverifiedCount: compat.evidenceMatrix.unverifiedPartOrOpCount,
+    overallStatus: !unifiedEng.canExportToCncAndSaw
+      ? "INCOMPATIBLE"
+      : !unifiedEng.canApproveFinalErpRelease
+      ? "UNVERIFIED"
+      : compat.overallStatus,
+    canApproveProduction:
+      compat.canApproveProduction &&
+      unifiedEng.canExportToCncAndSaw &&
+      unifiedEng.canApproveFinalErpRelease,
+    unverifiedCount:
+      Math.max(
+      compat.evidenceMatrix.unverifiedPartOrOpCount,
+      unifiedEng.verificationRequiredFindings.length
+    ),
     evaluatedAt: compat.evidenceMatrix.evaluatedAt,
   };
   // SSR Hydration Determinism: initial store boot runs synchronous nesting on BOTH server & client
@@ -322,7 +380,7 @@ function recompute(project: DesignProject, options?: { syncInitial?: boolean }) 
   // Subsequent interactive mutations in the browser offload nesting to the background Web Worker.
   const skipNesting = Boolean(!options?.syncInitial && typeof window !== "undefined");
   const bom = generateBOMForProject(project, undefined, { skipSyncNesting: skipNesting });
-  const pricing = calculateProjectPrice(bom);
+  const pricing = calculateProjectPrice(bom, undefined, undefined, project.sceneObjects || []);
   const activeMod = project.modules[0] || createDefaultWardrobeModule();
   const smartAdvice = analyzeAndAdviseSpan(activeMod.dimensions.width, activeMod.dimensions.height);
   if (skipNesting) {
@@ -364,6 +422,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   revisions: [],
   batchStartProject: null,
   selectedModuleIds: initialProj.modules[0] ? [initialProj.modules[0].id] : [],
+  selectedSceneObjectId: null,
 
   setUiMode: (uiMode) =>
     set({
@@ -1378,21 +1437,38 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     }
   },
 
+  applyApprovedEngineeringFix: (proposal) => {
+    const { project, history, batchStartProject } = get();
+    const updated = applyApprovedRemediationProposal(project, proposal);
+    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    set({
+      project: updated,
+      autoSaveStatus: "unsaved",
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+    });
+  },
+
   approveProduction: () => {
-    const { project, validationIssues } = get();
-    const blockingErrors = validationIssues.filter((i) => i.blockingProduction || i.severity === "error");
-    if (blockingErrors.length > 0) {
+    const { project } = get();
+    const unified = evaluateUnifiedEngineeringModel(project);
+    if (!unified.canExportToCncAndSaw) {
+      const firstErr = unified.blockingSafetyAndEngineeringErrors[0];
       return {
         success: false,
-        message: `Üretim onayı verilemez: ${blockingErrors.length} adet kritik mühendislik hatası mevcut.`,
+        message: `Üretim onayı verilemez (${unified.blockingSafetyAndEngineeringErrors.length} kritik engel): [${firstErr?.code || "HATA"}] ${firstErr?.message || ""}`,
       };
     }
 
     const v4Compat = evaluateProjectCompatibility(project);
-    if (!v4Compat.canApproveProduction) {
+    if (!v4Compat.canApproveProduction || !unified.canApproveFinalErpRelease) {
       return {
         success: false,
-        message: `Üretim kontrolü tamamlanmadı (${v4Compat.overallStatus === "UNVERIFIED" ? "Saha/Fabrika Onayı Bekliyor" : v4Compat.overallStatus}): Doğrulanmamış kuralları ve üretime etkisini görmek için Üretim Kontrolü panelini açın.`,
+        message: `Üretim kontrolü tamamlanmadı (${v4Compat.overallStatus === "UNVERIFIED" || !unified.canApproveFinalErpRelease ? "Saha/Fabrika Onayı Bekliyor" : v4Compat.overallStatus}): Doğrulanmamış kuralları ve üretime etkisini görmek için Üretim Kontrolü panelini açın.`,
       };
     }
 
@@ -1443,6 +1519,425 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       });
       return;
     }
+    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    set({
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      project: updated,
+      autoSaveStatus: "unsaved",
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+    });
+  },
+
+  setSelectedSceneObjectId: (selectedSceneObjectId) => set({ selectedSceneObjectId }),
+
+  appendModuleWithMultiWallSnap: (templateId, opts) => {
+    const { project, history, batchStartProject } = get();
+    const updated = cloneProject(project);
+    const solved = computeMultiWallModuleSnap(updated, templateId, {
+      wallId: opts?.wallId,
+      worldX: opts?.worldX,
+      worldZ: opts?.worldZ,
+      insertBetween: opts?.insertBetween,
+    });
+    if (!solved) return null;
+
+    if (solved.snap.insertBetweenShift) {
+      const sh = solved.snap.insertBetweenShift;
+      const targetWall = updated.space.walls.find((w) => w.id === sh.wallId) || updated.space.walls[0];
+      const rad = ((targetWall?.rotationY || 0) * Math.PI) / 180;
+      const tx = Math.cos(rad);
+      const tz = Math.sin(rad);
+      updated.modules.forEach((m) => {
+        if (m.category === "complementary" || m.category === "kitchen_island") return;
+        const along = (m.position.x - (targetWall?.position.x || 0)) * tx + (m.position.z - (targetWall?.position.z || 0)) * tz;
+        if (along >= sh.fromAlongMm - 5) {
+          m.position.x = Math.round(m.position.x + tx * sh.shiftDeltaMm);
+          m.position.z = Math.round(m.position.z + tz * sh.shiftDeltaMm);
+        }
+      });
+    }
+
+    updated.modules.push(solved.moduleInstance);
+    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    set({
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      project: updated,
+      activeModuleIndex: updated.modules.length - 1,
+      selectedModuleIds: [solved.moduleInstance.id],
+      selectedSceneObjectId: null,
+      autoSaveStatus: "unsaved",
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+    });
+    return solved.moduleInstance;
+  },
+
+  fillWallGapWithParametricModule: (gap, templateId) => {
+    const { project, history, batchStartProject } = get();
+    const updated = cloneProject(project);
+    const refMod = updated.modules.find((m) => m.category !== "complementary") || createDefaultWardrobeModule();
+
+    if (gap.widthMm <= 180) {
+      // Narrow gap -> insert exact wall filler panel
+      const fid = `mod_gap_filler_${Date.now()}`;
+      updated.modules.push({
+        id: fid,
+        name: `Boşluk Kör Paneli (${gap.widthMm}mm)`,
+        category: "complementary",
+        moduleFamilyId: "fam_complementary",
+        complementaryRole: "wall_filler",
+        isOpenFront: true,
+        isFixedWidth: true,
+        position: { x: gap.worldOriginX, y: gap.targetElevationY, z: gap.worldOriginZ },
+        rotation: { x: 0, y: gap.moduleRotationYDeg, z: 0 },
+        dimensions: { width: gap.widthMm, height: refMod.dimensions.height, depth: refMod.dimensions.depth },
+        carcass: { ...structuredClone(refMod.carcass), backPanelType: "none" },
+        bays: [{ index: 0, door: { id: `door_${fid}`, bayIndex: 0, type: "open", softClose: false }, shelves: [], hangingRails: [], drawers: [], specialFittings: [] }],
+      });
+    } else {
+      const tpl = templateId ? getV4TemplateById(templateId) : undefined;
+      const fitW = Math.min(2400, gap.widthMm);
+      const baseNew = tpl
+        ? tpl.createInstance(`mod_fit_${Date.now()}`)
+        : structuredClone(refMod);
+      baseNew.id = `mod_fit_${Date.now()}`;
+      baseNew.name = `Özel Boşluk Modülü (${fitW}mm)`;
+      baseNew.isFixedWidth = false;
+      baseNew.dimensions.width = fitW;
+      baseNew.position = { x: gap.worldOriginX, y: gap.targetElevationY, z: gap.worldOriginZ };
+      baseNew.rotation = { x: 0, y: gap.moduleRotationYDeg, z: 0 };
+      const idealBays = Math.max(1, Math.min(4, Math.round(fitW / 600)));
+      baseNew.bays = Array.from({ length: idealBays }, (_, bIdx) => ({
+        index: bIdx,
+        door: {
+          id: `door_${baseNew.id}_${bIdx}`,
+          bayIndex: bIdx,
+          type: idealBays === 1 && fitW > 620 ? "double" : bIdx % 2 === 0 ? "single_left" : "single_right",
+          softClose: true,
+        },
+        shelves: [
+          { id: `sh_${baseNew.id}_${bIdx}_0`, bayIndex: bIdx, elevationY: 380, isAdjustable: true },
+          { id: `sh_${baseNew.id}_${bIdx}_1`, bayIndex: bIdx, elevationY: 760, isAdjustable: true },
+        ],
+        hangingRails: [],
+        drawers: [],
+        specialFittings: [],
+      }));
+      updated.modules.push(baseNew);
+    }
+
+    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    set({
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      project: updated,
+      activeModuleIndex: updated.modules.length - 1,
+      autoSaveStatus: "unsaved",
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+    });
+  },
+
+  addCompositeAssemblyPreset: (presetId) => {
+    const preset = V5_COMPOSITE_ASSEMBLIES.find((p) => p.presetId === presetId);
+    if (!preset) return;
+    const { project, history, batchStartProject } = get();
+    const updated = cloneProject(project);
+    const maxRight = updated.modules
+      .filter((m) => m.category !== "complementary" && (m.rotation?.y || 0) === 0)
+      .reduce((mx, m) => Math.max(mx, m.position.x + m.dimensions.width), 0);
+    const built = preset.buildItems(maxRight > 0 ? maxRight + 50 : 0);
+    updated.modules.push(...built.modules);
+    updated.sceneObjects = [...(updated.sceneObjects || []), ...built.sceneObjects];
+
+    // Ensure main wall spans new total width
+    const neededWallLen = updated.modules.reduce((mx, m) => Math.max(mx, m.position.x + m.dimensions.width + 200), 3600);
+    if (updated.space.walls[0] && updated.space.walls[0].length < neededWallLen) {
+      updated.space.walls[0].length = neededWallLen;
+    }
+
+    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    set({
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      project: updated,
+      activeModuleIndex: Math.max(0, updated.modules.length - 1),
+      autoSaveStatus: "unsaved",
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+    });
+  },
+
+  saveActiveModuleAsCustomTemplate: (name, familyId) => {
+    const { project, activeModuleIndex } = get();
+    const updated = cloneProject(project);
+    const activeMod = updated.modules[activeModuleIndex] || updated.modules[0];
+    const tplId = `custom_tpl_${Date.now()}`;
+    const snap = structuredClone(activeMod);
+    snap.position = { x: 0, y: 0, z: 0 };
+    const rec: CustomModuleTemplateRecord = {
+      templateId: tplId,
+      name: name.trim() || activeMod.name,
+      description: `${activeMod.dimensions.width}×${activeMod.dimensions.height}×${activeMod.dimensions.depth}mm özel kayıtlı şablon`,
+      familyId,
+      category: activeMod.category,
+      createdAt: new Date().toISOString(),
+      baseDimensions: { ...activeMod.dimensions },
+      serializedModuleSnapshot: snap,
+    };
+    const merged = [rec, ...loadSavedCustomModuleTemplates().filter((x) => x.templateId !== tplId)];
+    persistCustomModuleTemplates(merged);
+    updated.customModuleTemplates = merged;
+    set({ project: updated, autoSaveStatus: "unsaved" });
+    return tplId;
+  },
+
+  deleteCustomModuleTemplate: (templateId) => {
+    const { project } = get();
+    const updated = cloneProject(project);
+    const nextList = (updated.customModuleTemplates || loadSavedCustomModuleTemplates()).filter(
+      (t) => t.templateId !== templateId
+    );
+    persistCustomModuleTemplates(nextList);
+    updated.customModuleTemplates = nextList;
+    set({ project: updated });
+  },
+
+  addSceneObjectFromCatalog: (catalogId, cursorWorld) => {
+    const { project, history, batchStartProject } = get();
+    const updated = cloneProject(project);
+    const solved = solveSceneObjectPlacementSnap(updated, catalogId, cursorWorld);
+    if (!solved) return null;
+    updated.sceneObjects = [...(updated.sceneObjects || []), solved.object];
+    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    set({
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      project: updated,
+      selectedSceneObjectId: solved.object.id,
+      autoSaveStatus: "unsaved",
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+    });
+    return solved.object;
+  },
+
+  addCustomSceneObject: (obj) => {
+    const { project, history, batchStartProject } = get();
+    const updated = cloneProject(project);
+    const solved = solveSceneObjectPlacementSnap(updated, obj) || { object: obj };
+    updated.sceneObjects = [...(updated.sceneObjects || []), solved.object];
+    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    set({
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      project: updated,
+      selectedSceneObjectId: solved.object.id,
+      autoSaveStatus: "unsaved",
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+    });
+  },
+
+  updateSceneObject: (id, patch) => {
+    const { project, history, batchStartProject } = get();
+    const updated = cloneProject(project);
+    updated.sceneObjects = (updated.sceneObjects || []).map((so) =>
+      so.id === id
+        ? {
+            ...so,
+            ...patch,
+            position: patch.position ? { ...so.position, ...patch.position } : so.position,
+            rotation: patch.rotation ? { ...so.rotation, ...patch.rotation } : so.rotation,
+            dimensions: patch.dimensions ? { ...so.dimensions, ...patch.dimensions } : so.dimensions,
+          }
+        : so
+    );
+    if (batchStartProject) {
+      set({ project: updated, autoSaveStatus: "unsaved" });
+      return;
+    }
+    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    set({
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      project: updated,
+      autoSaveStatus: "unsaved",
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+    });
+  },
+
+  duplicateSceneObject: (id) => {
+    const { project, history, batchStartProject } = get();
+    const target = (project.sceneObjects || []).find((o) => o.id === id);
+    if (!target) return;
+    const updated = cloneProject(project);
+    const copy = structuredClone(target);
+    copy.id = `sobj_copy_${Date.now()}`;
+    copy.name = `${target.name} (Kopya)`;
+    copy.position.x += Math.min(600, target.dimensions.width + 60);
+    updated.sceneObjects = [...(updated.sceneObjects || []), copy];
+    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    set({
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      project: updated,
+      selectedSceneObjectId: copy.id,
+      autoSaveStatus: "unsaved",
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+    });
+  },
+
+  removeSceneObject: (id) => {
+    const { project, history, batchStartProject, selectedSceneObjectId } = get();
+    const updated = cloneProject(project);
+    updated.sceneObjects = (updated.sceneObjects || []).filter((o) => o.id !== id);
+    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    set({
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      project: updated,
+      selectedSceneObjectId: selectedSceneObjectId === id ? null : selectedSceneObjectId,
+      autoSaveStatus: "unsaved",
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+    });
+  },
+
+  runAutoFillersAndCrown: () => {
+    const { project, history, batchStartProject } = get();
+    const updated = cloneProject(project);
+    const { addedModules, summaryNotes } = computeAutoFillersAndTrimForProject(updated);
+    const cleaned = updated.modules.filter(
+      (m) =>
+        !m.id.startsWith("mod_autofiller_") &&
+        !m.id.startsWith("mod_autotop_") &&
+        !m.id.startsWith("mod_autovalance_")
+    );
+    updated.modules = [...cleaned, ...addedModules];
+    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    set({
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      project: updated,
+      autoSaveStatus: "unsaved",
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+    });
+    return { count: addedModules.length, notes: summaryNotes };
+  },
+
+  runAutoNotchObstacles: () => {
+    const { project, history, batchStartProject } = get();
+    const updated = cloneProject(project);
+    const { updatedModules, appliedNotches } = autoNotchModulesAroundObstacles(updated);
+    updated.modules = updatedModules;
+    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    set({
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      project: updated,
+      autoSaveStatus: "unsaved",
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+    });
+    return { count: appliedNotches.length, notes: appliedNotches };
+  },
+
+  importRoomPlanLiDARJson: (rawJson) => {
+    try {
+      const parsed = parseRoomPlanScanJson(rawJson);
+      const { project, history, batchStartProject } = get();
+      const updated = cloneProject(project);
+      updated.space.walls = parsed.walls;
+      updated.space.ceilingHeight = parsed.ceilingHeightMm;
+      updated.space.elements = parsed.elements;
+
+      const mappedObjs: SceneObjectInstance[] = [];
+      for (const det of parsed.detectedAppliances) {
+        const lower = det.category.toLowerCase();
+        const catId = lower.includes("refrigerator")
+          ? "obj_fridge_french_910"
+          : lower.includes("stove") || lower.includes("oven")
+          ? "obj_cooktop_ind_600"
+          : lower.includes("dishwasher")
+          ? "obj_dishwasher_600"
+          : lower.includes("sink")
+          ? "obj_sink_undermount_550"
+          : lower.includes("sofa")
+          ? "obj_birim_modular_sofa_2400"
+          : lower.includes("table")
+          ? "obj_birim_dining_table_1800"
+          : lower.includes("television")
+          ? "obj_wall_tv_65"
+          : null;
+        if (catId) {
+          const inst = createSceneObjectInstanceFromCatalog(catId, {
+            position: { x: det.xMm, y: 0, z: det.zMm },
+          });
+          if (inst) mappedObjs.push(inst);
+        }
+      }
+      if (mappedObjs.length > 0) {
+        updated.sceneObjects = [...(updated.sceneObjects || []), ...mappedObjs];
+      }
+
+      const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+      set({
+        history: nextHistory(history, project, batchStartProject),
+        future: [],
+        project: updated,
+        autoSaveStatus: "unsaved",
+        validationIssues,
+        bom,
+        pricing,
+        smartAdvice,
+      });
+      return {
+        ok: true,
+        summary: `LiDAR RoomPlan aktarıldı: ${parsed.walls.length} duvar, ${parsed.elements.length} kapı/pencere, ${mappedObjs.length} cihaz (Tavan: ${parsed.ceilingHeightMm}mm).`,
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        summary: err instanceof Error ? `RoomPlan JSON hatası: ${err.message}` : "Geçersiz JSON",
+      };
+    }
+  },
+
+  setModuleOffsetFromLeftWall: (moduleId, newOffsetXMm) => {
+    const { project, history, batchStartProject } = get();
+    const updated = cloneProject(project);
+    const mod = updated.modules.find((m) => m.id === moduleId);
+    if (!mod) return;
+    mod.position.x = Math.max(0, Math.round(newOffsetXMm));
     const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
@@ -1732,6 +2227,54 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       project: updated,
       activeModuleIndex: 0,
       selectedModuleIds: remaining[0] ? [remaining[0].id] : [],
+      autoSaveStatus: "unsaved",
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+    });
+  },
+
+  updateCeilingConfig: (patch) => {
+    const { project, history, batchStartProject } = get();
+    const updated = cloneProject(project);
+    const prev = updated.space.ceilingConfig || {
+      enabled: false,
+      ceilingType: "flat_plaster" as const,
+      showIn3D: true,
+      showInElevation2D: true,
+    };
+    updated.space.ceilingConfig = {
+      ...prev,
+      ...patch,
+    };
+    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    set({
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      project: updated,
+      autoSaveStatus: "unsaved",
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+    });
+  },
+
+  setFacadeGrainContinuity: (enabled) => {
+    const { project, history, batchStartProject } = get();
+    const updated = cloneProject(project);
+    updated.facadeGrainContinuity = Boolean(enabled);
+    if (enabled) {
+      updated.modules.forEach((m) => {
+        m.carcass.grainContinuityMode = "facade_continuous";
+      });
+    }
+    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    set({
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      project: updated,
       autoSaveStatus: "unsaved",
       validationIssues,
       bom,

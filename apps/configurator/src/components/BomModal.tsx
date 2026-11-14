@@ -13,7 +13,7 @@ import {
   ShieldAlert,
   ShieldCheck,
 } from "lucide-react";
-import { DEFAULT_MATERIALS } from "@birim/core";
+import { DEFAULT_MATERIALS, evaluateUnifiedEngineeringModel, type RemediationProposal } from "@birim/core";
 import { BirimLogo } from "../v3/design-system";
 import { startZeroLagModalDrag } from "../v3/design-system/zeroLagDrag";
 import {
@@ -35,6 +35,7 @@ import {
   generateBlumBxfXml,
   calculateBlumEngineeringSummary,
   generateProjectCncPostProcessorBundle,
+  mapCutPieceToCncPieceInput,
   type CncPieceInput,
   CutPiece,
 } from "@birim/manufacturing";
@@ -89,7 +90,7 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
 
   const erpNestingBundle = React.useMemo(() => {
     if (!isOpen) return null;
-    const matMap = new Map(DEFAULT_MATERIALS.map((m) => [m.id, m]));
+    const matMap = new Map([...DEFAULT_MATERIALS, ...(project.customMaterials || [])].map((m) => [m.id, m]));
     return buildBirimErpNestingBundle(project, bom, matMap, {
       organizationId: project.branchId || "org_birim_fabrika",
       orderRef: `${project.id}_v${project.version}`,
@@ -207,7 +208,28 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
   };
 
 
+  const engGate = evaluateUnifiedEngineeringModel(project);
+
+  const checkGateBeforeProductionExport = (formatLabel: string): boolean => {
+    if (!engGate.canExportToCncAndSaw) {
+      const firstErr = engGate.blockingSafetyAndEngineeringErrors[0];
+      setExportStatusBanner(
+        `ÜRETİM KİLİTLİ (${formatLabel}): [${firstErr?.code || "ENGEL"}] ${
+          firstErr?.message || "Kritik mühendislik/güvenlik hatasını çözmeden üretim dosyası indirilemez."
+        }`
+      );
+      return false;
+    }
+    return true;
+  };
+
+  const handleApplyApprovedFixInModal = (proposal: RemediationProposal) => {
+    useConfiguratorStore.getState().applyApprovedEngineeringFix(proposal);
+    setExportStatusBanner(`Onaylı düzeltme uygulandı (BOM & Fiyat güncellendi): ${proposal.label}`);
+  };
+
   const downloadCamZipArchive = () => {
+    if (!checkGateBeforeProductionExport("CAM ZIP")) return;
     const zipBytes = exportIndustrialCamZipArchive(project, bom);
     const blob = new Blob([zipBytes], { type: "application/zip" });
     const url = URL.createObjectURL(blob);
@@ -225,7 +247,8 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
   };
 
   const downloadOptiCutCsv = () => {
-    const matMap = new Map(DEFAULT_MATERIALS.map((m) => [m.id, m]));
+    if (!checkGateBeforeProductionExport("OptiCut CSV")) return;
+    const matMap = new Map([...DEFAULT_MATERIALS, ...(project.customMaterials || [])].map((m) => [m.id, m]));
     const csvOut = exportOptiCutCutListCsv(bom, matMap);
     downloadFile(
       csvOut,
@@ -253,7 +276,8 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
   };
 
   const downloadThermalLabelsHtml = () => {
-    const matMap = new Map(DEFAULT_MATERIALS.map((m) => [m.id, m]));
+    if (!checkGateBeforeProductionExport("Termal Etiket HTML")) return;
+    const matMap = new Map([...DEFAULT_MATERIALS, ...(project.customMaterials || [])].map((m) => [m.id, m]));
     const htmlOut = generateThermalPartLabelsHtml(project, bom);
     downloadFile(
       htmlOut,
@@ -263,6 +287,7 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
   };
 
   const downloadThermalLabelsZpl = () => {
+    if (!checkGateBeforeProductionExport("Zebra ZPL Etiket")) return;
     const zplOut = generateThermalPartLabelsZpl(project, bom);
     downloadFile(
       zplOut,
@@ -281,6 +306,7 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
   };
 
   const downloadBlumBxf = () => {
+    if (!checkGateBeforeProductionExport("Blum BXF XML")) return;
     const xmlOut = blumBxfXml || generateBlumBxfXml(project, bom);
     downloadFile(
       xmlOut,
@@ -290,6 +316,7 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
   };
 
   const downloadErpNestingJson = () => {
+    if (!checkGateBeforeProductionExport("ERP Nesting JSON")) return;
     if (!erpNestingBundle) return;
     downloadFile(
       JSON.stringify(erpNestingBundle, null, 2),
@@ -299,6 +326,7 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
   };
 
   const downloadErpSelcoCsv = () => {
+    if (!checkGateBeforeProductionExport("ERP Selco CSV")) return;
     if (!erpNestingBundle) return;
     downloadFile(
       erpNestingBundle.combined_selco_csv,
@@ -308,6 +336,7 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
   };
 
   const downloadErpCncGCode = () => {
+    if (!checkGateBeforeProductionExport("ERP CNC G-Code")) return;
     if (!erpNestingBundle) return;
     downloadFile(
       erpNestingBundle.combined_cnc_gcode,
@@ -325,6 +354,7 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
   };
 
   const downloadCsv = () => {
+    if (!checkGateBeforeProductionExport("Kesim CSV")) return;
     const csvContent = exportCutListToCSV(bom);
     downloadFile(
       csvContent,
@@ -334,6 +364,7 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
   };
 
   const downloadPieceDXF = (piece: CutPiece) => {
+    if (!checkGateBeforeProductionExport(`Tekil Parça DXF (${piece.id})`)) return;
     const dxfContent = generatePanelDXF(piece);
     downloadFile(dxfContent, `${piece.id}.dxf`, "application/dxf;charset=utf-8");
   };
@@ -345,6 +376,7 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
   };
 
   const downloadAllPanelsDXF = () => {
+    if (!checkGateBeforeProductionExport("Tüm Paneller DXF")) return;
     if (!bom.cutList.length) return;
     const dxfContent = exportAllPanelsDXF(bom);
     downloadFile(
@@ -355,6 +387,7 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
   };
 
   const downloadNestingSheetsDXF = () => {
+    if (!checkGateBeforeProductionExport("Plaka Nesting DXF")) return;
     const dxfContent = exportNestingSheetsDXF(bom);
     downloadFile(
       dxfContent,
@@ -383,7 +416,7 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
           className="flex flex-wrap items-center justify-between gap-2 px-5 py-3.5 bg-slate-950/45 backdrop-blur-xl border-b border-white/15 cursor-grab active:cursor-grabbing select-none"
         >
           <div>
-            <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
+            <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2 flex-wrap">
               <span>BOM & İmalat Mühendisliği Portalı</span>
               <span className="text-xs px-2 py-0.5 rounded bg-amber-500/20 text-amber-400 font-mono">
                 v{project.version} (
@@ -395,6 +428,61 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
                 </span>
               )}
             </h2>
+            {!engGate.canExportToCncAndSaw && (
+              <div className="mt-2.5 p-3 rounded-xl bg-red-950/60 border border-red-700/70 text-xs text-red-200 space-y-2">
+                <div className="font-bold text-red-300">
+                  Üretim Onay Kapısı Kilitli — {engGate.blockingSafetyAndEngineeringErrors.length} Kritik Mühendislik / Güvenlik Engeli
+                </div>
+                {engGate.blockingSafetyAndEngineeringErrors.slice(0, 3).map((err) => (
+                  <div key={`${err.code}_${err.targetId}`} className="p-2 rounded bg-slate-950/70 border border-red-900/60 space-y-1.5">
+                    <div>
+                      <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-red-900/80 text-red-200 mr-1.5">
+                        {err.ruleNature === "MANDATORY_SAFETY" ? "ZORUNLU GÜVENLİK" : "MÜHENDİSLİK"} • {err.code}
+                      </span>
+                      <span>{err.message}</span>
+                    </div>
+                    {err.remediationProposals && err.remediationProposals.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 pt-0.5">
+                        {err.remediationProposals.map((prop) => (
+                          <button
+                            key={prop.id}
+                            type="button"
+                            onClick={() => handleApplyApprovedFixInModal(prop)}
+                            className="px-2.5 py-1 rounded bg-emerald-700 hover:bg-emerald-600 text-white font-semibold text-[11px] cursor-pointer transition"
+                          >
+                            Onayla ve Uygula: {prop.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            {engGate.canExportToCncAndSaw && engGate.verificationRequiredFindings.some((f) => f.remediationProposals?.length) && (
+              <div className="mt-2 p-2.5 rounded-xl bg-amber-950/50 border border-amber-700/60 text-xs text-amber-200 space-y-1.5">
+                {engGate.verificationRequiredFindings
+                  .filter((f) => f.remediationProposals?.length)
+                  .slice(0, 2)
+                  .map((vf) => (
+                    <div key={`${vf.code}_${vf.targetId}`} className="flex flex-wrap items-center justify-between gap-2">
+                      <span>[{vf.code}] {vf.message}</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {vf.remediationProposals!.map((prop) => (
+                          <button
+                            key={prop.id}
+                            type="button"
+                            onClick={() => handleApplyApprovedFixInModal(prop)}
+                            className="px-2.5 py-1 rounded bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold text-[11px] cursor-pointer transition"
+                          >
+                            {prop.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            )}
             <p className="text-xs text-slate-400">
               Parametrik modelden türetilmiş bitmiş & bant düşümlü net kesim, System 32 delik
               operasyonları, 2D giyotin plaka yerleşimi ve sehim doğrulaması
@@ -1805,54 +1893,24 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
             </div>
           )}
           {activeTab === "cnc_mpr_cix" && (() => {
-            const cncInputs: CncPieceInput[] = bom.cutList.map((cp) => ({
-              id: cp.id,
-              moduleId: cp.moduleId,
-              moduleName: cp.moduleName,
-              partRole: cp.componentRole,
-              pieceName: cp.pieceName,
-              thicknessMm: cp.thicknessMm,
-              lengthMm: cp.lengthMm,
-              widthMm: cp.widthMm,
-              netCutLengthMm: cp.netCutLengthMm,
-              netCutWidthMm: cp.netCutWidthMm,
-              mirrorInnerFaceX: cp.mirrorInnerFaceX,
-              hasBackGroove: cp.hasBackGroove,
-              backGrooveOffsetMm: cp.backGrooveOffsetMm,
-              hasSinkOrHobCutout: cp.hasSinkOrHobCutout,
-              cutoutWidthMm: cp.cutoutWidthMm,
-              cutoutDepthMm: cp.cutoutDepthMm,
-              utilityCutouts: cp.utilityCutouts,
-              drillingOperations: (cp.holes || []).map((h) => ({
-                x: h.x,
-                y: h.y,
-                diameter: h.diameter,
-                depth: h.depth,
-                face:
-                  h.direction === "face_back"
-                    ? "bottom"
-                    : h.direction.startsWith("edge_")
-                    ? (h.direction as CncPieceInput["drillingOperations"][number]["face"])
-                    : "top",
-                type: h.purpose || "drill",
-              })),
-            }));
+            const cncInputs: CncPieceInput[] = bom.cutList.map((cp) => mapCutPieceToCncPieceInput(cp));
             const bundle = generateProjectCncPostProcessorBundle(cncInputs);
             return (
               <div className="space-y-4 text-xs text-slate-200">
                 <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-xl bg-slate-950 border border-slate-800">
                   <div>
                     <h3 className="text-sm font-bold text-white">
-                      Homag WoodWOP 5.0 (.MPR) &amp; BiesseWorks (.CIX) Çift Yüzeyli CNC Çıktısı
+                      Homag WoodWOP (.MPR), BiesseWorks (.CIX) &amp; SCM Maestro (.XCS) Çift Yüzeyli CNC Çıktısı
                     </h3>
                     <p className="text-slate-400 mt-0.5">
                       Ara dikme gibi çift yüzeyli parçalar otomatik olarak Setup-1 (Üst) ve Setup-2 (X-Simetrik Flip) programlarına ayrılır.
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
                       onClick={() => {
+                        if (!checkGateBeforeProductionExport("Homag .MPR")) return;
                         const allMpr = bundle.homagMprFiles
                           .map((f) => `; === ${f.fileName} ===\r\n${f.content}`)
                           .join("\r\n\r\n");
@@ -1860,11 +1918,12 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
                       }}
                       className="px-3.5 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold cursor-pointer"
                     >
-                      Homag .MPR Paketi İndir ({bundle.homagMprFiles.length})
+                      Homag .MPR İndir ({bundle.homagMprFiles.length})
                     </button>
                     <button
                       type="button"
                       onClick={() => {
+                        if (!checkGateBeforeProductionExport("Biesse .CIX")) return;
                         const allCix = bundle.biesseCixFiles
                           .map((f) => `// === ${f.fileName} ===\r\n${f.content}`)
                           .join("\r\n\r\n");
@@ -1872,15 +1931,28 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
                       }}
                       className="px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold cursor-pointer"
                     >
-                      Biesse .CIX Paketi İndir ({bundle.biesseCixFiles.length})
+                      Biesse .CIX İndir ({bundle.biesseCixFiles.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!checkGateBeforeProductionExport("SCM Maestro .XCS")) return;
+                        const allXcs = bundle.scmXcsFiles
+                          .map((f) => `// === ${f.fileName} ===\r\n${f.content}`)
+                          .join("\r\n\r\n");
+                        downloadFile(allXcs, `SCM_Maestro_${project.id}_v${project.version}.xcs`, "text/plain;charset=utf-8");
+                      }}
+                      className="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold cursor-pointer"
+                    >
+                      SCM .XCS İndir ({bundle.scmXcsFiles.length})
                     </button>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                   <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
                     <div className="font-bold text-amber-400 mb-2">
-                      Örnek Homag .MPR Önizleme ({bundle.homagMprFiles[0]?.fileName || "-"})
+                      Örnek Homag .MPR ({bundle.homagMprFiles[0]?.fileName || "-"})
                     </div>
                     <pre className="max-h-80 overflow-auto text-[11px] font-mono text-slate-300 whitespace-pre-wrap">
                       {bundle.homagMprFiles[0]?.content || "Parça yok"}
@@ -1888,10 +1960,18 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
                   </div>
                   <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
                     <div className="font-bold text-blue-400 mb-2">
-                      Örnek Biesse .CIX Önizleme ({bundle.biesseCixFiles[0]?.fileName || "-"})
+                      Örnek Biesse .CIX ({bundle.biesseCixFiles[0]?.fileName || "-"})
                     </div>
                     <pre className="max-h-80 overflow-auto text-[11px] font-mono text-slate-300 whitespace-pre-wrap">
                       {bundle.biesseCixFiles[0]?.content || "Parça yok"}
+                    </pre>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
+                    <div className="font-bold text-emerald-400 mb-2">
+                      Örnek SCM Maestro .XCS ({bundle.scmXcsFiles[0]?.fileName || "-"})
+                    </div>
+                    <pre className="max-h-80 overflow-auto text-[11px] font-mono text-slate-300 whitespace-pre-wrap">
+                      {bundle.scmXcsFiles[0]?.content || "Parça yok"}
                     </pre>
                   </div>
                 </div>

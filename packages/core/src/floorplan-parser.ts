@@ -216,3 +216,138 @@ export function convertUnderlayPolylinesToWalls(
 
   return walls;
 }
+
+export interface RoomPlanImportResult {
+  walls: WallDefinition[];
+  elements: import("./types").ArchitecturalElement[];
+  ceilingHeightMm: number;
+  detectedAppliances: { category: string; widthMm: number; heightMm: number; depthMm: number; xMm: number; zMm: number }[];
+}
+
+/**
+ * Parses Apple RoomPlan / LiDAR 3D JSON scans (`walls`, `doors`, `windows`, `objects` in meters
+ * with 16-float column-major 4x4 `transform` matrices) directly into Birim millimeter coordinates!
+ */
+export function parseRoomPlanScanJson(rawJsonText: string): RoomPlanImportResult {
+  const data = JSON.parse(rawJsonText) as {
+    walls?: { identifier?: string; dimensions?: number[]; transform?: number[] }[];
+    doors?: { identifier?: string; dimensions?: number[]; transform?: number[] }[];
+    windows?: { identifier?: string; dimensions?: number[]; transform?: number[] }[];
+    objects?: { category?: string | Record<string, unknown>; dimensions?: number[]; transform?: number[] }[];
+  };
+
+  const extractPose = (dims?: number[], mat?: number[]) => {
+    const w = Math.max(150, Math.round((dims?.[0] ?? 1.0) * 1000));
+    const h = Math.max(150, Math.round((dims?.[1] ?? 2.6) * 1000));
+    const d = Math.max(80, Math.round((dims?.[2] ?? 0.15) * 1000));
+    const tx = Math.round((mat?.[12] ?? 0) * 1000);
+    const ty = Math.round((mat?.[13] ?? 0) * 1000);
+    const tz = Math.round((mat?.[14] ?? 0) * 1000);
+    const rotRad = mat && mat.length >= 11 ? Math.atan2(mat[2] || 0, mat[0] || 1) : 0;
+    const rotDeg = (((Math.round((rotRad * 180) / Math.PI) % 360) + 360) % 360);
+    return { w, h, d, tx, ty, tz, rotDeg };
+  };
+
+  const rawWalls = (data.walls || []).map((w, i) => {
+    const p = extractPose(w.dimensions, w.transform);
+    const rad = (p.rotDeg * Math.PI) / 180;
+    const startX = Math.round(p.tx - (Math.cos(rad) * p.w) / 2);
+    const startZ = Math.round(p.tz - (Math.sin(rad) * p.w) / 2);
+    return {
+      id: w.identifier || `wall_lidar_${i + 1}`,
+      name: `LiDAR Duvar ${i + 1}`,
+      length: p.w,
+      height: p.h,
+      thickness: Math.max(100, Math.min(400, p.d)),
+      position: { x: startX, y: 0, z: startZ },
+      rotationY: p.rotDeg,
+      elements: [] as import("./types").ArchitecturalElement[],
+    };
+  });
+
+  let minX = 0;
+  let minZ = 0;
+  if (rawWalls.length > 0) {
+    minX = Math.min(...rawWalls.map((w) => w.position.x));
+    minZ = Math.min(...rawWalls.map((w) => w.position.z));
+    rawWalls.forEach((w) => {
+      w.position.x -= minX;
+      w.position.z -= minZ;
+    });
+  }
+
+  const ceilingHeightMm =
+    rawWalls.length > 0
+      ? Math.max(2200, Math.min(4500, Math.round(rawWalls.reduce((s, w) => s + w.height, 0) / rawWalls.length)))
+      : 2600;
+
+  const elements: import("./types").ArchitecturalElement[] = [];
+  (data.doors || []).forEach((dr, idx) => {
+    const p = extractPose(dr.dimensions, dr.transform);
+    elements.push({
+      id: dr.identifier || `lidar_door_${idx + 1}`,
+      type: "door",
+      name: `LiDAR Kapı ${idx + 1}`,
+      position: { x: Math.max(0, p.tx - minX - Math.round(p.w / 2)), y: 0, z: Math.max(0, p.tz - minZ) },
+      dimensions: { width: p.w, height: Math.min(ceilingHeightMm - 100, p.h), depth: 150 },
+      rotationY: p.rotDeg,
+      doorSwing: "left",
+    });
+  });
+
+  (data.windows || []).forEach((wn, idx) => {
+    const p = extractPose(wn.dimensions, wn.transform);
+    elements.push({
+      id: wn.identifier || `lidar_win_${idx + 1}`,
+      type: "window",
+      name: `LiDAR Pencere ${idx + 1}`,
+      position: {
+        x: Math.max(0, p.tx - minX - Math.round(p.w / 2)),
+        y: Math.max(600, p.ty - Math.round(p.h / 2)),
+        z: Math.max(0, p.tz - minZ),
+      },
+      dimensions: { width: p.w, height: p.h, depth: 160 },
+      rotationY: p.rotDeg,
+    });
+  });
+
+  const detectedAppliances = (data.objects || []).map((obj) => {
+    const p = extractPose(obj.dimensions, obj.transform);
+    const catStr =
+      typeof obj.category === "string"
+        ? obj.category
+        : obj.category && typeof obj.category === "object"
+        ? Object.keys(obj.category)[0] || "object"
+        : "object";
+    return {
+      category: catStr,
+      widthMm: p.w,
+      heightMm: p.h,
+      depthMm: p.d,
+      xMm: Math.max(0, p.tx - minX - Math.round(p.w / 2)),
+      zMm: Math.max(0, p.tz - minZ - Math.round(p.d / 2)),
+    };
+  });
+
+  return {
+    walls:
+      rawWalls.length > 0
+        ? rawWalls
+        : [
+            {
+              id: "wall_lidar_1",
+              name: "LiDAR Ana Duvar",
+              length: 3600,
+              height: ceilingHeightMm,
+              thickness: 150,
+              position: { x: 0, y: 0, z: 0 },
+              rotationY: 0,
+              elements: [],
+            },
+          ],
+    elements,
+    ceilingHeightMm,
+    detectedAppliances,
+  };
+}
+

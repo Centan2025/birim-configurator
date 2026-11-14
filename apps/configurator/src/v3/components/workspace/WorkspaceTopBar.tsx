@@ -52,11 +52,13 @@ interface WorkspaceTopBarProps {
   onOpenStepWizard: () => void;
   onOpenQuickSell: () => void;
   onOpenBomModal: () => void;
+  onOpenStoreErpModal?: () => void;
   onOpenMepModal?: () => void;
   onOpenAssemblyModal?: () => void;
   onOpenStudioRenderModal?: () => void;
   onOpenCustomHardwareModal?: () => void;
   onOpenIslandTableModal?: () => void;
+  onOpenSceneHubModal?: () => void;
   onOpenVisualCatalog: () => void;
   onOpenArAnd3DModal?: () => void;
   onOpenRulesModal: () => void;
@@ -91,9 +93,11 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = ({
   onOpenStepWizard,
   onOpenQuickSell,
   onOpenBomModal,
+  onOpenStoreErpModal,
   onOpenMepModal,
   onOpenAssemblyModal,
   onOpenStudioRenderModal,
+  onOpenSceneHubModal,
   onOpenVisualCatalog,
   onOpenArAnd3DModal,
   onOpenRulesModal,
@@ -549,6 +553,19 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = ({
             <span className="birim-expand-label">Sunum</span>
           </button>
 
+          {onOpenSceneHubModal && (
+            <button
+              type="button"
+              data-testid="open-v5-scene-hub-btn"
+              onClick={onOpenSceneHubModal}
+              data-tooltip="Yeni Modül, Cihaz, Birim Mobilya, Özel .GLB Obje, Kör/Taç ve LiDAR RoomPlan Merkezi"
+              className="inline-flex h-8 rounded-2xl birim-expand-btn text-[#141413] bg-emerald-500/18 hover:bg-emerald-500/28 font-bold cursor-pointer"
+            >
+              <Box className="w-3.5 h-3.5 text-emerald-800 shrink-0" />
+              <span className="birim-expand-label">+ Modül &amp; Obje</span>
+            </button>
+          )}
+
           <button
             type="button"
             data-testid="open-bom-modal-btn"
@@ -561,6 +578,22 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = ({
             <FileSpreadsheet className="w-3.5 h-3.5 text-[#8C5A2B] shrink-0" />
             <span className="birim-expand-label">BOM &amp; CNC</span>
           </button>
+
+          {onOpenStoreErpModal && (
+            <button
+              type="button"
+              data-testid="open-store-erp-rpc-btn"
+              onClick={onOpenStoreErpModal}
+              data-tooltip="Canlı Birim-Store Teklif (saved_quotations) ve Birim-Portal ERP Nesting (NST-) Supabase RPC Köprüsü"
+              data-tooltip-badge="SUPABASE RPC"
+              className={`${
+                isCustomerMode ? "sr-only" : "inline-flex"
+              } h-8 rounded-2xl birim-expand-btn text-[#141413] bg-sky-500/15 hover:bg-sky-500/25 font-semibold cursor-pointer`}
+            >
+              <Factory className="w-3.5 h-3.5 text-sky-800 shrink-0" />
+              <span className="birim-expand-label">Store &amp; ERP</span>
+            </button>
+          )}
 
           <button
             type="button"

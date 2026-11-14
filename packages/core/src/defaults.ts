@@ -455,6 +455,7 @@ export function createDefaultWardrobeModule(id = "module_1"): ModuleInstance {
       bodyMaterialId: "mat_melamine_white",
       doorMaterialId: "mat_veneer_oak",
       jointType: "minifix_dowel",
+      grainContinuityMode: "module_4way",
     },
     isOpenFront: false,
     bays: [
@@ -551,4 +552,28 @@ export function createInitialProject(): DesignProject {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
+}
+
+/**
+ * Registers or updates a user-created custom surface/material (e.g. custom RAL/HEX lacquer
+ * or uploaded .JPG/.PNG wood/marble texture) inside `DEFAULT_MATERIALS` so 3D PBR, BOM,
+ * pricing, and customer PDFs immediately recognize it across the entire monorepo.
+ */
+export function registerRuntimeMaterial(mat: MaterialDefinition): MaterialDefinition {
+  const existingIdx = DEFAULT_MATERIALS.findIndex((m) => m.id === mat.id);
+  if (existingIdx >= 0) {
+    DEFAULT_MATERIALS[existingIdx] = { ...DEFAULT_MATERIALS[existingIdx], ...mat };
+    return DEFAULT_MATERIALS[existingIdx];
+  }
+  DEFAULT_MATERIALS.unshift(mat);
+  return mat;
+}
+
+export function syncProjectCustomMaterials(mats?: MaterialDefinition[] | null): void {
+  if (!Array.isArray(mats)) return;
+  for (const m of mats) {
+    if (m && typeof m.id === "string" && m.id.trim()) {
+      registerRuntimeMaterial(m);
+    }
+  }
 }

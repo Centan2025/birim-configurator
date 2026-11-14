@@ -1,3 +1,9 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const packagesDir = path.resolve(__dirname, "../../packages");
+
 /** @type {import("next").NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -7,6 +13,11 @@ const nextConfig = {
   },
   typescript: {
     ignoreBuildErrors: true,
+  },
+  experimental: {
+    // Ensures ../../packages/* resolved via tsconfig paths are ALWAYS compiled by next-swc-loader
+    // even if `npm install` was not re-run after adding @birim/integrations.
+    externalDir: true,
   },
   transpilePackages: [
     "@birim/core",
@@ -18,9 +29,18 @@ const nextConfig = {
   ],
   webpack: (config, { dev }) => {
     if (dev) {
-      // Prevents stale .next/cache/webpack 404s on main-app.js when extracting updated files on Windows
       config.cache = false;
     }
+    config.resolve = config.resolve || {};
+    config.resolve.alias = {
+      ...(config.resolve.alias || {}),
+      "@birim/core": path.join(packagesDir, "core/src/index.ts"),
+      "@birim/geometry": path.join(packagesDir, "geometry/src/index.ts"),
+      "@birim/catalog": path.join(packagesDir, "catalog/src/index.ts"),
+      "@birim/pricing": path.join(packagesDir, "pricing/src/index.ts"),
+      "@birim/manufacturing": path.join(packagesDir, "manufacturing/src/index.ts"),
+      "@birim/integrations": path.join(packagesDir, "integrations/src/index.ts"),
+    };
     return config;
   },
 };

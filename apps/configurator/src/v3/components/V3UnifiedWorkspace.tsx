@@ -1,4 +1,5 @@
 "use client";
+import { mapCutPieceToCncPieceInput } from "@birim/manufacturing";
 
 import React, { useState, useEffect, useCallback, useRef, useMemo, startTransition } from "react";
 import dynamic from "next/dynamic";
@@ -14,11 +15,17 @@ import {
   setActiveDraggedTemplateId,
 } from "../adapter/useV3Adapter";
 import {
-  DoorSystemId,
-  DoorOverlayType,
-  HandleCategory,
-  OpeningTechnology,
-  ModuleFamilyId,
+  type DoorSystemId,
+  type DoorOverlayType,
+  type HandleCategory,
+  type OpeningTechnology,
+  type ModuleFamilyId,
+  CEILING_TYPE_CATALOG,
+  resolveSpaceCeilingConfig,
+  resolveMultiHoleSpec,
+  MULTI_HOLE_MODE_CATALOG,
+  isPatternedMaterial,
+  GRAIN_CONTINUITY_CATALOG,
 } from "@birim/core";
 import {
   V3BrandBadge,
@@ -48,6 +55,11 @@ import { PanelCutoutInspector } from "./workspace/PanelCutoutInspector";
 import { GuidedWizardLivePreview } from "./workspace/GuidedWizardLivePreview";
 import { PresentationQuoteModal } from "./workspace/PresentationQuoteModal";
 import { MepCoordinationModal } from "./workspace/MepCoordinationModal";
+import { SceneObjectAndModuleHubModal } from "./workspace/SceneObjectAndModuleHubModal";
+import StoreErpModal from "../../components/StoreErpModal";
+import { Software3DFallbackViewport, Viewport3DErrorBoundary } from "./Software3DFallbackViewport";
+import { V5_SCENE_OBJECT_CATALOG } from "@birim/catalog";
+import { startSceneObjectSilhouetteDrag } from "../engine/multiWallSnapAndBvhEngine";
 import { decodeProjectFromShareHash } from "../utils/projectShareCodec";
 import type { ExportBoxPart } from "@birim/geometry";
 
@@ -874,6 +886,11 @@ export const V3UnifiedWorkspace: React.FC<{
     setCameraPreset,
     validationIssues,
     v4CompatibilityReport,
+    unifiedEngineeringReport,
+    ergonomicProfileId,
+    setErgonomicProfileId,
+    applyApprovedEngineeringFix,
+    regionalErgonomicProfiles,
     fourSpaceDimensions,
     spaceWalls,
     bom,
@@ -886,6 +903,8 @@ export const V3UnifiedWorkspace: React.FC<{
     setPlinthHeight,
     setPlinthMaterial,
     setDoorCrossSectionProfile: setModuleDoorCrossSection,
+    addCustomMaterialToProject,
+    addCustomCapsuleModule,
     setAdjustableLegsEnabled: setModuleAdjustableLegs,
     updateCarcassConfig,
     setSelectedComponentId,
@@ -899,6 +918,21 @@ export const V3UnifiedWorkspace: React.FC<{
     copyDoorConfigToAllBays,
     applyV4Template,
     dropV4TemplateWithSnap,
+    selectedSceneObjectId,
+    setSelectedSceneObjectId,
+    appendModuleWithMultiWallSnap,
+    fillWallGapWithParametricModule,
+    addCompositeAssemblyPreset,
+    saveActiveModuleAsCustomTemplate,
+    deleteCustomModuleTemplate,
+    addSceneObjectFromCatalog,
+    addCustomSceneObject,
+    updateSceneObject,
+    duplicateSceneObject,
+    removeSceneObject,
+    runAutoFillersAndCrown,
+    runAutoNotchObstacles,
+    importRoomPlanLiDARJson,
     applyWardrobeWizard,
     applyBayInteriorPreset,
     restoreModuleBaysSnapshot,
@@ -995,6 +1029,9 @@ export const V3UnifiedWorkspace: React.FC<{
     autoFixProjectIssues,
     spaceObstacles,
     addInteriorItemAtElevation,
+    explodedFactor,
+    updateCeilingConfig,
+    setFacadeGrainContinuity,
   } = useV3Adapter();
 
   const experienceTier = useConfiguratorStore((s) => s.userExperienceTier);
@@ -1089,6 +1126,14 @@ export const V3UnifiedWorkspace: React.FC<{
   >("active_bay");
   const [doorCompatWarningMsg, setDoorCompatWarningMsg] = useState<string | null>(null);
   const [customCadProfileName, setCustomCadProfileName] = useState<string | null>(null);
+  const [showNewSurfaceCreator, setShowNewSurfaceCreator] = useState<boolean>(false);
+  const [newSurfName, setNewSurfName] = useState<string>("Özel İtalyan Ceviz / RAL Lake");
+  const [newSurfCode, setNewSurfCode] = useState<string>("RAL-7016");
+  const [newSurfCat, setNewSurfCat] = useState<"lacquer" | "wood" | "laminate" | "stone" | "metal">("lacquer");
+  const [newSurfHex, setNewSurfHex] = useState<string>("#383E42");
+  const [newSurfRough, setNewSurfRough] = useState<number>(0.32);
+  const [newSurfCost, setNewSurfCost] = useState<number>(78);
+  const [newSurfTexUrl, setNewSurfTexUrl] = useState<string>("");
   const [customCadSvgPath, setCustomCadSvgPath] = useState<string | null>(null);
   const [showInspectorInPlan, setShowInspectorInPlan] = useState<boolean>(false);
   const [studioView, setStudioView] = useState<"3d" | "2d">("3d");
@@ -1102,11 +1147,14 @@ export const V3UnifiedWorkspace: React.FC<{
   const [showAdminModal, setShowAdminModal] = useState(false);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [isBomModalOpen, setIsBomModalOpen] = useState(false);
+  const [isStoreErpModalOpen, setIsStoreErpModalOpen] = useState(false);
   const [showAssemblyModal, setShowAssemblyModal] = useState(false);
   const [showStudioRenderModal, setShowStudioRenderModal] = useState(false);
   const [showCustomHardwareModal, setShowCustomHardwareModal] = useState(false);
   const [showIslandTableModal, setShowIslandTableModal] = useState(false);
   const [showMepModal, setShowMepModal] = useState(false);
+  const [showSceneHubModal, setShowSceneHubModal] = useState(false);
+  const [sceneHubInitialTab, setSceneHubInitialTab] = useState<"modules" | "appliances" | "furniture" | "custom_glb" | "automation">("modules");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2391,13 +2439,14 @@ export const V3UnifiedWorkspace: React.FC<{
           studioSplitView={studioSplitView}
           cncXrayMode={cncXrayMode}
           floating={mode !== "plan"}
+          onOpenSceneHubModal={() => { setSceneHubInitialTab("modules"); setShowSceneHubModal(true); }}
           onToggleStudioSplitView={toggleStudioSplitView}
           onToggleCncXrayMode={toggleCncXrayMode}
           experienceTier={experienceTier}
           leadTimeLabel={pricing.leadTime?.label}
           canUndo={canUndo}
           canRedo={canRedo}
-          canApproveProduction={v4CompatibilityReport.canApproveProduction}
+          canApproveProduction={v4CompatibilityReport.canApproveProduction && unifiedEngineeringReport.canExportToCncAndSaw && unifiedEngineeringReport.canApproveFinalErpRelease}
           humanCompatStatusLabel={humanCompatStatusLabel}
           onOpenProjectModal={() => setIsProjectModalOpen(true)}
           onOpenStepWizard={() => {
@@ -2406,6 +2455,7 @@ export const V3UnifiedWorkspace: React.FC<{
           }}
           onOpenQuickSell={() => setShowQuickSellModal(true)}
           onOpenBomModal={() => setIsBomModalOpen(true)}
+          onOpenStoreErpModal={() => setIsStoreErpModalOpen(true)}
           onOpenMepModal={() => setShowMepModal(true)}
           onOpenAssemblyModal={() => setShowAssemblyModal(true)}
           onOpenStudioRenderModal={() => setShowStudioRenderModal(true)}
@@ -3770,9 +3820,58 @@ export const V3UnifiedWorkspace: React.FC<{
                     >
                       🧲 Mıknatıslı Snap Aç / Kapat
                     </button>
-                    <div className="p-2.5 rounded-xl bg-white/80 border border-[#E2E8F0] space-y-1 text-[#334155]">
-                      <div className="flex justify-between"><span>Tavan Yüksekliği</span><span className="font-mono font-bold">{project.space.ceilingHeight} mm</span></div>
-                      <div className="flex justify-between"><span>Snap Adımı</span><span className="font-mono font-bold">{snapMm} mm</span></div>
+                    <div className="p-2.5 rounded-xl bg-white/80 border border-[#E2E8F0] space-y-2 text-[#334155]">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-[#111827]">Mimari Tavan Sistemi</span>
+                        <input
+                          type="checkbox"
+                          checked={Boolean(project.space.ceilingConfig?.enabled)}
+                          onChange={(e) =>
+                            updateCeilingConfig({
+                              enabled: e.target.checked,
+                              showIn3D: true,
+                              showInElevation2D: true,
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-1">
+                        {CEILING_TYPE_CATALOG.map((ct) => {
+                          const cCfg = resolveSpaceCeilingConfig(project.space);
+                          const isAct = cCfg.enabled && cCfg.ceilingType === ct.id;
+                          return (
+                            <button
+                              key={ct.id}
+                              type="button"
+                              onClick={() =>
+                                updateCeilingConfig({
+                                  enabled: true,
+                                  ceilingType: ct.id,
+                                  dropHeightMm:
+                                    ct.defaultDropHeightMm > 0
+                                      ? ct.defaultDropHeightMm
+                                      : cCfg.dropHeightMm,
+                                })
+                              }
+                              className={`px-2 py-1 rounded-lg border text-left text-[10.5px] font-bold cursor-pointer ${
+                                isAct
+                                  ? "bg-slate-900 text-white border-slate-900"
+                                  : "bg-white hover:bg-slate-50 text-slate-800 border-slate-200"
+                              }`}
+                            >
+                              {ct.icon} {ct.shortLabel}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="flex justify-between pt-1 border-t border-slate-200">
+                        <span>Tavan Yüksekliği</span>
+                        <span className="font-mono font-bold">{project.space.ceilingHeight} mm</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Snap Adımı</span>
+                        <span className="font-mono font-bold">{snapMm} mm</span>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -4849,7 +4948,138 @@ export const V3UnifiedWorkspace: React.FC<{
                                   : "Aynı Malzemeli Parçalar"}
                               </span>
                             </div>
+                            <button
+                              type="button"
+                              data-testid="add-custom-material-btn"
+                              onClick={() => setShowNewSurfaceCreator((v) => !v)}
+                              className="px-2.5 py-1.5 rounded-xl bg-[#141413] hover:bg-slate-800 text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer shrink-0"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>Yeni Yüzey / Doku</span>
+                            </button>
                           </div>
+
+                          {showNewSurfaceCreator && (
+                            <div className="mx-3.5 mb-2.5 p-3 rounded-2xl bg-[#F8FAFC] border border-[#CBD5E1] space-y-2 text-xs">
+                              <div className="flex items-center justify-between">
+                                <span className="font-extrabold text-[#111827]">
+                                  🎨 Yeni Kapak Yüzeyi / RAL / .JPG Doku Tanımla
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => setShowNewSurfaceCreator(false)}
+                                  className="text-slate-500 hover:text-slate-900 cursor-pointer"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                              <div className="grid grid-cols-2 gap-1.5">
+                                <input
+                                  type="text"
+                                  value={newSurfName}
+                                  onChange={(e) => setNewSurfName(e.target.value)}
+                                  placeholder="Yüzey Adı"
+                                  className="col-span-2 px-2.5 py-1.5 rounded-lg bg-white border border-slate-300 font-semibold"
+                                />
+                                <input
+                                  type="text"
+                                  value={newSurfCode}
+                                  onChange={(e) => setNewSurfCode(e.target.value)}
+                                  placeholder="Kod (örn. RAL-7016)"
+                                  className="px-2.5 py-1.5 rounded-lg bg-white border border-slate-300 font-mono"
+                                />
+                                <select
+                                  value={newSurfCat}
+                                  onChange={(e) =>
+                                    setNewSurfCat(
+                                      e.target.value as "lacquer" | "wood" | "laminate" | "stone" | "metal"
+                                    )
+                                  }
+                                  className="px-2 py-1.5 rounded-lg bg-white border border-slate-300 font-semibold"
+                                >
+                                  <option value="lacquer">Lake / RAL</option>
+                                  <option value="wood">Ahşap Kaplama</option>
+                                  <option value="laminate">MDFLam / Suntalam</option>
+                                  <option value="stone">Mermer / Kuvars</option>
+                                  <option value="metal">Fırçalı Metal</option>
+                                </select>
+                                <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white border border-slate-300">
+                                  <input
+                                    type="color"
+                                    value={newSurfHex}
+                                    onChange={(e) => setNewSurfHex(e.target.value)}
+                                    className="w-6 h-6 rounded cursor-pointer border-0"
+                                  />
+                                  <span className="font-mono text-[11px]">{newSurfHex}</span>
+                                </div>
+                                <input
+                                  type="number"
+                                  value={newSurfCost}
+                                  min={10}
+                                  max={600}
+                                  onChange={(e) => setNewSurfCost(Number(e.target.value) || 65)}
+                                  placeholder="€/m²"
+                                  className="px-2.5 py-1.5 rounded-lg bg-white border border-slate-300 font-mono"
+                                />
+                              </div>
+                              <div className="flex items-center justify-between gap-2 pt-0.5">
+                                <label className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-100 border border-slate-300 font-bold text-[11px] cursor-pointer truncate">
+                                  <span>{newSurfTexUrl ? "✅ Doku Görseli Hazır" : "📷 .JPG / .PNG Doku Yükle"}</span>
+                                  <input
+                                    type="file"
+                                    accept="image/jpeg,image/png,image/webp"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                      const f = e.target.files?.[0];
+                                      if (!f) return;
+                                      const reader = new FileReader();
+                                      reader.onload = () => {
+                                        if (typeof reader.result !== "string") return;
+                                        const img = new Image();
+                                        img.onload = () => {
+                                          const c = document.createElement("canvas");
+                                          const s = 384;
+                                          c.width = s;
+                                          c.height = s;
+                                          const ctx = c.getContext("2d");
+                                          if (ctx) {
+                                            ctx.drawImage(img, 0, 0, s, s);
+                                            setNewSurfTexUrl(c.toDataURL("image/jpeg", 0.84));
+                                          }
+                                        };
+                                        img.src = reader.result;
+                                      };
+                                      reader.readAsDataURL(f);
+                                    }}
+                                  />
+                                </label>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const created = addCustomMaterialToProject({
+                                      name: newSurfName,
+                                      decorCode: newSurfCode,
+                                      category: newSurfCat,
+                                      colorHex: newSurfHex,
+                                      roughness: newSurfRough,
+                                      costPerM2: newSurfCost,
+                                      textureUrl: newSurfTexUrl || undefined,
+                                    });
+                                    applyMaterialByTargetScope(created.id, materialTargetScope);
+                                    setNewSurfTexUrl("");
+                                    setShowNewSurfaceCreator(false);
+                                    setApprovalBanner({
+                                      ok: true,
+                                      text: `🎨 "${created.name}" yüzeyi kataloğa eklendi ve seçili kapsama uygulandı.`,
+                                    });
+                                  }}
+                                  className="px-3 py-1.5 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-bold text-[11px] cursor-pointer shrink-0"
+                                >
+                                  Kaydet &amp; Uygula
+                                </button>
+                              </div>
+                            </div>
+                          )}
 
                           {/* Search Bar + Filter Button */}
                           <div className="px-3.5 pb-2 flex items-center gap-1.5">
@@ -5695,6 +5925,40 @@ export const V3UnifiedWorkspace: React.FC<{
                         <Sparkles className="w-3.5 h-3.5" />
                         <span>Otomatik Tezgâh / Backsplash / Yan Bitiş</span>
                       </button>
+                      <button
+                        type="button"
+                        data-testid="v5-open-hub-from-accessories-btn"
+                        onClick={() => {
+                          setSceneHubInitialTab("appliances");
+                          setShowSceneHubModal(true);
+                        }}
+                        className="w-full py-2 px-3 rounded-xl bg-[#141413] hover:bg-slate-800 text-white text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5 text-emerald-300" />
+                        <span>+ Cihaz, Mobilya &amp; Özel .GLB Ekle</span>
+                      </button>
+                      <div className="pt-2 border-t border-[#E2E8F0] space-y-1.5">
+                        <div className="text-xs font-bold text-[#111827]">
+                          Hızlı 3D Cihaz &amp; Mobilya Ekle (Sürükle veya Tıkla)
+                        </div>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {V5_SCENE_OBJECT_CATALOG.slice(0, 8).map((soItem) => (
+                            <button
+                              key={soItem.catalogId}
+                              type="button"
+                              draggable={true}
+                              onDragStart={(ev) => startSceneObjectSilhouetteDrag(ev, soItem.catalogId)}
+                              onClick={() => addSceneObjectFromCatalog(soItem.catalogId)}
+                              className="p-2 rounded-xl bg-white hover:bg-[#F1F5F9] border border-[#E2E8F0] text-left cursor-pointer"
+                            >
+                              <div className="text-[10.5px] font-bold text-[#111827] line-clamp-1">{soItem.name}</div>
+                              <div className="text-[9.5px] font-mono text-[#64748B]">
+                                {soItem.defaultDimensions.width}×{soItem.defaultDimensions.height}mm
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     </div>
                   </div>
                     );
@@ -6065,8 +6329,20 @@ export const V3UnifiedWorkspace: React.FC<{
                       </div>
                     </div>
 
-                    {/* Bottom Button: Kütüphaneye Ekle (Matches image_e719c6.jpg) */}
-                    <div className="p-3 border-t border-[#E2E8F0] bg-white shrink-0">
+                    {/* Bottom Buttons: V5 Modül/Obje Merkezi + Kütüphaneye Ekle */}
+                    <div className="p-3 border-t border-[#E2E8F0] bg-white shrink-0 space-y-1.5">
+                      <button
+                        type="button"
+                        data-testid="v5-left-footer-open-hub-btn"
+                        onClick={() => {
+                          setSceneHubInitialTab("modules");
+                          setShowSceneHubModal(true);
+                        }}
+                        className="w-full py-2 px-3 rounded-xl bg-[#141413] hover:bg-slate-800 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5 text-emerald-300" />
+                        <span>+ Yeni Modül / Cihaz / .GLB Obje Ekle</span>
+                      </button>
                       <button
                         type="button"
                         onClick={() => setShowAdminModal(true)}
@@ -6643,20 +6919,44 @@ export const V3UnifiedWorkspace: React.FC<{
           )}
 
                     <div className="relative flex-1 w-full h-full overflow-hidden flex flex-col">
-            <V3ThreeViewport
-              theme={
-                canvasTheme === "dark"
-                  ? "dark"
-                  : mode === "showroom"
-                  ? "showroom-neutral"
-                  : "warm-light"
+            <Viewport3DErrorBoundary
+              fallback={
+                <Software3DFallbackViewport
+                  project={project}
+                  activeModuleIndex={activeModuleIndex}
+                  selectedComponentId={selectedComponentId}
+                  selectedSceneObjectId={selectedSceneObjectId}
+                  doorOpenAngleDeg={doorOpenAngleDeg}
+                  drawerOpenMm={drawerOpenMm}
+                  explodedFactor={explodedFactor}
+                  onSelectModule={(idx) => setActiveModuleIndex(idx)}
+                  onSelectComponent={(cid) => setSelectedComponentId(cid)}
+                  onSelectSceneObject={(oid) => setSelectedSceneObjectId(oid)}
+                  onToggleDoorOpen={toggleDoorOpen}
+                  onSwitchTo2DCad={() => {
+                    if (mode === "plan") setPlanRightView("2d-elevation");
+                  }}
+                />
               }
-              showGrid={!(mode === "showroom" && zenMode)}
-              showInCanvasHud={mode === "studio"}
-              showDimensions={show3DDimensions}
-              stageSafeInsets={viewportSafeInsets}
-              onToggleDimensions={handleToggle3DDimensions}
-            />
+            >
+              <V3ThreeViewport
+                theme={
+                  canvasTheme === "dark"
+                    ? "dark"
+                    : mode === "showroom"
+                    ? "showroom-neutral"
+                    : "warm-light"
+                }
+                showGrid={!(mode === "showroom" && zenMode)}
+                showInCanvasHud={mode === "studio"}
+                showDimensions={show3DDimensions}
+                stageSafeInsets={viewportSafeInsets}
+                onToggleDimensions={handleToggle3DDimensions}
+                onRequest2DElevation={() => {
+                  if (mode === "plan") setPlanRightView("2d-elevation");
+                }}
+              />
+            </Viewport3DErrorBoundary>
 
             {mode === "plan" &&
               (planRightView === "2d-elevation" ||
@@ -7522,6 +7822,14 @@ export const V3UnifiedWorkspace: React.FC<{
                           type="button"
                           data-testid="studio-autofix-issues-btn"
                           onClick={() => {
+                            if (
+                              unifiedEngineeringReport.blockingSafetyAndEngineeringErrors.some(
+                                (e) => e.remediationProposals && e.remediationProposals.length > 0
+                              )
+                            ) {
+                              setShowRulesModal(true);
+                              return;
+                            }
                             const fixed = autoFixProjectIssues();
                             setApprovalBanner({
                               ok: true,
@@ -7603,6 +7911,63 @@ export const V3UnifiedWorkspace: React.FC<{
                               }`}
                             >
                               {bp.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* V7.4 Çoklu Delik Sistemi (System 32 Line Boring) */}
+                    <div className="space-y-1.5 pt-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-[#44403C]">
+                          Çoklu Delik Sistemi (System 32)
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <select
+                            value={resolveMultiHoleSpec(activeModule).rowCount}
+                            onChange={(e) =>
+                              updateCarcassConfig({
+                                multiHoleRowCount: Number(e.target.value) === 3 ? 3 : 2,
+                              })
+                            }
+                            className="px-1.5 py-0.5 rounded-lg bg-white border border-slate-300 text-[10px] font-bold"
+                          >
+                            <option value={2}>2 Sıra (Ön+Arka)</option>
+                            <option value={3}>3 Sıra (Derin Gövde)</option>
+                          </select>
+                          <label
+                            title="Orta dikmelerde Ø5mm delikleri iki yüzden kör delmek yerine tek seferde boydan boya (18mm) del"
+                            className="flex items-center gap-1 text-[10px] font-semibold text-[#44403C] cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={Boolean(activeModule.carcass.multiHoleDividerThroughBore)}
+                              onChange={(e) =>
+                                updateCarcassConfig({
+                                  multiHoleDividerThroughBore: e.target.checked,
+                                })
+                              }
+                            />
+                            <span>Boydan</span>
+                          </label>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-1">
+                        {MULTI_HOLE_MODE_CATALOG.map((mh) => {
+                          const curMode = resolveMultiHoleSpec(activeModule).mode;
+                          const act = curMode === mh.id;
+                          return (
+                            <button
+                              key={mh.id}
+                              type="button"
+                              title={mh.description}
+                              onClick={() => updateCarcassConfig({ multiHoleMode: mh.id })}
+                              className={`py-1.5 px-1.5 rounded-xl border text-center text-[10.5px] font-bold transition cursor-pointer ${
+                                act ? "birim-ice-charcoal-pill" : "birim-ice-btn text-[#141413]"
+                              }`}
+                            >
+                              {mh.shortLabel}
                             </button>
                           );
                         })}
@@ -7795,42 +8160,10 @@ export const V3UnifiedWorkspace: React.FC<{
                 (studioInspectorTab === "carcass" || studioInspectorTab === "all") && (
                   <PanelCutoutInspector
                     activeModule={activeModule}
+                    canExportProduction={unifiedEngineeringReport.canExportToCncAndSaw}
                     allModules={project.modules}
                     roomObstacles={spaceObstacles}
-                    bomCutPieces={(bom?.cutList || [])
-                      .filter((cp) => cp.moduleId === activeModule.id)
-                      .map((cp) => ({
-                        id: cp.id,
-                        moduleId: cp.moduleId,
-                        moduleName: cp.moduleName,
-                        partRole: cp.componentRole,
-                        pieceName: cp.pieceName,
-                        thicknessMm: cp.thicknessMm,
-                        lengthMm: cp.lengthMm,
-                        widthMm: cp.widthMm,
-                        netCutLengthMm: cp.netCutLengthMm,
-                        netCutWidthMm: cp.netCutWidthMm,
-                        mirrorInnerFaceX: cp.mirrorInnerFaceX,
-                        hasBackGroove: cp.hasBackGroove,
-                        backGrooveOffsetMm: cp.backGrooveOffsetMm,
-                        hasSinkOrHobCutout: cp.hasSinkOrHobCutout,
-                        cutoutWidthMm: cp.cutoutWidthMm,
-                        cutoutDepthMm: cp.cutoutDepthMm,
-                        utilityCutouts: cp.utilityCutouts,
-                        drillingOperations: (cp.holes || []).map((h) => ({
-                          x: h.x,
-                          y: h.y,
-                          diameter: h.diameter,
-                          depth: h.depth,
-                          face:
-                            h.direction === "face_back"
-                              ? "bottom"
-                              : h.direction.startsWith("edge_")
-                              ? (h.direction as "edge_top" | "edge_bottom" | "edge_left" | "edge_right")
-                              : "top",
-                          type: h.purpose || "drill",
-                        })),
-                      }))}
+                    bomCutPieces={(bom?.cutList || []).filter((cp) => cp.moduleId === activeModule.id).map((cp) => mapCutPieceToCncPieceInput(cp))}
                     onChangeCutouts={(nextCo) => setModuleUtilityCutouts(nextCo)}
                     onAutoResolveCornerCollisions={() => {
                       const fixedCount = autoResolveCornerCollisions();
@@ -8225,6 +8558,53 @@ export const V3UnifiedWorkspace: React.FC<{
                           ⚙️ Teknik CNC Detayları
                         </button>
                       </div>
+                      {/* V7.4 Desenli Malzemede Desen Takibi (Suyolu & Damar Sürekliliği) */}
+                      {(() => {
+                        const curDoorMat =
+                          [...DEFAULT_MATERIALS, ...(project.customMaterials || [])].find(
+                            (m) => m.id === activeModule.carcass.doorMaterialId
+                          ) || DEFAULT_MATERIALS[0];
+                        const curGrainMode = project.facadeGrainContinuity
+                          ? "facade_continuous"
+                          : activeModule.carcass.grainContinuityMode || "none";
+                        return (
+                          <div className="p-2 rounded-2xl bg-amber-50/55 border border-amber-200/80 space-y-1.5 mb-1.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10.5px] font-extrabold text-amber-950">
+                                🪵 Desen Takibi ({isPatternedMaterial(curDoorMat) ? "Desenli Yüzey Aktif" : "Düz Yüzey"})
+                              </span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-1">
+                              {GRAIN_CONTINUITY_CATALOG.map((gc) => {
+                                const isAct = curGrainMode === gc.id;
+                                return (
+                                  <button
+                                    key={gc.id}
+                                    type="button"
+                                    title={gc.description}
+                                    onClick={() => {
+                                      if (gc.id === "facade_continuous") {
+                                        setFacadeGrainContinuity(true);
+                                      } else {
+                                        setFacadeGrainContinuity(false);
+                                        updateCarcassConfig({ grainContinuityMode: gc.id });
+                                      }
+                                    }}
+                                    className={`px-2 py-1 rounded-xl border text-left text-[10px] font-bold transition cursor-pointer ${
+                                      isAct
+                                        ? "bg-amber-900 text-white border-amber-950"
+                                        : "bg-white/85 hover:bg-white text-stone-800 border-amber-200"
+                                    }`}
+                                  >
+                                    {gc.shortLabel}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })()}
+
                       <div className="flex items-center gap-2 flex-wrap">
                         {DEFAULT_MATERIALS.filter((m) => m.id !== "mat_led_warm_3000k")
                           .slice(0, 8)
@@ -14861,6 +15241,8 @@ export const V3UnifiedWorkspace: React.FC<{
                             | "shaker_frame"
                             | "fluted_ribbed"
                             | "bevel_45"
+                            | "j_pull_bevel"
+                            | "cove_arch"
                             | "custom_cad_profile";
                           setDoorCrossSectionProfile(nextProf);
                           setModuleDoorCrossSection(nextProf);
@@ -14895,6 +15277,18 @@ export const V3UnifiedWorkspace: React.FC<{
                             label: "45° Pahlı / Kademeli Kenar Kesiti",
                             sub: "Çevre kenarları 45° CNC pah bıçağı ile işlenmiş kesit",
                             badge: "45° Pah",
+                          },
+                          {
+                            value: "j_pull_bevel",
+                            label: "Gizli Eğimli J-Kulp Parmak Kanallı Kesit",
+                            sub: "Kulpsuz kapaklar için üst kenarı 45° içe oyuk J-kulp profili",
+                            badge: "J-Kulp",
+                          },
+                          {
+                            value: "cove_arch",
+                            label: "İçbükey Kavisli (Cove) Çok Kademeli Çerçeve",
+                            sub: "5 eksen CNC kavisli içbükey çevre geçişli tasarım kapak",
+                            badge: "Kavisli",
                           },
                           {
                             value: "custom_cad_profile",
@@ -14932,6 +15326,22 @@ export const V3UnifiedWorkspace: React.FC<{
                           {doorCrossSectionProfile === "bevel_45" && (
                             <path
                               d="M10 32 L22 12 H98 L110 32 Z"
+                              fill="#D6CFC2"
+                              stroke="#2C2A29"
+                              strokeWidth="2"
+                            />
+                          )}
+                          {doorCrossSectionProfile === "j_pull_bevel" && (
+                            <path
+                              d="M10 32 V12 H82 L94 24 H110 V32 Z"
+                              fill="#D6CFC2"
+                              stroke="#2C2A29"
+                              strokeWidth="2"
+                            />
+                          )}
+                          {doorCrossSectionProfile === "cove_arch" && (
+                            <path
+                              d="M10 32 V12 H24 Q36 22 46 22 H74 Q84 22 96 12 H110 V32 Z"
                               fill="#D6CFC2"
                               stroke="#2C2A29"
                               strokeWidth="2"
@@ -15728,12 +16138,40 @@ export const V3UnifiedWorkspace: React.FC<{
               </button>
             </div>
             <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto text-xs">
-              {validationIssues.length > 0 && (
+              {/* Bölgesel ve Erişilebilirlik Ergonomi Profili Seçicisi (Bölüm 5) */}
+              <div className="p-3 rounded-xl bg-stone-50 border border-stone-200 flex items-center justify-between gap-3">
+                <div>
+                  <div className="font-bold text-stone-900 text-[11px] uppercase tracking-wider">
+                    Standart ve Erişilebilirlik Profili
+                  </div>
+                  <div className="text-[11px] text-stone-500">
+                    Zorunlu güvenlik kuralları sabit tutulur; erişim ve koridor sınırları seçili profile göre doğrulanır.
+                  </div>
+                </div>
+                <select
+                  data-testid="v3-ergonomic-profile-select"
+                  value={ergonomicProfileId}
+                  onChange={(e) =>
+                    setErgonomicProfileId(
+                      e.target.value as "TR_RESIDENTIAL" | "EU_EN_STANDARD" | "ACCESSIBLE_EN17210"
+                    )
+                  }
+                  className="px-2.5 py-1.5 rounded-lg bg-white border border-stone-300 text-stone-900 font-semibold text-xs"
+                >
+                  {Object.values(regionalErgonomicProfiles).map((prof) => (
+                    <option key={prof.id} value={prof.id}>
+                      {prof.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {unifiedEngineeringReport.findings.length > 0 && (
                 <div className="space-y-1.5">
                   <div className="font-bold text-stone-700 uppercase tracking-wider text-[11px]">
-                    Aktif Proje Kontrolleri ({validationIssues.length})
+                    Merkezi Mühendislik, Güvenlik ve Doğrulama Kontrolleri ({unifiedEngineeringReport.findings.length})
                   </div>
-                  {validationIssues.map((iss, idx) => (
+                  {unifiedEngineeringReport.findings.map((iss, idx) => (
                     <div
                       key={idx}
                       className={`p-3 rounded-xl border space-y-1.5 ${
@@ -15745,11 +16183,41 @@ export const V3UnifiedWorkspace: React.FC<{
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-bold text-[#111827]">{iss.message}</span>
                         <span className="px-2 py-0.5 rounded-full bg-[#EEF3F8] border border-[#CBD5E1] text-[10px] font-bold text-[#111827] shrink-0">
-                          {iss.severity === "error"
-                            ? "Kritik Engel"
-                            : "Üretim Kontrolü Bekliyor"}
+                          {iss.ruleNature === "MANDATORY_SAFETY"
+                            ? "Zorunlu Güvenlik Engeli"
+                            : iss.ruleNature === "ENGINEERING_VALIDITY" && iss.severity === "error"
+                            ? "Mühendislik / Üretim Engeli"
+                            : iss.ruleNature === "VERIFICATION_REQUIRED"
+                            ? "Doğrulama Gerektirir"
+                            : "Ergonomi Önerisi"}
                         </span>
                       </div>
+                      {iss.worldPositionMm && (
+                        <div className="font-mono text-[10px] text-stone-500">
+                          3B Sahne Konumu: X={iss.worldPositionMm.x} • Y={iss.worldPositionMm.y} • Z={iss.worldPositionMm.z} mm • Kod: {iss.code}
+                        </div>
+                      )}
+                      {iss.remediationProposals && iss.remediationProposals.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 pt-1">
+                          {iss.remediationProposals.map((prop) => (
+                            <button
+                              key={prop.id}
+                              type="button"
+                              onClick={() => {
+                                applyApprovedEngineeringFix(prop);
+                                setApprovalBanner({
+                                  ok: true,
+                                  text: `✓ Onaylı düzeltme uygulandı: ${prop.label}`,
+                                });
+                                setTimeout(() => setApprovalBanner(null), 3000);
+                              }}
+                              className="px-2.5 py-1 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-[11px] cursor-pointer transition"
+                            >
+                              ✓ Onayla ve Uygula: {prop.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                       <div className="text-[11px] bg-[#EEF3F8] text-[#111827] px-2.5 py-1.5 rounded-lg border border-[#CBD5E1]">
                         <b>Üretime Etkisi:</b>{" "}
                         {iss.code.includes("FACTORY") || iss.code.includes("CNC")
@@ -17158,8 +17626,54 @@ export const V3UnifiedWorkspace: React.FC<{
         onClose={() => setShowIslandTableModal(false)}
       />
 
+      <SceneObjectAndModuleHubModal
+        isOpen={showSceneHubModal}
+        initialTab={sceneHubInitialTab}
+        project={project}
+        totalWithVatEur={pricing.totalWithVatEur}
+        selectedSceneObjectId={selectedSceneObjectId}
+        onSelectSceneObject={setSelectedSceneObjectId}
+        onAppendModule={(tplId, opts) => {
+          appendModuleWithMultiWallSnap(tplId, opts);
+        }}
+        onFillWallGap={(gap, tplId) => {
+          fillWallGapWithParametricModule(gap, tplId);
+        }}
+        onAddCompositeAssembly={(presetId) => {
+          addCompositeAssemblyPreset(presetId);
+        }}
+        onSaveActiveModuleAsTemplate={(name, fam) => {
+          saveActiveModuleAsCustomTemplate(name, fam);
+          setCustomCatalogTick((t) => t + 1);
+        }}
+        onDeleteCustomTemplate={(tplId) => {
+          deleteCustomModuleTemplate(tplId);
+          setCustomCatalogTick((t) => t + 1);
+        }}
+        onAddSceneObjectCatalog={(catId) => {
+          addSceneObjectFromCatalog(catId);
+        }}
+        onAddCustomSceneObject={(obj) => {
+          addCustomSceneObject(obj);
+        }}
+        onUpdateSceneObject={(id, patch) => {
+          updateSceneObject(id, patch);
+        }}
+        onDuplicateSceneObject={(id) => {
+          duplicateSceneObject(id);
+        }}
+        onRemoveSceneObject={(id) => {
+          removeSceneObject(id);
+        }}
+        onAutoFillersAndCrown={runAutoFillersAndCrown}
+        onAutoNotchObstacles={runAutoNotchObstacles}
+        onImportRoomPlanJson={importRoomPlanLiDARJson}
+        onClose={() => setShowSceneHubModal(false)}
+      />
+
       <BirimLogo className="hidden" />
       <BomModal isOpen={isBomModalOpen} onClose={() => setIsBomModalOpen(false)} initialTab={bomModalInitialTab} />
+      <StoreErpModal isOpen={isStoreErpModalOpen} onClose={() => setIsStoreErpModalOpen(false)} />
       <TapToPlaceController
         armedItem={armedTapItem}
         bayCount={activeModule.bays.length}
@@ -17221,7 +17735,7 @@ export const V3UnifiedWorkspace: React.FC<{
             isOpen={showArAnd3DModal}
             onClose={() => setShowArAnd3DModal(false)}
             project={project}
-            materials={DEFAULT_MATERIALS}
+            materials={[...DEFAULT_MATERIALS, ...(project.customMaterials || [])]}
             parts={exportParts}
             discountPercent={quoteDiscountPct}
             installments={quoteInstallments}

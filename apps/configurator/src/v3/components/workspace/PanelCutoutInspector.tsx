@@ -32,6 +32,7 @@ interface PanelCutoutInspectorProps {
     dimensions: { width: number; height: number; depth: number };
   }>;
   bomCutPieces: CncPieceInput[];
+  canExportProduction?: boolean;
   onChangeCutouts: (nextCutouts: PanelCutoutConfig[]) => void;
   onAutoResolveCornerCollisions: () => void;
 }
@@ -55,9 +56,11 @@ export const PanelCutoutInspector: React.FC<PanelCutoutInspectorProps> = ({
   allModules,
   roomObstacles,
   bomCutPieces,
+  canExportProduction = true,
   onChangeCutouts,
   onAutoResolveCornerCollisions,
 }) => {
+  const [exportGateError, setExportGateError] = React.useState<string | null>(null);
   const cutouts = activeModule.utilityCutouts || [];
 
   const cutoutIssues = useMemo(
@@ -114,7 +117,25 @@ export const PanelCutoutInspector: React.FC<PanelCutoutInspectorProps> = ({
     onChangeCutouts(merged);
   };
 
+  const hasBlockingCutoutOrProjectError =
+    !canExportProduction || cutoutIssues.some((iss) => iss.severity === "error");
+
+  const guardCncDownload = (): boolean => {
+    if (hasBlockingCutoutOrProjectError) {
+      const firstCutErr = cutoutIssues.find((iss) => iss.severity === "error");
+      setExportGateError(
+        firstCutErr
+          ? `ÜRETİM ENGELİ: ${firstCutErr.message}`
+          : "ÜRETİM ENGELİ: Projede çözülmemiş kritik mühendislik/güvenlik hatası varken CNC makine programı indirilemez."
+      );
+      return false;
+    }
+    setExportGateError(null);
+    return true;
+  };
+
   const handleDownloadHomagBundle = () => {
+    if (!guardCncDownload()) return;
     const combined = cncBundle.homagMprFiles
       .map((f) => `; === FILE: ${f.fileName} (${f.faceSetup}) ===\r\n${f.content}`)
       .join("\r\n\r\n");
@@ -122,6 +143,7 @@ export const PanelCutoutInspector: React.FC<PanelCutoutInspectorProps> = ({
   };
 
   const handleDownloadBiesseBundle = () => {
+    if (!guardCncDownload()) return;
     const combined = cncBundle.biesseCixFiles
       .map((f) => `// === FILE: ${f.fileName} ===\r\n${f.content}`)
       .join("\r\n\r\n");
@@ -130,6 +152,11 @@ export const PanelCutoutInspector: React.FC<PanelCutoutInspectorProps> = ({
 
   return (
     <div className="space-y-4">
+      {exportGateError && (
+        <div className="p-2.5 rounded-xl bg-red-950/90 border border-red-500/60 text-red-100 text-[11px] font-semibold">
+          {exportGateError}
+        </div>
+      )}
       {/* 1. 90° KÖŞE AÇILIM SÜPÜRME ÇARPIŞMASI & KÖR ÇITA KONTROLÜ */}
       {sweepIssues.length > 0 && (
         <section

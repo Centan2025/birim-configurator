@@ -4,6 +4,8 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "dependencies": {
-    "@birim/core": "*"
+    "@birim/core": "*",
+    "@birim/catalog": "*",
+    "@birim/geometry": "*"
   }
 }

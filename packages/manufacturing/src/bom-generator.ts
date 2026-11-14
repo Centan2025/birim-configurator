@@ -3,6 +3,7 @@ import {
   ModuleInstance,
   MaterialDefinition,
   DEFAULT_MATERIALS,
+  syncProjectCustomMaterials,
   ParametricPart,
   calculateFourSpaceDimensions,
   calculateRecommendedHingesPerLeaf,
@@ -17,7 +18,11 @@ import {
   evaluateCornerAndSweepCollisions,
   roundIntMm,
   roundMm,
+  resolveCanonicalHandlePlacement,
+  computeProjectGrainContinuityMap,
+  resolveMultiHoleSpec,
 } from "@birim/core";
+import { evaluateFreestandingTipOverRisk, evaluateUnifiedEngineeringModel } from "@birim/core";
 import {
   getHardwareProductById,
   HANDLE_PROFILES,
@@ -126,6 +131,62 @@ export interface GenerateBOMOptions {
   skipSyncNesting?: boolean;
 }
 
+
+export interface CurvedKerfBendingSpec {
+  outerRadiusMm: number;
+  insideRadiusMm: number;
+  bendAngleDeg: number;
+  panelThicknessMm: number;
+  uncutSkinMm: number;
+  kerfBladeWidthMm: number;
+  kerfDepthMm: number;
+  anglePerKerfDeg: number;
+  kerfCount: number;
+  kerfSpacingMm: number;
+  unfoldedArcLengthMm: number;
+}
+
+/**
+ * Exact closing-wedge CNC kerf-bending geometry for curved / stadium-capsule wooden & MDF panels:
+ * - `kerfDepth = stockThickness - uncutSkin`
+ * - `anglePerKerfRad = 2 * atan((kerfBladeWidth / 2) / kerfDepth)`
+ * - `kerfCount = ceil(bendAngleRad / anglePerKerfRad)`
+ * - `kerfSpacingMm = (insideRadius + kerfDepth) * anglePerKerfRad`
+ * - `unfoldedArcLengthMm = outerRadius * bendAngleRad`
+ */
+export function computeCurvedKerfBendingSpec(
+  outerRadiusMm: number,
+  bendAngleDeg = 180,
+  panelThicknessMm = 18,
+  kerfBladeWidthMm = 3.2,
+  uncutSkinMm = 2.5
+): CurvedKerfBendingSpec {
+  const rOut = Math.max(40, outerRadiusMm);
+  const t = Math.max(8, panelThicknessMm);
+  const skin = Math.max(1.5, Math.min(t * 0.35, uncutSkinMm));
+  const kerfDepth = Math.max(4, t - skin);
+  const rIn = Math.max(20, rOut - t);
+  const thetaRad = (Math.max(15, bendAngleDeg) * Math.PI) / 180;
+  const alphaRad = 2 * Math.atan(Math.max(0.8, kerfBladeWidthMm) / 2 / kerfDepth);
+  const kerfCount = Math.max(2, Math.ceil(thetaRad / alphaRad));
+  const kerfSpacing = (rIn + kerfDepth) * alphaRad;
+  const unfoldedArc = rOut * thetaRad;
+
+  return {
+    outerRadiusMm: roundMm(rOut, 1),
+    insideRadiusMm: roundMm(rIn, 1),
+    bendAngleDeg: roundMm(bendAngleDeg, 1),
+    panelThicknessMm: t,
+    uncutSkinMm: roundMm(skin, 2),
+    kerfBladeWidthMm: roundMm(kerfBladeWidthMm, 2),
+    kerfDepthMm: roundMm(kerfDepth, 2),
+    anglePerKerfDeg: roundMm((alphaRad * 180) / Math.PI, 2),
+    kerfCount,
+    kerfSpacingMm: roundMm(kerfSpacing, 1),
+    unfoldedArcLengthMm: roundMm(unfoldedArc, 1),
+  };
+}
+
 export function generateBOMForProject(
   project: DesignProject,
   materialsMap: Map<string, MaterialDefinition> = new Map(DEFAULT_MATERIALS.map((m) => [m.id, m])),
@@ -163,6 +224,7 @@ export function generateBOMForProject(
   if (cached) return cached;
 
   const cutList: CutPiece[] = [];
+  const grainContinuityMap = computeProjectGrainContinuityMap(project, materialsMap);
   const hardwareMap: Map<string, HardwareBOMItem> = new Map();
   const shelfDeflectionAnalyses: ShelfDeflectionBOMEntry[] = [];
   const validationWarnings: string[] = [
@@ -214,17 +276,200 @@ export function generateBOMForProject(
     );
   }
 
+  // Stacked Modules Vertical Load-Transfer Connectors (M6x38mm Sleeve Bolts)
+  const stackedFloorModulesCount = project.modules.filter(
+    (u) =>
+      u.category !== "complementary" &&
+      u.category !== "kitchen_wall" &&
+      u.position.y > 50 &&
+      project.modules.some(
+        (b) =>
+          b.id !== u.id &&
+          b.category !== "complementary" &&
+          Math.abs(b.position.y + b.dimensions.height - u.position.y) <= 20
+      )
+  ).length;
+  if (stackedFloorModulesCount > 0) {
+    addHardware(
+      "HW_STACKING_BOLT_M6",
+      "M6×38mm Üst Üste Modül Kovanlı Düşey Yük Bağlantı Cıvatası",
+      "connector",
+      stackedFloorModulesCount * 4,
+      "adet",
+      0.55
+    );
+  }
+
+
+  // V5/V7 SceneObject Appliance & Plumbing Fixture Protective Hardware Triggers
+  for (const so of project.sceneObjects || []) {
+    const cid = (so.catalogId || "").toLowerCase();
+    const nm = (so.name || "").toLowerCase();
+    const cutKind = so.cutoutTrigger?.kind;
+    if (cutKind === "sink" || cid.includes("sink") || nm.includes("eviye") || nm.includes("lavabo")) {
+      addHardware(
+        "EVYE-KORUMA-SAC",
+        "Eviye Altı Su Sızdırmaz Alüminyum Koruma Sacı",
+        "special",
+        1,
+        "adet",
+        14.5
+      );
+      addHardware(
+        "HW_SINK_DRIP_MAT_ALU",
+        "Eviye / Lavabo Alt Tabla Alüminyum Su Sızdırmaz Koruma Sacı",
+        "special",
+        1,
+        "adet",
+        14.5
+      );
+    }
+    if (cutKind === "cooktop" || cid.includes("cooktop") || cid.includes("hob") || nm.includes("ocak")) {
+      addHardware(
+        "OCAK-ISI-KALKAN",
+        "Ankastre Ocak Altı İndüksiyon Isı Koruma Kalkanı",
+        "special",
+        1,
+        "adet",
+        16.0
+      );
+    }
+  }
+
+  syncProjectCustomMaterials(project.customMaterials);
+  if (project.customMaterials?.length) {
+    project.customMaterials.forEach((cm) => materialsMap.set(cm.id, cm));
+  }
+
   project.modules.forEach((module: ModuleInstance) => {
     const geo = generateModuleGeometry(module);
-    const fourSpace = calculateFourSpaceDimensions(module);
+    const fourSpace = calculateFourSpaceDimensions(module, project.customMaterials);
     const bodyMat = materialsMap.get(module.carcass.bodyMaterialId) || DEFAULT_MATERIALS[0];
     const doorMat = materialsMap.get(module.carcass.doorMaterialId) || DEFAULT_MATERIALS[2];
+    const isCapsuleModule =
+      module.carcass.hullShape === "capsule_stadium" ||
+      module.carcass.hullShape === "capsule_table";
     const hasGroovedBack =
       module.category !== "complementary" &&
       !module.isOpenFront &&
+      !isCapsuleModule &&
       module.carcass.backPanelType === "grooved";
 
+    // V5.2 / V6 Canonical Capsule & Rounded-Corner Kerf-Bending BOM:
+    // For `capsule_stadium`, `generateModuleGeometry(module)` already emits canonical `kerf_curve`
+    // shells (with zero duplicate flat side panels!) which flow through the unified `CutPiece` loop below.
+    if (
+      module.carcass.hullShape === "capsule_stadium" ||
+      module.carcass.hullShape === "rounded_corners"
+    ) {
+      const capR = Math.min(
+        module.dimensions.depth / 2,
+        module.carcass.cornerRadiusMm || module.dimensions.depth / 2
+      );
+      const bendDeg = module.carcass.hullShape === "capsule_stadium" ? 180 : 90;
+      const curveCount = module.carcass.hullShape === "capsule_stadium" ? 2 : 4;
+      const kerf = computeCurvedKerfBendingSpec(
+        capR,
+        bendDeg,
+        module.carcass.panelThickness || 18
+      );
+      if (module.carcass.hullShape === "rounded_corners") {
+        const bodyH = Math.max(
+          200,
+          module.dimensions.height - (module.carcass.plinthHeight || 0) - 22
+        );
+        for (let ci = 1; ci <= curveCount; ci++) {
+          const areaM2 = roundMm((kerf.unfoldedArcLengthMm * bodyH) / 1_000_000, 4);
+          const ebT = 1;
+          const preMill = Math.max(0, module.carcass.preMillingMm ?? 0);
+          const netL = Math.max(10, roundMm(bodyH - 2 * (ebT - preMill), 1));
+          cutList.push({
+            id: `${module.id}_kerf_corner_${ci}`,
+            pieceName: `Yuvarlatılmış Köşe Kerf Açınımı #${ci} (R=${kerf.outerRadiusMm}mm • ${kerf.kerfCount} Kerf)`,
+            moduleName: module.name,
+            moduleId: module.id,
+            componentRole: "kerf_curve",
+            materialId: doorMat.id,
+            materialName: doorMat.name,
+            lengthMm: bodyH,
+            widthMm: kerf.unfoldedArcLengthMm,
+            nominalLengthMm: bodyH,
+            nominalWidthMm: kerf.unfoldedArcLengthMm,
+            netCutLengthMm: netL,
+            netCutWidthMm: kerf.unfoldedArcLengthMm,
+            preMillingMm: preMill,
+            rawOriginOffsetXMm: 0,
+            rawOriginOffsetYMm: roundMm(ebT - preMill, 2),
+            edgeBandCode: "2K 1mm",
+            thicknessMm: kerf.panelThicknessMm,
+            quantity: 1,
+            edgeBanding: { top: true, bottom: true, left: false, right: false, thickness: ebT },
+            grain: "lengthwise",
+            areaM2,
+            edgeBandMeters: roundMm((kerf.unfoldedArcLengthMm * 2) / 1000, 3),
+            holes: [],
+            kerfBendingMeta: {
+              outerRadiusMm: kerf.outerRadiusMm,
+              bendAngleDeg: bendDeg,
+              unfoldedArcLengthMm: kerf.unfoldedArcLengthMm,
+              kerfCount: kerf.kerfCount,
+              kerfSpacingMm: kerf.kerfSpacingMm,
+              residualWebMm: kerf.residualSkinThicknessMm,
+            },
+          });
+        }
+      }
+      addHardware(
+        "HW_CNC_KERF_BENDING",
+        `CNC Kerf-Bending Kavis Çentikleme & Kalıp Pres (${kerf.kerfCount * curveCount} kanal)`,
+        "special",
+        curveCount,
+        "adet",
+        34.0
+      );
+      addHardware(
+        "HW_TAMBOUR_FLEX_TRACK",
+        "Kavisli Tambur Sürgü Kapak Rayı & Akustik Keçe Sırt",
+        "slide",
+        1,
+        "takım",
+        68.0
+      );
+    } else if (module.carcass.hullShape === "capsule_table") {
+      const pedR = Math.round(Math.min(185, Math.max(95, module.dimensions.depth * 0.21)));
+      const kerfPed = computeCurvedKerfBendingSpec(pedR, 360, 18);
+      addHardware(
+        "HW_CNC_SWISS_CAPSULE_TOP",
+        `5 Eksen CNC Kapsül Masa Kontur & 45° Swiss-Edge Pah İşleme (R=${Math.round(module.dimensions.depth / 2)}mm)`,
+        "special",
+        1,
+        "adet",
+        55.0
+      );
+      addHardware(
+        "HW_CNC_FLUTED_PEDESTAL",
+        `Silindirik Yivli Kapsül Sütun Ayak Seti (Açınım ${kerfPed.unfoldedArcLengthMm}mm)`,
+        "leg",
+        module.dimensions.width >= 1450 ? 2 : 1,
+        "adet",
+        95.0
+      );
+    }
+
     if (module.category !== "complementary") {
+      // P0-03: EN 14749 / EN 16122 Tall & Slender Freestanding Cabinet Anti-Tip Restraint Hardware
+      const tipEval = evaluateFreestandingTipOverRisk(module, project.space);
+      if (tipEval.requiresWallAnchor && module.carcass.wallAnchored !== false) {
+        addHardware(
+          "HW_ANTI_TIP_EN14749_L",
+          "EN 14749 Devrilme Önleyici Çelik L-Duvar Sabitleme Braketi + Dübel Seti",
+          "fastener",
+          2,
+          "adet",
+          2.65
+        );
+      }
+
       const baySum = fourSpace.usableInternal.bayClearWidthsMm.reduce((a, b) => a + b, 0);
       const expectedTotalW =
         baySum + (module.bays.length + 1) * (module.carcass.panelThickness || 18);
@@ -263,6 +508,16 @@ export function generateBOMForProject(
               sku: "HW_CNC_DOOR_PROFILE_BEVEL45",
               name: "CNC 45° Pahlı Kapak Kenar Kesit İşleme",
               price: 14.0,
+            },
+            j_pull_bevel: {
+              sku: "HW_CNC_DOOR_PROFILE_JPULL",
+              name: "CNC 45° Gizli Eğimli J-Kulp Parmak Kanalı İşleme",
+              price: 19.0,
+            },
+            cove_arch: {
+              sku: "HW_CNC_DOOR_PROFILE_COVE",
+              name: "5 Eksen CNC İçbükey Kavisli (Cove) Çerçeve İşleme",
+              price: 21.0,
             },
             custom_cad_profile: {
               sku: "HW_CNC_DOOR_PROFILE_CUSTOM",
@@ -317,6 +572,31 @@ export function generateBOMForProject(
     }
 
     const isDishwasherSlot = isBuiltInDishwasherModule(module);
+    if (isDishwasherSlot) {
+      addHardware(
+        "HW_STEAM_BARRIER_DIFFUSER",
+        "Ankastre Bulaşık Makinesi Tezgâh Altı Buhar Bariyer Sacı",
+        "special",
+        1,
+        "adet",
+        6.5
+      );
+    }
+    const isWetSinkOrVanity =
+      isSinkModule(module) ||
+      Boolean(module.templateId?.includes("bathroom")) ||
+      module.name.toLowerCase().includes("banyo") ||
+      module.name.toLowerCase().includes("lavabo");
+    if (isWetSinkOrVanity) {
+      addHardware(
+        "HW_SINK_DRIP_MAT_ALU",
+        "Eviye / Lavabo Alt Tabla Alüminyum Su Sızdırmaz Koruma Sacı",
+        "special",
+        1,
+        "adet",
+        14.5
+      );
+    }
     if (module.category !== "complementary" && !isDishwasherSlot) {
       const modJoinery =
         module.carcass.carcassJoineryTopology ||
@@ -496,12 +776,34 @@ export function generateBOMForProject(
         }
       }
 
-      if (module.category === "kitchen_wall") {
+      const isSuspendedWallUnit =
+        module.category === "kitchen_wall" ||
+        Boolean(module.templateId?.includes("floating")) ||
+        ((module.position?.y || 0) >= 150 &&
+          (module.carcass.plinthHeight ?? 0) === 0 &&
+          module.category !== "complementary" &&
+          !project.modules.some(
+            (bm) =>
+              bm.id !== module.id &&
+              bm.category !== "complementary" &&
+              Math.abs(bm.position.y + bm.dimensions.height - module.position.y) <= 20 &&
+              bm.position.x < module.position.x + module.dimensions.width - 20 &&
+              bm.position.x + bm.dimensions.width > module.position.x + 20
+          ));
+      if (isSuspendedWallUnit && module.carcass.wallSuspensionType !== "concealed_camar_807") {
+        const volM3 =
+          (module.dimensions.width * module.dimensions.height * module.dimensions.depth) / 1_000_000_000;
+        const estLoadedMassKg = volM3 * 165;
+        const hangerQty = Math.max(
+          2,
+          Math.ceil(module.dimensions.width / 900),
+          Math.ceil(estLoadedMassKg / 65)
+        );
         addHardware(
           "HW_WALL_HANGER_EN14749",
           "EN 14749 Ağır Yük Üst Dolap Duvar Askı Elemanı",
           "connector",
-          2,
+          hangerQty,
           "adet",
           4.2
         );
@@ -824,6 +1126,44 @@ export function generateBOMForProject(
             });
           }
         }
+      } else if (comp.role === "kerf_curve") {
+        mat = materialsMap.get(comp.materialId) || doorMat;
+        grain = "lengthwise";
+        length = comp.dimensions.height;
+        width = comp.dimensions.width;
+        edgeBanding = {
+          top: true,
+          bottom: true,
+          left: false,
+          right: false,
+          thickness: defaultEbThickness,
+        };
+      } else if (
+        comp.role === "door_stile_left" ||
+        comp.role === "door_stile_right" ||
+        comp.role === "door_rail_top" ||
+        comp.role === "door_rail_bottom" ||
+        comp.role === "door_center_panel"
+      ) {
+        mat = materialsMap.get(comp.materialId) || doorMat;
+        const isRail = comp.role === "door_rail_top" || comp.role === "door_rail_bottom";
+        length = isRail ? comp.dimensions.width : comp.dimensions.height;
+        width = isRail ? comp.dimensions.height : comp.dimensions.width;
+        grain = mat.hasGrain ? "lengthwise" : "none";
+        // Center panel & painted shaker frame pieces are unbanded (mortise-tenon / lacquer); laminate outer edges get 1-side band
+        const needsOuterBand =
+          comp.role !== "door_center_panel" &&
+          mat.category !== "lacquer" &&
+          mat.category !== "glass" &&
+          mat.category !== "mirror" &&
+          mat.category !== "metal";
+        edgeBanding = {
+          top: false,
+          bottom: false,
+          left: needsOuterBand,
+          right: false,
+          thickness: needsOuterBand ? defaultEbThickness : 0,
+        };
       } else if (comp.role.includes("door")) {
         mat = materialsMap.get(comp.materialId) || doorMat;
         const doorGrain =
@@ -833,8 +1173,23 @@ export function generateBOMForProject(
         grain = mat.hasGrain ? (doorGrain === "crosswise" ? "crosswise" : "lengthwise") : "none";
         length = comp.dimensions.height;
         width = comp.dimensions.width;
-        const doorEbT = bay?.door.doorEdgeBandThicknessMm || defaultEbThickness;
-        edgeBanding = { top: true, bottom: true, left: true, right: true, thickness: doorEbT };
+        const activeDoorProf =
+          bay?.door?.crossSectionProfile || module.carcass.crossSectionProfile || "flat_slab";
+        // P1-03: Lacquer, glass, mirror, metal, and 45°/J-pull/cove milled edges NEVER receive flat PVC edge-banding deduction!
+        const isUnbandedDoorFinishOrProfile =
+          mat.category === "lacquer" ||
+          mat.category === "glass" ||
+          mat.category === "mirror" ||
+          mat.category === "metal" ||
+          activeDoorProf === "bevel_45" ||
+          activeDoorProf === "j_pull_bevel" ||
+          activeDoorProf === "cove_arch";
+        const doorEbT = isUnbandedDoorFinishOrProfile
+          ? 0
+          : bay?.door.doorEdgeBandThicknessMm || defaultEbThickness;
+        edgeBanding = isUnbandedDoorFinishOrProfile
+          ? { top: false, bottom: false, left: false, right: false, thickness: 0 }
+          : { top: true, bottom: true, left: true, right: true, thickness: doorEbT };
 
         const leafInfo = fourSpace.doorLeaves[bayIdx];
         partHingePositionsY = leafInfo?.hingePositionsY;
@@ -987,7 +1342,18 @@ export function generateBOMForProject(
         }
 
         const handleCat = bay?.door.handleCategory || "bar_handle";
-        if (handleCat !== "handleless_plain") {
+        const doorProfForHandle =
+          bay?.door?.crossSectionProfile || module.carcass.crossSectionProfile || "flat_slab";
+        const isIntegratedMilledHandleless =
+          handleCat === "handleless_plain" ||
+          handleCat === "j_pull" ||
+          handleCat === "gola_profile" ||
+          handleCat === "milled_wood_grip" ||
+          doorProfForHandle === "j_pull_bevel" ||
+          doorProfForHandle === "bevel_45" ||
+          bay?.door?.openingTechnology === "push_to_open" ||
+          bay?.door?.openingTechnology === "servo_electric";
+        if (!isIntegratedMilledHandleless) {
           const hProfile =
             getAllHandleProfiles().find((hp) => hp.id === bay?.door.handleProfileId) ||
             getAllHandleProfiles().find((hp) => hp.category === handleCat) ||
@@ -1001,9 +1367,11 @@ export function generateBOMForProject(
           module.componentGrainOverrides?.__drawers__ ||
           module.componentGrainOverrides?.__doors__ ||
           module.componentGrainOverrides?.__all__;
+        const drwContAssign = grainContinuityMap.get(comp.id);
         grain = mat.hasGrain ? (drwGrain === "crosswise" ? "crosswise" : "lengthwise") : "none";
-        length = comp.dimensions.width;
-        width = comp.dimensions.height;
+        const isVertContDrawer = Boolean(drwContAssign && drwContAssign.grainDirection === "lengthwise" && mat.hasGrain);
+        length = isVertContDrawer ? comp.dimensions.height : comp.dimensions.width;
+        width = isVertContDrawer ? comp.dimensions.width : comp.dimensions.height;
         edgeBanding = {
           top: true,
           bottom: true,
@@ -1012,7 +1380,18 @@ export function generateBOMForProject(
           thickness: defaultEbThickness,
         };
         const drawer = bay?.drawers.find((d) => `${d.id}_front` === comp.id);
-        if (!drawer?.isInternal && bay?.door.handleCategory !== "handleless_plain") {
+        const drwHandleCat = bay?.door.handleCategory || "bar_handle";
+        const drwProf = bay?.door?.crossSectionProfile || module.carcass.crossSectionProfile || "flat_slab";
+        const isDrwHandleless =
+          drwHandleCat === "handleless_plain" ||
+          drwHandleCat === "j_pull" ||
+          drwHandleCat === "gola_profile" ||
+          drwHandleCat === "milled_wood_grip" ||
+          drwProf === "j_pull_bevel" ||
+          drwProf === "bevel_45" ||
+          drawer?.slideType === "push_to_open" ||
+          drawer?.slideType === "servo_electric";
+        if (!drawer?.isInternal && !isDrwHandleless) {
           const profile =
             getAllHandleProfiles().find((p) => p.id === bay?.door.handleProfileId) ||
             getAllHandleProfiles().find(
@@ -1255,7 +1634,10 @@ export function generateBOMForProject(
         hasSinkOrCooktopAppliance(module) && module.name.toLowerCase().includes("eviye")
           ? "none"
           : module.carcass.backPanelType || "grooved";
-      const isWallCab = module.category === "kitchen_wall" || (module.position?.y || 0) >= 1000;
+      const isWallCab =
+        module.category === "kitchen_wall" ||
+        Boolean(module.templateId?.includes("floating")) ||
+        ((module.position?.y || 0) >= 150 && (module.carcass.plinthHeight ?? 0) === 0);
 
       // Compute fixed & appliance-carrier shelf Y offsets on outer side panels so Minifix/Dowel rows are drilled accurately!
       const sideFixedShelfYs =
@@ -1277,28 +1659,51 @@ export function generateBOMForProject(
             })()
           : undefined;
 
-      // Resolve real CNC handle spacing (`160mm`, `128mm`, `1` for single knob, `undefined` for Gola/J-pull/push-to-open)
-      const resolvedHandleSpacingMm = (() => {
-        if (!comp.role.includes("door") && comp.role !== "drawer_front") return undefined;
+      const canonicalHandleSpec = (() => {
+        if (
+          comp.role !== "door_left" &&
+          comp.role !== "door_right" &&
+          comp.role !== "drawer_front"
+        ) {
+          return undefined;
+        }
         if (comp.role === "drawer_front") {
           const drObj = bay?.drawers.find((d) => `${d.id}_front` === comp.id);
           if (drObj?.isInternal) return undefined;
         }
         const hCat = bay?.door?.handleCategory || "bar_handle";
-        if (
-          hCat === "handleless_plain" ||
-          hCat === "gola_profile" ||
-          hCat === "j_pull_milled" ||
-          bay?.door?.openingTechnology === "push_to_open"
-        ) {
-          return undefined;
-        }
-        if (hCat === "knob") return 1;
+        const doorProfCheck =
+          bay?.door?.crossSectionProfile || module.carcass.crossSectionProfile || "flat_slab";
         const hp =
           getAllHandleProfiles().find((p) => p.id === bay?.door?.handleProfileId) ||
           getAllHandleProfiles().find((p) => p.category === hCat);
-        return hp?.centerToCenterMm && hp.centerToCenterMm > 0 ? hp.centerToCenterMm : 160;
+        const rawCc =
+          hCat === "knob"
+            ? 1
+            : hp?.holeSpacingCcMm ??
+              (hp as { centerToCenterMm?: number } | undefined)?.centerToCenterMm ??
+              160;
+        const spec = resolveCanonicalHandlePlacement({
+          partRole: comp.role,
+          partId: comp.id,
+          partLabel: comp.label,
+          frontWidthMm: comp.dimensions.width,
+          frontHeightMm: comp.dimensions.height,
+          frontElevationYMm: comp.position?.y ?? 0,
+          moduleCategory: module.category,
+          moduleElevationYMm: module.position?.y ?? 0,
+          handleCategory: hCat,
+          openingTechnology: bay?.door?.openingTechnology,
+          crossSectionProfile: doorProfCheck,
+          spacingCcMm: rawCc,
+          handleOrientation: bay?.door?.handleOrientation,
+          handleOffsetY: bay?.door?.handleOffsetY,
+          handleEdgeInsetX: bay?.door?.handleEdgeInsetX,
+        });
+        return spec.isDrilledThrough ? spec : undefined;
       })();
+
+      const resolvedHandleSpacingMm = canonicalHandleSpec?.spacingCcMm;
 
       // Detect wooden drawer components (16mm wooden sides + 8mm grooved bottom)
       const isWoodenDrawerComponent = (() => {
@@ -1333,8 +1738,8 @@ export function generateBOMForProject(
         label: comp.label,
         role: comp.role,
         dimensions: {
-          width: rawWidthMm,
-          height: rawLengthMm,
+          width: comp.role === "drawer_front" ? roundIntMm(comp.dimensions.height) : rawWidthMm,
+          height: comp.role === "drawer_front" ? roundIntMm(comp.dimensions.width) : rawLengthMm,
           depth: thicknessMm,
         },
         materialId: mat.id,
@@ -1347,11 +1752,70 @@ export function generateBOMForProject(
         isFrontFacing: comp.isFrontFacing,
         hardwareRefId: bay?.door.hardwareProductId,
         handleSpacingMm: resolvedHandleSpacingMm,
+        handleDrillSpec: canonicalHandleSpec
+          ? {
+              orientation: canonicalHandleSpec.orientation,
+              centerXMm: canonicalHandleSpec.centerXMm,
+              centerYMm: canonicalHandleSpec.centerYMm,
+              spacingCcMm: canonicalHandleSpec.spacingCcMm,
+            }
+          : undefined,
         isInsetDoor,
+        insetDoorThicknessMm:
+          bay?.door?.doorThicknessMm || module.carcass.doorThickness || 18,
+        insetRevealGapMm: module.carcass.doorPerimeterGap || 2,
+        dividerJointPositionsY:
+          (comp.role === "carcass_bottom" || comp.role === "carcass_top") &&
+          module.bays.length > 1 &&
+          !comp.id.includes("_top_stretcher_")
+            ? (() => {
+                const T_p = module.carcass.panelThickness || 18;
+                const isOuterThrough =
+                  partJoineryTopology === "top_bottom_through" ||
+                  partJoineryTopology === "miter_45";
+                const ys: number[] = [];
+                let curX = isOuterThrough ? T_p : 0;
+                for (let bi = 0; bi < module.bays.length - 1; bi++) {
+                  curX += fourSpace.usableInternal.bayClearWidthsMm[bi] || 0;
+                  ys.push(roundMm(curX + T_p / 2, 2));
+                  curX += T_p;
+                }
+                return ys;
+              })()
+            : undefined,
+        polygonContourMm: comp.polygonContourMm,
         hingePositionsY: partHingePositionsY,
         hingePositionsBackY: partHingePositionsBackY,
         tJunctionFixedShelfYs,
         fixedShelfJointYs: sideFixedShelfYs && sideFixedShelfYs.length > 0 ? sideFixedShelfYs : undefined,
+        ...(() => {
+          const mhSpec = resolveMultiHoleSpec(module);
+          const panelT_mh = module.carcass.panelThickness || 18;
+          let adjYs: number[] = [];
+          if (comp.role === "carcass_side_left" || comp.role === "carcass_side_right") {
+            const targetBIdx = comp.role === "carcass_side_right" ? Math.max(0, module.bays.length - 1) : 0;
+            const targetBay = module.bays[targetBIdx];
+            adjYs = (targetBay?.shelves || [])
+              .filter((s) => !s.isHidden && s.isAdjustable !== false)
+              .map((s) => roundMm(bottomJointOffsetY + panelT_mh + s.elevationY, 2));
+          } else if (comp.role === "carcass_divider" && typeof comp.bayIndex === "number") {
+            const lb = module.bays[comp.bayIndex];
+            const rb = module.bays[comp.bayIndex + 1];
+            const rawYs = [
+              ...(lb?.shelves || []).filter((s) => !s.isHidden && s.isAdjustable !== false).map((s) => s.elevationY),
+              ...(rb?.shelves || []).filter((s) => !s.isHidden && s.isAdjustable !== false).map((s) => s.elevationY),
+            ];
+            adjYs = Array.from(new Set(rawYs.map((v) => roundMm(v, 2)))).sort((a, b) => a - b);
+          }
+          return {
+            multiHoleMode: mhSpec.mode,
+            multiHoleRowCount: mhSpec.rowCount,
+            multiHoleFrontSetbackMm: module.carcass.multiHoleFrontSetbackMm,
+            multiHoleEdgeMarginMm: mhSpec.edgeMarginMm,
+            multiHoleDividerThroughBore: mhSpec.dividerThroughBore,
+            adjustableShelfPositionsY: adjYs.length > 0 ? adjYs : undefined,
+          };
+        })(),
         bottomJointOffsetY,
         matingPanelThicknessMm: module.carcass.panelThickness || 18,
         hasBackGroove: hasPartBackGroove,
@@ -1400,9 +1864,16 @@ export function generateBOMForProject(
         comp.role === "drawer_front"
           ? bay?.drawers.find((d) => `${d.id}_front` === comp.id)
           : undefined;
+      const grainAssign =
+        grainContinuityMap.get(comp.id) ||
+        (comp.role.includes("door") && bay?.door?.id ? grainContinuityMap.get(bay.door.id) : undefined);
       const grainGroupId =
+        grainAssign?.grainGroupId ||
         drawerMatchForGrain?.grainGroupId ||
         (comp.role.includes("door") ? bay?.door?.grainGroupId : undefined);
+      if (grainGroupId && grain === "none") {
+        grain = grainAssign?.grainDirection || "lengthwise";
+      }
 
       cutList.push({
         id: stablePartId,
@@ -1439,6 +1910,10 @@ export function generateBOMForProject(
         edgeBanding,
         grain,
         grainGroupId,
+        grainOffsetXMm: grainAssign?.offsetXMm,
+        grainOffsetYMm: grainAssign?.offsetYMm,
+        grainSequenceLabel: grainAssign?.sequenceLabel,
+        notes: grainAssign ? `Desen Takibi: ${grainAssign.sequenceLabel}` : undefined,
         cncFileName: `${stablePartId}.dxf`,
         areaM2: roundMm(areaM2, 3),
         edgeBandMeters: roundMm(edgeBandMeters, 3),
@@ -1466,6 +1941,8 @@ export function generateBOMForProject(
         drawerBottomGrooveWidthMm: hasDrawerBottomGroove ? 8.5 : undefined,
         drawerBottomGrooveDepthMm: hasDrawerBottomGroove ? 6 : undefined,
         wallHangerCornerNotches,
+        polygonContourMm: comp.polygonContourMm,
+        kerfBendingMeta: comp.kerfBendingMeta,
       });
     });
 
@@ -1872,6 +2349,16 @@ export function generateBOMForProject(
     validationWarnings,
     shelfDeflectionAnalyses,
     productionGate,
+    engineeringReadiness: (() => {
+      const eng = evaluateUnifiedEngineeringModel(project);
+      return {
+        canExportToCncAndSaw: eng.canExportToCncAndSaw,
+        canApproveFinalErpRelease: eng.canApproveFinalErpRelease,
+        blockingErrorCount: eng.blockingSafetyAndEngineeringErrors.length,
+        verificationRequiredCount: eng.verificationRequiredFindings.length,
+        ergonomicAdvisoryCount: eng.ergonomicAdvisories.length,
+      };
+    })(),
   };
   if (bomProjectCache.size >= 32) {
     const firstKey = bomProjectCache.keys().next().value;

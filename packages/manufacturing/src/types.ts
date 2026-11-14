@@ -38,6 +38,9 @@ export interface CutPiece {
   edgeBanding: EdgeBandingConfig;
   grain: GrainDirection;
   grainGroupId?: string;
+  grainOffsetXMm?: UnitLength;
+  grainOffsetYMm?: UnitLength;
+  grainSequenceLabel?: string;
   cncFileName?: string;
   areaM2: number;
   edgeBandMeters: number;
@@ -90,6 +93,17 @@ export interface CutPiece {
   wallHangerCornerNotches?: {
     widthMm: UnitLength;
     heightMm: UnitLength;
+  };
+  /** Non-rectangular 2D CNC outer contour vertices [xMm, yMm][] (sloped ceiling, capsule stadium) */
+  polygonContourMm?: [number, number][];
+  /** CNC kerf-bending slot metadata for curved shells */
+  kerfBendingMeta?: {
+    outerRadiusMm: number;
+    bendAngleDeg: number;
+    unfoldedArcLengthMm: number;
+    kerfCount: number;
+    kerfSpacingMm: number;
+    residualWebMm: number;
   };
 }
 
@@ -152,4 +166,11 @@ export interface ManufacturingBOM {
   validationWarnings: string[];
   shelfDeflectionAnalyses?: ShelfDeflectionBOMEntry[];
   productionGate?: ProductionGateSummary;
+  engineeringReadiness?: {
+    canExportToCncAndSaw: boolean;
+    canApproveFinalErpRelease: boolean;
+    blockingErrorCount: number;
+    verificationRequiredCount: number;
+    ergonomicAdvisoryCount: number;
+  };
 }

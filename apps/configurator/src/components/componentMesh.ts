@@ -5,6 +5,10 @@ import {
   markSharedGeometry,
   markSharedMaterial,
 } from "../v3/materials/webglResourceGuard";
+import {
+  getCachedJPullBevelDoorGeometry,
+  getCachedContouredDoorSweepGeometry,
+} from "../v3/materials/capsuleAndProfileGeometry";
 
 const box = markSharedGeometry(new THREE.BoxGeometry(1, 1, 1));
 const sphere = markSharedGeometry(new THREE.SphereGeometry(0.5, 20, 14));
@@ -251,9 +255,11 @@ function getCachedWorldUvBoxGeometry(
   w: number,
   h: number,
   d: number,
-  grainCrosswise = false
+  grainCrosswise = false,
+  grainOffsetXMm = 0,
+  grainOffsetYMm = 0
 ): THREE.BufferGeometry {
-  const key = `${Math.round(w)}_${Math.round(h)}_${Math.round(d)}_${grainCrosswise ? 1 : 0}`;
+  const key = `${Math.round(w)}_${Math.round(h)}_${Math.round(d)}_${grainCrosswise ? 1 : 0}_gx${Math.round(grainOffsetXMm)}_gy${Math.round(grainOffsetYMm)}`;
   const hit = worldUvBoxCache.get(key);
   if (hit) return hit;
 
@@ -286,14 +292,14 @@ function getCachedWorldUvBoxGeometry(
     let u = 0;
     let v = 0;
     if (az >= ax && az >= ay) {
-      u = (vx + hw) / 780;
-      v = (vy + hh) / 2850;
+      u = (grainOffsetXMm + vx + hw) / 780;
+      v = (grainOffsetYMm + vy + hh) / 2850;
     } else if (ax >= ay) {
-      u = (vz + hd) / 780;
-      v = (vy + hh) / 2850;
+      u = (grainOffsetXMm + vz + hd) / 780;
+      v = (grainOffsetYMm + vy + hh) / 2850;
     } else {
-      u = (vx + hw) / 780;
-      v = (vz + hd) / 2850;
+      u = (grainOffsetXMm + vx + hw) / 780;
+      v = (grainOffsetYMm + vz + hd) / 2850;
     }
     if (grainCrosswise) {
       const t = u;
@@ -332,7 +338,8 @@ function createMicroBeveledBoxGeometry(
   d: number,
   radiusMm: number,
   seedU: number,
-  seedV: number
+  seedV: number,
+  continuousGrainUv?: { offsetXMm: number; offsetYMm: number; crosswise?: boolean }
 ): THREE.BufferGeometry {
   const hw = Math.max(2, w / 2);
   const hh = Math.max(2, h / 2);
@@ -385,15 +392,24 @@ function createMicroBeveledBoxGeometry(
         const az = Math.abs(nz);
         let u = 0;
         let v = 0;
+        const gxOff = continuousGrainUv ? continuousGrainUv.offsetXMm : 0;
+        const gyOff = continuousGrainUv ? continuousGrainUv.offsetYMm : 0;
+        const effSu = continuousGrainUv ? 0 : seedU;
+        const effSv = continuousGrainUv ? 0 : seedV * 0.08;
         if (az >= ax && az >= ay) {
-          u = (vx + hw) / 780 + seedU;
-          v = (vy + hh) / 2850 + seedV * 0.08;
+          u = (gxOff + vx + hw) / 780 + effSu;
+          v = (gyOff + vy + hh) / 2850 + effSv;
         } else if (ax >= ay) {
-          u = (vz + hd) / 780 + seedU;
-          v = (vy + hh) / 2850 + seedV * 0.08;
+          u = (gxOff + vz + hd) / 780 + effSu;
+          v = (gyOff + vy + hh) / 2850 + effSv;
         } else {
-          u = (vx + hw) / 780 + seedU;
-          v = (vz + hd) / 780 + seedV * 0.08;
+          u = (gxOff + vx + hw) / 780 + effSu;
+          v = (gyOff + vz + hd) / 780 + effSv;
+        }
+        if (continuousGrainUv?.crosswise) {
+          const tmpUv = u;
+          u = v;
+          v = tmpUv;
         }
         uvs.push(u, v);
       }
@@ -501,10 +517,14 @@ function getCachedBeveledPanelGeometry(
   h: number,
   d: number,
   radiusMm: number,
-  seedKey: string
+  seedKey: string,
+  continuousGrainUv?: { offsetXMm: number; offsetYMm: number; crosswise?: boolean }
 ): THREE.BufferGeometry {
   const bucket = Math.abs(seedKey.split("").reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 7)) % 6;
-  const key = `bv_${Math.round(w)}_${Math.round(h)}_${Math.round(d * 10)}_r${Math.round(radiusMm * 10)}_s${bucket}`;
+  const cgKey = continuousGrainUv
+    ? `cg_${Math.round(continuousGrainUv.offsetXMm)}_${Math.round(continuousGrainUv.offsetYMm)}_${continuousGrainUv.crosswise ? 1 : 0}`
+    : `s${bucket}`;
+  const key = `bv_${Math.round(w)}_${Math.round(h)}_${Math.round(d * 10)}_r${Math.round(radiusMm * 10)}_${cgKey}`;
   const cached = microBevelPanelCache.get(key);
   if (cached) return cached;
 
@@ -521,7 +541,7 @@ function getCachedBeveledPanelGeometry(
   }
 
   const [su, sv] = hashStringSeed(`s_${bucket}`);
-  const geo = markSharedGeometry(createMicroBeveledBoxGeometry(w, h, d, radiusMm, su, sv));
+  const geo = markSharedGeometry(createMicroBeveledBoxGeometry(w, h, d, radiusMm, su, sv, continuousGrainUv));
   microBevelPanelCache.set(key, geo);
   return geo;
 }
@@ -1734,7 +1754,7 @@ export function createComponentMesh(
     comp.dimensions.width >= 12 &&
     comp.dimensions.height >= 12 &&
     comp.dimensions.depth >= 8 &&
-    comp.crossSectionProfile !== "bevel_45";
+    comp.crossSectionProfile !== "bevel_45" && comp.crossSectionProfile !== "j_pull_bevel" && comp.crossSectionProfile !== "cove_arch" && comp.crossSectionProfile !== "custom_cad_profile";
 
   const isCrossGrain =
     userData?.grainDir === "crosswise" || comp.grainDirection === "crosswise";
@@ -1754,14 +1774,17 @@ export function createComponentMesh(
           comp.dimensions.height,
           comp.dimensions.depth,
           bevelRadiusMm,
-          comp.id
+          comp.id,
+          userData?.continuousGrainUv
         )
       : useWorldUvFlatBox
       ? getCachedWorldUvBoxGeometry(
           comp.dimensions.width,
           comp.dimensions.height,
           comp.dimensions.depth,
-          isCrossGrain
+          isCrossGrain,
+          userData?.continuousGrainUv?.offsetXMm || 0,
+          userData?.continuousGrainUv?.offsetYMm || 0
         )
       : box,
     material
@@ -1969,17 +1992,69 @@ export function createComponentMesh(
       frustumMesh.add(new THREE.LineSegments(frustumEdges, revealShadowMat));
       tagSubMesh(frustumMesh, userData, comp);
       group.add(frustumMesh);
-    } else if (activeProfile === "custom_cad_profile" && w > 140 && h > 140) {
+    } else if (activeProfile === "j_pull_bevel" && w > 120 && h > 120) {
+      // 6. 45° Eğimli Gizli J-Kulp Parmak Kanallı Kapak (`j_pull_bevel`)
       mesh.visible = false;
-      const poly = comp.customCadPolygon;
-      const firstPtY = poly && poly.length >= 3 ? poly[1]?.y ?? 0.65 : 0.65;
-      const bevelSlopeMm = Math.max(14, Math.min(40, Math.round(firstPtY * 32)));
-      const { frustumGeo, frustumEdges } = getCachedBevel45Frustum(w, h, d, bevelSlopeMm);
-      const outerBevel = new THREE.Mesh(frustumGeo, material);
-      outerBevel.position.set(cx, cy, cz);
-      outerBevel.add(new THREE.LineSegments(frustumEdges, revealShadowMat));
-      tagSubMesh(outerBevel, userData, comp);
-      group.add(outerBevel);
+      const { geo: jpGeo, edges: jpEdges } = getCachedJPullBevelDoorGeometry(w, h, d, isCrossGrain);
+      const jpMesh = new THREE.Mesh(jpGeo, material);
+      jpMesh.position.set(cx, cy, cz);
+      jpMesh.castShadow = true;
+      jpMesh.receiveShadow = true;
+      jpMesh.add(new THREE.LineSegments(jpEdges, revealShadowMat));
+      tagSubMesh(jpMesh, userData, comp);
+      group.add(jpMesh);
+    } else if (activeProfile === "cove_arch" && w > 140 && h > 140) {
+      // 7. İçbükey Kavisli (Cove) Çok Kademeli Çerçeve Kapak (`cove_arch`)
+      mesh.visible = false;
+      const covePoly = [
+        { x: 0.0, y: 0.95 },
+        { x: 0.16, y: 1.0 },
+        { x: 0.38, y: 0.72 },
+        { x: 0.64, y: 0.52 },
+        { x: 0.86, y: 0.46 },
+        { x: 1.0, y: 0.46 },
+      ];
+      const { geo: cvGeo, edges: cvEdges } = getCachedContouredDoorSweepGeometry(
+        w,
+        h,
+        d,
+        covePoly,
+        isCrossGrain
+      );
+      const cvMesh = new THREE.Mesh(cvGeo, material);
+      cvMesh.position.set(cx, cy, cz);
+      cvMesh.castShadow = true;
+      cvMesh.receiveShadow = true;
+      cvMesh.add(new THREE.LineSegments(cvEdges, revealShadowMat));
+      tagSubMesh(cvMesh, userData, comp);
+      group.add(cvMesh);
+    } else if (activeProfile === "custom_cad_profile" && w > 140 && h > 140) {
+      // 8. Gerçek Çok Halkalı 3D Özel CAD (.DXF / .SVG / .JSON) Kesit Örme (Perimeter Sweep/Loft)
+      mesh.visible = false;
+      const poly =
+        comp.customCadPolygon && comp.customCadPolygon.length >= 2
+          ? comp.customCadPolygon
+          : [
+              { x: 0.0, y: 0.42 },
+              { x: 0.24, y: 1.0 },
+              { x: 0.55, y: 0.64 },
+              { x: 0.82, y: 0.88 },
+              { x: 1.0, y: 0.58 },
+            ];
+      const { geo: swGeo, edges: swEdges } = getCachedContouredDoorSweepGeometry(
+        w,
+        h,
+        d,
+        poly,
+        isCrossGrain
+      );
+      const sweptDoor = new THREE.Mesh(swGeo, material);
+      sweptDoor.position.set(cx, cy, cz);
+      sweptDoor.castShadow = true;
+      sweptDoor.receiveShadow = true;
+      sweptDoor.add(new THREE.LineSegments(swEdges, revealShadowMat));
+      tagSubMesh(sweptDoor, userData, comp);
+      group.add(sweptDoor);
     }
   }
 

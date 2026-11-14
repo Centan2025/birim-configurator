@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState, useMemo, useRef } from "react";
-import type { DesignProject, ModuleInstance } from "@birim/core";
-import type { ManufacturingBOM } from "@birim/manufacturing";
+import { calculateBayWidths, computeProjectGrainNeighborMap, evaluateUnifiedEngineeringModel, type DesignProject, type GrainPartNeighborInfo, type ModuleInstance } from "@birim/core";
+import { computeProjectCartonization, exportCartonManifestCsv, generateAssemblyInstructions, type ManufacturingBOM } from "@birim/manufacturing";
 import { BirimLogo } from "../../design-system";
 import { startZeroLagModalDrag } from "../../design-system/zeroLagDrag";
 import { Printer, Download, CheckCircle2, X, Layers, Wrench } from "lucide-react";
@@ -26,6 +26,7 @@ interface IsoBoxSpec {
   hingeSide?: "left" | "right" | "none";
   handlePos?: "left" | "right" | "bottom-center" | "none";
   hasSys32?: boolean;
+  grainLookupKeys?: string[];
 }
 
 function projectIsoPoint(x: number, y: number, z: number): { u: number; v: number } {
@@ -36,32 +37,12 @@ function projectIsoPoint(x: number, y: number, z: number): { u: number; v: numbe
 }
 
 function computeModuleBayRanges(mod: ModuleInstance): Array<{ x0: number; x1: number; width: number }> {
-  const W = mod.dimensions.width;
   const T = mod.carcass.panelThickness || 18;
-  const bayCount = Math.max(1, mod.bays.length);
-  const innerW = Math.max(100, W - 2 * T - Math.max(0, bayCount - 1) * T);
-
-  let fixedSum = 0;
-  let flexWeightSum = 0;
-  const rawWidths = mod.bays.map((b) => {
-    if (typeof b.customWidth === "number" && b.customWidth > 0) {
-      fixedSum += b.customWidth;
-      return b.customWidth;
-    }
-    const w = typeof b.widthRatio === "number" && b.widthRatio > 0 ? b.widthRatio : 1 / bayCount;
-    flexWeightSum += w;
-    return -w;
-  });
-
-  const remainingW = Math.max(60, innerW - fixedSum);
-  const widths = rawWidths.map((rw) =>
-    rw > 0 ? rw : (Math.abs(rw) / Math.max(0.001, flexWeightSum)) * remainingW
-  );
-
+  const canonicalWidths = calculateBayWidths(mod);
   const ranges: Array<{ x0: number; x1: number; width: number }> = [];
   let cursorX = T;
   for (let i = 0; i < mod.bays.length; i++) {
-    const bw = widths[i] ?? innerW / bayCount;
+    const bw = canonicalWidths[i] ?? Math.max(80, mod.dimensions.width - 2 * T);
     ranges.push({ x0: cursorX, x1: cursorX + bw, width: bw });
     cursorX += bw + T;
   }
@@ -367,6 +348,7 @@ function buildExplodedIsoBoxes(
         strokeWidth: 1.4,
         kind: "drawer",
         handlePos: drw.isInternal ? "none" : "bottom-center",
+        grainLookupKeys: drw.isInternal ? undefined : [`${drw.id}_front`],
       });
     });
 
@@ -379,11 +361,84 @@ function buildExplodedIsoBoxes(
       const doorY1 = H - 2;
 
       if (doorY1 - doorY0 > 80) {
+        const dSysId = door.doorSystemId || "";
+        const isBiFoldLift = door.type === "lift_bi_fold" || dSysId === "lift_bi_fold";
+        const isSingleLift =
+          !isBiFoldLift &&
+          (door.type === "flap_up" ||
+            door.type === "lift_parallel" ||
+            dSysId === "lift_up_stay" ||
+            dSysId === "lift_parallel");
         const isDouble =
           door.type === "double" ||
           door.doorSystemId === "hinged_double" ||
           door.type === "sliding";
-        if (isDouble) {
+        if (isBiFoldLift) {
+          const midY = (doorY0 + doorY1) / 2;
+          // Lower leaf: receives horizontal bottom-center handle
+          boxes.push({
+            id: `door-hf-bot-${bIdx}`,
+            code: "⑩",
+            x0: doorX0,
+            y0: doorY0,
+            z0: D - T + explodeDoorZ,
+            x1: doorX1,
+            y1: midY - 1,
+            z1: D + explodeDoorZ,
+            frontFill: "#D6AE7E",
+            sideFill: "#B88C5A",
+            topFill: "#E8C99E",
+            stroke: "#1E293B",
+            strokeWidth: 1.6,
+            opacity: 0.78,
+            kind: "door",
+            hingeSide: "none",
+            handlePos: "bottom-center",
+            grainLookupKeys: [`${door.id}_lift_bifold_bot`, door.id],
+          });
+          // Upper leaf: hinged at top, ZERO handle!
+          boxes.push({
+            id: `door-hf-top-${bIdx}`,
+            code: "⑩",
+            x0: doorX0,
+            y0: midY + 1,
+            z0: D - T + explodeDoorZ,
+            x1: doorX1,
+            y1: doorY1,
+            z1: D + explodeDoorZ,
+            frontFill: "#D6AE7E",
+            sideFill: "#B88C5A",
+            topFill: "#E8C99E",
+            stroke: "#1E293B",
+            strokeWidth: 1.6,
+            opacity: 0.78,
+            kind: "door",
+            hingeSide: "none",
+            handlePos: "none",
+            grainLookupKeys: [`${door.id}_lift_bifold_top`, door.id],
+          });
+        } else if (isSingleLift) {
+          boxes.push({
+            id: `door-lift-${bIdx}`,
+            code: "⑩",
+            x0: doorX0,
+            y0: doorY0,
+            z0: D - T + explodeDoorZ,
+            x1: doorX1,
+            y1: doorY1,
+            z1: D + explodeDoorZ,
+            frontFill: "#D6AE7E",
+            sideFill: "#B88C5A",
+            topFill: "#E8C99E",
+            stroke: "#1E293B",
+            strokeWidth: 1.6,
+            opacity: 0.78,
+            kind: "door",
+            hingeSide: "none",
+            handlePos: "bottom-center",
+            grainLookupKeys: [door.id, `${door.id}_lift_stay`, `${door.id}_lift_parallel`],
+          });
+        } else if (isDouble) {
           const midX = (doorX0 + doorX1) / 2;
           boxes.push({
             id: `door-l-${bIdx}`,
@@ -403,6 +458,7 @@ function buildExplodedIsoBoxes(
             kind: "door",
             hingeSide: "left",
             handlePos: "right",
+            grainLookupKeys: [`${door.id}_leaf_left`, `${door.id}_left`],
           });
           boxes.push({
             id: `door-r-${bIdx}`,
@@ -422,6 +478,7 @@ function buildExplodedIsoBoxes(
             kind: "door",
             hingeSide: "right",
             handlePos: "left",
+            grainLookupKeys: [`${door.id}_leaf_right`, `${door.id}_right`],
           });
         } else {
           const hingeRight = door.type === "single_right" || door.type === "inset_right";
@@ -443,6 +500,7 @@ function buildExplodedIsoBoxes(
             kind: "door",
             hingeSide: hingeRight ? "right" : "left",
             handlePos: hingeRight ? "left" : "right",
+            grainLookupKeys: [door.id, `${door.id}_left`, `${door.id}_right`],
           });
         }
       }
@@ -484,6 +542,25 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
   );
 
   const mod = mainModules[Math.min(selectedModIdx, Math.max(0, mainModules.length - 1))] || project.modules[0];
+
+  const engReport = useMemo(() => evaluateUnifiedEngineeringModel(project), [project]);
+  const canonicalFactorySteps = useMemo(
+    () => (bom ? generateAssemblyInstructions(project, bom) : []),
+    [project, bom]
+  );
+  const grainNeighborMap = useMemo(() => computeProjectGrainNeighborMap(project), [project]);
+  const moduleGrainSequenceList = useMemo(() => {
+    if (!mod) return [] as GrainPartNeighborInfo[];
+    const uniq = new Map<string, GrainPartNeighborInfo>();
+    grainNeighborMap.forEach((info) => {
+      if (info.moduleId === mod.id) {
+        uniq.set(info.componentId, info);
+      }
+    });
+    return Array.from(uniq.values()).sort(
+      (a, b) => a.grainGroupId.localeCompare(b.grainGroupId) || a.sequenceIndex - b.sequenceIndex
+    );
+  }, [grainNeighborMap, mod]);
 
   const assemblyData = useMemo(() => {
     if (!mod) return null;
@@ -710,6 +787,51 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
         grooveLine = { x1: g1.x, y1: g1.y, x2: g2.x, y2: g2.y };
       }
 
+      let grainInfo: GrainPartNeighborInfo | undefined;
+      if (b.grainLookupKeys) {
+        for (const k of b.grainLookupKeys) {
+          const hit = grainNeighborMap.get(k) || grainNeighborMap.get(`P_${mod.id}_${k}`);
+          if (hit && hit.moduleId === mod.id) {
+            grainInfo = hit;
+            break;
+          }
+        }
+      }
+
+      let grainBadgeOverlay: {
+        cx: number;
+        cy: number;
+        seqBadge: string;
+        arrowFrom: { x: number; y: number };
+        arrowTo: { x: number; y: number };
+        dirSymbol: string;
+      } | null = null;
+
+      if (grainInfo) {
+        const midX = (b.x0 + b.x1) / 2;
+        const midY = (b.y0 + b.y1) / 2;
+        const centerPt = toSvg(midX, midY, b.z1 + 3);
+        const spanX = Math.max(40, (b.x1 - b.x0) * 0.26);
+        const spanY = Math.max(36, Math.min(140, (b.y1 - b.y0) * 0.24));
+        const arrowFrom =
+          grainInfo.grainDirection === "crosswise"
+            ? toSvg(midX - spanX, midY, b.z1 + 3)
+            : toSvg(midX, midY - spanY, b.z1 + 3);
+        const arrowTo =
+          grainInfo.grainDirection === "crosswise"
+            ? toSvg(midX + spanX, midY, b.z1 + 3)
+            : toSvg(midX, midY + spanY, b.z1 + 3);
+
+        grainBadgeOverlay = {
+          cx: centerPt.x,
+          cy: centerPt.y,
+          seqBadge: grainInfo.shortSeqBadge,
+          arrowFrom,
+          arrowTo,
+          dirSymbol: grainInfo.arrowSymbol,
+        };
+      }
+
       return {
         ...b,
         frontPoly,
@@ -719,8 +841,38 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
         hingeCups,
         sys32Pts,
         grooveLine,
+        grainInfo,
+        grainBadgeOverlay,
       };
     });
+
+    // Desen takibi komşu cepheler arası akış bağlantı okları ([k/N] -> [k+1/N])
+    const grainFlowLinks: Array<{
+      id: string;
+      from: { x: number; y: number };
+      to: { x: number; y: number };
+    }> = [];
+    const grainBoxesBySeq = renderedBoxes
+      .filter((rb) => rb.grainInfo && rb.grainBadgeOverlay)
+      .sort(
+        (a, b) =>
+          a.grainInfo!.grainGroupId.localeCompare(b.grainInfo!.grainGroupId) ||
+          a.grainInfo!.sequenceIndex - b.grainInfo!.sequenceIndex
+      );
+    for (let i = 0; i + 1 < grainBoxesBySeq.length; i++) {
+      const curB = grainBoxesBySeq[i];
+      const nxtB = grainBoxesBySeq[i + 1];
+      if (
+        curB.grainInfo!.grainGroupId === nxtB.grainInfo!.grainGroupId &&
+        nxtB.grainInfo!.sequenceIndex === curB.grainInfo!.sequenceIndex + 1
+      ) {
+        grainFlowLinks.push({
+          id: `gflow-${curB.id}-${nxtB.id}`,
+          from: { x: curB.grainBadgeOverlay!.cx, y: curB.grainBadgeOverlay!.cy },
+          to: { x: nxtB.grainBadgeOverlay!.cx, y: nxtB.grainBadgeOverlay!.cy },
+        });
+      }
+    }
 
     const W = mod.dimensions.width;
     const H = mod.dimensions.height;
@@ -806,8 +958,8 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
         : []),
     ];
 
-    return { renderedBoxes, arrows, callouts };
-  }, [mod, assemblyData]);
+    return { renderedBoxes, arrows, callouts, grainFlowLinks };
+  }, [mod, assemblyData, grainNeighborMap]);
 
   if (!isOpen || !mod || !assemblyData || !isoScene) return null;
 
@@ -861,6 +1013,19 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
         <div style="font-family:monospace;font-size:12px;text-align:right;">Parça: ${assemblyData.modCutPieces.length} Adet<br/>CNC Delik: ${assemblyData.totalHoles} Adet</div>
       </div>
       <div style="text-align:center;margin-bottom:18px;border:1px solid #e2e8f0;border-radius:12px;padding:12px;background:#f8fafc;">${svgMarkup}</div>
+      ${
+        moduleGrainSequenceList.length > 0
+          ? `<h3 style="margin:12px 0 8px;font-size:15px;color:#92400e;">Desen Takibi Cephe Montaj Sırası ve Suyolu Yön Tablosu</h3>
+             <table style="margin-bottom:14px;"><thead><tr><th>Sıra</th><th>Cephe Parçası</th><th>Damar / Suyolu Yönü</th><th>Bitişik Komşu Parçalar</th></tr></thead><tbody>
+             ${moduleGrainSequenceList
+               .map(
+                 (g) =>
+                   `<tr><td><b>${g.shortSeqBadge}</b></td><td>${g.partShortLabel}</td><td><b>${g.directionLabelTr}</b></td><td>${g.compactNeighborTextTr}</td></tr>`
+               )
+               .join("")}
+             </tbody></table>`
+          : ""
+      }
       <h3 style="margin:12px 0 8px;font-size:15px;">Montaj Adımları</h3>
       ${stepRows}
       <h3 style="margin:16px 0 8px;font-size:15px;">Hırdavat &amp; Bağlantı Elemanı Paketi</h3>
@@ -977,6 +1142,12 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
                   <marker id="asm-arrow" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
                     <path d="M 0 1 L 10 5 L 0 9 z" fill="#0284c7" />
                   </marker>
+                  <marker id="grain-vein-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto">
+                    <path d="M 0 1 L 10 5 L 0 9 z" fill="#b45309" />
+                  </marker>
+                  <marker id="grain-flow-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+                    <path d="M 0 1 L 10 5 L 0 9 z" fill="#d97706" />
+                  </marker>
                 </defs>
 
                 {/* Subtle Technical Grid Backdrop */}
@@ -1045,9 +1216,60 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
                           strokeLinecap="round"
                         />
                       )}
+                      {box.grainBadgeOverlay && (
+                        <g data-testid={`grain-seq-overlay-${box.id}`}>
+                          <line
+                            x1={box.grainBadgeOverlay.arrowFrom.x}
+                            y1={box.grainBadgeOverlay.arrowFrom.y}
+                            x2={box.grainBadgeOverlay.arrowTo.x}
+                            y2={box.grainBadgeOverlay.arrowTo.y}
+                            stroke="#b45309"
+                            strokeWidth="1.8"
+                            markerEnd="url(#grain-vein-arrow)"
+                          />
+                          <rect
+                            x={box.grainBadgeOverlay.cx - 21}
+                            y={box.grainBadgeOverlay.cy - 9}
+                            width="42"
+                            height="18"
+                            rx="5"
+                            fill="#78350f"
+                            stroke="#fde68a"
+                            strokeWidth="1.1"
+                          />
+                          <text
+                            x={box.grainBadgeOverlay.cx}
+                            y={box.grainBadgeOverlay.cy + 3.5}
+                            textAnchor="middle"
+                            fill="#fffbeb"
+                            fontSize="9"
+                            fontFamily="monospace"
+                            fontWeight="900"
+                          >
+                            {box.grainBadgeOverlay.dirSymbol}
+                            {box.grainBadgeOverlay.seqBadge}
+                          </text>
+                        </g>
+                      )}
                     </g>
                   );
                 })}
+
+                {/* Continuous Wood-Grain Inter-Panel Sequence Flow Arrows */}
+                {isoScene.grainFlowLinks.map((lnk) => (
+                  <line
+                    key={lnk.id}
+                    x1={lnk.from.x}
+                    y1={lnk.from.y}
+                    x2={lnk.to.x}
+                    y2={lnk.to.y}
+                    stroke="#d97706"
+                    strokeWidth="1.35"
+                    strokeDasharray="3 2.5"
+                    markerEnd="url(#grain-flow-arrow)"
+                    opacity={activeStep === 0 || activeStep === 4 || activeStep === 5 ? 0.88 : 0.15}
+                  />
+                ))}
 
                 {/* Exploded Assembly Direction Arrows */}
                 {isoScene.arrows.map((arr, idx) => (
@@ -1122,8 +1344,63 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
             </div>
           </div>
 
-          {/* Right 5 cols: Interactive 6-Step Sequence */}
+          {/* Right 5 cols: Interactive 6-Step Sequence + Canonical Tilt-Up & EN 14749 Safety Notes */}
           <div className="lg:col-span-5 space-y-2.5">
+            {!engReport.canExportToCncAndSaw && (
+              <div
+                data-testid="assembly-engineering-gate-alert"
+                className="p-3 rounded-2xl bg-red-950/90 border border-red-500/60 text-red-100 text-[11px] space-y-1"
+              >
+                <div className="font-bold text-red-200">
+                  Üretim &amp; Montaj Uyarısı ({engReport.blockingSafetyAndEngineeringErrors.length} Kritik Mühendislik Bulgusu)
+                </div>
+                <p className="leading-relaxed text-red-100/90">
+                  {engReport.blockingSafetyAndEngineeringErrors[0]?.message}
+                </p>
+              </div>
+            )}
+            {canonicalFactorySteps.filter((cs) => cs.safetyWarning).map((cs) => (
+              <div
+                key={`canon-safe-${cs.stepNumber}`}
+                className="p-2.5 rounded-2xl bg-amber-950/90 border border-amber-500/45 text-amber-100 text-[11px]"
+              >
+                <div className="font-bold text-amber-300">{cs.title}</div>
+                <div className="mt-0.5 leading-snug">{cs.safetyWarning}</div>
+              </div>
+            ))}
+            {moduleGrainSequenceList.length > 0 && (
+              <div
+                data-testid="assembly-grain-sequence-card"
+                className="p-3 rounded-2xl bg-amber-50/95 border border-amber-300 text-[#141413] space-y-1.5"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-bold text-xs text-amber-950">
+                    Desen Takibi Cephe Montaj Dizilimi ({moduleGrainSequenceList.length} Parça)
+                  </span>
+                  <span className="px-2 py-0.5 rounded-md bg-amber-900 text-amber-50 font-mono text-[10px] font-bold">
+                    {moduleGrainSequenceList[0].directionLabelTr}
+                  </span>
+                </div>
+                <div className="space-y-1 max-h-36 overflow-y-auto pr-1">
+                  {moduleGrainSequenceList.map((g) => (
+                    <div
+                      key={g.componentId}
+                      className="px-2 py-1 rounded-lg bg-white border border-amber-200 flex items-center justify-between gap-2 text-[10.5px]"
+                    >
+                      <span className="font-semibold text-slate-900">
+                        <span className="font-mono font-black text-amber-900 mr-1">
+                          {g.arrowSymbol} {g.shortSeqBadge}
+                        </span>
+                        {g.partShortLabel}
+                      </span>
+                      <span className="font-mono text-[9.5px] text-amber-900 shrink-0">
+                        {g.compactNeighborTextTr}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="text-[11px] font-bold uppercase tracking-wider text-slate-600 px-1">
               Adım Adım Kurulum Sırası (Diyagramda Vurgulamak İçin Adıma Tıklayın)
             </div>
@@ -1170,6 +1447,62 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
                 </button>
               );
             })}
+
+
+            {/* V5 Flat-Pack Cartonization & Carrier Manifest */}
+            {bom && (() => {
+              const manifest = computeProjectCartonization(project, bom);
+              return (
+                <div className="p-3.5 rounded-2xl bg-white/85 border border-slate-200/90 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <div className="font-bold text-xs text-[#141413]">
+                        Sevkiyat &amp; Koli Optimizasyonu ({manifest.totalCartons} Koli • {manifest.totalGrossWeightKg} kg)
+                      </div>
+                      <div className="text-[10px] text-slate-500">
+                        Maks. 28 kg tek kişi ergonomik paket sınırı + petek köşe koruyucu hesabı
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const csv = exportCartonManifestCsv(manifest);
+                        const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = `${project.title.replace(/[^a-zA-Z0-9_-]/g, "_")}_Koli_Sevkiyat_Listesi.csv`;
+                        document.body.appendChild(a);
+                        a.click();
+                        setTimeout(() => {
+                          if (a.parentNode) a.parentNode.removeChild(a);
+                          URL.revokeObjectURL(url);
+                        }, 500);
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-[#141413] text-white text-[10.5px] font-bold cursor-pointer"
+                    >
+                      Koli .CSV İndir
+                    </button>
+                  </div>
+                  <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
+                    {manifest.cartons.map((c) => (
+                      <div
+                        key={c.cartonCode}
+                        className="px-2.5 py-1.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-[10.5px]"
+                      >
+                        <div className="min-w-0">
+                          <span className="font-mono font-bold text-[#141413]">{c.cartonCode}</span>{" "}
+                          <span className="text-slate-600">• {c.moduleName}</span>
+                        </div>
+                        <span className="font-mono font-semibold text-slate-700 shrink-0">
+                          {c.outerLengthMm}×{c.outerWidthMm}mm • {c.grossWeightKg}kg
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
 
             <div className="p-3 rounded-2xl bg-emerald-950/90 text-emerald-100 text-[11px] flex items-start gap-2">
               <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />

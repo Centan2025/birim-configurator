@@ -1,4 +1,11 @@
 "use client";
+import { buildSceneObject3DGroup, subscribeSceneObjectGlbLoaded } from "../materials/sceneObject3DBuilder";
+import { getActiveDraggedSceneCatalogId, setActiveDraggedSceneCatalogId } from "../engine/multiWallSnapAndBvhEngine";
+import {
+  build3DArchitecturalCeilingGroup,
+  build3DModuleMultiHoleInstancedMesh,
+} from "../materials/ceilingAndMultiHole3DBuilder";
+import { CeilingAndEngineeringQuickPopover } from "./workspace/CeilingAndGrain2DOverlays";
 
 import React, { useEffect, useRef, useCallback, useState, useMemo } from "react";
 import * as THREE from "three";
@@ -17,7 +24,14 @@ import {
   setActiveDraggedTemplateId,
   computeRowSnapPreview,
 } from "../adapter/useV3Adapter";
-import { calculateFourSpaceDimensions, calculateNetInnerHeight, calculateBayWidths, calculateModulePlacement
+import {
+  calculateFourSpaceDimensions,
+  calculateNetInnerHeight,
+  calculateBayWidths,
+  calculateModulePlacement,
+  evaluateUnifiedEngineeringModel,
+  computeProjectGrainContinuityMap,
+  syncProjectCustomMaterials,
 } from "@birim/core";
 import {
   computeElevationSnapTargets,
@@ -44,7 +58,11 @@ import {
   markSharedTexture,
   disposeObject3DTree,
   attachWebGLContextRecovery,
+  createSafeWebGL2Renderer,
+  disposeWebGLRendererCleanly,
 } from "../materials/webglResourceGuard";
+import { buildCapsuleParametricModuleGroup } from "../materials/capsuleAndProfileGeometry";
+import { Software3DFallbackViewport } from "./Software3DFallbackViewport";
 import {
   createSculptedHangingShirtGroup,
   createFoldedKnitwearStackGroup,
@@ -592,6 +610,7 @@ export interface V3ThreeViewportProps {
   showDimensions?: boolean;
   stageSafeInsets?: { topPx?: number; bottomPx?: number; leftPx?: number; rightPx?: number };
   onToggleDimensions?: () => void;
+  onRequest2DElevation?: () => void;
   onPerformanceSample?: (metrics: { lastRenderMs: number }) => void;
 }
 
@@ -603,6 +622,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
     showDimensions,
     stageSafeInsets,
     onToggleDimensions,
+    onRequest2DElevation,
     onPerformanceSample,
   }) => {
     const mountRef = useRef<HTMLDivElement>(null);
@@ -678,7 +698,19 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       commitHistoryTransaction,
       addInteriorItemAtElevation,
       dropV4TemplateWithSnap,
+      selectedSceneObjectId,
+      setSelectedSceneObjectId,
+      addSceneObjectFromCatalog,
+      updateSceneObject,
+      duplicateSceneObject,
+      removeSceneObject,
+      applyApprovedEngineeringFix,
     } = useV3Adapter({ lightweightViewport: true });
+
+    const live3DEngineeringReport = useMemo(
+      () => evaluateUnifiedEngineeringModel(project),
+      [project]
+    );
 
     const experienceTier = useConfiguratorStore((s) => s.userExperienceTier);
     const canUndo3D = useConfiguratorStore((s) => s.history.length > 0);
@@ -1006,8 +1038,11 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
     const [invertCameraMouse, setInvertCameraMouse] = useState<boolean>(true);
     const [active3DSnap, setActive3DSnap] = useState<ElevationSnapTarget | null>(null);
     const roomArchGroupRef = useRef<THREE.Group | null>(null);
+    const sceneObjectsGroupRef = useRef<THREE.Group | null>(null);
+    const [glbRefreshTick, setGlbRefreshTick] = useState<number>(0);
     const [dragDropSnapBanner, setDragDropSnapBanner] = useState<string | null>(null);
     const [webglUnavailable, setWebglUnavailable] = useState<boolean>(false);
+    const [webglCapability, setWebglCapability] = useState<WebGL2CapabilityReport | null>(null);
     const [webglRetryKey, setWebglRetryKey] = useState<number>(0);
     const hoverBadgeDomRef = useRef<HTMLDivElement | null>(null);
     const hoverBadgeTextRef = useRef<HTMLSpanElement | null>(null);
@@ -1024,6 +1059,10 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
     const cncXrayMode = useConfiguratorStore((s) => s.cncXrayMode);
     const setCncXrayMode = useConfiguratorStore((s) => s.setCncXrayMode);
     const isXrayActive = cncXrayMode || hardwareViewMode === "technical";
+    const updateCeilingConfigStore = useConfiguratorStore((s) => s.updateCeilingConfig);
+    const setFacadeGrainContinuityStore = useConfiguratorStore((s) => s.setFacadeGrainContinuity);
+    const setRoomDimensionsStore = useConfiguratorStore((s) => s.setRoomDimensions);
+    const updateCarcassStore = useConfiguratorStore((s) => s.updateCarcass);
     const storeBom = useConfiguratorStore((s) => (isXrayActive ? s.bom : null));
 
     useEffect(() => {
@@ -1765,37 +1804,22 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       orthoCamera.position.set(2150, 1260, 4680);
       orthoCamRef.current = orthoCamera;
 
-      const glCanvas = document.createElement("canvas");
-      const glOptions: WebGLContextAttributes = {
-        antialias: true,
-        alpha: false,
-        powerPreference: "high-performance",
-      };
-      const hasWebGL = !!(
-        glCanvas.getContext("webgl2", glOptions) ||
-        glCanvas.getContext("webgl", glOptions) ||
-        glCanvas.getContext("webgl2", { antialias: false, alpha: false, powerPreference: "default" }) ||
-        glCanvas.getContext("webgl", { antialias: false, alpha: false, powerPreference: "default" })
-      );
-      if (!hasWebGL) {
+      const safeGl = createSafeWebGL2Renderer({
+        forceRefreshProbe: webglRetryKey > 0,
+        preferAlpha: false,
+      });
+      setWebglCapability(safeGl.ok ? safeGl.bundle.capability : safeGl.capability);
+      if (!safeGl.ok) {
         setWebglUnavailable(true);
         return;
       }
       setWebglUnavailable(false);
 
-      let renderer: THREE.WebGLRenderer;
-      try {
-        renderer = new THREE.WebGLRenderer({
-          canvas: glCanvas,
-          ...glOptions,
-        });
-      } catch {
-        setWebglUnavailable(true);
-        return;
-      }
+      const renderer = safeGl.bundle.renderer;
+      const isLegacyGpu = safeGl.bundle.capability.isLegacyOrLowSpecGpu;
       renderer.setSize(width, height);
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.25));
-      renderer.shadowMap.enabled = true;
+      renderer.setPixelRatio(isLegacyGpu ? 1 : Math.min(window.devicePixelRatio || 1, 1.25));
+      renderer.shadowMap.enabled = !isLegacyGpu;
       renderer.shadowMap.autoUpdate = false;
       renderer.shadowMap.needsUpdate = true;
       renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -1910,6 +1934,11 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       scene.add(roomArchGroup);
       roomArchGroupRef.current = roomArchGroup;
 
+      const sceneObjsGroup = new THREE.Group();
+      sceneObjsGroup.name = "v5_scene_objects_3d";
+      scene.add(sceneObjsGroup);
+      sceneObjectsGroupRef.current = sceneObjsGroup;
+
       const meshGroup = new THREE.Group();
       scene.add(meshGroup);
       meshGroupRef.current = meshGroup;
@@ -2009,6 +2038,24 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         const solidMeshes = getCachedSolidMeshes(curGroup, anyDoorsOpen);
         const hits = raycaster.intersectObjects(solidMeshes, false);
         const closestCabinetDist = hits.length > 0 ? hits[0].distance : Infinity;
+
+        // 1b. Check V5 3D SceneObjects (Appliances, Sinks, Freestanding Birim Furniture, Custom .GLB)
+        if (sceneObjectsGroupRef.current && sceneObjectsGroupRef.current.children.length > 0) {
+          const sHits = raycaster.intersectObjects(sceneObjectsGroupRef.current.children, true);
+          for (const sh of sHits) {
+            if (sh.object instanceof THREE.Line || sh.object instanceof THREE.LineSegments) continue;
+            if (sh.distance <= closestCabinetDist + 5) {
+              let walker: THREE.Object3D | null = sh.object;
+              while (walker && !walker.userData?.sceneObjectId) {
+                walker = walker.parent;
+              }
+              if (walker?.userData?.sceneObjectId) {
+                useConfiguratorStore.getState().setSelectedSceneObjectId(String(walker.userData.sceneObjectId));
+                return;
+              }
+            }
+          }
+        }
 
         // 2. Only grab an Architectural Obstacle (Window, Door, Plumbing, Column) if NO cabinet is in front of it!
         if (curRoomGroup && (state.moveObjectMode3D || e.shiftKey)) {
@@ -3491,7 +3538,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         disposeObject3DTree(scene);
         scene.clear();
         disposeRendererPmremEnvironment(renderer);
-        renderer.dispose();
+        disposeWebGLRendererCleanly(renderer);
         if (container.contains(renderer.domElement)) {
           container.removeChild(renderer.domElement);
         }
@@ -3942,6 +3989,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       };
 
       let activeSceneLedLights = 0;
+      const grainContinuityMap3D = computeProjectGrainContinuityMap(project);
       project.modules.forEach((mod, modIdx) => {
         const reusableBucket = reusableGroupsBySig.get(moduleSigs[modIdx]);
         if (reusableBucket && reusableBucket.length > 0) {
@@ -3959,10 +4007,43 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           explodedFactor,
         });
 
+        syncProjectCustomMaterials(project.customMaterials);
+        (project.customMaterials || []).forEach((cm) => matMap.set(cm.id, cm));
+
         const isActiveMod = modIdx === activeModuleIndex;
         const modContainer = createModuleGroup(mod);
-        modContainer.userData = { moduleId: mod.id, renderSig: moduleSigs[modIdx] };
+        modContainer.userData = { moduleId: mod.id, renderSig: moduleSigs[modIdx], moduleIndex: modIdx };
 
+        if (
+          mod.carcass.hullShape === "capsule_stadium" ||
+          mod.carcass.hullShape === "capsule_table"
+        ) {
+          const capEdgeMat = getCachedEdgeMaterial(
+            false,
+            isActiveMod,
+            isLight,
+            renderEdgeMode === "photoreal"
+          );
+          const capGroup = buildCapsuleParametricModuleGroup(
+            mod,
+            (mId, isMetal) => {
+              const md =
+                matMap.get(mId) ||
+                (mId.includes("calacatta") || mId.includes("stone")
+                  ? fallbackStoneDef
+                  : DEFAULT_MATERIALS[0]);
+              return isXrayActive
+                ? xrayIcePanelMat
+                : renderEdgeMode === "cad"
+                ? cadTechnicalMat
+                : getV3PbrMaterial(md, false, Boolean(isMetal), "lengthwise", mod.surfaceFinishOverride);
+            },
+            capEdgeMat,
+            modIdx,
+            isActiveMod && doorsHiddenIn3D ? 85 : doorOpenAngleDeg
+          );
+          modContainer.add(capGroup);
+        } else {
         breakdown.components.forEach((comp) => {
           const isLedStrip =
             comp.materialId.startsWith("mat_led_") || comp.id.includes("_recessed_led_");
@@ -4020,6 +4101,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           if (isActiveMod && (doorsHiddenIn3D || isCutawayBayDoor) && isDoorPart) {
             return;
           }
+          const grainMatch = grainContinuityMap3D.get(comp.id);
           const compGroup = createComponentMesh(comp, material, edgeMat, {
             componentId: comp.id,
             label: comp.label || comp.role,
@@ -4030,6 +4112,13 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             matDef,
             grainDir,
             surfFin,
+            continuousGrainUv: grainMatch
+              ? {
+                  offsetXMm: grainMatch.offsetXMm,
+                  offsetYMm: grainMatch.offsetYMm,
+                  crosswise: grainMatch.grainDirection === "crosswise",
+                }
+              : undefined,
           });
           compGroup.traverse((sub) => {
             if (sub instanceof THREE.LineSegments) {
@@ -4048,6 +4137,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           // Interior LED PointLights are placed cleanly at bay centers below (prevents hot-spots 1mm from side panels)
           void activeSceneLedLights;
         });
+        }
 
         const aoTex = renderEdgeMode === "cad" ? null : getContactAoShadowTexture();
         if (aoTex) {
@@ -4787,6 +4877,21 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           }
         }
 
+        if (
+          !isXrayActive &&
+          (doorOpenAngleDeg > 4 ||
+            doorsHiddenIn3D ||
+            cutawayActiveBay ||
+            mod.isOpenFront ||
+            mod.bays.some((b) => b.door?.type === "open") ||
+            mod.carcass.showMultiHolesIn3D === true)
+        ) {
+          const multiHoleInst = build3DModuleMultiHoleInstancedMesh(mod, breakdown.components);
+          if (multiHoleInst) {
+            modContainer.add(multiHoleInst);
+          }
+        }
+
         if (isXrayActive && storeBom?.cutList?.length) {
           const modPieces = storeBom.cutList.filter((cp) => cp.moduleId === mod.id);
           const compById = new Map(breakdown.components.map((c) => [c.id, c]));
@@ -4893,6 +4998,57 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         }
         meshGroup.add(modContainer);
       });
+
+      // V6.1 (Bölüm 9): Render 3D Spatial Engineering Error & Verification Beacons directly on offending 3D objects!
+      const spatialFindings3D = (live3DEngineeringReport?.findings || []).filter(
+        (f) =>
+          Boolean(f.worldPositionMm) &&
+          (f.severity === "error" || f.ruleNature === "VERIFICATION_REQUIRED")
+      );
+      if (spatialFindings3D.length > 0) {
+        const errBeaconGeo = new THREE.SphereGeometry(24, 16, 16);
+        const errRingGeo = new THREE.RingGeometry(32, 44, 24);
+        spatialFindings3D.slice(0, 16).forEach((ef, efIdx) => {
+          const wp = ef.worldPositionMm!;
+          const isHardErr = ef.severity === "error";
+          const colHex = isHardErr ? 0xdc2626 : 0xd97706;
+          const beaconMat = new THREE.MeshBasicMaterial({
+            color: colHex,
+            transparent: true,
+            opacity: 0.9,
+            depthTest: false,
+          });
+          const beaconMesh = new THREE.Mesh(
+            efIdx === 0 ? errBeaconGeo : errBeaconGeo.clone(),
+            beaconMat
+          );
+          beaconMesh.position.set(wp.x, wp.y, wp.z + 28);
+          beaconMesh.renderOrder = 999;
+          beaconMesh.userData = {
+            isEngineeringBeacon: true,
+            findingCode: ef.code,
+            findingMessage: ef.message,
+            moduleIndex: project.modules.findIndex((m) => m.id === ef.targetModuleId),
+          };
+          meshGroup.add(beaconMesh);
+
+          const ringMat = new THREE.MeshBasicMaterial({
+            color: colHex,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 0.55,
+            depthTest: false,
+          });
+          const ringMesh = new THREE.Mesh(
+            efIdx === 0 ? errRingGeo : errRingGeo.clone(),
+            ringMat
+          );
+          ringMesh.position.set(wp.x, wp.y, wp.z + 29);
+          ringMesh.renderOrder = 998;
+          ringMesh.raycast = () => {};
+          meshGroup.add(ringMesh);
+        });
+      }
       reusableGroupsBySig.forEach((leftovers) => {
         leftovers.forEach((unusedGroup) => disposeObject3DTree(unusedGroup));
       });
@@ -4920,6 +5076,28 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       requestRender,
       updateSelectionAndActiveFrames,
     ]);
+
+    useEffect(() => {
+      return subscribeSceneObjectGlbLoaded(() => {
+        setGlbRefreshTick((t) => t + 1);
+      });
+    }, []);
+
+    useEffect(() => {
+      const grp = sceneObjectsGroupRef.current;
+      if (!grp) return;
+      disposeObject3DTree(grp);
+      grp.clear();
+      for (const sobj of project.sceneObjects || []) {
+        if (sobj.isHidden) continue;
+        const objMesh = buildSceneObject3DGroup(sobj, {
+          isSelected: selectedSceneObjectId === sobj.id,
+          renderer: rendererRef.current,
+        });
+        grp.add(objMesh);
+      }
+      requestRender();
+    }, [project.sceneObjects, selectedSceneObjectId, glbRefreshTick]);
 
     // Fast Selection & Active Module Highlight WITHOUT rebuilding scene geometry
     useEffect(() => {
@@ -5577,6 +5755,11 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           }
         });
 
+        const ceiling3DGroup = build3DArchitecturalCeilingGroup(project.space, mainW);
+        if (ceiling3DGroup) {
+          roomGroup.add(ceiling3DGroup);
+        }
+
         if (roomArchGroupRef.current) roomArchGroupRef.current.add(roomGroup);
       }
       markShadowsAndRender();
@@ -5586,6 +5769,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       spaceObstacles,
       spaceWalls,
       project.space?.ceilingHeight,
+      project.space?.ceilingConfig,
       lightingPreset,
       wallTone,
       floorStyle,
@@ -6145,6 +6329,17 @@ const clear3DGhostPreview = useCallback(() => {
         return;
       }
 
+      // CASE 1.5: V5 SCENE OBJECT (APPLIANCE / FURNITURE / GLB) DRAG
+      const hasSceneObjMime = e.dataTransfer.types.includes("application/x-birim-scene-object-id");
+      const activeSceneCatId = getActiveDraggedSceneCatalogId();
+      if (hasSceneObjMime || activeSceneCatId) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+        const wx = resolve3DWorldXFromDragEvent(e);
+        setDragDropSnapBanner(`🧲 3D OBJE YERLEŞTİRME: X ≈ ${wx} mm (Yüzey / Tezgâh Mıknatısı Aktif)`);
+        return;
+      }
+
       // CASE 2: MODULE / CABINET DRAG
       const hasMime = e.dataTransfer.types.includes("application/x-birim-template-id");
       const activeTplId = getActiveDraggedTemplateId();
@@ -6272,6 +6467,22 @@ const clear3DGhostPreview = useCallback(() => {
         return;
       }
 
+      const droppedSceneCatId =
+        e.dataTransfer.getData("application/x-birim-scene-object-id") ||
+        getActiveDraggedSceneCatalogId();
+      if (droppedSceneCatId) {
+        e.preventDefault();
+        clear3DGhostPreview();
+        setActiveDraggedSceneCatalogId(null);
+        const wx = resolve3DWorldXFromDragEvent(e);
+        const placed = addSceneObjectFromCatalog(droppedSceneCatId, { x: wx, z: 0 });
+        if (placed) {
+          setDragDropSnapBanner(`✓ ${placed.name} sahneye yerleştirildi`);
+          setTimeout(() => setDragDropSnapBanner(null), 3200);
+        }
+        return;
+      }
+
       const tplId =
         e.dataTransfer.getData("application/x-birim-template-id") ||
         getActiveDraggedTemplateId();
@@ -6302,36 +6513,94 @@ const clear3DGhostPreview = useCallback(() => {
         onDrop={handle3DDrop}
         className="relative w-full h-full select-none overflow-hidden"
       >
-        {webglUnavailable && (
-          <div
-            data-testid="viewport-3d-webgl-unavailable"
-            className="absolute inset-0 z-40 flex items-center justify-center bg-stone-100/95 backdrop-blur-sm p-6"
-          >
-            <div className="max-w-md w-full rounded-2xl bg-white border border-stone-200 shadow-xl p-6 text-center space-y-3">
-              <div className="text-sm font-semibold text-stone-900">
-                3D WebGL Bağlamı Başlatılamadı
-              </div>
-              <p className="text-xs text-stone-600 leading-relaxed">
-                Tarayıcınız art arda GPU bağlam kaybı nedeniyle WebGL&apos;i geçici olarak devre dışı bırakmış olabilir.
-                Diğer ağır 3D sekmeleri kapatıp tekrar deneyin veya sayfayı/tarayıcıyı yenileyin.
-              </p>
-              <div className="flex items-center justify-center gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setWebglRetryKey((k) => k + 1)}
-                  className="px-3.5 py-1.5 rounded-lg bg-stone-900 text-white text-xs font-medium hover:bg-stone-800 cursor-pointer"
-                >
-                  3D Sahneyi Yeniden Dene
-                </button>
-                <button
-                  type="button"
-                  onClick={() => window.location.reload()}
-                  className="px-3.5 py-1.5 rounded-lg border border-stone-300 text-stone-700 text-xs font-medium hover:bg-stone-50 cursor-pointer"
-                >
-                  Sayfayı Yenile
-                </button>
-              </div>
+        {selectedSceneObjectId && (() => {
+          const selObj = (project.sceneObjects || []).find((o) => o.id === selectedSceneObjectId);
+          if (!selObj) return null;
+          return (
+            <div
+              data-testid="v5-selected-scene-object-hud"
+              className="absolute bottom-16 left-1/2 -translate-x-1/2 z-30 px-3.5 py-2 rounded-2xl birim-ice-dark-bar text-white flex flex-wrap items-center gap-2 shadow-xl text-[11px]"
+            >
+              <span className="font-bold text-amber-300 truncate max-w-[180px]">{selObj.name}</span>
+              <button
+                type="button"
+                onClick={() => updateSceneObject(selObj.id, { position: { ...selObj.position, x: Math.max(0, selObj.position.x - 50) } })}
+                className="px-2 py-1 rounded-lg bg-white/15 hover:bg-white/25 font-mono cursor-pointer"
+              >
+                ◀ X-50
+              </button>
+              <button
+                type="button"
+                onClick={() => updateSceneObject(selObj.id, { position: { ...selObj.position, x: selObj.position.x + 50 } })}
+                className="px-2 py-1 rounded-lg bg-white/15 hover:bg-white/25 font-mono cursor-pointer"
+              >
+                X+50 ▶
+              </button>
+              <button
+                type="button"
+                onClick={() => updateSceneObject(selObj.id, { position: { ...selObj.position, z: Math.max(0, selObj.position.z - 50) } })}
+                className="px-2 py-1 rounded-lg bg-white/15 hover:bg-white/25 font-mono cursor-pointer"
+              >
+                ▲ Z-50
+              </button>
+              <button
+                type="button"
+                onClick={() => updateSceneObject(selObj.id, { position: { ...selObj.position, z: selObj.position.z + 50 } })}
+                className="px-2 py-1 rounded-lg bg-white/15 hover:bg-white/25 font-mono cursor-pointer"
+              >
+                ▼ Z+50
+              </button>
+              <button
+                type="button"
+                onClick={() => updateSceneObject(selObj.id, { rotation: { ...selObj.rotation, y: ((selObj.rotation?.y || 0) + 90) % 360 } })}
+                className="px-2.5 py-1 rounded-lg bg-sky-500/30 hover:bg-sky-500/45 font-bold cursor-pointer"
+              >
+                ↻ 90°
+              </button>
+              <button
+                type="button"
+                onClick={() => duplicateSceneObject(selObj.id)}
+                className="px-2 py-1 rounded-lg bg-white/15 hover:bg-white/25 cursor-pointer"
+              >
+                Çoğalt
+              </button>
+              <button
+                type="button"
+                onClick={() => removeSceneObject(selObj.id)}
+                className="px-2 py-1 rounded-lg bg-rose-500/40 hover:bg-rose-500/60 font-bold cursor-pointer"
+              >
+                Sil
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedSceneObjectId(null)}
+                className="px-1.5 py-1 rounded-lg text-stone-300 hover:text-white cursor-pointer"
+              >
+                ✕
+              </button>
             </div>
+          );
+        })()}
+
+        {webglUnavailable && (
+          <div className="absolute inset-0 z-40">
+            <Software3DFallbackViewport
+              project={project}
+              activeModuleIndex={activeModuleIndex}
+              selectedComponentId={selectedComponentId}
+              selectedSceneObjectId={selectedSceneObjectId}
+              doorOpenAngleDeg={doorOpenAngleDeg}
+              drawerOpenMm={drawerOpenMm}
+              explodedFactor={explodedFactor}
+              gpuRendererInfo={webglCapability?.gpuRendererInfo}
+              failureReason={webglCapability?.failureReason}
+              onSelectModule={(idx) => setActiveModuleIndex(idx)}
+              onSelectComponent={(cid) => setSelectedComponentId(cid)}
+              onSelectSceneObject={(oid) => setSelectedSceneObjectId(oid)}
+              onToggleDoorOpen={() => setDoorOpenAngleDeg(doorOpenAngleDeg > 5 ? 0 : 75)}
+              onRetryWebGL={() => setWebglRetryKey((k) => k + 1)}
+              onSwitchTo2DCad={onRequest2DElevation}
+            />
           </div>
         )}
         {dragDropSnapBanner && (
@@ -9511,6 +9780,20 @@ const clear3DGhostPreview = useCallback(() => {
                       <span>{ultraRenderProgress !== null ? `%${ultraRenderProgress}` : "2K PNG"}</span>
                     </button>
 
+                    {activeModule && (
+                      <CeilingAndEngineeringQuickPopover
+                        project={project}
+                        activeModule={activeModule}
+                        surface="3d"
+                        onUpdateCeiling={updateCeilingConfigStore}
+                        onUpdateCeilingHeightMm={(h) =>
+                          setRoomDimensionsStore(spaceWalls?.[0]?.length || 3600, h)
+                        }
+                        onUpdateCarcass={updateCarcassStore}
+                        onSetFacadeGrainContinuity={setFacadeGrainContinuityStore}
+                      />
+                    )}
+
                     <button
                       type="button"
                       data-testid="viewport-3d-room-toggle"
@@ -9544,6 +9827,39 @@ const clear3DGhostPreview = useCallback(() => {
           open={glbLibraryOpen}
           onClose={() => setGlbLibraryOpen(false)}
         />
+        {live3DEngineeringReport && live3DEngineeringReport.blockingSafetyAndEngineeringErrors.length > 0 && (
+          <div
+            data-testid="viewport-3d-engineering-alert-hud"
+            className="absolute bottom-4 left-4 z-30 max-w-md p-3 rounded-2xl bg-slate-950/88 backdrop-blur-md border border-red-500/60 text-xs text-slate-100 shadow-2xl space-y-2 pointer-events-auto"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-bold text-red-400">
+                ● 3B Sahne Mühendislik Engeli ({live3DEngineeringReport.blockingSafetyAndEngineeringErrors.length})
+              </span>
+              <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-red-950 text-red-200">
+                {live3DEngineeringReport.blockingSafetyAndEngineeringErrors[0].code}
+              </span>
+            </div>
+            <div className="text-[11px] text-slate-200 leading-snug">
+              {live3DEngineeringReport.blockingSafetyAndEngineeringErrors[0].message}
+            </div>
+            {live3DEngineeringReport.blockingSafetyAndEngineeringErrors[0].remediationProposals &&
+              live3DEngineeringReport.blockingSafetyAndEngineeringErrors[0].remediationProposals.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 pt-0.5">
+                  {live3DEngineeringReport.blockingSafetyAndEngineeringErrors[0].remediationProposals.map((prop) => (
+                    <button
+                      key={prop.id}
+                      type="button"
+                      onClick={() => applyApprovedEngineeringFix(prop)}
+                      className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] cursor-pointer transition"
+                    >
+                      ✓ Onayla: {prop.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+          </div>
+        )}
         <Viewport3DContextMenu
           target={contextMenuTarget}
           project={project}

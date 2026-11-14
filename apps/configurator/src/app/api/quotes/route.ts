@@ -3,6 +3,7 @@ import {
   parseAndMigrateProject,
   migrateV3ProjectToV4,
   evaluateProjectCompatibility,
+  evaluateUnifiedEngineeringModel,
   type DesignProject,
 } from "@birim/core";
 import { generateBOMForProject } from "@birim/manufacturing";
@@ -53,8 +54,9 @@ export async function POST(req: NextRequest) {
 
     // Server-side authoritative BOM, Compatibility, and Pricing recomputation (client price is NEVER trusted)
     const serverBom = generateBOMForProject(cleanProject);
-    const serverPricing = calculateProjectPrice(serverBom);
+    const serverPricing = calculateProjectPrice(serverBom, undefined, undefined, cleanProject.sceneObjects || []);
     const compat = evaluateProjectCompatibility(cleanProject);
+    const unifiedEng = evaluateUnifiedEngineeringModel(cleanProject);
 
     const safeDiscountPct = Math.max(
       0,
@@ -105,7 +107,7 @@ export async function POST(req: NextRequest) {
       serverVerifiedTotalWithVatTry: serverPricing.totalWithVatTry,
       cutPiecesCount: serverBom.cutList.length,
       totalSheetsCount,
-      canApproveProduction: compat.canApproveProduction,
+      canApproveProduction: compat.canApproveProduction && unifiedEng.canExportToCncAndSaw && unifiedEng.canApproveFinalErpRelease,
       projectSnapshot: cleanProject,
     });
 

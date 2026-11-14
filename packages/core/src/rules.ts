@@ -1,3 +1,4 @@
+import { calculateFourSpaceDimensions } from "./v4-profiles";
 import {
   ModuleInstance,
   ValidationIssue,
@@ -9,6 +10,7 @@ import {
   computeContinuousKitchenLayers,
   evaluateSlidingDoorDeadZones,
 } from "./parametric-spec-engine";
+import { evaluateKitchenWorkTriangleAndErgonomics } from "./scene-objects-engine";
 
 /**
  * Eliminates IEEE-754 floating-point drift (e.g. 0.1 + 0.2 = 0.30000000000000004)
@@ -93,6 +95,132 @@ export const DEFAULT_RULES: SystemRulesConfig = {
 };
 
 /** Module position is the minimum room-plan corner, rotation is in degrees. */
+
+/**
+ * Exact 2D Separating Axis Theorem (OBB) overlap check in room (X, Z) coordinates
+ * so 30° / 45° / custom-angled tables, islands, and cabinets NEVER trigger false
+ * AABB corner collision errors in the 2D Floor Plan or production validator!
+ */
+/**
+ * Exact 2D Separating Axis Theorem (SAT) overlap check between an arbitrarily rotated
+ * `ModuleInstance` (`0° / 30° / 45° / 90° / 270°`) and an axis-aligned room obstacle box `[minX..maxX] × [minZ..maxZ]`.
+ * Eliminates false-positive AABB diagonal corner collisions on angled cabinets/tables while catching real hits!
+ */
+export function doesModuleOverlapRectOBB2D(
+  m: ModuleInstance,
+  rMinX: number,
+  rMaxX: number,
+  rMinZ: number,
+  rMaxZ: number,
+  epsMm = 1.0
+): boolean {
+  if (rMaxX - rMinX <= epsMm * 2 || rMaxZ - rMinZ <= epsMm * 2) return false;
+  const pl = calculateModulePlacement(m);
+  const c = Math.cos(pl.rotationYRad);
+  const s = Math.sin(pl.rotationYRad);
+  const w = Math.max(4, m.dimensions.width - epsMm * 2);
+  const d = Math.max(4, m.dimensions.depth - epsMm * 2);
+  const modVerts = [
+    [epsMm, epsMm],
+    [epsMm + w, epsMm],
+    [epsMm + w, epsMm + d],
+    [epsMm, epsMm + d],
+  ].map(([lx, lz]) => ({
+    x: pl.origin.x + lx * c + lz * s,
+    z: pl.origin.z - lx * s + lz * c,
+  }));
+
+  const rectVerts = [
+    { x: rMinX + epsMm, z: rMinZ + epsMm },
+    { x: rMaxX - epsMm, z: rMinZ + epsMm },
+    { x: rMaxX - epsMm, z: rMaxZ - epsMm },
+    { x: rMinX + epsMm, z: rMaxZ - epsMm },
+  ];
+
+  const axes: [number, number][] = [
+    [1, 0],
+    [0, 1],
+    [c, -s],
+    [s, c],
+  ];
+
+  for (const [ax, az] of axes) {
+    let min1 = Infinity,
+      max1 = -Infinity;
+    for (const v of modVerts) {
+      const p = v.x * ax + v.z * az;
+      if (p < min1) min1 = p;
+      if (p > max1) max1 = p;
+    }
+    let min2 = Infinity,
+      max2 = -Infinity;
+    for (const v of rectVerts) {
+      const p = v.x * ax + v.z * az;
+      if (p < min2) min2 = p;
+      if (p > max2) max2 = p;
+    }
+    if (max1 <= min2 || max2 <= min1) {
+      return false;
+    }
+  }
+  return true;
+}
+
+export function doModulesOverlapOBB2D(
+  m1: ModuleInstance,
+  m2: ModuleInstance,
+  epsMm = 0.05
+): boolean {
+  const getCorners = (m: ModuleInstance) => {
+    const pl = calculateModulePlacement(m);
+    const c = Math.cos(pl.rotationYRad);
+    const s = Math.sin(pl.rotationYRad);
+    const w = Math.max(4, m.dimensions.width - epsMm * 2);
+    const d = Math.max(4, m.dimensions.depth - epsMm * 2);
+    const pts: [number, number][] = [
+      [epsMm, epsMm],
+      [epsMm + w, epsMm],
+      [epsMm + w, epsMm + d],
+      [epsMm, epsMm + d],
+    ];
+    return {
+      axes: [
+        [c, -s] as [number, number],
+        [s, c] as [number, number],
+      ],
+      verts: pts.map(([lx, lz]) => ({
+        x: pl.origin.x + lx * c + lz * s,
+        z: pl.origin.z - lx * s + lz * c,
+      })),
+    };
+  };
+
+  const obb1 = getCorners(m1);
+  const obb2 = getCorners(m2);
+  const axes = [...obb1.axes, ...obb2.axes];
+
+  for (const [ax, az] of axes) {
+    let min1 = Infinity,
+      max1 = -Infinity;
+    for (const v of obb1.verts) {
+      const p = v.x * ax + v.z * az;
+      if (p < min1) min1 = p;
+      if (p > max1) max1 = p;
+    }
+    let min2 = Infinity,
+      max2 = -Infinity;
+    for (const v of obb2.verts) {
+      const p = v.x * ax + v.z * az;
+      if (p < min2) min2 = p;
+      if (p > max2) max2 = p;
+    }
+    if (max1 <= min2 || max2 <= min1) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function calculateModulePlacement(module: ModuleInstance) {
   const rotationYRad = ((module.rotation?.y ?? 0) * Math.PI) / 180;
   const c = Math.cos(rotationYRad),
@@ -509,14 +637,35 @@ export function validateModule(
             bay.door.hardwareProductId === "hw_blum_71b7550" ||
             bay.door.hardwareProductId === "hw_hettich_9099540" ||
             module.carcass.internalDrawerHingeSolution === "spacer_block_25mm";
-          const isNearHinge = rules.hingeZonesY.some(
-            (hy) => Math.abs(drawer.elevationY - hy) < 50
+          const dynFourSpace = calculateFourSpaceDimensions(module);
+          const dynLeaf = dynFourSpace.doorLeaves[idx];
+          const plinthH = module.carcass.plinthHeight || 0;
+          const doorBaseRelInnerY = (dynLeaf?.doorY0Mm ?? plinthH) - (plinthH + (module.carcass.panelThickness || 18));
+          const actualHingeInnerYs =
+            dynLeaf && dynLeaf.hingePositionsY.length > 0
+              ? dynLeaf.hingePositionsY.map((hy) => doorBaseRelInnerY + hy)
+              : rules.hingeZonesY;
+          const runnerAxisY = drawer.elevationY + 22;
+          const clashingHingeY = actualHingeInnerYs.find(
+            (hy) =>
+              Math.abs(runnerAxisY - hy) < 42 ||
+              (hy >= drawer.elevationY - 10 && hy <= drawer.elevationY + Math.min(65, drawer.height))
           );
-          if (isNearHinge && !isZeroProtrusion) {
+          if (clashingHingeY !== undefined && !isZeroProtrusion) {
+            issues.push({
+              severity: "error",
+              code: "ERR_INTERNAL_DRAWER_HINGE_COLLISION",
+              message: `Bölme ${idx + 1} iç çekmecesi (Y=${drawer.elevationY}mm) gerçek menteşe kotu (Y=${Math.round(
+                clashingHingeY
+              )}mm) ile fiziksel olarak çakışıyor; 25mm besleme çıtası veya 155° sıfır çıkıntılı menteşe seçiniz.`,
+              targetId: drawer.id,
+              blockingProduction: true,
+            });
+          } else if (!isZeroProtrusion) {
             issues.push({
               severity: "warning",
-              code: "WARN_INTERNAL_DRAWER_HINGE_COLLISION",
-              message: `Bölme ${idx + 1} iç çekmecesi menteşe gövdesi ile çakışabilir; 25mm besleme çıtası veya 155° sıfır çıkıntılı menteşe seçiniz.`,
+              code: "WARN_INTERNAL_DRAWER_HINGE_PROTRUSION",
+              message: `Bölme ${idx + 1} iç çekmecesi standart 110° menteşeli kapak arkasında; kapak iç çıkıntısını aşmak için 155° menteşe veya 25mm çıta önerilir.`,
               targetId: drawer.id,
             });
           }
@@ -559,6 +708,12 @@ export function validateProject(project: DesignProject): ValidationIssue[] {
   project.modules.forEach((mod) => {
     issues.push(...validateModule(mod));
   });
+
+  // V5 SceneObjects & Kitchen Work Triangle Ergonomics Check
+  if (project.sceneObjects && project.sceneObjects.length > 0) {
+    const erg = evaluateKitchenWorkTriangleAndErgonomics(project);
+    issues.push(...erg.issues);
+  }
 
   const ceiling = project.space.ceilingHeight || 2600;
   const allObstacles = [
@@ -670,9 +825,8 @@ export function validateProject(project: DesignProject): ValidationIssue[] {
         obs.type === "door" && !isSideObs ? obs.dimensions.width * 0.85 : 220
       );
 
-      const xHit = mMinX < oMaxX - 1 && mMaxX > oMinX + 1;
       const yHit = mMinY < oMaxY - 1 && mMaxY > oMinY + 1;
-      const zHit = mMinZ < oMaxZ - 1 && mMaxZ > oMinZ - 160;
+      const obbSolidHit = doesModuleOverlapRectOBB2D(mod, oMinX, oMaxX, rawMinZ, rawMaxZ, 1.0);
 
       if (
         obs.type === "column" ||
@@ -681,7 +835,7 @@ export function validateProject(project: DesignProject): ValidationIssue[] {
         obs.type === "protrusion" ||
         obs.type === "radiator"
       ) {
-        if (xHit && yHit && zHit) {
+        if (obbSolidHit && yHit) {
           issues.push({
             severity: "error",
             code: "ERR_COLUMN_COLLISION",
@@ -708,9 +862,11 @@ export function validateProject(project: DesignProject): ValidationIssue[] {
       }
 
       if (obs.type === "window") {
-        const horizHit = isSideObs
-          ? mMinZ < rawMaxZ - 5 && mMaxZ > rawMinZ + 5 && mMinX < 250
-          : xHit && mMinZ < 350;
+        const winZoneMinX = isSideObs ? Math.min(oMinX, 0) : oMinX;
+        const winZoneMaxX = isSideObs ? Math.max(oMaxX, 350) : oMaxX;
+        const winZoneMinZ = isSideObs ? rawMinZ : Math.min(rawMinZ, 0);
+        const winZoneMaxZ = isSideObs ? rawMaxZ : Math.max(rawMaxZ, 350);
+        const horizHit = doesModuleOverlapRectOBB2D(mod, winZoneMinX, winZoneMaxX, winZoneMinZ, winZoneMaxZ, 2.0);
         if (horizHit && yHit) {
           const isBaseBlockingSash = mod.category === "kitchen_base" && mMaxY > oMinY;
           issues.push({
@@ -731,11 +887,15 @@ export function validateProject(project: DesignProject): ValidationIssue[] {
           ? rawMaxZ
           : Math.max(oMaxZ, obs.dimensions.width * 0.85);
         const hitsDoorSweep =
-          mMinX < doorSwingMaxX - 5 &&
-          mMaxX > oMinX + 5 &&
-          mMinZ < doorSwingMaxZ - 5 &&
-          mMaxZ > oMinZ - 50 &&
-          yHit;
+          yHit &&
+          doesModuleOverlapRectOBB2D(
+            mod,
+            oMinX,
+            doorSwingMaxX,
+            Math.min(oMinZ, rawMinZ - 50),
+            doorSwingMaxZ,
+            4.0
+          );
         if (hitsDoorSweep) {
           issues.push({
             severity: "error",
@@ -748,16 +908,30 @@ export function validateProject(project: DesignProject): ValidationIssue[] {
       }
 
       if (obs.type === "plumbing") {
-        const plumbingCenterX = obs.position.x + obs.dimensions.width / 2;
+        const pSpanW = isSideObs ? Math.max(60, obs.dimensions.depth || 100) : Math.max(60, obs.dimensions.width || 100);
+        const pSpanD = isSideObs ? Math.max(60, obs.dimensions.width || 100) : Math.max(60, obs.dimensions.depth || 100);
+        const pCenterX = obs.position.x + pSpanW / 2;
+        const pCenterZ = obs.position.z + Math.min(50, pSpanD / 2);
+        const cosM = Math.cos(place.rotationYRad);
+        const sinM = Math.sin(place.rotationYRad);
+        const dxW = pCenterX - place.origin.x;
+        const dzW = pCenterZ - place.origin.z;
+        const localU = dxW * cosM - dzW * sinM;
+        const localV = dxW * sinM + dzW * cosM;
         const isFloorModule = mod.position.y < 500 && mod.category !== "kitchen_wall";
-        if (isFloorModule && xHit && mMinZ < 350) {
+        const coversPlumbingInOBB =
+          localU >= 1 &&
+          localU <= mod.dimensions.width - 1 &&
+          localV >= -150 &&
+          localV <= mod.dimensions.depth + 80;
+        if (isFloorModule && coversPlumbingInOBB) {
           if (!isPlumbingCompatibleModule(mod)) {
             issues.push({
               severity: "error",
               code: "ERR_PLUMBING_INCOMPATIBLE_MODULE",
               message: `Tesisat uyumsuzluğu: Su/gider tesisatı (X:${Math.round(
-                plumbingCenterX
-              )}mm) önüne "${mod.name}" yerleştirildi. Eviye veya bulaşık makinesi modülü gereklidir.`,
+                pCenterX
+              )}mm, Z:${Math.round(pCenterZ)}mm) önüne "${mod.name}" yerleştirildi. Eviye veya bulaşık makinesi modülü gereklidir.`,
               targetId: mod.id,
               blockingProduction: true,
             });
@@ -770,23 +944,35 @@ export function validateProject(project: DesignProject): ValidationIssue[] {
   allObstacles
     .filter((o) => o.type === "plumbing")
     .forEach((plumb) => {
-      const pMinX = plumb.position.x;
-      const pMaxX = plumb.position.x + plumb.dimensions.width;
-      const pCenterX = Math.round(pMinX + plumb.dimensions.width / 2);
-      const coveringFloorMods = project.modules.filter(
-        (m) =>
-          m.category !== "complementary" &&
-          m.category !== "kitchen_wall" &&
-          m.position.y < 500 &&
-          m.position.z < 350 &&
-          m.position.x < pMaxX - 1 &&
-          m.position.x + calculateModulePlacement(m).width > pMinX + 1
-      );
+      const obsRot = (((plumb.rotationY || 0) % 360) + 360) % 360;
+      const isSideObs = obsRot === 90 || obsRot === 270;
+      const pSpanW = isSideObs ? Math.max(60, plumb.dimensions.depth || 100) : Math.max(60, plumb.dimensions.width || 100);
+      const pSpanD = isSideObs ? Math.max(60, plumb.dimensions.width || 100) : Math.max(60, plumb.dimensions.depth || 100);
+      const pCenterX = Math.round(plumb.position.x + pSpanW / 2);
+      const pCenterZ = Math.round(plumb.position.z + Math.min(50, pSpanD / 2));
+      const coveringFloorMods = project.modules.filter((m) => {
+        if (m.category === "complementary" || m.category === "kitchen_wall" || m.position.y >= 500) {
+          return false;
+        }
+        const pl = calculateModulePlacement(m);
+        const cosM = Math.cos(pl.rotationYRad);
+        const sinM = Math.sin(pl.rotationYRad);
+        const dxW = pCenterX - pl.origin.x;
+        const dzW = pCenterZ - pl.origin.z;
+        const localU = dxW * cosM - dzW * sinM;
+        const localV = dxW * sinM + dzW * cosM;
+        return (
+          localU >= 1 &&
+          localU <= m.dimensions.width - 1 &&
+          localV >= -150 &&
+          localV <= m.dimensions.depth + 80
+        );
+      });
       if (coveringFloorMods.length === 0) {
         issues.push({
           severity: "warning",
           code: "WARN_PLUMBING_UNASSIGNED",
-          message: `Açıkta tesisat: X:${pCenterX}mm noktasındaki tesisat önünde henüz eviye alt modülü bulunmuyor.`,
+          message: `Açıkta tesisat: (X:${pCenterX}mm, Z:${pCenterZ}mm) noktasındaki tesisat önünde henüz eviye alt modülü bulunmuyor.`,
           targetId: plumb.id,
         });
       }
@@ -810,7 +996,7 @@ export function validateProject(project: DesignProject): ValidationIssue[] {
         m1.position.z < m2.position.z + b.depth - 0.001 &&
         m1.position.z + a.depth > m2.position.z + 0.001;
 
-      if (xOverlap && yOverlap && zOverlap) {
+      if (xOverlap && yOverlap && zOverlap && doModulesOverlapOBB2D(m1, m2, 0.05)) {
         issues.push({
           severity: "error",
           code: "ERR_MODULE_COLLISION",

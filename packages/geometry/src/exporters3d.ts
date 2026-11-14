@@ -495,3 +495,138 @@ export function exportPartsToUSDA(
   lines.push('}');
   return lines.join('\n');
 }
+
+/**
+ * Converts placed `SceneObjectInstance` items (appliances, sinks, Birim freestanding furniture, props)
+ * into `ExportBoxPart` entries so `.GLB`, `.OBJ`, `.USDA`, and `.USDZ` exports contain the complete room!
+ */
+export function convertSceneObjectsToExportBoxes(
+  sceneObjects: import("@birim/core").SceneObjectInstance[] | undefined
+): ExportBoxPart[] {
+  if (!sceneObjects || sceneObjects.length === 0) return [];
+  const out: ExportBoxPart[] = [];
+  for (const obj of sceneObjects) {
+    if (obj.isHidden) continue;
+    const scale = obj.scaleFactor || 1;
+    const w = Math.round(obj.dimensions.width * scale);
+    const h = Math.round(obj.dimensions.height * scale);
+    const d = Math.round(obj.dimensions.depth * scale);
+    out.push({
+      id: obj.id,
+      name: obj.name,
+      role: `scene_${obj.category}`,
+      moduleId: obj.hostModuleId || "scene_objects",
+      moduleName: obj.brand || "Sahne Objesi",
+      materialId: `mat_scene_${obj.id}`,
+      positionMm: {
+        x: obj.position.x + w / 2,
+        y: obj.position.y + h / 2,
+        z: obj.position.z + d / 2,
+      },
+      dimensionsMm: { width: w, height: h, depth: d },
+      rotationYDeg: obj.rotation?.y || 0,
+    });
+  }
+  return out;
+}
+
+function crc32Bytes(data: Uint8Array): number {
+  let crc = 0xffffffff;
+  for (let i = 0; i < data.length; i++) {
+    crc ^= data[i];
+    for (let j = 0; j < 8; j++) {
+      crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+/**
+ * Builds a compliant, zero-compression 64-byte-aligned Apple AR Quick Look `.USDZ` binary archive
+ * directly in memory from parametric cabinets + placed scene objects!
+ */
+export function exportPartsToUSDZ(
+  parts: ExportBoxPart[],
+  materials: ExportMaterialSpec[],
+  projectTitle = "Birim_Model"
+): Uint8Array {
+  const usdaText = exportPartsToUSDA(parts, materials, projectTitle);
+  const encoder = new TextEncoder();
+  const fileBytes = encoder.encode(usdaText);
+  const fileNameBytes = encoder.encode("scene.usda");
+  const crc = crc32Bytes(fileBytes);
+
+  // USDZ requires uncompressed (method 0) ZIP entries whose data starts at a 64-byte multiple!
+  const baseLocalHeaderLen = 30 + fileNameBytes.length;
+  const padNeeded = (64 - (baseLocalHeaderLen % 64)) % 64;
+  const extraLen = padNeeded === 0 ? 0 : padNeeded < 4 ? padNeeded + 64 : padNeeded;
+  const extraField = new Uint8Array(extraLen);
+  if (extraLen >= 4) {
+    // 0x1986 USDZ alignment extra header tag
+    extraField[0] = 0x86;
+    extraField[1] = 0x19;
+    extraField[2] = (extraLen - 4) & 0xff;
+    extraField[3] = ((extraLen - 4) >> 8) & 0xff;
+  }
+
+  const localHeaderSize = 30 + fileNameBytes.length + extraLen;
+  const centralDirOffset = localHeaderSize + fileBytes.length;
+  const centralDirSize = 46 + fileNameBytes.length;
+  const totalSize = centralDirOffset + centralDirSize + 22;
+
+  const buf = new ArrayBuffer(totalSize);
+  const view = new DataView(buf);
+  const out = new Uint8Array(buf);
+  let p = 0;
+
+  // Local file header
+  view.setUint32(p, 0x04034b50, true); p += 4;
+  view.setUint16(p, 20, true); p += 2; // version needed
+  view.setUint16(p, 0, true); p += 2;  // flags
+  view.setUint16(p, 0, true); p += 2;  // store (0 = uncompressed, mandatory for USDZ)
+  view.setUint16(p, 0, true); p += 2;  // mod time
+  view.setUint16(p, 0, true); p += 2;  // mod date
+  view.setUint32(p, crc, true); p += 4;
+  view.setUint32(p, fileBytes.length, true); p += 4;
+  view.setUint32(p, fileBytes.length, true); p += 4;
+  view.setUint16(p, fileNameBytes.length, true); p += 2;
+  view.setUint16(p, extraLen, true); p += 2;
+  out.set(fileNameBytes, p); p += fileNameBytes.length;
+  if (extraLen > 0) {
+    out.set(extraField, p); p += extraLen;
+  }
+  out.set(fileBytes, p); p += fileBytes.length;
+
+  // Central directory header
+  view.setUint32(p, 0x02014b50, true); p += 4;
+  view.setUint16(p, 20, true); p += 2;
+  view.setUint16(p, 20, true); p += 2;
+  view.setUint16(p, 0, true); p += 2;
+  view.setUint16(p, 0, true); p += 2;
+  view.setUint16(p, 0, true); p += 2;
+  view.setUint16(p, 0, true); p += 2;
+  view.setUint32(p, crc, true); p += 4;
+  view.setUint32(p, fileBytes.length, true); p += 4;
+  view.setUint32(p, fileBytes.length, true); p += 4;
+  view.setUint16(p, fileNameBytes.length, true); p += 2;
+  view.setUint16(p, 0, true); p += 2;
+  view.setUint16(p, 0, true); p += 2;
+  view.setUint16(p, 0, true); p += 2;
+  view.setUint16(p, 0, true); p += 2;
+  view.setUint32(p, 0, true); p += 4;
+  view.setUint32(p, 0, true); p += 4; // local header offset = 0
+  out.set(fileNameBytes, p); p += fileNameBytes.length;
+
+  // End of central directory
+  view.setUint32(p, 0x06054b50, true); p += 4;
+  view.setUint16(p, 0, true); p += 2;
+  view.setUint16(p, 0, true); p += 2;
+  view.setUint16(p, 1, true); p += 2;
+  view.setUint16(p, 1, true); p += 2;
+  view.setUint32(p, centralDirSize, true); p += 4;
+  view.setUint32(p, centralDirOffset, true); p += 4;
+  view.setUint16(p, 0, true);
+
+  return out;
+}
+

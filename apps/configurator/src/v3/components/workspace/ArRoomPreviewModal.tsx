@@ -7,6 +7,8 @@ import {
   exportPartsToGLB,
   exportPartsToOBJ,
   exportPartsToUSDA,
+  exportPartsToUSDZ,
+  convertSceneObjectsToExportBoxes,
   type ExportBoxPart,
 } from "@birim/geometry";
 import { generateQrCodeSvg } from "../../../lib/qr-svg";
@@ -105,15 +107,16 @@ export const ArRoomPreviewModal: React.FC<ArRoomPreviewModalProps> = ({
   if (!isOpen) return null;
 
   const safeSlug = project.title.replace(/[^a-zA-Z0-9_-]/g, "_") || "Birim_Model";
+  const combinedExportParts = [...parts, ...convertSceneObjectsToExportBoxes(project.sceneObjects)];
 
   const handleExportGlb = () => {
-    const glb = exportPartsToGLB(parts, materials, project.title);
+    const glb = exportPartsToGLB(combinedExportParts, materials, project.title);
     triggerDownload(glb, `${safeSlug}_1to1_AR.glb`, "model/gltf-binary");
   };
 
   const handleExportObjAndMtl = () => {
     const mtlName = `${safeSlug}.mtl`;
-    const { objContent, mtlContent } = exportPartsToOBJ(parts, materials, mtlName);
+    const { objContent, mtlContent } = exportPartsToOBJ(combinedExportParts, materials, mtlName);
     triggerDownload(objContent, `${safeSlug}_CAD.obj`, "text/plain;charset=utf-8");
     setTimeout(() => {
       triggerDownload(mtlContent, mtlName, "text/plain;charset=utf-8");
@@ -121,12 +124,17 @@ export const ArRoomPreviewModal: React.FC<ArRoomPreviewModalProps> = ({
   };
 
   const handleExportUsda = () => {
-    const usda = exportPartsToUSDA(parts, materials, project.title);
+    const usda = exportPartsToUSDA(combinedExportParts, materials, project.title);
     triggerDownload(usda, `${safeSlug}_AppleAR.usda`, "model/vnd.usda");
   };
 
+  const handleExportUsdz = () => {
+    const usdz = exportPartsToUSDZ(combinedExportParts, materials, project.title);
+    triggerDownload(usdz, `${safeSlug}_iPhone_QuickLook.usdz`, "model/vnd.usdz+zip");
+  };
+
   const handleLaunchMobileArSceneViewer = () => {
-    const glb = exportPartsToGLB(parts, materials, project.title);
+    const glb = exportPartsToGLB(combinedExportParts, materials, project.title);
     const blob = new Blob([glb], { type: "model/gltf-binary" });
     const blobUrl = URL.createObjectURL(blob);
     const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
@@ -269,6 +277,16 @@ export const ArRoomPreviewModal: React.FC<ArRoomPreviewModalProps> = ({
               >
                 <span>Wavefront CAD (`.OBJ` + `.MTL` — mm Ölçek)</span>
                 <Download className="w-3.5 h-3.5 text-[#8C7A6B]" />
+              </button>
+
+              <button
+                type="button"
+                data-testid="export-3d-usdz-btn"
+                onClick={handleExportUsdz}
+                className="w-full py-2 px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-xs font-bold text-emerald-950 flex items-center justify-between transition cursor-pointer"
+              >
+                <span>Apple iOS AR Quick Look Paketi (`.USDZ` — 1:1 Ölçek)</span>
+                <Download className="w-3.5 h-3.5 text-emerald-700" />
               </button>
 
               <button

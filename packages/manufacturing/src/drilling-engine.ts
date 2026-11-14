@@ -2,6 +2,7 @@ import {
   ParametricPart,
   DrillingHole,
   calculateDoorHingePositionsY,
+  computeSystem32MultiHoleYs,
   roundMm,
 } from "@birim/core";
 import { getDrillingTemplateForHardware } from "@birim/catalog";
@@ -29,9 +30,14 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
   const mapX = (xFromFrontEdge: number): number =>
     roundMm(mirrorX ? width - xFromFrontEdge : xFromFrontEdge, 2);
 
+  // Dynamic inset door setback: X = 37 + T_door + reveal (57mm for 18mm door, 61mm for 22mm door per Blum spec!)
+  const insetSetbackX = roundMm(
+    37 + (part.insetDoorThicknessMm || 18) + (part.insetRevealGapMm ?? 2),
+    2
+  );
   // Helper: compute joint X positions strictly aligned to European System 32 (37mm + k * 32mm)
   const buildJointSpecs = (panelDepthW: number) => {
-    const frontBoltX = part.isInsetDoor ? 57 : 37;
+    const frontBoltX = part.isInsetDoor ? insetSetbackX : 37;
     if (panelDepthW < 180) {
       return [{ boltFromFront: Math.round(panelDepthW / 2), dowelFromFront: null as number | null }];
     }
@@ -71,7 +77,10 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
     const topJointY = roundMm(height - panelT / 2, 2);
     const jointSpecs = buildJointSpecs(width);
 
-    if (topology === "top_bottom_through") {
+    if (topology === "miter_45") {
+      // P1-05: 45° mitered carcass corners use concealed Clamex/biscuit slots instead of butt-joint edge dowels/minifix
+      // that would blow through the 45° beveled outer edge! System 32 internal hinge & shelf holes still proceed below.
+    } else if (topology === "top_bottom_through") {
       // Tip B: Top & Bottom run full outer width -> Side panels sit BETWEEN them and receive CAMS + EDGE bores!
       jointSpecs.forEach((jt, idx) => {
         const bx = mapX(jt.boltFromFront);
@@ -353,13 +362,19 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
       });
     });
 
-    // System 32 front setback X1 = 37mm (57mm inset) and rear column X2 = X1 + k * 32mm (Checklist #23!)
-    const frontSetbackFromFront = part.isInsetDoor ? 57 : drillTpl.system32FrontSetbackMm;
+    // System 32 front setback X1 = 37mm (57mm inset, or custom multiHoleFrontSetbackMm) and rear column X2 = X1 + k * 32mm
+    const baseFrontSetback = part.multiHoleFrontSetbackMm ?? drillTpl.system32FrontSetbackMm;
+    const frontSetbackFromFront = part.isInsetDoor ? insetSetbackX : baseFrontSetback;
     const rearClearanceLimit = Math.max(frontSetbackFromFront + 64, width - 48);
     const kSteps = Math.max(2, Math.floor((rearClearanceLimit - frontSetbackFromFront) / 32));
     const backPinFromFront = Math.min(width - 37, frontSetbackFromFront + kSteps * 32);
+    const midPinFromFront =
+      part.multiHoleRowCount === 3 && width >= 480 && kSteps >= 6
+        ? frontSetbackFromFront + Math.floor(kSteps / 2) * 32
+        : null;
     const frontPinX = mapX(frontSetbackFromFront);
     const backPinX = mapX(backPinFromFront);
+    const midPinX = midPinFromFront !== null ? mapX(midPinFromFront) : null;
 
     // Conditional hinge mounting plate holes (37mm from front, 32mm vertical pitch)
     const hingePositionsY = part.hingePositionsY ?? [];
@@ -392,13 +407,21 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
       });
     });
 
-    // System 32 Shelf Pin & Slide Line Boring (exact 32mm pitch)
-    const startY = Math.max(bottomOffsetY + panelT + 96, 160);
-    const endY = height - (panelT + 96);
-    for (let y = startY; y <= endY; y += 32) {
+    // V7.4 Çoklu Delik Sistemi (Tam Boy Sistem 32 / Bölgesel / 5'li Küme / 3'lü Küme / Tekli Pim / Deliksiz)
+    const sideMultiHoleMode = part.multiHoleMode || "full_system_32";
+    const sideMultiHoleYs = computeSystem32MultiHoleYs({
+      mode: sideMultiHoleMode,
+      panelHeightMm: height,
+      bottomOffsetY,
+      panelThicknessMm: panelT,
+      edgeMarginMm: part.multiHoleEdgeMarginMm ?? 96,
+      adjustableShelfYsMm: part.adjustableShelfPositionsY ?? [],
+      blockedYsMm: (part.fixedShelfJointYs || []).map((fsy) => ({ y: fsy, clearanceMm: 18 })),
+    });
+
+    for (const y of sideMultiHoleYs) {
       const collidesWithHingeMount = hingeMountYCoords.some((hmy) => Math.abs(hmy - y) < 14);
-      const collidesWithFixedShelf = (part.fixedShelfJointYs || []).some((fsy) => Math.abs(fsy - y) < 18);
-      if (!collidesWithHingeMount && !collidesWithFixedShelf) {
+      if (!collidesWithHingeMount) {
         holes.push({
           id: `H_${part.id}_shelf_pin_front_${y}`,
           diameter: 5,
@@ -410,7 +433,19 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
           purpose: "shelf_pin",
         });
       }
-      if (Math.abs(backPinX - frontPinX) >= 64 && !collidesWithFixedShelf) {
+      if (midPinX !== null && Math.abs(midPinX - frontPinX) >= 64 && Math.abs(backPinX - midPinX) >= 64) {
+        holes.push({
+          id: `H_${part.id}_shelf_pin_mid_${y}`,
+          diameter: 5,
+          depth: 12,
+          x: midPinX,
+          y,
+          z: 0,
+          direction: face,
+          purpose: "shelf_pin",
+        });
+      }
+      if (Math.abs(backPinX - frontPinX) >= 64) {
         holes.push({
           id: `H_${part.id}_shelf_pin_back_${y}`,
           diameter: 5,
@@ -439,16 +474,13 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
     }
   }
 
-  // 2. Intermediate Carcass Dividers (carcass_divider)
+  // 2. Intermediate Carcass Dividers (carcass_divider) — Coaxial System 32 Joint Specs matching carcass_bottom & carcass_top!
   else if (part.role === "carcass_divider" && width >= 140 && height >= 180) {
-    const jointXs =
-      part.useDepthBasedConnectorRule && width > 500
-        ? [50, Math.round(width / 2), Math.max(114, width - 50)]
-        : width >= 200
-        ? [50, Math.max(114, width - 50)]
-        : [Math.round(width / 2)];
+    const divJointSpecs = buildJointSpecs(width);
+    const jointXs = divJointSpecs.map((js) => js.boltFromFront);
 
-    jointXs.forEach((jx, idx) => {
+    divJointSpecs.forEach((js, idx) => {
+      const jx = js.boltFromFront;
       holes.push(
         {
           id: `H_${part.id}_div_cam_bot_${idx}`,
@@ -491,6 +523,30 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
           purpose: "minifix_bolt",
         }
       );
+      if (js.dowelFromFront !== null) {
+        holes.push(
+          {
+            id: `H_${part.id}_div_dowel_bot_${idx}`,
+            diameter: 8,
+            depth: 22,
+            x: js.dowelFromFront,
+            y: 0,
+            z: roundMm(partThickness / 2, 2),
+            direction: "edge_bottom",
+            purpose: "dowel",
+          },
+          {
+            id: `H_${part.id}_div_dowel_top_${idx}`,
+            diameter: 8,
+            depth: 22,
+            x: js.dowelFromFront,
+            y: height,
+            z: roundMm(partThickness / 2, 2),
+            direction: "edge_top",
+            purpose: "dowel",
+          }
+        );
+      }
     });
 
     // T-Junction Through-Bolt Minifix Protection (Checklist #15!):
@@ -513,7 +569,7 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
       });
     });
 
-    const frontX = part.isInsetDoor ? 57 : drillTpl.system32FrontSetbackMm;
+    const frontX = part.isInsetDoor ? insetSetbackX : drillTpl.system32FrontSetbackMm;
     const kDivSteps = Math.max(2, Math.floor((Math.max(frontX + 64, width - 37) - frontX) / 32));
     const backX = Math.min(width - 37, frontX + kDivSteps * 32);
 
@@ -579,59 +635,140 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
       );
     });
 
-    const blindDepth = partThickness >= 22 ? 11 : Math.min(8.5, roundMm(partThickness * 0.45, 1));
-    const startY = 96;
-    const endY = height - 96;
-    for (let y = startY; y <= endY; y += 32) {
-      const hitsTJunc = tJunctionYs.some((ty) => Math.abs(ty - y) < 18);
-      if (hitsTJunc) continue;
-      if (!frontMountYs.some((my) => Math.abs(my - y) < 14)) {
-        holes.push({
-          id: `H_${part.id}_div_pin_f_front_${y}`,
-          diameter: 5,
-          depth: blindDepth,
-          x: frontX,
-          y,
-          z: 0,
-          direction: "face_front",
-          purpose: "shelf_pin",
-        });
-      }
-      if (!backMountYs.some((my) => Math.abs(my - y) < 14)) {
-        holes.push({
-          id: `H_${part.id}_div_pin_b_front_${y}`,
-          diameter: 5,
-          depth: blindDepth,
-          x: frontX,
-          y,
-          z: partThickness,
-          direction: "face_back",
-          purpose: "shelf_pin",
-        });
-      }
-      if (Math.abs(backX - frontX) >= 64) {
-        holes.push(
-          {
-            id: `H_${part.id}_div_pin_f_back_${y}`,
+    const throughBoreDiv = Boolean(part.multiHoleDividerThroughBore);
+    const blindDepth = throughBoreDiv
+      ? partThickness
+      : partThickness >= 22
+      ? 11
+      : Math.min(8.5, roundMm(partThickness * 0.45, 1));
+    const midDivX =
+      part.multiHoleRowCount === 3 && width >= 480 && kDivSteps >= 6
+        ? frontX + Math.floor(kDivSteps / 2) * 32
+        : null;
+    const divMultiHoleYs = computeSystem32MultiHoleYs({
+      mode: part.multiHoleMode || "full_system_32",
+      panelHeightMm: height,
+      bottomOffsetY: 0,
+      panelThicknessMm: 0,
+      edgeMarginMm: part.multiHoleEdgeMarginMm ?? 96,
+      adjustableShelfYsMm: part.adjustableShelfPositionsY ?? [],
+      blockedYsMm: tJunctionYs.map((ty) => ({ y: ty, clearanceMm: 18 })),
+    });
+
+    for (const y of divMultiHoleYs) {
+      const frontHingeHit = frontMountYs.some((my) => Math.abs(my - y) < 14);
+      const backHingeHit = backMountYs.some((my) => Math.abs(my - y) < 14);
+
+      if (throughBoreDiv) {
+        if (!frontHingeHit && !backHingeHit) {
+          holes.push({
+            id: `H_${part.id}_div_pin_thru_front_${y}`,
             diameter: 5,
-            depth: blindDepth,
+            depth: partThickness,
+            x: frontX,
+            y,
+            z: 0,
+            direction: "face_front",
+            purpose: "shelf_pin",
+          });
+        }
+        if (midDivX !== null && Math.abs(midDivX - frontX) >= 64 && Math.abs(backX - midDivX) >= 64) {
+          holes.push({
+            id: `H_${part.id}_div_pin_thru_mid_${y}`,
+            diameter: 5,
+            depth: partThickness,
+            x: midDivX,
+            y,
+            z: 0,
+            direction: "face_front",
+            purpose: "shelf_pin",
+          });
+        }
+        if (Math.abs(backX - frontX) >= 64) {
+          holes.push({
+            id: `H_${part.id}_div_pin_thru_back_${y}`,
+            diameter: 5,
+            depth: partThickness,
             x: backX,
             y,
             z: 0,
             direction: "face_front",
             purpose: "shelf_pin",
-          },
-          {
-            id: `H_${part.id}_div_pin_b_back_${y}`,
+          });
+        }
+      } else {
+        if (!frontHingeHit) {
+          holes.push({
+            id: `H_${part.id}_div_pin_f_front_${y}`,
             diameter: 5,
             depth: blindDepth,
-            x: backX,
+            x: frontX,
+            y,
+            z: 0,
+            direction: "face_front",
+            purpose: "shelf_pin",
+          });
+        }
+        if (!backHingeHit) {
+          holes.push({
+            id: `H_${part.id}_div_pin_b_front_${y}`,
+            diameter: 5,
+            depth: blindDepth,
+            x: frontX,
             y,
             z: partThickness,
             direction: "face_back",
             purpose: "shelf_pin",
-          }
-        );
+          });
+        }
+        if (midDivX !== null && Math.abs(midDivX - frontX) >= 64 && Math.abs(backX - midDivX) >= 64) {
+          holes.push(
+            {
+              id: `H_${part.id}_div_pin_f_mid_${y}`,
+              diameter: 5,
+              depth: blindDepth,
+              x: midDivX,
+              y,
+              z: 0,
+              direction: "face_front",
+              purpose: "shelf_pin",
+            },
+            {
+              id: `H_${part.id}_div_pin_b_mid_${y}`,
+              diameter: 5,
+              depth: blindDepth,
+              x: midDivX,
+              y,
+              z: partThickness,
+              direction: "face_back",
+              purpose: "shelf_pin",
+            }
+          );
+        }
+        if (Math.abs(backX - frontX) >= 64) {
+          holes.push(
+            {
+              id: `H_${part.id}_div_pin_f_back_${y}`,
+              diameter: 5,
+              depth: blindDepth,
+              x: backX,
+              y,
+              z: 0,
+              direction: "face_front",
+              purpose: "shelf_pin",
+            },
+            {
+              id: `H_${part.id}_div_pin_b_back_${y}`,
+              diameter: 5,
+              depth: blindDepth,
+              x: backX,
+              y,
+              z: partThickness,
+              direction: "face_back",
+              purpose: "shelf_pin",
+            }
+          );
+        }
       }
     }
   }
@@ -702,10 +839,43 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
           );
         }
       });
+      if (part.dividerJointPositionsY && part.dividerJointPositionsY.length > 0) {
+        part.dividerJointPositionsY.forEach((divY, dIdx) => {
+          if (divY <= 20 || divY >= height - 20) return;
+          jointSpecs.forEach((jt, jIdx) => {
+            holes.push({
+              id: `H_${part.id}_tb_div_mate_bolt_${dIdx}_${jIdx}`,
+              diameter: 8,
+              depth: 11,
+              x: jt.boltFromFront,
+              y: roundMm(divY, 2),
+              z: boltZ,
+              direction: boltFace,
+              purpose: "minifix_bolt",
+            });
+            if (jt.dowelFromFront !== null) {
+              holes.push({
+                id: `H_${part.id}_tb_div_mate_dowel_${dIdx}_${jIdx}`,
+                diameter: 8,
+                depth: 12,
+                x: jt.dowelFromFront,
+                y: roundMm(divY, 2),
+                z: boltZ,
+                direction: boltFace,
+                purpose: "dowel",
+              });
+            }
+          });
+        });
+      }
       return holes;
     }
 
-    if (!isFixedOrCarrierShelf && topology === "miter_45") {
+    if (
+      (!isFixedOrCarrierShelf && topology === "miter_45") ||
+      part.id.includes("_capsule_bottom") ||
+      part.id.includes("_capsule_top")
+    ) {
       return holes;
     }
 
@@ -782,6 +952,39 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
         );
       }
     });
+
+    // P0-05: Bore exact coaxial mating face holes on carcass_bottom & carcass_top for every intermediate divider!
+    if (!isFixedOrCarrierShelf && part.dividerJointPositionsY && part.dividerJointPositionsY.length > 0) {
+      const divFace = part.role === "carcass_top" ? "face_back" : "face_front";
+      const divZ = divFace === "face_back" ? partThickness : 0;
+      part.dividerJointPositionsY.forEach((divY, dIdx) => {
+        if (divY <= 20 || divY >= height - 20) return;
+        jointSpecs.forEach((jt, jIdx) => {
+          holes.push({
+            id: `H_${part.id}_div_mate_bolt_${dIdx}_${jIdx}`,
+            diameter: 8,
+            depth: 11,
+            x: jt.boltFromFront,
+            y: roundMm(divY, 2),
+            z: divZ,
+            direction: divFace,
+            purpose: "minifix_bolt",
+          });
+          if (jt.dowelFromFront !== null) {
+            holes.push({
+              id: `H_${part.id}_div_mate_dowel_${dIdx}_${jIdx}`,
+              diameter: 8,
+              depth: 12,
+              x: jt.dowelFromFront,
+              y: roundMm(divY, 2),
+              z: divZ,
+              direction: divFace,
+              purpose: "dowel",
+            });
+          }
+        });
+      });
+    }
 
     if (part.ledGrooveSpec?.enabled && part.ledGrooveSpec.cableExitHole) {
       holes.push({
@@ -897,43 +1100,70 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
       });
     }
 
-    if (part.handleSpacingMm && part.handleSpacingMm > 0) {
-      const isLeftHinged = part.role.includes("left");
-      const handleX = isLeftHinged ? Math.max(35, width - 45) : 45;
-      const centerY = Math.round(height / 2);
-      if (part.handleSpacingMm === 1) {
+    const isUpperBifoldLeaf =
+      part.id.includes("_lift_bifold_top") ||
+      part.label.includes("Katlanır Kalkar Üst Kanat") ||
+      (isBifoldLiftLeaf && part.label.includes("Üst Kanat"));
+    if (!isUpperBifoldLeaf && part.handleSpacingMm && part.handleSpacingMm > 0) {
+      const isLiftHorizontalFallback =
+        part.id.includes("lift_") ||
+        part.label.includes("Kalkar") ||
+        part.id.includes("_dsh_door");
+      const hSpec = part.handleDrillSpec || {
+        orientation: isLiftHorizontalFallback ? ("horizontal" as const) : ("vertical" as const),
+        centerXMm: isLiftHorizontalFallback
+          ? roundMm(width / 2, 2)
+          : part.role.includes("left")
+          ? Math.max(35, width - 42)
+          : 42,
+        centerYMm: isLiftHorizontalFallback ? Math.min(height / 2, 40) : roundMm(height / 2, 2),
+        spacingCcMm: part.handleSpacingMm,
+      };
+
+      if (hSpec.spacingCcMm === 1) {
         holes.push({
           id: `H_${part.id}_handle_knob`,
           diameter: 5,
           depth: partThickness,
-          x: handleX,
-          y: centerY,
+          x: roundMm(hSpec.centerXMm, 2),
+          y: roundMm(hSpec.centerYMm, 2),
           z: 0,
           direction: "face_front",
           purpose: "handle",
         });
       } else {
-        const halfCc = part.handleSpacingMm / 2;
-        holes.push({
-          id: `H_${part.id}_handle_a`,
-          diameter: 5,
-          depth: partThickness,
-          x: handleX,
-          y: Math.max(40, roundMm(centerY - halfCc, 2)),
-          z: 0,
-          direction: "face_front",
-          purpose: "handle",
-        });
-        holes.push({
-          id: `H_${part.id}_handle_b`,
-          diameter: 5,
-          depth: partThickness,
-          x: handleX,
-          y: Math.min(height - 40, roundMm(centerY + halfCc, 2)),
-          z: 0,
-          direction: "face_front",
-          purpose: "handle",
-        });
+        // P0-02: Never silently clamp manufacturer C-C screw pitch!
+        const halfCc = hSpec.spacingCcMm / 2;
+        const holeA =
+          hSpec.orientation === "horizontal"
+            ? { x: roundMm(hSpec.centerXMm - halfCc, 2), y: roundMm(hSpec.centerYMm, 2) }
+            : { x: roundMm(hSpec.centerXMm, 2), y: roundMm(hSpec.centerYMm - halfCc, 2) };
+        const holeB =
+          hSpec.orientation === "horizontal"
+            ? { x: roundMm(hSpec.centerXMm + halfCc, 2), y: roundMm(hSpec.centerYMm, 2) }
+            : { x: roundMm(hSpec.centerXMm, 2), y: roundMm(hSpec.centerYMm + halfCc, 2) };
+        holes.push(
+          {
+            id: `H_${part.id}_handle_a`,
+            diameter: 5,
+            depth: partThickness,
+            x: holeA.x,
+            y: holeA.y,
+            z: 0,
+            direction: "face_front",
+            purpose: "handle",
+          },
+          {
+            id: `H_${part.id}_handle_b`,
+            diameter: 5,
+            depth: partThickness,
+            x: holeB.x,
+            y: holeB.y,
+            z: 0,
+            direction: "face_front",
+            purpose: "handle",
+          }
+        );
       }
     }
   }
@@ -971,9 +1201,15 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
     });
 
     if (part.handleSpacingMm && part.handleSpacingMm > 0) {
-      const handleVertX = roundMm(width * 0.55, 2);
-      const midSpanY = roundMm(height / 2, 2);
-      if (part.handleSpacingMm === 1) {
+      // Note: on drawer_front CutPiece local coords, `width` = vertical front height (3D Y), `height` = horizontal span (3D X)!
+      const handleVertX = part.handleDrillSpec
+        ? roundMm(part.handleDrillSpec.centerYMm, 2)
+        : roundMm(width <= 260 ? width * 0.5 : Math.max(width * 0.5, width - 38), 2);
+      const midSpanY = part.handleDrillSpec
+        ? roundMm(part.handleDrillSpec.centerXMm, 2)
+        : roundMm(height / 2, 2);
+      const cc = part.handleDrillSpec?.spacingCcMm ?? part.handleSpacingMm;
+      if (cc === 1) {
         holes.push({
           id: `H_${part.id}_drw_knob`,
           diameter: 5,
@@ -985,7 +1221,8 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
           purpose: "handle",
         });
       } else {
-        const halfCc = Math.min(part.handleSpacingMm / 2, Math.max(32, height / 2 - 36));
+        // P0-02: Never silently alter manufacturer C-C pitch; exact halfCc is drilled!
+        const halfCc = cc / 2;
         holes.push(
           {
             id: `H_${part.id}_drw_handle_l`,
