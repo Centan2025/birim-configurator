@@ -1434,12 +1434,43 @@ export function getMaterialSwatchStyle(
       backgroundPosition: "center",
     };
   }
-  const url = getMaterialPreviewDataUrl(matDef);
-  if (!url) return { backgroundColor: fallbackHex };
+  if (!matDef) return { backgroundColor: fallbackHex };
+
+  // Check if a cached dataUrl already exists from 3D/export usage without forcing heavy procedural map generation
+  const cachedUrl = swatchDataUrlCache.get(matDef.id);
+  if (cachedUrl) {
+    return {
+      backgroundColor: fallbackHex,
+      backgroundImage: `url("${cachedUrl}")`,
+      backgroundSize: "cover",
+      backgroundPosition: "center",
+    };
+  }
+
+  const cls = classifyPhysicalMaterial(matDef);
+  if (cls === "glass") {
+    return {
+      backgroundColor: "#232931",
+      backgroundImage:
+        "linear-gradient(135deg, rgba(255,255,255,0.22) 0%, rgba(255,255,255,0.06) 38%, rgba(24,29,35,0.7) 100%)",
+    };
+  }
+  if (cls === "mirror") {
+    const isBronze =
+      matDef.id.toLowerCase().includes("bronze") || matDef.id.toLowerCase().includes("bronz");
+    return {
+      backgroundColor: fallbackHex,
+      backgroundImage: isBronze
+        ? "linear-gradient(135deg, #efe0cc 0%, #bfa488 48%, #fff5e8 54%, #7b654f 100%)"
+        : "linear-gradient(135deg, #f8fafc 0%, #cbd5e1 48%, #ffffff 54%, #64748b 100%)",
+    };
+  }
+
+  const isGloss = (matDef.roughness ?? 0.4) <= 0.15 || matDef.id.includes("evogloss");
   return {
     backgroundColor: fallbackHex,
-    backgroundImage: `url("${url}")`,
-    backgroundSize: "cover",
-    backgroundPosition: "center",
+    backgroundImage: isGloss
+      ? "linear-gradient(135deg, rgba(255,255,255,0.42) 0%, rgba(255,255,255,0.02) 48%, rgba(0,0,0,0.12) 100%)"
+      : "linear-gradient(135deg, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0.02) 50%, rgba(0,0,0,0.1) 100%)",
   };
 }

@@ -119,7 +119,8 @@ function runBlenderProcess(
   glbPath: string,
   outputPngPath: string,
   metaPath: string,
-  signal: AbortSignal
+  signal: AbortSignal,
+  onStdoutLine?: (line: string) => void
 ): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const proc = spawn(
@@ -130,6 +131,7 @@ function runBlenderProcess(
 
     let stdout = "";
     let stderr = "";
+    let lineBuf = "";
 
     const onAbort = () => {
       try {
@@ -147,7 +149,16 @@ function runBlenderProcess(
     signal.addEventListener("abort", onAbort, { once: true });
 
     proc.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString("utf8");
+      const text = chunk.toString("utf8");
+      stdout += text;
+      if (onStdoutLine) {
+        lineBuf += text;
+        const lines = lineBuf.split(/\r?\n/);
+        lineBuf = lines.pop() ?? "";
+        for (const line of lines) {
+          if (line.trim()) onStdoutLine(line);
+        }
+      }
     });
     proc.stderr.on("data", (chunk: Buffer) => {
       stderr += chunk.toString("utf8");
@@ -215,6 +226,86 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const glbBuffer = Buffer.from(await glbEntry.arrayBuffer());
     await fs.writeFile(glbPath, glbBuffer);
     await fs.writeFile(metaPath, JSON.stringify(meta), "utf8");
+
+    const wantsStream = request.nextUrl.searchParams.get("stream") === "1";
+    if (wantsStream) {
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        async start(controller) {
+          const send = (obj: Record<string, unknown>) => {
+            try {
+              controller.enqueue(encoder.encode(`${JSON.stringify(obj)}\n`));
+            } catch {
+              // stream closed
+            }
+          };
+          let lastPct = 24;
+          send({ type: "progress", pct: 24, stage: "Blender Başlatılıyor..." });
+          try {
+            const t0 = Date.now();
+            const { stdout } = await runBlenderProcess(
+              exePath,
+              scriptPath,
+              glbPath,
+              outputPngPath,
+              metaPath,
+              request.signal,
+              (line) => {
+                if (line.includes("[BIRIM_CYCLES] Scene imported")) {
+                  lastPct = Math.max(lastPct, 28);
+                  send({ type: "progress", pct: lastPct, stage: "Sahne & Işıklar Hazırlanıyor..." });
+                } else if (line.includes("[BIRIM_CYCLES] Rendering")) {
+                  lastPct = Math.max(lastPct, 32);
+                  send({ type: "progress", pct: lastPct, stage: line.replace("[BIRIM_CYCLES] ", "") });
+                } else {
+                  const sampleMatch = line.match(/Sample\s+(\d+)\s*\/\s*(\d+)/i);
+                  if (sampleMatch) {
+                    const cur = Number(sampleMatch[1]);
+                    const tot = Math.max(1, Number(sampleMatch[2]));
+                    const pct = Math.min(93, Math.max(lastPct, 32 + Math.round((cur / tot) * 60)));
+                    lastPct = pct;
+                    const remMatch = line.match(/Remaining:([^\s|]+)/i);
+                    const rem = remMatch ? ` • Kalan ~${remMatch[1]}` : "";
+                    send({ type: "progress", pct, stage: `Cycles Örnekleme ${cur}/${tot}${rem}` });
+                  } else if (/Denoising/i.test(line)) {
+                    lastPct = Math.max(lastPct, 95);
+                    send({ type: "progress", pct: lastPct, stage: "OpenImageDenoise Gürültü Temizleme..." });
+                  }
+                }
+              }
+            );
+            const elapsedMs = Date.now() - t0;
+            const pngBuffer = await fs.readFile(outputPngPath);
+            const dataUrl = `data:image/png;base64,${pngBuffer.toString("base64")}`;
+            const deviceMatch = stdout.match(/\(device=([A-Z0-9_]+)\)/);
+            const device = deviceMatch ? deviceMatch[1] : "CPU";
+            send({
+              type: "done",
+              dataUrl,
+              elapsedMs,
+              device,
+              engine: `Blender Cycles (${device} + OIDN)`,
+            });
+          } catch (err) {
+            const message = err instanceof Error ? err.message : "Blender render hatasi";
+            send({ type: "error", error: message });
+          } finally {
+            try {
+              await fs.rm(tempDir, { recursive: true, force: true });
+            } catch {
+              // ignore cleanup error
+            }
+            controller.close();
+          }
+        },
+      });
+      return new NextResponse(stream, {
+        headers: {
+          "Content-Type": "application/x-ndjson; charset=utf-8",
+          "Cache-Control": "no-cache, no-transform",
+        },
+      });
+    }
 
     const t0 = Date.now();
     const { stdout } = await runBlenderProcess(

@@ -1,5 +1,6 @@
 "use client";
 import { solveAngledWallSnapForModule, originToModulePosition } from "../engine/angledWallSnapEngine";
+import { applyValidatedDimensionsToModule } from "../components/workspace/moduleLibraryUtils";
 import { useMemo, useCallback, useRef } from "react";
 import { useConfiguratorStore } from "../../store/useConfiguratorStore";
 import {
@@ -967,6 +968,7 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
   const removeSpecialFitting = useConfiguratorStore((s) => s.removeSpecialFitting);
 
   const addAdjacentModule = useConfiguratorStore((s) => s.addAdjacentModule);
+  const addStackedTopModule = useConfiguratorStore((s) => s.addStackedTopModule);
   const duplicateActiveModule = useConfiguratorStore((s) => s.duplicateActiveModule);
   const removeActiveModule = useConfiguratorStore((s) => s.removeActiveModule);
   const moveActiveModule = useConfiguratorStore((s) => s.moveActiveModule);
@@ -2447,7 +2449,8 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
   const dropV4TemplateWithSnap = useCallback(
     (
       templateId: string,
-      dropWorldXMm?: number
+      dropWorldXMm?: number,
+      customDimensions?: { width?: number; height?: number; depth?: number }
     ): { placedName: string; snappedX: number; snappedY: number; snapLabel: string } | null => {
       const tpl =
         getV4TemplateById(templateId) ||
@@ -2457,7 +2460,10 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
 
       const state = useConfiguratorStore.getState();
       const curProj = state.project;
-      const newMod = tpl.createInstance(`mod_${Date.now()}`);
+      const baseMod = tpl.createInstance(`mod_${Date.now()}`);
+      const newMod = "dimensionLimits" in tpl
+        ? applyValidatedDimensionsToModule(baseMod, tpl, customDimensions)
+        : baseMod;
       const activeMod = curProj.modules[state.activeModuleIndex] || curProj.modules.find((m) => m.category !== "complementary") || curProj.modules[0];
 
       // Object-Linked Complementary Module Placement: attach directly to the selected parent cabinet!
@@ -2568,6 +2574,7 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
       const isWallCab =
         newMod.category === "kitchen_wall" || newMod.moduleFamilyId === "fam_kitchen_wall";
       const targetY = isWallCab ? 1400 : 0;
+      const targetTopY = targetY + newMod.dimensions.height;
 
       const sameRowMods = curProj.modules.filter((m) => {
         if (m.category === "complementary") return false;
@@ -2575,8 +2582,16 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
         return mIsWall === isWallCab && (m.rotation?.y || 0) === 0;
       });
 
+      // Check 3D vertical Y-range overlap so wall cabinets snap beside tall wardrobes instead of burying into them,
+      // while still allowing wall cabinets above 720-860mm kitchen base cabinets.
+      const yOverlappingMods = curProj.modules.filter((m) => {
+        if (m.category === "complementary" || (m.rotation?.y || 0) !== 0) return false;
+        const mTopY = m.position.y + m.dimensions.height;
+        return m.position.y < targetTopY - 2 && mTopY > targetY + 2;
+      });
+
       const overlapsAt = (candX: number) =>
-        sameRowMods.some(
+        yOverlappingMods.some(
           (m) =>
             candX < m.position.x + m.dimensions.width - 2 &&
             candX + newMod.dimensions.width > m.position.x + 2
@@ -2585,7 +2600,7 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
       const snapCandidates: { x: number; label: string }[] = [
         { x: 0, label: "Duvar Başlangıcı (X: 0mm)" },
       ];
-      sameRowMods.forEach((m, idx) => {
+      yOverlappingMods.forEach((m, idx) => {
         const rightEdge = m.position.x + m.dimensions.width;
         const leftEdge = Math.max(0, m.position.x - newMod.dimensions.width);
         snapCandidates.push({
@@ -2601,8 +2616,8 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
       const validCandidates = snapCandidates.filter((c) => c.x >= 0 && !overlapsAt(c.x));
       let chosen = validCandidates[validCandidates.length - 1] || {
         x:
-          sameRowMods.length > 0
-            ? Math.max(...sameRowMods.map((m) => m.position.x + m.dimensions.width))
+          yOverlappingMods.length > 0
+            ? Math.max(...yOverlappingMods.map((m) => m.position.x + m.dimensions.width))
             : 0,
         label: "Sıra Sonuna Mıknatıslandı",
       };
@@ -2674,13 +2689,22 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
     []
   );
 
-  const applyV4Template = useCallback((templateId: string, appendToProject = false) => {
-    const tpl = getV4TemplateById(templateId);
-    if (!tpl) return;
-    const state = useConfiguratorStore.getState();
-    const curProj = state.project;
-    const lastMod = curProj.modules[curProj.modules.length - 1];
-    const newMod = tpl.createInstance(`mod_${Date.now()}`);
+  const applyV4Template = useCallback(
+    (
+      templateId: string,
+      appendToProject = false,
+      customDimensions?: { width?: number; height?: number; depth?: number }
+    ) => {
+      const tpl = getV4TemplateById(templateId);
+      if (!tpl) return;
+      const state = useConfiguratorStore.getState();
+      const curProj = state.project;
+      const lastMod = curProj.modules[curProj.modules.length - 1];
+      const newMod = applyValidatedDimensionsToModule(
+        tpl.createInstance(`mod_${Date.now()}`),
+        tpl,
+        customDimensions
+      );
 
     let nextModules: ModuleInstance[];
     let targetIndex = 0;
@@ -6685,8 +6709,8 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
 
 
   const continuousKitchenLayers = useMemo(
-    () => (isLite ? [] : computeContinuousKitchenLayers(project)),
-    [isLite, project]
+    () => (isLite || isDraggingActive ? [] : computeContinuousKitchenLayers(project)),
+    [isLite, isDraggingActive, project]
   );
 
   const exportCamZipBytes = useCallback(
@@ -7003,6 +7027,7 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
     addSpecialFitting,
     removeSpecialFitting,
     addAdjacentModule,
+    addStackedTopModule,
     duplicateActiveModule,
     removeActiveModule,
     removeModuleAt,

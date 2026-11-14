@@ -332,6 +332,8 @@ export const DoorConfigSchema = z.object({
   doorMaterialId: z.string().optional(),
   grainGroupId: z.string().optional(),
   bottomOverhangMm: z.number().min(-100).max(100).optional(),
+  doorBottomGapMm: z.number().min(0).max(2500).optional(),
+  doorTopGapMm: z.number().min(0).max(2500).optional(),
   handleType: z.enum(["standard", "integrated_profile", "push_to_open", "none"]).optional(),
   softClose: z.boolean().default(true),
   hingeCount: z.number().int().min(0).max(8).optional(),
@@ -393,6 +395,16 @@ export const BaseboardNotchConfigSchema = z.object({
 
 export const CarcassConfigSchema = z.object({
   panelThickness: z.number().min(12).max(36).default(18),
+  topPanelThicknessMm: z.number().min(12).max(80).optional(),
+  crownMolding: z
+    .object({
+      enabled: z.boolean(),
+      style: z.enum(["modern_flat", "stepped", "classic_coving", "led_channel"]),
+      heightMm: z.number().min(20).max(200),
+      projectionMm: z.number().min(0).max(120),
+      materialId: z.string().optional(),
+    })
+    .optional(),
   backPanelThickness: z.number().min(3).max(19).default(8),
   backPanelType: BackPanelTypeSchema.default("grooved"),
   backOffsetMm: z.number().min(0).max(120).optional(),

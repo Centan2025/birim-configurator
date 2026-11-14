@@ -124,10 +124,11 @@ interface ConfiguratorState {
   setCameraPreset: (preset: CameraPreset) => void;
   setSelectedComponentId: (id: string | null) => void;
   setActiveModuleIndex: (index: number) => void;
-  setDoorOpenAngleDeg: (angle: number) => void;
-  setDrawerOpenMm: (mm: number) => void;
+  setDoorOpenAngleDeg: (angle: number, animated?: boolean) => void;
+  setDrawerOpenMm: (mm: number, animated?: boolean) => void;
+  toggleDrawerOpen: (animated?: boolean) => void;
   setExplodedFactor: (factor: number) => void;
-  toggleDoorOpen: () => void;
+  toggleDoorOpen: (animated?: boolean) => void;
   toggleOrthographic: () => void;
   setOrthographic: (isOrthographic: boolean) => void;
   setCncXrayMode: (enabled: boolean) => void;
@@ -157,6 +158,7 @@ interface ConfiguratorState {
 
   // Multi-module management
   addAdjacentModule: () => void;
+  addStackedTopModule: () => void;
   duplicateActiveModule: () => void;
   removeActiveModule: () => void;
   moveActiveModule: (deltaX: number) => void;
@@ -397,6 +399,54 @@ function nextHistory(history: DesignProject[], current: DesignProject, batchStar
 const initialProj = createInitialProject();
 const { validationIssues: initIssues, bom: initBom, pricing: initPricing, smartAdvice: initAdvice } = recompute(initialProj, { syncInitial: true });
 
+// Global Raf references for smooth door and drawer open/close animations
+let activeDoorAnimRaf: number | null = null;
+let activeDrawerAnimRaf: number | null = null;
+
+function animateValueTransition(
+  startVal: number,
+  targetVal: number,
+  durationMs = 380,
+  onUpdate: (val: number) => void,
+  getRafHolder: () => number | null,
+  setRafHolder: (raf: number | null) => void
+) {
+  if (typeof window === "undefined" || typeof requestAnimationFrame === "undefined") {
+    onUpdate(targetVal);
+    return;
+  }
+  const curRaf = getRafHolder();
+  if (curRaf !== null) {
+    cancelAnimationFrame(curRaf);
+    setRafHolder(null);
+  }
+  if (Math.abs(startVal - targetVal) < 0.5) {
+    onUpdate(targetVal);
+    return;
+  }
+
+  const startTime = performance.now();
+  // Smooth cubic ease-out for swift, crisp response
+  const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
+
+  const step = (now: number) => {
+    const elapsed = now - startTime;
+    const progress = Math.min(1, Math.max(0, elapsed / durationMs));
+    const eased = easeOutCubic(progress);
+    const currentVal = Math.round(startVal + (targetVal - startVal) * eased);
+    onUpdate(currentVal);
+
+    if (progress < 1) {
+      setRafHolder(requestAnimationFrame(step));
+    } else {
+      setRafHolder(null);
+      onUpdate(targetVal);
+    }
+  };
+
+  setRafHolder(requestAnimationFrame(step));
+}
+
 export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   project: initialProj,
   activeModuleIndex: 0,
@@ -457,8 +507,73 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       selectedModuleIds: targetMod ? [targetMod.id] : [],
     });
   },
-  setDoorOpenAngleDeg: (doorOpenAngleDeg) => set({ doorOpenAngleDeg }),
-  setDrawerOpenMm: (drawerOpenMm) => set({ drawerOpenMm }),
+  setDoorOpenAngleDeg: (doorOpenAngleDeg, animated = false) => {
+    if (!animated) {
+      if (activeDoorAnimRaf !== null) {
+        cancelAnimationFrame(activeDoorAnimRaf);
+        activeDoorAnimRaf = null;
+      }
+      set({ doorOpenAngleDeg });
+      return;
+    }
+    const current = get().doorOpenAngleDeg;
+    // Closing door is snappier, opening is smooth
+    const isClosing = doorOpenAngleDeg < current;
+    animateValueTransition(
+      current,
+      doorOpenAngleDeg,
+      isClosing ? 260 : 320,
+      (val) => set({ doorOpenAngleDeg: val }),
+      () => activeDoorAnimRaf,
+      (raf) => {
+        activeDoorAnimRaf = raf;
+      }
+    );
+  },
+  setDrawerOpenMm: (drawerOpenMm, animated = false) => {
+    if (!animated) {
+      if (activeDrawerAnimRaf !== null) {
+        cancelAnimationFrame(activeDrawerAnimRaf);
+        activeDrawerAnimRaf = null;
+      }
+      set({ drawerOpenMm });
+      return;
+    }
+    const current = get().drawerOpenMm;
+    // Realistic heavier drawer gliding motion (slower and softer damping)
+    animateValueTransition(
+      current,
+      drawerOpenMm,
+      480,
+      (val) => set({ drawerOpenMm: val }),
+      () => activeDrawerAnimRaf,
+      (raf) => {
+        activeDrawerAnimRaf = raf;
+      }
+    );
+  },
+  toggleDrawerOpen: (animated = true) => {
+    const cur = get().drawerOpenMm;
+    const targetMm = cur > 10 ? 0 : 280;
+    if (!animated) {
+      if (activeDrawerAnimRaf !== null) {
+        cancelAnimationFrame(activeDrawerAnimRaf);
+        activeDrawerAnimRaf = null;
+      }
+      set({ drawerOpenMm: targetMm });
+      return;
+    }
+    animateValueTransition(
+      cur,
+      targetMm,
+      480,
+      (val) => set({ drawerOpenMm: val }),
+      () => activeDrawerAnimRaf,
+      (raf) => {
+        activeDrawerAnimRaf = raf;
+      }
+    );
+  },
   setExplodedFactor: (explodedFactor) => set({ explodedFactor }),
   toggleOrthographic: () => set((s) => ({ isOrthographic: !s.isOrthographic })),
   setOrthographic: (isOrthographic) => set({ isOrthographic }),
@@ -489,9 +604,48 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     });
     return fixedTotal;
   },
-  toggleDoorOpen: () => {
-    const cur = get().doorOpenAngleDeg;
-    set({ doorOpenAngleDeg: cur > 0 ? 0 : 75 });
+  toggleDoorOpen: (animated = true) => {
+    const curDoor = get().doorOpenAngleDeg;
+    const curDrawer = get().drawerOpenMm;
+    const isAnyOpen = curDoor > 0 || curDrawer > 10;
+    const targetDoorDeg = isAnyOpen ? 0 : 75;
+    const targetDrawerMm = isAnyOpen ? 0 : 260;
+
+    if (!animated) {
+      if (activeDoorAnimRaf !== null) {
+        cancelAnimationFrame(activeDoorAnimRaf);
+        activeDoorAnimRaf = null;
+      }
+      if (activeDrawerAnimRaf !== null) {
+        cancelAnimationFrame(activeDrawerAnimRaf);
+        activeDrawerAnimRaf = null;
+      }
+      set({ doorOpenAngleDeg: targetDoorDeg, drawerOpenMm: targetDrawerMm });
+      return;
+    }
+    // Kapaklar kapanırken daha seri (260ms), açılırken (320ms)
+    const isClosing = targetDoorDeg === 0;
+    animateValueTransition(
+      curDoor,
+      targetDoorDeg,
+      isClosing ? 260 : 320,
+      (val) => set({ doorOpenAngleDeg: val }),
+      () => activeDoorAnimRaf,
+      (raf) => {
+        activeDoorAnimRaf = raf;
+      }
+    );
+    // Çekmeceler tok ve ray üzerinde yavaş/ağır kayarak açılıp kapanır (480ms)
+    animateValueTransition(
+      curDrawer,
+      targetDrawerMm,
+      480,
+      (val) => set({ drawerOpenMm: val }),
+      () => activeDrawerAnimRaf,
+      (raf) => {
+        activeDrawerAnimRaf = raf;
+      }
+    );
   },
 
   beginHistoryTransaction: () => {
@@ -1210,6 +1364,79 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       });
       updated.modules.push(clonedMod);
     }
+
+    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    set({
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      project: updated,
+      autoSaveStatus: "unsaved",
+      activeModuleIndex: updated.modules.length - 1,
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+    });
+  },
+
+  addStackedTopModule: () => {
+    const { project, history, activeModuleIndex, batchStartProject } = get();
+    const updated = cloneProject(project);
+    const targetMod = updated.modules[activeModuleIndex] || updated.modules[0];
+    if (!targetMod) return;
+
+    const clonedMod: ModuleInstance = JSON.parse(JSON.stringify(targetMod));
+    const uid = `${Date.now()}_${updated.modules.length + 1}`;
+    clonedMod.id = `mod_${uid}`;
+    const baseName = targetMod.name
+      .replace(/\s*\(Kopya\)|\s*\(Üst Yüklük\)|\s*#\d+$/g, "")
+      .trim();
+    clonedMod.name = `${baseName} (Üst Yüklük)`;
+
+    const baseTopY = (targetMod.position?.y ?? 0) + targetMod.dimensions.height;
+    const ceilingH = updated.space?.ceilingHeight || 2600;
+    const remainingH = ceilingH - baseTopY;
+    const topH = remainingH >= 320 ? Math.min(800, Math.round(remainingH)) : 500;
+
+    clonedMod.dimensions = {
+      ...targetMod.dimensions,
+      height: topH,
+    };
+    clonedMod.position = {
+      x: targetMod.position?.x ?? 0,
+      y: baseTopY,
+      z: targetMod.position?.z ?? 0,
+    };
+    clonedMod.carcass = {
+      ...clonedMod.carcass,
+      plinthHeight: 0,
+      wallAnchored: true,
+    };
+
+    const carcassT = clonedMod.carcass.panelThickness || 18;
+    const netH = Math.max(100, topH - 2 * carcassT);
+
+    clonedMod.bays.forEach((b, i) => {
+      b.door.id = `${clonedMod.id}_door_${i}`;
+      b.drawers = [];
+      b.hangingRails = [];
+      b.specialFittings = [];
+      b.subDividers = [];
+      b.shelves =
+        topH >= 550
+          ? [
+              {
+                id: `${clonedMod.id}_shelf_${i}_0`,
+                bayIndex: i,
+                elevationY: Math.round(netH / 2),
+                thickness: carcassT,
+                isAdjustable: true,
+              },
+            ]
+          : [];
+    });
+
+    updated.modules.push(clonedMod);
 
     const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
     set({

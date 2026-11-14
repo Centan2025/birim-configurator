@@ -58,6 +58,8 @@ interface SimpleCustomerInspectorProps {
     plinthConstruction?: PlinthConstructionType;
     plinthSetbackMm?: number;
     hasAdjustableLegs?: boolean;
+    topPanelThicknessMm?: number;
+    crownMolding?: import("@birim/core").CrownMoldingConfig;
   }) => void;
   onToggleDoorOpen: () => void;
   onSetBayDoorType: (
@@ -870,6 +872,132 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
               </div>
             );
           })()}
+
+          {onUpdatePlinthConfig && (
+            <div className="pt-2 border-t border-[#EFECE5] space-y-2.5">
+              {/* Bağımsız Üst Tabla Kalınlığı (TV Bench / Konsol / Dolap) */}
+              <div className="space-y-1">
+                <span className="text-[11px] font-bold text-[#141413] block">
+                  Üst Tabla Kalınlığı (TV Bench / Özel Üst)
+                </span>
+                <div className="grid grid-cols-5 gap-1">
+                  {[
+                    { val: undefined, label: `${panelThickMm}mm` },
+                    { val: 25, label: "25mm" },
+                    { val: 30, label: "30mm" },
+                    { val: 36, label: "36mm" },
+                    { val: 40, label: "40mm" },
+                  ].map((opt) => {
+                    const isAct =
+                      opt.val === undefined
+                        ? !activeModule.carcass.topPanelThicknessMm
+                        : activeModule.carcass.topPanelThicknessMm === opt.val;
+                    return (
+                      <button
+                        key={opt.label}
+                        type="button"
+                        onClick={() => onUpdatePlinthConfig({ topPanelThicknessMm: opt.val })}
+                        className={`py-1.5 rounded-xl font-mono text-[11px] font-bold border transition cursor-pointer ${
+                          isAct
+                            ? "bg-[#141413] text-white border-[#141413]"
+                            : "bg-[#FAF9F6] hover:bg-[#EFECE5] text-[#141413] border-[#DED8CC]"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Üst Taç Profili */}
+              <div className="p-2.5 rounded-xl bg-[#FAF9F6] border border-[#DED8CC] space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-[#141413]">
+                    👑 Üst Taç Profili (45° Gönyeli)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const cur = activeModule.carcass.crownMolding;
+                      onUpdatePlinthConfig({
+                        crownMolding: cur?.enabled
+                          ? { ...cur, enabled: false }
+                          : {
+                              enabled: true,
+                              style: cur?.style || "modern_flat",
+                              heightMm: cur?.heightMm || 60,
+                              projectionMm: cur?.projectionMm ?? 25,
+                            },
+                      });
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition cursor-pointer ${
+                      activeModule.carcass.crownMolding?.enabled
+                        ? "bg-[#141413] text-white border-[#141413]"
+                        : "bg-white text-[#57534E] border-[#DED8CC] hover:bg-[#EFECE5]"
+                    }`}
+                  >
+                    {activeModule.carcass.crownMolding?.enabled ? "Aktif ✓" : "Kapalı"}
+                  </button>
+                </div>
+                {activeModule.carcass.crownMolding?.enabled && (
+                  <div className="space-y-1.5">
+                    <div className="grid grid-cols-2 gap-1">
+                      {[
+                        { id: "modern_flat" as const, label: "Modern Düz" },
+                        { id: "stepped" as const, label: "Basamaklı" },
+                        { id: "classic_coving" as const, label: "Klasik Kavisli" },
+                        { id: "led_channel" as const, label: "LED Kanallı" },
+                      ].map((st) => (
+                        <button
+                          key={st.id}
+                          type="button"
+                          onClick={() =>
+                            onUpdatePlinthConfig({
+                              crownMolding: {
+                                ...activeModule.carcass.crownMolding!,
+                                style: st.id,
+                              },
+                            })
+                          }
+                          className={`py-1 px-2 rounded-lg text-[10.5px] font-bold border cursor-pointer transition ${
+                            activeModule.carcass.crownMolding?.style === st.id
+                              ? "bg-[#141413] text-white border-[#141413]"
+                              : "bg-white border-[#DED8CC] text-[#44403C]"
+                          }`}
+                        >
+                          {st.label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-4 gap-1">
+                      {[40, 60, 80, 120].map((ch) => (
+                        <button
+                          key={ch}
+                          type="button"
+                          onClick={() =>
+                            onUpdatePlinthConfig({
+                              crownMolding: {
+                                ...activeModule.carcass.crownMolding!,
+                                heightMm: ch,
+                              },
+                            })
+                          }
+                          className={`py-1 rounded-lg font-mono text-[10.5px] font-bold border cursor-pointer ${
+                            activeModule.carcass.crownMolding?.heightMm === ch
+                              ? "bg-[#141413] text-white border-[#141413]"
+                              : "bg-white border-[#DED8CC] text-[#44403C]"
+                          }`}
+                        >
+                          {ch}mm
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </section>
       )}
 
@@ -1366,6 +1494,102 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
                 </button>
               ))}
             </div>
+
+            {activeBay?.door?.type !== "open" && !activeModule.isOpenFront && onSetBayV4DoorConfig && (
+              <div className="p-3 rounded-xl bg-[#FAF9F6] border border-[#DED8CC] space-y-2 mt-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-[#141413]">
+                    Kapak Dikey Bölgesi (Kısmi Kapak)
+                  </span>
+                  {(Boolean(activeBay?.door?.doorBottomGapMm) || Boolean(activeBay?.door?.doorTopGapMm)) && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onSetBayV4DoorConfig(activeBayIndex, {
+                          doorBottomGapMm: 0,
+                          doorTopGapMm: 0,
+                        })
+                      }
+                      className="text-[11px] font-semibold text-blue-700 hover:underline cursor-pointer"
+                    >
+                      Tam Boya Sıfırla
+                    </button>
+                  )}
+                </div>
+                <div className="grid grid-cols-4 gap-1">
+                  {[
+                    { id: "full", label: "Tam Boy", bot: 0, top: 0 },
+                    { id: "top_open", label: "Üst Boş", bot: 0, top: Math.round((activeModule.dimensions.height - (activeModule.carcass.plinthHeight || 0)) * 0.32) },
+                    { id: "mid_only", label: "Orta Kapak", bot: Math.round((activeModule.dimensions.height - (activeModule.carcass.plinthHeight || 0)) * 0.24), top: Math.round((activeModule.dimensions.height - (activeModule.carcass.plinthHeight || 0)) * 0.24) },
+                    { id: "bot_open", label: "Alt Boş", bot: Math.round((activeModule.dimensions.height - (activeModule.carcass.plinthHeight || 0)) * 0.32), top: 0 },
+                  ].map((zp) => {
+                    const curBot = activeBay?.door?.doorBottomGapMm || 0;
+                    const curTop = activeBay?.door?.doorTopGapMm || 0;
+                    const isAct =
+                      zp.id === "full"
+                        ? curBot === 0 && curTop === 0
+                        : zp.id === "top_open"
+                        ? curBot === 0 && curTop > 0
+                        : zp.id === "mid_only"
+                        ? curBot > 0 && curTop > 0
+                        : curBot > 0 && curTop === 0;
+                    return (
+                      <button
+                        key={zp.id}
+                        type="button"
+                        onClick={() =>
+                          onSetBayV4DoorConfig(activeBayIndex, {
+                            doorBottomGapMm: zp.bot,
+                            doorTopGapMm: zp.top,
+                          })
+                        }
+                        className={`py-1.5 px-1 rounded-lg text-[10.5px] font-bold border cursor-pointer transition ${
+                          isAct
+                            ? "bg-[#141413] text-white border-[#141413]"
+                            : "bg-white hover:bg-[#EFECE5] text-[#141413] border-[#DED8CC]"
+                        }`}
+                      >
+                        {zp.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="block text-[10.5px] font-semibold text-[#57534E]">
+                    Alttan Boşluk (mm)
+                    <input
+                      type="number"
+                      min={0}
+                      max={Math.max(0, activeModule.dimensions.height - 250)}
+                      step={10}
+                      value={activeBay?.door?.doorBottomGapMm || 0}
+                      onChange={(e) =>
+                        onSetBayV4DoorConfig(activeBayIndex, {
+                          doorBottomGapMm: Math.max(0, Number(e.target.value) || 0),
+                        })
+                      }
+                      className="mt-1 w-full px-2 py-1 rounded-lg border border-[#DED8CC] bg-white font-mono text-xs text-[#141413]"
+                    />
+                  </label>
+                  <label className="block text-[10.5px] font-semibold text-[#57534E]">
+                    Üstten Boşluk (mm)
+                    <input
+                      type="number"
+                      min={0}
+                      max={Math.max(0, activeModule.dimensions.height - 250)}
+                      step={10}
+                      value={activeBay?.door?.doorTopGapMm || 0}
+                      onChange={(e) =>
+                        onSetBayV4DoorConfig(activeBayIndex, {
+                          doorTopGapMm: Math.max(0, Number(e.target.value) || 0),
+                        })
+                      }
+                      className="mt-1 w-full px-2 py-1 rounded-lg border border-[#DED8CC] bg-white font-mono text-xs text-[#141413]"
+                    />
+                  </label>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* 4 REAL-WORLD SLIDING DOOR MOUNTING ARCHITECTURE CARDS */}

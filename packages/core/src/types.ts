@@ -475,6 +475,8 @@ export interface DoorConfig {
   doorMaterialId?: string;
   grainGroupId?: string;
   bottomOverhangMm?: UnitLength; // Örn. üst dolapta -15mm kulpsuz alt sarkıtma
+  doorBottomGapMm?: UnitLength; // Kısmi kapak: alttan açık bırakılan yükseklik (mm)
+  doorTopGapMm?: UnitLength; // Kısmi kapak: üstten açık bırakılan yükseklik (mm)
   handleType?: "standard" | "integrated_profile" | "push_to_open" | "none";
   softClose: boolean;
   hingeCount?: number;
@@ -549,8 +551,17 @@ export type PlinthConstructionType =
   | "adjustable_legs_clip" // DIN 68935 / Häfele Axilo legs + snap-on C-clip front/side plinth + PVC water seal (Kitchen/Bath standard)
   | "gable_rails"; // Full-height side panels to floor + dual front/rear structural plinth rails + divider ribs (Built-in standard)
 
+export interface CrownMoldingConfig {
+  enabled: boolean;
+  style: "modern_flat" | "stepped" | "classic_coving" | "led_channel";
+  heightMm: UnitLength;
+  projectionMm: UnitLength;
+  materialId?: string;
+}
+
 export interface CarcassConfig {
   panelThickness: UnitLength; // default 18
+  topPanelThicknessMm?: UnitLength; // Bağımsız üst tabla kalınlığı (TV bench, konsol vb. için)
   backPanelThickness: UnitLength; // default 8
   backPanelType: BackPanelType;
   backOffsetMm?: UnitLength; // Rear plumbing/hanger offset for grooved back (default 18mm)
@@ -564,6 +575,7 @@ export interface CarcassConfig {
   baseboardNotch?: BaseboardNotchConfig; // Automatic rear bottom skirting notch (e.g. 15x80mm)
   slopedCeiling?: SlopedCeilingConfig;
   ceilingConfig?: SpaceCeilingConfig; // Mansard / under-stairs sloped ceiling cut
+  crownMolding?: CrownMoldingConfig; // Üst taç profili (Modern düz, basamaklı, klasik, LED kanallı)
   hasPlinthDrawer?: boolean; // Toe-kick plinth drawer option
   hasWaterfallLeft?: boolean; // 45° mitered waterfall countertop left
   hasWaterfallRight?: boolean; // 45° mitered waterfall countertop right

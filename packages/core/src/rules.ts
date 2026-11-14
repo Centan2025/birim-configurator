@@ -417,8 +417,9 @@ export function calculateBayWidths(module: ModuleInstance): UnitLength[] {
 
 export function calculateNetInnerHeight(module: ModuleInstance): UnitLength {
   const { height } = module.dimensions;
-  const { panelThickness, plinthHeight } = module.carcass;
-  return Math.max(0, roundIntMm(height - plinthHeight - 2 * panelThickness));
+  const { panelThickness, plinthHeight, topPanelThicknessMm } = module.carcass;
+  const topT = topPanelThicknessMm || panelThickness;
+  return Math.max(0, roundIntMm(height - plinthHeight - panelThickness - topT));
 }
 
 /**

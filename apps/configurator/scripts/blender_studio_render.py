@@ -36,13 +36,15 @@ def configure_cycles(scene, samples, bounces):
     scene.render.engine = "CYCLES"
     scene.cycles.samples = max(16, min(256, int(samples)))
     scene.cycles.use_adaptive_sampling = True
-    scene.cycles.adaptive_threshold = 0.01
-    scene.cycles.max_bounces = max(4, min(12, int(bounces) + 2))
-    scene.cycles.diffuse_bounces = max(2, min(6, int(bounces)))
-    scene.cycles.glossy_bounces = max(2, min(6, int(bounces)))
-    scene.cycles.transmission_bounces = 8
-    scene.cycles.transparent_max_bounces = 8
+    scene.cycles.adaptive_threshold = 0.025
+    scene.cycles.max_bounces = max(4, min(10, int(bounces) + 1))
+    scene.cycles.diffuse_bounces = max(2, min(4, int(bounces)))
+    scene.cycles.glossy_bounces = max(2, min(4, int(bounces)))
+    scene.cycles.transmission_bounces = 4
+    scene.cycles.transparent_max_bounces = 4
     scene.cycles.sample_clamp_indirect = 10.0
+    if hasattr(scene.render, "use_persistent_data"):
+        scene.render.use_persistent_data = True
 
     # Denoising (OpenImageDenoise)
     scene.cycles.use_denoising = True
@@ -263,12 +265,15 @@ def enhance_imported_materials():
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(line_buffering=True)
     input_glb, output_png, meta_json = parse_args()
     with open(meta_json, "r", encoding="utf-8-sig") as f:
         meta = json.load(f)
 
     clear_scene()
     bpy.ops.import_scene.gltf(filepath=input_glb)
+    print("[BIRIM_CYCLES] Scene imported, configuring studio...", flush=True)
 
     # Scale root objects from mm -> meters (0.001)
     root_objs = [o for o in bpy.context.scene.objects if o.parent is None]
@@ -325,9 +330,9 @@ def main():
     scene.render.image_settings.color_mode = "RGBA"
     scene.render.filepath = output_png
 
-    print(f"[BIRIM_CYCLES] Rendering {width}x{height} @ {samples} SPP on {device_used}...")
+    print(f"[BIRIM_CYCLES] Rendering {width}x{height} @ {samples} SPP on {device_used}...", flush=True)
     bpy.ops.render.render(write_still=True)
-    print(f"[BIRIM_CYCLES] Done: {output_png} (device={device_used})")
+    print(f"[BIRIM_CYCLES] Done: {output_png} (device={device_used})", flush=True)
 
 
 if __name__ == "__main__":

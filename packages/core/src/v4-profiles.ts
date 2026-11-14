@@ -264,6 +264,8 @@ export function calculateFourSpaceDimensions(
   const profile = resolveEffectiveConstructionProfile(module);
   const { width, height, depth } = module.dimensions;
   const T = profile.panelThicknessMm;
+  const T_top = module.carcass.topPanelThicknessMm || T;
+  const hasCustomTopThick = T_top !== T;
   const T_door = profile.doorThicknessMm;
   const plinth = profile.plinthHeightMm;
   const gap = profile.doorPerimeterGapMm;
@@ -281,21 +283,22 @@ export function calculateFourSpaceDimensions(
       : "adjustable_legs_clip");
   const joinery = module.carcass.carcassJoineryTopology || "sides_through";
   const sideRunsToFloor = plinth > 0 && effPlinthConstruction === "gable_rails";
-  const carcassBoxHeightMm = Math.max(0, roundIntMm(height - plinth));
-  const sidePanelHeightMm =
-    joinery === "top_bottom_through"
-      ? Math.max(0, carcassBoxHeightMm - 2 * T)
-      : sideRunsToFloor
-      ? roundIntMm(height)
-      : carcassBoxHeightMm;
+  const carcassBoxHeightMm = Math.max(0, roundIntMm(height - plinth - (hasCustomTopThick ? T_top : 0)));
+  const sidePanelHeightMm = hasCustomTopThick
+    ? Math.max(0, roundIntMm((sideRunsToFloor ? height : height - plinth) - T_top))
+    : joinery === "top_bottom_through"
+    ? Math.max(0, carcassBoxHeightMm - 2 * T)
+    : sideRunsToFloor
+    ? roundIntMm(height)
+    : carcassBoxHeightMm;
   const sidePanelBottomYMm =
-    joinery === "top_bottom_through"
+    joinery === "top_bottom_through" && !hasCustomTopThick
       ? roundIntMm(plinth + T)
       : sideRunsToFloor
       ? 0
       : roundIntMm(plinth);
   const horizontalPanelWidthMm =
-    joinery === "top_bottom_through" || joinery === "miter_45"
+    hasCustomTopThick || joinery === "top_bottom_through" || joinery === "miter_45"
       ? roundIntMm(width)
       : Math.max(0, roundIntMm(width - 2 * T));
 
@@ -429,14 +432,16 @@ export function calculateFourSpaceDimensions(
 
     const applyPartialDoorCut =
       !dSys.startsWith("sliding") && dSys !== "pocket_retractable" && dSys !== "tambour_roller";
-    const bottomCutMm = applyPartialDoorCut ? openCavityBottomCut : 0;
+    const userBottomOpenMm = Math.max(0, bay.door.doorBottomGapMm || 0);
+    const userTopOpenMm = Math.max(0, bay.door.doorTopGapMm || 0);
+    const bottomCutMm = (applyPartialDoorCut ? openCavityBottomCut : 0) + userBottomOpenMm;
     const topCutMm =
-      applyPartialDoorCut && topExtDrawers.length > 0
+      (applyPartialDoorCut && topExtDrawers.length > 0
         ? Math.max(
             0,
             netInnerHeightMm - Math.min(...topExtDrawers.map((d) => d.elevationY)) + T
           )
-        : 0;
+        : 0) + userTopOpenMm;
 
     const bottomOverhang = bay.door.bottomOverhangMm ?? 0; // e.g. +15mm handleless wall cabinet drop
     const rawDoorY0Mm =

@@ -75,6 +75,7 @@ export interface RemediationProposal {
     | "expand_module_width"
     | "switch_handle_to_knob"
     | "clamp_height_to_usable_sheet"
+    | "clamp_width_to_usable_sheet"
     | "upgrade_shelf_thickness_25mm"
     | "increase_hinge_count"
     | "confirm_wall_substrate"
@@ -1086,8 +1087,8 @@ export function evaluateUnifiedEngineeringModel(
             remediationProposals: [
               {
                 id: `fix_shelf_thick_${sh.id}`,
-                label: `Raf Kalınlığını ${targetThick}mm'ye Yükselt`,
-                description: `Atalet momentini (b·t³/12) artırarak sehimi EN 16122 güvenlik sınırının altına çeker.`,
+                label: `Bu Rafı ${targetThick}mm'ye Yükselt`,
+                description: `Atalet momentini (b·t³/12) artırarak bu rafın sehimini EN 16122 güvenlik sınırının altına çeker.`,
                 requiresExplicitUserApproval: true,
                 targetModuleId: mod.id,
                 targetBayIndex: bayIdx,
@@ -1095,6 +1096,25 @@ export function evaluateUnifiedEngineeringModel(
                 patchKind: "upgrade_shelf_thickness_25mm",
                 patchPayload: { thickness: targetThick },
               },
+              ...(mod.bays.reduce((sum, b) => sum + b.shelves.length, 0) > 1
+                ? [
+                    {
+                      id: `fix_shelf_thick_all_${mod.id}`,
+                      label: `Modüldeki Tüm Rafları ${targetThick}mm Yap`,
+                      description: `Aynı modüldeki tüm ince rafları ${targetThick}mm kalınlığa yükselterek tek seferde EN 16122 uyumu sağlar.`,
+                      requiresExplicitUserApproval: true,
+                      targetModuleId: mod.id,
+                      targetBayIndex: bayIdx,
+                      targetComponentId: sh.id,
+                      patchKind: "upgrade_shelf_thickness_25mm" as const,
+                      patchPayload: {
+                        thickness: targetThick,
+                        applyToModule: true,
+                        isGlass: Boolean(sh.isGlass),
+                      } as Record<string, number | string | boolean>,
+                    },
+                  ]
+                : []),
             ],
           });
         }
@@ -1198,6 +1218,12 @@ export function evaluateUnifiedEngineeringModel(
 
     for (const cp of candidatePanels) {
       if (cp.l > maxSheetLen || cp.w > maxSheetWid) {
+        const isWidthOverflow =
+          (cp.label === "Alt/Üst Tabla" && fourSpace.netPanelCut.horizontalPanelWidthMm > maxSheetLen) ||
+          (mod.dimensions.height <= maxSheetLen + plinthH && mod.dimensions.width > maxSheetLen);
+        const targetClampedW = Math.min(mod.dimensions.width, maxSheetLen);
+        const targetClampedH = Math.min(mod.dimensions.height, maxSheetLen + plinthH);
+
         addFinding({
           severity: "error",
           code: "ERR_PANEL_EXCEEDS_USABLE_SHEET_SIZE",
@@ -1219,17 +1245,29 @@ export function evaluateUnifiedEngineeringModel(
             `Modül yüksekliğini/genişliğini net plaka sınırı (${maxSheetLen}mm) içine çekin veya üst yüklük modülüne bölün.`,
             "Özel Jumbo levha (3660×1830mm) tedariki varsa Jumbo Plaka modunu etkinleştirin.",
           ],
-          remediationProposals: [
-            {
-              id: `fix_sheet_clamp_${mod.id}`,
-              label: `Yüksekliği Net Plaka Sınırına (${maxSheetLen + plinthH}mm) Çek`,
-              description: "Yan dikme boyunu 2770mm net kesilebilir standart plaka sınırına indirir.",
-              requiresExplicitUserApproval: true,
-              targetModuleId: mod.id,
-              patchKind: "clamp_height_to_usable_sheet",
-              patchPayload: { height: Math.min(mod.dimensions.height, maxSheetLen + plinthH) },
-            },
-          ],
+          remediationProposals: isWidthOverflow
+            ? [
+                {
+                  id: `fix_sheet_clamp_width_${mod.id}`,
+                  label: `Genişliği Net Plaka Sınırına (${targetClampedW}mm) Çek`,
+                  description: `Modül genişliğini ${maxSheetLen}mm net kesilebilir standart plaka sınırına indirir.`,
+                  requiresExplicitUserApproval: true,
+                  targetModuleId: mod.id,
+                  patchKind: "clamp_width_to_usable_sheet",
+                  patchPayload: { width: targetClampedW },
+                },
+              ]
+            : [
+                {
+                  id: `fix_sheet_clamp_${mod.id}`,
+                  label: `Yüksekliği Net Plaka Sınırına (${maxSheetLen + plinthH}mm) Çek`,
+                  description: "Yan dikme boyunu 2770mm net kesilebilir standart plaka sınırına indirir.",
+                  requiresExplicitUserApproval: true,
+                  targetModuleId: mod.id,
+                  patchKind: "clamp_height_to_usable_sheet",
+                  patchPayload: { height: targetClampedH },
+                },
+              ],
         });
         break;
       }
@@ -1927,11 +1965,40 @@ export function applyApprovedRemediationProposal(
       }
       break;
     }
+    case "clamp_width_to_usable_sheet": {
+      const w = Number(proposal.patchPayload.width);
+      if (Number.isFinite(w) && w >= 250) {
+        const prevW = mod.dimensions.width || w;
+        mod.dimensions.width = w;
+        if (prevW > 0 && w !== prevW) {
+          const ratio = w / prevW;
+          for (const b of mod.bays) {
+            if (typeof b.customWidth === "number" && b.customWidth > 0) {
+              b.customWidth = Math.max(200, Math.round(b.customWidth * ratio));
+            }
+          }
+        }
+      }
+      break;
+    }
     case "upgrade_shelf_thickness_25mm": {
-      const bIdx = proposal.targetBayIndex ?? 0;
-      const sh = mod.bays[bIdx]?.shelves.find((s) => s.id === proposal.targetComponentId);
       const t = Number(proposal.patchPayload.thickness);
-      if (sh && Number.isFinite(t) && t >= 8) sh.thickness = t;
+      if (Number.isFinite(t) && t >= 8) {
+        if (proposal.patchPayload.applyToModule) {
+          const matchGlass = Boolean(proposal.patchPayload.isGlass);
+          for (const bay of mod.bays) {
+            for (const shelf of bay.shelves) {
+              if (Boolean(shelf.isGlass) === matchGlass && (shelf.thickness ?? 18) < t) {
+                shelf.thickness = t;
+              }
+            }
+          }
+        } else {
+          const bIdx = proposal.targetBayIndex ?? 0;
+          const sh = mod.bays[bIdx]?.shelves.find((s) => s.id === proposal.targetComponentId);
+          if (sh) sh.thickness = t;
+        }
+      }
       break;
     }
     case "increase_hinge_count": {

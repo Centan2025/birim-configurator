@@ -118,40 +118,82 @@ export async function renderSceneWithBlenderCycles(
     }
   }, 150);
 
-  let fakePct = 24;
-  const progressTimer = setInterval(() => {
-    fakePct = Math.min(92, fakePct + (fakePct < 65 ? 5 : 2));
-    onProgress?.(fakePct);
-  }, 350);
-
   try {
-    const response = await fetch("/api/render/blender", {
+    const response = await fetch("/api/render/blender?stream=1", {
       method: "POST",
       body: formData,
       signal: controller.signal,
     });
 
-    const payload = (await response.json()) as {
-      dataUrl?: string;
-      elapsedMs?: number;
-      device?: string;
-      engine?: string;
-      error?: string;
-    };
-
-    if (!response.ok || !payload.dataUrl) {
-      throw new Error(payload.error || `Blender render basarisiz (HTTP ${response.status})`);
+    if (!response.ok) {
+      const errPayload = (await response.json().catch(() => ({}))) as { error?: string };
+      throw new Error(errPayload.error || `Blender render basarisiz (HTTP ${response.status})`);
     }
 
-    onProgress?.(100);
-    return {
-      dataUrl: payload.dataUrl,
-      elapsedMs: payload.elapsedMs ?? Math.round(performance.now() - t0),
-      device: payload.device ?? "CPU",
-      engine: payload.engine ?? "Blender Cycles (OIDN)",
-    };
+    if (!response.body) {
+      const payload = (await response.json()) as {
+        dataUrl?: string;
+        elapsedMs?: number;
+        device?: string;
+        engine?: string;
+        error?: string;
+      };
+      if (!payload.dataUrl) {
+        throw new Error(payload.error || "Blender render verisi bos dondu.");
+      }
+      onProgress?.(100);
+      return {
+        dataUrl: payload.dataUrl,
+        elapsedMs: payload.elapsedMs ?? Math.round(performance.now() - t0),
+        device: payload.device ?? "CPU",
+        engine: payload.engine ?? "Blender Cycles (OIDN)",
+      };
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let finalPayload: BlenderRenderResult | null = null;
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line) continue;
+        const msg = JSON.parse(line) as {
+          type: "progress" | "done" | "error";
+          pct?: number;
+          dataUrl?: string;
+          elapsedMs?: number;
+          device?: string;
+          engine?: string;
+          error?: string;
+        };
+        if (msg.type === "progress" && typeof msg.pct === "number") {
+          onProgress?.(msg.pct);
+        } else if (msg.type === "error") {
+          throw new Error(msg.error || "Blender render hatasi");
+        } else if (msg.type === "done" && msg.dataUrl) {
+          onProgress?.(100);
+          finalPayload = {
+            dataUrl: msg.dataUrl,
+            elapsedMs: msg.elapsedMs ?? Math.round(performance.now() - t0),
+            device: msg.device ?? "CPU",
+            engine: msg.engine ?? "Blender Cycles (OIDN)",
+          };
+        }
+      }
+    }
+
+    if (!finalPayload) {
+      throw new Error("Blender render akisi tamamlanamadi.");
+    }
+    return finalPayload;
   } finally {
     clearInterval(cancelTimer);
-    clearInterval(progressTimer);
   }
 }

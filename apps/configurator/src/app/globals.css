@@ -328,9 +328,10 @@
 .birim-rail-expandable {
   width: 56px;
   transition:
-    width 300ms cubic-bezier(0.22, 1, 0.36, 1),
-    background-color 200ms ease,
-    box-shadow 220ms ease;
+    width 180ms cubic-bezier(0.16, 1, 0.3, 1),
+    background-color 150ms ease,
+    box-shadow 160ms ease;
+  will-change: width;
 }
 
 .birim-rail-expandable:hover {
@@ -349,9 +350,9 @@
   overflow: hidden;
   white-space: nowrap;
   transition:
-    max-width 280ms cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 190ms ease,
-    margin-left 260ms cubic-bezier(0.22, 1, 0.36, 1);
+    max-width 180ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 150ms ease,
+    margin-left 160ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .birim-rail-expandable:hover .birim-rail-item-label {
@@ -631,10 +632,11 @@
 
 .birim-ice-unified-shell {
   transition:
-    width 360ms cubic-bezier(0.22, 1, 0.36, 1),
-    box-shadow 260ms ease,
-    background-color 260ms ease,
-    border-color 260ms ease;
+    width 200ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 180ms ease,
+    background-color 180ms ease,
+    border-color 180ms ease;
+  will-change: width;
 }
 
 .birim-ice-resizing-none {
@@ -647,20 +649,20 @@
   pointer-events: auto;
   visibility: visible;
   transition:
-    opacity 260ms cubic-bezier(0.22, 1, 0.36, 1),
-    transform 360ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 200ms cubic-bezier(0.16, 1, 0.3, 1),
     visibility 0ms linear 0ms;
 }
 
 .birim-ice-drawer-closed {
   opacity: 0;
-  transform: translate3d(-12px, 0, 0);
+  transform: translate3d(-8px, 0, 0);
   pointer-events: none;
   visibility: hidden;
   transition:
-    opacity 200ms cubic-bezier(0.22, 1, 0.36, 1),
-    transform 340ms cubic-bezier(0.22, 1, 0.36, 1),
-    visibility 0ms linear 340ms;
+    opacity 120ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    visibility 0ms linear 160ms;
 }
 
 .birim-ice-right-open {

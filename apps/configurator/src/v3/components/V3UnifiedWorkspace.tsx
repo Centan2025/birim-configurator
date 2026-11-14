@@ -321,6 +321,8 @@ function filterTemplatesForStudioSubCategory(
 
 import { V3ProjectModal } from "./V3ProjectModal";
 import { V3IsometricModuleIcon } from "./V3IsometricModuleIcon";
+import { ModuleLibraryPanel } from "./workspace/ModuleLibraryPanel";
+import type { CatalogFeatureFilter, CatalogViewMode } from "./workspace/moduleLibraryUtils";
 import BomModal from "../../components/BomModal";
 import {
   Undo,
@@ -984,6 +986,7 @@ export const V3UnifiedWorkspace: React.FC<{
     setBayCustomWidth,
     moveInteriorItemToBay,
     addAdjacentModule,
+    addStackedTopModule,
     duplicateActiveModule,
     removeActiveModule,
     removeModuleAt,
@@ -1214,15 +1217,15 @@ export const V3UnifiedWorkspace: React.FC<{
   const [isVisualCatalogOpen, setIsVisualCatalogOpen] = useState<boolean>(false);
   const [catalogSearchQuery, setCatalogSearchQuery] = useState<string>("");
   const [catalogWidthFilter, setCatalogWidthFilter] = useState<"all" | "narrow" | "medium" | "wide">("all");
-  const [catalogViewMode, setCatalogViewMode] = useState<"grid" | "list">("grid");
+  const [catalogViewMode, setCatalogViewMode] = useState<CatalogViewMode>("grid");
   const [favoriteTemplateIds, setFavoriteTemplateIds] = useState<string[]>([
-    "v4_wd_04_two_door_standard",
-    "v4_wd_10_sliding_2door",
-    "v4_kb_04_three_drawer",
-    "v4_sc_01_l_corner_base",
+    "tpl_wd_02_two_door",
+    "tpl_wd_10_sliding_2door",
+    "tpl_kb_05_three_drawers",
+    "tpl_sc_01_l_corner_base",
   ]);
   const [showFavoritesOnly, setShowFavoritesOnly] = useState<boolean>(false);
-  const [catalogFeatureFilter, setCatalogFeatureFilter] = useState<"all" | "sliding" | "drawer">("all");
+  const [catalogFeatureFilter, setCatalogFeatureFilter] = useState<CatalogFeatureFilter>("all");
   const [doorsHiddenStudio, setDoorsHiddenStudio] = useState<boolean>(false);
   const [showAdvancedCncLevel, setShowAdvancedCncLevel] = useState<boolean>(false);
   const [showCompatPopover, setShowCompatPopover] = useState<boolean>(false);
@@ -1397,7 +1400,7 @@ export const V3UnifiedWorkspace: React.FC<{
       toggleDoorOpen();
     };
     const onToggleDrawer = () => {
-      setDrawerOpenMm(drawerOpenMm > 10 ? 0 : 280);
+      useConfiguratorStore.getState().toggleDrawerOpen(true);
     };
     const onDeleteActive = () => {
       const res = deleteActiveSelectionSmart();
@@ -3588,66 +3591,39 @@ export const V3UnifiedWorkspace: React.FC<{
                     </section>
                   </div>
                 ) : (
-                  /* TAB 2: MOBİLYA YERLEŞİMİ (FAZ 2: Module Placement + Search + Alignment) */
-                  <div className="flex-1 flex flex-col min-h-0">
-                    <div className="px-3.5 pt-2.5 pb-2 space-y-2 border-b border-[#E2E8F0]">
-                      <input
-                        type="text"
-                        data-testid="plan-furniture-search-input"
-                        value={catalogSearchQuery}
-                        onChange={(e) => setCatalogSearchQuery(e.target.value)}
-                        placeholder="Plana eklenecek modül ara..."
-                        className="w-full px-3 py-1.5 rounded-xl bg-[#F8FAFC] border border-[#CBD5E1] text-xs font-medium text-[#111827]"
-                      />
-                      <div className="flex flex-wrap gap-1.5">
-                        {[
-                          { id: "dolap", label: "Gardırop", fam: "fam_wardrobe" as ModuleFamilyId },
-                          { id: "kose", label: "Köşe", fam: "fam_special_corner" as ModuleFamilyId },
-                          { id: "alt", label: "Alt Dolap", fam: "fam_kitchen_base" as ModuleFamilyId },
-                          { id: "ust", label: "Üst Dolap", fam: "fam_kitchen_wall" as ModuleFamilyId },
-                          { id: "ozel", label: "Boy Dolap", fam: "fam_kitchen_tall" as ModuleFamilyId },
-                        ].map((cat) => (
-                          <button
-                            key={cat.id}
-                            type="button"
-                            onClick={() => {
-                              setLeftSubCat(cat.id);
-                              setSelectedV4Family(cat.fam);
-                            }}
-                            className={`px-2.5 py-1 rounded-full text-[11px] shrink-0 transition cursor-pointer border ${
-                              leftSubCat === cat.id
-                                ? "bg-[#2563EB] text-white border-[#1D4ED8] font-bold"
-                                : "bg-[#F8FAFC] text-[#475569] border-[#E2E8F0] font-medium"
-                            }`}
-                          >
-                            {cat.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="flex-1 overflow-y-auto px-3.5 py-2.5 space-y-3">
-                      <div className="grid grid-cols-2 gap-2">
-                        {familyTemplates.slice(0, 12).map((vt) => (
-                          <div
-                            key={vt.templateId}
-                            draggable={true}
-                            onDragStart={(e) => startModuleSilhouetteDrag(e, vt.templateId)}
-                            onDragEnd={() => setActiveDraggedTemplateId(null)}
-                            onClick={() => dropV4TemplateWithSnap(vt.templateId)}
-                            className="p-2 rounded-2xl border border-[#E2E8F0] hover:border-[#2563EB] bg-[#F8FAFC]/80 hover:bg-[#EFF6FF]/50 flex flex-col items-center text-center justify-between gap-1 transition cursor-pointer"
-                          >
-                            <V3IsometricModuleIcon template={vt} size="md" />
-                            <div className="text-[11px] font-bold text-[#111827] line-clamp-1">
-                              {vt.name.replace(/^V4\s+/i, "")}
-                            </div>
-                            <span className="px-2 py-0.5 rounded-lg bg-[#EFF6FF] text-[#1D4ED8] text-[10px] font-bold">
-                              + Plana Ekle
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+                  /* TAB 2: MOBİLYA YERLEŞİMİ — 3D Studio ile birleşik Modül Kütüphanesi */
+                  <div className="flex-1 flex flex-col min-h-0 bg-white">
+                    <ModuleLibraryPanel
+                      templates={v4ModuleTemplates}
+                      activeModule={activeModule}
+                      catalogViewMode={catalogViewMode}
+                      onChangeCatalogViewMode={setCatalogViewMode}
+                      catalogSearchQuery={catalogSearchQuery}
+                      onChangeSearchQuery={setCatalogSearchQuery}
+                      leftSubCat={leftSubCat}
+                      selectedV4Family={selectedV4Family}
+                      onSelectCategoryChip={(subCatId, familyId) => {
+                        setLeftSubCat(subCatId);
+                        setSelectedV4Family(familyId);
+                      }}
+                      catalogWidthFilter={catalogWidthFilter}
+                      onChangeWidthFilter={setCatalogWidthFilter}
+                      catalogFeatureFilter={catalogFeatureFilter}
+                      onChangeFeatureFilter={setCatalogFeatureFilter}
+                      showFavoritesOnly={showFavoritesOnly}
+                      onToggleFavoritesOnly={() => setShowFavoritesOnly((v) => !v)}
+                      favoriteTemplateIds={favoriteTemplateIds}
+                      onSetFavoriteTemplateIds={setFavoriteTemplateIds}
+                      onApplyTemplate={applyV4Template}
+                      onDropTemplateWithSnap={dropV4TemplateWithSnap}
+                      onStartDragTemplate={startModuleSilhouetteDrag}
+                      onDragEndTemplate={() => setActiveDraggedTemplateId(null)}
+                      onApplyReadyWardrobePreset={(templateId, bays) => {
+                        if (templateId) applyTemplate(templateId);
+                        setBayCount(bays);
+                        setActiveBayIndex(bays - 1);
+                      }}
+                    />
                   </div>
                 )}
                   </>
@@ -3932,14 +3908,12 @@ export const V3UnifiedWorkspace: React.FC<{
                     type="button"
                     data-testid="studio-tab-quick-wizard"
                     onClick={() => {
-                      startTransition(() => {
-                        if (leftOpen && leftTab === "quick_wizard") {
-                          setLeftOpen(false);
-                        } else {
-                          setLeftTab("quick_wizard");
-                          setLeftOpen(true);
-                        }
-                      });
+                      if (leftOpen && leftTab === "quick_wizard") {
+                        setLeftOpen(false);
+                      } else {
+                        setLeftTab("quick_wizard");
+                        setLeftOpen(true);
+                      }
                     }}
                     className={`${leftOpen ? "w-10 justify-center" : "w-full px-2.5 justify-start"} h-10 rounded-2xl flex items-center transition cursor-pointer ${
                       leftOpen && leftTab === "quick_wizard"
@@ -3959,15 +3933,13 @@ export const V3UnifiedWorkspace: React.FC<{
                     data-testid="studio-tab-templates"
                     title="Modül Şablonları"
                     onClick={() => {
-                      startTransition(() => {
-                        if (leftOpen && leftTab === "templates") {
-                          setLeftOpen(false);
-                        } else {
-                          setLeftTab("templates");
-                          setStudioInspectorTab("dimensions");
-                          setLeftOpen(true);
-                        }
-                      });
+                      if (leftOpen && leftTab === "templates") {
+                        setLeftOpen(false);
+                      } else {
+                        setLeftTab("templates");
+                        setStudioInspectorTab("dimensions");
+                        setLeftOpen(true);
+                      }
                     }}
                     className={`${leftOpen ? "w-10 justify-center" : "w-full px-2.5 justify-start"} h-10 rounded-2xl flex items-center transition cursor-pointer ${
                       leftOpen && leftTab === "templates"
@@ -3985,18 +3957,16 @@ export const V3UnifiedWorkspace: React.FC<{
                     type="button"
                     data-testid="studio-tab-interior"
                     onClick={() => {
-                      startTransition(() => {
-                        if (leftOpen && leftTab === "interior") {
-                          setLeftOpen(false);
-                        } else {
-                          setLeftTab("interior");
-                          setStudioInspectorTab("interior");
-                          setLeftOpen(true);
-                          if (doorOpenAngleDeg === 0 && !doorsHiddenStudio) {
-                            setDoorOpenAngleDeg(85);
-                          }
+                      if (leftOpen && leftTab === "interior") {
+                        setLeftOpen(false);
+                      } else {
+                        setLeftTab("interior");
+                        setStudioInspectorTab("interior");
+                        setLeftOpen(true);
+                        if (doorOpenAngleDeg === 0 && !doorsHiddenStudio) {
+                          setDoorOpenAngleDeg(85, true);
                         }
-                      });
+                      }
                     }}
                     className={`${leftOpen ? "w-10 justify-center" : "w-full px-2.5 justify-start"} h-10 rounded-2xl flex items-center transition cursor-pointer ${
                       leftOpen && leftTab === "interior"
@@ -4016,15 +3986,13 @@ export const V3UnifiedWorkspace: React.FC<{
                     data-testid="studio-tab-materials"
                     title="Malzeme, Renk ve Doku Kütüphanesi"
                     onClick={() => {
-                      startTransition(() => {
-                        if (leftOpen && leftTab === "materials") {
-                          setLeftOpen(false);
-                        } else {
-                          setLeftTab("materials");
-                          setStudioInspectorTab("material");
-                          setLeftOpen(true);
-                        }
-                      });
+                      if (leftOpen && leftTab === "materials") {
+                        setLeftOpen(false);
+                      } else {
+                        setLeftTab("materials");
+                        setStudioInspectorTab("material");
+                        setLeftOpen(true);
+                      }
                     }}
                     className={`${leftOpen ? "w-10 justify-center" : "w-full px-2.5 justify-start"} h-10 rounded-2xl flex items-center transition cursor-pointer ${
                       leftOpen && leftTab === "materials"
@@ -4042,15 +4010,13 @@ export const V3UnifiedWorkspace: React.FC<{
                     type="button"
                     data-testid="studio-tab-hardware"
                     onClick={() => {
-                      startTransition(() => {
-                        if (leftOpen && leftTab === "hardware") {
-                          setLeftOpen(false);
-                        } else {
-                          setLeftTab("hardware");
-                          setStudioInspectorTab("all");
-                          setLeftOpen(true);
-                        }
-                      });
+                      if (leftOpen && leftTab === "hardware") {
+                        setLeftOpen(false);
+                      } else {
+                        setLeftTab("hardware");
+                        setStudioInspectorTab("all");
+                        setLeftOpen(true);
+                      }
                     }}
                     className={`${
                       isSimpleBlumMode ? "sr-only" : `${leftOpen ? "w-10 justify-center" : "w-full px-2.5 justify-start"} h-10 rounded-2xl flex items-center transition cursor-pointer`
@@ -5966,368 +5932,37 @@ export const V3UnifiedWorkspace: React.FC<{
                   return (
                     /* 📦 MODÜL KÜTÜPHANESİ (FULL HEIGHT) */
                   <div className="flex-1 flex flex-col min-h-0 bg-white">
-                    {/* Header: Modül Kütüphanesi + Kart/Liste Switcher */}
-                    <div className="px-3.5 pt-3 pb-2 flex items-center justify-between gap-2">
-                      <h2 className="text-sm font-bold text-[#111827]">Modül Kütüphanesi</h2>
-                      <div className="inline-flex items-center p-0.5 rounded-lg bg-[#F1F5F9] border border-[#E2E8F0] shrink-0">
-                        <button
-                          type="button"
-                          data-testid="catalog-view-grid"
-                          onClick={() => setCatalogViewMode("grid")}
-                          className={`px-2 py-0.5 rounded-md text-[10px] font-bold cursor-pointer transition ${
-                            catalogViewMode === "grid"
-                              ? "bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1]"
-                              : "text-[#64748B] hover:text-[#111827]"
-                          }`}
-                        >
-                          ⊞ Kart
-                        </button>
-                        <button
-                          type="button"
-                          data-testid="catalog-view-list"
-                          onClick={() => setCatalogViewMode("list")}
-                          className={`px-2 py-0.5 rounded-md text-[10px] font-bold cursor-pointer transition ${
-                            catalogViewMode === "list"
-                              ? "bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1]"
-                              : "text-[#64748B] hover:text-[#111827]"
-                          }`}
-                        >
-                          ☰ Liste
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Search Bar + Filter Funnel Button */}
-                    <div className="px-3.5 pb-2 flex items-center gap-1.5">
-                      <div className="relative flex-1 flex items-center">
-                        <svg
-                          className="w-3.5 h-3.5 text-[#64748B] absolute left-3 pointer-events-none"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                        >
-                          <circle cx="11" cy="11" r="8" />
-                          <path d="M21 21l-4.35-4.35" />
-                        </svg>
-                        <input
-                          type="text"
-                          data-testid="v4-catalog-search-input"
-                          value={catalogSearchQuery}
-                          onChange={(e) => setCatalogSearchQuery(e.target.value)}
-                          placeholder="Modül, dolap, çekmece ara..."
-                          className="w-full pl-8 pr-2.5 py-1.5 rounded-xl bg-[#F8FAFC] border border-[#CBD5E1] text-xs font-medium text-[#111827] placeholder:text-[#94A3B8] focus:outline-none focus:border-[#64748B]"
-                        />
-                      </div>
-                      <button
-                        type="button"
-                        data-testid="catalog-filter-favorites"
-                        onClick={() => setShowFavoritesOnly((v) => !v)}
-                        title="Favori Modülleri Filtrele"
-                        className={`w-8 h-8 rounded-xl border flex items-center justify-center shrink-0 transition cursor-pointer ${
-                          showFavoritesOnly
-                            ? "bg-[#EEF3F8] text-[#111827] border-[#3B82F6] font-bold"
-                            : "bg-white hover:bg-[#F8FAFC] text-[#475569] border-[#CBD5E1]"
-                        }`}
-                      >
-                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                          <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-                        </svg>
-                      </button>
-                    </div>
-
-                    {/* Horizontal Category Chips (Tümü | Dolap | Giyinme | Çekmece | Köşe | Üst | Alt) */}
-                    <div className="px-3.5 py-2.5 flex flex-wrap gap-1.5 border-b border-[#E2E8F0] bg-[#F8FAFC]">
-                      {[
-                        {
-                          id: "tumu",
-                          label: "Tümü",
-                          fam: "fam_wardrobe" as ModuleFamilyId,
-                          testId: "v4-subcat-tumu",
-                        },
-                        {
-                          id: "dolap",
-                          label: "Dolap",
-                          fam: "fam_wardrobe" as ModuleFamilyId,
-                          testId: "v4-family-chip-fam_wardrobe",
-                        },
-                        {
-                          id: "giyinme",
-                          label: "Giyinme",
-                          fam: "fam_wardrobe" as ModuleFamilyId,
-                          testId: "v4-subcat-giyinme",
-                        },
-                        {
-                          id: "cekmeceler",
-                          label: "Çekmece",
-                          fam: "fam_kitchen_base" as ModuleFamilyId,
-                          testId: "v4-subcat-cekmeceler",
-                        },
-                        {
-                          id: "kose",
-                          label: "Köşe",
-                          fam: "fam_special_corner" as ModuleFamilyId,
-                          testId: "v4-family-chip-fam_special_corner",
-                        },
-                        {
-                          id: "ust",
-                          label: "Üst",
-                          fam: "fam_kitchen_wall" as ModuleFamilyId,
-                          testId: "v4-family-chip-fam_kitchen_wall",
-                        },
-                        {
-                          id: "alt",
-                          label: "Alt",
-                          fam: "fam_kitchen_base" as ModuleFamilyId,
-                          testId: "v4-family-chip-fam_kitchen_base",
-                        },
-                        {
-                          id: "ozel",
-                          label: "Boy",
-                          fam: "fam_kitchen_tall" as ModuleFamilyId,
-                          testId: "v4-family-chip-fam_kitchen_tall",
-                        },
-                      ].map((cat) => {
-                        const isSelected = leftSubCat === cat.id;
-                        return (
-                          <button
-                            key={cat.id}
-                            type="button"
-                            data-testid={cat.testId}
-                            onClick={() => {
-                              setLeftSubCat(cat.id);
-                              setSelectedV4Family(cat.fam);
-                            }}
-                            className={`px-2.5 py-1 rounded-full text-[11px] shrink-0 transition cursor-pointer border ${
-                              isSelected
-                                ? "bg-[#EEF3F8] text-[#111827] border-[#94A3B8] font-bold shadow-2xs"
-                                : "bg-[#F8FAFC] hover:bg-[#F1F5F9] text-[#475569] border-[#E2E8F0] font-medium"
-                            }`}
-                          >
-                            {cat.label}
-                          </button>
-                        );
-                      })}
-                      <button
-                        type="button"
-                        data-testid="v4-family-chip-fam_complementary"
-                        onClick={() => {
-                          setSelectedV4Family("fam_complementary");
-                          setLeftTab("accessories");
-                        }}
-                        className="hidden"
-                      >
-                        Tamamlayıcılar
-                      </button>
-                    </div>
-
-                    <div data-testid="v4- active-family-explainer" className="hidden" />
-
-                    {/* Scrollable Module Cards + Hazır Şablonlar Section */}
-                    <div className="flex-1 overflow-y-auto px-3.5 py-2.5 space-y-3">
-                      <div
-                        data-testid="v4-template-list"
-                        className={
-                          catalogViewMode === "list"
-                            ? "flex flex-col gap-2"
-                            : "grid grid-cols-2 gap-2"
-                        }
-                      >
-                        {familyTemplates.map((vt, idx) => {
-                          const isSelectedCard =
-                            activeModule.templateId === vt.templateId ||
-                            (idx === 0 && !activeModule.templateId);
-                          const isFav = favoriteTemplateIds.includes(vt.templateId);
-                          const minCm = Math.max(30, Math.round((vt.defaultDimensions.width - 200) / 10));
-                          const maxCm = Math.round((vt.defaultDimensions.width + 200) / 10);
-                          const cleanTitle = vt.name.replace(/^V4\s+/i, "");
-
-                          if (catalogViewMode === "list") {
-                            return (
-                              <div
-                                key={vt.templateId}
-                                draggable={true}
-                                onDragStart={(e) => startModuleSilhouetteDrag(e, vt.templateId)}
-                                onDragEnd={() => setActiveDraggedTemplateId(null)}
-                                onClick={() => applyV4Template(vt.templateId, false)}
-                                className={`p-2.5 rounded-2xl border flex items-center justify-between gap-2.5 transition cursor-pointer relative group ${
-                                  isSelectedCard
-                                    ? "bg-[#EEF3F8] border-[#3B82F6] ring-1 ring-[#3B82F6] shadow-xs"
-                                    : "bg-white hover:bg-[#F8FAFC] border-[#E2E8F0] hover:border-[#CBD5E1]"
-                                }`}
-                              >
-                                <div className="p-1 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] shrink-0">
-                                  <V3IsometricModuleIcon
-                                    template={vt}
-                                    size="md"
-                                    testId={`v4-tpl-visual-${vt.templateId}`}
-                                  />
-                                </div>
-                                <div className="flex-1 min-w-0 text-left">
-                                  <div
-                                    data-testid={`v4-apply-tpl-${vt.templateId}`}
-                                    className="text-[11px] font-bold text-[#111827] leading-snug"
-                                  >
-                                    {cleanTitle}
-                                  </div>
-                                  <div className="text-[10px] text-[#475569] mt-0.5">
-                                    {minCm} – {maxCm} cm • {vt.defaultDimensions.width}×{vt.defaultDimensions.height} mm
-                                  </div>
-                                  <div className="flex items-center gap-1 mt-1">
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        applyV4Template(vt.templateId, false);
-                                      }}
-                                      className="px-2 py-0.5 rounded-lg bg-[#EEF3F8] text-[#111827] border border-[#CBD5E1] text-[10px] font-bold cursor-pointer"
-                                    >
-                                      Uygula
-                                    </button>
-                                    <button
-                                      type="button"
-                                      data-testid={`v4-append-tpl-${vt.templateId}`}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        dropV4TemplateWithSnap(vt.templateId);
-                                      }}
-                                      className="px-2 py-0.5 rounded-lg bg-white text-[#111827] border border-[#CBD5E1] text-[10px] font-bold cursor-pointer"
-                                    >
-                                      + Ekle
-                                    </button>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          }
-
-                          return (
-                            <div
-                              key={vt.templateId}
-                              draggable={true}
-                              onDragStart={(e) => startModuleSilhouetteDrag(e, vt.templateId)}
-                              onDragEnd={() => setActiveDraggedTemplateId(null)}
-                              onClick={() => applyV4Template(vt.templateId, false)}
-                              title={`${cleanTitle} (${minCm} – ${maxCm} cm) — Tıklayarak uygula veya sahneye sürükle`}
-                              className={`p-2.5 rounded-2xl border flex flex-col items-center text-center justify-between gap-1.5 transition cursor-pointer relative group ${
-                                isSelectedCard
-                                  ? "bg-[#EEF3F8] border-2 border-[#3B82F6] shadow-xs"
-                                  : "bg-[#F8FAFC]/60 hover:bg-[#F8FAFC] border-[#E2E8F0] hover:border-[#CBD5E1]"
-                              }`}
-                            >
-                              <button
-                                type="button"
-                                data-testid={`v4-fav-toggle-${vt.templateId}`}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  toggleFavoriteTemplate(vt.templateId);
-                                }}
-                                title={isFav ? "Favorilerden Çıkar" : "Favorilere Ekle"}
-                                className={`absolute top-1.5 left-1.5 w-5 h-5 rounded-full flex items-center justify-center text-[11px] transition cursor-pointer ${
-                                  isFav
-                                    ? "text-amber-500"
-                                    : "text-[#CBD5E1] opacity-0 group-hover:opacity-100 hover:text-[#111827]"
-                                }`}
-                              >
-                                ★
-                              </button>
-
-                              <button
-                                type="button"
-                                data-testid={`v4-append-tpl-${vt.templateId}`}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  dropV4TemplateWithSnap(vt.templateId);
-                                }}
-                                title="Yanına Yeni Modül Olarak Ekle (+)"
-                                className="opacity-0 group-hover:opacity-100 absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-[#EEF3F8] text-[#111827] border border-[#94A3B8] flex items-center justify-center text-xs font-bold transition cursor-pointer"
-                              >
-                                +
-                              </button>
-
-                              <div className="w-full py-1 flex items-center justify-center">
-                                <V3IsometricModuleIcon
-                                  template={vt}
-                                  size="lg"
-                                  testId={`v4-tpl-visual-${vt.templateId}`}
-                                />
-                              </div>
-
-                              <div className="w-full min-w-0">
-                                <div
-                                  data-testid={`v4-apply-tpl-${vt.templateId}`}
-                                  className="text-[11px] font-bold text-[#111827] line-clamp-2 leading-tight"
-                                >
-                                  {cleanTitle}
-                                </div>
-                                <div className="text-[10px] text-[#64748B] mt-0.5">
-                                  {minCm} – {maxCm} cm
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      {/* Hazır Şablonlar Section (Matches image_e719c6.jpg bottom-left: Giyinme Dolabı 3 Bölme | Elbise Dolabı 2 Bölme) */}
-                      <div className="pt-2 border-t border-[#E2E8F0] space-y-2">
-                        <div className="flex items-center justify-between text-xs font-bold text-[#111827]">
-                          <span>⌄ Hazır Şablonlar</span>
-                          <span className="text-[10px] font-normal text-[#64748B]">İç Düzenli</span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          {[
-                            {
-                              tpl: WARDROBE_TEMPLATES[1] || WARDROBE_TEMPLATES[0],
-                              title: "Giyinme Dolabı",
-                              sub: "(3 Bölme)",
-                              bays: 3,
-                            },
-                            {
-                              tpl: WARDROBE_TEMPLATES[0],
-                              title: "Elbise Dolabı",
-                              sub: "(2 Bölme)",
-                              bays: 2,
-                            },
-                          ].map((item, sIdx) => {
-                            const isSelPreset = activeModule.bays.length === item.bays;
-                            return (
-                              <button
-                                key={item.title}
-                                type="button"
-                                data-testid={`studio-ready-wardrobe-${sIdx}`}
-                                onClick={() => {
-                                  if (item.tpl) applyTemplate(item.tpl.templateId);
-                                  setBayCount(item.bays);
-                                  setActiveBayIndex(item.bays - 1);
-                                }}
-                                className={`p-2 rounded-2xl border flex flex-col items-center text-center gap-1 transition cursor-pointer ${
-                                  isSelPreset
-                                    ? "bg-[#EEF3F8] border-2 border-[#3B82F6] text-[#111827] shadow-2xs"
-                                    : "bg-white hover:bg-[#F8FAFC] border-[#E2E8F0] text-[#111827]"
-                                }`}
-                              >
-                                <V3IsometricModuleIcon
-                                  widthMm={item.bays * 600}
-                                  heightMm={2200}
-                                  depthMm={600}
-                                  bayCount={item.bays}
-                                  hasDrawers={true}
-                                  isOpenFront={true}
-                                  size="md"
-                                />
-                                <div className="text-[11px] font-bold text-[#111827] leading-tight">
-                                  {item.title}
-                                </div>
-                                <div className="text-[10px] text-[#475569] leading-none">
-                                  {item.sub}
-                                </div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </div>
+                    <ModuleLibraryPanel
+                      templates={v4ModuleTemplates}
+                      activeModule={activeModule}
+                      catalogViewMode={catalogViewMode}
+                      onChangeCatalogViewMode={setCatalogViewMode}
+                      catalogSearchQuery={catalogSearchQuery}
+                      onChangeSearchQuery={setCatalogSearchQuery}
+                      leftSubCat={leftSubCat}
+                      selectedV4Family={selectedV4Family}
+                      onSelectCategoryChip={(subCatId, familyId) => {
+                        setLeftSubCat(subCatId);
+                        setSelectedV4Family(familyId);
+                      }}
+                      catalogWidthFilter={catalogWidthFilter}
+                      onChangeWidthFilter={setCatalogWidthFilter}
+                      catalogFeatureFilter={catalogFeatureFilter}
+                      onChangeFeatureFilter={setCatalogFeatureFilter}
+                      showFavoritesOnly={showFavoritesOnly}
+                      onToggleFavoritesOnly={() => setShowFavoritesOnly((v) => !v)}
+                      favoriteTemplateIds={favoriteTemplateIds}
+                      onSetFavoriteTemplateIds={setFavoriteTemplateIds}
+                      onApplyTemplate={applyV4Template}
+                      onDropTemplateWithSnap={dropV4TemplateWithSnap}
+                      onStartDragTemplate={startModuleSilhouetteDrag}
+                      onDragEndTemplate={() => setActiveDraggedTemplateId(null)}
+                      onApplyReadyWardrobePreset={(templateId, bays) => {
+                        if (templateId) applyTemplate(templateId);
+                        setBayCount(bays);
+                        setActiveBayIndex(bays - 1);
+                      }}
+                    />
 
                     {/* Bottom Buttons: V5 Modül/Obje Merkezi + Kütüphaneye Ekle */}
                     <div className="p-3 border-t border-[#E2E8F0] bg-white shrink-0 space-y-1.5">
@@ -8705,12 +8340,15 @@ export const V3UnifiedWorkspace: React.FC<{
                           type="button"
                           onClick={() => {
                             if (anyOpenNow) {
-                              setDoorOpenAngleDeg(0);
-                              setDrawerOpenMm(0);
+                              setDoorOpenAngleDeg(0, true);
+                              setDrawerOpenMm(0, true);
                             } else if (!hasDoorsOnMod && hasDrawersOnMod) {
-                              setDrawerOpenMm(Math.round(maxRunnerMm * 0.8));
+                              setDrawerOpenMm(Math.round(maxRunnerMm * 0.8), true);
                             } else {
-                              setDoorOpenAngleDeg(90);
+                              setDoorOpenAngleDeg(90, true);
+                              if (hasDrawersOnMod) {
+                                setDrawerOpenMm(Math.round(maxRunnerMm * 0.75), true);
+                              }
                             }
                           }}
                           className={`px-3 py-1 rounded-full text-[11px] font-bold transition cursor-pointer ${
@@ -9633,6 +9271,128 @@ export const V3UnifiedWorkspace: React.FC<{
                             ))}
                           </div>
                         </div>
+                      </div>
+
+                      {/* Bağımsız Üst Tabla Kalınlığı (TV Bench / Konsol / Dolap) */}
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold uppercase tracking-wider text-[#475569] block">
+                          Üst Tabla Kalınlığı (TV Bench / Özel Üst)
+                        </label>
+                        <div className="grid grid-cols-5 gap-1">
+                          {[
+                            { val: undefined, label: `${T}mm` },
+                            { val: 25, label: "25mm" },
+                            { val: 30, label: "30mm" },
+                            { val: 36, label: "36mm" },
+                            { val: 40, label: "40mm" },
+                          ].map((opt) => {
+                            const isAct = (activeModule.carcass.topPanelThicknessMm || T) === (opt.val || T) &&
+                              (opt.val === undefined ? !activeModule.carcass.topPanelThicknessMm : activeModule.carcass.topPanelThicknessMm === opt.val);
+                            return (
+                              <button
+                                key={opt.label}
+                                type="button"
+                                data-testid={`carcass-top-thickness-${opt.val ?? "body"}`}
+                                onClick={() => updateCarcassConfig({ topPanelThicknessMm: opt.val })}
+                                className={`py-1.5 rounded-lg font-mono text-xs font-bold border transition cursor-pointer ${
+                                  isAct
+                                    ? "bg-[#EEF3F8] border-2 border-[#3B82F6] text-[#111827]"
+                                    : "bg-white hover:bg-[#F1F5F9] border-[#CBD5E1] text-[#475569]"
+                                }`}
+                              >
+                                {opt.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Taç Sistemi (Crown Molding / Cornice Profile) */}
+                      <div className="p-2.5 rounded-xl bg-white/80 border border-slate-200 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-bold text-[#1E293B]">
+                            👑 Üst Taç Profili (45° Gönyeli)
+                          </span>
+                          <button
+                            type="button"
+                            data-testid="carcass-crown-molding-toggle"
+                            onClick={() => {
+                              const cur = activeModule.carcass.crownMolding;
+                              updateCarcassConfig({
+                                crownMolding: cur?.enabled
+                                  ? { ...cur, enabled: false }
+                                  : {
+                                      enabled: true,
+                                      style: cur?.style || "modern_flat",
+                                      heightMm: cur?.heightMm || 60,
+                                      projectionMm: cur?.projectionMm ?? 25,
+                                    },
+                              });
+                            }}
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition cursor-pointer ${
+                              activeModule.carcass.crownMolding?.enabled
+                                ? "bg-[#111827] text-white border-[#111827]"
+                                : "bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200"
+                            }`}
+                          >
+                            {activeModule.carcass.crownMolding?.enabled ? "Aktif ✓" : "Kapalı"}
+                          </button>
+                        </div>
+                        {activeModule.carcass.crownMolding?.enabled && (
+                          <div className="space-y-2 pt-1">
+                            <div className="grid grid-cols-2 gap-1">
+                              {[
+                                { id: "modern_flat" as const, label: "Modern Düz" },
+                                { id: "stepped" as const, label: "Basamaklı" },
+                                { id: "classic_coving" as const, label: "Klasik Kavisli" },
+                                { id: "led_channel" as const, label: "LED Kanallı" },
+                              ].map((st) => (
+                                <button
+                                  key={st.id}
+                                  type="button"
+                                  onClick={() =>
+                                    updateCarcassConfig({
+                                      crownMolding: {
+                                        ...activeModule.carcass.crownMolding!,
+                                        style: st.id,
+                                      },
+                                    })
+                                  }
+                                  className={`py-1 px-2 rounded-lg text-[11px] font-semibold border cursor-pointer transition ${
+                                    activeModule.carcass.crownMolding?.style === st.id
+                                      ? "bg-[#EEF3F8] border-2 border-[#3B82F6] text-[#111827]"
+                                      : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                                  }`}
+                                >
+                                  {st.label}
+                                </button>
+                              ))}
+                            </div>
+                            <div className="grid grid-cols-4 gap-1">
+                              {[40, 60, 80, 120].map((ch) => (
+                                <button
+                                  key={ch}
+                                  type="button"
+                                  onClick={() =>
+                                    updateCarcassConfig({
+                                      crownMolding: {
+                                        ...activeModule.carcass.crownMolding!,
+                                        heightMm: ch,
+                                      },
+                                    })
+                                  }
+                                  className={`py-1 rounded-lg font-mono text-[11px] font-bold border cursor-pointer ${
+                                    activeModule.carcass.crownMolding?.heightMm === ch
+                                      ? "bg-[#111827] text-white border-[#111827]"
+                                      : "bg-white border-slate-200 text-slate-700"
+                                  }`}
+                                >
+                                  {ch}mm
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       {/* Arkalık Montaj Tipi & Gövde Birleşim Tipi */}
@@ -11678,6 +11438,104 @@ export const V3UnifiedWorkspace: React.FC<{
                           </button>
                         ))}
                       </div>
+
+                      {/* Kısmi Yükseklikte Kapak / Kapak Dikey Bölgesi (Üst Boş, Orta Kapak, Alt Boş) */}
+                      {activeBay.door.type !== "open" && (
+                        <div className="p-2.5 rounded-xl bg-slate-50/90 border border-slate-200 space-y-2 mt-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[11px] font-bold text-[#1E293B]">
+                              Kapak Dikey Bölgesi (Kısmi Kapak)
+                            </span>
+                            {(Boolean(activeBay.door.doorBottomGapMm) || Boolean(activeBay.door.doorTopGapMm)) && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setBayV4DoorConfig(activeBayIndex, {
+                                    doorBottomGapMm: 0,
+                                    doorTopGapMm: 0,
+                                  })
+                                }
+                                className="text-[10px] font-semibold text-blue-600 hover:underline cursor-pointer"
+                              >
+                                Tam Boya Sıfırla
+                              </button>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-4 gap-1">
+                            {[
+                              { id: "full", label: "Tam Boy", bot: 0, top: 0 },
+                              { id: "top_open", label: "Üst Boş", bot: 0, top: Math.round(netInnerHeightMm * 0.35) },
+                              { id: "mid_only", label: "Orta Kapak", bot: Math.round(netInnerHeightMm * 0.25), top: Math.round(netInnerHeightMm * 0.25) },
+                              { id: "bot_open", label: "Alt Boş", bot: Math.round(netInnerHeightMm * 0.35), top: 0 },
+                            ].map((zp) => {
+                              const curBot = activeBay.door.doorBottomGapMm || 0;
+                              const curTop = activeBay.door.doorTopGapMm || 0;
+                              const isAct =
+                                zp.id === "full"
+                                  ? curBot === 0 && curTop === 0
+                                  : zp.id === "top_open"
+                                  ? curBot === 0 && curTop > 0
+                                  : zp.id === "mid_only"
+                                  ? curBot > 0 && curTop > 0
+                                  : curBot > 0 && curTop === 0;
+                              return (
+                                <button
+                                  key={zp.id}
+                                  type="button"
+                                  data-testid={`studio-door-zone-${zp.id}`}
+                                  onClick={() =>
+                                    setBayV4DoorConfig(activeBayIndex, {
+                                      doorBottomGapMm: zp.bot,
+                                      doorTopGapMm: zp.top,
+                                    })
+                                  }
+                                  className={`py-1 px-1 rounded-lg text-[10.5px] font-bold border cursor-pointer transition ${
+                                    isAct
+                                      ? "bg-[#111827] text-white border-[#111827]"
+                                      : "bg-white hover:bg-slate-100 text-slate-700 border-slate-200"
+                                  }`}
+                                >
+                                  {zp.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <div className="grid grid-cols-2 gap-1.5">
+                            <label className="block text-[10px] font-semibold text-slate-600">
+                              Alttan Açık (mm)
+                              <input
+                                type="number"
+                                min={0}
+                                max={Math.max(0, netInnerHeightMm - 150)}
+                                step={10}
+                                value={activeBay.door.doorBottomGapMm || 0}
+                                onChange={(e) =>
+                                  setBayV4DoorConfig(activeBayIndex, {
+                                    doorBottomGapMm: Math.max(0, Number(e.target.value) || 0),
+                                  })
+                                }
+                                className="mt-0.5 w-full px-2 py-1 rounded-lg border border-slate-300 bg-white font-mono text-xs text-slate-900"
+                              />
+                            </label>
+                            <label className="block text-[10px] font-semibold text-slate-600">
+                              Üstten Açık (mm)
+                              <input
+                                type="number"
+                                min={0}
+                                max={Math.max(0, netInnerHeightMm - 150)}
+                                step={10}
+                                value={activeBay.door.doorTopGapMm || 0}
+                                onChange={(e) =>
+                                  setBayV4DoorConfig(activeBayIndex, {
+                                    doorTopGapMm: Math.max(0, Number(e.target.value) || 0),
+                                  })
+                                }
+                                className="mt-0.5 w-full px-2 py-1 rounded-lg border border-slate-300 bg-white font-mono text-xs text-slate-900"
+                              />
+                            </label>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     {/* Interactive Interior Element Position & Dimension Controls */}
@@ -15669,6 +15527,16 @@ export const V3UnifiedWorkspace: React.FC<{
                 >
                   <Plus className="w-4 h-4" />
                   <span className="sr-only">+ Modül Ekle</span>
+                </button>
+                <button
+                  type="button"
+                  data-testid="studio-pill-add-stacked-module"
+                  onClick={addStackedTopModule}
+                  className="h-8 px-2 rounded-xl birim-ice-btn flex items-center gap-1 text-[11px] font-bold text-[#141413] cursor-pointer shrink-0 whitespace-nowrap"
+                  title="Seçili Dolabın Üstüne Yüklük Modülü Ekle"
+                >
+                  <span className="text-xs leading-none">⬆</span>
+                  <span>Üst Yüklük</span>
                 </button>
               </div>
             </div>

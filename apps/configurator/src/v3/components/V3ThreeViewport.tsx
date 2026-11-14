@@ -603,6 +603,33 @@ function addDimensionSegment(
   });
 }
 
+const formatEngineeringErrorCode = (code?: string): string => {
+  if (!code) return "Mühendislik Uyarısı";
+  const map: Record<string, string> = {
+    ERR_SHELF_STRUCTURAL_DEFLECTION: "Raf Dayanımı (EN 16122)",
+    ERR_FREESTANDING_TIPOVER_UNSAFE: "Devrilme Güvenliği",
+    ERR_INTERNAL_DRAWER_HINGE_BODY_CLASH: "Menteşe Çakışması",
+    ERR_INTERNAL_FITTING_ENVELOPE_VIOLATION: "İç Donatı Çakışması",
+    ERR_INTERNAL_FITTING_HINGE_BODY_CLASH: "Menteşe Çakışması",
+    ERR_SINK_BOWL_DRAWER_COLLISION: "Eviye Çakışması",
+    ERR_HANDLE_CC_EXCEEDS_PANEL_SPAN: "Kulp Aks Sınırı",
+    ERR_APPLIANCE_200CM2_AIRFLOW_VIOLATION: "Havalandırma Açıklığı",
+    ERR_PANEL_EXCEEDS_USABLE_SHEET_SIZE: "Plaka Ebat Aşımı",
+    ERR_DRYWALL_UNREINFORCED_HEAVY_HANG: "Alçıpan Yük Sınırı",
+    ERR_WALL_CABINET_HANGER_OVERLOAD: "Askı Kapasite Sınırı",
+    ERR_CEILING_TYPE_COLLISION: "Tavan Çakışması",
+    ERR_STACKED_MODULE_UNSUPPORTED_MIDAIR: "Boşlukta Modül",
+    ERR_STACKED_MODULE_CANTILEVER_OVERHANG: "Konsol Aşımı",
+    ERR_COLUMN_COLLISION: "Kolon Çakışması",
+    ERR_MEP_OUTLET_BLOCKED_BY_UPRIGHT_PANEL: "Priz/Tesisat Çakışması",
+    ERR_ADJUSTABLE_SHELF_WITHOUT_PIN_HOLES: "Raf Pimi Eksik",
+    WARN_INTERNAL_PULLOUT_HINGE_SPACER_REQUIRED: "Menteşe Paspayı Gerekli",
+    CHK_SPATIAL_WALL_CORNER_HANDLE_SWING_CLASH: "Köşe Kulp Açılımı",
+    WARN_CEILING_DOOR_SWEEP_TIGHT: "Tavan Açılım Mesafesi",
+  };
+  return map[code] || code.replace(/^ERR_|^WARN_|^CHK_|^INFO_/, "").replace(/_/g, " ");
+};
+
 export interface V3ThreeViewportProps {
   theme?: "warm-light" | "showroom-neutral" | "dark";
   showGrid?: boolean;
@@ -682,6 +709,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       shrinkDoubleBayToSingle,
       removeSelectedInteriorComponent,
       addAdjacentModule,
+      addStackedTopModule,
       duplicateActiveModule,
       removeActiveModule,
       toggleModuleLedLighting,
@@ -722,6 +750,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
     const [doorsHiddenIn3D, setDoorsHiddenIn3D] = useState<boolean>(false);
     const [cutawayActiveBay, setCutawayActiveBay] = useState<boolean>(false);
     const [showInteriorProps3D, setShowInteriorProps3D] = useState<boolean>(true);
+    const [engineeringAlertCollapsed, setEngineeringAlertCollapsed] = useState<boolean>(false);
   useEffect(() => {
     if (typeof window === "undefined") return;
     const onToggle = (ev: Event) => {
@@ -1082,10 +1111,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             ev.preventDefault();
             const curSt = useConfiguratorStore.getState();
             const opening = curSt.doorOpenAngleDeg < 15 && curSt.drawerOpenMm < 30;
-            useConfiguratorStore.setState({
-              doorOpenAngleDeg: opening ? 82 : 0,
-              drawerOpenMm: opening ? 300 : 0,
-            });
+            curSt.setDoorOpenAngleDeg(opening ? 82 : 0, true);
+            curSt.setDrawerOpenMm(opening ? 300 : 0, true);
             return;
           }
         }
@@ -6513,75 +6540,6 @@ const clear3DGhostPreview = useCallback(() => {
         onDrop={handle3DDrop}
         className="relative w-full h-full select-none overflow-hidden"
       >
-        {selectedSceneObjectId && (() => {
-          const selObj = (project.sceneObjects || []).find((o) => o.id === selectedSceneObjectId);
-          if (!selObj) return null;
-          return (
-            <div
-              data-testid="v5-selected-scene-object-hud"
-              className="absolute bottom-16 left-1/2 -translate-x-1/2 z-30 px-3.5 py-2 rounded-2xl birim-ice-dark-bar text-white flex flex-wrap items-center gap-2 shadow-xl text-[11px]"
-            >
-              <span className="font-bold text-amber-300 truncate max-w-[180px]">{selObj.name}</span>
-              <button
-                type="button"
-                onClick={() => updateSceneObject(selObj.id, { position: { ...selObj.position, x: Math.max(0, selObj.position.x - 50) } })}
-                className="px-2 py-1 rounded-lg bg-white/15 hover:bg-white/25 font-mono cursor-pointer"
-              >
-                ◀ X-50
-              </button>
-              <button
-                type="button"
-                onClick={() => updateSceneObject(selObj.id, { position: { ...selObj.position, x: selObj.position.x + 50 } })}
-                className="px-2 py-1 rounded-lg bg-white/15 hover:bg-white/25 font-mono cursor-pointer"
-              >
-                X+50 ▶
-              </button>
-              <button
-                type="button"
-                onClick={() => updateSceneObject(selObj.id, { position: { ...selObj.position, z: Math.max(0, selObj.position.z - 50) } })}
-                className="px-2 py-1 rounded-lg bg-white/15 hover:bg-white/25 font-mono cursor-pointer"
-              >
-                ▲ Z-50
-              </button>
-              <button
-                type="button"
-                onClick={() => updateSceneObject(selObj.id, { position: { ...selObj.position, z: selObj.position.z + 50 } })}
-                className="px-2 py-1 rounded-lg bg-white/15 hover:bg-white/25 font-mono cursor-pointer"
-              >
-                ▼ Z+50
-              </button>
-              <button
-                type="button"
-                onClick={() => updateSceneObject(selObj.id, { rotation: { ...selObj.rotation, y: ((selObj.rotation?.y || 0) + 90) % 360 } })}
-                className="px-2.5 py-1 rounded-lg bg-sky-500/30 hover:bg-sky-500/45 font-bold cursor-pointer"
-              >
-                ↻ 90°
-              </button>
-              <button
-                type="button"
-                onClick={() => duplicateSceneObject(selObj.id)}
-                className="px-2 py-1 rounded-lg bg-white/15 hover:bg-white/25 cursor-pointer"
-              >
-                Çoğalt
-              </button>
-              <button
-                type="button"
-                onClick={() => removeSceneObject(selObj.id)}
-                className="px-2 py-1 rounded-lg bg-rose-500/40 hover:bg-rose-500/60 font-bold cursor-pointer"
-              >
-                Sil
-              </button>
-              <button
-                type="button"
-                onClick={() => setSelectedSceneObjectId(null)}
-                className="px-1.5 py-1 rounded-lg text-stone-300 hover:text-white cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-          );
-        })()}
-
         {webglUnavailable && (
           <div className="absolute inset-0 z-40">
             <Software3DFallbackViewport
@@ -6603,39 +6561,112 @@ const clear3DGhostPreview = useCallback(() => {
             />
           </div>
         )}
-        {dragDropSnapBanner && (
-          <div
-            data-testid="viewport-3d-dragdrop-snap-banner"
-            style={{ bottom: `${(stageSafeInsets?.bottomPx ?? 14) + 56}px` }}
-            className="absolute left-1/2 -translate-x-1/2 max-w-[calc(100%-24px)] z-30 pointer-events-auto px-4 py-2 rounded-2xl bg-slate-900/92 backdrop-blur-xl text-white border border-emerald-400/80 shadow-xl ring-1 ring-black/15 font-mono text-xs font-bold flex items-center gap-2"
-          >
-            <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
-            <span className="truncate">{dragDropSnapBanner}</span>
-            <button
-              type="button"
-              onClick={() => setDragDropSnapBanner(null)}
-              className="ml-1 text-slate-300 hover:text-white font-bold cursor-pointer shrink-0"
-            >
-              ✕
-            </button>
-          </div>
-        )}
+        {/* Alt-Orta HUD Yığını: Hover Bilgisi, Yerleştirme Bildirimi ve Seçili Obje Çubuğu asla üst üste binmez */}
         <div
-          ref={hoverBadgeDomRef}
-          data-testid="viewport-3d-hover-object-badge"
-          style={{
-            display: "none",
-            bottom: `${(stageSafeInsets?.bottomPx ?? 14) + 54}px`,
-          }}
-          className="absolute left-1/2 -translate-x-1/2 z-30 pointer-events-none px-3 py-1 rounded-lg bg-[#141413]/90 text-[#FAF9F6] border border-[#D8D3C8]/30 shadow-md text-[11px] font-medium items-center gap-2 backdrop-blur-sm whitespace-nowrap"
+          style={{ bottom: `${(stageSafeInsets?.bottomPx ?? 14) + 56}px` }}
+          className="absolute left-1/2 -translate-x-1/2 z-30 flex flex-col items-center gap-1.5 max-w-[calc(100%-24px)] pointer-events-none transition-[bottom] duration-200"
         >
-          <span className="w-1.5 h-1.5 rounded-full bg-[#D8D3C8]" />
-          <span ref={hoverBadgeTextRef} />
+          <div
+            ref={hoverBadgeDomRef}
+            data-testid="viewport-3d-hover-object-badge"
+            style={{ display: "none" }}
+            className="pointer-events-none px-3 py-1 rounded-lg bg-[#141413]/90 text-[#FAF9F6] border border-[#D8D3C8]/30 shadow-md text-[11px] font-medium items-center gap-2 backdrop-blur-sm whitespace-nowrap"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-[#D8D3C8]" />
+            <span ref={hoverBadgeTextRef} />
+          </div>
+          {dragDropSnapBanner && (
+            <div
+              data-testid="viewport-3d-dragdrop-snap-banner"
+              className="pointer-events-auto max-w-full px-4 py-2 rounded-2xl bg-slate-900/92 backdrop-blur-xl text-white border border-emerald-400/80 shadow-xl ring-1 ring-black/15 font-mono text-xs font-bold flex items-center gap-2"
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+              <span className="truncate">{dragDropSnapBanner}</span>
+              <button
+                type="button"
+                onClick={() => setDragDropSnapBanner(null)}
+                className="ml-1 text-slate-300 hover:text-white font-bold cursor-pointer shrink-0"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+          {selectedSceneObjectId && (() => {
+            const selObj = (project.sceneObjects || []).find((o) => o.id === selectedSceneObjectId);
+            if (!selObj) return null;
+            return (
+              <div
+                data-testid="v5-selected-scene-object-hud"
+                className="pointer-events-auto px-3.5 py-2 rounded-2xl birim-ice-dark-bar text-white flex flex-wrap items-center justify-center gap-2 shadow-xl text-[11px]"
+              >
+                <span className="font-bold text-amber-300 truncate max-w-[180px]">{selObj.name}</span>
+                <button
+                  type="button"
+                  onClick={() => updateSceneObject(selObj.id, { position: { ...selObj.position, x: Math.max(0, selObj.position.x - 50) } })}
+                  className="px-2 py-1 rounded-lg bg-white/15 hover:bg-white/25 font-mono cursor-pointer"
+                >
+                  ◀ X-50
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateSceneObject(selObj.id, { position: { ...selObj.position, x: selObj.position.x + 50 } })}
+                  className="px-2 py-1 rounded-lg bg-white/15 hover:bg-white/25 font-mono cursor-pointer"
+                >
+                  X+50 ▶
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateSceneObject(selObj.id, { position: { ...selObj.position, z: Math.max(0, selObj.position.z - 50) } })}
+                  className="px-2 py-1 rounded-lg bg-white/15 hover:bg-white/25 font-mono cursor-pointer"
+                >
+                  ▲ Z-50
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateSceneObject(selObj.id, { position: { ...selObj.position, z: selObj.position.z + 50 } })}
+                  className="px-2 py-1 rounded-lg bg-white/15 hover:bg-white/25 font-mono cursor-pointer"
+                >
+                  ▼ Z+50
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateSceneObject(selObj.id, { rotation: { ...selObj.rotation, y: ((selObj.rotation?.y || 0) + 90) % 360 } })}
+                  className="px-2.5 py-1 rounded-lg bg-sky-500/30 hover:bg-sky-500/45 font-bold cursor-pointer"
+                >
+                  ↻ 90°
+                </button>
+                <button
+                  type="button"
+                  onClick={() => duplicateSceneObject(selObj.id)}
+                  className="px-2 py-1 rounded-lg bg-white/15 hover:bg-white/25 cursor-pointer"
+                >
+                  Çoğalt
+                </button>
+                <button
+                  type="button"
+                  onClick={() => removeSceneObject(selObj.id)}
+                  className="px-2 py-1 rounded-lg bg-rose-500/40 hover:bg-rose-500/60 font-bold cursor-pointer"
+                >
+                  Sil
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedSceneObjectId(null)}
+                  className="px-1.5 py-1 rounded-lg text-stone-300 hover:text-white cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+            );
+          })()}
         </div>
         {isCtrlPressed && (
           <div
             data-testid="ctrl-move-part-badge"
-            className="absolute top-4 left-1/2 -translate-x-1/2 z-20 px-3.5 py-1.5 bg-amber-500/95 backdrop-blur-md text-stone-950 font-bold text-xs rounded-full shadow-lg flex items-center gap-2 pointer-events-none ring-2 ring-amber-300 animate-pulse select-none"
+            style={{
+              top: `${(stageSafeInsets?.topPx ?? 64) + 12}px`,
+            }}
+            className="absolute left-1/2 -translate-x-1/2 z-[90] px-4 py-2 bg-amber-500/95 backdrop-blur-md text-stone-950 font-bold text-xs rounded-full shadow-2xl flex items-center gap-2 pointer-events-none ring-2 ring-amber-300 animate-pulse select-none transition-[top] duration-200"
           >
             <span className="text-sm font-black">✥</span>
             <span>İç Parça Taşıma Modu (Ctrl Aktif)</span>
@@ -8991,6 +9022,21 @@ const clear3DGhostPreview = useCallback(() => {
 
             <button
               type="button"
+              data-testid="in-canvas-add-stacked-module"
+              onClick={addStackedTopModule}
+              className="w-9 h-9 rounded-xl flex items-center justify-center text-[#44403C] hover:bg-white/70 hover:text-[#141413] transition cursor-pointer"
+              title="Seçili Modülün Üstüne Yüklük Modülü Ekle"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <rect x="4" y="13" width="16" height="8" rx="1.5" />
+                <rect x="4" y="3" width="16" height="7" rx="1.5" strokeDasharray="2.5 2" />
+                <path d="M12 5v3m-1.5-1.5L12 5l1.5 1.5" />
+              </svg>
+              <span className="sr-only">Üst Yüklük Ekle</span>
+            </button>
+
+            <button
+              type="button"
               data-testid="hud-tool-toggle-doors"
               onClick={() => {
                 toggleDoorOpen();
@@ -9830,34 +9876,65 @@ const clear3DGhostPreview = useCallback(() => {
         {live3DEngineeringReport && live3DEngineeringReport.blockingSafetyAndEngineeringErrors.length > 0 && (
           <div
             data-testid="viewport-3d-engineering-alert-hud"
-            className="absolute bottom-4 left-4 z-30 max-w-md p-3 rounded-2xl bg-slate-950/88 backdrop-blur-md border border-red-500/60 text-xs text-slate-100 shadow-2xl space-y-2 pointer-events-auto"
+            style={{
+              bottom: `${(stageSafeInsets?.bottomPx ?? 14) + 72}px`,
+              left: `${stageSafeInsets?.leftPx ?? 16}px`,
+            }}
+            className="absolute z-40 max-w-sm rounded-2xl bg-slate-950/92 backdrop-blur-md border border-red-500/80 text-xs text-slate-100 shadow-xl pointer-events-auto transition-[left,bottom] duration-200"
           >
-            <div className="flex items-center justify-between gap-2">
-              <span className="font-bold text-red-400">
-                ● 3B Sahne Mühendislik Engeli ({live3DEngineeringReport.blockingSafetyAndEngineeringErrors.length})
-              </span>
-              <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-red-950 text-red-200">
-                {live3DEngineeringReport.blockingSafetyAndEngineeringErrors[0].code}
-              </span>
-            </div>
-            <div className="text-[11px] text-slate-200 leading-snug">
-              {live3DEngineeringReport.blockingSafetyAndEngineeringErrors[0].message}
-            </div>
-            {live3DEngineeringReport.blockingSafetyAndEngineeringErrors[0].remediationProposals &&
-              live3DEngineeringReport.blockingSafetyAndEngineeringErrors[0].remediationProposals.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 pt-0.5">
-                  {live3DEngineeringReport.blockingSafetyAndEngineeringErrors[0].remediationProposals.map((prop) => (
-                    <button
-                      key={prop.id}
-                      type="button"
-                      onClick={() => applyApprovedEngineeringFix(prop)}
-                      className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] cursor-pointer transition"
+            {engineeringAlertCollapsed ? (
+              <button
+                type="button"
+                onClick={() => setEngineeringAlertCollapsed(false)}
+                className="px-3 py-1.5 flex items-center gap-2 text-[11px] font-bold text-red-300 hover:text-white cursor-pointer"
+                title="Mühendislik engel detayını aç"
+              >
+                <span>● Engel ({live3DEngineeringReport.blockingSafetyAndEngineeringErrors.length})</span>
+                <span className="text-[10px] text-slate-400">▴ Aç</span>
+              </button>
+            ) : (
+              <div className="p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-bold text-red-400">
+                    ● 3B Sahne Mühendislik Engeli ({live3DEngineeringReport.blockingSafetyAndEngineeringErrors.length})
+                  </span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span
+                      title={`Teknik Kural: ${live3DEngineeringReport.blockingSafetyAndEngineeringErrors[0].code}`}
+                      className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-red-950/80 border border-red-500/40 text-red-200 whitespace-nowrap"
                     >
-                      ✓ Onayla: {prop.label}
+                      {formatEngineeringErrorCode(live3DEngineeringReport.blockingSafetyAndEngineeringErrors[0].code)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setEngineeringAlertCollapsed(true)}
+                      title="Uyarı panelini küçült"
+                      className="w-5 h-5 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] flex items-center justify-center cursor-pointer"
+                    >
+                      —
                     </button>
-                  ))}
+                  </div>
                 </div>
-              )}
+                <div className="text-[11px] text-slate-200 leading-snug">
+                  {live3DEngineeringReport.blockingSafetyAndEngineeringErrors[0].message}
+                </div>
+                {live3DEngineeringReport.blockingSafetyAndEngineeringErrors[0].remediationProposals &&
+                  live3DEngineeringReport.blockingSafetyAndEngineeringErrors[0].remediationProposals.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 pt-0.5">
+                      {live3DEngineeringReport.blockingSafetyAndEngineeringErrors[0].remediationProposals.map((prop) => (
+                        <button
+                          key={prop.id}
+                          type="button"
+                          onClick={() => applyApprovedEngineeringFix(prop)}
+                          className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] cursor-pointer transition"
+                        >
+                          ✓ Onayla: {prop.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+              </div>
+            )}
           </div>
         )}
         <Viewport3DContextMenu
@@ -9873,7 +9950,7 @@ const clear3DGhostPreview = useCallback(() => {
           onClose={() => setContextMenuTarget(null)}
           onToggleDoorOpen={toggleDoorOpen}
           onToggleDoorsHidden={() => setDoorsHiddenIn3D((prev) => !prev)}
-          onToggleDrawerOpen={() => setDrawerOpenMm(drawerOpenMm > 10 ? 0 : 280)}
+          onToggleDrawerOpen={() => useConfiguratorStore.getState().toggleDrawerOpen(true)}
           onToggleDimensions={handleToggleDimensions}
           onToggleInteriorProps={() => setShowInteriorProps3D((prev) => !prev)}
           onFitScene={() => {

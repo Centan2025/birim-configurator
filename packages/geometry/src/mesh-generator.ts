@@ -1558,15 +1558,18 @@ export function generateModuleGeometry(
     (module.category === "kitchen_base" || module.category === "kitchen_island"
       ? "kitchen_stretchers"
       : "sides_through");
+  const topT = module.carcass.topPanelThicknessMm || T;
+  const hasCustomTopThick = topT !== T;
   const sideRunsToFloor = plinthHeight > 0 && effPlinthType === "gable_rails" && joineryTopology !== "top_bottom_through";
-  const sideH =
-    joineryTopology === "top_bottom_through"
-      ? Math.max(80, height - plinthHeight - 2 * T)
-      : sideRunsToFloor
-      ? height
-      : height - plinthHeight;
+  const sideH = hasCustomTopThick
+    ? Math.max(80, (sideRunsToFloor ? height : height - plinthHeight) - topT)
+    : joineryTopology === "top_bottom_through"
+    ? Math.max(80, height - plinthHeight - 2 * T)
+    : sideRunsToFloor
+    ? height
+    : height - plinthHeight;
   const sideY =
-    joineryTopology === "top_bottom_through"
+    joineryTopology === "top_bottom_through" && !hasCustomTopThick
       ? plinthHeight + T
       : sideRunsToFloor
       ? 0
@@ -1783,13 +1786,105 @@ export function generateModuleGeometry(
     components.push({
       id: `${module.id}_top`,
       role: "carcass_top",
-      label: joineryTopology === "miter_45" ? "Üst Panel (45° Gönye)" : "Üst Panel",
-      dimensions: { width: horizPanelW, height: T, depth },
-      position: { x: horizPanelX, y: height - T + explodeY, z: 0 },
+      label: hasCustomTopThick
+        ? `Üst Tabla (${topT}mm Kalınlık)`
+        : joineryTopology === "miter_45"
+        ? "Üst Panel (45° Gönye)"
+        : "Üst Panel",
+      dimensions: { width: hasCustomTopThick ? width : horizPanelW, height: topT, depth },
+      position: { x: hasCustomTopThick ? 0 : horizPanelX, y: height - topT + explodeY, z: 0 },
       materialId: bodyMaterialId,
       isManufacturablePanel: true,
       thicknessAxis: "y",
     });
+  }
+
+  // 5b. Taç Profili (Crown Molding / Cornice — Modern, Basamaklı, Klasik Kavisli veya LED Kanallı)
+  const crownCfg = module.carcass.crownMolding;
+  if (crownCfg?.enabled) {
+    const crownH = Math.max(25, Math.min(200, crownCfg.heightMm || 60));
+    const crownProj = Math.max(0, Math.min(120, crownCfg.projectionMm ?? 25));
+    const crownMat = crownCfg.materialId || doorMaterialId;
+    const crownY = height + explodeY * 1.15;
+    const crownBaseThick = 18;
+    const frontProjDepth = crownBaseThick + crownProj;
+    const styleLabel =
+      crownCfg.style === "stepped"
+        ? "Basamaklı"
+        : crownCfg.style === "classic_coving"
+        ? "Klasik Kavisli"
+        : crownCfg.style === "led_channel"
+        ? "LED Kanallı"
+        : "Modern Düz";
+
+    components.push(
+      {
+        id: `${module.id}_crown_front`,
+        role: "end_panel",
+        label: `Ön Taç Profili (${styleLabel} • ${crownH}mm, 45° Gönyeli)`,
+        dimensions: { width: width + crownProj * 2, height: crownH, depth: frontProjDepth },
+        position: { x: -crownProj, y: crownY, z: depth - crownBaseThick },
+        materialId: crownMat,
+        isFrontFacing: true,
+        isManufacturablePanel: true,
+        thicknessAxis: "z",
+      },
+      {
+        id: `${module.id}_crown_left`,
+        role: "end_panel",
+        label: `Sol Yan Taç Profili (${styleLabel} • ${crownH}mm)`,
+        dimensions: { width: frontProjDepth, height: crownH, depth: Math.max(40, depth - crownBaseThick) },
+        position: { x: -crownProj, y: crownY, z: 0 },
+        materialId: crownMat,
+        isFrontFacing: true,
+        isManufacturablePanel: true,
+        thicknessAxis: "x",
+      },
+      {
+        id: `${module.id}_crown_right`,
+        role: "end_panel",
+        label: `Sağ Yan Taç Profili (${styleLabel} • ${crownH}mm)`,
+        dimensions: { width: frontProjDepth, height: crownH, depth: Math.max(40, depth - crownBaseThick) },
+        position: { x: width - crownBaseThick, y: crownY, z: 0 },
+        materialId: crownMat,
+        isFrontFacing: true,
+        isManufacturablePanel: true,
+        thicknessAxis: "x",
+      }
+    );
+
+    if (crownCfg.style === "stepped" || crownCfg.style === "classic_coving") {
+      const upperLipH = Math.max(14, Math.round(crownH * 0.42));
+      const extraProj = crownCfg.style === "classic_coving" ? 16 : 12;
+      components.push({
+        id: `${module.id}_crown_upper_tier`,
+        role: "end_panel",
+        label: `Üst Taç Kademe Şeridi (${styleLabel})`,
+        dimensions: {
+          width: width + (crownProj + extraProj) * 2,
+          height: upperLipH,
+          depth: frontProjDepth + extraProj,
+        },
+        position: {
+          x: -(crownProj + extraProj),
+          y: crownY + (crownH - upperLipH),
+          z: depth - crownBaseThick,
+        },
+        materialId: crownMat,
+        isFrontFacing: true,
+        isManufacturablePanel: false,
+      });
+    } else if (crownCfg.style === "led_channel") {
+      components.push({
+        id: `${module.id}_crown_led_strip`,
+        role: "led_strip",
+        label: `Taç Altı LED Aydınlatma Şeridi`,
+        dimensions: { width: Math.max(40, width - 20), height: 4, depth: 8 },
+        position: { x: 10, y: crownY - 2, z: depth + Math.max(4, crownProj - 10) },
+        materialId: "mat_led_warm",
+        isManufacturablePanel: false,
+      });
+    }
   }
 
   // 6. Back Panel — All 5 Modes Supported (Checklist #2: grooved, rebated, nailed, flush, none; auto-omitted on sink base!)
