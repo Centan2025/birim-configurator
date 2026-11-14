@@ -1770,9 +1770,14 @@ export function generateBOMForProject(
           !comp.id.includes("_top_stretcher_")
             ? (() => {
                 const T_p = module.carcass.panelThickness || 18;
+                const sideToFloorBom =
+                  (module.carcass.plinthHeight || 0) > 0 &&
+                  module.carcass.plinthConstruction === "gable_rails" &&
+                  comp.role === "carcass_bottom";
                 const isOuterThrough =
-                  partJoineryTopology === "top_bottom_through" ||
-                  partJoineryTopology === "miter_45";
+                  !sideToFloorBom &&
+                  (partJoineryTopology === "top_bottom_through" ||
+                    partJoineryTopology === "miter_45");
                 const ys: number[] = [];
                 let curX = isOuterThrough ? T_p : 0;
                 for (let bi = 0; bi < module.bays.length - 1; bi++) {

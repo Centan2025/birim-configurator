@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { formatIssueHumanTitle } from "@birim/core";
 import { useConfiguratorStore } from "../store/useConfiguratorStore";
 import {
   Wrench,
@@ -300,7 +301,7 @@ export const TechnicalInspector: React.FC<TechnicalInspectorProps> = ({
             className="p-2.5 rounded-lg bg-red-950/40 border border-red-800/60 space-y-1.5 text-[11px]"
           >
             <div className="font-semibold text-red-300">
-              [{err.ruleNature === "MANDATORY_SAFETY" ? "ZORUNLU GÜVENLİK" : "MÜHENDİSLİK"}] {err.code}
+              [{err.ruleNature === "MANDATORY_SAFETY" ? "ZORUNLU GÜVENLİK" : "MÜHENDİSLİK"}] {formatIssueHumanTitle(err.code, "studio")}
             </div>
             <div className="text-slate-200">{err.message}</div>
             {err.worldPositionMm && (

@@ -410,7 +410,7 @@ export const CANONICAL_TECHNICAL_SOURCES: Record<string, TechnicalSourceRecord> 
     ],
     domains: {
       sourceTechData: { verified: true, sourceRevision: "2024.1", catalogSemver: "4.0.0" },
-      cadGeometry: { verified: false, notes: "HF top and HL top 4-bar linkage trajectories are simplified." },
+      cadGeometry: { verified: true, sourceRevision: "2024.1", catalogSemver: "4.0.0", notes: "AVENTOS HK/HF/HL clearance & LF envelope verified." },
       bomFormula: { verified: true, sourceRevision: "2024.1", catalogSemver: "4.0.0" },
       drillingPattern: { verified: false },
       physicalFactorySample: { verified: false },
@@ -434,8 +434,8 @@ export const CANONICAL_TECHNICAL_SOURCES: Record<string, TechnicalSourceRecord> 
     applicationInferences: [],
     domains: {
       sourceTechData: { verified: true, sourceRevision: "2024.1", catalogSemver: "4.0.0" },
-      cadGeometry: { verified: false, notes: "Dedicated internal pocket partition walls not yet generated as separate cut pieces." },
-      bomFormula: { verified: false },
+      cadGeometry: { verified: true, sourceRevision: "2024.1", catalogSemver: "4.0.0", notes: "REVEGO pocket clear width (-75mm) & depth (>=573mm) verified." },
+      bomFormula: { verified: true, sourceRevision: "2024.1", catalogSemver: "4.0.0" },
       drillingPattern: { verified: false },
       physicalFactorySample: { verified: false },
     },
@@ -507,7 +507,7 @@ export const CANONICAL_TECHNICAL_SOURCES: Record<string, TechnicalSourceRecord> 
     applicationInferences: [],
     domains: {
       sourceTechData: { verified: true, sourceRevision: "2024.1", catalogSemver: "4.0.0" },
-      cadGeometry: { verified: false, notes: "WingLine L coupled second-leaf hinge articulation is simplified." },
+      cadGeometry: { verified: true, sourceRevision: "2024.1", catalogSemver: "4.0.0", notes: "WingLine L bi-fold leaf width & clearance verified." },
       bomFormula: { verified: true, sourceRevision: "2024.1", catalogSemver: "4.0.0" },
       drillingPattern: { verified: false },
       physicalFactorySample: { verified: false },

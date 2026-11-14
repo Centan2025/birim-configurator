@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import { formatIssueHumanTitle } from "@birim/core";
 import { useConfiguratorStore } from "../store/useConfiguratorStore";
 import {
   DEFAULT_BIRIM_ORG_UUID,
@@ -176,7 +177,7 @@ export default function StoreErpModal({ isOpen, onClose }: StoreErpModalProps) {
         unifiedGate.verificationRequiredFindings[0];
       setErpError(
         `Üretim kapısı kilitli (${compatibility.overallStatus}): [${
-          firstErr?.code || "HATA"
+          firstErr?.code ? formatIssueHumanTitle(firstErr.code, "studio") : "Kontrol Gerekli"
         }] ${firstErr?.message || ""}`
       );
       return;

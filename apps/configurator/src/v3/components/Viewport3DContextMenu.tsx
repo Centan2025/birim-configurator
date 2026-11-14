@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { DesignProject, ModuleInstance } from "@birim/core";
 
 type BayDoorKind = ModuleInstance["bays"][number]["door"]["type"];
@@ -230,19 +231,22 @@ export const Viewport3DContextMenu: React.FC<Viewport3DContextMenuProps> = ({
 
   if (!target) return null;
 
+  const renderPortal = (node: React.ReactElement) =>
+    typeof document !== "undefined" ? createPortal(node, document.body) : node;
+
   const run = (fn: () => void) => {
     fn();
     onClose();
   };
 
   if (target.kind === "obstacle") {
-    return (
+    return renderPortal(
       <div
         ref={menuRef}
         data-testid="viewport-3d-context-menu"
         style={{ left: pos.left, top: pos.top }}
         onContextMenu={(e) => e.preventDefault()}
-        className="fixed z-50 w-60 birim-ice-popover rounded-2xl p-1.5 shadow-2xl border border-white/60"
+        className="fixed z-[9999] w-60 birim-ice-popover rounded-2xl p-1.5 shadow-2xl border border-white/60"
       >
         <div className="px-2.5 py-1.5 border-b border-black/8 mb-1">
           <div className="text-[11px] font-bold text-[#141413] truncate">{target.label}</div>
@@ -259,13 +263,13 @@ export const Viewport3DContextMenu: React.FC<Viewport3DContextMenuProps> = ({
   }
 
   if (target.kind === "scene") {
-    return (
+    return renderPortal(
       <div
         ref={menuRef}
         data-testid="viewport-3d-context-menu"
         style={{ left: pos.left, top: pos.top }}
         onContextMenu={(e) => e.preventDefault()}
-        className="fixed z-50 w-60 birim-ice-popover rounded-2xl p-1.5 shadow-2xl border border-white/60"
+        className="fixed z-[9999] w-60 birim-ice-popover rounded-2xl p-1.5 shadow-2xl border border-white/60"
       >
         <div className="px-2.5 py-1.5 border-b border-black/8 mb-1">
           <div className="text-[11px] font-bold text-[#141413]">3D Sahne Kontrolleri</div>
@@ -314,13 +318,13 @@ export const Viewport3DContextMenu: React.FC<Viewport3DContextMenuProps> = ({
       ? target.hitElevationY
       : 640;
 
-  return (
+  return renderPortal(
     <div
       ref={menuRef}
       data-testid="viewport-3d-context-menu"
       style={{ left: pos.left, top: pos.top }}
       onContextMenu={(e) => e.preventDefault()}
-      className="fixed z-50 w-64 max-h-[82vh] overflow-y-auto birim-ice-popover rounded-2xl p-1.5 shadow-2xl border border-white/60"
+      className="fixed z-[9999] w-64 max-h-[82vh] overflow-y-auto birim-ice-popover rounded-2xl p-1.5 shadow-2xl border border-white/60"
     >
       <div className="px-2.5 py-1.5 border-b border-black/8 mb-1">
         <div className="text-[11px] font-bold text-[#141413] truncate">

@@ -516,6 +516,7 @@ export function createDefaultWardrobeModule(id = "module_1"): ModuleInstance {
 
 export function createInitialProject(): DesignProject {
   const mod = createDefaultWardrobeModule();
+  mod.position.x = 50; // Standard 50mm left wall filler clearance for full 90° door/handle swing
   mod.bays[0].customWidth = 575;
   return {
     id: "proj_demo_01",

@@ -587,6 +587,11 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = R
                 onClick={() => {
                   setShowAllSteps(false);
                   setActiveStep(step.id);
+                  if ((step.id === "interior" || step.id === "led") && hasHingedDoorInMod && doorOpenAngleDeg < 15) {
+                    onToggleDoorOpen();
+                  } else if ((step.id === "door" || step.id === "material") && hasHingedDoorInMod && doorOpenAngleDeg > 35) {
+                    onToggleDoorOpen();
+                  }
                 }}
                 className={`h-11 px-1 rounded-[18px] flex flex-col items-center justify-center gap-0.5 transition cursor-pointer relative ${
                   isAct
@@ -771,7 +776,7 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = R
                     },
                     {
                       id: "gable_rails" as const,
-                      title: "Yan Dikme İnişli",
+                      title: "Yan Dikme İnişli Kayıtlı",
                       sub: "Zemine inen yanlar + ön/arka çift kayıt",
                       defSetback: 26,
                     },

@@ -198,7 +198,7 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
 
   // 0. WOVEN ARCHITECTURAL LINEN / TEXTILE PANEL (Cross-Slub Yarn Albedo + Weave Normal + Roughness)
   if (matDef.id.includes("linen") || matDef.id.includes("fabric") || matDef.id.includes("keten")) {
-    const S = 384;
+    const S = 256;
     const colorCanvas = document.createElement("canvas");
     colorCanvas.width = S;
     colorCanvas.height = S;
@@ -262,8 +262,8 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
 
   // 1. HIGH-DEFINITION RIFT-CUT / CATHEDRAL ARCHITECTURAL WOOD VENEERS (768x768 3-Map PBR)
   if (matDef.category === "wood" || (matDef.category === "laminate" && matDef.hasGrain)) {
-    const W = 768;
-    const H = 768;
+    const W = 256;
+    const H = 256;
     const colorCanvas = document.createElement("canvas");
     colorCanvas.width = W;
     colorCanvas.height = H;
@@ -483,8 +483,8 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
 
   // 4. NEOLITH SINTERED STONE, DEKTON, BELENCO & HONED MARBLE VEINING (768x768 3-Map PBR)
   if (matDef.category === "stone") {
-    const W = 768;
-    const H = 768;
+    const W = 256;
+    const H = 256;
     const colorCanvas = document.createElement("canvas");
     colorCanvas.width = W;
     colorCanvas.height = H;
@@ -593,7 +593,7 @@ export function getArchitecturalWallTexture(
   const cached = wallTextureCache.get(tone);
   if (cached) return cached;
 
-  const S = 512;
+  const S = 256;
   const canvas = document.createElement("canvas");
   canvas.width = S;
   canvas.height = S;
@@ -614,10 +614,10 @@ export function getArchitecturalWallTexture(
     const ny = y / S;
     for (let x = 0; x < S; x++) {
       const nx = x / S;
-      const cloud = (periodicFbm(nx, ny, 4, 4, 4) - 0.5) * (isConcrete ? 20 : 11);
-      const trowel = (periodicFbm(nx + 0.3, ny + 0.7, 12, 8, 3) - 0.5) * (isConcrete ? 9 : 6);
+      const cloud = (periodicFbm(nx, ny, 4, 4, 3) - 0.5) * (isConcrete ? 20 : 11);
+      const trowel = (periodicFbm(nx + 0.3, ny + 0.7, 12, 8, 2) - 0.5) * (isConcrete ? 9 : 6);
       const fineMineral = (hash2D(x * 0.7, y * 0.7) - 0.5) * 5;
-      const isFormworkJoint = isConcrete && (x % 256 === 0 || y % 256 === 0);
+      const isFormworkJoint = isConcrete && (x % 128 === 0 || y % 128 === 0);
 
       // Subtle architectural concrete tie-cone dimples at panel centers
       const dxTie = ((x + 128) % 256) - 128;
@@ -684,7 +684,7 @@ export function getArchitecturalFloorTexture(
   const cached = floorTextureCache.get(style);
   if (cached) return cached;
 
-  const S = 512;
+  const S = 256;
   const canvas = document.createElement("canvas");
   canvas.width = S;
   canvas.height = S;
@@ -699,13 +699,13 @@ export function getArchitecturalFloorTexture(
       const idx = (y * S + x) * 4;
       if (style === "oak_parquet" || style === "walnut_parquet") {
         const isWalnut = style === "walnut_parquet";
-        const plankRow = Math.floor(y / 64);
-        const plankX = (x + (plankRow % 2) * 128) % 256;
-        const plankY = y % 64;
+        const plankRow = Math.floor(y / 32);
+        const plankX = (x + (plankRow % 2) * 64) % 128;
+        const plankY = y % 32;
         const isMicroJoint = plankX === 0 || plankY === 0;
-        const plankSeed = hash2D(plankRow, Math.floor((x + (plankRow % 2) * 128) / 256));
+        const plankSeed = hash2D(plankRow, Math.floor((x + (plankRow % 2) * 64) / 128));
         const fiber =
-          (periodicFbm(nx, ny, 8, 40, 3) - 0.5) * 14 + (plankSeed - 0.5) * 9;
+          (periodicFbm(nx, ny, 8, 40, 2) - 0.5) * 14 + (plankSeed - 0.5) * 9;
         const baseR = isWalnut ? 118 : 182;
         const baseG = isWalnut ? 90 : 162;
         const baseB = isWalnut ? 70 : 136;
@@ -716,10 +716,10 @@ export function getArchitecturalFloorTexture(
         img.data[idx + 3] = 255;
         heightField[y * S + x] = 0.5 + fiber * 0.008 - (isMicroJoint ? 0.36 : 0);
       } else if (style === "herringbone_oak") {
-        const col = Math.floor(x / 64);
-        const diag = col % 2 === 0 ? (x + y) % 64 : (x - y + 512) % 64;
-        const isSeam = x % 64 === 0 || diag === 0;
-        const plankId = Math.floor((col % 2 === 0 ? x + y : x - y + 512) / 64);
+        const col = Math.floor(x / 32);
+        const diag = col % 2 === 0 ? (x + y) % 32 : (x - y + 256) % 32;
+        const isSeam = x % 32 === 0 || diag === 0;
+        const plankId = Math.floor((col % 2 === 0 ? x + y : x - y + 256) / 32);
         const plankTint = (hash2D(col, plankId) - 0.5) * 9;
         const grain = (periodicFbm(nx, ny, 16, 16, 3) - 0.5) * 14 + plankTint;
         const seamDrop = isSeam ? 28 : 0;

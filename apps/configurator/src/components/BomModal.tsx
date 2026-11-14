@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { formatIssueHumanTitle } from "@birim/core";
 import { useConfiguratorStore } from "../store/useConfiguratorStore";
 import {
   X,
@@ -437,7 +438,7 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
                   <div key={`${err.code}_${err.targetId}`} className="p-2 rounded bg-slate-950/70 border border-red-900/60 space-y-1.5">
                     <div>
                       <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-red-900/80 text-red-200 mr-1.5">
-                        {err.ruleNature === "MANDATORY_SAFETY" ? "ZORUNLU GÜVENLİK" : "MÜHENDİSLİK"} • {err.code}
+                        {err.ruleNature === "MANDATORY_SAFETY" ? "ZORUNLU GÜVENLİK" : "MÜHENDİSLİK"} • {formatIssueHumanTitle(err.code, "studio")}
                       </span>
                       <span>{err.message}</span>
                     </div>
@@ -466,7 +467,7 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
                   .slice(0, 2)
                   .map((vf) => (
                     <div key={`${vf.code}_${vf.targetId}`} className="flex flex-wrap items-center justify-between gap-2">
-                      <span>[{vf.code}] {vf.message}</span>
+                      <span>[{formatIssueHumanTitle(vf.code, "studio")}] {vf.message}</span>
                       <div className="flex flex-wrap gap-1.5">
                         {vf.remediationProposals!.map((prop) => (
                           <button

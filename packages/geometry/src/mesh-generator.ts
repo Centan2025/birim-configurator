@@ -961,8 +961,19 @@ export function generateModuleGeometry(
       ? Math.min(600, Math.round(Math.min(width, depth) * 0.58))
       : Math.min(580, Math.round(Math.min(width, depth) * 0.64));
     const returnSpanZ = Math.max(180, depth - wingD);
-    const sideY = isWardrobe ? 0 : plinthHeight;
-    const sideH = isWardrobe ? height : height - plinthHeight;
+    const effDiagPlinthType =
+      module.carcass.plinthConstruction ||
+      (module.carcass.hasAdjustableLegs === false
+        ? isWardrobe
+          ? "gable_rails"
+          : "pedestal_box"
+        : isWardrobe
+        ? "pedestal_box"
+        : "adjustable_legs_clip");
+    const diagSideRunsToFloor =
+      plinthHeight > 0 && (effDiagPlinthType === "gable_rails" || (isWardrobe && !module.carcass.plinthConstruction));
+    const sideY = diagSideRunsToFloor ? 0 : plinthHeight;
+    const sideH = diagSideRunsToFloor ? height : height - plinthHeight;
     const netH = Math.max(120, height - plinthHeight - 2 * T);
     const diagDx = Math.max(120, width - wingD);
     const diagDz = Math.max(120, depth - wingD);
@@ -1560,20 +1571,19 @@ export function generateModuleGeometry(
       : "sides_through");
   const topT = module.carcass.topPanelThicknessMm || T;
   const hasCustomTopThick = topT !== T;
-  const sideRunsToFloor = plinthHeight > 0 && effPlinthType === "gable_rails" && joineryTopology !== "top_bottom_through";
+  const sideRunsToFloor = plinthHeight > 0 && effPlinthType === "gable_rails";
   const sideH = hasCustomTopThick
     ? Math.max(80, (sideRunsToFloor ? height : height - plinthHeight) - topT)
+    : sideRunsToFloor
+    ? Math.max(80, joineryTopology === "top_bottom_through" ? height - T : height)
     : joineryTopology === "top_bottom_through"
     ? Math.max(80, height - plinthHeight - 2 * T)
-    : sideRunsToFloor
-    ? height
     : height - plinthHeight;
-  const sideY =
-    joineryTopology === "top_bottom_through" && !hasCustomTopThick
-      ? plinthHeight + T
-      : sideRunsToFloor
-      ? 0
-      : plinthHeight;
+  const sideY = sideRunsToFloor
+    ? 0
+    : joineryTopology === "top_bottom_through" && !hasCustomTopThick
+    ? plinthHeight + T
+    : plinthHeight;
 
   // P1-05: Compute exact trapezoid/pentagon 2D CNC contour when slopedCeiling is active!
   const slopedCfg = module.carcass.slopedCeiling;
@@ -1693,17 +1703,19 @@ export function generateModuleGeometry(
     });
   }
 
-  // 4. Bottom Panel (Tip B & Tip C run full outer width; Tip A & D sit between side panels)
+  // 4. Bottom Panel (When sideRunsToFloor / gable_rails is active, bottom panel ALWAYS sits between floor-standing side uprights!)
   const horizPanelW =
     joineryTopology === "top_bottom_through" || joineryTopology === "miter_45" ? width : innerSpanW;
   const horizPanelX =
     joineryTopology === "top_bottom_through" || joineryTopology === "miter_45" ? 0 : T;
+  const bottomPanelW = sideRunsToFloor ? innerSpanW : horizPanelW;
+  const bottomPanelX = sideRunsToFloor ? T : horizPanelX;
   components.push({
     id: `${module.id}_bottom`,
     role: "carcass_bottom",
-    label: joineryTopology === "miter_45" ? "Alt Panel (45° Gönye)" : "Alt Panel",
-    dimensions: { width: horizPanelW, height: T, depth },
-    position: { x: horizPanelX, y: plinthHeight - explodeY * 0.5, z: 0 },
+    label: joineryTopology === "miter_45" && !sideRunsToFloor ? "Alt Panel (45° Gönye)" : "Alt Panel",
+    dimensions: { width: bottomPanelW, height: T, depth },
+    position: { x: bottomPanelX, y: plinthHeight - explodeY * 0.5, z: 0 },
     materialId: bodyMaterialId,
     isManufacturablePanel: true,
     thicknessAxis: "y",

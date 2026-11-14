@@ -927,7 +927,7 @@ export const V5_SPECIALIZED_MODULE_TEMPLATES: V4ModuleTemplateDefinition[] = [
       bays: [0, 1].map((idx) => ({
         index: idx,
         door: { id: `door_${id}_${idx}`, bayIndex: idx, type: "open", softClose: false },
-        shelves: [420, 820, 1220, 1620, 1980].map((ey, sIdx) => ({
+        shelves: [420, 820, 1220, 1600, 1920].map((ey, sIdx) => ({
           id: `sh_${id}_${idx}_${sIdx}`,
           bayIndex: idx,
           elevationY: ey,
@@ -973,6 +973,7 @@ export const V5_SPECIALIZED_MODULE_TEMPLATES: V4ModuleTemplateDefinition[] = [
         countertopMaterialId: "mat_quartz_calacatta",
         jointType: "minifix_dowel",
         wallSuspensionType: "concealed_camar_807",
+        wallAnchored: true,
       },
       bays: [
         {
@@ -1042,7 +1043,7 @@ export const V5_SPECIALIZED_MODULE_TEMPLATES: V4ModuleTemplateDefinition[] = [
             id: `sh_${id}_0_${i}`,
             bayIndex: 0,
             elevationY: ey,
-            isAdjustable: true,
+            isAdjustable: i !== 3,
           })),
           hangingRails: [{ id: `rail_${id}_0`, bayIndex: 0, elevationY: 1710 }],
           drawers: [],
@@ -1152,8 +1153,8 @@ export const V5_SPECIALIZED_MODULE_TEMPLATES: V4ModuleTemplateDefinition[] = [
           },
           shelves: [
             { id: `sh_${id}_worktop`, bayIndex: 0, elevationY: 780, isAdjustable: false, thickness: 25 },
-            { id: `sh_${id}_cup1`, bayIndex: 0, elevationY: 1320, isAdjustable: true },
-            { id: `sh_${id}_cup2`, bayIndex: 0, elevationY: 1680, isAdjustable: true },
+            { id: `sh_${id}_cup1`, bayIndex: 0, elevationY: 1320, isAdjustable: true, thickness: 25 },
+            { id: `sh_${id}_cup2`, bayIndex: 0, elevationY: 1680, isAdjustable: true, thickness: 25 },
           ],
           hangingRails: [],
           drawers: [
@@ -1216,7 +1217,7 @@ export const V5_SPECIALIZED_MODULE_TEMPLATES: V4ModuleTemplateDefinition[] = [
             handleCategory: "milled_wood_grip",
           },
           shelves: [
-            { id: `sh_${id}_0`, bayIndex: 0, elevationY: 380, isAdjustable: true, isGlass: true, thickness: 8 },
+            { id: `sh_${id}_0`, bayIndex: 0, elevationY: 380, isAdjustable: true, isGlass: true, thickness: 10 },
           ],
           hangingRails: [],
           drawers: [],

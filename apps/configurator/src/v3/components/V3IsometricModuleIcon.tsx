@@ -514,7 +514,10 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
       doorSystemId.startsWith("sliding") || tplId.includes("sliding");
     const isLift = doorSystemId.startsWith("lift_");
 
-    const plinthPx = isWallCab ? 0 : 6;
+    const hasPlinthIcon = !isWallCab && (resolvedModule?.carcass?.plinthHeight ?? 80) > 0;
+    const isGableRailsIcon =
+      hasPlinthIcon && resolvedModule?.carcass?.plinthConstruction === "gable_rails";
+    const plinthPx = isWallCab || !hasPlinthIcon ? 0 : 6;
     const usableH = normH - plinthPx;
     const bayWidthsMm = resolvedModule
       ? calculateBayWidths(resolvedModule)
@@ -605,17 +608,41 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
           strokeWidth="1.55"
         />
 
-        {/* Plinth / Baza */}
-        {!isWallCab && (
-          <rect
-            x={x0 + 2}
-            y={y0 + usableH}
-            width={normW - 4}
-            height={plinthPx}
-            fill="#44403c"
-            stroke="#292524"
-            strokeWidth="1.2"
-          />
+        {/* Plinth / Baza (with floor-descending side uprights when gable_rails is active!) */}
+        {!isWallCab && plinthPx > 0 && (
+          <g>
+            <rect
+              x={isGableRailsIcon ? x0 + 3.5 : x0 + 2}
+              y={y0 + usableH}
+              width={Math.max(4, normW - (isGableRailsIcon ? 7 : 4))}
+              height={plinthPx}
+              fill="#44403c"
+              stroke="#292524"
+              strokeWidth="1.2"
+            />
+            {isGableRailsIcon && (
+              <>
+                <rect
+                  x={x0}
+                  y={y0 + usableH}
+                  width={3.5}
+                  height={plinthPx}
+                  fill="#dfd9ce"
+                  stroke="#292524"
+                  strokeWidth="1.2"
+                />
+                <rect
+                  x={x0 + normW - 3.5}
+                  y={y0 + usableH}
+                  width={3.5}
+                  height={plinthPx}
+                  fill="#dfd9ce"
+                  stroke="#292524"
+                  strokeWidth="1.2"
+                />
+              </>
+            )}
+          </g>
         )}
 
         {/* Kitchen Countertop Lip */}
@@ -1032,6 +1059,7 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
       pm.dimensions.height !== nm.dimensions.height ||
       pm.dimensions.depth !== nm.dimensions.depth ||
       pm.carcass.plinthHeight !== nm.carcass.plinthHeight ||
+      pm.carcass.plinthConstruction !== nm.carcass.plinthConstruction ||
       pm.carcass.bodyMaterialId !== nm.carcass.bodyMaterialId ||
       pm.carcass.frontMaterialId !== nm.carcass.frontMaterialId ||
       pm.bays.length !== nm.bays.length

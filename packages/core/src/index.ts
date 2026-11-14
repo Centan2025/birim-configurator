@@ -13,3 +13,4 @@ export * from "./scene-objects-engine";
 export * from "./tolerance-policy";
 export * from "./engineering-validation-engine";
 export * from "./ceiling-and-grain-engine";
+export * from "./standards-registry";

@@ -13,6 +13,7 @@ import {
   calculateModulePlacement,
   doModulesOverlapOBB2D,
   computeProjectGrainContinuityMap,
+  formatIssueHumanTitle,
 } from "@birim/core";
 import {
   ElevationCeilingSectionSvg,
@@ -58,7 +59,7 @@ import {
   ElevationSnapTarget,
 } from "../engine/elevationSnapEngine";
 import { solveAngledWallSnapForModule } from "../engine/angledWallSnapEngine";
-import { useConfiguratorStore } from "../../store/useConfiguratorStore";
+import { useConfiguratorStore, selectModuleBayComponentSafe } from "../../store/useConfiguratorStore";
 
 export interface V3CadViewport2DProps {
   mode: "elevation" | "plan" | "section";
@@ -150,10 +151,22 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       startPanY: number;
     } | null>(null);
 
+    const wheelZoomAccRef = useRef<number>(0);
+    const wheelZoomRafRef = useRef<number | null>(null);
+    const lastDividerCommitValRef = useRef<string>("");
+
     const handleWheelZoom = useCallback((e: React.WheelEvent) => {
       e.stopPropagation();
-      const delta = e.deltaY < 0 ? 0.14 : -0.14;
-      setZoom((prev) => Math.max(0.4, Math.min(3.5, +(prev + delta).toFixed(2))));
+      wheelZoomAccRef.current += e.deltaY < 0 ? 0.14 : -0.14;
+      if (wheelZoomRafRef.current !== null) return;
+      wheelZoomRafRef.current = requestAnimationFrame(() => {
+        const acc = wheelZoomAccRef.current;
+        wheelZoomAccRef.current = 0;
+        wheelZoomRafRef.current = null;
+        if (acc !== 0) {
+          setZoom((prev) => Math.max(0.4, Math.min(3.5, +(prev + acc).toFixed(2))));
+        }
+      });
     }, []);
     const [showDoorsIn2D, setShowDoorsIn2D] = useState(false);
     const emptyGrainMapRef = useRef<ReturnType<typeof computeProjectGrainContinuityMap>>(new Map());
@@ -860,12 +873,15 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         }
       }
 
-      // Merge centralized EngineeringValidationFinding spatial anchors (Tip-over, Hinge-Drawer Clash, Sink Siphon, Stacked Overhang, MEP)
+      // Merge centralized EngineeringValidationFinding spatial anchors with human-readable Turkish titles (never raw ERR_* keys!)
       (unifiedEngineeringReport?.findings || []).forEach((ef) => {
         if (!ef.worldPositionMm) return;
         if (ef.severity !== "error" && ef.ruleNature !== "VERIFICATION_REQUIRED") return;
+        const humanTitle = formatIssueHumanTitle(ef.code);
         const dup = alerts.some(
-          (a) => Math.abs(a.x - ef.worldPositionMm!.x) < 60 && a.title.includes(ef.code)
+          (a) =>
+            Math.abs(a.x - ef.worldPositionMm!.x) < 60 &&
+            (a.id.includes(ef.code) || a.title === humanTitle)
         );
         if (dup) return;
         const mIdx = project.modules.findIndex((m) => m.id === ef.targetModuleId);
@@ -873,7 +889,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
           id: `eng_spatial_${ef.code}_${ef.targetComponentId || ef.targetId || alerts.length}`,
           kind: ef.code.includes("SWING") ? "door_swing" : ef.code.includes("MEP") ? "plumbing" : "module_overlap",
           severity: ef.severity === "error" ? "error" : "warning",
-          title: `${ef.code}`,
+          title: humanTitle,
           detail: ef.message,
           x: Math.round(ef.worldPositionMm.x),
           z: Math.round(ef.worldPositionMm.z),
@@ -7139,7 +7155,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         fontWeight="900"
                         fontFamily="monospace"
                       >
-                        {`⚠️ ${al.title}`}
+                        {`⚠️ ${al.title.startsWith("ERR_") || al.title.startsWith("WARN_") || al.title.startsWith("CHK_") ? formatIssueHumanTitle(al.title) : al.title}`}
                       </text>
                     </g>
                   );
@@ -7729,7 +7745,11 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       if (interiorDrag.kind === "divider") {
         const dxMm = (e.clientX - interiorDrag.startClientX) * mmPerPxX;
         const snappedW = Math.round((interiorDrag.startValueMm + dxMm) / 10) * 10;
-        setBayCustomWidth(interiorDrag.bayIdx, snappedW, false);
+        const divKey = `div_${interiorDrag.bayIdx}_${snappedW}`;
+        if (lastDividerCommitValRef.current !== divKey) {
+          lastDividerCommitValRef.current = divKey;
+          setBayCustomWidth(interiorDrag.bayIdx, snappedW, false);
+        }
         return;
       }
 
@@ -7739,13 +7759,17 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         const snappedX = Math.round((interiorDrag.startValueMm + dxMm) / 10) * 10;
         const startMidY =
           (interiorDrag.startElevY ?? 0) + (interiorDrag.itemHeightMm ?? 300) / 2;
-        const targetMidY = Math.round(startMidY + dyMm);
-        setSubDividerPlacement(
-          interiorDrag.bayIdx,
-          interiorDrag.targetId,
-          { offsetX: snappedX, targetMidY },
-          false
-        );
+        const targetMidY = Math.round(startMidY / 10) * 10 + Math.round(dyMm / 10) * 10;
+        const subKey = `sub_${interiorDrag.targetId}_${snappedX}_${targetMidY}`;
+        if (lastDividerCommitValRef.current !== subKey) {
+          lastDividerCommitValRef.current = subKey;
+          setSubDividerPlacement(
+            interiorDrag.bayIdx,
+            interiorDrag.targetId,
+            { offsetX: snappedX, targetMidY },
+            false
+          );
+        }
         const curBay = activeModule.bays[interiorDrag.bayIdx];
         if (curBay) {
           const ivs = getBayShelfIntervalsForSubDivider(
@@ -9082,7 +9106,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                             fontWeight="900"
                             fontFamily="monospace"
                           >
-                            {`⚠️ ${al.title}`}
+                            {`⚠️ ${al.title.startsWith("ERR_") || al.title.startsWith("WARN_") || al.title.startsWith("CHK_") ? formatIssueHumanTitle(al.title) : al.title}`}
                           </text>
                         </g>
                       );
@@ -9390,15 +9414,18 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 data-testid={`cad-el-${el.id}`}
                 data-interior-owner={dragMeta?.targetId}
                 onMouseDown={(e) => {
-                  setSelectedComponentId(el.id);
                   if (dragMeta && !elevPanMode && e.button === 0 && !e.altKey) {
                     e.stopPropagation();
                     const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
                     const scale = svgEl ? getElevScaleMmPerPx(svgEl) : { x: 4, y: 4 };
                     document.body.dataset.birimUiDragging = "1";
                     elevInteriorLiveRef.current = null;
-                    beginHistoryTransaction();
-                    setActiveBayIndex(dragMeta.bayIdx);
+                    lastDividerCommitValRef.current = "";
+                    selectModuleBayComponentSafe({
+                      activeBayIndex: dragMeta.bayIdx,
+                      selectedComponentId: el.id,
+                      beginBatch: true,
+                    });
                     setInteriorDrag({
                       kind: dragMeta.kind,
                       bayIdx: dragMeta.bayIdx,
@@ -9416,7 +9443,10 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
                     const scale = svgEl ? getElevScaleMmPerPx(svgEl) : { x: 4, y: 4 };
                     document.body.dataset.birimUiDragging = "1";
-                    beginHistoryTransaction();
+                    selectModuleBayComponentSafe({
+                      selectedComponentId: el.id,
+                      beginBatch: true,
+                    });
                     setElevDraggingMod({
                       modIdx: activeModuleIndex,
                       startClientX: e.clientX,
@@ -9426,6 +9456,8 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       mmPerPxX: scale.x,
                       mmPerPxY: scale.y,
                     });
+                  } else {
+                    setSelectedComponentId(el.id);
                   }
                 }}
                 className={`group/el ${

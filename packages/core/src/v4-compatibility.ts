@@ -6,6 +6,10 @@ import {
 } from "./types";
 import { DEFAULT_MATERIALS } from "./defaults";
 import { validateProject } from "./rules";
+import { loadCustomStandardRules } from "./standards-registry";
+function loadCustomStandardRulesCount(): number {
+  return loadCustomStandardRules().filter((r) => r.enabled).length;
+}
 import {
   calculateFourSpaceDimensions,
   inferDoorSystemIdFromType,
@@ -36,6 +40,7 @@ const DEFAULT_HARDWARE_SOURCE_MAP: Record<string, { sourceId: string; revision: 
   hw_blum_71b3750: { sourceId: "SRC_BLUM_CAT_HINGE", revision: "2024.1" },
   hw_blum_71b7550: { sourceId: "SRC_BLUM_CAT_HINGE", revision: "2024.1" },
   hw_blum_71b9550: { sourceId: "SRC_BLUM_CAT_HINGE", revision: "2024.1" },
+  hw_blum_79b9458: { sourceId: "SRC_BLUM_CAT_HINGE", revision: "2024.1" },
   hw_hettich_9071205: { sourceId: "SRC_HETTICH_SENSYS", revision: "2024.1" },
   hw_hettich_9099540: { sourceId: "SRC_HETTICH_SENSYS", revision: "2024.1" },
   hw_salice_c7p6ae9: { sourceId: "SRC_SALICE_SILENTIA", revision: "2024.1" },
@@ -47,7 +52,7 @@ const DEFAULT_HARDWARE_SOURCE_MAP: Record<string, { sourceId: string; revision: 
   hw_blum_aventos_hk_27: { sourceId: "SRC_BLUM_AVENTOS", revision: "2024.1" },
   hw_blum_aventos_hf_25: { sourceId: "SRC_BLUM_AVENTOS", revision: "2024.1" },
   hw_blum_aventos_hl_25: { sourceId: "SRC_BLUM_AVENTOS", revision: "2024.1" },
-  hw_hettich_topline_l: { sourceId: "SRC_HETTICH_WINGLINE", revision: "2024.1" },
+  hw_hettich_topline_l: { sourceId: "SRC_HETTICH_TOPLINE", revision: "2024.1" },
   hw_hafele_slido_bottom: { sourceId: "SRC_HAFELE_MATRIX", revision: "2024.1" },
   hw_hettich_wingline_l: { sourceId: "SRC_HETTICH_WINGLINE", revision: "2024.1" },
   hw_blum_revego_uno: { sourceId: "SRC_BLUM_REVEGO", revision: "2024.1" },
@@ -61,6 +66,9 @@ const DEFAULT_HARDWARE_SOURCE_MAP: Record<string, { sourceId: string; revision: 
  */
 export function evaluateModuleCompatibility(module: ModuleInstance): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
+  if (module.category === "complementary" || module.complementaryRole || module.carcass.hullShape === "capsule_table") {
+    return issues;
+  }
   const fourSpace = calculateFourSpaceDimensions(module);
   const { width, height, depth } = module.dimensions;
   const T_panel = module.carcass.panelThickness;
@@ -86,12 +94,16 @@ export function evaluateModuleCompatibility(module: ModuleInstance): ValidationI
   }
 
   // Category 14: Kitchen Built-in Appliance Recess Rules (EN 1116:2018)
+  const isSoloSurround =
+    module.templateId?.includes("fridge_surround") ||
+    module.name.toLowerCase().includes("solo buzdolabı");
   const isApplianceHousing =
-    module.templateId?.includes("oven") ||
-    module.templateId?.includes("fridge") ||
-    module.templateId?.includes("microwave") ||
-    module.name.toLowerCase().includes("fırın") ||
-    module.name.toLowerCase().includes("ankastre");
+    !isSoloSurround &&
+    (module.templateId?.includes("oven") ||
+      module.templateId?.includes("fridge") ||
+      module.templateId?.includes("microwave") ||
+      module.name.toLowerCase().includes("fırın") ||
+      module.name.toLowerCase().includes("ankastre"));
 
   if (isApplianceHousing) {
     if (width !== 600) {
@@ -148,7 +160,7 @@ export function evaluateModuleCompatibility(module: ModuleInstance): ValidationI
         : "manual_standard");
 
     // Category 12: Material Suitability (Shelf Span Deflection & J-Pull Material Check)
-    if ((bayW > 900 && bay.shelves.some((s) => s.isAdjustable && (s.thickness || 18) <= 18)) || (bayW > 1200 && (bay.shelves.length > 0 || bay.hangingRails.length > 0))) {
+    if ((bayW > 900 && bay.shelves.some((s) => !s.isGlass && s.isAdjustable && (s.thickness || 18) <= 18)) || (bayW > 1200 && (bay.shelves.length > 0 || bay.hangingRails.length > 0))) {
       issues.push({
         severity: "warning",
         code: "CHK_12_SHELF_SPAN_DEFLECTION",
@@ -185,6 +197,7 @@ export function evaluateModuleCompatibility(module: ModuleInstance): ValidationI
 
     // Category 1: Carcass / Door System Fit
     if (
+      module.carcass.hullShape !== "capsule_stadium" &&
       (dSys === "sliding_top_hung" || dSys === "sliding_bottom_rolling") &&
       (module.bays.length < 2 || width < 1100)
     ) {
@@ -629,10 +642,21 @@ export function evaluateModuleCompatibility(module: ModuleInstance): ValidationI
  * Evaluates full project compatibility combining base V3.1 geometric validations
  * with the 15-category V4 Universal Compatibility Engine.
  */
+const defaultCompatCache = new WeakMap<DesignProject, CompatibilityReport>();
+
 export function evaluateProjectCompatibility(
   project: DesignProject,
   options: EvaluateCompatibilityOptions = {}
 ): CompatibilityReport {
+  const isDefaultCall =
+    !options.hardwareSourceMap &&
+    !options.referenceDateIso &&
+    !options.activeCatalogVersion &&
+    loadCustomStandardRulesCount() === 0;
+  if (isDefaultCall) {
+    const cached = defaultCompatCache.get(project);
+    if (cached) return cached;
+  }
   const baseIssues = validateProject(project);
   const hwMap = { ...DEFAULT_HARDWARE_SOURCE_MAP, ...(options.hardwareSourceMap || {}) };
   const refDate = options.referenceDateIso || "2026-11-05";
@@ -821,7 +845,7 @@ export function evaluateProjectCompatibility(
 
   const canApproveProduction = !hasIncompatible && !hasUnverified;
 
-  return {
+  const finalCompatReport: CompatibilityReport = {
     overallStatus,
     canApproveProduction,
     checkedCategoriesCount: 15,
@@ -834,4 +858,8 @@ export function evaluateProjectCompatibility(
       allProductionGatesSatisfied: canApproveProduction,
     },
   };
+  if (isDefaultCall) {
+    defaultCompatCache.set(project, finalCompatReport);
+  }
+  return finalCompatReport;
 }

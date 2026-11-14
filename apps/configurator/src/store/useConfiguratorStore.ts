@@ -218,6 +218,12 @@ interface ConfiguratorState {
   importProjectJSON: (jsonStr: string) => { success: boolean; error?: string };
 
   // Revisions & Atomic Batch Undo
+  selectModuleBayComponent: (patch: {
+    activeModuleIndex?: number;
+    activeBayIndex?: number;
+    selectedComponentId?: string | null;
+    beginBatch?: boolean;
+  }) => void;
   beginHistoryTransaction: () => void;
   commitHistoryTransaction: () => void;
   createRevisionSnapshot: (label?: string) => string;
@@ -358,10 +364,12 @@ function scheduleBackgroundStoreNesting(project: DesignProject, bom: Manufacturi
   }, 180);
 }
 
+let deferredCommitRecomputeTimer: ReturnType<typeof setTimeout> | null = null;
+
 function recompute(project: DesignProject, options?: { syncInitial?: boolean }) {
-  const validationIssues = validateProject(project);
   const compat = evaluateProjectCompatibility(project);
   const unifiedEng = evaluateUnifiedEngineeringModel(project);
+  const validationIssues = unifiedEng.findings;
   project.verificationSnapshot = {
     overallStatus: !unifiedEng.canExportToCncAndSaw
       ? "INCOMPATIBLE"
@@ -701,6 +709,69 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     });
   },
 
+  selectModuleBayComponent: (patch) => {
+    const cur = get();
+    const nextModIdx =
+      typeof patch.activeModuleIndex === "number" ? patch.activeModuleIndex : cur.activeModuleIndex;
+    const nextBayIdx =
+      typeof patch.activeBayIndex === "number" ? patch.activeBayIndex : cur.activeBayIndex;
+    const nextCompId =
+      patch.selectedComponentId !== undefined ? patch.selectedComponentId : cur.selectedComponentId;
+    const wantsBatch = Boolean(patch.beginBatch && !cur.batchStartProject);
+    if (
+      !wantsBatch &&
+      nextModIdx === cur.activeModuleIndex &&
+      nextBayIdx === cur.activeBayIndex &&
+      nextCompId === cur.selectedComponentId
+    ) {
+      return;
+    }
+    const snapBatch = wantsBatch
+      ? {
+          ...cur.project,
+          space: {
+            ...cur.project.space,
+            walls: cur.project.space.walls.map((w) => ({
+              ...w,
+              position: { ...w.position },
+              elements: (w.elements || []).map((el) => ({
+                ...el,
+                position: { ...el.position },
+                dimensions: { ...el.dimensions },
+              })),
+            })),
+            elements: (cur.project.space.elements || []).map((el) => ({
+              ...el,
+              position: { ...el.position },
+              dimensions: { ...el.dimensions },
+            })),
+          },
+          modules: cur.project.modules.map((m) => ({
+            ...m,
+            position: { ...m.position },
+            rotation: m.rotation ? { ...m.rotation } : undefined,
+            dimensions: { ...m.dimensions },
+            carcass: { ...m.carcass },
+            bays: m.bays.map((b) => ({
+              ...b,
+              door: { ...b.door },
+              shelves: b.shelves.map((s) => ({ ...s })),
+              drawers: b.drawers.map((d) => ({ ...d })),
+              hangingRails: b.hangingRails.map((r) => ({ ...r })),
+              specialFittings: b.specialFittings ? b.specialFittings.map((f) => ({ ...f })) : [],
+              subDividers: b.subDividers ? b.subDividers.map((sd) => ({ ...sd })) : [],
+            })),
+          })),
+        }
+      : cur.batchStartProject;
+    set({
+      activeModuleIndex: nextModIdx,
+      activeBayIndex: nextBayIdx,
+      selectedComponentId: nextCompId,
+      ...(wantsBatch ? { batchStartProject: snapBatch } : {}),
+    });
+  },
+
   commitHistoryTransaction: () => {
     const { batchStartProject, project, history } = get();
     if (!batchStartProject) return;
@@ -711,6 +782,29 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       batchStartProject.sceneObjects !== project.sceneObjects;
     if (!hasChanged) {
       set({ batchStartProject: null });
+      return;
+    }
+    if (typeof window !== "undefined") {
+      // Zero-hitch pointerup: settle visual position immediately on this frame, then run heavy BOM/pricing/engineering off-frame!
+      const settledProject = project;
+      set({
+        history: [...history.slice(-50), batchStartProject],
+        future: [],
+        batchStartProject: null,
+      });
+      if (deferredCommitRecomputeTimer) clearTimeout(deferredCommitRecomputeTimer);
+      deferredCommitRecomputeTimer = setTimeout(() => {
+        deferredCommitRecomputeTimer = null;
+        const latest = get();
+        if (latest.batchStartProject !== null || latest.project !== settledProject) return;
+        const { validationIssues, bom, pricing, smartAdvice } = recompute(settledProject);
+        set({
+          validationIssues,
+          bom,
+          pricing,
+          smartAdvice,
+        });
+      }, 36);
       return;
     }
     const { validationIssues, bom, pricing, smartAdvice } = recompute(project);
@@ -2901,3 +2995,36 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     return extractedWalls.length;
   },
 }));
+
+
+/**
+ * HMR-safe atomic selection helper for 3D & 2D viewports.
+ * Guarantees zero runtime TypeError even if Next.js Fast Refresh preserves an older store singleton in memory.
+ */
+export function selectModuleBayComponentSafe(patch: {
+  activeModuleIndex?: number;
+  activeBayIndex?: number;
+  selectedComponentId?: string | null;
+  beginBatch?: boolean;
+}): void {
+  const st = useConfiguratorStore.getState();
+  if (typeof st.selectModuleBayComponent === "function") {
+    st.selectModuleBayComponent(patch);
+    return;
+  }
+  const nextModIdx =
+    typeof patch.activeModuleIndex === "number" ? patch.activeModuleIndex : st.activeModuleIndex;
+  const nextBayIdx =
+    typeof patch.activeBayIndex === "number" ? patch.activeBayIndex : st.activeBayIndex;
+  const nextCompId =
+    patch.selectedComponentId !== undefined ? patch.selectedComponentId : st.selectedComponentId;
+  if (patch.beginBatch && !st.batchStartProject && typeof st.beginHistoryTransaction === "function") {
+    st.beginHistoryTransaction();
+  }
+  useConfiguratorStore.setState({
+    activeModuleIndex: nextModIdx,
+    activeBayIndex: nextBayIdx,
+    selectedComponentId: nextCompId,
+    selectedModuleIds: st.project.modules[nextModIdx] ? [st.project.modules[nextModIdx].id] : [],
+  });
+}

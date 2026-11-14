@@ -11,6 +11,7 @@ import {
   evaluateSlidingDoorDeadZones,
 } from "./parametric-spec-engine";
 import { evaluateKitchenWorkTriangleAndErgonomics } from "./scene-objects-engine";
+import { evaluateCustomStandardRules } from "./standards-registry";
 
 /**
  * Eliminates IEEE-754 floating-point drift (e.g. 0.1 + 0.2 = 0.30000000000000004)
@@ -468,6 +469,10 @@ export function validateModule(
   const issues: ValidationIssue[] = [];
   const { width, height, depth } = module.dimensions;
 
+  if (module.category === "complementary" || module.complementaryRole || module.carcass.hullShape === "capsule_table") {
+    return issues;
+  }
+
   if (width < rules.minCarcassWidth) {
     issues.push({
       severity: "error",
@@ -556,7 +561,7 @@ export function validateModule(
     } else {
       const bayObj = module.bays[idx];
       const hasMovable18mmShelf = bayObj?.shelves?.some(
-        (sh) => !sh.isHidden && sh.isAdjustable && (sh.thickness || module.carcass.panelThickness || 18) <= 18
+        (sh) => !sh.isHidden && !sh.isGlass && sh.isAdjustable && (sh.thickness || module.carcass.panelThickness || 18) <= 18
       );
       const effMaxSpan = hasMovable18mmShelf ? rules.maxShelfSpanWithoutSupport : 1200;
       if (bayWidth > effMaxSpan) {
@@ -572,11 +577,15 @@ export function validateModule(
     const bay = module.bays[idx];
     if (bay) {
       // Structural fixed shelf check for tall bodies > 1800mm (MD Spec Section 4.1)
+      const hasStructuralPulloutFrame = (bay.specialFittings || []).some(
+        (f) => !f.isHidden && f.type === "pantry_pullout"
+      );
       if (
         height > 1800 &&
         module.category !== "complementary" &&
         !bay.shelves.some((s) => !s.isAdjustable && !s.isHidden) &&
-        bay.drawers.length === 0
+        bay.drawers.length === 0 &&
+        !hasStructuralPulloutFrame
       ) {
         issues.push({
           severity: "info",
@@ -633,7 +642,13 @@ export function validateModule(
           });
         }
 
-        if (drawer.isInternal && bay.door.type !== "open") {
+        const isHingedBayDoor =
+          bay.door.type !== "open" &&
+          !bay.door.type.startsWith("sliding") &&
+          bay.door.type !== "pocket" &&
+          bay.door.doorSystemId !== "pocket_retractable" &&
+          !String(bay.door.doorSystemId || "").startsWith("sliding");
+        if (drawer.isInternal && isHingedBayDoor) {
           const isZeroProtrusion =
             bay.door.hardwareProductId === "hw_blum_71b7550" ||
             bay.door.hardwareProductId === "hw_hettich_9099540" ||
@@ -685,7 +700,7 @@ export function validateModule(
         }
       });
 
-      if (bay.door.type === "sliding" && depth < 580) {
+      if (bay.door.type === "sliding" && depth < 580 && module.carcass.hullShape !== "capsule_stadium") {
         issues.push({
           severity: "warning",
           code: "WARN_SLIDING_DOOR_DEPTH",
@@ -1048,6 +1063,8 @@ export function validateProject(project: DesignProject): ValidationIssue[] {
     }
   }
 
+  issues.push(...evaluateCustomStandardRules(project));
+
   return issues;
 }
 
@@ -1097,7 +1114,8 @@ export function calculateShelfDeflection(
       ? 1.15
       : 1.0;
 
-  const uniformLoadKg = roundMm((loadKgPerMeter * L) / 1000, 2);
+  const depthLoadScale = b >= 500 ? 1 : Math.max(0.5, b / 500);
+  const uniformLoadKg = roundMm((loadKgPerMeter * depthLoadScale * L) / 1000, 2);
   const totalForceN = uniformLoadKg * 9.80665;
   const momentOfInertiaMm4 = (b * Math.pow(t, 3)) / 12;
 

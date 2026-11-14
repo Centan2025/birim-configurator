@@ -2,7 +2,7 @@
 import { solveAngledWallSnapForModule, originToModulePosition } from "../engine/angledWallSnapEngine";
 import { applyValidatedDimensionsToModule } from "../components/workspace/moduleLibraryUtils";
 import { useMemo, useCallback, useRef } from "react";
-import { useConfiguratorStore } from "../../store/useConfiguratorStore";
+import { useConfiguratorStore, selectModuleBayComponentSafe } from "../../store/useConfiguratorStore";
 import {
   DEFAULT_MATERIALS,
   registerRuntimeMaterial,
@@ -254,7 +254,7 @@ const cachedUnifiedEngByProject = new WeakMap<
   ReturnType<typeof evaluateUnifiedEngineeringModel>
 >();
 
-function getMemoizedUnifiedEngineering(project: DesignProject) {
+export function getMemoizedUnifiedEngineering(project: DesignProject) {
   const hit = cachedUnifiedEngByProject.get(project);
   if (hit) return hit;
   const computed = evaluateUnifiedEngineeringModel(project);
@@ -7086,6 +7086,7 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
     getSavedProjects,
     exportProjectJSON,
     importProjectJSON,
+    selectModuleBayComponent: selectModuleBayComponentSafe,
     beginHistoryTransaction,
     commitHistoryTransaction,
     createRevisionSnapshot,

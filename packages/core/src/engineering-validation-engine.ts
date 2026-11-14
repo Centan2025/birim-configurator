@@ -288,8 +288,10 @@ export function evaluateUnifiedEngineeringModel(
   const ergProfile = getErgonomicProfile(
     options?.ergonomicProfileId || project.ergonomicProfileId
   );
-  const compatReport = evaluateProjectCompatibility(project, options?.referenceDateIso);
-  const baseProjectIssues = validateProject(project);
+  const compatReport = evaluateProjectCompatibility(
+    project,
+    options?.referenceDateIso ? { referenceDateIso: options.referenceDateIso } : undefined
+  );
 
   const findingsMap = new Map<string, EngineeringValidationFinding>();
   const addFinding = (f: EngineeringValidationFinding) => {
@@ -299,8 +301,8 @@ export function evaluateUnifiedEngineeringModel(
     }
   };
 
-  // 1. Mevcut çekirdek ve V4 uyumluluk bulgularını yönetişim sınıflarıyla zenginleştir
-  for (const iss of [...baseProjectIssues, ...compatReport.issues]) {
+  // 1. Mevcut çekirdek ve V4 uyumluluk bulgularını yönetişim sınıflarıyla zenginleştir (compatReport.issues zaten validateProject bulgularını içerir!)
+  for (const iss of compatReport.issues) {
     const isUnverified = iss.compatibilityStatus === "UNVERIFIED" || iss.code.startsWith("CHK_15_");
     const isSafety =
       iss.code.includes("TIPOVER") ||
@@ -1636,7 +1638,10 @@ export function evaluateUnifiedEngineeringModel(
     });
 
     if (supportingBases.length === 0) {
-      if (upper.carcass.wallAnchored !== true) {
+      const hasWallSuspension =
+        upper.carcass.wallAnchored === true ||
+        Boolean(upper.carcass.wallSuspensionType && upper.carcass.wallSuspensionType !== "none");
+      if (!hasWallSuspension) {
         addFinding({
           severity: "error",
           code: "ERR_STACKED_MODULE_UNSUPPORTED_MIDAIR",

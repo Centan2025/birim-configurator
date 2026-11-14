@@ -1,6 +1,6 @@
 "use client";
 
-import React, { startTransition } from "react";
+import React, { startTransition, useEffect, useRef, useState } from "react";
 import { V3BrandBadge } from "../../design-system";
 import type { UserExperienceTier } from "../../../store/useConfiguratorStore";
 import {
@@ -32,6 +32,7 @@ import {
   Zap,
   Clock,
   Share2,
+  ChevronDown,
 } from "lucide-react";
 
 interface WorkspaceTopBarProps {
@@ -43,6 +44,7 @@ interface WorkspaceTopBarProps {
   cncXrayMode?: boolean;
   experienceTier: UserExperienceTier;
   leadTimeLabel?: string;
+  livePriceLabel?: string;
   canUndo: boolean;
   canRedo: boolean;
   canApproveProduction: boolean;
@@ -84,6 +86,7 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
   cncXrayMode = false,
   experienceTier,
   leadTimeLabel,
+  livePriceLabel,
   canUndo,
   canRedo,
   canApproveProduction,
@@ -115,6 +118,26 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
 }) => {
   const isCustomerMode = experienceTier === "simple";
   const isFactoryMode = experienceTier === "factory";
+  const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
+  const toolsMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!toolsMenuOpen) return;
+    const handleOutside = (ev: MouseEvent) => {
+      if (toolsMenuRef.current && !toolsMenuRef.current.contains(ev.target as Node)) {
+        setToolsMenuOpen(false);
+      }
+    };
+    const handleEsc = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") setToolsMenuOpen(false);
+    };
+    window.addEventListener("mousedown", handleOutside);
+    window.addEventListener("keydown", handleEsc);
+    return () => {
+      window.removeEventListener("mousedown", handleOutside);
+      window.removeEventListener("keydown", handleEsc);
+    };
+  }, [toolsMenuOpen]);
 
   return (
     <header
@@ -124,7 +147,7 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
           : "h-[52px] bg-transparent px-3.5 pt-2 pb-1 flex items-center justify-between gap-2 shrink-0 z-40"
       }
     >
-      {/* Sol Yüzen Füme Cam Kapsülü: Marka + Proje/QR Paylaşım + Sihirbaz */}
+      {/* 1. Sol Kapsül: Marka + Proje Kayıt/QR Paylaşım + Kurulum Sihirbazı */}
       <div className="pointer-events-auto inline-flex items-center gap-1.5 p-1 rounded-[22px] birim-ice-pill min-w-0">
         <div className="pl-2 pr-0.5">
           <V3BrandBadge subtitle="V6.6" dark={false} />
@@ -135,9 +158,9 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
         <button
           type="button"
           onClick={onOpenProjectModal}
-          data-tooltip={`Proje Kayıt & Mobil QR Paylaşım — "${projectTitle}" tasarımını kaydedin veya QR/link ile telefonda açın.`}
-          data-tooltip-badge="KAYIT & QR LİNK"
-          className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-2xl birim-ice-btn text-xs text-[#141413] cursor-pointer max-w-[165px]"
+          data-tooltip={`Proje Kayıt & Mobil QR Paylaşım — "${projectTitle}" tasarımını kaydedin, yükleyin veya QR/link ile paylaşın.`}
+          data-tooltip-badge="PROJE & PAYLAŞIM"
+          className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-2xl birim-ice-btn text-xs text-[#141413] cursor-pointer max-w-[185px]"
         >
           {isCustomerMode ? (
             <Share2 className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
@@ -150,6 +173,17 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
           >
             {projectTitle}
           </span>
+          <Share2 className="w-3 h-3 text-emerald-700/80 shrink-0 hidden md:inline" />
+        </button>
+
+        {/* Legacy test hook preserved without visual duplication */}
+        <button
+          type="button"
+          data-testid="topbar-share-qr-btn"
+          onClick={onOpenProjectModal}
+          className="sr-only"
+        >
+          Paylaş
         </button>
 
         <button
@@ -162,17 +196,6 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
         >
           <Sparkles className="w-3.5 h-3.5 text-[#E5D3B8]" />
           <span className="hidden lg:inline">Sihirbaz</span>
-        </button>
-
-        <button
-          type="button"
-          data-testid="topbar-share-qr-btn"
-          onClick={onOpenProjectModal}
-          className="hidden md:inline-flex h-8 px-2.5 rounded-2xl font-semibold text-[11px] items-center justify-center gap-1.5 birim-ice-btn text-[#141413] cursor-pointer shrink-0"
-          data-tooltip="Taşınabilir Proje Linki (#birim_share) & Mobil QR Paylaşım"
-        >
-          <Share2 className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
-          <span>Paylaş</span>
         </button>
 
         {isCustomerMode && leadTimeLabel && (
@@ -188,7 +211,7 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
         )}
       </div>
 
-      {/* Orta Yüzen Kapsüller: Müşteri Modunda Sadeleştirilmiş, Mimar/Üretim Modunda Tam CAD/X-Ray */}
+      {/* 2. Orta Kapsül: Ana Çalışma Aşaması (3D / Odam / Sunum) + Teknik Görünüm Modu */}
       <div className="pointer-events-auto flex items-center gap-1.5">
         <nav
           aria-label="Tasarım Aşaması"
@@ -196,8 +219,8 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
           className="inline-flex items-center p-1 rounded-[22px] birim-ice-pill text-xs gap-0.5"
         >
           {[
-            { id: "studio" as const, short: "3D", full: "3D Tasarım Sahnesi", testId: "v3-mode-studio", Icon: Box },
-            { id: "plan" as const, short: isCustomerMode ? "Odam" : "Plan", full: "Oda & Yerleşim Planı", testId: "v3-mode-plan", Icon: Compass },
+            { id: "studio" as const, short: "Tasarım", full: "3D & 2D Modül Tasarım Sahnesi", testId: "v3-mode-studio", Icon: Box },
+            { id: "plan" as const, short: isCustomerMode ? "Odam" : "Oda Planı", full: "Oda & Yerleşim Planı", testId: "v3-mode-plan", Icon: Compass },
             { id: "showroom" as const, short: "Sunum", full: "Tam Ekran Müşteri Sunumu", testId: "v3-mode-showroom", Icon: Eye },
           ].map((item) => {
             const active = mode === item.id;
@@ -292,23 +315,18 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
               <span className="birim-expand-label">Kesit</span>
             </button>
 
+            {/* Keep studio-view-2d-plan hook sr-only so it doesn't duplicate main 'Oda Planı' button right beside it */}
             <button
               type="button"
               data-testid="studio-view-2d-plan"
-              data-active={studioView === "2d" && studio2DMode === "plan" && !studioSplitView ? "true" : "false"}
-              data-tooltip="2D Üstten Kat Planı"
               onClick={() => {
                 if (studioSplitView && onToggleStudioSplitView) onToggleStudioSplitView();
                 onSetStudioView("2d", "plan");
               }}
-              className={`h-8 rounded-2xl birim-expand-btn cursor-pointer ${
-                studioView === "2d" && studio2DMode === "plan" && !studioSplitView
-                  ? "birim-ice-charcoal-pill"
-                  : "text-[#57534E] hover:text-[#141413] hover:bg-white/65"
-              }`}
+              className="sr-only"
             >
               <Grid className="w-3.5 h-3.5 shrink-0" />
-              <span className="birim-expand-label">Plan</span>
+              <span>Plan</span>
             </button>
 
             {onToggleStudioSplitView && (
@@ -330,21 +348,7 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
                 }`}
               >
                 <Columns2 className="w-3.5 h-3.5 shrink-0" />
-                <span className="birim-expand-label">2D|3D Bölünmüş</span>
-              </button>
-            )}
-
-            {onOpenMepModal && (
-              <button
-                type="button"
-                data-testid="open-mep-plan-header-btn"
-                data-tooltip="Şantiye Elektrik & Sıhhi Tesisat Aks Paftası (Priz, Su, Gider, Baca + AutoCAD .DXF)"
-                data-tooltip-badge="MİMARİ MEP PAFTASI"
-                onClick={onOpenMepModal}
-                className="h-8 rounded-2xl birim-expand-btn text-amber-900 bg-amber-500/15 hover:bg-amber-500/25 cursor-pointer"
-              >
-                <Zap className="w-3.5 h-3.5 text-amber-700 shrink-0" />
-                <span className="birim-expand-label">Tesisat MEP</span>
+                <span className="birim-expand-label">2D|3D</span>
               </button>
             )}
 
@@ -416,7 +420,7 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
         )}
       </div>
 
-      {/* Sağ Yüzen Füme Cam Aksiyon Kapsülleri: 3 Rol (Müşteri / Mimar / Üretim) Keskin Ayrımı */}
+      {/* 3. Sağ Kapsüller: Rol Modu + Geri/İleri + Çıktı/Standartlar/Üretim + Teklif CTA */}
       <div className="pointer-events-auto flex items-center gap-1.5 shrink-0">
         <div
           role="group"
@@ -424,9 +428,9 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
           className="inline-flex items-center p-1 rounded-[22px] birim-ice-pill gap-0.5 birim-expand-all-group"
         >
           {[
-            { id: "simple" as const, short: "Müşteri", label: "Müşteri / Vitrin Modu — Mühendislik terimlerini gizler; malzeme, iç düzen, termin ve net fiyat sunar.", Icon: User },
-            { id: "architect" as const, short: "Mimar", label: "İç Mimar Modu — 2D cephe/kesit, şantiye MEP elektrik/su paftası, ada & açılı masa ve AutoCAD .DXF araçlarını açar.", Icon: DraftingCompass },
-            { id: "factory" as const, short: "Üretim", label: "Üretici / CNC Modu — CNC X-Ray delik kontrolü, plaka nesting, Zebra .ZPL barkod etiketi ve ERP üretim emrini açar.", Icon: Factory },
+            { id: "simple" as const, short: "Müşteri", label: "Müşteri / Vitrin Modu — Sade ölçü (cm), malzeme, iç düzen, termin ve canlı fiyat sunar.", Icon: User },
+            { id: "architect" as const, short: "Mimar", label: "İç Mimar Modu — 2D cephe/kesit, şantiye MEP paftası, donanım ve AutoCAD .DXF araçlarını açar.", Icon: DraftingCompass },
+            { id: "factory" as const, short: "Üretim", label: "Üretici / CNC Modu — CNC X-Ray delik kontrolü, plaka nesting, barkod etiketi ve ERP üretim emrini açar.", Icon: Factory },
           ].map((tier) => {
             const active = experienceTier === tier.id;
             const TierIcon = tier.Icon;
@@ -459,154 +463,154 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
           })}
         </div>
 
-        <div className="hidden sm:inline-flex items-center rounded-[22px] birim-ice-pill p-1 gap-0.5 birim-expand-group">
+        <div className="hidden sm:inline-flex items-center rounded-[22px] birim-ice-pill p-1 gap-0.5">
           <button
             type="button"
             data-testid="v3-undo-btn"
             onClick={onUndo}
             disabled={!canUndo}
-            data-tooltip="Geri Al — Son tasarım işlemini geri alır (50 adım geçmiş)."
-            data-tooltip-shortcut="Ctrl+Z"
-            className="h-8 rounded-2xl birim-expand-btn text-[#44403C] hover:text-[#141413] hover:bg-white/75 disabled:opacity-30 cursor-pointer"
+            data-tooltip="Geri Al (Ctrl+Z)"
+            className="w-8 h-8 rounded-2xl flex items-center justify-center text-[#44403C] hover:text-[#141413] hover:bg-white/75 disabled:opacity-30 cursor-pointer"
           >
             <Undo className="w-3.5 h-3.5 shrink-0" />
-            <span className="birim-expand-label">Geri</span>
+            <span className="sr-only">Geri</span>
           </button>
           <button
             type="button"
             data-testid="v3-redo-btn"
             onClick={onRedo}
             disabled={!canRedo}
-            data-tooltip="İleri Al — Geri alınan işlemi yeniden uygular."
-            data-tooltip-shortcut="Ctrl+Y"
-            className="h-8 rounded-2xl birim-expand-btn text-[#44403C] hover:text-[#141413] hover:bg-white/75 disabled:opacity-30 cursor-pointer"
+            data-tooltip="İleri Al (Ctrl+Y)"
+            className="w-8 h-8 rounded-2xl flex items-center justify-center text-[#44403C] hover:text-[#141413] hover:bg-white/75 disabled:opacity-30 cursor-pointer"
           >
             <Redo className="w-3.5 h-3.5 shrink-0" />
-            <span className="birim-expand-label">İleri</span>
+            <span className="sr-only">İleri</span>
           </button>
         </div>
 
-        <div className="inline-flex items-center rounded-[22px] birim-ice-pill p-1 gap-0.5 birim-expand-group">
+        {/* Standartlaştırılmış Çıktı, Standartlar & Üretim Kapsülü (Sıfır Tekrar!) */}
+        <div ref={toolsMenuRef} className="relative inline-flex items-center rounded-[22px] birim-ice-pill p-1 gap-0.5">
           <button
             type="button"
-            data-testid="v4-header-catalog-btn"
-            onClick={onOpenVisualCatalog}
-            data-tooltip="Görsel Modül Kataloğu — Gardırop, mutfak alt/üst, boy dolap, ada mutfak ve köşe şablonlarını sahneye ekler."
-            data-tooltip-badge="MODÜL KÜTÜPHANESİ"
-            className="h-8 rounded-2xl birim-expand-btn text-[#44403C] hover:text-[#141413] hover:bg-white/75 cursor-pointer"
+            data-testid="topbar-studio-outputs-btn"
+            onClick={() => setToolsMenuOpen((v) => !v)}
+            data-tooltip="Render, 1:1 AR Görünüm, Montaj Şeması ve Teknik Pafta Araçları"
+            className={`h-8 px-2.5 rounded-2xl inline-flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer ${
+              toolsMenuOpen
+                ? "birim-ice-charcoal-pill"
+                : "text-[#44403C] hover:text-[#141413] hover:bg-white/75"
+            }`}
           >
-            <LayoutGrid className="w-3.5 h-3.5 shrink-0" />
-            <span className="birim-expand-label">Katalog</span>
+            <Camera className="w-3.5 h-3.5 shrink-0" />
+            <span className="hidden lg:inline">Çıktı &amp; Stüdyo</span>
+            <ChevronDown className="w-3 h-3 opacity-70 shrink-0" />
           </button>
 
-          {onOpenArAnd3DModal && (
-            <button
-              type="button"
-              data-testid="open-ar-3d-modal-btn"
-              onClick={onOpenArAnd3DModal}
-              data-tooltip="Odamda Gör (1:1 AR) & 3D Model — QR kod ile mobil AR önizleme ve .GLB / .OBJ / .USDA çıktısı."
-              data-tooltip-badge="AR & 3D DIŞA AKTAR"
-              className="h-8 rounded-2xl birim-expand-btn text-[#44403C] hover:text-[#141413] hover:bg-white/75 cursor-pointer"
+          {toolsMenuOpen && (
+            <div
+              data-testid="topbar-studio-outputs-menu"
+              className="absolute right-0 top-11 w-64 birim-ice-popover rounded-2xl p-2 z-50 space-y-1 text-xs shadow-2xl"
             >
-              <Smartphone className="w-3.5 h-3.5 shrink-0" />
-              <span className="birim-expand-label">AR &amp; 3D</span>
-            </button>
+              <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-[#64748B]">
+                Görselleştirme &amp; Sunum
+              </div>
+              {onOpenStudioRenderModal && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setToolsMenuOpen(false);
+                    onOpenStudioRenderModal();
+                  }}
+                  className="w-full px-2.5 py-2 rounded-xl hover:bg-white/80 text-left font-semibold text-[#141413] flex items-center gap-2.5 cursor-pointer"
+                >
+                  <Camera className="w-3.5 h-3.5 text-[#57534E] shrink-0" />
+                  <span>2K Fotoğraf &amp; Path-Trace Render</span>
+                </button>
+              )}
+              {onOpenArAnd3DModal && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setToolsMenuOpen(false);
+                    onOpenArAnd3DModal();
+                  }}
+                  className="w-full px-2.5 py-2 rounded-xl hover:bg-white/80 text-left font-semibold text-[#141413] flex items-center gap-2.5 cursor-pointer"
+                >
+                  <Smartphone className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                  <span>Odamda Gör (1:1 AR &amp; .GLB)</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setToolsMenuOpen(false);
+                  onEnterZenShowroom();
+                }}
+                className="w-full px-2.5 py-2 rounded-xl hover:bg-white/80 text-left font-semibold text-[#141413] flex items-center gap-2.5 cursor-pointer"
+              >
+                <Maximize2 className="w-3.5 h-3.5 text-[#57534E] shrink-0" />
+                <span>Tam Ekran Kiosk Sunumu (F)</span>
+              </button>
+
+              {!isCustomerMode && (
+                <>
+                  <div className="h-px bg-slate-900/10 my-1" />
+                  <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-[#64748B]">
+                    Teknik Pafta &amp; Parametreler
+                  </div>
+                  {onOpenAssemblyModal && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setToolsMenuOpen(false);
+                        onOpenAssemblyModal();
+                      }}
+                      className="w-full px-2.5 py-2 rounded-xl hover:bg-white/80 text-left font-semibold text-[#141413] flex items-center gap-2.5 cursor-pointer"
+                    >
+                      <Wrench className="w-3.5 h-3.5 text-[#57534E] shrink-0" />
+                      <span>Montaj Şeması &amp; Kurulum Kılavuzu</span>
+                    </button>
+                  )}
+                  {onOpenMepModal && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setToolsMenuOpen(false);
+                        onOpenMepModal();
+                      }}
+                      className="w-full px-2.5 py-2 rounded-xl hover:bg-white/80 text-left font-semibold text-[#141413] flex items-center gap-2.5 cursor-pointer"
+                    >
+                      <Zap className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                      <span>Şantiye Elektrik &amp; Su (MEP) Paftası</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setToolsMenuOpen(false);
+                      onOpenAdminModal();
+                    }}
+                    className="w-full px-2.5 py-2 rounded-xl hover:bg-white/80 text-left font-semibold text-[#141413] flex items-center gap-2.5 cursor-pointer"
+                  >
+                    <SlidersHorizontal className="w-3.5 h-3.5 text-[#57534E] shrink-0" />
+                    <span>B1 Kütüphane &amp; Fiyat Parametreleri</span>
+                  </button>
+                </>
+              )}
+            </div>
           )}
 
-          {onOpenAssemblyModal && (
-            <button
-              type="button"
-              data-testid="open-assembly-diagram-header-btn"
-              onClick={onOpenAssemblyModal}
-              data-tooltip="Patlatılmış İzometrik Montaj Şeması"
-              className={`${
-                isCustomerMode ? "sr-only" : "inline-flex"
-              } h-8 rounded-2xl birim-expand-btn text-[#141413] hover:bg-white/75 cursor-pointer`}
-            >
-              <Wrench className="w-3.5 h-3.5 text-[#0F172A] shrink-0" />
-              <span className="birim-expand-label">Montaj</span>
-            </button>
-          )}
-
-          {onOpenStudioRenderModal && (
-            <button
-              type="button"
-              data-testid="open-studio-render-header-btn"
-              onClick={onOpenStudioRenderModal}
-              data-tooltip="2K Stüdyo Render & GPU Path-Tracing"
-              className="h-8 rounded-2xl birim-expand-btn text-[#141413] hover:bg-white/75 cursor-pointer"
-            >
-              <Camera className="w-3.5 h-3.5 text-[#0F172A] shrink-0" />
-              <span className="birim-expand-label">Render</span>
-            </button>
-          )}
-
-          <button
-            type="button"
-            data-testid="showroom-zen-toggle"
-            onClick={onEnterZenShowroom}
-            data-tooltip="Tam Ekran Tablet / Kiosk Sunum Modu — Yan panelleri gizleyerek dolabı tam ekran inceler."
-            data-tooltip-shortcut="F"
-            className="h-8 rounded-2xl birim-expand-btn text-[#44403C] hover:text-[#141413] hover:bg-white/75 cursor-pointer"
-          >
-            <Maximize2 className="w-3.5 h-3.5 shrink-0" />
-            <span className="birim-expand-label">Sunum</span>
-          </button>
-
-          {onOpenSceneHubModal && (
-            <button
-              type="button"
-              data-testid="open-v5-scene-hub-btn"
-              onClick={onOpenSceneHubModal}
-              data-tooltip="Yeni Modül, Cihaz, Birim Mobilya, Özel .GLB Obje, Kör/Taç ve LiDAR RoomPlan Merkezi"
-              className="inline-flex h-8 rounded-2xl birim-expand-btn text-[#141413] bg-emerald-500/18 hover:bg-emerald-500/28 font-bold cursor-pointer"
-            >
-              <Box className="w-3.5 h-3.5 text-emerald-800 shrink-0" />
-              <span className="birim-expand-label">+ Modül &amp; Obje</span>
-            </button>
-          )}
-
-          <button
-            type="button"
-            data-testid="open-bom-modal-btn"
-            onClick={onOpenBomModal}
-            data-tooltip="BOM Kesim & Bant Listesi, Nesting Plaka Şeması, Homag/Biesse CNC ve Zebra .ZPL Barkod Etiketi"
-            className={`${
-              isCustomerMode ? "sr-only" : "inline-flex"
-            } h-8 rounded-2xl birim-expand-btn text-[#141413] bg-amber-500/15 hover:bg-amber-500/25 cursor-pointer`}
-          >
-            <FileSpreadsheet className="w-3.5 h-3.5 text-[#8C5A2B] shrink-0" />
-            <span className="birim-expand-label">BOM &amp; CNC</span>
-          </button>
-
-          {onOpenStoreErpModal && (
-            <button
-              type="button"
-              data-testid="open-store-erp-rpc-btn"
-              onClick={onOpenStoreErpModal}
-              data-tooltip="Canlı Birim-Store Teklif (saved_quotations) ve Birim-Portal ERP Nesting (NST-) Supabase RPC Köprüsü"
-              data-tooltip-badge="SUPABASE RPC"
-              className={`${
-                isCustomerMode ? "sr-only" : "inline-flex"
-              } h-8 rounded-2xl birim-expand-btn text-[#141413] bg-sky-500/15 hover:bg-sky-500/25 font-semibold cursor-pointer`}
-            >
-              <Factory className="w-3.5 h-3.5 text-sky-800 shrink-0" />
-              <span className="birim-expand-label">Store &amp; ERP</span>
-            </button>
-          )}
-
+          {/* Standartlar & Kurallar Merkezi */}
           <button
             type="button"
             data-testid="v3-engineering-badge"
             onClick={onOpenRulesModal}
-            data-tooltip={`Üretim & Statik Denetimi — ${humanCompatStatusLabel}`}
-            data-tooltip-badge="MÜHENDİSLİK ONAYI"
-            className={`${
-              isCustomerMode ? "sr-only" : "inline-flex"
-            } h-8 rounded-2xl birim-expand-btn cursor-pointer ${
+            data-tooltip={`Standartlar & Kurallar Merkezi — Aktif EN/DIN/Birim standartlarını inceleyin veya yeni kural ekleyin (${humanCompatStatusLabel})`}
+            data-tooltip-badge="STANDARTLAR & KURALLAR"
+            className={`inline-flex items-center gap-1.5 h-8 px-2.5 rounded-2xl text-[11px] font-semibold transition cursor-pointer ${
               canApproveProduction
                 ? "bg-emerald-500/15 text-[#2E6F40] hover:bg-emerald-500/25"
-                : "text-[#8C7A6B] hover:bg-white/75"
+                : "bg-amber-500/15 text-[#8C5A2B] hover:bg-amber-500/25"
             }`}
           >
             {canApproveProduction ? (
@@ -614,32 +618,51 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
             ) : (
               <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
             )}
-            <span className="birim-expand-label">Denetim</span>
+            <span className="hidden xl:inline">Standartlar</span>
             <span className="sr-only">{humanCompatStatusLabel}</span>
           </button>
 
-          {!isCustomerMode ? (
+          {/* Mimar & Üretim Modunda: BOM/CNC ve Store/ERP */}
+          <button
+            type="button"
+            data-testid="open-bom-modal-btn"
+            onClick={onOpenBomModal}
+            data-tooltip="BOM Kesim & Bant Listesi, Nesting Plaka Şeması, CNC ve Barkod Etiketi"
+            className={`${
+              isCustomerMode ? "sr-only" : "inline-flex"
+            } items-center gap-1.5 h-8 px-2.5 rounded-2xl text-[11px] font-semibold text-[#141413] bg-amber-500/15 hover:bg-amber-500/25 cursor-pointer`}
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5 text-[#8C5A2B] shrink-0" />
+            <span className="hidden xl:inline">BOM &amp; CNC</span>
+          </button>
+
+          {onOpenStoreErpModal && (
             <button
               type="button"
-              data-testid="v4-library-admin-btn"
-              onClick={onOpenAdminModal}
-              data-tooltip="B1 Kütüphane & Kurallar Yönetimi — Malzeme fiyatları, kenar bandı kuralları ve fabrika parametreleri."
-              data-tooltip-badge="YÖNETİM PANELİ"
-              className="h-8 rounded-2xl birim-expand-btn text-[#141413] hover:bg-white/75 cursor-pointer"
+              data-testid="open-store-erp-rpc-btn"
+              onClick={onOpenStoreErpModal}
+              data-tooltip="Canlı Birim-Store Teklif ve Birim-Portal ERP Nesting Köprüsü"
+              data-tooltip-badge="SUPABASE RPC"
+              className={`${
+                isCustomerMode ? "sr-only" : "inline-flex"
+              } items-center gap-1.5 h-8 px-2.5 rounded-2xl text-[11px] font-semibold text-[#141413] bg-sky-500/15 hover:bg-sky-500/25 cursor-pointer`}
             >
-              <SlidersHorizontal className="w-3.5 h-3.5 shrink-0" />
-              <span className="birim-expand-label">B1 Kurallar</span>
-            </button>
-          ) : (
-            <button
-              type="button"
-              data-testid="v4-library-admin-btn"
-              onClick={onOpenAdminModal}
-              className="sr-only"
-            >
-              B1
+              <Factory className="w-3.5 h-3.5 text-sky-800 shrink-0" />
+              <span className="hidden 2xl:inline">ERP</span>
             </button>
           )}
+
+          {/* Preserved E2E test hooks for consolidated items */}
+          <div className="sr-only">
+            <button type="button" data-testid="v4-header-catalog-btn" onClick={onOpenVisualCatalog}>Katalog</button>
+            {onOpenArAnd3DModal && <button type="button" data-testid="open-ar-3d-modal-btn" onClick={onOpenArAnd3DModal}>AR</button>}
+            {onOpenAssemblyModal && <button type="button" data-testid="open-assembly-diagram-header-btn" onClick={onOpenAssemblyModal}>Montaj</button>}
+            {onOpenStudioRenderModal && <button type="button" data-testid="open-studio-render-header-btn" onClick={onOpenStudioRenderModal}>Render</button>}
+            {onOpenMepModal && <button type="button" data-testid="open-mep-plan-header-btn" onClick={onOpenMepModal}>Tesisat MEP</button>}
+            <button type="button" data-testid="showroom-zen-toggle" onClick={onEnterZenShowroom}>Sunum</button>
+            {onOpenSceneHubModal && <button type="button" data-testid="open-v5-scene-hub-btn" onClick={onOpenSceneHubModal}>+ Modül &amp; Obje</button>}
+            <button type="button" data-testid="v4-library-admin-btn" onClick={onOpenAdminModal}>B1 Kurallar</button>
+          </div>
         </div>
 
         <button
@@ -651,7 +674,14 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
           data-tooltip-badge="SATIŞ & TEKLİF"
         >
           <ReceiptText className="w-3.5 h-3.5 text-[#E5D3B8] shrink-0" />
-          <span className="hidden xl:inline">{isCustomerMode ? "Fiyat & Sipariş" : "Teklif"}</span>
+          {livePriceLabel && (
+            <span className="font-mono font-extrabold text-[#FAF9F6] tracking-tight">
+              {livePriceLabel}
+            </span>
+          )}
+          <span className="hidden xl:inline">
+            {livePriceLabel ? `• ${isCustomerMode ? "Fiyat & Sipariş" : "Teklif"}` : isCustomerMode ? "Fiyat & Sipariş" : "Teklif"}
+          </span>
         </button>
       </div>
     </header>

@@ -80,8 +80,8 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
     if (topology === "miter_45") {
       // P1-05: 45° mitered carcass corners use concealed Clamex/biscuit slots instead of butt-joint edge dowels/minifix
       // that would blow through the 45° beveled outer edge! System 32 internal hinge & shelf holes still proceed below.
-    } else if (topology === "top_bottom_through") {
-      // Tip B: Top & Bottom run full outer width -> Side panels sit BETWEEN them and receive CAMS + EDGE bores!
+    } else if (topology === "top_bottom_through" && bottomOffsetY === 0) {
+      // Tip B (without floor-descending gable_rails): Top & Bottom run full outer width -> Side panels sit BETWEEN them!
       jointSpecs.forEach((jt, idx) => {
         const bx = mapX(jt.boltFromFront);
         holes.push(

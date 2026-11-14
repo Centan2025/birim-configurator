@@ -286,17 +286,16 @@ export function calculateFourSpaceDimensions(
   const carcassBoxHeightMm = Math.max(0, roundIntMm(height - plinth - (hasCustomTopThick ? T_top : 0)));
   const sidePanelHeightMm = hasCustomTopThick
     ? Math.max(0, roundIntMm((sideRunsToFloor ? height : height - plinth) - T_top))
+    : sideRunsToFloor
+    ? Math.max(0, roundIntMm(joinery === "top_bottom_through" ? height - T : height))
     : joinery === "top_bottom_through"
     ? Math.max(0, carcassBoxHeightMm - 2 * T)
-    : sideRunsToFloor
-    ? roundIntMm(height)
     : carcassBoxHeightMm;
-  const sidePanelBottomYMm =
-    joinery === "top_bottom_through" && !hasCustomTopThick
-      ? roundIntMm(plinth + T)
-      : sideRunsToFloor
-      ? 0
-      : roundIntMm(plinth);
+  const sidePanelBottomYMm = sideRunsToFloor
+    ? 0
+    : joinery === "top_bottom_through" && !hasCustomTopThick
+    ? roundIntMm(plinth + T)
+    : roundIntMm(plinth);
   const horizontalPanelWidthMm =
     hasCustomTopThick || joinery === "top_bottom_through" || joinery === "miter_45"
       ? roundIntMm(width)
@@ -496,8 +495,29 @@ export function calculateFourSpaceDimensions(
         : isDouble
         ? Math.max(0, roundIntMm((totalDoorSpanW - centerGap) / 2))
         : roundIntMm(totalDoorSpanW);
-    // P1-01 Engineering Fix: Never silently clamp leafWidthMm to 600mm or silently convert single->double!
-    const leafWidthMm = rawLeafWidthMm;
+    // P1-01 Engineering Fix: Never silently clamp regular cabinet leafWidthMm; for Blind Corner & 45° Diagonal Corner,
+    // use the actual hinged access opening width rather than full L/blind carcass span!
+    const nameLowerForCorner = (module.name || "").toLowerCase();
+    const isBlindCornerMod =
+      module.bays.length === 1 &&
+      (tplId.includes("blind") || nameLowerForCorner.includes("kör köşe"));
+    const isDiagCornerMod =
+      module.bays.length === 1 &&
+      (tplId.includes("diagonal") || nameLowerForCorner.includes("diyagonal"));
+    const blindAccessSpanMm = isBlindCornerMod
+      ? Math.max(400, roundIntMm(width - Math.max(120, Math.round((width - 2 * T) * 0.45)) - 2 * gap))
+      : rawLeafWidthMm;
+    const diagWingDMm = isWardrobe
+      ? Math.min(600, Math.round(Math.min(width, depth) * 0.58))
+      : Math.min(580, Math.round(Math.min(width, depth) * 0.64));
+    const diagBevelSpanMm = isDiagCornerMod
+      ? Math.max(380, roundIntMm(Math.hypot(Math.max(120, width - diagWingDMm), Math.max(120, depth - diagWingDMm)) - 2 * gap))
+      : rawLeafWidthMm;
+    const leafWidthMm = isBlindCornerMod
+      ? Math.min(rawLeafWidthMm, blindAccessSpanMm)
+      : isDiagCornerMod
+      ? Math.min(rawLeafWidthMm, diagBevelSpanMm)
+      : rawLeafWidthMm;
 
     // Horizontal Top L-Gola finger clearance deduction (35mm on base cabinets, 0mm on wall cabinets with bottom overhang)
     const golaDeduction =

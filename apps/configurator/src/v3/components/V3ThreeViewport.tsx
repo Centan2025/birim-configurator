@@ -17,6 +17,7 @@ import {
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import {
   useV3Adapter,
+  getMemoizedUnifiedEngineering,
   generateModuleGeometry,
   DEFAULT_MATERIALS,
   getModuleOrientedFootprint,
@@ -81,7 +82,7 @@ import {
 } from "./Viewport3DContextMenu";
 import { Plus, Layers, RotateCw, Columns, Ruler, Eye, EyeOff } from "lucide-react";
 import { startAccessorySilhouetteDrag } from "../engine/kitchenSpatialEngine";
-import { useConfiguratorStore } from "../../store/useConfiguratorStore";
+import { useConfiguratorStore, selectModuleBayComponentSafe } from "../../store/useConfiguratorStore";
 
 
 let cachedContactAoTex: THREE.CanvasTexture | null = null;
@@ -637,6 +638,7 @@ export interface V3ThreeViewportProps {
   showInCanvasHud?: boolean;
   showDimensions?: boolean;
   stageSafeInsets?: { topPx?: number; bottomPx?: number; leftPx?: number; rightPx?: number };
+  isRightInspectorOpen?: boolean;
   onToggleDimensions?: () => void;
   onRequest2DElevation?: () => void;
   onPerformanceSample?: (metrics: { lastRenderMs: number }) => void;
@@ -650,6 +652,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
     showInCanvasHud = true,
     showDimensions,
     stageSafeInsets,
+    isRightInspectorOpen = false,
     onToggleDimensions,
     onRequest2DElevation,
     onPerformanceSample,
@@ -678,6 +681,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       spaceWalls,
       setActiveModuleIndex,
       setActiveBayIndex,
+      selectModuleBayComponent,
       setDimensions,
       setPlinthHeight,
       setBayDoorType,
@@ -737,6 +741,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       applyApprovedEngineeringFix,
     } = useV3Adapter({ lightweightViewport: true });
 
+    const pausedRef = useRef<boolean>(Boolean(paused));
+    pausedRef.current = Boolean(paused);
     const isStoreBatchDragging = useConfiguratorStore((s) => s.batchStartProject !== null);
     const lastSettled3DEngRef = useRef<ReturnType<typeof evaluateUnifiedEngineeringModel> | null>(null);
     const live3DEngineeringReport = useMemo(() => {
@@ -744,7 +750,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         return lastSettled3DEngRef.current;
       }
       if (paused) return null;
-      const computed = evaluateUnifiedEngineeringModel(project);
+      const computed = getMemoizedUnifiedEngineering(project);
       lastSettled3DEngRef.current = computed;
       return computed;
     }, [project, paused, isStoreBatchDragging]);
@@ -760,6 +766,15 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
     const [cutawayActiveBay, setCutawayActiveBay] = useState<boolean>(false);
     const [showInteriorProps3D, setShowInteriorProps3D] = useState<boolean>(true);
     const [engineeringAlertCollapsed, setEngineeringAlertCollapsed] = useState<boolean>(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onNightLedToggle = () => {
+      setLightingPreset((prev) => (prev === "night_led" ? "daylight" : "night_led"));
+    };
+    window.addEventListener("birim:toggle-night-led", onNightLedToggle);
+    return () => window.removeEventListener("birim:toggle-night-led", onNightLedToggle);
+  }, []);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     const onToggle = (ev: Event) => {
@@ -1186,6 +1201,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       setActiveModuleIndex,
       setActiveBayIndex,
       setSelectedComponentId,
+      selectModuleBayComponent,
       setShelfElevation,
       setDrawerPlacement,
       setSpecialFittingPlacement,
@@ -1210,6 +1226,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         setActiveModuleIndex,
         setActiveBayIndex,
         setSelectedComponentId,
+        selectModuleBayComponent,
         setShelfElevation,
         setDrawerPlacement,
         setSpecialFittingPlacement,
@@ -1234,6 +1251,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       setActiveModuleIndex,
       setActiveBayIndex,
       setSelectedComponentId,
+      selectModuleBayComponent,
       setShelfElevation,
       setDrawerPlacement,
       setSpecialFittingPlacement,
@@ -2273,14 +2291,13 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           String(hitObj.userData.role) === "door_handle" && hitObj.userData.parentComponentId
             ? String(hitObj.userData.parentComponentId)
             : String(hitObj.userData.componentId);
-        state.setActiveModuleIndex(modIdx);
-        if (typeof hitObj.userData.bayIndex === "number") {
-          state.setActiveBayIndex(hitObj.userData.bayIndex);
-        }
-        (state.setSelectedComponentId as (id: string | null, mIdx?: number) => void)(
-          clickedCompId,
-          modIdx
-        );
+        selectModuleBayComponentSafe({
+          activeModuleIndex: modIdx,
+          ...(typeof hitObj.userData.bayIndex === "number"
+            ? { activeBayIndex: hitObj.userData.bayIndex }
+            : {}),
+          selectedComponentId: clickedCompId,
+        });
         // Selection is shown directly in the frosted top pill & floating inspector card (no duplicate overlapping banner)
 
         // Calculate world-mm per screen-pixel at the hit point
@@ -3771,6 +3788,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
 
       const animate = () => {
         animId = requestAnimationFrame(animate);
+        if (pausedRef.current) return;
         const curControls = controlsRef.current;
         const curRenderer = rendererRef.current;
         const curScene = sceneRef.current;
@@ -4107,29 +4125,116 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         actModGroup.position.set(0, 0, 0);
         const mainModsCount = project.modules.filter((m) => m.category !== "complementary").length;
         const activeMod = project.modules[activeModuleIndex];
-        if (activeMod && (mainModsCount > 1 || renderEdgeMode === "cad")) {
+        if (activeMod && activeMod.category !== "complementary") {
           const modAnchor = createModuleGroup(activeMod);
-          const selW = activeMod.dimensions.width + 12;
-          const selD = activeMod.dimensions.depth + 12;
-          const baseRingGeo = new THREE.BoxGeometry(selW, 4, selD);
-          const baseRingEdges = new THREE.EdgesGeometry(baseRingGeo);
-          baseRingGeo.dispose();
-          const baseOutline = new THREE.LineSegments(
-            baseRingEdges,
-            new THREE.LineBasicMaterial({
-              color: 0x141413,
-              transparent: true,
-              opacity: 0.45,
-            })
-          );
-          baseOutline.raycast = () => {};
-          baseOutline.position.set(
-            activeMod.dimensions.width / 2,
-            2,
-            activeMod.dimensions.depth / 2
-          );
-          modAnchor.add(baseOutline);
+          if (mainModsCount > 1 || renderEdgeMode === "cad") {
+            const selW = activeMod.dimensions.width + 12;
+            const selD = activeMod.dimensions.depth + 12;
+            const baseRingGeo = new THREE.BoxGeometry(selW, 4, selD);
+            const baseRingEdges = new THREE.EdgesGeometry(baseRingGeo);
+            baseRingGeo.dispose();
+            const baseOutline = new THREE.LineSegments(
+              baseRingEdges,
+              new THREE.LineBasicMaterial({
+                color: 0x141413,
+                transparent: true,
+                opacity: 0.45,
+              })
+            );
+            baseOutline.raycast = () => {};
+            baseOutline.position.set(
+              activeMod.dimensions.width / 2,
+              2,
+              activeMod.dimensions.depth / 2
+            );
+            modAnchor.add(baseOutline);
+          }
+
+          // Lightweight Active Bay Highlight Frame in actModGroup (0ms update on bay/module click!)
+          const showBayOverlay =
+            cutawayActiveBay ||
+            doorsHiddenIn3D ||
+            doorOpenAngleDeg > 5 ||
+            Boolean(activeMod.isOpenFront) ||
+            activeMod.bays.some((b) => b.door.type === "open" || b.door.doorSystemId === "open");
+          if (showBayOverlay && activeMod.bays.length >= 1) {
+            const T = activeMod.carcass.panelThickness || 18;
+            const plinthH = activeMod.carcass.plinthHeight ?? 100;
+            const fsAct = calculateFourSpaceDimensions(activeMod);
+            const innerH =
+              fsAct.usableInternal.netInnerHeightMm ||
+              Math.max(300, activeMod.dimensions.height - plinthH - 2 * T);
+            const safeBayIdx = Math.max(0, Math.min(activeMod.bays.length - 1, activeBayIndex));
+            let curBayX = T;
+            for (let bI = 0; bI < safeBayIdx; bI++) {
+              curBayX += (fsAct.usableInternal.bayClearWidthsMm[bI] || 500) + T;
+            }
+            const bw =
+              fsAct.usableInternal.bayClearWidthsMm[safeBayIdx] ||
+              Math.round(
+                (activeMod.dimensions.width - (activeMod.bays.length + 1) * T) /
+                  activeMod.bays.length
+              );
+            const bayFrameGeo = new THREE.BoxGeometry(
+              Math.max(80, bw - 4),
+              Math.max(120, innerH - 4),
+              Math.max(100, activeMod.dimensions.depth - T - 8)
+            );
+            const bayFrameEdgesGeo = new THREE.EdgesGeometry(bayFrameGeo);
+            bayFrameGeo.dispose();
+            const bayFrameLines = new THREE.LineSegments(
+              bayFrameEdgesGeo,
+              new THREE.LineBasicMaterial({
+                color: 0x0284c7,
+                transparent: true,
+                opacity: 0.95,
+              })
+            );
+            bayFrameLines.raycast = () => {};
+            bayFrameLines.position.set(
+              curBayX + bw / 2,
+              plinthH + T + innerH / 2,
+              T + (activeMod.dimensions.depth - T) / 2
+            );
+            modAnchor.add(bayFrameLines);
+
+            const frontRectGeo = new THREE.BoxGeometry(
+              Math.max(80, bw + 6),
+              Math.max(120, innerH + 6),
+              12
+            );
+            const frontRectEdgesGeo = new THREE.EdgesGeometry(frontRectGeo);
+            frontRectGeo.dispose();
+            const frontRectLines = new THREE.LineSegments(
+              frontRectEdgesGeo,
+              new THREE.LineBasicMaterial({
+                color: 0x2563eb,
+                transparent: true,
+                opacity: 1,
+              })
+            );
+            frontRectLines.raycast = () => {};
+            frontRectLines.position.set(
+              curBayX + bw / 2,
+              plinthH + T + innerH / 2,
+              activeMod.dimensions.depth + 2
+            );
+            modAnchor.add(frontRectLines);
+
+            const localAnchor = new THREE.Vector3(
+              curBayX + bw,
+              plinthH + T + innerH * 0.48,
+              activeMod.dimensions.depth
+            );
+            modAnchor.updateMatrixWorld(true);
+            activeBayWorldAnchorRef.current = localAnchor.applyMatrix4(modAnchor.matrixWorld);
+          } else {
+            activeBayWorldAnchorRef.current = null;
+          }
+
           actModGroup.add(modAnchor);
+        } else {
+          activeBayWorldAnchorRef.current = null;
         }
       }
 
@@ -4208,7 +4313,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       }
 
       requestRender();
-    }, [activeModuleIndex, selectedComponentId, project, theme, renderEdgeMode, requestRender]);
+    }, [activeModuleIndex, activeBayIndex, cutawayActiveBay, doorsHiddenIn3D, doorOpenAngleDeg, selectedComponentId, clicked3DContext, project, theme, renderEdgeMode, requestRender]);
 
     // Rebuild Parametric Meshes ONLY when project geometry or kinematic sliders change
     useEffect(() => {
@@ -4216,9 +4321,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       const meshGroup = meshGroupRef.current;
       if (!meshGroup) return;
 
-      const needsActiveModInSig =
-        doorsHiddenIn3D || cutawayActiveBay || doorOpenAngleDeg > 5;
-      const moduleSigs = project.modules.map((mod, modIdx) =>
+      const needsActiveModInSig = cutawayActiveBay;
+      const baseSigs = project.modules.map((mod, modIdx) =>
         JSON.stringify({
           id: mod.id,
           dims: mod.dimensions,
@@ -4233,14 +4337,19 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           isActive: needsActiveModInSig ? modIdx === activeModuleIndex : false,
           activeBay:
             needsActiveModInSig && modIdx === activeModuleIndex ? activeBayIndex : -1,
-          doorOpenAngleDeg,
-          drawerOpenMm,
-          explodedFactor,
           doorsHiddenIn3D,
           cutawayActiveBay,
           showInteriorProps3D: renderEdgeMode === "cad" ? false : showInteriorProps3D,
           renderEdgeMode,
           isXrayActive,
+        })
+      );
+      const moduleSigs = project.modules.map((_mod, modIdx) =>
+        JSON.stringify({
+          base: baseSigs[modIdx],
+          doorOpenAngleDeg,
+          drawerOpenMm,
+          explodedFactor,
         })
       );
 
@@ -4259,6 +4368,50 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         });
         updateSelectionAndActiveFrames();
         markShadowsAndRender();
+        return;
+      }
+
+      // Zero-rebuild kinematic fast-path for smooth 60fps door/drawer/exploded animations
+      if (
+        meshGroup.children.length === project.modules.length &&
+        project.modules.every(
+          (m, idx) =>
+            meshGroup.children[idx]?.userData?.baseRenderSig === baseSigs[idx] &&
+            m.carcass.hullShape !== "capsule_stadium" &&
+            m.carcass.hullShape !== "capsule_table"
+        )
+      ) {
+        project.modules.forEach((m, idx) => {
+          const child = meshGroup.children[idx];
+          if (!child) return;
+          child.userData.moduleIndex = idx;
+          child.userData.renderSig = moduleSigs[idx];
+          const pl = calculateModulePlacement(m);
+          child.position.set(pl.origin.x, pl.origin.y, pl.origin.z);
+          child.rotation.y = pl.rotationYRad;
+
+          const bd = generateModuleGeometry(m, {
+            doorOpenAngleDeg,
+            drawerOpenMm,
+            explodedFactor,
+          });
+          const compById = new Map(bd.components.map((c) => [c.id, c]));
+          for (const sub of child.children) {
+            const compId = sub.userData?.componentId;
+            if (typeof compId !== "string") continue;
+            const comp = compById.get(compId);
+            if (!comp) continue;
+            const pivot = comp.pivot ?? comp.position;
+            sub.position.set(pivot.x, pivot.y, pivot.z);
+            if (comp.rotation) {
+              sub.rotation.set(comp.rotation[0], comp.rotation[1], comp.rotation[2]);
+            } else {
+              sub.rotation.set(0, 0, 0);
+            }
+          }
+        });
+        updateSelectionAndActiveFrames();
+        requestRender();
         return;
       }
       solidMeshesCacheRef.current.dirty = true;
@@ -4328,7 +4481,12 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
 
         const isActiveMod = modIdx === activeModuleIndex;
         const modContainer = createModuleGroup(mod);
-        modContainer.userData = { moduleId: mod.id, renderSig: moduleSigs[modIdx], moduleIndex: modIdx };
+        modContainer.userData = {
+          moduleId: mod.id,
+          renderSig: moduleSigs[modIdx],
+          baseRenderSig: baseSigs[modIdx],
+          moduleIndex: modIdx,
+        };
 
         if (
           mod.carcass.hullShape === "capsule_stadium" ||
@@ -4356,7 +4514,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             },
             capEdgeMat,
             modIdx,
-            isActiveMod && doorsHiddenIn3D ? 85 : doorOpenAngleDeg
+            doorsHiddenIn3D ? 85 : doorOpenAngleDeg
           );
           modContainer.add(capGroup);
         } else {
@@ -4414,7 +4572,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             isDoorPart &&
             comp.bayIndex === activeBayIndex &&
             !comp.id.includes("sliding");
-          if (isActiveMod && (doorsHiddenIn3D || isCutawayBayDoor) && isDoorPart) {
+          if ((doorsHiddenIn3D || isCutawayBayDoor) && isDoorPart) {
             return;
           }
           const grainMatch = grainContinuityMap3D.get(comp.id);
@@ -4791,8 +4949,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         }
 
         
-        // 3D Direct Compartment Hit Volumes & Active Compartment Highlight Frame (Step 2 & 3 of Wardrobe Workflow)
-        if (isActiveMod && mod.bays.length >= 1) {
+        // 3D Direct Compartment Hit Volumes (independent of isActiveMod / activeBayIndex so clicking bays never rebuilds cabinet meshes!)
+        if (mod.bays.length >= 1) {
           const T = mod.carcass.panelThickness || 18;
           const plinthH = mod.carcass.plinthHeight ?? 100;
           const innerH =
@@ -4805,21 +4963,19 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             Boolean(mod.isOpenFront) ||
             mod.bays.some((b) => b.door.type === "open" || b.door.doorSystemId === "open");
 
-          mod.bays.forEach((bayObj, bIdx) => {
-            const bw =
-              breakdown.bayWidths[bIdx] ||
-              Math.round((mod.dimensions.width - (mod.bays.length + 1) * T) / mod.bays.length);
-            if (showBayOverlay) {
-              // Raycastable compartment back-volume plane so clicking empty space in a bay selects that bay
+          if (showBayOverlay) {
+            mod.bays.forEach((_bayObj, bIdx) => {
+              const bw =
+                breakdown.bayWidths[bIdx] ||
+                Math.round((mod.dimensions.width - (mod.bays.length + 1) * T) / mod.bays.length);
               const bayHitGeo = new THREE.PlaneGeometry(
                 Math.max(80, bw - 6),
                 Math.max(120, innerH - 6)
               );
-              const isActBay = bIdx === activeBayIndex;
               const bayHitMat = new THREE.MeshBasicMaterial({
-                color: isActBay ? 0x38bdf8 : 0x94a3b8,
+                color: 0x94a3b8,
                 transparent: true,
-                opacity: isActBay ? 0.1 : 0.015,
+                opacity: 0.012,
                 side: THREE.DoubleSide,
                 depthWrite: false,
               });
@@ -4832,65 +4988,9 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                 bayIndex: bIdx,
               };
               modContainer.add(bayHitMesh);
-
-              if (isActBay) {
-                const bayFrameGeo = new THREE.BoxGeometry(
-                  Math.max(80, bw - 4),
-                  Math.max(120, innerH - 4),
-                  Math.max(100, mod.dimensions.depth - T - 8)
-                );
-                const bayFrameEdgesGeo = new THREE.EdgesGeometry(bayFrameGeo);
-                bayFrameGeo.dispose();
-                const bayFrameLines = new THREE.LineSegments(
-                  bayFrameEdgesGeo,
-                  new THREE.LineBasicMaterial({
-                    color: 0x0284c7,
-                    transparent: true,
-                    opacity: 0.95,
-                  })
-                );
-                bayFrameLines.position.set(
-                  curBayX + bw / 2,
-                  plinthH + T + innerH / 2,
-                  T + (mod.dimensions.depth - T) / 2
-                );
-                modContainer.add(bayFrameLines);
-
-                // Double-thick front blue rectangle border around active compartment opening (Matches image_e719c6.jpg)
-                const frontRectGeo = new THREE.BoxGeometry(
-                  Math.max(80, bw + 6),
-                  Math.max(120, innerH + 6),
-                  12
-                );
-                const frontRectEdgesGeo = new THREE.EdgesGeometry(frontRectGeo);
-                frontRectGeo.dispose();
-                const frontRectLines = new THREE.LineSegments(
-                  frontRectEdgesGeo,
-                  new THREE.LineBasicMaterial({
-                    color: 0x2563eb,
-                    transparent: true,
-                    opacity: 1,
-                  })
-                );
-                frontRectLines.position.set(
-                  curBayX + bw / 2,
-                  plinthH + T + innerH / 2,
-                  mod.dimensions.depth + 2
-                );
-                modContainer.add(frontRectLines);
-
-                // Compute world anchor for the floating "Bölme X" popover card
-                const localAnchor = new THREE.Vector3(
-                  curBayX + bw,
-                  plinthH + T + innerH * 0.48,
-                  mod.dimensions.depth
-                );
-                modContainer.updateMatrixWorld(true);
-                activeBayWorldAnchorRef.current = localAnchor.applyMatrix4(modContainer.matrixWorld);
-              }
-            }
-            curBayX += bw + T;
-          });
+              curBayX += bw + T;
+            });
+          }
         }
 
         const shouldRenderProps =
@@ -7609,7 +7709,7 @@ const clear3DGhostPreview = useCallback(() => {
         })()}
 
         {/* 3D DIRECT INTERACTION MINI CONTEXT MENU — Shown ONLY if floating bay/door cards are dismissed (zero duplicate bay float panels!) */}
-        {showInCanvasHud && dismissedBayPopover && !dragDropSnapBanner && !active3DSnap && (clicked3DContext || doorsHiddenIn3D || cutawayActiveBay || doorOpenAngleDeg > 5) && (
+        {showInCanvasHud && !isRightInspectorOpen && dismissedBayPopover && !dragDropSnapBanner && !active3DSnap && (clicked3DContext || doorsHiddenIn3D || cutawayActiveBay) && (
           <div
             ref={contextPopoverDomRef}
             data-floating-card="context"
@@ -7881,6 +7981,15 @@ const clear3DGhostPreview = useCallback(() => {
                       <button
                         type="button"
                         onClick={() => {
+                          if (!activeBayWorldAnchorRef.current && activeDoorWorldAnchorRef.current) {
+                            activeBayWorldAnchorRef.current = activeDoorWorldAnchorRef.current.clone();
+                          }
+                          if (floatingPanelPosRef.current.door) {
+                            setFloatingPanelPos((prev) => ({
+                              ...prev,
+                              bay: prev.door ?? prev.bay,
+                            }));
+                          }
                           setActiveBayIndex(targetBayIdx);
                           setDismissedBayPopover(false);
                           setCutawayActiveBay(true);
@@ -7890,6 +7999,7 @@ const clear3DGhostPreview = useCallback(() => {
                             role: "bay_compartment",
                             label: `Bölme ${targetBayIdx + 1}`,
                           });
+                          needsRenderRef.current = true;
                         }}
                         className="py-1 px-2 rounded-lg text-[#44403C] hover:text-[#141413] hover:bg-white/70 text-[10px] font-semibold transition cursor-pointer"
                       >
@@ -8330,7 +8440,7 @@ const clear3DGhostPreview = useCallback(() => {
         {showInCanvasHud &&
           !dismissedBayPopover &&
           !(clicked3DContext?.kind === "door" && !doorsHiddenIn3D) &&
-          (cutawayActiveBay || doorsHiddenIn3D || doorOpenAngleDeg > 5 || clicked3DContext?.kind === "bay") &&
+          ((!isRightInspectorOpen && (cutawayActiveBay || doorsHiddenIn3D)) || clicked3DContext?.kind === "bay") &&
           (() => {
             const fourSpaceBay = calculateFourSpaceDimensions(activeModule);
             const bayClearW =
@@ -8454,6 +8564,15 @@ const clear3DGhostPreview = useCallback(() => {
                         <button
                           type="button"
                           onClick={() => {
+                            if (!activeDoorWorldAnchorRef.current && activeBayWorldAnchorRef.current) {
+                              activeDoorWorldAnchorRef.current = activeBayWorldAnchorRef.current.clone();
+                            }
+                            if (floatingPanelPosRef.current.bay) {
+                              setFloatingPanelPos((prev) => ({
+                                ...prev,
+                                door: prev.bay ?? prev.door,
+                              }));
+                            }
                             setDoorsHiddenIn3D(false);
                             setClicked3DContext({
                               kind: "door",
@@ -8462,6 +8581,7 @@ const clear3DGhostPreview = useCallback(() => {
                               componentId: `${curBayObj?.door?.id || `${activeModule.id}_door_${activeBayIndex}`}_left`,
                               label: `Bölme ${activeBayIndex + 1} • Kapak`,
                             });
+                            needsRenderRef.current = true;
                           }}
                           className="py-1 px-2 rounded-lg text-[#44403C] hover:text-[#141413] hover:bg-white/70 text-[10px] font-semibold transition cursor-pointer"
                         >
@@ -9095,8 +9215,9 @@ const clear3DGhostPreview = useCallback(() => {
               },
             },
           ]
-            .filter((btn) => !btn.id.startsWith("2d") && (showInCanvasHud || btn.id === "interior" || btn.id === "hide-doors"))
+            .filter((btn) => !btn.id.startsWith("2d"))
             .map((btn) => {
+            const isDupOfBottomDock = btn.id === "interior" || btn.id === "hide-doors";
             const isActive =
               btn.id === "interior"
                 ? doorOpenAngleDeg > 10 || activeCamPill === "interior"
@@ -9108,11 +9229,15 @@ const clear3DGhostPreview = useCallback(() => {
                 title={btn.label}
                 data-testid={`viewport-3d-pill-${btn.id}`}
                 onClick={btn.onClick}
-                className={`w-9 h-9 rounded-xl flex items-center justify-center transition cursor-pointer ${
-                  isActive
-                    ? "birim-ice-btn-active"
-                    : "text-[#44403C] hover:bg-white/70 hover:text-[#141413]"
-                }`}
+                className={
+                  isDupOfBottomDock || !showInCanvasHud
+                    ? "sr-only"
+                    : `w-9 h-9 rounded-xl flex items-center justify-center transition cursor-pointer ${
+                        isActive
+                          ? "birim-ice-btn-active"
+                          : "text-[#44403C] hover:bg-white/70 hover:text-[#141413]"
+                      }`
+                }
               >
                 {btn.icon}
                 <span className="sr-only">{btn.label}</span>
@@ -9161,7 +9286,6 @@ const clear3DGhostPreview = useCallback(() => {
           <button
             type="button"
             data-testid="viewport-3d-pill-props"
-            title="Dolap İçi 3D Kıyafet, Askı, Kutu ve Ayakkabı Silüetlerini Göster / Gizle"
             onClick={() => {
               const next = !showInteriorProps3D;
               setShowInteriorProps3D(next);
@@ -9169,14 +9293,9 @@ const clear3DGhostPreview = useCallback(() => {
                 setDoorsHiddenIn3D(true);
               }
             }}
-            className={`w-9 h-9 rounded-xl flex items-center justify-center transition cursor-pointer ${
-              showInteriorProps3D
-                ? "birim-ice-btn-active"
-                : "text-[#44403C] hover:bg-white/70 hover:text-[#141413]"
-            }`}
+            className="sr-only"
           >
-            <span className="text-sm leading-none">👔</span>
-            <span className="sr-only">Eşyalar</span>
+            Eşyalar
           </button>
         </div>
 
@@ -9277,10 +9396,10 @@ const clear3DGhostPreview = useCallback(() => {
                   </svg>
                   <span className="sr-only">Temizle</span>
                 </button>
-                <div className="h-5 w-px bg-slate-900/12 mx-0.5" />
               </>
             )}
 
+            <div className="sr-only">
             <button
               type="button"
               data-testid="hud-tool-select"
@@ -9456,6 +9575,7 @@ const clear3DGhostPreview = useCallback(() => {
               </svg>
               <span className="sr-only">Sil</span>
             </button>
+            </div>
           </div>
         )}
 
@@ -9613,37 +9733,7 @@ const clear3DGhostPreview = useCallback(() => {
               </button>
             )}
 
-            <button
-              type="button"
-              onClick={() => {
-                const controls = controlsRef.current,
-                  perspective = perspCamRef.current;
-                if (controls && perspective) {
-                  const bounds = computeFastParametricSceneBounds(project.modules);
-                  if (!bounds.isEmpty()) {
-                    const framed = computeHeroStudioFraming(
-                      bounds,
-                      perspective.fov,
-                      perspective.aspect,
-                      "hero"
-                    );
-                    controls.target.copy(framed.target);
-                    perspective.position.copy(framed.position);
-                    perspective.lookAt(framed.target);
-                    perspective.updateProjectionMatrix();
-                    controls.update();
-                    requestRender();
-                  }
-                }
-              }}
-              className="w-9 h-9 rounded-xl flex items-center justify-center text-[#44403C] hover:bg-white/70 hover:text-[#141413] transition cursor-pointer"
-              title="Sahneye Sığdır"
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
-              </svg>
-              <span className="sr-only">Sığdır</span>
-            </button>
+
 
             <div className="h-5 w-px bg-slate-900/12 mx-0.5" />
 
@@ -9692,9 +9782,9 @@ const clear3DGhostPreview = useCallback(() => {
               <span className="sr-only">{showInteriorProps3D ? "Eşyalar Açık" : "Eşyalar Gizli"}</span>
             </button>
 
-            {/* Görüntü / Donanım Etiketleri Popover İkonu */}
+            {/* Görüntü / Donanım Etiketleri (Unified into Sahne & Katman Ayarları; test hook preserved) */}
             {showInCanvasHud && (
-              <div className="relative">
+              <div className="sr-only">
                 <button
                   type="button"
                   data-testid="viewport-3d-hardware-view-mode-btn"
@@ -9777,7 +9867,7 @@ const clear3DGhostPreview = useCallback(() => {
               <button
                 type="button"
                 data-testid="viewport-3d-section-toggle-btn"
-                onClick={() => setSection3DMenuOpen((v) => !v)}
+                onClick={() => { setSection3DMenuOpen((v) => !v); setExplode3DMenuOpen(false); setHardwareViewMenuOpen(false); setRenderMenuOpen(false); }}
                 className={`w-9 h-9 rounded-xl flex items-center justify-center transition cursor-pointer ${
                   section3DAxis
                     ? "birim-ice-btn-active"
@@ -9842,6 +9932,7 @@ const clear3DGhostPreview = useCallback(() => {
                         min={0.1}
                         max={0.95}
                         step={0.02}
+                        data-visual-slider="true"
                         value={section3DRatio}
                         onChange={(e) => setSection3DRatio(Number(e.target.value))}
                         className="w-full accent-[#141413] h-1.5 bg-slate-200 rounded-lg cursor-pointer"
@@ -9852,8 +9943,32 @@ const clear3DGhostPreview = useCallback(() => {
               )}
             </div>
 
-            {/* Canlı 3D Patlatma (Exploded View) Slider Popover */}
-            <div className="relative">
+            {/* Gündüz / Gece LED Ambiyans Anahtarı */}
+            <button
+              type="button"
+              data-testid="viewport-3d-day-night-led-btn"
+              onClick={() =>
+                setLightingPreset((prev) => (prev === "night_led" ? "daylight" : "night_led"))
+              }
+              data-tooltip={
+                lightingPreset === "night_led"
+                  ? "Gündüz Stüdyo Işığına Geç"
+                  : "Gece Ambiyans & İç LED Işığını Gör"
+              }
+              className={`w-9 h-9 rounded-xl flex items-center justify-center transition cursor-pointer ${
+                lightingPreset === "night_led"
+                  ? "birim-ice-btn-active"
+                  : "text-[#44403C] hover:bg-white/70 hover:text-[#141413]"
+              }`}
+            >
+              <span className="text-sm leading-none">{lightingPreset === "night_led" ? "🌙" : "☀️"}</span>
+              <span className="sr-only">
+                {lightingPreset === "night_led" ? "Gece LED Modu" : "Gündüz Modu"}
+              </span>
+            </button>
+
+            {/* Canlı 3D Patlatma (Exploded View) Slider Popover — Mimar/Üretim Modunda Görünür */}
+            <div className={isSimpleTier ? "sr-only" : "relative"}>
               <button
                 type="button"
                 data-testid="viewport-3d-explode-toggle-btn"
@@ -9918,6 +10033,7 @@ const clear3DGhostPreview = useCallback(() => {
                     <input
                       type="range"
                       data-testid="viewport-3d-explode-slider"
+                      data-visual-slider="true"
                       aria-label="Canlı patlatma oranı"
                       min={0}
                       max={1}
@@ -9961,7 +10077,7 @@ const clear3DGhostPreview = useCallback(() => {
                 type="button"
                 data-testid="viewport-3d-edge-mode-toggle"
                 title="Stüdyo Işığı, Duvar/Zemin Yüzeyi ve 2K Fotoğraf Render"
-                onClick={() => setRenderMenuOpen((v) => !v)}
+                onClick={() => { setRenderMenuOpen((v) => !v); setSection3DMenuOpen(false); setExplode3DMenuOpen(false); setHardwareViewMenuOpen(false); }}
                 className={`w-9 h-9 rounded-xl flex items-center justify-center transition cursor-pointer ${
                   renderMenuOpen || renderEdgeMode === "cad"
                     ? "birim-ice-btn-active"
@@ -9993,34 +10109,51 @@ const clear3DGhostPreview = useCallback(() => {
                         ✕
                       </button>
                     </div>
-                    <div className="grid grid-cols-2 gap-1">
+                    <div className="grid grid-cols-3 gap-1">
                       <button
                         type="button"
                         onClick={() => {
+                          setHardwareViewMode("normal");
                           setRenderEdgeMode("photoreal");
-                          setRenderMenuOpen(false);
                         }}
-                        className={`py-1.5 px-2 rounded-xl font-semibold cursor-pointer ${
-                          renderEdgeMode === "photoreal"
+                        className={`py-1.5 px-1.5 rounded-xl text-[10.5px] font-semibold cursor-pointer ${
+                          renderEdgeMode === "photoreal" && hardwareViewMode === "normal"
                             ? "birim-ice-btn-active"
                             : "birim-ice-btn text-[#1C1917]"
                         }`}
                       >
-                        Gerçekçi PBR
+                        Sunum PBR
                       </button>
                       <button
                         type="button"
                         onClick={() => {
-                          setRenderEdgeMode("cad");
-                          setRenderMenuOpen(false);
+                          setHardwareViewMode("hardware");
+                          setRenderEdgeMode("photoreal");
+                          if (doorOpenAngleDeg < 15 && !doorsHiddenIn3D) {
+                            setDoorOpenAngleDeg(65);
+                          }
                         }}
-                        className={`py-1.5 px-2 rounded-xl font-semibold cursor-pointer ${
-                          renderEdgeMode === "cad"
+                        className={`py-1.5 px-1.5 rounded-xl text-[10.5px] font-semibold cursor-pointer ${
+                          hardwareViewMode === "hardware"
                             ? "birim-ice-btn-active"
                             : "birim-ice-btn text-[#1C1917]"
                         }`}
                       >
-                        Teknik Çizim
+                        Donanım
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setHardwareViewMode("technical");
+                          setRenderEdgeMode("cad");
+                        }}
+                        className={`py-1.5 px-1.5 rounded-xl text-[10.5px] font-semibold cursor-pointer ${
+                          renderEdgeMode === "cad" || hardwareViewMode === "technical"
+                            ? "birim-ice-btn-active"
+                            : "birim-ice-btn text-[#1C1917]"
+                        }`}
+                      >
+                        Teknik CAD
                       </button>
                     </div>
                   </div>
@@ -10217,7 +10350,7 @@ const clear3DGhostPreview = useCallback(() => {
                       data-testid="viewport-3d-rotate-mod-90"
                       title="Aktif Modülü 90° Döndür"
                       onClick={() => rotateActiveModule90(90)}
-                      className="w-8 h-8 rounded-xl birim-ice-btn text-[#1C1917] flex items-center justify-center cursor-pointer"
+                      className="sr-only"
                     >
                       <span>↻</span>
                       <span className="sr-only">90° Döndür</span>
