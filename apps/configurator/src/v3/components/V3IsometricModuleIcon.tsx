@@ -1002,6 +1002,58 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
         })()}
       </svg>
     );
+  },
+  (prev, next) => {
+    if (
+      prev.template !== next.template ||
+      prev.presetLayout !== next.presetLayout ||
+      prev.bayCount !== next.bayCount ||
+      prev.widthMm !== next.widthMm ||
+      prev.heightMm !== next.heightMm ||
+      prev.depthMm !== next.depthMm ||
+      prev.hasDrawers !== next.hasDrawers ||
+      prev.isOpenFront !== next.isOpenFront ||
+      prev.doorColorHex !== next.doorColorHex ||
+      prev.size !== next.size ||
+      prev.testId !== next.testId
+    ) {
+      return false;
+    }
+    const pm = prev.module;
+    const nm = next.module;
+    if (pm === nm) return true;
+    if (!pm || !nm) return false;
+    if (
+      pm.id !== nm.id ||
+      pm.category !== nm.category ||
+      pm.moduleSubType !== nm.moduleSubType ||
+      pm.isOpenFront !== nm.isOpenFront ||
+      pm.dimensions.width !== nm.dimensions.width ||
+      pm.dimensions.height !== nm.dimensions.height ||
+      pm.dimensions.depth !== nm.dimensions.depth ||
+      pm.carcass.plinthHeight !== nm.carcass.plinthHeight ||
+      pm.carcass.bodyMaterialId !== nm.carcass.bodyMaterialId ||
+      pm.carcass.frontMaterialId !== nm.carcass.frontMaterialId ||
+      pm.bays.length !== nm.bays.length
+    ) {
+      return false;
+    }
+    for (let i = 0; i < pm.bays.length; i++) {
+      const pb = pm.bays[i];
+      const nb = nm.bays[i];
+      if (
+        pb.customWidthMm !== nb.customWidthMm ||
+        pb.door?.type !== nb.door?.type ||
+        pb.door?.doorSystemId !== nb.door?.doorSystemId ||
+        pb.door?.doorMaterialId !== nb.door?.doorMaterialId ||
+        pb.shelves.length !== nb.shelves.length ||
+        pb.drawers.length !== nb.drawers.length ||
+        pb.hangingRails.length !== nb.hangingRails.length
+      ) {
+        return false;
+      }
+    }
+    return true;
   }
 );
 

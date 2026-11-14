@@ -289,11 +289,13 @@ function cloneProject(project: DesignProject): DesignProject {
           }))
         : [],
       floorPlanUnderlay: project.space.floorPlanUnderlay
-        ? structuredClone(project.space.floorPlanUnderlay)
+        ? { ...project.space.floorPlanUnderlay }
         : undefined,
     },
-    sceneObjects: (project.sceneObjects || []).map((so) => structuredClone(so)),
-    customModuleTemplates: (project.customModuleTemplates || []).map((ct) => structuredClone(ct)),
+    // Structural sharing: preserve array/object references unless a dedicated action mutates them.
+    // Prevents O(N) structuredClone of GLB/DXF dataUrls & prevents 3D sceneObjects Group rebuilds on shelf/module drags!
+    sceneObjects: project.sceneObjects || [],
+    customModuleTemplates: project.customModuleTemplates || [],
     modules: project.modules.map((m) => ({
       ...m,
       dimensions: { ...m.dimensions },
@@ -650,7 +652,53 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
 
   beginHistoryTransaction: () => {
     const { project } = get();
-    set({ batchStartProject: structuredClone(project) });
+    // Fast structural snapshot: avoids deep-cloning multi-MB underlay/GLB dataUrls on pointerdown
+    set({
+      batchStartProject: {
+        ...project,
+        space: {
+          ...project.space,
+          walls: project.space.walls.map((w) => ({
+            ...w,
+            position: { ...w.position },
+            elements: w.elements
+              ? w.elements.map((el) => ({
+                  ...el,
+                  position: { ...el.position },
+                  dimensions: { ...el.dimensions },
+                }))
+              : [],
+          })),
+          elements: project.space.elements
+            ? project.space.elements.map((el) => ({
+                ...el,
+                position: { ...el.position },
+                dimensions: { ...el.dimensions },
+              }))
+            : [],
+          floorPlanUnderlay: project.space.floorPlanUnderlay
+            ? { ...project.space.floorPlanUnderlay }
+            : undefined,
+        },
+        sceneObjects: project.sceneObjects ? [...project.sceneObjects] : [],
+        modules: project.modules.map((m) => ({
+          ...m,
+          dimensions: { ...m.dimensions },
+          position: { ...m.position },
+          rotation: m.rotation ? { ...m.rotation } : { x: 0, y: 0, z: 0 },
+          carcass: { ...m.carcass },
+          bays: m.bays.map((b) => ({
+            ...b,
+            door: { ...b.door },
+            shelves: b.shelves.map((s) => ({ ...s })),
+            drawers: b.drawers.map((d) => ({ ...d })),
+            hangingRails: b.hangingRails.map((r) => ({ ...r })),
+            specialFittings: b.specialFittings ? b.specialFittings.map((f) => ({ ...f })) : [],
+            subDividers: b.subDividers ? b.subDividers.map((sd) => ({ ...sd })) : [],
+          })),
+        })),
+      },
+    });
   },
 
   commitHistoryTransaction: () => {
@@ -659,7 +707,8 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     const hasChanged =
       batchStartProject.version !== project.version ||
       batchStartProject.modules !== project.modules ||
-      batchStartProject.space !== project.space;
+      batchStartProject.space !== project.space ||
+      batchStartProject.sceneObjects !== project.sceneObjects;
     if (!hasChanged) {
       set({ batchStartProject: null });
       return;
@@ -2165,6 +2214,10 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     const mod = updated.modules.find((m) => m.id === moduleId);
     if (!mod) return;
     mod.position.x = Math.max(0, Math.round(newOffsetXMm));
+    if (batchStartProject) {
+      set({ project: updated, autoSaveStatus: "unsaved" });
+      return;
+    }
     const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),

@@ -296,7 +296,7 @@ const ModuleListRow = React.memo<ModuleListRowProps>(
 );
 ModuleListRow.displayName = "ModuleListRow";
 
-export const ModuleLibraryPanel: React.FC<ModuleLibraryPanelProps> = ({
+export const ModuleLibraryPanel: React.FC<ModuleLibraryPanelProps> = React.memo(({
   templates,
   activeModule,
   catalogViewMode,
@@ -1284,4 +1284,5 @@ export const ModuleLibraryPanel: React.FC<ModuleLibraryPanelProps> = ({
       )}
     </div>
   );
-};
+});
+ModuleLibraryPanel.displayName = "ModuleLibraryPanel";

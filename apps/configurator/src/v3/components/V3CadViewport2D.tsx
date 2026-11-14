@@ -58,6 +58,7 @@ import {
   ElevationSnapTarget,
 } from "../engine/elevationSnapEngine";
 import { solveAngledWallSnapForModule } from "../engine/angledWallSnapEngine";
+import { useConfiguratorStore } from "../../store/useConfiguratorStore";
 
 export interface V3CadViewport2DProps {
   mode: "elevation" | "plan" | "section";
@@ -127,9 +128,12 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       setModuleOffsetFromLeftWall,
       selectedSceneObjectId,
       setSelectedSceneObjectId,
+      updateSceneObject,
       undo,
       redo,
-    } = useV3Adapter({ lightweightViewport: mode === "elevation" });
+    } = useV3Adapter({ lightweightViewport: true });
+    const storeValidationIssues = useConfiguratorStore((s) => s.validationIssues);
+    const isStoreBatchDragging = useConfiguratorStore((s) => s.batchStartProject !== null);
 
     const lastAccessoryDropTarget2DRef = useRef<{ bayIndex: number; elevationY: number; offsetX?: number; accessory: any } | null>(null);
     const [zoom, setZoom] = useState(1);
@@ -152,7 +156,17 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       setZoom((prev) => Math.max(0.4, Math.min(3.5, +(prev + delta).toFixed(2))));
     }, []);
     const [showDoorsIn2D, setShowDoorsIn2D] = useState(false);
-    const grainContinuityMap2D = useMemo(() => computeProjectGrainContinuityMap(project), [project]);
+    const emptyGrainMapRef = useRef<ReturnType<typeof computeProjectGrainContinuityMap>>(new Map());
+    const settledGrainMapRef = useRef<ReturnType<typeof computeProjectGrainContinuityMap>>(new Map());
+    const grainContinuityMap2D = useMemo(() => {
+      if (mode !== "elevation") return emptyGrainMapRef.current;
+      if (isStoreBatchDragging && settledGrainMapRef.current.size > 0) {
+        return settledGrainMapRef.current;
+      }
+      const nextMap = computeProjectGrainContinuityMap(project);
+      settledGrainMapRef.current = nextMap;
+      return nextMap;
+    }, [project, mode, isStoreBatchDragging]);
     const [showRoomContextInElev, setShowRoomContextInElev] = useState(true);
     const [elevDetailLevel, setElevDetailLevel] = useState<ElevationDetailLevel>(loadElevationDetailLevel);
     const [elevDisplayUnit, setElevDisplayUnit] = useState<ElevationDisplayUnit>(loadElevationDisplayUnit);
@@ -367,22 +381,100 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       [project.modules]
     );
 
+    // Zero-re-render 2D Plan ("Odam") & Elevation interior drag refs
+    const planLiveSvgDragRef = useRef<{
+      el: SVGGElement | null;
+      baseTransform: string;
+      attachedEls: { el: SVGGElement; baseTransform: string }[];
+      kind: "module" | "obstacle" | "wall" | "scene_object";
+      modIdx?: number;
+      targetId?: string;
+      startX: number;
+      startZ: number;
+      nextX: number;
+      nextZ: number;
+      snapStepMm?: number;
+      hasMoved: boolean;
+    } | null>(null);
+    const [draggingSceneObjId, setDraggingSceneObjId] = useState<string | null>(null);
+    const [sceneObjDragStart, setSceneObjDragStart] = useState<{
+      clientX: number;
+      clientY: number;
+      startX: number;
+      startZ: number;
+      mmPerPx: number;
+    }>({ clientX: 0, clientY: 0, startX: 0, startZ: 0, mmPerPx: 4 });
+    const planSnapBannerWrapRef = useRef<HTMLDivElement | null>(null);
+    const planSnapBannerTextRef = useRef<HTMLSpanElement | null>(null);
+    const elevInteriorLiveRef = useRef<{
+      els: { el: SVGGElement; baseTransform: string }[];
+      snappedY: number;
+      hasMoved: boolean;
+    } | null>(null);
+    const elevVbZoomRef = useRef<{ vbWidth: number; vbHeight: number; zoom: number }>({
+      vbWidth: 2400,
+      vbHeight: 2400,
+      zoom: 1,
+    });
+
+    const getElevScaleMmPerPx = useCallback((svgEl: SVGSVGElement) => {
+      try {
+        const ctm = svgEl.getScreenCTM();
+        if (ctm && Math.abs(ctm.a) > 0.00001 && Math.abs(ctm.d) > 0.00001) {
+          return { x: 1 / Math.abs(ctm.a), y: 1 / Math.abs(ctm.d) };
+        }
+      } catch {
+        // fallback
+      }
+      const rect = svgEl.getBoundingClientRect();
+      const { vbWidth, vbHeight, zoom: curZ } = elevVbZoomRef.current;
+      const s = Math.max(
+        vbWidth / Math.max(1, rect.width * curZ),
+        vbHeight / Math.max(1, rect.height * curZ)
+      );
+      return { x: s, y: s };
+    }, []);
+
+    useEffect(() => {
+      return () => {
+        if (typeof document !== "undefined") {
+          delete document.body.dataset.birimUiDragging;
+        }
+      };
+    }, []);
+
+    const isInteractiveRoomPlan = mode === "plan" && interactivePlan;
+
     const activeModuleBreakdown = useMemo(
-      () => generateModuleGeometry(activeModule, { doorOpenAngleDeg: 0 }),
-      [activeModule]
+      () =>
+        isInteractiveRoomPlan
+          ? ({
+              moduleId: activeModule.id,
+              overall: activeModule.dimensions,
+              netInnerHeight: Math.max(200, activeModule.dimensions.height - 136),
+              bayWidths: [],
+              components: [],
+            } as unknown as ReturnType<typeof generateModuleGeometry>)
+          : generateModuleGeometry(activeModule, { doorOpenAngleDeg: 0 }),
+      [activeModule, isInteractiveRoomPlan]
     );
 
     const sectionCutCoordMm = useMemo(() => {
+      if (isInteractiveRoomPlan) return 0;
       const span =
         sectionDirection2D === "Z"
           ? activeModuleBreakdown.overall.width
           : activeModuleBreakdown.overall.depth;
       return Math.round(span * sectionCutRatio2D);
-    }, [activeModuleBreakdown, sectionDirection2D, sectionCutRatio2D]);
+    }, [activeModuleBreakdown, sectionDirection2D, sectionCutRatio2D, isInteractiveRoomPlan]);
 
     const activeModule2DData = useMemo(
       () =>
-        mode === "elevation"
+        isInteractiveRoomPlan
+          ? ({ elements: [], dimensions: [], overallWidth: 0, overallHeight: 0 } as unknown as ReturnType<
+              typeof generateElevation2D
+            >)
+          : mode === "elevation"
           ? generateElevation2D(activeModuleBreakdown, selectedComponentId || undefined)
           : mode === "plan"
           ? generateTopPlan2D(activeModuleBreakdown, selectedComponentId || undefined)
@@ -390,7 +482,14 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
               direction: sectionDirection2D,
               cutCoordMm: sectionCutCoordMm,
             }),
-      [mode, activeModuleBreakdown, selectedComponentId, sectionDirection2D, sectionCutCoordMm]
+      [
+        isInteractiveRoomPlan,
+        mode,
+        activeModuleBreakdown,
+        selectedComponentId,
+        sectionDirection2D,
+        sectionCutCoordMm,
+      ]
     );
 
     useEffect(() => {
@@ -407,9 +506,11 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       );
     }, [interiorDrag?.targetId, interiorDrag?.bayIdx, activeModuleIndex, mode]);
 
+    const effectiveValidationIssues =
+      validationIssues.length > 0 ? validationIssues : storeValidationIssues;
     const errorModuleIds = useMemo(() => {
       const set = new Set<string>();
-      validationIssues.forEach((iss) => {
+      effectiveValidationIssues.forEach((iss) => {
         if (
           (iss.severity === "error" ||
             iss.code === "WARN_FRONT_OPENING_SWEEP_COLLISION") &&
@@ -424,10 +525,29 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         }
       });
       return set;
-    }, [validationIssues, project.modules]);
+    }, [effectiveValidationIssues, project.modules]);
+
+    const settledSpatialAlertsRef = useRef<
+      {
+        id: string;
+        kind: "window" | "plumbing" | "door_swing" | "column" | "module_overlap";
+        severity: "error" | "warning";
+        title: string;
+        detail: string;
+        x: number;
+        z: number;
+        y: number;
+        w: number;
+        h: number;
+        modIdx?: number;
+      }[]
+    >([]);
 
     // Compute real-time 2D spatial/architectural intersection warnings (Window, Plumbing, Door Swing, Column, Module Overlap)
     const liveSpatialAlerts = useMemo(() => {
+      if (isStoreBatchDragging) {
+        return settledSpatialAlertsRef.current;
+      }
       const alerts: {
         id: string;
         kind: "window" | "plumbing" | "door_swing" | "column" | "module_overlap";
@@ -764,8 +884,9 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         });
       });
 
+      settledSpatialAlertsRef.current = alerts;
       return alerts;
-    }, [footprints, project.modules, spaceObstacles, spaceWalls, unifiedEngineeringReport]);
+    }, [footprints, project.modules, spaceObstacles, spaceWalls, unifiedEngineeringReport, isStoreBatchDragging]);
 
     const handleDeleteSelectedObject = useCallback(() => {
       if (!selectedPlanObject) {
@@ -1199,6 +1320,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         draggingModIdx !== null ||
         draggingObsId !== null ||
         draggingWallId !== null ||
+        draggingSceneObjId !== null ||
         resizingPlanObject !== null;
       if (!isAnyPlanDragActive || !lockedPlanVbRef.current) {
         lockedPlanVbRef.current = computedVb;
@@ -1338,6 +1460,36 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         };
       };
 
+      const setPlanSnapBannerFast = (msg: string | null) => {
+        const wrap = planSnapBannerWrapRef.current;
+        const txt = planSnapBannerTextRef.current;
+        if (wrap && txt) {
+          if (msg) {
+            txt.textContent = msg;
+            wrap.style.display = "flex";
+          } else {
+            txt.textContent = "";
+            wrap.style.display = "none";
+          }
+        } else {
+          setPlanRowSnapBanner(msg);
+        }
+      };
+
+      const resetPlanLiveSvgTransform = () => {
+        const cur = planLiveSvgDragRef.current;
+        if (!cur) return;
+        if (cur.el) {
+          if (cur.baseTransform) cur.el.setAttribute("transform", cur.baseTransform);
+          else cur.el.removeAttribute("transform");
+        }
+        for (const att of cur.attachedEls) {
+          if (att.baseTransform) att.el.setAttribute("transform", att.baseTransform);
+          else att.el.removeAttribute("transform");
+        }
+        planLiveSvgDragRef.current = null;
+      };
+
       const handleModPointerDown = (e: React.MouseEvent, idx: number) => {
         if (e.button !== 0 || isDrawingWall || isPlacingObstacle) return;
         e.stopPropagation();
@@ -1352,15 +1504,49 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         if (idx !== activeModuleIndex) {
           setActiveModuleIndex(idx);
         }
-        const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
+        const gEl = e.currentTarget as SVGGElement;
+        const svgEl = gEl.closest("svg") as SVGSVGElement | null;
         const fixedMmPerPx = svgEl ? getSvgMmPerPx(svgEl) : vb.width / 800;
+        const attachedEls: { el: SVGGElement; baseTransform: string }[] = [];
+        if (svgEl && mod) {
+          const attachedPrefix = `comp_att_${mod.id}__`;
+          project.modules.forEach((m, mIdx) => {
+            if (m.category === "complementary" && m.id.startsWith(attachedPrefix)) {
+              const attNode = svgEl.querySelector(
+                `[data-testid="plan-module-${mIdx}"]`
+              ) as SVGGElement | null;
+              if (attNode) {
+                attachedEls.push({
+                  el: attNode,
+                  baseTransform: attNode.getAttribute("transform") || "",
+                });
+              }
+            }
+          });
+        }
+        const startX = mod?.position.x || 0;
+        const startZ = mod?.position.z || 0;
+        document.body.dataset.birimUiDragging = "1";
         beginHistoryTransaction();
+        planLiveSvgDragRef.current = {
+          el: gEl,
+          baseTransform: gEl.getAttribute("transform") || "",
+          attachedEls,
+          kind: "module",
+          modIdx: idx,
+          startX,
+          startZ,
+          nextX: startX,
+          nextZ: startZ,
+          snapStepMm: 1,
+          hasMoved: false,
+        };
         setDraggingModIdx(idx);
         setDragStartClient({
           x: e.clientX,
           z: e.clientY,
-          startModX: project.modules[idx]?.position.x || 0,
-          startModZ: project.modules[idx]?.position.z || 0,
+          startModX: startX,
+          startModZ: startZ,
           mmPerPx: fixedMmPerPx,
         });
       };
@@ -1368,8 +1554,22 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       const handleObstaclePointerDown = (e: React.MouseEvent, obs: ArchitecturalElement) => {
         if (e.button !== 0 || isDrawingWall || isPlacingObstacle) return;
         e.stopPropagation();
+        const gEl = e.currentTarget as SVGGElement;
         setSelectedPlanObject({ kind: "obstacle", id: obs.id });
+        document.body.dataset.birimUiDragging = "1";
         beginHistoryTransaction();
+        planLiveSvgDragRef.current = {
+          el: gEl,
+          baseTransform: gEl.getAttribute("transform") || "",
+          attachedEls: [],
+          kind: "obstacle",
+          targetId: obs.id,
+          startX: obs.position.x,
+          startZ: obs.position.z,
+          nextX: obs.position.x,
+          nextZ: obs.position.z,
+          hasMoved: false,
+        };
         setDraggingObsId(obs.id);
         setObsDragStart({
           clientX: e.clientX,
@@ -1385,14 +1585,63 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       ) => {
         if (e.button !== 0 || isDrawingWall || isPlacingObstacle) return;
         e.stopPropagation();
+        const gEl = e.currentTarget as SVGGElement;
         setSelectedPlanObject({ kind: "wall", id: wall.id });
+        document.body.dataset.birimUiDragging = "1";
         beginHistoryTransaction();
+        planLiveSvgDragRef.current = {
+          el: gEl,
+          baseTransform: gEl.getAttribute("transform") || "",
+          attachedEls: [],
+          kind: "wall",
+          targetId: wall.id,
+          startX: wall.position.x,
+          startZ: wall.position.z,
+          nextX: wall.position.x,
+          nextZ: wall.position.z,
+          hasMoved: false,
+        };
         setDraggingWallId(wall.id);
         setWallDragStart({
           clientX: e.clientX,
           clientY: e.clientY,
           startX: wall.position.x,
           startZ: wall.position.z,
+        });
+      };
+
+      const handleSceneObjectPointerDown = (
+        e: React.MouseEvent,
+        so: NonNullable<typeof project.sceneObjects>[number]
+      ) => {
+        if (e.button !== 0 || isDrawingWall || isPlacingObstacle) return;
+        e.stopPropagation();
+        setSelectedSceneObjectId(so.id);
+        if (so.isLocked) return;
+        const gEl = e.currentTarget as SVGGElement;
+        const svgEl = gEl.closest("svg") as SVGSVGElement | null;
+        const fixedMmPerPx = svgEl ? getSvgMmPerPx(svgEl) : vb.width / 800;
+        document.body.dataset.birimUiDragging = "1";
+        beginHistoryTransaction();
+        planLiveSvgDragRef.current = {
+          el: gEl,
+          baseTransform: gEl.getAttribute("transform") || "",
+          attachedEls: [],
+          kind: "scene_object",
+          targetId: so.id,
+          startX: so.position.x,
+          startZ: so.position.z,
+          nextX: so.position.x,
+          nextZ: so.position.z,
+          hasMoved: false,
+        };
+        setDraggingSceneObjId(so.id);
+        setSceneObjDragStart({
+          clientX: e.clientX,
+          clientY: e.clientY,
+          startX: so.position.x,
+          startZ: so.position.z,
+          mmPerPx: fixedMmPerPx,
         });
       };
 
@@ -1774,13 +2023,30 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             }
           }
 
-          setActiveSnapTarget(wallSnapInfo);
-          setPlanRowSnapBanner(
+          setActiveSnapTarget((prev) =>
+            prev?.x === wallSnapInfo?.x && prev?.z === wallSnapInfo?.z ? prev : wallSnapInfo
+          );
+          setPlanSnapBannerFast(
             wallSnapInfo
               ? `🧲 Duvar Duvara Snap: ${wallSnapInfo.label}`
               : `✋ Duvar Taşınıyor: X:${nextX}mm • Z:${nextZ}mm`
           );
-          updateWallSegment(draggingWallId, { position: { x: nextX, z: nextZ } });
+          const liveWall = planLiveSvgDragRef.current;
+          if (liveWall && liveWall.kind === "wall" && liveWall.el) {
+            liveWall.nextX = nextX;
+            liveWall.nextZ = nextZ;
+            liveWall.hasMoved = true;
+            const tdx = nextX - liveWall.startX;
+            const tdz = nextZ - liveWall.startZ;
+            liveWall.el.setAttribute(
+              "transform",
+              liveWall.baseTransform
+                ? `translate(${tdx}, ${tdz}) ${liveWall.baseTransform}`
+                : `translate(${tdx}, ${tdz})`
+            );
+          } else {
+            updateWallSegment(draggingWallId, { position: { x: nextX, z: nextZ } });
+          }
           return;
         }
         if (draggingObsId) {
@@ -1796,7 +2062,48 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
           } else if ((rot === 0 || rot === 180) && nextZ <= 90) {
             nextZ = 0;
           }
-          updateObstaclePosition(draggingObsId, nextX, nextZ);
+          setPlanSnapBannerFast(`🎯 Engel Taşınıyor: X:${nextX}mm • Z:${nextZ}mm`);
+          const liveObs = planLiveSvgDragRef.current;
+          if (liveObs && liveObs.kind === "obstacle" && liveObs.el) {
+            liveObs.nextX = nextX;
+            liveObs.nextZ = nextZ;
+            liveObs.hasMoved = true;
+            const tdx = nextX - liveObs.startX;
+            const tdz = nextZ - liveObs.startZ;
+            liveObs.el.setAttribute(
+              "transform",
+              liveObs.baseTransform
+                ? `translate(${tdx}, ${tdz}) ${liveObs.baseTransform}`
+                : `translate(${tdx}, ${tdz})`
+            );
+          } else {
+            updateObstaclePosition(draggingObsId, nextX, nextZ);
+          }
+          return;
+        }
+        if (draggingSceneObjId) {
+          const mmPerPx = sceneObjDragStart.mmPerPx || getSvgMmPerPx(svgEl);
+          const dxMm = (e.clientX - sceneObjDragStart.clientX) * mmPerPx;
+          const dzMm = (e.clientY - sceneObjDragStart.clientY) * mmPerPx;
+          const nextX = Math.round((sceneObjDragStart.startX + dxMm) / 10) * 10;
+          const nextZ = Math.round((sceneObjDragStart.startZ + dzMm) / 10) * 10;
+          setPlanSnapBannerFast(`✋ Sahne Objesi Taşınıyor: X:${nextX}mm • Z:${nextZ}mm`);
+          const liveSo = planLiveSvgDragRef.current;
+          if (liveSo && liveSo.kind === "scene_object" && liveSo.el) {
+            liveSo.nextX = nextX;
+            liveSo.nextZ = nextZ;
+            liveSo.hasMoved = true;
+            const tdx = nextX - liveSo.startX;
+            const tdz = nextZ - liveSo.startZ;
+            liveSo.el.setAttribute(
+              "transform",
+              liveSo.baseTransform
+                ? `translate(${tdx}, ${tdz}) ${liveSo.baseTransform}`
+                : `translate(${tdx}, ${tdz})`
+            );
+          } else {
+            updateSceneObject(draggingSceneObjId, { position: { x: nextX, y: 0, z: nextZ } });
+          }
           return;
         }
         if (draggingModIdx === null) return;
@@ -1899,6 +2206,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             }
           });
         }
+        let didDiscreteAutoRotate = false;
         // Smart L/U Wall Auto-Rotate on Side-Wall Snap (Automatically rotates 0° <-> 90° when dragged onto a side wall or back to main wall)
         if (dragMod && useMagnet) {
           const curRot = (((dragMod.rotation?.y || 0) % 360) + 360) % 360;
@@ -1912,6 +2220,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
           if (curRot === 0 && rawNextZ >= 340 && rawNextX <= 85 && hasSideWallLeft) {
             if (draggingModIdx !== activeModuleIndex) setActiveModuleIndex(draggingModIdx);
             rotateActiveModule90(90);
+            didDiscreteAutoRotate = true;
             nextX = 0;
             activeSnapMsg = "🔄🧲 Sol Yan Duvara Otomatik 90° Döndü ve Yapıştı (X: 0mm)";
           } else if (
@@ -1922,11 +2231,13 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
           ) {
             if (draggingModIdx !== activeModuleIndex) setActiveModuleIndex(draggingModIdx);
             rotateActiveModule90(270);
+            didDiscreteAutoRotate = true;
             nextX = Math.max(0, rightWall.position.x - dragMod.dimensions.depth);
             activeSnapMsg = "🔄🧲 Sağ Yan Duvara Otomatik 270° Döndü ve Yapıştı";
           } else if ((curRot === 90 || curRot === 270) && rawNextZ <= 75 && rawNextX >= 140) {
             if (draggingModIdx !== activeModuleIndex) setActiveModuleIndex(draggingModIdx);
             rotateActiveModule90(curRot === 90 ? -90 : -270);
+            didDiscreteAutoRotate = true;
             nextZ = 0;
             activeSnapMsg = "🔄🧲 Ana Duvara Otomatik 0° Döndü ve Hizalandı (Z: 0mm)";
           }
@@ -1950,19 +2261,61 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             if (Math.abs(curModRot - angledSol.moduleRotationYDeg) > 0.5) {
               if (draggingModIdx !== activeModuleIndex) setActiveModuleIndex(draggingModIdx);
               rotateActiveModule90(angledSol.moduleRotationYDeg - curModRot);
+              didDiscreteAutoRotate = true;
             }
             activeSnapMsg = `🧲📐 "${angledSol.wallName}" Açılı Duvarına Paralel Yaslandı (${angledSol.moduleRotationYDeg}°)`;
           }
         }
 
-        setActivePlanSnapX(snappedEdgeX);
-        setPlanRowSnapBanner(activeSnapMsg);
-        if (dragMod && (nextX !== dragMod.position.x || nextZ !== dragMod.position.z)) {
-          setModulePosition(draggingModIdx, nextX, nextZ, useMagnet ? (activeSnapMsg ? 1 : 10) : 1);
+        const snapStep = useMagnet ? (activeSnapMsg ? 1 : 10) : 1;
+        const snappedNextX = snapStep > 1 ? Math.round(nextX / snapStep) * snapStep : Math.round(nextX);
+        const snappedNextZ = snapStep > 1 ? Math.round(nextZ / snapStep) * snapStep : Math.round(nextZ);
+
+        setActivePlanSnapX((prev) => (prev === snappedEdgeX ? prev : snappedEdgeX));
+        setPlanSnapBannerFast(
+          activeSnapMsg || `📐 Modül Konumu: X:${snappedNextX}mm • Z:${snappedNextZ}mm`
+        );
+
+        const liveMod = planLiveSvgDragRef.current;
+        if (!didDiscreteAutoRotate && dragMod && liveMod && liveMod.kind === "module" && liveMod.el) {
+          liveMod.nextX = snappedNextX;
+          liveMod.nextZ = snappedNextZ;
+          liveMod.snapStepMm = snapStep;
+          liveMod.hasMoved = true;
+          const tdx = snappedNextX - dragMod.position.x;
+          const tdz = snappedNextZ - dragMod.position.z;
+          const tf = liveMod.baseTransform
+            ? `translate(${tdx}, ${tdz}) ${liveMod.baseTransform}`
+            : `translate(${tdx}, ${tdz})`;
+          liveMod.el.setAttribute("transform", tf);
+          for (const att of liveMod.attachedEls) {
+            att.el.setAttribute(
+              "transform",
+              att.baseTransform ? `translate(${tdx}, ${tdz}) ${att.baseTransform}` : `translate(${tdx}, ${tdz})`
+            );
+          }
+          return;
+        }
+
+        if (dragMod && (snappedNextX !== dragMod.position.x || snappedNextZ !== dragMod.position.z)) {
+          if (liveMod) {
+            liveMod.startX = snappedNextX;
+            liveMod.startZ = snappedNextZ;
+            liveMod.nextX = snappedNextX;
+            liveMod.nextZ = snappedNextZ;
+          }
+          setModulePosition(draggingModIdx, snappedNextX, snappedNextZ, snapStep);
         }
       };
 
       const handleSvgPointerUp = () => {
+        if (typeof document !== "undefined") {
+          delete document.body.dataset.birimUiDragging;
+        }
+        const liveDrag = planLiveSvgDragRef.current;
+        resetPlanLiveSvgTransform();
+        setPlanSnapBannerFast(null);
+
         if (resizingPlanObject !== null) {
           setResizingPlanObject(null);
           setActiveSnapTarget(null);
@@ -1970,16 +2323,39 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
           commitHistoryTransaction();
         }
         if (draggingWallId !== null) {
+          if (liveDrag && liveDrag.kind === "wall" && liveDrag.hasMoved && liveDrag.targetId) {
+            updateWallSegment(liveDrag.targetId, {
+              position: { x: liveDrag.nextX, z: liveDrag.nextZ },
+            });
+          }
           setDraggingWallId(null);
           setActiveSnapTarget(null);
           setPlanRowSnapBanner(null);
           commitHistoryTransaction();
         }
         if (draggingObsId !== null) {
+          if (liveDrag && liveDrag.kind === "obstacle" && liveDrag.hasMoved && liveDrag.targetId) {
+            updateObstaclePosition(liveDrag.targetId, liveDrag.nextX, liveDrag.nextZ);
+          }
           setDraggingObsId(null);
+          setPlanRowSnapBanner(null);
+          commitHistoryTransaction();
+        }
+        if (draggingSceneObjId !== null) {
+          if (liveDrag && liveDrag.kind === "scene_object" && liveDrag.hasMoved && liveDrag.targetId) {
+            const curSo = (project.sceneObjects || []).find((o) => o.id === liveDrag.targetId);
+            updateSceneObject(liveDrag.targetId, {
+              position: { x: liveDrag.nextX, y: curSo?.position.y || 0, z: liveDrag.nextZ },
+            });
+          }
+          setDraggingSceneObjId(null);
+          setPlanRowSnapBanner(null);
           commitHistoryTransaction();
         }
         if (draggingModIdx !== null) {
+          if (liveDrag && liveDrag.kind === "module" && liveDrag.hasMoved && typeof liveDrag.modIdx === "number") {
+            setModulePosition(liveDrag.modIdx, liveDrag.nextX, liveDrag.nextZ, liveDrag.snapStepMm ?? 1);
+          }
           setDraggingModIdx(null);
           setActivePlanSnapX(null);
           setPlanRowSnapBanner(null);
@@ -2455,16 +2831,18 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
 
           {/* UNIFIED NON-OVERLAPPING BOTTOM DOCK STACK (Snap Toast + Selected Object Pill + CAD Drawer + Scale Bar) */}
           <div className="absolute bottom-2.5 left-2 right-2 z-20 flex flex-col items-center gap-1.5 pointer-events-none">
-            {/* 0. Snap / Action Toast Banner */}
-            {planRowSnapBanner && (
-              <div
-                data-testid="plan-row-snap-banner"
-                className="pointer-events-none max-w-[calc(100%-16px)] px-3.5 py-1.5 rounded-2xl bg-slate-900/92 backdrop-blur-xl text-white border border-emerald-400/80 shadow-xl ring-1 ring-black/15 font-mono text-xs font-bold flex items-center gap-2 truncate"
-              >
-                <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
-                <span className="truncate">{planRowSnapBanner}</span>
-              </div>
-            )}
+            {/* 0. Snap / Action Toast Banner (Ref-driven for 0-re-render 120fps plan drag) */}
+            <div
+              ref={planSnapBannerWrapRef}
+              data-testid="plan-row-snap-banner"
+              style={{ display: planRowSnapBanner ? "flex" : "none" }}
+              className="pointer-events-none max-w-[calc(100%-16px)] px-3.5 py-1.5 rounded-2xl bg-slate-900/92 text-white border border-emerald-400/80 shadow-xl ring-1 ring-black/15 font-mono text-xs font-bold items-center gap-2 truncate"
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+              <span ref={planSnapBannerTextRef} className="truncate">
+                {planRowSnapBanner || ""}
+              </span>
+            </div>
 
             {/* A. CONTEXTUAL FROSTED GLASS SELECTION PILL (Single-Row, Icon-First, Never Overlaps Scale Bar!) */}
             {selectedPlanObject && !showAdvancedCadBar && !isDrawingWall && !isPlacingObstacle && (
@@ -6957,11 +7335,12 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     key={`plan_so_${so.id}`}
                     data-testid={`plan-scene-object-${so.id}`}
                     transform={`rotate(${-rotY}, ${cx}, ${cz})`}
+                    onMouseDown={(ev) => handleSceneObjectPointerDown(ev, so)}
                     onClick={(ev) => {
                       ev.stopPropagation();
                       setSelectedSceneObjectId(so.id);
                     }}
-                    className="cursor-pointer"
+                    className={so.isLocked ? "cursor-pointer" : "cursor-move"}
                   >
                     <rect
                       x={sx}
@@ -7089,22 +7468,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         ? `translate(${activeModVisualDx}, ${activeModVisualDy})`
         : undefined;
 
-    const getElevScaleMmPerPx = (svgEl: SVGSVGElement) => {
-      try {
-        const ctm = svgEl.getScreenCTM();
-        if (ctm && Math.abs(ctm.a) > 0.00001 && Math.abs(ctm.d) > 0.00001) {
-          return { x: 1 / Math.abs(ctm.a), y: 1 / Math.abs(ctm.d) };
-        }
-      } catch {
-        // fallback
-      }
-      const rect = svgEl.getBoundingClientRect();
-      const s = Math.max(
-        vb.width / Math.max(1, rect.width * zoom),
-        vb.height / Math.max(1, rect.height * zoom)
-      );
-      return { x: s, y: s };
-    };
+    elevVbZoomRef.current = { vbWidth: vb.width, vbHeight: vb.height, zoom };
 
     const handleElevationPointerMove = (e: React.MouseEvent<SVGSVGElement>) => {
       if (elevDraggingObs || elevResizingMod || elevDraggingMod || interiorDrag) {
@@ -7429,7 +7793,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             interiorDrag.targetId,
             interiorDrag.itemHeightMm
           );
-      const { elevationY: snappedY, snappedTarget } = resolveElevationSnap(
+      const { elevationY: rawSnappedY, snappedTarget } = resolveElevationSnap(
         rawElevY,
         snapTargets,
         18
@@ -7439,6 +7803,55 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
           ? prev
           : snappedTarget
       );
+
+      const TClamp = activeModule.carcass.panelThickness || 18;
+      const plinthClamp = activeModule.carcass.plinthHeight ?? 100;
+      const netHClamp = Math.max(200, activeModule.dimensions.height - plinthClamp - 2 * TClamp);
+      const itemH = interiorDrag.itemHeightMm || TClamp;
+      const snappedY =
+        interiorDrag.kind === "shelf"
+          ? Math.max(60, Math.min(Math.max(100, netHClamp - 60), Math.round(rawSnappedY)))
+          : interiorDrag.kind === "drawer"
+          ? Math.max(0, Math.min(Math.max(0, netHClamp - itemH), Math.round(rawSnappedY)))
+          : interiorDrag.kind === "rail"
+          ? Math.max(120, Math.min(Math.max(160, netHClamp - 40), Math.round(rawSnappedY)))
+          : Math.max(40, Math.min(Math.max(80, netHClamp - itemH), Math.round(rawSnappedY)));
+
+      // Zero-re-render 120fps SVG transform for shelf, drawer, rail, and special_fitting in 2D Elevation!
+      if (!elevInteriorLiveRef.current || elevInteriorLiveRef.current.els.length === 0) {
+        const matchedNodes = Array.from(
+          svgEl.querySelectorAll(`[data-interior-owner="${interiorDrag.targetId}"]`)
+        ) as SVGGElement[];
+        elevInteriorLiveRef.current = {
+          els: matchedNodes.map((elNode) => ({
+            el: elNode,
+            baseTransform: elNode.getAttribute("transform") || "",
+          })),
+          snappedY,
+          hasMoved: false,
+        };
+      }
+
+      if (elevInteriorLiveRef.current && elevInteriorLiveRef.current.els.length > 0) {
+        elevInteriorLiveRef.current.snappedY = snappedY;
+        elevInteriorLiveRef.current.hasMoved = true;
+        const dySvg = -(snappedY - interiorDrag.startValueMm);
+        for (const item of elevInteriorLiveRef.current.els) {
+          item.el.setAttribute(
+            "transform",
+            item.baseTransform
+              ? `translate(0, ${dySvg}) ${item.baseTransform}`
+              : `translate(0, ${dySvg})`
+          );
+        }
+        if (elevSnapBannerDomRef.current) {
+          elevSnapBannerDomRef.current.style.display = "block";
+          elevSnapBannerDomRef.current.textContent = snappedTarget
+            ? `🧲 ${snappedTarget.label} (Y: ${snappedY} mm)`
+            : `📐 Yükseklik Kotu Y: ${snappedY} mm`;
+        }
+        return;
+      }
 
       if (interiorDrag.kind === "shelf") {
         setShelfElevation(interiorDrag.bayIdx, interiorDrag.targetId, snappedY, false);
@@ -7458,6 +7871,12 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
     };
 
     const handleElevationPointerUp = () => {
+      if (typeof document !== "undefined") {
+        delete document.body.dataset.birimUiDragging;
+      }
+      if (elevSnapBannerDomRef.current && !planRowSnapBanner) {
+        elevSnapBannerDomRef.current.style.display = "none";
+      }
       if (elevResizingMod) {
         setElevResizingMod(null);
         setPlanRowSnapBanner(null);
@@ -7496,6 +7915,41 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         }
       }
       if (interiorDrag) {
+        const liveInt = elevInteriorLiveRef.current;
+        if (liveInt) {
+          for (const item of liveInt.els) {
+            if (item.baseTransform) item.el.setAttribute("transform", item.baseTransform);
+            else item.el.removeAttribute("transform");
+          }
+          if (liveInt.hasMoved) {
+            if (interiorDrag.kind === "shelf") {
+              setShelfElevation(interiorDrag.bayIdx, interiorDrag.targetId, liveInt.snappedY, false);
+            } else if (interiorDrag.kind === "drawer") {
+              setDrawerPlacement(
+                interiorDrag.bayIdx,
+                interiorDrag.targetId,
+                liveInt.snappedY,
+                undefined,
+                false
+              );
+            } else if (interiorDrag.kind === "rail") {
+              setHangingRailElevation(
+                interiorDrag.bayIdx,
+                interiorDrag.targetId,
+                liveInt.snappedY,
+                false
+              );
+            } else if (interiorDrag.kind === "special_fitting") {
+              setSpecialFittingPlacement(
+                interiorDrag.bayIdx,
+                interiorDrag.targetId,
+                { elevationY: liveInt.snappedY },
+                false
+              );
+            }
+          }
+          elevInteriorLiveRef.current = null;
+        }
         setInteriorDrag(null);
         setPlanRowSnapBanner(null);
         commitHistoryTransaction();
@@ -8934,12 +9388,15 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
               <g
                 key={el.id}
                 data-testid={`cad-el-${el.id}`}
+                data-interior-owner={dragMeta?.targetId}
                 onMouseDown={(e) => {
                   setSelectedComponentId(el.id);
                   if (dragMeta && !elevPanMode && e.button === 0 && !e.altKey) {
                     e.stopPropagation();
                     const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
                     const scale = svgEl ? getElevScaleMmPerPx(svgEl) : { x: 4, y: 4 };
+                    document.body.dataset.birimUiDragging = "1";
+                    elevInteriorLiveRef.current = null;
                     beginHistoryTransaction();
                     setActiveBayIndex(dragMeta.bayIdx);
                     setInteriorDrag({
@@ -8958,6 +9415,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     e.stopPropagation();
                     const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
                     const scale = svgEl ? getElevScaleMmPerPx(svgEl) : { x: 4, y: 4 };
+                    document.body.dataset.birimUiDragging = "1";
                     beginHistoryTransaction();
                     setElevDraggingMod({
                       modIdx: activeModuleIndex,
@@ -9439,10 +9897,13 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
               <g
                 key={rail.id}
                 data-testid={`cad-el-${rail.id}`}
+                data-interior-owner={rail.id}
                 onMouseDown={(e) => {
                   e.stopPropagation();
                   const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
                   const scale = svgEl ? getElevScaleMmPerPx(svgEl) : { x: 4, y: 4 };
+                  document.body.dataset.birimUiDragging = "1";
+                  elevInteriorLiveRef.current = null;
                   beginHistoryTransaction();
                   setSelectedComponentId(rail.id);
                   setActiveBayIndex(bIdx);

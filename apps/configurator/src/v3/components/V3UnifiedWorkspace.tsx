@@ -2087,6 +2087,52 @@ export const V3UnifiedWorkspace: React.FC<{
     () => (activeModule ? generateModuleGeometry(activeModule, { doorOpenAngleDeg: 0 }) : null),
     [activeModule]
   );
+  const errorIssues = useMemo(
+    () => validationIssues.filter((i) => i.severity === "error"),
+    [validationIssues]
+  );
+  const familyTemplates = useMemo(() => {
+    const baseFamilyTemplates = filterTemplatesForStudioSubCategory(
+      v4ModuleTemplates,
+      leftSubCat as StudioLeftSubCategory,
+      selectedV4Family,
+      catalogSearchQuery,
+      catalogWidthFilter
+    );
+    return baseFamilyTemplates.filter((vt) => {
+      if (showFavoritesOnly && !favoriteTemplateIds.includes(vt.templateId)) return false;
+      if (catalogFeatureFilter === "sliding") {
+        return (
+          vt.defaultDoorSystemId?.startsWith("sliding") ||
+          vt.name.toLowerCase().includes("sürgü")
+        );
+      }
+      if (catalogFeatureFilter === "drawer") {
+        return (
+          vt.name.toLowerCase().includes("çekmece") ||
+          vt.templateId.includes("drawer") ||
+          vt.code.toLowerCase().includes("drw")
+        );
+      }
+      return true;
+    });
+  }, [
+    v4ModuleTemplates,
+    leftSubCat,
+    selectedV4Family,
+    catalogSearchQuery,
+    catalogWidthFilter,
+    showFavoritesOnly,
+    favoriteTemplateIds,
+    catalogFeatureFilter,
+  ]);
+  const isThreeViewportPaused =
+    (mode === "studio" && studioView === "2d" && !studioSplitView) ||
+    (mode === "plan" &&
+      (planViewLayout === "2d_only" ||
+        planRightView === "2d-elevation" ||
+        planRightView === "2d-section"));
+
   if (!activeModule || !activeBreakdown) {
     return (
       <EmptyStageRecoveryCard
@@ -2112,32 +2158,6 @@ export const V3UnifiedWorkspace: React.FC<{
     0
   );
   const remainingWallMm = Math.max(0, mainWall.length - usedSpanMm);
-
-  const errorIssues = validationIssues.filter((i) => i.severity === "error");
-  const baseFamilyTemplates = filterTemplatesForStudioSubCategory(
-    v4ModuleTemplates,
-    leftSubCat as StudioLeftSubCategory,
-    selectedV4Family,
-    catalogSearchQuery,
-    catalogWidthFilter
-  );
-  const familyTemplates = baseFamilyTemplates.filter((vt) => {
-    if (showFavoritesOnly && !favoriteTemplateIds.includes(vt.templateId)) return false;
-    if (catalogFeatureFilter === "sliding") {
-      return (
-        vt.defaultDoorSystemId?.startsWith("sliding") ||
-        vt.name.toLowerCase().includes("sürgü")
-      );
-    }
-    if (catalogFeatureFilter === "drawer") {
-      return (
-        vt.name.toLowerCase().includes("çekmece") ||
-        vt.templateId.includes("drawer") ||
-        vt.code.toLowerCase().includes("drw")
-      );
-    }
-    return true;
-  });
 
   const toggleFavoriteTemplate = (tplId: string) => {
     setFavoriteTemplateIds((prev) =>
@@ -6162,14 +6182,35 @@ export const V3UnifiedWorkspace: React.FC<{
                       <span className="sr-only">Kopyala</span>
                     </button>
 
+                    {planViewLayout === "2d_only" && (
+                      <div className="inline-flex items-center p-0.5 rounded-xl bg-slate-100/90 border border-slate-200/80 gap-0.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => startTransition(() => setPlanViewLayout("split"))}
+                          className="px-2 py-0.5 rounded-lg text-[11px] font-bold text-[#2563EB] hover:bg-white transition cursor-pointer"
+                          title="Bölünmüş 2D + 3D Görünüme Dön"
+                        >
+                          2D|3D
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => startTransition(() => setPlanViewLayout("3d_only"))}
+                          className="px-2 py-0.5 rounded-lg text-[11px] font-bold text-[#475569] hover:bg-white transition cursor-pointer"
+                          title="Tam Ekran 3D Görünüme Geç"
+                        >
+                          3D
+                        </button>
+                      </div>
+                    )}
                     <button
                       type="button"
                       data-testid="plan-quick-open-wall-elevation-btn"
-                      onClick={() =>
+                      onClick={() => {
+                        if (planViewLayout === "2d_only") setPlanViewLayout("split");
                         setPlanRightView((prev) =>
                           prev === "2d-elevation" ? "3d-iso" : "2d-elevation"
-                        )
-                      }
+                        );
+                      }}
                       title="Sağ panelde Duvar Cephe Görünüşünü aç/kapat"
                       className={`px-2 py-1 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 shrink-0 whitespace-nowrap shadow-2xs transition active:scale-95 cursor-pointer ${
                         planRightView === "2d-elevation"
@@ -6385,7 +6426,8 @@ export const V3UnifiedWorkspace: React.FC<{
         {/* PERSISTENT FULL-BLEED 3D WEBGL VIEWPORT & PLAN RIGHT PANE */}
         <main
           className={`${
-            mode === "studio" && studioView === "2d" && !studioSplitView
+            (mode === "studio" && studioView === "2d" && !studioSplitView) ||
+            (mode === "plan" && planViewLayout === "2d_only")
               ? "hidden"
               : mode === "studio" && studioSplitView
               ? "absolute top-0 bottom-0 right-0 w-1/2 z-0"
@@ -6575,6 +6617,7 @@ export const V3UnifiedWorkspace: React.FC<{
               }
             >
               <V3ThreeViewport
+                paused={isThreeViewportPaused}
                 theme={
                   canvasTheme === "dark"
                     ? "dark"

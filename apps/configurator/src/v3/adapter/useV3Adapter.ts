@@ -2212,7 +2212,10 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
         modules: nextModules,
       };
       if (!pushHistory) {
-        // Fast path during live 3D/2D dragging: update geometry at 60 FPS without blocking on CNC nesting/BOM
+        // Fast path during live 3D/2D dragging: update geometry at 60 FPS without blocking on CNC nesting/BOM.
+        // When an explicit history transaction is active (`batchStartProject !== null`), skip the 180ms timer
+        // completely so pausing the cursor mid-drag NEVER triggers a synchronous BOM/pricing/validation hitch;
+        // `commitHistoryTransaction()` on pointerup performs the full recompute once.
         commitAdapterState({
           project: nextProj,
         });
@@ -2220,16 +2223,23 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
           const w = window as unknown as {
             __birimLiveDragBomTimer?: ReturnType<typeof setTimeout>;
           };
-          if (w.__birimLiveDragBomTimer) clearTimeout(w.__birimLiveDragBomTimer);
-          w.__birimLiveDragBomTimer = setTimeout(() => {
-            const latestProj = useConfiguratorStore.getState().project;
-            const dBom = generateBOMForProject(latestProj, undefined, { skipSyncNesting: true });
-            commitAdapterState({
-              validationIssues: validateProject(latestProj),
-              bom: dBom,
-              pricing: calculateProjectPrice(dBom),
-            });
-          }, 180);
+          if (w.__birimLiveDragBomTimer) {
+            clearTimeout(w.__birimLiveDragBomTimer);
+            w.__birimLiveDragBomTimer = undefined;
+          }
+          if (useConfiguratorStore.getState().batchStartProject === null) {
+            w.__birimLiveDragBomTimer = setTimeout(() => {
+              const latestState = useConfiguratorStore.getState();
+              if (latestState.batchStartProject !== null) return;
+              const latestProj = latestState.project;
+              const dBom = generateBOMForProject(latestProj, undefined, { skipSyncNesting: true });
+              commitAdapterState({
+                validationIssues: validateProject(latestProj),
+                bom: dBom,
+                pricing: calculateProjectPrice(dBom, undefined, undefined, latestProj.sceneObjects || []),
+              });
+            }, 220);
+          }
         }
         return;
       }

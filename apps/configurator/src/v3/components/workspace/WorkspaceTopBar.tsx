@@ -75,7 +75,7 @@ interface WorkspaceTopBarProps {
   onRedo: () => void;
 }
 
-export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = ({
+export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
   projectTitle,
   mode,
   studioView,
@@ -656,4 +656,5 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = ({
       </div>
     </header>
   );
-};
+});
+WorkspaceTopBar.displayName = "WorkspaceTopBar";

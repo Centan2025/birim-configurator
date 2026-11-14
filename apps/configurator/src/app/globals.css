@@ -685,3 +685,26 @@
     transform 320ms cubic-bezier(0.22, 1, 0.36, 1),
     visibility 0ms linear 320ms;
 }
+
+
+/* ============================================================================
+   ZERO-JANK COMPOSITOR FAST-PATH DURING ACTIVE 2D / 3D DRAG GESTURES
+   Suspends multi-pass Gaussian backdrop-filter resampling over animated WebGL/SVG
+   canvases while `body[data-birim-ui-dragging="1"]` is set, restoring on pointerup.
+   ============================================================================ */
+body[data-birim-ui-dragging="1"] .birim-ice-bar,
+body[data-birim-ui-dragging="1"] .birim-ice-rail,
+body[data-birim-ui-dragging="1"] .birim-ice-pill,
+body[data-birim-ui-dragging="1"] .birim-ice-rail-pill,
+body[data-birim-ui-dragging="1"] .birim-ice-floating-shell,
+body[data-birim-ui-dragging="1"] .birim-ice-popover {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background-color: rgba(250, 249, 246, 0.94) !important;
+}
+
+body[data-birim-ui-dragging="1"] .birim-ice-dark-bar {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background-color: rgba(20, 20, 19, 0.94) !important;
+}

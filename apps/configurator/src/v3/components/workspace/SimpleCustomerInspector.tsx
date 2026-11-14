@@ -207,7 +207,7 @@ const STEP_ORDER: { id: CustomerStepId; shortLabel: string; Icon: React.Componen
   { id: "material", shortLabel: "Renk", Icon: Palette },
 ];
 
-export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = ({
+export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = React.memo(({
   activeModule,
   activeBay,
   activeBayIndex,
@@ -2480,4 +2480,5 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = (
       )}
     </div>
   );
-};
+});
+SimpleCustomerInspector.displayName = "SimpleCustomerInspector";

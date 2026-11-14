@@ -631,6 +631,7 @@ const formatEngineeringErrorCode = (code?: string): string => {
 };
 
 export interface V3ThreeViewportProps {
+  paused?: boolean;
   theme?: "warm-light" | "showroom-neutral" | "dark";
   showGrid?: boolean;
   showInCanvasHud?: boolean;
@@ -643,6 +644,7 @@ export interface V3ThreeViewportProps {
 
 export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
   ({
+    paused = false,
     theme = "warm-light",
     showGrid = true,
     showInCanvasHud = true,
@@ -735,10 +737,17 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       applyApprovedEngineeringFix,
     } = useV3Adapter({ lightweightViewport: true });
 
-    const live3DEngineeringReport = useMemo(
-      () => evaluateUnifiedEngineeringModel(project),
-      [project]
-    );
+    const isStoreBatchDragging = useConfiguratorStore((s) => s.batchStartProject !== null);
+    const lastSettled3DEngRef = useRef<ReturnType<typeof evaluateUnifiedEngineeringModel> | null>(null);
+    const live3DEngineeringReport = useMemo(() => {
+      if ((paused || isStoreBatchDragging) && lastSettled3DEngRef.current) {
+        return lastSettled3DEngRef.current;
+      }
+      if (paused) return null;
+      const computed = evaluateUnifiedEngineeringModel(project);
+      lastSettled3DEngRef.current = computed;
+      return computed;
+    }, [project, paused, isStoreBatchDragging]);
 
     const experienceTier = useConfiguratorStore((s) => s.userExperienceTier);
     const canUndo3D = useConfiguratorStore((s) => s.history.length > 0);
@@ -1186,6 +1195,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       setModulePosition,
       finishModuleDragWithSmartSwap,
       updateObstaclePosition,
+      updateSceneObject,
       beginHistoryTransaction,
       commitHistoryTransaction,
     });
@@ -1209,6 +1219,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         setModulePosition,
         finishModuleDragWithSmartSwap,
         updateObstaclePosition,
+        updateSceneObject,
         beginHistoryTransaction,
         commitHistoryTransaction,
       };
@@ -1232,9 +1243,21 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       setModulePosition,
       finishModuleDragWithSmartSwap,
       updateObstaclePosition,
+      updateSceneObject,
       beginHistoryTransaction,
       commitHistoryTransaction,
     ]);
+
+    useEffect(() => {
+      return () => {
+        for (const grp of lifestylePropsCacheRef.current.values()) {
+          if (!grp.parent) {
+            disposeObject3DTree(grp);
+          }
+        }
+        lifestylePropsCacheRef.current.clear();
+      };
+    }, []);
 
     // Sync OrbitControls mouse direction (Natural object rotation vs standard camera orbit)
     useEffect(() => {
@@ -2014,7 +2037,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           | "divider"
           | "sub_divider"
           | "module_3d"
-          | "obstacle_3d";
+          | "obstacle_3d"
+          | "scene_object_3d";
         targetId: string;
         startValueMm: number;
         startSecondValueMm?: number;
@@ -2023,6 +2047,11 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         dragPlane?: THREE.Plane;
         startPlaneHit?: THREE.Vector3;
         itemHeightMm?: number;
+        cachedSnapTargets?: ReturnType<typeof computeElevationSnapTargets>;
+        liveSnappedY?: number;
+        liveGpuX?: number;
+        liveGpuY?: number;
+        liveGpuZ?: number;
         startClientX: number;
         startClientY: number;
         mmPerPx: number;
@@ -2077,7 +2106,45 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                 walker = walker.parent;
               }
               if (walker?.userData?.sceneObjectId) {
-                useConfiguratorStore.getState().setSelectedSceneObjectId(String(walker.userData.sceneObjectId));
+                const sobjId = String(walker.userData.sceneObjectId);
+                useConfiguratorStore.getState().setSelectedSceneObjectId(sobjId);
+                const sobjInst = (state.project.sceneObjects || []).find((o) => o.id === sobjId);
+                if (sobjInst && !sobjInst.isLocked) {
+                  const hitDist = Math.max(300, sh.distance);
+                  const fovRad =
+                    curCam instanceof THREE.PerspectiveCamera
+                      ? (curCam.fov * Math.PI) / 180
+                      : 0.7;
+                  const visibleHeightMm =
+                    curCam instanceof THREE.PerspectiveCamera
+                      ? 2 * hitDist * Math.tan(fovRad / 2)
+                      : 2200;
+                  const mmPerPx = visibleHeightMm / Math.max(200, rect.height);
+                  const floorPlane = new THREE.Plane().setFromNormalAndCoplanarPoint(
+                    new THREE.Vector3(0, 1, 0),
+                    sh.point
+                  );
+                  state.beginHistoryTransaction();
+                  document.body.dataset.birimUiDragging = "1";
+                  activeDrag3D = {
+                    modIdx: state.activeModuleIndex,
+                    bayIdx: 0,
+                    kind: "scene_object_3d",
+                    targetId: sobjId,
+                    startValueMm: sobjInst.position.x,
+                    startSecondValueMm: sobjInst.position.y,
+                    startThirdValueMm: sobjInst.position.z,
+                    dragPlane: floorPlane,
+                    startPlaneHit: sh.point.clone(),
+                    startClientX: e.clientX,
+                    startClientY: e.clientY,
+                    mmPerPx,
+                    hasMoved: false,
+                  };
+                  curControls.enabled = false;
+                  curRenderer.domElement.style.cursor = "grabbing";
+                  e.stopImmediatePropagation();
+                }
                 return;
               }
             }
@@ -2119,6 +2186,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                 );
                 const startPlaneHit = rh.point.clone();
                 state.beginHistoryTransaction();
+                document.body.dataset.birimUiDragging = "1";
                 activeDrag3D = {
                   modIdx: state.activeModuleIndex,
                   bayIdx: 0,
@@ -2234,6 +2302,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             modIdx
           );
           state.beginHistoryTransaction();
+          document.body.dataset.birimUiDragging = "1";
           const modDragPlane = new THREE.Plane().setFromNormalAndCoplanarPoint(
             new THREE.Vector3(0, 1, 0),
             hits[0].point
@@ -2271,6 +2340,17 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           modIdx
         );
         state.beginHistoryTransaction();
+        document.body.dataset.birimUiDragging = "1";
+        const precomputedSnapTargets =
+          dragMeta.kind === "divider" || dragMeta.kind === "sub_divider"
+            ? undefined
+            : computeElevationSnapTargets(
+                state.project,
+                modIdx,
+                dragMeta.bayIdx,
+                dragMeta.targetId,
+                dragMeta.itemHeightMm
+              );
 
         activeDrag3D = {
           modIdx,
@@ -2280,6 +2360,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           startValueMm: dragMeta.startVal,
           startSecondValueMm: dragMeta.startElevY,
           itemHeightMm: dragMeta.itemHeightMm,
+          cachedSnapTargets: precomputedSnapTargets,
           startClientX: e.clientX,
           startClientY: e.clientY,
           mmPerPx,
@@ -2450,21 +2531,53 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
 
         const state = latestStateRef.current;
 
+        if (activeDrag3D.kind === "scene_object_3d") {
+          let deltaX = dxPx * activeDrag3D.mmPerPx;
+          let deltaZ = dyPx * activeDrag3D.mmPerPx;
+          const curCam = (controlsRef.current?.object as THREE.Camera) || perspCamRef.current;
+          if (curRenderer && curCam && activeDrag3D.dragPlane && activeDrag3D.startPlaneHit) {
+            const rect = canvasRectRef.current || curRenderer.domElement.getBoundingClientRect();
+            const curNdcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+            const curNdcY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+            raycaster.setFromCamera(new THREE.Vector2(curNdcX, curNdcY), curCam);
+            const curHit = new THREE.Vector3();
+            if (raycaster.ray.intersectPlane(activeDrag3D.dragPlane, curHit)) {
+              const rawDx = curHit.x - activeDrag3D.startPlaneHit.x;
+              const rawDz = curHit.z - activeDrag3D.startPlaneHit.z;
+              if (Math.abs(rawDx) < 12000 && Math.abs(rawDz) < 12000) {
+                deltaX = rawDx;
+                deltaZ = rawDz;
+              }
+            }
+          }
+          const nextX = Math.round((activeDrag3D.startValueMm + deltaX) / 10) * 10;
+          const nextZ = Math.round(((activeDrag3D.startThirdValueMm || 0) + deltaZ) / 10) * 10;
+          activeDrag3D.liveGpuX = nextX;
+          activeDrag3D.liveGpuZ = nextZ;
+          const sobjNode = sceneObjectsGroupRef.current?.children.find(
+            (ch) => ch.userData?.sceneObjectId === activeDrag3D?.targetId
+          );
+          if (sobjNode) {
+            sobjNode.position.set(nextX, activeDrag3D.startSecondValueMm || 0, nextZ);
+            needsRenderRef.current = true;
+          }
+          setDragDropSnapBanner(`✋ Sahne Objesi Taşınıyor: X:${nextX}mm • Z:${nextZ}mm`);
+          return;
+        }
+
         if (activeDrag3D.kind === "obstacle_3d") {
           let deltaX = dxPx * activeDrag3D.mmPerPx;
           let deltaZ = -dxPx * activeDrag3D.mmPerPx;
           let deltaY = -dyPx * activeDrag3D.mmPerPx;
 
-          const curRenderer = rendererRef.current;
           const curCam = (controlsRef.current?.object as THREE.Camera) || perspCamRef.current;
           if (curRenderer && curCam && activeDrag3D.dragPlane && activeDrag3D.startPlaneHit) {
-            const rect = curRenderer.domElement.getBoundingClientRect();
+            const rect = canvasRectRef.current || curRenderer.domElement.getBoundingClientRect();
             const curNdcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
             const curNdcY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-            const rc = new THREE.Raycaster();
-            rc.setFromCamera(new THREE.Vector2(curNdcX, curNdcY), curCam);
+            raycaster.setFromCamera(new THREE.Vector2(curNdcX, curNdcY), curCam);
             const curHit = new THREE.Vector3();
-            if (rc.ray.intersectPlane(activeDrag3D.dragPlane, curHit)) {
+            if (raycaster.ray.intersectPlane(activeDrag3D.dragPlane, curHit)) {
               const rawDx = curHit.x - activeDrag3D.startPlaneHit.x;
               const rawDz = curHit.z - activeDrag3D.startPlaneHit.z;
               const rawDy = curHit.y - activeDrag3D.startPlaneHit.y;
@@ -2480,35 +2593,43 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             0,
             Math.round(((activeDrag3D.startSecondValueMm || 0) + deltaY) / 10) * 10
           );
-          if (activeDrag3D.isSideWallObs) {
-            const nextZ = Math.max(
-              0,
-              Math.round(((activeDrag3D.startThirdValueMm || 0) + deltaZ) / 10) * 10
-            );
-            state.updateObstaclePosition(
-              activeDrag3D.targetId,
-              activeDrag3D.startValueMm,
-              nextZ,
-              nextY
-            );
-            setDragDropSnapBanner(
-              `🎯 Yan Duvar Pencere/Engel Taşınıyor: Z:${nextZ}mm • Yükseklik Kotu Y:${nextY}mm`
-            );
+          const nextX = activeDrag3D.isSideWallObs
+            ? activeDrag3D.startValueMm
+            : Math.max(0, Math.round((activeDrag3D.startValueMm + deltaX) / 10) * 10);
+          const nextZ = activeDrag3D.isSideWallObs
+            ? Math.max(0, Math.round(((activeDrag3D.startThirdValueMm || 0) + deltaZ) / 10) * 10)
+            : activeDrag3D.startThirdValueMm || 0;
+
+          activeDrag3D.liveGpuX = nextX;
+          activeDrag3D.liveGpuY = nextY;
+          activeDrag3D.liveGpuZ = nextZ;
+
+          let movedOnGpu = false;
+          roomArchGroupRef.current?.traverse((node) => {
+            if (node.userData?.obstacleId === activeDrag3D?.targetId && node.parent?.userData?.obstacleId !== activeDrag3D?.targetId) {
+              if (typeof node.userData.__dragBaseX !== "number") {
+                node.userData.__dragBaseX = node.position.x;
+                node.userData.__dragBaseY = node.position.y;
+                node.userData.__dragBaseZ = node.position.z;
+              }
+              node.position.set(
+                (node.userData.__dragBaseX as number) + (nextX - activeDrag3D!.startValueMm),
+                (node.userData.__dragBaseY as number) + (nextY - (activeDrag3D!.startSecondValueMm || 0)),
+                (node.userData.__dragBaseZ as number) + (nextZ - (activeDrag3D!.startThirdValueMm || 0))
+              );
+              movedOnGpu = true;
+            }
+          });
+          if (movedOnGpu) {
+            needsRenderRef.current = true;
           } else {
-            const nextX = Math.max(
-              0,
-              Math.round((activeDrag3D.startValueMm + deltaX) / 10) * 10
-            );
-            state.updateObstaclePosition(
-              activeDrag3D.targetId,
-              nextX,
-              activeDrag3D.startThirdValueMm,
-              nextY
-            );
-            setDragDropSnapBanner(
-              `🎯 3D Pencere/Engel Taşınıyor: X:${nextX}mm • Yükseklik Kotu Y:${nextY}mm`
-            );
+            state.updateObstaclePosition(activeDrag3D.targetId, nextX, nextZ, nextY);
           }
+          setDragDropSnapBanner(
+            activeDrag3D.isSideWallObs
+              ? `🎯 Yan Duvar Pencere/Engel Taşınıyor: Z:${nextZ}mm • Yükseklik Kotu Y:${nextY}mm`
+              : `🎯 3D Pencere/Engel Taşınıyor: X:${nextX}mm • Yükseklik Kotu Y:${nextY}mm`
+          );
           return;
         }
 
@@ -2564,7 +2685,22 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               Math.round(((activeDrag3D.startSecondValueMm || 0) + dzMm) / 10) * 10
             );
             setDragDropSnapBanner(`✋ 3D Köşe/Yan Modül Taşınıyor: Z: ${nextZ}mm`);
-            state.setModulePosition(activeDrag3D.modIdx, activeDrag3D.startValueMm, nextZ, 1);
+            activeDrag3D.liveGpuX = activeDrag3D.startValueMm;
+            activeDrag3D.liveGpuZ = nextZ;
+            const modObj3DRot = meshGroupRef.current?.children.find(
+              (ch) => ch.userData?.moduleIndex === activeDrag3D?.modIdx
+            );
+            if (modObj3DRot && dragModObj) {
+              const deltaLiveZ = nextZ - dragModObj.position.z;
+              const baseOrigin = calculateModulePlacement(dragModObj).origin;
+              modObj3DRot.position.set(baseOrigin.x, dragModObj.position.y, baseOrigin.z + deltaLiveZ);
+              if (selectionFrameGroupRef.current) selectionFrameGroupRef.current.position.set(0, 0, deltaLiveZ);
+              if (activeModFrameGroupRef.current) activeModFrameGroupRef.current.position.set(0, 0, deltaLiveZ);
+              liveDimDeltaRef.current = { dx: 0, dz: deltaLiveZ };
+              needsRenderRef.current = true;
+            } else {
+              state.setModulePosition(activeDrag3D.modIdx, activeDrag3D.startValueMm, nextZ, 1);
+            }
             return;
           }
           const rawNextX = Math.max(0, activeDrag3D.startValueMm + dxMm);
@@ -2699,34 +2835,125 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
 
         // Moving mouse UP (negative dyPx) increases elevationY
         const rawElevY = activeDrag3D.startValueMm - dyPx * activeDrag3D.mmPerPx;
-        const targets = computeElevationSnapTargets(
-          state.project,
-          activeDrag3D.modIdx,
-          activeDrag3D.bayIdx,
-          activeDrag3D.targetId,
-          activeDrag3D.itemHeightMm
-        );
-        const { elevationY: snappedY, snappedTarget } = resolveElevationSnap(
+        const targets =
+          activeDrag3D.cachedSnapTargets ||
+          computeElevationSnapTargets(
+            state.project,
+            activeDrag3D.modIdx,
+            activeDrag3D.bayIdx,
+            activeDrag3D.targetId,
+            activeDrag3D.itemHeightMm
+          );
+        const { elevationY: rawSnappedY, snappedTarget } = resolveElevationSnap(
           rawElevY,
           targets,
           18
         );
         setActive3DSnap(snappedTarget);
 
+        const modForClamp = state.project.modules[activeDrag3D.modIdx];
+        const TClamp = modForClamp?.carcass.panelThickness || 18;
+        const plinthClamp = modForClamp?.carcass.plinthHeight ?? 100;
+        const netHClamp = modForClamp
+          ? Math.max(200, modForClamp.dimensions.height - plinthClamp - 2 * TClamp)
+          : 2000;
+        const itemH = activeDrag3D.itemHeightMm || TClamp;
+        const clampedSnappedY =
+          activeDrag3D.kind === "shelf"
+            ? Math.max(60, Math.min(Math.max(100, netHClamp - 60), Math.round(rawSnappedY)))
+            : activeDrag3D.kind === "drawer"
+            ? Math.max(0, Math.min(Math.max(0, netHClamp - itemH), Math.round(rawSnappedY)))
+            : activeDrag3D.kind === "rail"
+            ? Math.max(120, Math.min(Math.max(160, netHClamp - 40), Math.round(rawSnappedY)))
+            : Math.max(40, Math.min(Math.max(80, netHClamp - itemH), Math.round(rawSnappedY)));
+
+        activeDrag3D.liveSnappedY = clampedSnappedY;
+        const deltaY = clampedSnappedY - activeDrag3D.startValueMm;
+
+        // Direct 0.0ms GPU Y-translation for shelf, drawer, rail, and special_fitting!
+        // Avoids rebuilding the cabinet's 100+ meshes, clothing props, CNC multi-holes, and 2D/UI trees on 60Hz mousemove.
+        const modContainer3D = meshGroupRef.current?.children.find(
+          (ch) => ch.userData?.moduleIndex === activeDrag3D?.modIdx
+        );
+        if (modContainer3D && modForClamp) {
+          const bayObj = modForClamp.bays[activeDrag3D.bayIdx];
+          const tId = activeDrag3D.targetId;
+          const mId = modForClamp.id;
+          const bIdx = activeDrag3D.bayIdx;
+          const sIdx = bayObj ? bayObj.shelves.findIndex((s) => s.id === tId) : -1;
+          const rIdx = bayObj ? bayObj.hangingRails.findIndex((r) => r.id === tId) : -1;
+          const fIdx = bayObj ? (bayObj.specialFittings || []).findIndex((f) => f.id === tId) : -1;
+
+          let movedAny = false;
+          for (const child of modContainer3D.children) {
+            const cid = String(child.userData?.componentId || "");
+            const pid = String(child.userData?.parentComponentId || "");
+            const shOwner = String(child.userData?.shelfOwnerId || "");
+            let match = false;
+            if (activeDrag3D.kind === "shelf") {
+              match =
+                cid === tId ||
+                shOwner === tId ||
+                (sIdx >= 0 &&
+                  (cid === `${mId}_bay_${bIdx}_shelf_${sIdx}` ||
+                    cid === `${mId}_bay_${bIdx}_recessed_led_sh_${sIdx}` ||
+                    cid === `${tId}_l_shelf_ret_${sIdx}` ||
+                    cid === `${tId}_diag_shelf_ret_${sIdx}`));
+            } else if (activeDrag3D.kind === "drawer") {
+              match =
+                cid === tId ||
+                cid.startsWith(`${tId}_`) ||
+                pid === tId ||
+                pid.startsWith(`${tId}_`);
+            } else if (activeDrag3D.kind === "rail") {
+              match =
+                cid === tId ||
+                cid.startsWith(`${tId}_`) ||
+                (rIdx >= 0 &&
+                  (cid === `${mId}_bay_${bIdx}_rail_${rIdx}` ||
+                    cid === `${mId}_bay_${bIdx}_recessed_led_rod_${rIdx}`));
+            } else if (activeDrag3D.kind === "special_fitting") {
+              const fallbackFitPrefix = fIdx >= 0 ? `${mId}_bay_${bIdx}_fit_${fIdx}` : "";
+              match =
+                cid === tId ||
+                cid.startsWith(`${tId}_`) ||
+                (Boolean(fallbackFitPrefix) &&
+                  (cid === fallbackFitPrefix || cid.startsWith(`${fallbackFitPrefix}_`)));
+            }
+
+            if (match) {
+              if (typeof child.userData.__dragBaseY !== "number") {
+                child.userData.__dragBaseY = child.position.y;
+              }
+              child.position.y = (child.userData.__dragBaseY as number) + deltaY;
+              movedAny = true;
+            }
+          }
+
+          if (movedAny) {
+            if (selectionFrameGroupRef.current) {
+              selectionFrameGroupRef.current.position.set(0, deltaY, 0);
+            }
+            needsRenderRef.current = true;
+            return;
+          }
+        }
+
+        // Fallback if procedural capsule hull or custom structure has no discrete child group
         if (activeDrag3D.kind === "shelf") {
-          state.setShelfElevation(activeDrag3D.bayIdx, activeDrag3D.targetId, snappedY, false);
+          state.setShelfElevation(activeDrag3D.bayIdx, activeDrag3D.targetId, clampedSnappedY, false);
         } else if (activeDrag3D.kind === "drawer") {
           state.setDrawerPlacement(
             activeDrag3D.bayIdx,
             activeDrag3D.targetId,
-            snappedY,
+            clampedSnappedY,
             undefined,
             false
           );
         } else if (activeDrag3D.kind === "rail") {
-          state.setHangingRailElevation(activeDrag3D.bayIdx, activeDrag3D.targetId, snappedY, false);
+          state.setHangingRailElevation(activeDrag3D.bayIdx, activeDrag3D.targetId, clampedSnappedY, false);
         } else if (activeDrag3D.kind === "special_fitting") {
-          state.setSpecialFittingPlacement?.(activeDrag3D.bayIdx, activeDrag3D.targetId, { elevationY: snappedY }, false);
+          state.setSpecialFittingPlacement?.(activeDrag3D.bayIdx, activeDrag3D.targetId, { elevationY: clampedSnappedY }, false);
         }
       };
 
@@ -2755,6 +2982,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           }
         }
         latestDragPointerEvent = null;
+        delete document.body.dataset.birimUiDragging;
 
         const curRenderer = rendererRef.current;
         const curControls = controlsRef.current;
@@ -2764,16 +2992,41 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           const moved = activeDrag3D.hasMoved;
           const dragKind = activeDrag3D.kind;
           const dragModIdx = activeDrag3D.modIdx;
+          const dragBayIdx = activeDrag3D.bayIdx;
+          const dragTargetId = activeDrag3D.targetId;
           const dragStartX = activeDrag3D.startValueMm;
-          const pendingGpuX = (activeDrag3D as { liveGpuX?: number }).liveGpuX;
-          const pendingGpuZ = (activeDrag3D as { liveGpuZ?: number }).liveGpuZ;
+          const pendingGpuX = activeDrag3D.liveGpuX;
+          const pendingGpuY = activeDrag3D.liveGpuY;
+          const pendingGpuZ = activeDrag3D.liveGpuZ;
+          const pendingSnappedY = activeDrag3D.liveSnappedY;
           activeDrag3D = null;
           setActive3DSnap(null);
           if (curRenderer) {
             curRenderer.domElement.style.cursor = (e.ctrlKey || e.metaKey || isCtrlPressed) ? "move" : "grab";
           }
+          if (selectionFrameGroupRef.current) {
+            selectionFrameGroupRef.current.position.set(0, 0, 0);
+          }
+          if (activeModFrameGroupRef.current) {
+            activeModFrameGroupRef.current.position.set(0, 0, 0);
+          }
           const state = latestStateRef.current;
-          if (dragKind === "module_3d" || dragKind === "obstacle_3d") {
+          if (dragKind === "scene_object_3d") {
+            if (moved && (typeof pendingGpuX === "number" || typeof pendingGpuZ === "number")) {
+              const curSobj = (state.project.sceneObjects || []).find((o) => o.id === dragTargetId);
+              if (curSobj) {
+                state.updateSceneObject(dragTargetId, {
+                  position: {
+                    x: typeof pendingGpuX === "number" ? pendingGpuX : curSobj.position.x,
+                    y: curSobj.position.y,
+                    z: typeof pendingGpuZ === "number" ? pendingGpuZ : curSobj.position.z,
+                  },
+                });
+              }
+            }
+            setDragDropSnapBanner(null);
+            state.commitHistoryTransaction();
+          } else if (dragKind === "module_3d" || dragKind === "obstacle_3d") {
             if (dragKind === "module_3d") {
               liveDimDeltaRef.current = { dx: 0, dz: 0 };
               if (!moved) {
@@ -2788,7 +3041,18 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               ghostSnapGroupRef.current.clear();
               needsRenderRef.current = true;
             }
-            if (dragKind === "module_3d" && moved) {
+            if (dragKind === "obstacle_3d") {
+              roomArchGroupRef.current?.traverse((node) => {
+                delete node.userData.__dragBaseX;
+                delete node.userData.__dragBaseY;
+                delete node.userData.__dragBaseZ;
+              });
+              if (moved && typeof pendingGpuX === "number" && typeof pendingGpuY === "number" && typeof pendingGpuZ === "number") {
+                state.updateObstaclePosition(dragTargetId, pendingGpuX, pendingGpuZ, pendingGpuY);
+              }
+              setDragDropSnapBanner(null);
+              state.commitHistoryTransaction();
+            } else if (dragKind === "module_3d" && moved) {
               if (typeof pendingGpuX === "number" || typeof pendingGpuZ === "number") {
                 const mCur = state.project.modules[dragModIdx];
                 if (mCur) {
@@ -2812,7 +3076,31 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               state.commitHistoryTransaction();
             }
           } else {
-            // Commit interior drag transaction (`shelf`, `drawer`, `divider`, `rail`, `special_fitting`) once on pointerup!
+            // Clear temporary __dragBaseY markers and commit final snapped elevation once on pointerup!
+            const modContainer3D = meshGroupRef.current?.children.find(
+              (ch) => ch.userData?.moduleIndex === dragModIdx
+            );
+            if (modContainer3D) {
+              for (const child of modContainer3D.children) {
+                delete child.userData.__dragBaseY;
+              }
+            }
+            if (moved && typeof pendingSnappedY === "number") {
+              if (dragKind === "shelf") {
+                state.setShelfElevation(dragBayIdx, dragTargetId, pendingSnappedY, false);
+              } else if (dragKind === "drawer") {
+                state.setDrawerPlacement(dragBayIdx, dragTargetId, pendingSnappedY, undefined, false);
+              } else if (dragKind === "rail") {
+                state.setHangingRailElevation(dragBayIdx, dragTargetId, pendingSnappedY, false);
+              } else if (dragKind === "special_fitting") {
+                state.setSpecialFittingPlacement?.(
+                  dragBayIdx,
+                  dragTargetId,
+                  { elevationY: pendingSnappedY },
+                  false
+                );
+              }
+            }
             state.commitHistoryTransaction();
           }
           if (moved) return;
@@ -3924,6 +4212,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
 
     // Rebuild Parametric Meshes ONLY when project geometry or kinematic sliders change
     useEffect(() => {
+      if (paused) return;
       const meshGroup = meshGroupRef.current;
       if (!meshGroup) return;
 
@@ -4147,6 +4436,13 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                 }
               : undefined,
           });
+          compGroup.userData = {
+            ...compGroup.userData,
+            componentId: comp.id,
+            parentComponentId: comp.parentComponentId,
+            role: comp.role,
+            bayIndex: comp.bayIndex,
+          };
           compGroup.traverse((sub) => {
             if (sub instanceof THREE.LineSegments) {
               if (renderEdgeMode === "cad") {
@@ -4341,6 +4637,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                     })
                   );
                   shAo.raycast = () => {};
+                  shAo.userData = { shelfOwnerId: sh.id };
                   shAo.position.set(bxCursor + bW / 2, plH + pT + sh.elevationY - 38, pT + 1.15);
                   modContainer.add(shAo);
                 }
@@ -4383,7 +4680,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                   );
               const bloomSpanMm = Math.max(22, Math.round(chanWidthMm * 2.2));
 
-              const emitHorizontalLedGlow = (undersideY: number) => {
+              const emitHorizontalLedGlow = (undersideY: number, shelfOwnerId?: string) => {
                 if (stripBloomTex) {
                   const hChanZ = Math.max(34, Math.round(mod.dimensions.depth - hSetbackMm));
                   // PlaneGeometry(bloomSpanMm, stripW): local X has Gaussian bell-curve falloff to 0 at edges!
@@ -4399,6 +4696,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                     })
                   );
                   underGlow.raycast = () => {};
+                  if (shelfOwnerId) underGlow.userData = { shelfOwnerId };
                   underGlow.rotation.x = Math.PI / 2;
                   underGlow.rotation.z = Math.PI / 2;
                   underGlow.position.set(bxCursor + bW / 2, undersideY - 2.2, hChanZ);
@@ -4417,6 +4715,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                   })
                 );
                 backWash.raycast = () => {};
+                if (shelfOwnerId) backWash.userData = { shelfOwnerId };
                 backWash.position.set(bxCursor + bW / 2, undersideY - backWashH / 2, pT + 2.0);
                 modContainer.add(backWash);
               };
@@ -4425,7 +4724,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                 emitHorizontalLedGlow(plH + pT + inH);
                 (bObj.shelves || []).slice(0, 8).forEach((sh) => {
                   if (!sh.isHidden && sh.elevationY > openFloorLocalY + 60) {
-                    emitHorizontalLedGlow(plH + pT + sh.elevationY);
+                    emitHorizontalLedGlow(plH + pT + sh.elevationY, sh.id);
                   }
                 });
               }
@@ -4896,8 +5195,14 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             modPropsHolder.add(propsGroup);
             bayStartX += bw + T;
           });
-          if (lifestylePropsCacheRef.current.size > 24) {
-            lifestylePropsCacheRef.current.clear();
+          while (lifestylePropsCacheRef.current.size >= 32) {
+            const oldestKey = lifestylePropsCacheRef.current.keys().next().value;
+            if (!oldestKey) break;
+            const evictedGrp = lifestylePropsCacheRef.current.get(oldestKey);
+            lifestylePropsCacheRef.current.delete(oldestKey);
+            if (evictedGrp && !evictedGrp.parent) {
+              disposeObject3DTree(evictedGrp);
+            }
           }
           lifestylePropsCacheRef.current.set(interiorPropsSig, modPropsHolder);
           modContainer.add(modPropsHolder);
@@ -5099,6 +5404,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       theme,
       renderEdgeMode,
       isXrayActive,
+      paused,
       storeBom,
       requestRender,
       updateSelectionAndActiveFrames,
@@ -5111,28 +5417,72 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
     }, []);
 
     useEffect(() => {
+      if (paused) return;
       const grp = sceneObjectsGroupRef.current;
       if (!grp) return;
-      disposeObject3DTree(grp);
+      const visibleObjs = (project.sceneObjects || []).filter((so) => !so.isHidden);
+      const nextSigMap = new Map<string, string>();
+      for (const sobj of visibleObjs) {
+        nextSigMap.set(
+          sobj.id,
+          JSON.stringify({
+            id: sobj.id,
+            cat: sobj.catalogId,
+            vk: sobj.visualKind,
+            dims: sobj.dimensions,
+            sc: sobj.scaleFactor || 1,
+            pri: sobj.primaryColorHex,
+            sec: sobj.secondaryColorHex,
+            glb: sobj.glbSourceUrl || (sobj.customGlbDataUrl ? sobj.customGlbDataUrl.length : 0),
+            sel: selectedSceneObjectId === sobj.id,
+            tick: glbRefreshTick,
+          })
+        );
+      }
+
+      const existingById = new Map<string, THREE.Object3D>();
+      for (const child of [...grp.children]) {
+        const cid = String(child.userData?.sceneObjectId || "");
+        const prevSig = child.userData?.__sobjGeomSig;
+        if (cid && prevSig && nextSigMap.get(cid) === prevSig) {
+          existingById.set(cid, child);
+        } else {
+          grp.remove(child);
+          disposeObject3DTree(child);
+        }
+      }
       grp.clear();
-      for (const sobj of project.sceneObjects || []) {
-        if (sobj.isHidden) continue;
-        const objMesh = buildSceneObject3DGroup(sobj, {
-          isSelected: selectedSceneObjectId === sobj.id,
-          renderer: rendererRef.current,
-        });
-        grp.add(objMesh);
+
+      for (const sobj of visibleObjs) {
+        const reused = existingById.get(sobj.id);
+        if (reused) {
+          reused.position.set(sobj.position.x, sobj.position.y, sobj.position.z);
+          const pivot = reused.children[0];
+          if (pivot) {
+            pivot.rotation.y = ((sobj.rotation?.y || 0) * Math.PI) / 180;
+          }
+          grp.add(reused);
+        } else {
+          const objMesh = buildSceneObject3DGroup(sobj, {
+            isSelected: selectedSceneObjectId === sobj.id,
+            renderer: rendererRef.current,
+          });
+          objMesh.userData.__sobjGeomSig = nextSigMap.get(sobj.id);
+          grp.add(objMesh);
+        }
       }
       requestRender();
-    }, [project.sceneObjects, selectedSceneObjectId, glbRefreshTick]);
+    }, [paused, project.sceneObjects, selectedSceneObjectId, glbRefreshTick, requestRender]);
 
     // Fast Selection & Active Module Highlight WITHOUT rebuilding scene geometry
     useEffect(() => {
+      if (paused) return;
       updateSelectionAndActiveFrames();
-    }, [selectedComponentId, activeModuleIndex, theme, renderEdgeMode, updateSelectionAndActiveFrames]);
+    }, [paused, selectedComponentId, activeModuleIndex, theme, renderEdgeMode, updateSelectionAndActiveFrames]);
 
     // Separate useEffect for 3D Room Architecture so cabinet interior edits/drags never rebuild room walls/floors!
     useEffect(() => {
+      if (paused) return;
       if (roomArchGroupRef.current) {
         disposeObject3DTree(roomArchGroupRef.current);
         roomArchGroupRef.current.clear();
@@ -5798,14 +6148,21 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       project.space?.ceilingHeight,
       project.space?.ceilingConfig,
       lightingPreset,
+      paused,
       wallTone,
       floorStyle,
       theme,
       markShadowsAndRender,
     ]);
 
-    // Rebuild 3D Dimension Lines & Labels when active module or showDimensions changes
+    const activeModForDim = project.modules[activeModuleIndex] || project.modules[0];
+    const activeModuleDimSig = activeModForDim
+      ? `${activeModForDim.id}|${activeModForDim.dimensions.width}x${activeModForDim.dimensions.height}x${activeModForDim.dimensions.depth}|${activeModForDim.position.x},${activeModForDim.position.y},${activeModForDim.position.z}|${activeModForDim.rotation?.y || 0}|${activeModForDim.carcass.panelThickness}|${activeModForDim.carcass.plinthHeight}|${activeModForDim.bays.map((b) => `${b.customWidthMm || 0}_${b.shelves.length}_${b.drawers.length}`).join(",")}`
+      : "none";
+
+    // Rebuild 3D Dimension Lines & Labels ONLY when active module dimensions/placement or showDimensions changes (never on unrelated module/shelf drags!)
     useEffect(() => {
+      if (paused) return;
       const dimGroup = dimGroupRef.current;
       if (!dimGroup) return;
 
@@ -6000,7 +6357,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       updateProjectedDimensionLabels();
       requestRender();
     }, [
-      project,
+      paused,
+      activeModuleDimSig,
       activeModuleIndex,
       activeBayIndex,
       effectiveShowDimensions,
@@ -6010,6 +6368,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
     ]);
 
     useEffect(() => {
+      if (paused) return;
       const mod = project.modules[activeModuleIndex] || project.modules[0];
       if (!mod) {
         hwWorldAnchorsRef.current = [];
@@ -6029,7 +6388,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       }));
       updateProjectedDimensionLabels();
       requestRender();
-    }, [project, activeModuleIndex, hwCallouts, matCallouts, hardwareViewMode, materialModeActive, updateProjectedDimensionLabels, requestRender]);
+    }, [paused, activeModuleDimSig, activeModuleIndex, hwCallouts, matCallouts, hardwareViewMode, materialModeActive, updateProjectedDimensionLabels, requestRender]);
 
     if (!activeModule) return null;
     const { width, height, depth } = activeModule.dimensions;
