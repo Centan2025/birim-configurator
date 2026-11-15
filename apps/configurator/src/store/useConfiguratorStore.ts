@@ -29,10 +29,20 @@ import {
   computeAutoFillersAndTrimForProject,
   autoNotchModulesAroundObstacles,
   parseRoomPlanScanJson,
+  syncProjectCustomMaterials,
+  type MaterialDefinition,
+  TENANT_BIRIM_ENTERPRISE,
+  applyTenantConstructionToModule,
+  buildTenantScopedStorageKey,
+  getTenantProfileByIdOrSlug,
+  listRegisteredTenantProfiles,
+  registerOrUpdateTenantProfile,
+  type SaasRoleId,
+  type TenantWorkspaceProfile,
 } from "@birim/core";
 import { generateBOMForProject, ManufacturingBOM } from "@birim/manufacturing";
 import { calculateProjectPrice, PricingBreakdown } from "@birim/pricing";
-import { computeNestingAsync } from "../workers/manufacturing-worker-client";
+import { computeNestingAsync, resetNestingWorkerState } from "../workers/manufacturing-worker-client";
 import {
   WARDROBE_TEMPLATES,
   getV4TemplateById,
@@ -55,6 +65,20 @@ import {
 export type ViewMode = "3d" | "2d_elevation" | "2d_plan" | "2d_section";
 export type CameraPreset = "front" | "side" | "top" | "iso";
 export type UserExperienceTier = "simple" | "architect" | "factory";
+export type ToolbarLabelMode = "labeled" | "compact";
+export type ViewportRenderStyle = "solid" | "wireframe" | "transparent" | "carcass_only" | "exploded";
+
+export interface LiveChangeImpactSummary {
+  timestampMs: number;
+  actionLabel: string;
+  totalPieces: number;
+  piecesDelta: number;
+  totalSheets: number;
+  sheetsDelta: number;
+  totalWithVatEur: number;
+  priceDeltaEur: number;
+  blockingIssueCount: number;
+}
 
 const sessionUnderlayDataCache = new Map<string, string>();
 
@@ -102,6 +126,10 @@ interface ConfiguratorState {
   cameraPreset: CameraPreset;
   uiMode: "simple" | "technical";
   userExperienceTier: UserExperienceTier;
+  toolbarLabelMode: ToolbarLabelMode;
+  viewportRenderStyle: ViewportRenderStyle;
+  lastChangeImpact: LiveChangeImpactSummary | null;
+  skipSmartLauncherByDefault: boolean;
   activeBayIndex: number;
   autoSaveStatus: "saved" | "saving" | "unsaved";
   validationIssues: ValidationIssue[];
@@ -115,9 +143,26 @@ interface ConfiguratorState {
   selectedModuleIds: string[];
   selectedSceneObjectId: string | null;
 
+  // Multi-Tenant SaaS State
+  activeTenantId: string;
+  activeTenantRole: SaasRoleId;
+  activeTenantProfile: TenantWorkspaceProfile;
+  availableTenants: TenantWorkspaceProfile[];
+  switchActiveTenant: (tenantIdOrSlug: string, role?: SaasRoleId) => TenantWorkspaceProfile;
+  setActiveTenantRole: (role: SaasRoleId) => void;
+  syncTenantCatalogMaterials: (materials: MaterialDefinition[]) => number;
+  updateActiveTenantProfile: (
+    patch: Partial<Pick<TenantWorkspaceProfile, "construction" | "machine" | "pricing" | "brand">>
+  ) => TenantWorkspaceProfile;
+
   // Actions
   setUiMode: (mode: "simple" | "technical") => void;
   setUserExperienceTier: (tier: UserExperienceTier) => void;
+  setToolbarLabelMode: (mode: ToolbarLabelMode) => void;
+  setViewportRenderStyle: (style: ViewportRenderStyle) => void;
+  dismissChangeImpact: () => void;
+  setSkipSmartLauncherByDefault: (skip: boolean) => void;
+  updateBayDrawerConfig: (bayIndex: number, drawerId: string, patch: Partial<DrawerConfig>) => void;
   setActiveBayIndex: (idx: number) => void;
   setAutoSaveStatus: (status: "saved" | "saving" | "unsaved") => void;
   setViewMode: (mode: ViewMode) => void;
@@ -270,6 +315,56 @@ interface ConfiguratorState {
   resetToDefault: () => void;
 }
 
+function cloneSingleModuleInstance(m: ModuleInstance): ModuleInstance {
+  return {
+    ...m,
+    dimensions: { ...m.dimensions },
+    position: { ...m.position },
+    rotation: m.rotation ? { ...m.rotation } : { x: 0, y: 0, z: 0 },
+    componentMaterialOverrides: m.componentMaterialOverrides
+      ? { ...m.componentMaterialOverrides }
+      : undefined,
+    componentGrainOverrides: m.componentGrainOverrides
+      ? { ...m.componentGrainOverrides }
+      : undefined,
+    carcass: {
+      ...m.carcass,
+      customCadPolygon: m.carcass.customCadPolygon
+        ? m.carcass.customCadPolygon.map((pt) => ({ ...pt }))
+        : undefined,
+    },
+    bays: m.bays.map((b) => ({
+      ...b,
+      door: {
+        ...b.door,
+        customCadPolygon: b.door.customCadPolygon
+          ? b.door.customCadPolygon.map((pt) => ({ ...pt }))
+          : undefined,
+      },
+      shelves: b.shelves.map((s) => ({ ...s })),
+      drawers: b.drawers.map((d) => ({ ...d })),
+      hangingRails: b.hangingRails.map((r) => ({ ...r })),
+      specialFittings: b.specialFittings ? b.specialFittings.map((f) => ({ ...f })) : [],
+      subDividers: b.subDividers ? b.subDividers.map((sd) => ({ ...sd })) : [],
+    })),
+  };
+}
+
+function cloneProjectForSingleModule(project: DesignProject, targetModIndex: number): DesignProject {
+  const nextVersion = (project.version || 1) + 1;
+  const safeIdx = project.modules[targetModIndex] ? targetModIndex : 0;
+  return {
+    ...project,
+    status: "draft",
+    version: nextVersion,
+    schemaVersion: SUPPORTED_PROJECT_SCHEMA_VERSION,
+    catalogVersion: project.catalogVersion || project.libraryVersionId || "lib_v4_0_0",
+    revisionId: `rev_v${nextVersion}`,
+    updatedAt: new Date().toISOString(),
+    modules: project.modules.map((m, idx) => (idx === safeIdx ? cloneSingleModuleInstance(m) : m)),
+  };
+}
+
 function cloneProject(project: DesignProject): DesignProject {
   const nextVersion = (project.version || 1) + 1;
   return {
@@ -337,6 +432,42 @@ function cloneProject(project: DesignProject): DesignProject {
   };
 }
 
+
+let activeRuntimeTenantProfile: TenantWorkspaceProfile = structuredClone(TENANT_BIRIM_ENTERPRISE);
+
+function buildActiveTenantSheetConfig(profile: TenantWorkspaceProfile) {
+  const c = profile.construction;
+  return {
+    name: `${profile.brand.displayName} Standart Levha ${c.standardSheetLengthMm}x${c.standardSheetWidthMm}`,
+    lengthMm: c.standardSheetLengthMm,
+    widthMm: c.standardSheetWidthMm,
+    trimCutMm: c.edgeTrimMarginMm,
+    kerfMm: c.sawKerfMm,
+  };
+}
+
+function buildActiveTenantPricingParams(profile: TenantWorkspaceProfile) {
+  if (profile.tenantId === TENANT_BIRIM_ENTERPRISE.tenantId &&
+      profile.pricing.currency === "EUR" &&
+      profile.pricing.dealerDiscountPercent === 0 &&
+      profile.pricing.targetMarginPercent === 35 &&
+      profile.pricing.wasteFactorPercent === 12) {
+    return undefined;
+  }
+  const c = profile.construction;
+  return {
+    ...profile.pricing,
+    standardSheetAreaM2: (c.standardSheetLengthMm * c.standardSheetWidthMm) / 1_000_000,
+  };
+}
+
+function getTenantProjectsStorageKey(tenantId: string): string {
+  if (!tenantId || tenantId === TENANT_BIRIM_ENTERPRISE.tenantId) {
+    return "birim_saved_projects";
+  }
+  return buildTenantScopedStorageKey(tenantId, "saved_projects");
+}
+
 let storeNestingDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 function scheduleBackgroundStoreNesting(project: DesignProject, bom: ManufacturingBOM) {
@@ -347,7 +478,8 @@ function scheduleBackgroundStoreNesting(project: DesignProject, bom: Manufacturi
   const targetRev = project.revisionId;
   storeNestingDebounceTimer = setTimeout(() => {
     storeNestingDebounceTimer = null;
-    void computeNestingAsync(bom.cutList, targetVersion, undefined, {
+    const sheetCfg = buildActiveTenantSheetConfig(activeRuntimeTenantProfile);
+    void computeNestingAsync(bom.cutList, targetVersion, sheetCfg, {
       projectId: targetProjectId,
       revisionId: targetRev,
     }).then((workerSheets) => {
@@ -355,9 +487,10 @@ function scheduleBackgroundStoreNesting(project: DesignProject, bom: Manufacturi
       const latest = useConfiguratorStore.getState();
       if (latest.project.id === targetProjectId && latest.project.version === targetVersion) {
         const refreshedBom = { ...latest.bom, nestingResults: workerSheets };
+        const prcParams = buildActiveTenantPricingParams(latest.activeTenantProfile || activeRuntimeTenantProfile);
         useConfiguratorStore.setState({
           bom: refreshedBom,
-          pricing: calculateProjectPrice(refreshedBom, undefined, undefined, latest.project.sceneObjects || []),
+          pricing: calculateProjectPrice(refreshedBom, prcParams, undefined, latest.project.sceneObjects || []),
         });
       }
     });
@@ -391,14 +524,49 @@ function recompute(project: DesignProject, options?: { syncInitial?: boolean }) 
   // so initial HTML and hydrated client DOM match byte-for-byte (e.g. € 2.589,62 === € 2.589,62).
   // Subsequent interactive mutations in the browser offload nesting to the background Web Worker.
   const skipNesting = Boolean(!options?.syncInitial && typeof window !== "undefined");
-  const bom = generateBOMForProject(project, undefined, { skipSyncNesting: skipNesting });
-  const pricing = calculateProjectPrice(bom, undefined, undefined, project.sceneObjects || []);
+  const sheetConfig =
+    activeRuntimeTenantProfile.tenantId === TENANT_BIRIM_ENTERPRISE.tenantId &&
+    activeRuntimeTenantProfile.construction.standardSheetLengthMm === 2800 &&
+    activeRuntimeTenantProfile.construction.standardSheetWidthMm === 2070 &&
+    activeRuntimeTenantProfile.construction.sawKerfMm === 4.0
+      ? undefined
+      : buildActiveTenantSheetConfig(activeRuntimeTenantProfile);
+  const bom = generateBOMForProject(project, undefined, {
+    skipSyncNesting: skipNesting,
+    sheetConfig,
+  });
+  const pricingParams = buildActiveTenantPricingParams(activeRuntimeTenantProfile);
+  const pricing = calculateProjectPrice(bom, pricingParams, undefined, project.sceneObjects || []);
   const activeMod = project.modules[0] || createDefaultWardrobeModule();
   const smartAdvice = analyzeAndAdviseSpan(activeMod.dimensions.width, activeMod.dimensions.height);
   if (skipNesting) {
     scheduleBackgroundStoreNesting(project, bom);
   }
-  return { validationIssues, bom, pricing, smartAdvice };
+  let lastChangeImpact: LiveChangeImpactSummary | null = null;
+  if (!options?.syncInitial && typeof useConfiguratorStore !== "undefined") {
+    try {
+      const prevState = useConfiguratorStore.getState();
+      if (prevState && prevState.bom && prevState.pricing) {
+        const prevSheets = prevState.bom.materialUsage.reduce((a, u) => a + u.estimatedSheetsCount, 0);
+        const nextSheets = bom.materialUsage.reduce((a, u) => a + u.estimatedSheetsCount, 0);
+        const blockingCnt = validationIssues.filter((i) => i.severity === "error").length;
+        lastChangeImpact = {
+          timestampMs: Date.now(),
+          actionLabel: "Tasarım güncellendi",
+          totalPieces: bom.summary.totalPiecesCount,
+          piecesDelta: bom.summary.totalPiecesCount - prevState.bom.summary.totalPiecesCount,
+          totalSheets: nextSheets,
+          sheetsDelta: nextSheets - prevSheets,
+          totalWithVatEur: pricing.totalWithVatEur,
+          priceDeltaEur: Number((pricing.totalWithVatEur - prevState.pricing.totalWithVatEur).toFixed(2)),
+          blockingIssueCount: blockingCnt,
+        };
+      }
+    } catch {
+      // Ignore during store bootstrap
+    }
+  }
+  return { validationIssues, bom, pricing, smartAdvice, lastChangeImpact };
 }
 
 function nextHistory(history: DesignProject[], current: DesignProject, batchStartProject: DesignProject | null): DesignProject[] {
@@ -458,7 +626,11 @@ function animateValueTransition(
 }
 
 export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
-  project: initialProj,
+  project: { ...initialProj, tenantId: TENANT_BIRIM_ENTERPRISE.tenantId },
+  activeTenantId: TENANT_BIRIM_ENTERPRISE.tenantId,
+  activeTenantRole: "org_owner",
+  activeTenantProfile: structuredClone(TENANT_BIRIM_ENTERPRISE),
+  availableTenants: listRegisteredTenantProfiles(),
   activeModuleIndex: 0,
   viewMode: "3d",
   selectedComponentId: null,
@@ -471,6 +643,13 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   cameraPreset: "iso",
   uiMode: "simple",
   userExperienceTier: "simple",
+  toolbarLabelMode: "compact",
+  viewportRenderStyle: "solid",
+  lastChangeImpact: null,
+  skipSmartLauncherByDefault:
+    typeof window !== "undefined"
+      ? window.localStorage.getItem(buildTenantScopedStorageKey(TENANT_BIRIM_ENTERPRISE.tenantId, "skip_smart_launcher")) === "1"
+      : false,
   activeBayIndex: 0,
   autoSaveStatus: "unsaved",
   validationIssues: initIssues,
@@ -493,7 +672,57 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     set({
       userExperienceTier,
       uiMode: userExperienceTier === "simple" ? "simple" : "technical",
+      toolbarLabelMode: userExperienceTier === "simple" ? "labeled" : "compact",
     }),
+  setToolbarLabelMode: (toolbarLabelMode) => set({ toolbarLabelMode }),
+  setViewportRenderStyle: (viewportRenderStyle) =>
+    set((st) => ({
+      viewportRenderStyle,
+      explodedFactor:
+        viewportRenderStyle === "exploded"
+          ? Math.max(0.55, st.explodedFactor || 0.65)
+          : st.viewportRenderStyle === "exploded"
+          ? 0
+          : st.explodedFactor,
+      cncXrayMode: viewportRenderStyle === "transparent" ? true : viewportRenderStyle === "solid" ? false : st.cncXrayMode,
+    })),
+  dismissChangeImpact: () => set({ lastChangeImpact: null }),
+  setSkipSmartLauncherByDefault: (skip) => {
+    const tid = get().activeTenantId || TENANT_BIRIM_ENTERPRISE.tenantId;
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.setItem(buildTenantScopedStorageKey(tid, "skip_smart_launcher"), skip ? "1" : "0");
+      } catch {
+        // Ignore quota errors
+      }
+    }
+    set({ skipSmartLauncherByDefault: skip });
+  },
+  updateBayDrawerConfig: (bayIndex, drawerId, patch) => {
+    const { project, history, activeModuleIndex, batchStartProject } = get();
+    const updated = cloneProjectForSingleModule(project, activeModuleIndex);
+    const mod = updated.modules[activeModuleIndex] || updated.modules[0];
+    if (!mod || !mod.bays[bayIndex]) return;
+    mod.bays[bayIndex].drawers = mod.bays[bayIndex].drawers.map((d) =>
+      d.id === drawerId ? { ...d, ...patch } : d
+    );
+    if (batchStartProject !== null) {
+      set({ project: updated, autoSaveStatus: "unsaved" });
+      return;
+    }
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
+    set({
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      project: updated,
+      autoSaveStatus: "unsaved",
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+      lastChangeImpact,
+    });
+  },
   setActiveBayIndex: (activeBayIndex) => set({ activeBayIndex }),
   setAutoSaveStatus: (autoSaveStatus) => set({ autoSaveStatus }),
   setViewMode: (viewMode) => set({ viewMode }),
@@ -601,13 +830,14 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       return res.module;
     });
     if (fixedTotal === 0) return 0;
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(next);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(next);
     set({
       project: next,
       validationIssues,
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
       autoSaveStatus: 'unsaved',
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -797,7 +1027,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
         deferredCommitRecomputeTimer = null;
         const latest = get();
         if (latest.batchStartProject !== null || latest.project !== settledProject) return;
-        const { validationIssues, bom, pricing, smartAdvice } = recompute(settledProject);
+        const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(settledProject);
         set({
           validationIssues,
           bom,
@@ -807,7 +1037,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       }, 36);
       return;
     }
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(project);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(project);
     set({
       history: [...history.slice(-50), batchStartProject],
       future: [],
@@ -816,6 +1046,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -841,7 +1072,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     const target = revisions.find((r) => r.revisionId === revisionId);
     if (!target) return false;
     const restored = structuredClone(target.project);
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(restored);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(restored);
     set({
       history: [...history.slice(-50), project],
       future: [],
@@ -854,6 +1085,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
     return true;
   },
@@ -897,7 +1129,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
 
   setDimensions: (width, height, depth) => {
     const { project, history, activeModuleIndex, batchStartProject } = get();
-    const updated = cloneProject(project);
+    const updated = cloneProjectForSingleModule(project, activeModuleIndex);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod) return;
 
@@ -936,7 +1168,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       });
       return;
     }
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
 
     set({
       history: nextHistory(history, project, batchStartProject),
@@ -947,6 +1179,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -964,7 +1197,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       });
       return;
     }
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -974,6 +1207,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -995,7 +1229,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       });
       return;
     }
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -1005,6 +1239,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -1037,7 +1272,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       });
       return;
     }
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -1047,6 +1282,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -1109,7 +1345,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       });
       return;
     }
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -1119,6 +1355,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -1140,7 +1377,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       });
       return;
     }
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -1150,6 +1387,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -1193,7 +1431,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       });
       return;
     }
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -1203,6 +1441,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -1220,7 +1459,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       });
       return;
     }
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -1230,6 +1469,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -1260,7 +1500,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       });
       return;
     }
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -1270,6 +1510,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -1287,7 +1528,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       });
       return;
     }
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -1297,6 +1538,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -1331,7 +1573,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       });
       return;
     }
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -1341,6 +1583,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -1358,7 +1601,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       });
       return;
     }
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -1368,6 +1611,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -1427,7 +1671,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       });
       return;
     }
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -1437,6 +1681,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -1454,7 +1699,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       });
       return;
     }
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -1464,6 +1709,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -1508,7 +1754,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       updated.modules.push(clonedMod);
     }
 
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -1519,6 +1765,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -1581,7 +1828,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
 
     updated.modules.push(clonedMod);
 
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -1592,6 +1839,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -1614,7 +1862,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     clonedMod.position.x = newX;
 
     updated.modules.push(clonedMod);
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -1625,6 +1873,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -1635,7 +1884,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     updated.modules.splice(activeModuleIndex, 1);
     const nextIdx = Math.min(activeModuleIndex, Math.max(0, updated.modules.length - 1));
 
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -1647,6 +1896,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -1664,7 +1914,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       });
       return;
     }
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -1674,11 +1924,13 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
   saveToStorage: (name?: string) => {
-    const { project, pricing } = get();
+    const { project, pricing, activeTenantId } = get();
+    const storageKey = getTenantProjectsStorageKey(activeTenantId);
     const saveId = `saved_${project.id}_${crypto.randomUUID()}`;
     const title = name || project.title;
     const saveEntry = {
@@ -1696,11 +1948,11 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     };
 
     try {
-      const existing = JSON.parse(localStorage.getItem("birim_saved_projects") || "[]");
+      const existing = JSON.parse(localStorage.getItem(storageKey) || "[]");
       if (!Array.isArray(existing)) throw new Error("Kayıt listesi bozuk; JSON dışa aktarımını kullanın.");
-      existing.unshift(saveEntry);
+      existing.unshift({ ...saveEntry, tenantId: activeTenantId });
       try {
-        localStorage.setItem("birim_saved_projects", JSON.stringify(existing.slice(0, 30)));
+        localStorage.setItem(storageKey, JSON.stringify(existing.slice(0, 30)));
       } catch {
         // QuotaExceededError fallback: cache oversized base64 underlay in session memory and compact history
         const compactProject = structuredClone(saveEntry.project);
@@ -1708,8 +1960,8 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
           sessionUnderlayDataCache.set(saveId, compactProject.space.floorPlanUnderlay.dataUrl);
           compactProject.space.floorPlanUnderlay.dataUrl = undefined;
         }
-        existing[0] = { ...saveEntry, project: compactProject };
-        localStorage.setItem("birim_saved_projects", JSON.stringify(existing.slice(0, 12)));
+        existing[0] = { ...saveEntry, tenantId: activeTenantId, project: compactProject };
+        localStorage.setItem(storageKey, JSON.stringify(existing.slice(0, 12)));
       }
     } catch (error) {
       set({ autoSaveStatus: "unsaved" });
@@ -1721,7 +1973,8 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
 
   loadFromStorage: (id: string) => {
     try {
-      const list = JSON.parse(localStorage.getItem("birim_saved_projects") || "[]");
+      const storageKey = getTenantProjectsStorageKey(get().activeTenantId);
+      const list = JSON.parse(localStorage.getItem(storageKey) || "[]");
       const found = list.find((item: { id: string; project: DesignProject }) => item.id === id);
       if (found && found.project) {
         const parsedRes = parseAndMigrateProject(found.project);
@@ -1731,7 +1984,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
         if (cachedDataUrl && migrated.space?.floorPlanUnderlay && !migrated.space.floorPlanUnderlay.dataUrl) {
           migrated.space.floorPlanUnderlay.dataUrl = cachedDataUrl;
         }
-        const { validationIssues, bom, pricing, smartAdvice } = recompute(migrated);
+        const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(migrated);
         set({
           project: migrated,
           autoSaveStatus: "saved",
@@ -1754,7 +2007,8 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
 
   getSavedProjects: () => {
     try {
-      const list = JSON.parse(localStorage.getItem("birim_saved_projects") || "[]");
+      const storageKey = getTenantProjectsStorageKey(get().activeTenantId);
+      const list = JSON.parse(localStorage.getItem(storageKey) || "[]");
       return list.map((item: { id: string; title: string; date: string; priceEur: number }) => ({
         id: item.id,
         title: item.title,
@@ -1788,7 +2042,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
         return { success: false, error: parsedRes.error };
       }
       const validProject = migrateV3ProjectToV4({ ...parsedRes.data, status: "draft" } as DesignProject);
-      const { validationIssues, bom, pricing, smartAdvice } = recompute(validProject);
+      const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(validProject);
       set({
         project: validProject,
         autoSaveStatus: "unsaved",
@@ -1810,7 +2064,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   applyApprovedEngineeringFix: (proposal) => {
     const { project, history, batchStartProject } = get();
     const updated = applyApprovedRemediationProposal(project, proposal);
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       project: updated,
       autoSaveStatus: "unsaved",
@@ -1820,6 +2074,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -1889,7 +2144,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       });
       return;
     }
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -1899,6 +2154,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -1932,7 +2188,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     }
 
     updated.modules.push(solved.moduleInstance);
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -1945,6 +2201,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
     return solved.moduleInstance;
   },
@@ -2003,7 +2260,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       updated.modules.push(baseNew);
     }
 
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -2014,6 +2271,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -2035,7 +2293,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       updated.space.walls[0].length = neededWallLen;
     }
 
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -2046,6 +2304,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -2066,8 +2325,9 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       baseDimensions: { ...activeMod.dimensions },
       serializedModuleSnapshot: snap,
     };
-    const merged = [rec, ...loadSavedCustomModuleTemplates().filter((x) => x.templateId !== tplId)];
-    persistCustomModuleTemplates(merged);
+    const tid = get().activeTenantId;
+    const merged = [rec, ...loadSavedCustomModuleTemplates(tid).filter((x) => x.templateId !== tplId)];
+    persistCustomModuleTemplates(merged, tid);
     updated.customModuleTemplates = merged;
     set({ project: updated, autoSaveStatus: "unsaved" });
     return tplId;
@@ -2076,10 +2336,11 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   deleteCustomModuleTemplate: (templateId) => {
     const { project } = get();
     const updated = cloneProject(project);
-    const nextList = (updated.customModuleTemplates || loadSavedCustomModuleTemplates()).filter(
+    const tid = get().activeTenantId;
+    const nextList = (updated.customModuleTemplates || loadSavedCustomModuleTemplates(tid)).filter(
       (t) => t.templateId !== templateId
     );
-    persistCustomModuleTemplates(nextList);
+    persistCustomModuleTemplates(nextList, tid);
     updated.customModuleTemplates = nextList;
     set({ project: updated });
   },
@@ -2090,7 +2351,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     const solved = solveSceneObjectPlacementSnap(updated, catalogId, cursorWorld);
     if (!solved) return null;
     updated.sceneObjects = [...(updated.sceneObjects || []), solved.object];
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -2101,6 +2362,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
     return solved.object;
   },
@@ -2110,7 +2372,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     const updated = cloneProject(project);
     const solved = solveSceneObjectPlacementSnap(updated, obj) || { object: obj };
     updated.sceneObjects = [...(updated.sceneObjects || []), solved.object];
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -2121,6 +2383,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -2142,7 +2405,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       set({ project: updated, autoSaveStatus: "unsaved" });
       return;
     }
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -2152,6 +2415,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -2165,7 +2429,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     copy.name = `${target.name} (Kopya)`;
     copy.position.x += Math.min(600, target.dimensions.width + 60);
     updated.sceneObjects = [...(updated.sceneObjects || []), copy];
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -2176,6 +2440,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -2183,7 +2448,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     const { project, history, batchStartProject, selectedSceneObjectId } = get();
     const updated = cloneProject(project);
     updated.sceneObjects = (updated.sceneObjects || []).filter((o) => o.id !== id);
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -2194,6 +2459,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -2208,7 +2474,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
         !m.id.startsWith("mod_autovalance_")
     );
     updated.modules = [...cleaned, ...addedModules];
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -2218,6 +2484,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
     return { count: addedModules.length, notes: summaryNotes };
   },
@@ -2227,7 +2494,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     const updated = cloneProject(project);
     const { updatedModules, appliedNotches } = autoNotchModulesAroundObstacles(updated);
     updated.modules = updatedModules;
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -2237,6 +2504,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
     return { count: appliedNotches.length, notes: appliedNotches };
   },
@@ -2279,7 +2547,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
         updated.sceneObjects = [...(updated.sceneObjects || []), ...mappedObjs];
       }
 
-      const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+      const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
       set({
         history: nextHistory(history, project, batchStartProject),
         future: [],
@@ -2312,7 +2580,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       set({ project: updated, autoSaveStatus: "unsaved" });
       return;
     }
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -2322,6 +2590,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -2330,7 +2599,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     if (history.length === 0) return;
     const previous = history[history.length - 1];
     const newHistory = history.slice(0, -1);
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(previous);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(previous);
 
     set({
       project: previous,
@@ -2345,6 +2614,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -2353,7 +2623,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     if (future.length === 0) return;
     const next = future[0];
     const newFuture = future.slice(1);
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(next);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(next);
 
     set({
       project: next,
@@ -2368,6 +2638,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -2385,7 +2656,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       revisionId: `rev_v${nextVersion}`,
       updatedAt: new Date().toISOString(),
     };
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
 
     set({
       history: [...history.slice(-50), project],
@@ -2398,6 +2669,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
       selectedComponentId: null,
     });
   },
@@ -2405,7 +2677,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   loadLinearKitchen: () => {
     const { project, history } = get();
     const kitchenProj = createKitchenLinearProject();
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(kitchenProj);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(kitchenProj);
 
     set({
       history: [...history.slice(-50), project],
@@ -2417,6 +2689,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
       selectedComponentId: null,
     });
   },
@@ -2424,7 +2697,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   loadLKitchen: () => {
     const { project, history } = get();
     const lProj = createKitchenLProject();
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(lProj);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(lProj);
     set({
       history: [...history.slice(-50), project],
       future: [],
@@ -2435,6 +2708,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
       selectedComponentId: null,
     });
   },
@@ -2442,7 +2716,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
   loadUKitchen: () => {
     const { project, history } = get();
     const uProj = createKitchenUProject();
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(uProj);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(uProj);
     set({
       history: [...history.slice(-50), project],
       future: [],
@@ -2453,13 +2727,14 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
       selectedComponentId: null,
     });
   },
 
   resetToDefault: () => {
     const def = createInitialProject();
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(def);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(def);
     set({
       project: def,
       autoSaveStatus: "unsaved",
@@ -2474,6 +2749,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
       selectedComponentId: null,
       doorOpenAngleDeg: 0,
       drawerOpenMm: 0,
@@ -2539,7 +2815,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       });
       return;
     }
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -2549,6 +2825,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -2574,7 +2851,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       });
       return;
     }
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -2584,6 +2861,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -2594,7 +2872,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     const updated = cloneProject(project);
     const remaining = updated.modules.filter((m) => !targetIds.has(m.id));
     updated.modules = remaining;
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -2606,6 +2884,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -2622,7 +2901,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       ...prev,
       ...patch,
     };
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -2632,6 +2911,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -2644,7 +2924,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
         m.carcass.grainContinuityMode = "facade_continuous";
       });
     }
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -2654,6 +2934,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -2690,7 +2971,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       });
       return;
     }
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -2700,6 +2981,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -2730,7 +3012,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       });
       return;
     }
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -2740,6 +3022,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
     return wallId;
   },
@@ -2794,7 +3077,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       });
       return;
     }
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -2804,6 +3087,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -2821,7 +3105,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       });
       return;
     }
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -2831,6 +3115,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -2856,7 +3141,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       });
       return obstacleId;
     }
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -2866,6 +3151,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
     return obstacleId;
   },
@@ -2896,7 +3182,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       });
       return;
     }
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -2906,6 +3192,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -2922,7 +3209,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       });
       return;
     }
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -2932,6 +3219,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -2946,7 +3234,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       });
       return;
     }
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -2956,6 +3244,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
   },
 
@@ -2981,7 +3270,7 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       });
       return;
     }
-    const { validationIssues, bom, pricing, smartAdvice } = recompute(updated);
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
       future: [],
@@ -2991,8 +3280,151 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       bom,
       pricing,
       smartAdvice,
+      lastChangeImpact,
     });
     return extractedWalls.length;
+  },
+
+  switchActiveTenant: (tenantIdOrSlug: string, role?: SaasRoleId) => {
+    const nextProfile = getTenantProfileByIdOrSlug(tenantIdOrSlug);
+    activeRuntimeTenantProfile = structuredClone(nextProfile);
+
+    // Full cross-tenant session & worker cache purge (Section 4.12 security contract)
+    resetNestingWorkerState();
+    sessionUnderlayDataCache.clear();
+    if (storeNestingDebounceTimer) {
+      clearTimeout(storeNestingDebounceTimer);
+      storeNestingDebounceTimer = null;
+    }
+
+    const cur = get();
+    const convertedModules = cur.project.modules.map((m) =>
+      applyTenantConstructionToModule(structuredClone(m), nextProfile)
+    );
+    const nextProject: DesignProject = {
+      ...structuredClone(cur.project),
+      tenantId: nextProfile.tenantId,
+      branchId: `branch_${nextProfile.slug}_hq`,
+      constructionProfileId: nextProfile.construction.id,
+      displayUnit: nextProfile.brand.defaultDisplayUnit,
+      version: cur.project.version + 1,
+      updatedAt: new Date().toISOString(),
+      modules: convertedModules,
+    };
+
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(nextProject, {
+      syncInitial: true,
+    });
+    set({
+      activeTenantId: nextProfile.tenantId,
+      activeTenantRole: role || cur.activeTenantRole || "org_owner",
+      activeTenantProfile: structuredClone(nextProfile),
+      availableTenants: listRegisteredTenantProfiles(),
+      project: nextProject,
+      activeModuleIndex: 0,
+      activeBayIndex: 0,
+      selectedComponentId: null,
+      selectedModuleIds: [],
+      selectedSceneObjectId: null,
+      history: [],
+      future: [],
+      revisions: [],
+      batchStartProject: null,
+      autoSaveStatus: "saved",
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+      lastChangeImpact,
+    });
+    return structuredClone(nextProfile);
+  },
+
+  setActiveTenantRole: (role: SaasRoleId) => {
+    set({ activeTenantRole: role });
+  },
+
+  syncTenantCatalogMaterials: (materials: MaterialDefinition[]) => {
+    if (!Array.isArray(materials) || materials.length === 0) return 0;
+    const cur = get();
+    const existing = cur.project.customMaterials || [];
+    const byId = new Map<string, MaterialDefinition>(existing.map((m) => [m.id, m]));
+    let changed = false;
+    for (const mat of materials) {
+      if (!mat || !mat.id) continue;
+      const prev = byId.get(mat.id);
+      if (!prev || prev.costPerM2 !== mat.costPerM2 || prev.name !== mat.name) {
+        byId.set(mat.id, mat);
+        changed = true;
+      }
+    }
+    if (!changed) return byId.size;
+    const mergedList = Array.from(byId.values());
+    syncProjectCustomMaterials(mergedList);
+    const nextProject: DesignProject = {
+      ...cur.project,
+      customMaterials: mergedList,
+    };
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(nextProject);
+    set({
+      project: nextProject,
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+      lastChangeImpact,
+    });
+    return mergedList.length;
+  },
+
+  updateActiveTenantProfile: (patch) => {
+    const cur = get();
+    const merged: TenantWorkspaceProfile = {
+      ...cur.activeTenantProfile,
+      brand: { ...cur.activeTenantProfile.brand, ...(patch.brand || {}) },
+      construction: {
+        ...cur.activeTenantProfile.construction,
+        ...(patch.construction || {}),
+      },
+      machine: {
+        ...cur.activeTenantProfile.machine,
+        ...(patch.machine || {}),
+        toolNumbers: {
+          ...cur.activeTenantProfile.machine.toolNumbers,
+          ...(patch.machine?.toolNumbers || {}),
+        },
+      },
+      pricing: { ...cur.activeTenantProfile.pricing, ...(patch.pricing || {}) },
+    };
+    const saved = registerOrUpdateTenantProfile(merged);
+    activeRuntimeTenantProfile = structuredClone(saved);
+
+    const updatedModules = patch.construction
+      ? cur.project.modules.map((m) => applyTenantConstructionToModule(structuredClone(m), saved))
+      : cur.project.modules;
+    const nextProject: DesignProject = {
+      ...cur.project,
+      tenantId: saved.tenantId,
+      constructionProfileId: saved.construction.id,
+      displayUnit: saved.brand.defaultDisplayUnit,
+      version: cur.project.version + 1,
+      updatedAt: new Date().toISOString(),
+      modules: updatedModules,
+    };
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(nextProject, {
+      syncInitial: true,
+    });
+    set({
+      activeTenantProfile: structuredClone(saved),
+      availableTenants: listRegisteredTenantProfiles(),
+      project: nextProject,
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+      lastChangeImpact,
+    });
+    return structuredClone(saved);
   },
 }));
 

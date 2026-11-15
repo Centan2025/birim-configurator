@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["dom", "dom.iterable", "esnext"],
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -19,21 +23,72 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"],
-      "@birim/core": ["../../packages/core/src/index.ts"],
-      "@birim/core/*": ["../../packages/core/src/*"],
-      "@birim/geometry": ["../../packages/geometry/src/index.ts"],
-      "@birim/geometry/*": ["../../packages/geometry/src/*"],
-      "@birim/catalog": ["../../packages/catalog/src/index.ts"],
-      "@birim/catalog/*": ["../../packages/catalog/src/*"],
-      "@birim/pricing": ["../../packages/pricing/src/index.ts"],
-      "@birim/pricing/*": ["../../packages/pricing/src/*"],
-      "@birim/manufacturing": ["../../packages/manufacturing/src/index.ts"],
-      "@birim/manufacturing/*": ["../../packages/manufacturing/src/*"],
-      "@birim/integrations": ["../../packages/integrations/src/index.ts"],
-      "@birim/integrations/*": ["../../packages/integrations/src/*"]
+      "@/*": [
+        "./src/*"
+      ],
+      "@birim/core": [
+        "../../packages/core/src/index.ts"
+      ],
+      "@birim/core/*": [
+        "../../packages/core/src/*"
+      ],
+      "@birim/geometry": [
+        "../../packages/geometry/src/index.ts"
+      ],
+      "@birim/geometry/*": [
+        "../../packages/geometry/src/*"
+      ],
+      "@birim/catalog": [
+        "../../packages/catalog/src/index.ts"
+      ],
+      "@birim/catalog/*": [
+        "../../packages/catalog/src/*"
+      ],
+      "@birim/pricing": [
+        "../../packages/pricing/src/index.ts"
+      ],
+      "@birim/pricing/*": [
+        "../../packages/pricing/src/*"
+      ],
+      "@birim/manufacturing": [
+        "../../packages/manufacturing/src/index.ts"
+      ],
+      "@birim/manufacturing/*": [
+        "../../packages/manufacturing/src/*"
+      ],
+      "@birim/integrations": [
+        "../../packages/integrations/src/index.ts"
+      ],
+      "@birim/integrations/*": [
+        "../../packages/integrations/src/*"
+      ],
+      "@modul/core": [
+        "../../packages/core/src/index.ts"
+      ],
+      "@modul/geometry": [
+        "../../packages/geometry/src/index.ts"
+      ],
+      "@modul/catalog": [
+        "../../packages/catalog/src/index.ts"
+      ],
+      "@modul/pricing": [
+        "../../packages/pricing/src/index.ts"
+      ],
+      "@modul/manufacturing": [
+        "../../packages/manufacturing/src/index.ts"
+      ],
+      "@modul/integrations": [
+        "../../packages/integrations/src/index.ts"
+      ]
     }
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
 }

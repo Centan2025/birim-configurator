@@ -54,7 +54,12 @@ interface SharedR2Status {
   prodBucketLockActive: boolean;
 }
 
-export default function StoreErpModal({ isOpen, onClose }: StoreErpModalProps) {
+export default function StoreErpModal(props: StoreErpModalProps) {
+  if (!props.isOpen) return null;
+  return <StoreErpModalInner {...props} />;
+}
+
+function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
   const project = useConfiguratorStore((s) => s.project);
   const bom = useConfiguratorStore((s) => s.bom);
   const pricing = useConfiguratorStore((s) => s.pricing);

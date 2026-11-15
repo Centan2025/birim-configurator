@@ -4,6 +4,13 @@ import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import crypto from "crypto";
+import {
+  TenantSecurityError,
+  checkTenantRateLimit,
+  recordTenantAuditEvent,
+  resolveTenantRequestContext,
+} from "../../../../lib/tenant-auth-guard";
+import { consumeTenantUsageQuota } from "../../../../lib/saas-billing-and-metering";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -179,6 +186,56 @@ function runBlenderProcess(
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  let tenantCtx;
+  try {
+    tenantCtx = resolveTenantRequestContext(request);
+    checkTenantRateLimit(tenantCtx.tenantId, "blender_render", 20);
+    consumeTenantUsageQuota(
+      tenantCtx.tenantId,
+      tenantCtx.profile,
+      "cloud_render",
+      1,
+      request.headers.get("Idempotency-Key") || undefined
+    );
+  } catch (err) {
+    if (err instanceof TenantSecurityError) {
+      return NextResponse.json(
+        { ok: false, code: err.code, error: err.message },
+        { status: err.httpStatus }
+      );
+    }
+    throw err;
+  }
+
+  const isCloudQueueMode =
+    process.env.MODUL_CLOUD_SAAS_MODE === "true" ||
+    (tenantCtx.tenantSlug !== "birim" && process.env.MODUL_ALLOW_LOCAL_BLENDER_SPAWN !== "true");
+
+  if (isCloudQueueMode) {
+    const cloudJobId = `rnd_${tenantCtx.tenantSlug}_${Date.now()}`;
+    const r2TargetKey = `${tenantCtx.tenantId}/configurator/renders/${cloudJobId}.png`;
+    recordTenantAuditEvent({
+      tenantId: tenantCtx.tenantId,
+      actorUserId: tenantCtx.userId,
+      actorRole: tenantCtx.role,
+      action: "CLOUD_GPU_RENDER_QUEUED",
+      targetType: "render_job",
+      targetId: cloudJobId,
+      metadata: { r2TargetKey },
+    });
+    return NextResponse.json(
+      {
+        ok: true,
+        mode: "cloud_gpu_render_queue",
+        jobId: cloudJobId,
+        tenantId: tenantCtx.tenantId,
+        r2TargetKey,
+        status: "queued",
+      },
+      { status: 202 }
+    );
+  }
+
   const exePath = await resolveBlenderExecutable();
   if (!exePath) {
     return NextResponse.json(

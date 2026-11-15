@@ -12,12 +12,16 @@ import {
   BirimSupabaseRpcError,
   DEFAULT_BIRIM_ORG_UUID,
   MockStoreAdapter,
+  OutboundWebhookErpAdapter,
   SupabaseStoreRpcAdapter,
   buildReconciledStoreQuotationLines,
   type BirimSessionRole,
 } from "@birim/integrations";
 
-function resolveAuthoritativeProjectArtifacts(rawProject: unknown) {
+function resolveAuthoritativeProjectArtifacts(
+  rawProject: unknown,
+  tenantProfile?: import("@birim/core").TenantWorkspaceProfile
+) {
   const parsedRes = parseAndMigrateProject(rawProject);
   if (!parsedRes.ok) {
     throw new BirimSupabaseRpcError(
@@ -31,10 +35,25 @@ function resolveAuthoritativeProjectArtifacts(rawProject: unknown) {
   const materialsMap = new Map(
     [...DEFAULT_MATERIALS, ...(parsed.customMaterials || [])].map((m) => [m.id, m])
   );
-  const bom = generateBOMForProject(parsed, materialsMap);
+  const cRule = tenantProfile?.construction;
+  const bom = generateBOMForProject(
+    parsed,
+    materialsMap,
+    cRule
+      ? {
+          sheetConfig: {
+            name: `${tenantProfile.brand.displayName} ${cRule.standardSheetLengthMm}x${cRule.standardSheetWidthMm}`,
+            lengthMm: cRule.standardSheetLengthMm,
+            widthMm: cRule.standardSheetWidthMm,
+            trimCutMm: cRule.edgeTrimMarginMm,
+            kerfMm: cRule.sawKerfMm,
+          },
+        }
+      : undefined
+  );
   const pricing = calculateProjectPrice(
     bom,
-    DEFAULT_PRICING_PARAMS,
+    tenantProfile ? { ...tenantProfile.pricing } : DEFAULT_PRICING_PARAMS,
     materialsMap,
     parsed.sceneObjects || []
   );
@@ -45,6 +64,12 @@ function resolveAuthoritativeProjectArtifacts(rawProject: unknown) {
 }
 
 import { resolveSharedBirimPortalEnv } from "../../../../lib/birim-portal-env";
+import {
+  TenantSecurityError,
+  assertTenantPermissionAndEntitlement,
+  recordTenantAuditEvent,
+  resolveTenantRequestContext,
+} from "../../../../lib/tenant-auth-guard";
 
 export async function GET(): Promise<Response> {
   resolveSharedBirimPortalEnv({ hydrateProcessEnv: true });
@@ -69,7 +94,6 @@ export async function GET(): Promise<Response> {
 
 export async function POST(req: Request): Promise<Response> {
   try {
-    resolveSharedBirimPortalEnv({ hydrateProcessEnv: true });
     const body = (await req.json()) as {
       project?: unknown;
       quotationId?: string | null;
@@ -99,18 +123,67 @@ export async function POST(req: Request): Promise<Response> {
       );
     }
 
+    const tenantCtx = resolveTenantRequestContext(req, {
+      organizationId: body.organizationId,
+      branchIdOrCode: body.branchIdOrCode,
+      sessionUserId: body.sessionUserId,
+      sessionRole: body.sessionRole,
+    });
+    assertTenantPermissionAndEntitlement(
+      tenantCtx,
+      body.autoConvertToOrder ? "quote:approve_order" : "quote:create"
+    );
+    resolveSharedBirimPortalEnv({ hydrateProcessEnv: true, tenantId: tenantCtx.tenantId });
+
     // Sunucu Tarafı Yetkili Yeniden Hesaplama: İstemciden gelen hiçbir fiyat veya kapı bayrağına güvenilmez!
     const { project, bom, pricing, unified, compatibility } = resolveAuthoritativeProjectArtifacts(
-      body.project
+      body.project,
+      tenantCtx.profile
     );
 
     const headerIdempKey = req.headers.get("Idempotency-Key") || req.headers.get("idempotency-key");
     const idempotencyKey = (headerIdempKey || body.idempotencyKey || "").trim() || undefined;
 
+    if (
+      tenantCtx.profile.integrationMode === "webhook_rest_erp" &&
+      tenantCtx.profile.webhookEndpointUrl &&
+      !body.allowOfflineSimulationFallback
+    ) {
+      const whAdapter = new OutboundWebhookErpAdapter({
+        tenantId: tenantCtx.tenantId,
+        endpointUrl: tenantCtx.profile.webhookEndpointUrl,
+      });
+      const whEvent = await whAdapter.publishQuotationWebhook({
+        project,
+        bom,
+        pricing,
+        currency: body.currency || tenantCtx.profile.pricing.currency,
+        discountRatePercent: body.discountRatePercent ?? 0,
+        autoConvertToOrder: Boolean(body.autoConvertToOrder),
+        idempotencyKey,
+      });
+      recordTenantAuditEvent({
+        tenantId: tenantCtx.tenantId,
+        actorUserId: tenantCtx.userId,
+        actorRole: tenantCtx.role,
+        action: "WEBHOOK_QUOTATION_DISPATCHED",
+        targetType: "webhook_outbox",
+        targetId: whEvent.id,
+        metadata: { status: whEvent.status, endpoint: tenantCtx.profile.webhookEndpointUrl },
+      });
+      return Response.json(
+        {
+          ok: whEvent.status === "delivered",
+          mode: "live_webhook_erp",
+          outboxEvent: whEvent,
+        },
+        { status: whEvent.status === "delivered" ? 201 : 502 }
+      );
+    }
+
     const adapter = new SupabaseStoreRpcAdapter({
       defaultSession: {
-        organizationId:
-          body.organizationId || process.env.BIRIM_DEFAULT_ORG_ID || DEFAULT_BIRIM_ORG_UUID,
+        organizationId: tenantCtx.tenantId,
         branchIdOrCode:
           body.branchIdOrCode ?? process.env.BIRIM_DEFAULT_BRANCH_ID ?? project.branchId ?? null,
         userId: body.sessionUserId ?? null,
@@ -143,7 +216,16 @@ export async function POST(req: Request): Promise<Response> {
           currency: body.currency || "TRY",
           discountRatePercent: body.discountRatePercent ?? 0,
         });
-        const mockQuoteNo = `TKL-${new Date().getFullYear()}-SIM1`;
+        const mockQuoteNo = `${tenantCtx.profile.brand.quoteCodePrefix === "BRM" ? "TKL" : tenantCtx.profile.brand.quoteCodePrefix}-${new Date().getFullYear()}-SIM1`;
+        recordTenantAuditEvent({
+          tenantId: tenantCtx.tenantId,
+          actorUserId: tenantCtx.userId,
+          actorRole: tenantCtx.role,
+          action: "STORE_QUOTATION_UPSERTED",
+          targetType: "quotation",
+          targetId: mockQuoteNo,
+          metadata: { mode: "local_simulation_fallback", autoConvertToOrder: Boolean(body.autoConvertToOrder) },
+        });
         const mockRes = await mock.createOrUpdateQuoteItem(
           project,
           bom,
@@ -165,7 +247,7 @@ export async function POST(req: Request): Promise<Response> {
               quotationNo: mockQuoteNo,
               revision: 0,
               version: 1,
-              organizationId: body.organizationId || DEFAULT_BIRIM_ORG_UUID,
+              organizationId: tenantCtx.tenantId,
               branchId: body.branchIdOrCode || project.branchId,
               subtotal: reconciled.subtotal,
               discountTotal: reconciled.discountTotal,
@@ -218,6 +300,12 @@ export async function POST(req: Request): Promise<Response> {
       { status: result.isUpdate ? 200 : 201 }
     );
   } catch (err) {
+    if (err instanceof TenantSecurityError) {
+      return Response.json(
+        { ok: false, code: err.code, error: err.message },
+        { status: err.httpStatus }
+      );
+    }
     if (err instanceof BirimSupabaseRpcError) {
       return Response.json(
         {

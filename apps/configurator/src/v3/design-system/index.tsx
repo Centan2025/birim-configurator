@@ -81,24 +81,51 @@ export const BirimLogo: React.FC<{ className?: string; dark?: boolean }> = ({
 );
 
 export const V3BrandBadge: React.FC<{ subtitle?: string; dark?: boolean }> = ({
-  subtitle = "V5.9",
+  subtitle = "V6.6",
   dark = false,
-}) => (
-  <div className="inline-flex items-center gap-3 pr-1 select-none shrink-0">
-    <BirimLogo className="h-[21px] w-auto" dark={dark} />
-    {subtitle && (
-      <span
-        className={`text-[10px] px-2 py-0.5 rounded-lg font-mono font-bold border shrink-0 ${
-          dark
-            ? "bg-stone-800 text-stone-200 border-stone-700"
-            : "bg-white/65 text-[#334155] border-white/80"
-        }`}
-      >
-        {subtitle}
-      </span>
-    )}
-  </div>
-);
+}) => {
+  const tenantProfile = useConfiguratorStore((s) => s.activeTenantProfile);
+  const isBirimAuthentic = !tenantProfile || tenantProfile.brand.logoVariant === "birim_authentic";
+  const badgeLabel =
+    tenantProfile && tenantProfile.slug !== "birim"
+      ? tenantProfile.brand.badgeSubtitle
+      : subtitle;
+
+  return (
+    <div className="inline-flex items-center gap-2.5 pr-1 select-none shrink-0">
+      {isBirimAuthentic ? (
+        <BirimLogo className="h-[21px] w-auto" dark={dark} />
+      ) : (
+        <div className="inline-flex items-center gap-2">
+          <span
+            className="w-5 h-5 rounded-md inline-flex items-center justify-center text-[11px] font-black text-white shadow-xs shrink-0"
+            style={{ backgroundColor: tenantProfile.brand.accentColorHex || "#0284C7" }}
+          >
+            {tenantProfile.brand.displayName.slice(0, 1)}
+          </span>
+          <span
+            className={`text-[13px] font-black tracking-tight uppercase ${
+              dark ? "text-white" : "text-[#141413]"
+            }`}
+          >
+            {tenantProfile.brand.displayName}
+          </span>
+        </div>
+      )}
+      {badgeLabel && (
+        <span
+          className={`text-[10px] px-2 py-0.5 rounded-lg font-mono font-bold border shrink-0 ${
+            dark
+              ? "bg-stone-800 text-stone-200 border-stone-700"
+              : "bg-white/65 text-[#334155] border-white/80"
+          }`}
+        >
+          {badgeLabel}
+        </span>
+      )}
+    </div>
+  );
+};
 
 // ---------------------------------------------------------------------------
 // 3. PROTOTYPE ROUTE SWITCHER PILL

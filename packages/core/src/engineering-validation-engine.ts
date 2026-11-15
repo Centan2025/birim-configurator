@@ -274,7 +274,28 @@ export function evaluateLongTermShelfDeflection(params: {
 /**
  * Merkezi Birleşik Mühendislik, Konstrüksiyon, Mekân ve Üretilebilirlik Doğrulama Motoru (Bölüm 8 & 9).
  */
+import { BoundedLruCache, computeProjectStructuralSignature } from "./lru-cache";
+import { loadCustomStandardRules } from "./standards-registry";
+
+const unifiedEngineeringLruCache = new BoundedLruCache<string, ReturnType<typeof evaluateUnifiedEngineeringModelUncached>>(64);
+
 export function evaluateUnifiedEngineeringModel(
+  project: DesignProject,
+  options?: { ergonomicProfileId?: RegionErgonomicProfileId; referenceDateIso?: string }
+) {
+  const customRulesCnt = loadCustomStandardRules().length;
+  if (!options?.referenceDateIso && customRulesCnt === 0) {
+    const key = `${options?.ergonomicProfileId || project.ergonomicProfileId || "TR"}|${project.libraryVersionId || ""}|${computeProjectStructuralSignature(project)}`;
+    const hit = unifiedEngineeringLruCache.get(key);
+    if (hit) return hit;
+    const computed = evaluateUnifiedEngineeringModelUncached(project, options);
+    unifiedEngineeringLruCache.set(key, computed);
+    return computed;
+  }
+  return evaluateUnifiedEngineeringModelUncached(project, options);
+}
+
+function evaluateUnifiedEngineeringModelUncached(
   project: DesignProject,
   options?: { ergonomicProfileId?: RegionErgonomicProfileId; referenceDateIso?: string }
 ): {

@@ -97,7 +97,13 @@ function discoverSiblingBirimPortalEnvFile(explicitPath?: string): {
 export function resolveSharedBirimPortalEnv(options?: {
   portalEnvPath?: string;
   hydrateProcessEnv?: boolean;
+  tenantId?: string;
 }): ResolvedBirimPortalSharedEnv {
+  const isExternalSaasTenant = Boolean(
+    options?.tenantId &&
+      options.tenantId !== "00000000-0000-0000-0000-000000000001" &&
+      options.tenantId.toLowerCase() !== "birim"
+  );
   const directR2Complete = Boolean(
     process.env.R2_ENDPOINT &&
       process.env.R2_BUCKET_NAME &&
@@ -106,11 +112,11 @@ export function resolveSharedBirimPortalEnv(options?: {
   );
   const directSupabaseComplete = Boolean(
     (process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL) &&
-      process.env.SUPABASE_SERVICE_ROLE_KEY
+      (process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY)
   );
 
   const portalFallback =
-    !directR2Complete || !directSupabaseComplete || options?.portalEnvPath
+    !isExternalSaasTenant && (!directR2Complete || !directSupabaseComplete || options?.portalEnvPath)
       ? discoverSiblingBirimPortalEnvFile(options?.portalEnvPath)
       : { filePath: null, parsed: {} as Record<string, string> };
 
@@ -140,12 +146,16 @@ export function resolveSharedBirimPortalEnv(options?: {
     ""
   ).trim();
   const supabaseAnonKey = (
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    p.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
     p.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
     ""
   ).trim();
   const supabaseServiceRoleKey = (
+    process.env.SUPABASE_SECRET_KEY ||
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    p.SUPABASE_SECRET_KEY ||
     p.SUPABASE_SERVICE_ROLE_KEY ||
     ""
   ).trim();

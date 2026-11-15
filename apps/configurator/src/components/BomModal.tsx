@@ -37,6 +37,8 @@ import {
   calculateBlumEngineeringSummary,
   generateProjectCncPostProcessorBundle,
   mapCutPieceToCncPieceInput,
+  simulateCncPostProcessorBundle,
+  generateCncToolpathSimulationSvg,
   type CncPieceInput,
   CutPiece,
 } from "@birim/manufacturing";
@@ -56,8 +58,14 @@ function escapeHtml(raw: unknown): string {
     .replace(/'/g, "&#39;");
 }
 
-export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: BomModalProps) {
+export default function BomModal(props: BomModalProps) {
+  if (!props.isOpen) return null;
+  return <BomModalInner {...props} />;
+}
+
+function BomModalInner({ isOpen, onClose, initialTab = "cutlist" }: BomModalProps) {
   const [activeTab, setActiveTab] = useState<
+
     "cutlist" | "hardware" | "nesting" | "validation" | "assembly" | "selco" | "cnc_mpr_cix" | "quote" | "blum_bxf"
   >(initialTab);
   const [exportStatusBanner, setExportStatusBanner] = useState<string | null>(null);
@@ -69,6 +77,7 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
   const [erpCommonCut, setErpCommonCut] = useState<boolean>(false);
   const [showCutSequences, setShowCutSequences] = useState<boolean>(true);
   const [showErpContractPreview, setShowErpContractPreview] = useState<boolean>(false);
+  const [selectedSimulatedPieceId, setSelectedSimulatedPieceId] = useState<string | null>(null);
 
   React.useEffect(() => {
     if (isOpen && initialTab) {
@@ -1950,6 +1959,57 @@ export default function BomModal({ isOpen, onClose, initialTab = "cutlist" }: Bo
                   </div>
                 </div>
 
+                {(() => {
+                  const simReport = simulateCncPostProcessorBundle(project, bom);
+                  const simTargetPiece =
+                    bom.cutList.find((cp) => cp.id === selectedSimulatedPieceId) ||
+                    bom.cutList.find((cp) => (cp.holes?.length || 0) > 0) ||
+                    bom.cutList[0];
+                  const simSvg = simTargetPiece ? generateCncToolpathSimulationSvg(simTargetPiece) : "";
+                  return (
+                    <div data-testid="cnc-preflight-simulation-card" className="p-4 rounded-xl bg-slate-950 border border-cyan-500/40 space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <div className="text-sm font-bold text-cyan-300">
+                            CNC Ön Doğrulama &amp; 2B Takım Yolu Simülasyonu (Makine Öncesi Güvenlik Kapısı)
+                          </div>
+                          <div className="text-[11px] text-amber-300 mt-0.5">
+                            {simReport.postProcessorDisclaimerTr}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 text-[11px] font-mono">
+                          <span className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700 text-slate-200">
+                            İşlenen Panel: {simReport.machinedPanelsCount}/{simReport.totalPanelsSimulated}
+                          </span>
+                          <span className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700 text-emerald-300">
+                            Tahmini Süre: ~{simReport.totalEstimatedMinutes} dk
+                          </span>
+                          <span className={`px-2.5 py-1 rounded-lg border font-bold ${simReport.blockingErrorCount === 0 ? "bg-emerald-950/60 border-emerald-700 text-emerald-300" : "bg-red-950/60 border-red-700 text-red-300"}`}>
+                            {simReport.blockingErrorCount === 0 ? "Z-Derinlik & Et Kalınlığı Uygun" : `${simReport.blockingErrorCount} Kritik CNC Uyarısı`}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 items-start">
+                        <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                          {simReport.pieces.map((sp) => (
+                            <button
+                              key={sp.pieceId}
+                              type="button"
+                              onClick={() => setSelectedSimulatedPieceId(sp.pieceId)}
+                              className={`w-full text-left p-2 rounded-lg border text-[11px] transition cursor-pointer ${simTargetPiece?.id === sp.pieceId ? "bg-cyan-950/60 border-cyan-500 text-white" : "bg-slate-900/70 border-slate-800 text-slate-300 hover:bg-slate-900"}`}
+                            >
+                              <div className="font-semibold truncate">{sp.partName}</div>
+                              <div className="text-[10px] text-slate-400 font-mono">
+                                {sp.lengthMm}×{sp.widthMm}×{sp.thicknessMm}mm • {sp.drillCount} delik • ~{sp.estimatedCycleSeconds}s
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                        <div className="lg:col-span-2 p-2 rounded-xl bg-white border border-slate-700 overflow-hidden" dangerouslySetInnerHTML={{ __html: simSvg }} />
+                      </div>
+                    </div>
+                  );
+                })()}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                   <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
                     <div className="font-bold text-amber-400 mb-2">

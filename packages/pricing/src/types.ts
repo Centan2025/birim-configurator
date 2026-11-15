@@ -15,6 +15,10 @@ export interface PricingParameters {
   miter45LinearMeterEur?: number; // Default 9.5 EUR/m 5-axis aggregate bevel cut
   currency: "EUR" | "TRY";
   eurTryExchangeRate: number; // Dynamic EUR/TRY rate (default 41.80)
+  vatRatePercent?: number; // Tenant-configurable VAT % (default 20)
+  dealerDiscountPercent?: number; // B2B Dealer channel discount % (default 0)
+  stockedMaterialIds?: string[]; // Tenant-specific stocked core board IDs
+  standardSheetAreaM2?: number; // Tenant default board area m² (default 5.796)
 }
 
 export interface MaterialAlternativeComparison {
@@ -22,6 +26,9 @@ export interface MaterialAlternativeComparison {
   materialName: string;
   totalWithVatEur: number;
   totalWithVatTry: number;
+  dealerDiscountPercent?: number;
+  dealerNetWithVatEur?: number;
+  dealerNetWithVatTry?: number;
   diffEur: number;
   diffPercent: number;
   leadTimeLabel?: string;
@@ -79,4 +86,24 @@ export interface PricingBreakdown {
     totalHolesCount: number;
   };
   materialAlternatives?: MaterialAlternativeComparison[];
+  /** Atölye teknik metraj, kimyasal gramaj (yapılandırılabilir taslak kural) ve ödeme senaryoları */
+  workshopMetrics?: {
+    isConfigurableWorkshopDraftRule: true;
+    totalWeightKg: number;
+    totalVolumeM3: number;
+    estimatedLinearMeterMt: number;
+    costPerLinearMeterEur: number;
+    costPerLinearMeterTry: number;
+    fastenersWith10PctWasteCount: number;
+    edgeBandGlueGrams: number;
+    lacquerPrimerGrams: number;
+    lacquerTopcoatGrams: number;
+    lacquerThinnerGrams: number;
+    subcontractCuttingAndBandingEur: number;
+    paymentScenarios: {
+      cashDiscount3PctTry: number;
+      standardTransferTry: number;
+      installment6MonthsTry: number;
+    };
+  };
 }

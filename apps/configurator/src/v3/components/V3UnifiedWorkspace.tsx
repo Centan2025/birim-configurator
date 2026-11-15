@@ -49,6 +49,8 @@ import { V3CadViewport2D } from "./V3CadViewport2D";
 import type { V4ModuleTemplate } from "@birim/catalog";
 import { useConfiguratorStore } from "../../store/useConfiguratorStore";
 import { WorkspaceTopBar } from "./workspace/WorkspaceTopBar";
+import { SaasTenantStudioModal } from "./workspace/SaasTenantStudioModal";
+import { RulesStandardsModal } from "./workspace/RulesStandardsModal";
 import { StudioRenderModal } from "./workspace/StudioRenderModal";
 import { CustomHardwareModal } from "./workspace/CustomHardwareModal";
 import { AssemblyDiagramModal } from "./workspace/AssemblyDiagramModal";
@@ -58,6 +60,10 @@ import { BirimLogo } from "../design-system";
 import { startZeroLagModalDrag } from "../design-system/zeroLagDrag";
 import { EmptyStageRecoveryCard } from "./workspace/EmptyStageRecoveryCard";
 import { SimpleCustomerInspector } from "./workspace/SimpleCustomerInspector";
+import { SmartTaskLauncherModal } from "./workspace/SmartTaskLauncherModal";
+import { SmartContextualInspector } from "./workspace/SmartContextualInspector";
+import { CommandSearchModal, type CommandPaletteAction } from "./workspace/CommandSearchModal";
+import { LiveChangeImpactPill } from "./workspace/LiveChangeImpactPill";
 import { TapToPlaceController, type TapToPlaceItemSpec } from "./workspace/TapToPlaceController";
 import { ArRoomPreviewModal } from "./workspace/ArRoomPreviewModal";
 import { PanelCutoutInspector } from "./workspace/PanelCutoutInspector";
@@ -1048,6 +1054,60 @@ export const V3UnifiedWorkspace: React.FC<{
   } = useV3Adapter();
 
   const experienceTier = useConfiguratorStore((s) => s.userExperienceTier);
+  const toolbarLabelMode = useConfiguratorStore((s) => s.toolbarLabelMode);
+  const setToolbarLabelMode = useConfiguratorStore((s) => s.setToolbarLabelMode);
+  const viewportRenderStyle = useConfiguratorStore((s) => s.viewportRenderStyle);
+  const setViewportRenderStyle = useConfiguratorStore((s) => s.setViewportRenderStyle);
+  const lastChangeImpact = useConfiguratorStore((s) => s.lastChangeImpact);
+  const dismissChangeImpact = useConfiguratorStore((s) => s.dismissChangeImpact);
+  const skipSmartLauncherByDefault = useConfiguratorStore((s) => s.skipSmartLauncherByDefault);
+  const setSkipSmartLauncherByDefault = useConfiguratorStore((s) => s.setSkipSmartLauncherByDefault);
+  const updateBayDrawerConfig = useConfiguratorStore((s) => s.updateBayDrawerConfig);
+  const [showSmartLauncherModal, setShowSmartLauncherModal] = useState(false);
+  const [showCommandSearchModal, setShowCommandSearchModal] = useState(false);
+  const activeTenantProfile = useConfiguratorStore((s) => s.activeTenantProfile);
+  const activeTenantRole = useConfiguratorStore((s) => s.activeTenantRole);
+  const syncTenantCatalogMaterials = useConfiguratorStore((s) => s.syncTenantCatalogMaterials);
+  const [showSaasTenantModal, setShowSaasTenantModal] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onGlobalKeyDown = (ev: KeyboardEvent) => {
+      const tgt = ev.target as HTMLElement | null;
+      if (tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA" || tgt.tagName === "SELECT" || tgt.isContentEditable)) {
+        if (!((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "k")) return;
+      }
+      if ((ev.ctrlKey || ev.metaKey) && !ev.shiftKey && !ev.altKey && ev.key.toLowerCase() === "k") {
+        ev.preventDefault();
+        setShowCommandSearchModal((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", onGlobalKeyDown);
+    return () => window.removeEventListener("keydown", onGlobalKeyDown);
+  }, []);
+
+  // Auto-sync CSV-imported tenant materials from /api/saas/catalog into 3D swatch picker & BOM!
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let cancelled = false;
+    const token = window.localStorage.getItem("modul_saas_session_token");
+    fetch("/api/saas/catalog", {
+      headers: token
+        ? { "x-modul-session-token": token }
+        : { "x-modul-tenant-id": activeTenantProfile.tenantId },
+      credentials: "same-origin",
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.ok && Array.isArray(data.materials) && data.materials.length > 0) {
+          syncTenantCatalogMaterials(data.materials);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTenantProfile.tenantId, syncTenantCatalogMaterials]);
   const setExperienceTier = useConfiguratorStore((s) => s.setUserExperienceTier);
 
   const [mode, setMode] = useState<V3WorkspaceMode>(initialMode);
@@ -1169,10 +1229,10 @@ export const V3UnifiedWorkspace: React.FC<{
   const [showAdminModal, setShowAdminModal] = useState(false);
 
   useEffect(() => {
-    setCustomStdRules(loadCustomStandardRules());
+    setCustomStdRules(loadCustomStandardRules(activeTenantProfile.tenantId));
     if (typeof window === "undefined") return;
     const syncCustomRules = () => {
-      setCustomStdRules(loadCustomStandardRules());
+      setCustomStdRules(loadCustomStandardRules(activeTenantProfile.tenantId));
       const curState = useConfiguratorStore.getState();
       useConfiguratorStore.setState({
         project: { ...curState.project, updatedAt: new Date().toISOString() },
@@ -2056,13 +2116,34 @@ export const V3UnifiedWorkspace: React.FC<{
     liveCustomerAndFactoryStats,
   ]);
 
-  const topBarLivePriceLabel = useMemo(
-    () =>
-      priceCurrency === "TRY"
-        ? `₺${Math.round(pricing.totalWithVatEur * eurToTryRate).toLocaleString("tr-TR")}`
-        : `€${Math.round(pricing.totalWithVatEur).toLocaleString("tr-TR")}`,
-    [priceCurrency, pricing.totalWithVatEur, eurToTryRate]
-  );
+  const topBarLivePriceLabel = useMemo(() => {
+    const isDealerRole = activeTenantRole === "dealer_admin" || activeTenantRole === "dealer_staff";
+    const effectiveCurrency =
+      activeTenantProfile?.slug !== "birim"
+        ? activeTenantProfile.pricing.currency
+        : priceCurrency;
+    if (effectiveCurrency === "TRY") {
+      const tryAmount =
+        isDealerRole && typeof pricing.dealerNetWithVatTry === "number"
+          ? pricing.dealerNetWithVatTry
+          : Math.round(pricing.totalWithVatTry || pricing.totalWithVatEur * eurToTryRate);
+      return `₺${Math.round(tryAmount).toLocaleString("tr-TR")}`;
+    }
+    const eurAmount =
+      isDealerRole && typeof pricing.dealerNetWithVatEur === "number"
+        ? pricing.dealerNetWithVatEur
+        : pricing.totalWithVatEur;
+    return `€${Math.round(eurAmount).toLocaleString("tr-TR")}`;
+  }, [
+    activeTenantProfile,
+    activeTenantRole,
+    priceCurrency,
+    pricing.totalWithVatEur,
+    pricing.totalWithVatTry,
+    pricing.dealerNetWithVatEur,
+    pricing.dealerNetWithVatTry,
+    eurToTryRate,
+  ]);
 
   const handleTopBarOpenSceneHub = useCallback(() => {
     setSceneHubInitialTab("modules");
@@ -2567,6 +2648,12 @@ export const V3UnifiedWorkspace: React.FC<{
           onToggleStudioSplitView={toggleStudioSplitView}
           onToggleCncXrayMode={toggleCncXrayMode}
           experienceTier={experienceTier}
+          toolbarLabelMode={toolbarLabelMode}
+          onToggleToolbarLabelMode={() =>
+            setToolbarLabelMode(toolbarLabelMode === "labeled" ? "compact" : "labeled")
+          }
+          onOpenCommandSearch={() => setShowCommandSearchModal(true)}
+          onOpenSmartLauncher={() => setShowSmartLauncherModal(true)}
           leadTimeLabel={pricing.leadTime?.label}
           livePriceLabel={topBarLivePriceLabel}
           canUndo={canUndo}
@@ -2587,6 +2674,8 @@ export const V3UnifiedWorkspace: React.FC<{
           onOpenArAnd3DModal={handleTopBarOpenArAnd3DModal}
           onOpenRulesModal={handleTopBarOpenRulesModal}
           onOpenAdminModal={handleTopBarOpenAdminModal}
+          onOpenSaasStudioModal={() => setShowSaasTenantModal(true)}
+          allowErpEntitlement={activeTenantProfile.planId === "business" || activeTenantProfile.planId === "enterprise"}
           onChangeExperienceTier={handleTopBarChangeTier}
           onSetMode={handleTopBarSetMode}
           onSetStudioView={handleTopBarSetStudioView}
@@ -3078,27 +3167,10 @@ export const V3UnifiedWorkspace: React.FC<{
             {/* FAR-LEFT INTEGRATED ICON RAIL FOR PLAN MODE */}
             <div
               data-testid="plan-left-icon-rail"
-              className={`w-[56px] h-full py-2.5 px-1.5 flex flex-col items-center justify-start gap-2 shrink-0 select-none transition-colors duration-300 ${
+              className={`w-[56px] h-full py-2.5 px-1.5 flex flex-col items-center justify-between shrink-0 select-none transition-colors duration-300 ${
                 planLeftOpen ? "border-r border-white/60 bg-white/14" : "border-r border-transparent"
               }`}
             >
-              <div className="w-full pb-2 border-b border-white/50 flex flex-col items-center">
-                <button
-                  type="button"
-                  data-testid="plan-toggle-left-panel-btn"
-                  onClick={() => setPlanLeftOpen((v) => !v)}
-                  title={planLeftOpen ? "Sol Paneli Kapat" : "Sol Paneli Aç"}
-                  aria-label={planLeftOpen ? "Sol Paneli Kapat" : "Sol Paneli Aç"}
-                  className="w-10 h-10 rounded-2xl bg-white/72 hover:bg-white/92 border border-white/88 shadow-2xs flex items-center justify-center text-[#3A3632] hover:text-[#141413] transition cursor-pointer"
-                >
-                  <ChevronRight
-                    className={`w-4 h-4 transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
-                      planLeftOpen ? "rotate-180" : "rotate-0"
-                    }`}
-                  />
-                </button>
-              </div>
-
               <div className="w-full space-y-1.5 flex flex-col items-center">
                 {[
                   {
@@ -3189,9 +3261,25 @@ export const V3UnifiedWorkspace: React.FC<{
                   <button type="button" data-testid="plan-rail-ayarlar" onClick={() => { setPlanLeftRailTab("gorunum"); setPlanLeftOpen(true); }}>Ayarlar</button>
                 </div>
               </div>
+
+              <div className="flex flex-col items-center gap-1.5">
+                <button
+                  type="button"
+                  data-testid="plan-toggle-left-panel-btn"
+                  onClick={() => setPlanLeftOpen((v) => !v)}
+                  title={planLeftOpen ? "Sol Paneli Daralt" : "Sol Paneli Aç"}
+                  className="w-10 h-10 rounded-2xl bg-white/72 hover:bg-white/92 border border-white/88 shadow-2xs flex items-center justify-center text-[#3A3632] hover:text-[#141413] transition cursor-pointer"
+                >
+                  <ChevronRight
+                    className={`w-4 h-4 transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                      planLeftOpen ? "rotate-180" : "rotate-0"
+                    }`}
+                  />
+                </button>
+              </div>
             </div>
 
-            {/* PLAN LEFT PANEL MAIN CONTENT — ALWAYS MOUNTED INSIDE UNIFIED FROSTED SHELL */}
+            {/* PLAN LEFT PANEL MAIN CONTENT — LAZY-RENDERED WHEN OPEN */}
             <div className="flex-1 min-w-0 h-full overflow-hidden">
               <div
                 aria-hidden={!planLeftOpen}
@@ -3204,7 +3292,7 @@ export const V3UnifiedWorkspace: React.FC<{
                     : `${Math.max(240, planLeftWidthPx - 56)}px`,
                 }}
               >
-                {(planLeftRailTab === "mekan" || planLeftRailTab === "moduller") ? (
+                {!planLeftOpen ? null : (planLeftRailTab === "mekan" || planLeftRailTab === "moduller") ? (
                   <>
                 {/* Title + 2 Workflow Tabs */}
                 <div className="px-3.5 pt-3 pb-2 border-b border-[#E2E8F0] space-y-2.5">
@@ -4035,26 +4123,8 @@ export const V3UnifiedWorkspace: React.FC<{
                 onPointerDown={(e) => startZeroLagModalDrag(e, "[data-draggable-shell='studio-left-shell']")}
                 className={`${
                   leftOpen ? "w-[56px] items-center border-r border-white/60 bg-white/14" : "w-full items-stretch border-r border-transparent"
-                } h-full py-2.5 px-1.5 flex flex-col justify-start gap-2 shrink-0 select-none cursor-grab active:cursor-grabbing transition-colors duration-300`}
+                } h-full py-2.5 px-1.5 flex flex-col justify-between shrink-0 select-none cursor-grab active:cursor-grabbing transition-colors duration-300`}
               >
-                <div className={`w-full pb-2 border-b border-white/50 flex flex-col ${leftOpen ? "items-center" : "items-stretch"}`}>
-                  <button
-                    type="button"
-                    data-testid="studio-toggle-left"
-                    onClick={() => setLeftOpen((v) => !v)}
-                    title={leftOpen ? "Sol Paneli Kapat" : "Sol Paneli Aç"}
-                    aria-label={leftOpen ? "Sol Paneli Kapat" : "Sol Paneli Aç"}
-                    className={`${leftOpen ? "w-10 justify-center" : "w-full px-2.5 justify-start"} h-10 rounded-2xl bg-white/72 hover:bg-white/92 border border-white/88 shadow-2xs flex items-center text-[#3A3632] hover:text-[#141413] transition cursor-pointer`}
-                  >
-                    <ChevronRight
-                      className={`w-4 h-4 shrink-0 transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
-                        leftOpen ? "rotate-180" : "rotate-0"
-                      }`}
-                    />
-                    {!leftOpen ? <span className="birim-rail-item-label text-[11px] font-bold">Paneli Aç</span> : <span className="sr-only">Sol Paneli Kapat</span>}
-                  </button>
-                </div>
-
                 <div className={`w-full space-y-1.5 flex flex-col ${leftOpen ? "items-center" : "items-stretch"}`}>
                   <button
                     type="button"
@@ -4195,9 +4265,25 @@ export const V3UnifiedWorkspace: React.FC<{
                     <button type="button" data-testid="studio-open-projects-btn" onClick={() => setIsProjectModalOpen(true)}>Projeler</button>
                   </div>
                 </div>
+
+                <div className="flex flex-col items-center gap-1.5">
+                  <button
+                    type="button"
+                    data-testid="studio-toggle-left"
+                    onClick={() => setLeftOpen((v) => !v)}
+                    title={leftOpen ? "Sol Paneli Daralt" : "Sol Paneli Aç"}
+                    className="w-10 h-10 rounded-2xl bg-white/72 hover:bg-white/92 border border-white/88 shadow-2xs flex items-center justify-center text-[#3A3632] hover:text-[#141413] transition cursor-pointer"
+                  >
+                    <ChevronRight
+                      className={`w-4 h-4 transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                        leftOpen ? "rotate-180" : "rotate-0"
+                      }`}
+                    />
+                  </button>
+                </div>
               </div>
 
-              {/* ALWAYS-MOUNTED EXPANDING CONTENT PANE INSIDE UNIFIED FROSTED SHELL */}
+              {/* LAZY-RENDERED EXPANDING CONTENT PANE INSIDE UNIFIED FROSTED SHELL */}
               <div className="flex-1 min-w-0 h-full overflow-hidden">
                 <div
                   aria-hidden={!leftOpen}
@@ -4211,7 +4297,7 @@ export const V3UnifiedWorkspace: React.FC<{
                   }}
                 >
 
-                {(() => {
+                {leftOpen && (() => {
                   if (leftTab === "quick_wizard") {
                     return (
                       /* HIZLI GÖVDE SİHİRBAZI (CANLI ÖNİZLEME + ANINDA 3D SENKRONİZASYON) */
@@ -7275,7 +7361,7 @@ export const V3UnifiedWorkspace: React.FC<{
         )}
 
         {/* RIGHT PANEL — FLOATING ROUNDED-CORNER FROSTED ICE SHELL OVER TRANSPARENT CONTAINER (Matches image_cf8426.png 1-to-1!) */}
-        {(mode === "studio" || (mode === "plan" && showInspectorInPlan)) && (
+        {((mode === "studio" && studioRightOpen) || (mode === "plan" && showInspectorInPlan)) && (
           <aside
             data-testid="studio-right-inspector"
             aria-hidden={mode === "studio" ? !studioRightOpen : false}
@@ -7478,17 +7564,9 @@ export const V3UnifiedWorkspace: React.FC<{
                         | "material";
                       setStudioInspectorTab(nextTab);
                       if (nextTab === "interior") {
-                        setLeftTab("interior");
-                        setLeftOpen(true);
                         if (doorOpenAngleDeg === 0 && !doorsHiddenStudio) {
                           setDoorOpenAngleDeg(85);
                         }
-                      } else if (nextTab === "material") {
-                        setLeftTab("materials");
-                        setLeftOpen(true);
-                      } else if (nextTab === "all") {
-                        setLeftTab("hardware");
-                        setLeftOpen(true);
                       }
                       if (nextTab === "all") {
                         if (doorOpenAngleDeg === 0 && !doorsHiddenStudio) {
@@ -7535,14 +7613,14 @@ export const V3UnifiedWorkspace: React.FC<{
                         );
                       }
                     }}
-                    className={`h-9 rounded-xl transition cursor-pointer flex flex-col items-center justify-center gap-0.5 ${
+                    className={`h-12 px-1 rounded-xl transition cursor-pointer flex flex-col items-center justify-center gap-1 ${
                       isAct
                         ? "birim-ice-btn-active font-bold"
-                        : "text-[#44403C] hover:text-[#141413] hover:bg-white/65"
+                        : "text-[#44403C] hover:text-[#141413] hover:bg-white/85 font-semibold"
                     }`}
                   >
                     <TabIcon className={`w-4 h-4 shrink-0 ${isAct ? "text-[#E5D3B8]" : "text-[#57534E]"}`} />
-                    <span className="sr-only">{sec.label}</span>
+                    <span className="text-[9.5px] leading-none tracking-tight">{sec.label}</span>
                   </button>
                 );
               })}
@@ -7550,6 +7628,29 @@ export const V3UnifiedWorkspace: React.FC<{
             )}
 
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              <SmartContextualInspector
+                activeModule={activeModule}
+                activeBayIndex={activeBayIndex}
+                selectedComponentId={selectedComponentId}
+                experienceTier={experienceTier}
+                bayWidths={activeBreakdown.bayWidths}
+                materials={[...DEFAULT_MATERIALS, ...(project.customMaterials || [])]}
+                doorOpenAngleDeg={doorOpenAngleDeg}
+                drawerOpenMm={drawerOpenMm}
+                projectMaterialPalette={project.materialPaletteSlots}
+                onSelectComponent={setSelectedComponentId}
+                onSelectBay={setActiveBayIndex}
+                onSetDimensions={setDimensions}
+                onSetMaterials={setMaterials}
+                onUpdateCarcass={(patch) => updateCarcassConfig(patch)}
+                onUpdateDoor={(bIdx, patch) => setBayV4DoorConfig(bIdx, patch)}
+                onUpdateDrawer={(bIdx, drwId, patch) => updateBayDrawerConfig(bIdx, drwId, patch)}
+                onSplitBay={splitBayIntoTwo}
+                onAddShelf={addShelf}
+                onAddDrawer={addDrawer}
+                onSetDrawerOpenMm={(mm) => useConfiguratorStore.getState().setDrawerOpenMm(mm, true)}
+                onToggleDoorOpen={toggleDoorOpen}
+              />
               {isSimpleBlumMode && (
                 <SimpleCustomerInspector
                   activeModule={activeModule}
@@ -16116,420 +16217,39 @@ export const V3UnifiedWorkspace: React.FC<{
 
       {/* STANDARTLAR, KURALLAR VE ÖZEL KURAL YÖNETİM MERKEZİ MODAL */}
       {showRulesModal && (
-        <div
-          data-testid="v3-engineering-modal"
-          onClick={() => setShowRulesModal(false)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/40 backdrop-blur-xs p-4"
-        >
-          <div
-            data-draggable-shell="rules"
-            onClick={(e) => e.stopPropagation()}
-            className="birim-ice-modal rounded-[28px] max-w-3xl w-full overflow-hidden text-stone-900"
-          >
-            <div onPointerDown={(e) => startZeroLagModalDrag(e)} title="Taşımak için sürükleyin" className="px-5 py-4 birim-ice-shell-header flex items-center justify-between cursor-grab active:cursor-grabbing select-none">
-              <div className="flex items-center gap-2.5">
-                <ShieldCheck className="w-4 h-4 text-[#141413]" />
-                <div>
-                  <h2 className="text-sm font-bold text-[#111827]">
-                    Standartlar, Kurallar &amp; Mühendislik Merkezi ({humanCompatStatusLabel})
-                  </h2>
-                  <p className="text-[11px] text-[#475569]">
-                    EN / DIN / Blum / Birim üretim standartlarını inceleyin, aktif projeyi denetleyin veya yeni özel standart kuralı ekleyin
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowRulesModal(false);
-                    setShowAdminModal(true);
-                  }}
-                  className="px-2.5 py-1 rounded-xl birim-ice-btn text-[11px] font-bold text-[#141413] cursor-pointer"
-                  title="B1 Modül Şablon ve Donanım Kütüphanesi Yönetimi"
-                >
-                  B1 Kütüphane
-                </button>
-                <button
-                  type="button"
-                  data-testid="v3-engineering-modal-close"
-                  onClick={() => setShowRulesModal(false)}
-                  className="px-2 py-1 rounded text-stone-500 hover:text-stone-900 cursor-pointer"
-                >
-                  ✕
-                </button>
-              </div>
-            </div>
-
-            {/* 3 Sekmeli Standart Hiyerarşisi */}
-            <div className="px-5 pt-3 pb-2 border-b border-stone-200/80 flex flex-wrap items-center gap-1.5 bg-white/50">
-              {[
-                {
-                  id: "audit" as const,
-                  label: `1. Proje Denetimi (${unifiedEngineeringReport.findings.length})`,
-                },
-                {
-                  id: "catalog" as const,
-                  label: `2. Aktif Standartlar (${BIRIM_STANDARDS_CATALOG.length + customStdRules.length})`,
-                },
-                {
-                  id: "add_custom" as const,
-                  label: "3. + Yeni Standart / Kural Ekle",
-                },
-              ].map((tb) => (
-                <button
-                  key={tb.id}
-                  type="button"
-                  data-testid={`standards-modal-tab-${tb.id}`}
-                  onClick={() => setRulesModalTab(tb.id)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-                    rulesModalTab === tb.id
-                      ? "birim-ice-charcoal-pill"
-                      : "birim-ice-btn text-[#44403C] hover:text-[#141413]"
-                  }`}
-                >
-                  {tb.label}
-                </button>
-              ))}
-            </div>
-
-            <div className="p-5 space-y-4 max-h-[72vh] overflow-y-auto text-xs">
-              {rulesModalTab === "audit" && (
-                <>
-                  <div className="p-3 rounded-xl bg-stone-50 border border-stone-200 flex items-center justify-between gap-3">
-                    <div>
-                      <div className="font-bold text-stone-900 text-[11px] uppercase tracking-wider">
-                        Bölgesel Ergonomi ve Erişilebilirlik Profili
-                      </div>
-                      <div className="text-[11px] text-stone-500">
-                        Zorunlu güvenlik kuralları sabit tutulur; raf erişim ve geçiş koridoru sınırları seçili profile göre denetlenir.
-                      </div>
-                    </div>
-                    <select
-                      data-testid="v3-ergonomic-profile-select"
-                      value={ergonomicProfileId}
-                      onChange={(e) =>
-                        setErgonomicProfileId(
-                          e.target.value as "TR_RESIDENTIAL" | "EU_EN_STANDARD" | "ACCESSIBLE_EN17210"
-                        )
-                      }
-                      className="px-2.5 py-1.5 rounded-lg bg-white border border-stone-300 text-stone-900 font-semibold text-xs"
-                    >
-                      {Object.values(regionalErgonomicProfiles).map((prof) => (
-                        <option key={prof.id} value={prof.id}>
-                          {prof.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {unifiedEngineeringReport.findings.length === 0 ? (
-                    <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-950 flex items-center justify-between gap-3">
-                      <div>
-                        <div className="font-extrabold text-sm">
-                          ✓ Tüm Modüller Aktif Standartlara %100 Uygun
-                        </div>
-                        <div className="text-[11px] text-emerald-800 mt-0.5">
-                          EN 14749 devrilme güvenliği, EN 16122 raf sehimi, Sistem 32 delik düzeni ve Birim üretim sınırlarında hiçbir uyumsuzluk bulunmadı.
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <div className="font-bold text-stone-700 uppercase tracking-wider text-[11px]">
-                        Tespit Edilen Standart Kontrolleri ({unifiedEngineeringReport.findings.length})
-                      </div>
-                      {unifiedEngineeringReport.findings.map((iss, idx) => (
-                        <div
-                          key={idx}
-                          className={`p-3 rounded-xl border space-y-1.5 ${
-                            iss.severity === "error"
-                              ? "bg-red-50 border-red-200 text-red-900"
-                              : "bg-[#F8FAFC] border-[#CBD5E1] text-[#111827]"
-                          }`}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="font-extrabold text-[#111827]">
-                              {formatIssueHumanTitle(iss.code, "studio")}
-                            </span>
-                            <span className="px-2 py-0.5 rounded-full bg-[#EEF3F8] border border-[#CBD5E1] text-[10px] font-bold text-[#111827] shrink-0">
-                              {iss.ruleNature === "MANDATORY_SAFETY"
-                                ? "Zorunlu Güvenlik Engeli"
-                                : iss.ruleNature === "ENGINEERING_VALIDITY" && iss.severity === "error"
-                                ? "Mühendislik / Üretim Engeli"
-                                : iss.ruleNature === "VERIFICATION_REQUIRED"
-                                ? "Doğrulama Gerektirir"
-                                : "Ergonomi Önerisi"}
-                            </span>
-                          </div>
-                          <div className="text-[#334155]">{iss.message}</div>
-                          {iss.worldPositionMm && (
-                            <div className="font-mono text-[10px] text-stone-500">
-                              Sahne Konumu: X={iss.worldPositionMm.x} • Y={iss.worldPositionMm.y} • Z={iss.worldPositionMm.z} mm
-                            </div>
-                          )}
-                          {iss.remediationProposals && iss.remediationProposals.length > 0 && (
-                            <div className="flex flex-wrap gap-1.5 pt-1">
-                              {iss.remediationProposals.map((prop) => (
-                                <button
-                                  key={prop.id}
-                                  type="button"
-                                  onClick={() => {
-                                    applyApprovedEngineeringFix(prop);
-                                    setApprovalBanner({
-                                      ok: true,
-                                      text: `✓ Onaylı düzeltme uygulandı: ${prop.label}`,
-                                    });
-                                    setTimeout(() => setApprovalBanner(null), 3000);
-                                  }}
-                                  className="px-2.5 py-1 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-[11px] cursor-pointer transition"
-                                >
-                                  ✓ Onayla ve Uygula: {prop.label}
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
-
-              {rulesModalTab === "catalog" && (
-                <div className="space-y-4">
-                  {customStdRules.length > 0 && (
-                    <div className="space-y-2">
-                      <div className="font-bold text-stone-800 uppercase tracking-wider text-[11px]">
-                        Eklenen Özel Birim / Proje Standartları ({customStdRules.length})
-                      </div>
-                      {customStdRules.map((cr) => (
-                        <div
-                          key={cr.id}
-                          className="flex items-center justify-between gap-3 p-3 rounded-xl bg-amber-50/70 border border-amber-200"
-                        >
-                          <div>
-                            <div className="font-bold text-stone-900">
-                              {cr.name}{" "}
-                              <span className="font-mono text-[10px] text-stone-500">
-                                ({cr.standardRef})
-                              </span>
-                            </div>
-                            <div className="text-[11px] text-stone-600">
-                              Kategori: {cr.category} • Sınır: {cr.operator === "max" ? "≤" : "≥"}{" "}
-                              <b>{cr.thresholdMm} mm</b> • Seviye:{" "}
-                              {cr.severity === "error" ? "Üretim Engeli" : "Uyarı"}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <button
-                              type="button"
-                              onClick={() => setCustomStdRules(toggleCustomStandardRule(cr.id))}
-                              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold cursor-pointer ${
-                                cr.enabled
-                                  ? "bg-emerald-600 text-white"
-                                  : "bg-stone-200 text-stone-600"
-                              }`}
-                            >
-                              {cr.enabled ? "Aktif" : "Pasif"}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setCustomStdRules(removeCustomStandardRule(cr.id))}
-                              className="px-2 py-1 rounded-lg bg-red-100 hover:bg-red-200 text-red-800 text-[10px] font-bold cursor-pointer"
-                            >
-                              Sil
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  <div className="space-y-2">
-                    <div className="font-bold text-stone-700 uppercase tracking-wider text-[11px]">
-                      Yerleşik Uluslararası &amp; Birim Fabrika Standartları ({BIRIM_STANDARDS_CATALOG.length})
-                    </div>
-                    {BIRIM_STANDARDS_CATALOG.map((std) => (
-                      <div
-                        key={std.id}
-                        className="p-3 rounded-xl bg-stone-50 border border-stone-200 space-y-1"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="font-bold text-stone-900">
-                            {std.category} — {std.title}
-                          </span>
-                          <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold shrink-0">
-                            {std.standardRef}
-                          </span>
-                        </div>
-                        <div className="text-[11px] text-stone-700">{std.thresholdSummary}</div>
-                        <div className="font-mono text-[10px] text-stone-400">
-                          Kaynak Kod: {std.codeLocation}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="font-bold text-stone-700 uppercase tracking-wider text-[11px]">
-                      Mutfak &amp; Mekânsal Yerleşim Kuralları ({KITCHEN_ENGINEERING_RULE_REGISTRY.length})
-                    </div>
-                    {KITCHEN_ENGINEERING_RULE_REGISTRY.map((rule) => (
-                      <div
-                        key={rule.code}
-                        className="flex items-center justify-between p-2.5 rounded-xl bg-stone-50 border border-stone-200"
-                      >
-                        <div>
-                          <div className="font-bold text-stone-900">{rule.label}</div>
-                          <div className="text-[11px] text-stone-500">{rule.standardRef}</div>
-                        </div>
-                        <span
-                          className={`px-2.5 py-1 rounded-full text-[10px] font-bold shrink-0 ${
-                            rule.verified
-                              ? "bg-emerald-100 text-emerald-800"
-                              : "bg-amber-100 text-[#57534E]"
-                          }`}
-                        >
-                          {rule.verified ? "AKTİF STANDART" : "SAHA KONTROLÜ"}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {rulesModalTab === "add_custom" && (
-                <div className="space-y-3 p-3.5 rounded-2xl bg-stone-50 border border-stone-200">
-                  <div>
-                    <div className="font-extrabold text-stone-900 text-sm">
-                      Yeni Özel Standart / Üretim Kuralı Tanımla
-                    </div>
-                    <div className="text-[11px] text-stone-600 mt-0.5">
-                      Eklediğiniz standart tarayıcı hafızasına kaydedilir ve sahnedeki tüm mevcut/yeni modüllerde anında denetlenir.
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    <label className="space-y-1 block">
-                      <span className="font-bold text-[11px] text-stone-700">Standart Başlığı</span>
-                      <input
-                        type="text"
-                        data-testid="custom-std-name-input"
-                        value={newStdName}
-                        onChange={(e) => setNewStdName(e.target.value)}
-                        className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-stone-300 font-semibold text-xs"
-                      />
-                    </label>
-                    <label className="space-y-1 block">
-                      <span className="font-bold text-[11px] text-stone-700">Referans Kodu</span>
-                      <input
-                        type="text"
-                        data-testid="custom-std-ref-input"
-                        value={newStdRef}
-                        onChange={(e) => setNewStdRef(e.target.value)}
-                        className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-stone-300 font-mono text-xs"
-                      />
-                    </label>
-                    <label className="space-y-1 block">
-                      <span className="font-bold text-[11px] text-stone-700">Denetlenecek Parametre</span>
-                      <select
-                        data-testid="custom-std-metric-select"
-                        value={newStdMetric}
-                        onChange={(e) => {
-                          const m = e.target.value as CustomStandardMetric;
-                          setNewStdMetric(m);
-                          const meta = CUSTOM_STANDARD_METRIC_OPTIONS.find((x) => x.metric === m);
-                          if (meta) setNewStdThreshold(meta.defaultThresholdMm);
-                        }}
-                        className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-stone-300 font-semibold text-xs"
-                      >
-                        {CUSTOM_STANDARD_METRIC_OPTIONS.map((opt) => (
-                          <option key={opt.metric} value={opt.metric}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="space-y-1 block">
-                      <span className="font-bold text-[11px] text-stone-700">Sınır Değer (mm)</span>
-                      <input
-                        type="number"
-                        data-testid="custom-std-threshold-input"
-                        min={10}
-                        max={3600}
-                        step={5}
-                        value={newStdThreshold}
-                        onChange={(e) => setNewStdThreshold(Number(e.target.value) || 0)}
-                        className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-stone-300 font-mono font-bold text-xs"
-                      />
-                    </label>
-                    <label className="space-y-1 block">
-                      <span className="font-bold text-[11px] text-stone-700">Uygulanacak Modül Grubu</span>
-                      <select
-                        value={newStdCategory}
-                        onChange={(e) =>
-                          setNewStdCategory(e.target.value as CustomStandardRule["appliesToCategory"])
-                        }
-                        className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-stone-300 font-semibold text-xs"
-                      >
-                        <option value="all">Tüm Modüller</option>
-                        <option value="wardrobe">Gardırop &amp; Giyinme Odası</option>
-                        <option value="kitchen_base">Mutfak Alt Dolapları</option>
-                        <option value="kitchen_wall">Mutfak Üst Dolapları</option>
-                        <option value="kitchen_tall">Boy ve Cihaz Dolapları</option>
-                      </select>
-                    </label>
-                    <label className="space-y-1 block">
-                      <span className="font-bold text-[11px] text-stone-700">Kural Seviyesi</span>
-                      <select
-                        value={newStdSeverity}
-                        onChange={(e) => setNewStdSeverity(e.target.value as "warning" | "error")}
-                        className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-stone-300 font-semibold text-xs"
-                      >
-                        <option value="warning">Tasarım Uyarısı (Esnek)</option>
-                        <option value="error">Zorunlu Üretim Engeli (Bloklayıcı)</option>
-                      </select>
-                    </label>
-                  </div>
-
-                  <div className="pt-1 flex items-center justify-end gap-2">
-                    <button
-                      type="button"
-                      data-testid="custom-std-save-btn"
-                      onClick={() => {
-                        const meta = CUSTOM_STANDARD_METRIC_OPTIONS.find(
-                          (x) => x.metric === newStdMetric
-                        );
-                        const nextList = addCustomStandardRule({
-                          name: newStdName.trim() || "Özel Birim Standardı",
-                          standardRef: newStdRef.trim() || "BRM-CUSTOM",
-                          category: "Gövde & Karkas",
-                          metric: newStdMetric,
-                          operator: meta?.defaultOperator || "max",
-                          thresholdMm: Math.max(10, Math.round(newStdThreshold)),
-                          appliesToCategory: newStdCategory,
-                          severity: newStdSeverity,
-                          enabled: true,
-                        });
-                        setCustomStdRules(nextList);
-                        setRulesModalTab("catalog");
-                        setApprovalBanner({
-                          ok: true,
-                          text: `✓ Yeni standart eklendi: ${newStdName.trim()} (${newStdThreshold} mm)`,
-                        });
-                        setTimeout(() => setApprovalBanner(null), 3200);
-                      }}
-                      className="px-4 py-2 rounded-xl birim-ice-charcoal-pill font-bold text-xs cursor-pointer"
-                    >
-                      + Standardı Kaydet ve Uygula
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+      <RulesStandardsModal
+        isOpen={showRulesModal}
+        onClose={() => setShowRulesModal(false)}
+        onOpenAdminModal={() => setShowAdminModal(true)}
+        tenantId={activeTenantProfile.tenantId}
+        humanCompatStatusLabel={humanCompatStatusLabel}
+        rulesModalTab={rulesModalTab}
+        setRulesModalTab={setRulesModalTab}
+        findings={unifiedEngineeringReport.findings}
+        ergonomicProfileId={ergonomicProfileId}
+        setErgonomicProfileId={setErgonomicProfileId}
+        regionalErgonomicProfiles={regionalErgonomicProfiles}
+        applyApprovedEngineeringFix={applyApprovedEngineeringFix}
+        onShowBanner={(b) => {
+          setApprovalBanner(b);
+          setTimeout(() => setApprovalBanner(null), 3200);
+        }}
+        customStdRules={customStdRules}
+        setCustomStdRules={setCustomStdRules}
+        kitchenRuleRegistry={KITCHEN_ENGINEERING_RULE_REGISTRY}
+        newStdName={newStdName}
+        setNewStdName={setNewStdName}
+        newStdRef={newStdRef}
+        setNewStdRef={setNewStdRef}
+        newStdMetric={newStdMetric}
+        setNewStdMetric={setNewStdMetric}
+        newStdThreshold={newStdThreshold}
+        setNewStdThreshold={setNewStdThreshold}
+        newStdCategory={newStdCategory}
+        setNewStdCategory={setNewStdCategory}
+        newStdSeverity={newStdSeverity}
+        setNewStdSeverity={setNewStdSeverity}
+      />
       )}
 
       {/* V4 LIBRARY ADMIN & GOVERNANCE MODAL */}
@@ -17773,12 +17493,15 @@ export const V3UnifiedWorkspace: React.FC<{
         );
       })()}
 
+      {showMepModal && (
       <MepCoordinationModal
         isOpen={showMepModal}
         project={project}
         onClose={() => setShowMepModal(false)}
       />
+      )}
 
+      {showQuickSellModal && (
       <PresentationQuoteModal
         isOpen={showQuickSellModal}
         onClose={() => setShowQuickSellModal(false)}
@@ -17823,19 +17546,25 @@ export const V3UnifiedWorkspace: React.FC<{
           setIsBomModalOpen(true);
         }}
       />
+      )}
 
-      <V3ProjectModal
-        isOpen={isProjectModalOpen}
-        onClose={() => setIsProjectModalOpen(false)}
-      />
+      {isProjectModalOpen && (
+        <V3ProjectModal
+          isOpen={isProjectModalOpen}
+          onClose={() => setIsProjectModalOpen(false)}
+        />
+      )}
 
-      <StudioRenderModal
-        isOpen={showStudioRenderModal}
-        projectId={project.id}
-        projectTitle={project.title}
-        onClose={() => setShowStudioRenderModal(false)}
-      />
+      {showStudioRenderModal && (
+        <StudioRenderModal
+          isOpen={showStudioRenderModal}
+          projectId={project.id}
+          projectTitle={project.title}
+          onClose={() => setShowStudioRenderModal(false)}
+        />
+      )}
 
+      {showCustomHardwareModal && (
       <CustomHardwareModal
         isOpen={showCustomHardwareModal}
         onClose={() => setShowCustomHardwareModal(false)}
@@ -17866,15 +17595,19 @@ export const V3UnifiedWorkspace: React.FC<{
         }}
         onCatalogChanged={() => setCustomCatalogTick((t) => t + 1)}
       />
+      )}
 
-      <AssemblyDiagramModal
-        isOpen={showAssemblyModal}
-        project={project}
-        bom={bom}
-        activeModuleIndex={activeModuleIndex}
-        onClose={() => setShowAssemblyModal(false)}
-      />
+      {showAssemblyModal && (
+        <AssemblyDiagramModal
+          isOpen={showAssemblyModal}
+          project={project}
+          bom={bom}
+          activeModuleIndex={activeModuleIndex}
+          onClose={() => setShowAssemblyModal(false)}
+        />
+      )}
 
+      {showIslandTableModal && (
       <KitchenIslandTableModal
         isOpen={showIslandTableModal}
         project={project}
@@ -17896,7 +17629,9 @@ export const V3UnifiedWorkspace: React.FC<{
         }}
         onClose={() => setShowIslandTableModal(false)}
       />
+      )}
 
+      {showSceneHubModal && (
       <SceneObjectAndModuleHubModal
         isOpen={showSceneHubModal}
         initialTab={sceneHubInitialTab}
@@ -17941,10 +17676,81 @@ export const V3UnifiedWorkspace: React.FC<{
         onImportRoomPlanJson={importRoomPlanLiDARJson}
         onClose={() => setShowSceneHubModal(false)}
       />
+      )}
+
+
+
+      {!isSimpleBlumMode && (
+        <LiveChangeImpactPill
+          impact={lastChangeImpact}
+        canUndo={canUndo}
+        onUndo={undo}
+        onDismiss={dismissChangeImpact}
+        />
+      )}
+
+      {showSmartLauncherModal && (
+      <SmartTaskLauncherModal
+        isOpen={showSmartLauncherModal}
+        skipByDefault={skipSmartLauncherByDefault}
+        onToggleSkipByDefault={setSkipSmartLauncherByDefault}
+        onSelectReadyModule={() => {
+          setShowSmartLauncherModal(false);
+          setMode("studio");
+          setStudioView("3d");
+          setLeftOpen(true);
+        }}
+        onSelectDesignFromScratch={() => {
+          setShowSmartLauncherModal(false);
+          resetToDefault();
+          setMode("studio");
+          setStudioView("3d");
+        }}
+        onSelectDesignSpace={() => {
+          setShowSmartLauncherModal(false);
+          setMode("plan");
+        }}
+        onSelectOpenProject={() => {
+          setShowSmartLauncherModal(false);
+          setIsProjectModalOpen(true);
+        }}
+        onContinueToWorkspace={() => setShowSmartLauncherModal(false)}
+      />
+      )}
+
+      {showCommandSearchModal && (
+      <CommandSearchModal
+        isOpen={showCommandSearchModal}
+        onClose={() => setShowCommandSearchModal(false)}
+        actions={[
+          { id: "cmd_smart_start", labelTr: "Akıllı Görev Başlangıcı (Ne tasarlamak istersiniz?)", categoryTr: "Başlangıç & Akış", keywords: "başlangıç hazır modül sıfırdan mekân", onExecute: () => setShowSmartLauncherModal(true) },
+          { id: "cmd_wizard", labelTr: "4 Adımda Akıllı Kurulum Sihirbazı", categoryTr: "Başlangıç & Akış", keywords: "sihirbaz kolay duvar ölçü", onExecute: () => { setWizardStep(1); setShowStepWizardModal(true); } },
+          { id: "cmd_view_solid", labelTr: "Görünüm: 3D Katı Model", categoryTr: "Görünüm & Kamera", keywords: "3d katı solid sahne", onExecute: () => { setStudioView("3d"); setViewportRenderStyle("solid"); } },
+          { id: "cmd_view_wireframe", labelTr: "Görünüm: Tel Kafes (Wireframe)", categoryTr: "Görünüm & Kamera", keywords: "tel kafes wireframe çizgi", onExecute: () => { setStudioView("3d"); setViewportRenderStyle("wireframe"); } },
+          { id: "cmd_view_transparent", labelTr: "Görünüm: Şeffaf / CNC X-Ray Görünüm", categoryTr: "Görünüm & Kamera", keywords: "şeffaf xray delik iç", onExecute: () => { setStudioView("3d"); setViewportRenderStyle("transparent"); } },
+          { id: "cmd_view_carcass", labelTr: "Görünüm: Kapaksız Gövde", categoryTr: "Görünüm & Kamera", keywords: "kapaksız gövde iç düzen", onExecute: () => { setStudioView("3d"); setViewportRenderStyle("carcass_only"); } },
+          { id: "cmd_view_exploded", labelTr: "Görünüm: Patlatılmış Montaj Görünümü", categoryTr: "Görünüm & Kamera", keywords: "patlatılmış demonte parça", onExecute: () => { setStudioView("3d"); setViewportRenderStyle("exploded"); } },
+          { id: "cmd_view_plan2d", labelTr: "Görünüm: 2D Oda ve Yerleşim Planı", categoryTr: "Görünüm & Kamera", keywords: "2d plan oda duvar", onExecute: () => setMode("plan") },
+          { id: "cmd_bom_cutlist", labelTr: "Kesim Listesi, Bantlama ve Levha Optimizasyonu", categoryTr: "Üretim & Maliyet", keywords: "kesim listesi bom levha fire", onExecute: () => { setBomModalInitialTab("cutlist"); setIsBomModalOpen(true); } },
+          { id: "cmd_cnc_sim", labelTr: "CNC Ön Doğrulama ve 2B Takım Yolu Simülasyonu (.MPR/.CIX/.XCS)", categoryTr: "Üretim & Maliyet", keywords: "cnc simülasyon mpr cix xcs makine", onExecute: () => { setBomModalInitialTab("cnc_mpr_cix"); setIsBomModalOpen(true); } },
+          { id: "cmd_assembly", labelTr: "Montaj Şablonu ve Kurulum Kılavuzu", categoryTr: "Üretim & Maliyet", keywords: "montaj şablon kılavuz paket", onExecute: () => setShowAssemblyModal(true) },
+          { id: "cmd_store_erp", labelTr: "Birim Store Teklif ve Birim Portal ERP Aktarımı", categoryTr: "ERP & Sipariş", keywords: "store portal erp teklif sipariş", onExecute: () => setIsStoreErpModalOpen(true) },
+          { id: "cmd_render", labelTr: "Yüksek Çözünürlüklü Sunum Render Stüdyosu", categoryTr: "Görselleştirme", keywords: "render fotoğraf ışık gölge", onExecute: () => setShowStudioRenderModal(true) },
+          { id: "cmd_rules", labelTr: "Teknik Kontrol Paneli ve Mühendislik Standartları", categoryTr: "Mühendislik", keywords: "teknik kontrol hata standart kural", onExecute: () => setShowRulesModal(true) },
+          { id: "cmd_tier_simple", labelTr: "Kullanıcı Seviyesi: Başlangıç (Kolay Kullanım)", categoryTr: "Arayüz Modu", keywords: "acemi kolay başlangıç", onExecute: () => handleTopBarChangeTier("simple") },
+          { id: "cmd_tier_arch", labelTr: "Kullanıcı Seviyesi: Tasarım (İç Mimar / Tasarımcı)", categoryTr: "Arayüz Modu", keywords: "tasarımcı mimar esnek", onExecute: () => handleTopBarChangeTier("architect") },
+          { id: "cmd_tier_factory", labelTr: "Kullanıcı Seviyesi: Profesyonel (Üretim Müdürü)", categoryTr: "Arayüz Modu", keywords: "üretim müdürü cnc teknik", onExecute: () => handleTopBarChangeTier("factory") },
+        ]}
+      />
+      )}
 
       <BirimLogo className="hidden" />
-      <BomModal isOpen={isBomModalOpen} onClose={() => setIsBomModalOpen(false)} initialTab={bomModalInitialTab} />
-      <StoreErpModal isOpen={isStoreErpModalOpen} onClose={() => setIsStoreErpModalOpen(false)} />
+      {isBomModalOpen && (
+        <BomModal isOpen={isBomModalOpen} onClose={() => setIsBomModalOpen(false)} initialTab={bomModalInitialTab} />
+      )}
+      {isStoreErpModalOpen && (
+        <StoreErpModal isOpen={isStoreErpModalOpen} onClose={() => setIsStoreErpModalOpen(false)} />
+      )}
       <TapToPlaceController
         armedItem={armedTapItem}
         bayCount={activeModule.bays.length}
@@ -18014,6 +17820,12 @@ export const V3UnifiedWorkspace: React.FC<{
           />
         );
       })()}
+      {showSaasTenantModal && (
+        <SaasTenantStudioModal
+          isOpen={showSaasTenantModal}
+          onClose={() => setShowSaasTenantModal(false)}
+        />
+      )}
     </div>
   );
 };

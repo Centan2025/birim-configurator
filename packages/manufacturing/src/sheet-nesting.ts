@@ -1,5 +1,5 @@
 import { CutPiece } from "./types";
-import { roundMm } from "@birim/core";
+import { roundMm, BoundedLruCache } from "@birim/core";
 import {
   runErpNesting,
   extractErpReclaimableRemnants,
@@ -93,14 +93,24 @@ export interface NestingOptimizationResult {
   overallWastePercent: number;
 }
 
-const nestingCache = new Map<string, NestingOptimizationResult[]>();
+const nestingCache = new BoundedLruCache<string, NestingOptimizationResult[]>(64);
+const nestingMaterialGroupCache = new BoundedLruCache<string, NestingOptimizationResult>(192);
+
+function computePiecesDimensionSig(pieces: CutPiece[]): string {
+  let s = "";
+  for (let i = 0; i < pieces.length; i++) {
+    const p = pieces[i];
+    s += `${p.id}:${p.partCode}:${p.materialId}:${p.thicknessMm}:${p.lengthMm}x${p.widthMm}:${p.netCutLengthMm ?? ""}x${p.netCutWidthMm ?? ""}:${p.quantity}:${p.grain}:${p.grainGroupId || ""}:${p.grainSequenceIndex ?? ""};`;
+  }
+  return s;
+}
 
 function computeNestingKey(
   pieces: CutPiece[],
   sheetConfig: SheetDimension,
   algorithm: "Auto" | "Guillotine" | "MaxRects"
 ): string {
-  return JSON.stringify([sheetConfig, algorithm, pieces]);
+  return `${sheetConfig.lengthMm}x${sheetConfig.widthMm}:${sheetConfig.trimCutMm}:${sheetConfig.kerfMm}|${algorithm}|${computePiecesDimensionSig(pieces)}`;
 }
 
 /**
@@ -134,7 +144,14 @@ export function optimizeSheetNesting(
   const usableW = sheetConfig.lengthMm - 2 * sheetConfig.trimCutMm;
   const usableH = sheetConfig.widthMm - 2 * sheetConfig.trimCutMm;
 
-  materialGroups.forEach((matPieces) => {
+  const sheetSpecSig = `${sheetConfig.lengthMm}x${sheetConfig.widthMm}:${sheetConfig.trimCutMm}:${sheetConfig.kerfMm}|${algorithm}`;
+  materialGroups.forEach((matPieces, groupKey) => {
+    const groupSig = `${sheetSpecSig}|${groupKey}|${computePiecesDimensionSig(matPieces)}`;
+    const cachedGroup = nestingMaterialGroupCache.get(groupSig);
+    if (cachedGroup) {
+      results.push(cachedGroup);
+      return;
+    }
     const matId = matPieces[0].materialId;
     const matName = matPieces[0]?.materialName || "Bilinmeyen Malzeme";
     const thicknessMm = matPieces[0]?.thicknessMm || 18;
@@ -431,7 +448,7 @@ export function optimizeSheetNesting(
         ? roundMm(((totalGrossM2 - totalNetM2) / totalGrossM2) * 100, 1)
         : 0;
 
-    results.push({
+    const groupResult: NestingOptimizationResult = {
       materialId: matId,
       materialName: matName,
       thicknessMm,
@@ -442,13 +459,11 @@ export function optimizeSheetNesting(
       totalNetAreaM2: roundMm(totalNetM2, 3),
       totalGrossAreaM2: totalGrossM2,
       overallWastePercent,
-    });
+    };
+    nestingMaterialGroupCache.set(groupSig, groupResult);
+    results.push(groupResult);
   });
 
-  if (nestingCache.size >= 32) {
-    const oldestKey = nestingCache.keys().next().value;
-    if (oldestKey) nestingCache.delete(oldestKey);
-  }
   nestingCache.set(cacheKey, results);
 
   return results;

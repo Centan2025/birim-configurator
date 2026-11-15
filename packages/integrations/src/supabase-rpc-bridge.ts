@@ -415,7 +415,9 @@ function resolveSupabaseRpcConfig(config?: SupabaseRpcAdapterConfig): {
       ? process.env?.SUPABASE_URL || process.env?.NEXT_PUBLIC_SUPABASE_URL || ""
       : "";
   const envServiceKey =
-    typeof process !== "undefined" ? process.env?.SUPABASE_SERVICE_ROLE_KEY || "" : "";
+    typeof process !== "undefined"
+      ? process.env?.SUPABASE_SECRET_KEY || process.env?.SUPABASE_SERVICE_ROLE_KEY || ""
+      : "";
   const envOrgId =
     typeof process !== "undefined"
       ? process.env?.BIRIM_DEFAULT_ORG_ID || DEFAULT_BIRIM_ORG_UUID
@@ -471,8 +473,10 @@ async function invokeSupabasePostgrestRpc<TResponse>(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        apikey: resolved.serviceRoleRoleKeyFix(resolved.serviceRoleKey),
-        Authorization: `Bearer ${resolved.serviceRoleKey}`,
+        apikey: resolved.serviceRoleKey.trim(),
+        ...(resolved.serviceRoleKey.trim().startsWith("sb_")
+          ? {}
+          : { Authorization: `Bearer ${resolved.serviceRoleKey.trim()}` }),
         Prefer: "return=representation",
       },
       body: JSON.stringify(rpcArgs),

@@ -82,6 +82,7 @@ export interface CutPiece {
   utilityCutouts?: import("@birim/core").PanelCutoutConfig[];
   /** Carcass joinery topology (sides_through, top_bottom_through, miter_45, kitchen_stretchers) */
   carcassJoineryTopology?: "sides_through" | "top_bottom_through" | "miter_45" | "kitchen_stretchers";
+  connectorSystem?: "minifix_dowel" | "lamello_cabineo" | "confirmat";
   /** Back panel construction mode (grooved, rebated, nailed, flush, none) */
   backPanelMode?: "grooved" | "rebated" | "nailed" | "flush" | "none";
   /** Wooden drawer 8.5mm x 6mm bottom groove (13mm above bottom edge on 16mm wooden sides & front) */

@@ -599,17 +599,17 @@ const sharedDarkAnodizedFrameMat = markSharedMaterial(
 );
 const sharedSmokedGlassPaneMat = markSharedMaterial(
   new THREE.MeshPhysicalMaterial({
-    color: 0x28313b,
-    roughness: 0.035,
-    metalness: 0.08,
-    transmission: 0.66,
+    color: 0x242c35,
+    roughness: 0.04,
+    metalness: 0.12,
+    transmission: 0,
     ior: 1.52,
     reflectivity: 0.98,
-    clearcoat: 1.0,
-    clearcoatRoughness: 0.02,
-    envMapIntensity: 1.75,
+    clearcoat: 0.9,
+    clearcoatRoughness: 0.03,
+    envMapIntensity: 1.65,
     transparent: true,
-    opacity: 0.54,
+    opacity: 0.42,
     depthWrite: false,
   })
 );

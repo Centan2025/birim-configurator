@@ -1,3 +1,4 @@
+import { BoundedLruCache, computeModuleStructuralSignature } from "./lru-cache";
 import { calculateFourSpaceDimensions } from "./v4-profiles";
 import {
   ModuleInstance,
@@ -462,7 +463,24 @@ export function calculateNetInnerDepth(module: ModuleInstance): UnitLength {
 /**
  * Validates a single module for manufacturing and physical constraints.
  */
+const moduleValidationLruCache = new BoundedLruCache<string, ValidationIssue[]>(512);
+
 export function validateModule(
+  module: ModuleInstance,
+  rules: SystemRulesConfig = DEFAULT_RULES
+): ValidationIssue[] {
+  if (rules === DEFAULT_RULES) {
+    const sig = computeModuleStructuralSignature(module);
+    const hit = moduleValidationLruCache.get(sig);
+    if (hit) return hit;
+    const computed = validateModuleUncached(module, rules);
+    moduleValidationLruCache.set(sig, computed);
+    return computed;
+  }
+  return validateModuleUncached(module, rules);
+}
+
+function validateModuleUncached(
   module: ModuleInstance,
   rules: SystemRulesConfig = DEFAULT_RULES
 ): ValidationIssue[] {

@@ -642,7 +642,8 @@ export function evaluateModuleCompatibility(module: ModuleInstance): ValidationI
  * Evaluates full project compatibility combining base V3.1 geometric validations
  * with the 15-category V4 Universal Compatibility Engine.
  */
-const defaultCompatCache = new WeakMap<DesignProject, CompatibilityReport>();
+import { BoundedLruCache, computeProjectStructuralSignature } from "./lru-cache";
+const compatLruCache = new BoundedLruCache<string, CompatibilityReport>(64);
 
 export function evaluateProjectCompatibility(
   project: DesignProject,
@@ -653,8 +654,9 @@ export function evaluateProjectCompatibility(
     !options.referenceDateIso &&
     !options.activeCatalogVersion &&
     loadCustomStandardRulesCount() === 0;
-  if (isDefaultCall) {
-    const cached = defaultCompatCache.get(project);
+  const structKey = isDefaultCall ? `${project.libraryVersionId || "v4"}|${computeProjectStructuralSignature(project)}` : null;
+  if (structKey) {
+    const cached = compatLruCache.get(structKey);
     if (cached) return cached;
   }
   const baseIssues = validateProject(project);
@@ -858,8 +860,8 @@ export function evaluateProjectCompatibility(
       allProductionGatesSatisfied: canApproveProduction,
     },
   };
-  if (isDefaultCall) {
-    defaultCompatCache.set(project, finalCompatReport);
+  if (structKey) {
+    compatLruCache.set(structKey, finalCompatReport);
   }
   return finalCompatReport;
 }

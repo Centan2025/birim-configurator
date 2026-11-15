@@ -1,5 +1,10 @@
 import * as crypto from "crypto";
 import { resolveSharedBirimPortalEnv } from "../../../../lib/birim-portal-env";
+import {
+  TenantSecurityError,
+  recordTenantAuditEvent,
+  resolveTenantRequestContext,
+} from "../../../../lib/tenant-auth-guard";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -178,7 +183,18 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const resolved = resolveSharedBirimPortalEnv();
+  let tenantCtx;
+  try {
+    tenantCtx = resolveTenantRequestContext(request, {
+      organizationId: request.headers.get("x-birim-org-id") || request.headers.get("x-modul-tenant-id"),
+    });
+  } catch (err) {
+    if (err instanceof TenantSecurityError) {
+      return jsonResponse({ ok: false, code: err.code, message: err.message }, err.httpStatus);
+    }
+    throw err;
+  }
+  const resolved = resolveSharedBirimPortalEnv({ tenantId: tenantCtx.tenantId });
   const endpoint = resolved.r2Endpoint;
   const bucket = resolved.r2BucketName;
   const accessKeyId = resolved.r2AccessKeyId;
@@ -217,10 +233,7 @@ export async function POST(request: Request) {
 
   const rawFileName = request.headers.get("x-birim-filename") || "model.glb";
   const rawFolder = request.headers.get("x-birim-folder") || "assets";
-  const orgId =
-    request.headers.get("x-birim-org-id") ||
-    process.env.BIRIM_DEFAULT_ORG_ID ||
-    "00000000-0000-0000-0000-000000000001";
+  const orgId = tenantCtx.tenantId;
   const contentType = request.headers.get("content-type") || "application/octet-stream";
 
   const safeName = rawFileName.replace(/[^a-zA-Z0-9._-]/g, "_");
@@ -277,9 +290,19 @@ export async function POST(request: Request) {
 
   const resolvedUrl = publicDomain ? `${publicDomain}/${objectKey}` : signed.url;
 
+  recordTenantAuditEvent({
+    tenantId: tenantCtx.tenantId,
+    actorUserId: tenantCtx.userId,
+    actorRole: tenantCtx.role,
+    action: "R2_ASSET_UPLOADED",
+    targetType: "r2_object",
+    targetId: objectKey,
+    metadata: { byteLength: bodyBuffer.byteLength },
+  });
   return jsonResponse(
     {
       ok: true,
+      tenantId: tenantCtx.tenantId,
       bucketName: bucket,
       source: resolved.r2Source,
       key: objectKey,

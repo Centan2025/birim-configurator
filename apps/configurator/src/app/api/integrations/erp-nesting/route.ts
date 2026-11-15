@@ -11,15 +11,21 @@ import {
   BirimSupabaseRpcError,
   DEFAULT_BIRIM_ORG_UUID,
   MockERPAdapter,
+  OutboundWebhookErpAdapter,
   SupabaseErpNestingRpcAdapter,
   type BirimSessionRole,
 } from "@birim/integrations";
 
 import { resolveSharedBirimPortalEnv } from "../../../../lib/birim-portal-env";
+import {
+  TenantSecurityError,
+  assertTenantPermissionAndEntitlement,
+  recordTenantAuditEvent,
+  resolveTenantRequestContext,
+} from "../../../../lib/tenant-auth-guard";
 
 export async function POST(req: Request): Promise<Response> {
   try {
-    resolveSharedBirimPortalEnv({ hydrateProcessEnv: true });
     const body = (await req.json()) as {
       project?: unknown;
       orderRef?: string;
@@ -92,28 +98,84 @@ export async function POST(req: Request): Promise<Response> {
       );
     }
 
+    const tenantCtx = resolveTenantRequestContext(req, {
+      organizationId: body.organizationId,
+      branchIdOrCode: body.branchIdOrCode,
+      sessionUserId: body.sessionUserId,
+      sessionRole: body.sessionRole,
+    });
+    assertTenantPermissionAndEntitlement(tenantCtx, "erp:publish_production", "allowErpIntegration");
+    resolveSharedBirimPortalEnv({ hydrateProcessEnv: true, tenantId: tenantCtx.tenantId });
+
+    const cRule = tenantCtx.profile.construction;
     const materialsMap = new Map(
       [...DEFAULT_MATERIALS, ...(project.customMaterials || [])].map((m) => [m.id, m])
     );
-    const bom = generateBOMForProject(project, materialsMap);
+    const bom = generateBOMForProject(project, materialsMap, {
+      sheetConfig: {
+        name: `${tenantCtx.profile.brand.displayName} ${cRule.standardSheetLengthMm}x${cRule.standardSheetWidthMm}`,
+        lengthMm: cRule.standardSheetLengthMm,
+        widthMm: cRule.standardSheetWidthMm,
+        trimCutMm: cRule.edgeTrimMarginMm,
+        kerfMm: cRule.sawKerfMm,
+      },
+    });
 
     const headerIdempKey = req.headers.get("Idempotency-Key") || req.headers.get("idempotency-key");
     const idempotencyKey = (headerIdempKey || body.idempotencyKey || "").trim() || undefined;
     const orderRef = body.orderRef || `SIP_${project.id}_v${project.version}`;
 
     const nestingOptions = {
-      sheetWidthMm: body.sheetWidthMm ?? 2800,
-      sheetHeightMm: body.sheetHeightMm ?? 2100,
-      kerfMm: body.kerfMm ?? 4,
-      edgeMarginMm: body.edgeMarginMm ?? 15,
+      sheetWidthMm: body.sheetWidthMm ?? cRule.standardSheetLengthMm ?? 2800,
+      sheetHeightMm:
+        body.sheetHeightMm ??
+        (tenantCtx.tenantSlug === "birim" ? 2100 : cRule.standardSheetWidthMm ?? 2070),
+      kerfMm: body.kerfMm ?? cRule.sawKerfMm ?? 4,
+      edgeMarginMm: body.edgeMarginMm ?? cRule.edgeTrimMarginMm ?? 15,
       algorithm: "Auto" as const,
       useNetCutDimensions: true,
     };
 
+    if (
+      tenantCtx.profile.integrationMode === "webhook_rest_erp" &&
+      tenantCtx.profile.webhookEndpointUrl &&
+      !body.allowOfflineSimulationFallback
+    ) {
+      const whAdapter = new OutboundWebhookErpAdapter({
+        tenantId: tenantCtx.tenantId,
+        endpointUrl: tenantCtx.profile.webhookEndpointUrl,
+      });
+      const whEvent = await whAdapter.publishErpBlueprintWebhook({
+        project,
+        bom,
+        orderRef,
+        cncFormat: tenantCtx.profile.machine.primaryCncFormat,
+        idempotencyKey,
+      });
+      recordTenantAuditEvent({
+        tenantId: tenantCtx.tenantId,
+        actorUserId: tenantCtx.userId,
+        actorRole: tenantCtx.role,
+        action: "WEBHOOK_ERP_BLUEPRINT_DISPATCHED",
+        targetType: "webhook_outbox",
+        targetId: whEvent.id,
+        metadata: { status: whEvent.status, cncFormat: tenantCtx.profile.machine.primaryCncFormat },
+      });
+      return Response.json(
+        {
+          ok: whEvent.status === "delivered",
+          tenantId: tenantCtx.tenantId,
+          cncFormat: tenantCtx.profile.machine.primaryCncFormat,
+          mode: "live_webhook_erp",
+          outboxEvent: whEvent,
+        },
+        { status: whEvent.status === "delivered" ? 201 : 502 }
+      );
+    }
+
     const adapter = new SupabaseErpNestingRpcAdapter({
       defaultSession: {
-        organizationId:
-          body.organizationId || process.env.BIRIM_DEFAULT_ORG_ID || DEFAULT_BIRIM_ORG_UUID,
+        organizationId: tenantCtx.tenantId,
         branchIdOrCode:
           body.branchIdOrCode ?? process.env.BIRIM_DEFAULT_BRANCH_ID ?? project.branchId ?? null,
         userId: body.sessionUserId ?? null,
@@ -145,9 +207,25 @@ export async function POST(req: Request): Promise<Response> {
           utilizationPercent: j.optimization_result.overall_utilization,
         }));
 
+        recordTenantAuditEvent({
+          tenantId: tenantCtx.tenantId,
+          actorUserId: tenantCtx.userId,
+          actorRole: tenantCtx.role,
+          action: "ERP_PRODUCTION_BLUEPRINT_PUBLISHED",
+          targetType: "erp_nesting",
+          targetId: orderRef,
+          metadata: {
+            cncFormat: tenantCtx.profile.machine.primaryCncFormat,
+            integrationMode: tenantCtx.profile.integrationMode,
+            totalSheetsUsed: mockRes.totalSheetsUsed,
+          },
+        });
         return Response.json(
           {
             ok: true,
+            tenantId: tenantCtx.tenantId,
+            cncFormat: tenantCtx.profile.machine.primaryCncFormat,
+            integrationMode: tenantCtx.profile.integrationMode,
             mode: "local_simulation_fallback",
             data: {
               success: true,
@@ -205,6 +283,12 @@ export async function POST(req: Request): Promise<Response> {
       { status: 201 }
     );
   } catch (err) {
+    if (err instanceof TenantSecurityError) {
+      return Response.json(
+        { ok: false, code: err.code, error: err.message },
+        { status: err.httpStatus }
+      );
+    }
     if (err instanceof BirimSupabaseRpcError) {
       return Response.json(
         {

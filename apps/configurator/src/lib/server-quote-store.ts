@@ -45,18 +45,20 @@ function persistDiskQuotes(): void {
   }
 }
 
-export function generateShortQuoteCode(): string {
+export function generateShortQuoteCode(prefix = "BRM"): string {
   const alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
   const bytes = crypto.randomBytes(6);
   let token = "";
   for (let i = 0; i < 6; i++) {
     token += alphabet[bytes[i] % alphabet.length];
   }
-  return `BRM-${token}`;
+  const cleanPrefix = (prefix || "BRM").replace(/[^A-Z0-9]/gi, "").toUpperCase().slice(0, 6) || "BRM";
+  return `${cleanPrefix}-${token}`;
 }
 
 export function computeQuoteHmac(payload: Omit<VerifiedQuoteRecord, "hmacSignature">): string {
   const canonical = [
+    payload.tenantId || "00000000-0000-0000-0000-000000000001",
     payload.code,
     payload.projectId,
     payload.version,
@@ -103,5 +105,16 @@ export function getVerifiedQuoteByCode(code: string): VerifiedQuoteRecord | null
   const rec = MEMORY_QUOTES.get(String(code || "").trim().toUpperCase());
   if (!rec) return null;
   if (!verifyQuoteHmac(rec)) return null;
+  return rec;
+}
+
+export function getVerifiedQuoteByCodeForTenant(
+  code: string,
+  tenantId: string
+): VerifiedQuoteRecord | null {
+  const rec = getVerifiedQuoteByCode(code);
+  if (!rec) return null;
+  const recTenant = rec.tenantId || "00000000-0000-0000-0000-000000000001";
+  if (recTenant !== tenantId) return null;
   return rec;
 }

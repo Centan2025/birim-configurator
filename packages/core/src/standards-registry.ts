@@ -327,65 +327,88 @@ export function formatIssueHumanTitle(
   return "Standart ve Ölçü Kontrolü";
 }
 
-let inMemoryCustomStandards: CustomStandardRule[] | null = null;
+import { buildTenantScopedStorageKey } from "./saas-tenant-core";
 
-export function loadCustomStandardRules(): CustomStandardRule[] {
+const BIRIM_ROOT_TENANT_ID = "00000000-0000-0000-0000-000000000001";
+const inMemoryCustomStandardsByTenant = new Map<string, CustomStandardRule[]>();
+
+export function resolveCustomStandardsStorageKey(tenantId?: string | null): string {
+  const clean = (tenantId || BIRIM_ROOT_TENANT_ID).trim();
+  if (!clean || clean === BIRIM_ROOT_TENANT_ID || clean.toLowerCase() === "birim") {
+    return CUSTOM_STANDARDS_STORAGE_KEY;
+  }
+  return buildTenantScopedStorageKey(clean, "custom_standard_rules_v1");
+}
+
+export function loadCustomStandardRules(tenantId?: string | null): CustomStandardRule[] {
+  const storageKey = resolveCustomStandardsStorageKey(tenantId);
   if (typeof window === "undefined") {
-    return inMemoryCustomStandards || [];
+    return [...(inMemoryCustomStandardsByTenant.get(storageKey) || [])];
   }
   try {
-    const raw = window.localStorage.getItem(CUSTOM_STANDARDS_STORAGE_KEY);
-    if (!raw) return inMemoryCustomStandards || [];
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return [...(inMemoryCustomStandardsByTenant.get(storageKey) || [])];
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
-      inMemoryCustomStandards = parsed as CustomStandardRule[];
-      return inMemoryCustomStandards;
+      const list = parsed as CustomStandardRule[];
+      inMemoryCustomStandardsByTenant.set(storageKey, list);
+      return [...list];
     }
   } catch {
     // Ignore storage read errors
   }
-  return inMemoryCustomStandards || [];
+  return [...(inMemoryCustomStandardsByTenant.get(storageKey) || [])];
 }
 
-export function saveCustomStandardRules(rules: CustomStandardRule[]): CustomStandardRule[] {
-  inMemoryCustomStandards = [...rules];
+export function saveCustomStandardRules(
+  rules: CustomStandardRule[],
+  tenantId?: string | null
+): CustomStandardRule[] {
+  const storageKey = resolveCustomStandardsStorageKey(tenantId);
+  const copy = [...rules];
+  inMemoryCustomStandardsByTenant.set(storageKey, copy);
   if (typeof window !== "undefined") {
     try {
-      window.localStorage.setItem(CUSTOM_STANDARDS_STORAGE_KEY, JSON.stringify(inMemoryCustomStandards));
+      window.localStorage.setItem(storageKey, JSON.stringify(copy));
       window.dispatchEvent(new CustomEvent("birim-custom-standards-updated"));
     } catch {
       // Ignore storage quota errors
     }
   }
-  return inMemoryCustomStandards;
+  return copy;
 }
 
 export function addCustomStandardRule(
-  input: Omit<CustomStandardRule, "id" | "createdAt">
+  input: Omit<CustomStandardRule, "id" | "createdAt">,
+  tenantId?: string | null
 ): CustomStandardRule[] {
-  const current = loadCustomStandardRules();
+  const current = loadCustomStandardRules(tenantId);
   const next: CustomStandardRule = {
     ...input,
     id: `cstd_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
     createdAt: new Date().toISOString(),
   };
-  return saveCustomStandardRules([next, ...current]);
+  return saveCustomStandardRules([next, ...current], tenantId);
 }
 
-export function toggleCustomStandardRule(id: string): CustomStandardRule[] {
-  const current = loadCustomStandardRules();
+export function toggleCustomStandardRule(id: string, tenantId?: string | null): CustomStandardRule[] {
+  const current = loadCustomStandardRules(tenantId);
   return saveCustomStandardRules(
-    current.map((r) => (r.id === id ? { ...r, enabled: !r.enabled } : r))
+    current.map((r) => (r.id === id ? { ...r, enabled: !r.enabled } : r)),
+    tenantId
   );
 }
 
-export function removeCustomStandardRule(id: string): CustomStandardRule[] {
-  const current = loadCustomStandardRules();
-  return saveCustomStandardRules(current.filter((r) => r.id !== id));
+export function removeCustomStandardRule(id: string, tenantId?: string | null): CustomStandardRule[] {
+  const current = loadCustomStandardRules(tenantId);
+  return saveCustomStandardRules(
+    current.filter((r) => r.id !== id),
+    tenantId
+  );
 }
 
 export function evaluateCustomStandardRules(project: DesignProject): ValidationIssue[] {
-  const customRules = loadCustomStandardRules().filter((r) => r.enabled);
+  const customRules = loadCustomStandardRules(project.tenantId).filter((r) => r.enabled);
   if (customRules.length === 0) return [];
   const issues: ValidationIssue[] = [];
 

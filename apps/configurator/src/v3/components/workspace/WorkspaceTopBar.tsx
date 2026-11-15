@@ -2,7 +2,7 @@
 
 import React, { startTransition, useEffect, useRef, useState } from "react";
 import { V3BrandBadge } from "../../design-system";
-import type { UserExperienceTier } from "../../../store/useConfiguratorStore";
+import type { ToolbarLabelMode, UserExperienceTier } from "../../../store/useConfiguratorStore";
 import {
   Undo,
   Redo,
@@ -33,6 +33,8 @@ import {
   Clock,
   Share2,
   ChevronDown,
+  Search,
+  Type,
 } from "lucide-react";
 
 interface WorkspaceTopBarProps {
@@ -43,6 +45,10 @@ interface WorkspaceTopBarProps {
   studioSplitView?: boolean;
   cncXrayMode?: boolean;
   experienceTier: UserExperienceTier;
+  toolbarLabelMode?: ToolbarLabelMode;
+  onToggleToolbarLabelMode?: () => void;
+  onOpenCommandSearch?: () => void;
+  onOpenSmartLauncher?: () => void;
   leadTimeLabel?: string;
   livePriceLabel?: string;
   canUndo: boolean;
@@ -65,6 +71,8 @@ interface WorkspaceTopBarProps {
   onOpenArAnd3DModal?: () => void;
   onOpenRulesModal: () => void;
   onOpenAdminModal: () => void;
+  onOpenSaasStudioModal?: () => void;
+  allowErpEntitlement?: boolean;
   onChangeExperienceTier: (tier: UserExperienceTier) => void;
   onSetMode: (mode: "studio" | "plan" | "showroom") => void;
   onSetStudioView: (view: "3d" | "2d", mode2d?: "elevation" | "section" | "plan") => void;
@@ -85,6 +93,10 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
   studioSplitView = false,
   cncXrayMode = false,
   experienceTier,
+  toolbarLabelMode = "compact",
+  onToggleToolbarLabelMode,
+  onOpenCommandSearch,
+  onOpenSmartLauncher,
   leadTimeLabel,
   livePriceLabel,
   canUndo,
@@ -105,6 +117,8 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
   onOpenArAnd3DModal,
   onOpenRulesModal,
   onOpenAdminModal,
+  onOpenSaasStudioModal,
+  allowErpEntitlement = true,
   onChangeExperienceTier,
   onSetMode,
   onSetStudioView,
@@ -148,10 +162,17 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
       }
     >
       {/* 1. Sol Kapsül: Marka + Proje Kayıt/QR Paylaşım + Kurulum Sihirbazı */}
-      <div className="pointer-events-auto inline-flex items-center gap-1.5 p-1 rounded-[22px] birim-ice-pill min-w-0">
-        <div className="pl-2 pr-0.5">
+      <div className="pointer-events-auto inline-flex items-center gap-1.5 p-1 rounded-2xl birim-ice-pill min-w-0">
+        <button
+          type="button"
+          data-testid="open-saas-tenant-studio-btn"
+          onClick={onOpenSaasStudioModal || onOpenAdminModal}
+          data-tooltip="SaaS Organizasyon, Konstrüksiyon, Makine & Abonelik Stüdyosu — Aktif firmayı veya üretim kurallarını değiştirin."
+          data-tooltip-badge="SAAS ORGANİZASYON"
+          className="pl-2 pr-1 py-0.5 rounded-2xl hover:bg-white/60 transition cursor-pointer inline-flex items-center"
+        >
           <V3BrandBadge subtitle="V6.6" dark={false} />
-        </div>
+        </button>
 
         <div className="h-4 w-px bg-slate-900/10 mx-0.5 hidden sm:block" />
 
@@ -160,7 +181,7 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
           onClick={onOpenProjectModal}
           data-tooltip={`Proje Kayıt & Mobil QR Paylaşım — "${projectTitle}" tasarımını kaydedin, yükleyin veya QR/link ile paylaşın.`}
           data-tooltip-badge="PROJE & PAYLAŞIM"
-          className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-2xl birim-ice-btn text-xs text-[#141413] cursor-pointer max-w-[185px]"
+          className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-xl birim-ice-btn text-xs text-[#141413] cursor-pointer max-w-[185px]"
         >
           {isCustomerMode ? (
             <Share2 className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
@@ -185,6 +206,7 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
         >
           Paylaş
         </button>
+
 
         <button
           type="button"
@@ -216,7 +238,7 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
         <nav
           aria-label="Tasarım Aşaması"
           data-testid="v3-mode-switcher"
-          className="inline-flex items-center p-1 rounded-[22px] birim-ice-pill text-xs gap-0.5"
+          className="inline-flex items-center p-1 rounded-2xl birim-ice-pill text-xs gap-0.5"
         >
           {[
             { id: "studio" as const, short: "Tasarım", full: "3D & 2D Modül Tasarım Sahnesi", testId: "v3-mode-studio", Icon: Box },
@@ -236,7 +258,7 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
                     onSetMode(item.id);
                   });
                 }}
-                className={`h-8 px-3 rounded-2xl font-semibold inline-flex items-center gap-1.5 transition cursor-pointer ${
+                className={`h-8 px-3 rounded-xl font-semibold inline-flex items-center gap-1.5 transition cursor-pointer ${
                   active
                     ? "birim-ice-charcoal-pill"
                     : "text-[#44403C] hover:text-[#141413] hover:bg-white/65"
@@ -255,7 +277,7 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
             data-testid="studio-view-switcher"
             className={`${
               isCustomerMode ? "sr-only" : "inline-flex"
-            } items-center p-1 rounded-[22px] birim-ice-pill gap-0.5 birim-expand-all-group`}
+            } items-center p-1 rounded-2xl birim-ice-pill gap-0.5 birim-expand-all-group`}
           >
             <button
               type="button"
@@ -267,7 +289,7 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
                 onSetStudioView("3d");
                 onSetCameraPreset("iso");
               }}
-              className={`h-8 rounded-2xl birim-expand-btn cursor-pointer ${
+              className={`h-8 rounded-xl birim-expand-btn cursor-pointer ${
                 studioView === "3d" && !studioSplitView
                   ? "birim-ice-charcoal-pill"
                   : "text-[#57534E] hover:text-[#141413] hover:bg-white/65"
@@ -286,7 +308,7 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
                 if (studioSplitView && onToggleStudioSplitView) onToggleStudioSplitView();
                 onSetStudioView("2d", "elevation");
               }}
-              className={`h-8 rounded-2xl birim-expand-btn cursor-pointer ${
+              className={`h-8 rounded-xl birim-expand-btn cursor-pointer ${
                 studioView === "2d" && studio2DMode === "elevation" && !studioSplitView
                   ? "birim-ice-charcoal-pill"
                   : "text-[#57534E] hover:text-[#141413] hover:bg-white/65"
@@ -305,7 +327,7 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
                 if (studioSplitView && onToggleStudioSplitView) onToggleStudioSplitView();
                 onSetStudioView("2d", "section");
               }}
-              className={`h-8 rounded-2xl birim-expand-btn cursor-pointer ${
+              className={`h-8 rounded-xl birim-expand-btn cursor-pointer ${
                 studioView === "2d" && studio2DMode === "section" && !studioSplitView
                   ? "birim-ice-charcoal-pill"
                   : "text-[#57534E] hover:text-[#141413] hover:bg-white/65"
@@ -341,7 +363,7 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
                   }
                   onToggleStudioSplitView();
                 }}
-                className={`h-8 rounded-2xl birim-expand-btn cursor-pointer ${
+                className={`h-8 rounded-xl birim-expand-btn cursor-pointer ${
                   studioSplitView
                     ? "birim-ice-charcoal-pill"
                     : "text-[#57534E] hover:text-[#141413] hover:bg-white/65"
@@ -363,7 +385,7 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
                   onClick={onToggleCncXrayMode}
                   className={`${
                     isFactoryMode ? "inline-flex" : "sr-only"
-                  } h-8 rounded-2xl birim-expand-btn cursor-pointer ${
+                  } h-8 rounded-xl birim-expand-btn cursor-pointer ${
                     cncXrayMode
                       ? "bg-sky-600 text-white shadow-sm"
                       : "text-[#57534E] hover:text-[#141413] hover:bg-white/65"
@@ -425,12 +447,12 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
         <div
           role="group"
           aria-label="Kullanıcı Deneyim Seviyesi"
-          className="inline-flex items-center p-1 rounded-[22px] birim-ice-pill gap-0.5 birim-expand-all-group"
+          className="inline-flex items-center p-1 rounded-2xl birim-ice-pill gap-0.5 birim-expand-all-group"
         >
           {[
-            { id: "simple" as const, short: "Müşteri", label: "Müşteri / Vitrin Modu — Sade ölçü (cm), malzeme, iç düzen, termin ve canlı fiyat sunar.", Icon: User },
-            { id: "architect" as const, short: "Mimar", label: "İç Mimar Modu — 2D cephe/kesit, şantiye MEP paftası, donanım ve AutoCAD .DXF araçlarını açar.", Icon: DraftingCompass },
-            { id: "factory" as const, short: "Üretim", label: "Üretici / CNC Modu — CNC X-Ray delik kontrolü, plaka nesting, barkod etiketi ve ERP üretim emrini açar.", Icon: Factory },
+            { id: "simple" as const, short: "Kolay", label: "Kolay Mod — Adım adım sade ölçü (cm), bölme, kapak, renk ve canlı fiyat sunar.", Icon: User },
+            { id: "architect" as const, short: "Tasarım", label: "Tasarım / İç Mimar Modu — 2D cephe/kesit, klapa, şantiye paftası, donanım ve .DXF araçlarını açar.", Icon: DraftingCompass },
+            { id: "factory" as const, short: "Üretim", label: "Üretim / CNC Modu — CNC simülasyonu, X-Ray delik kontrolü, plaka optimizasyonu ve ERP emrini açar.", Icon: Factory },
           ].map((tier) => {
             const active = experienceTier === tier.id;
             const TierIcon = tier.Icon;
@@ -449,7 +471,7 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
                 onClick={() =>
                   onChangeExperienceTier(active && tier.id === "architect" ? "simple" : tier.id)
                 }
-                className={`h-8 px-2.5 rounded-2xl inline-flex items-center gap-1.5 font-bold text-[11px] transition cursor-pointer ${
+                className={`h-8 px-2.5 rounded-xl inline-flex items-center gap-1.5 font-bold text-[11px] transition cursor-pointer ${
                   active
                     ? "birim-ice-charcoal-pill"
                     : "text-[#57534E] hover:text-[#141413] hover:bg-white/65"
@@ -463,14 +485,14 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
           })}
         </div>
 
-        <div className="hidden sm:inline-flex items-center rounded-[22px] birim-ice-pill p-1 gap-0.5">
+        <div className="hidden sm:inline-flex items-center rounded-2xl birim-ice-pill p-1 gap-0.5">
           <button
             type="button"
             data-testid="v3-undo-btn"
             onClick={onUndo}
             disabled={!canUndo}
             data-tooltip="Geri Al (Ctrl+Z)"
-            className="w-8 h-8 rounded-2xl flex items-center justify-center text-[#44403C] hover:text-[#141413] hover:bg-white/75 disabled:opacity-30 cursor-pointer"
+            className="w-8 h-8 rounded-xl flex items-center justify-center text-[#44403C] hover:text-[#141413] hover:bg-white/75 disabled:opacity-30 cursor-pointer"
           >
             <Undo className="w-3.5 h-3.5 shrink-0" />
             <span className="sr-only">Geri</span>
@@ -481,21 +503,33 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
             onClick={onRedo}
             disabled={!canRedo}
             data-tooltip="İleri Al (Ctrl+Y)"
-            className="w-8 h-8 rounded-2xl flex items-center justify-center text-[#44403C] hover:text-[#141413] hover:bg-white/75 disabled:opacity-30 cursor-pointer"
+            className="w-8 h-8 rounded-xl flex items-center justify-center text-[#44403C] hover:text-[#141413] hover:bg-white/75 disabled:opacity-30 cursor-pointer"
           >
             <Redo className="w-3.5 h-3.5 shrink-0" />
             <span className="sr-only">İleri</span>
           </button>
+          {onOpenCommandSearch && (
+            <button
+              type="button"
+              data-testid="open-command-search-btn"
+              onClick={onOpenCommandSearch}
+              data-tooltip="Hızlı Komut Arama (Ctrl+K)"
+              className="w-8 h-8 rounded-xl flex items-center justify-center text-[#44403C] hover:text-[#141413] hover:bg-white/75 cursor-pointer"
+            >
+              <Search className="w-3.5 h-3.5 shrink-0" />
+              <span className="sr-only">Komut Ara</span>
+            </button>
+          )}
         </div>
 
         {/* Standartlaştırılmış Çıktı, Standartlar & Üretim Kapsülü (Sıfır Tekrar!) */}
-        <div ref={toolsMenuRef} className="relative inline-flex items-center rounded-[22px] birim-ice-pill p-1 gap-0.5">
+        <div ref={toolsMenuRef} className="relative inline-flex items-center rounded-2xl birim-ice-pill p-1 gap-0.5">
           <button
             type="button"
             data-testid="topbar-studio-outputs-btn"
             onClick={() => setToolsMenuOpen((v) => !v)}
             data-tooltip="Render, 1:1 AR Görünüm, Montaj Şeması ve Teknik Pafta Araçları"
-            className={`h-8 px-2.5 rounded-2xl inline-flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer ${
+            className={`h-8 px-2.5 rounded-xl inline-flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer ${
               toolsMenuOpen
                 ? "birim-ice-charcoal-pill"
                 : "text-[#44403C] hover:text-[#141413] hover:bg-white/75"
@@ -511,6 +545,23 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
               data-testid="topbar-studio-outputs-menu"
               className="absolute right-0 top-11 w-64 birim-ice-popover rounded-2xl p-2 z-50 space-y-1 text-xs shadow-2xl"
             >
+              {onOpenSmartLauncher && (
+                <>
+                  <button
+                    type="button"
+                    data-testid="open-smart-launcher-btn"
+                    onClick={() => {
+                      setToolsMenuOpen(false);
+                      onOpenSmartLauncher();
+                    }}
+                    className="w-full px-2.5 py-2 rounded-xl hover:bg-white/90 text-left font-semibold text-[#141413] flex items-center gap-2.5 cursor-pointer"
+                  >
+                    <LayoutGrid className="w-3.5 h-3.5 text-[#8C7A6B] shrink-0" />
+                    <span>Başlangıç Seçimi (Yeni Görev)</span>
+                  </button>
+                  <div className="h-px bg-stone-200/80 my-1" />
+                </>
+              )}
               <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-[#64748B]">
                 Görselleştirme &amp; Sunum
               </div>
@@ -607,7 +658,7 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
             onClick={onOpenRulesModal}
             data-tooltip={`Standartlar & Kurallar Merkezi — Aktif EN/DIN/Birim standartlarını inceleyin veya yeni kural ekleyin (${humanCompatStatusLabel})`}
             data-tooltip-badge="STANDARTLAR & KURALLAR"
-            className={`inline-flex items-center gap-1.5 h-8 px-2.5 rounded-2xl text-[11px] font-semibold transition cursor-pointer ${
+            className={`inline-flex items-center gap-1.5 h-8 px-2.5 rounded-xl text-[11px] font-semibold transition cursor-pointer ${
               canApproveProduction
                 ? "bg-emerald-500/15 text-[#2E6F40] hover:bg-emerald-500/25"
                 : "bg-amber-500/15 text-[#8C5A2B] hover:bg-amber-500/25"
@@ -630,7 +681,7 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
             data-tooltip="BOM Kesim & Bant Listesi, Nesting Plaka Şeması, CNC ve Barkod Etiketi"
             className={`${
               isCustomerMode ? "sr-only" : "inline-flex"
-            } items-center gap-1.5 h-8 px-2.5 rounded-2xl text-[11px] font-semibold text-[#141413] bg-amber-500/15 hover:bg-amber-500/25 cursor-pointer`}
+            } items-center gap-1.5 h-8 px-2.5 rounded-xl text-[11px] font-semibold text-[#141413] bg-amber-500/15 hover:bg-amber-500/25 cursor-pointer`}
           >
             <FileSpreadsheet className="w-3.5 h-3.5 text-[#8C5A2B] shrink-0" />
             <span className="hidden xl:inline">BOM &amp; CNC</span>
@@ -640,12 +691,12 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
             <button
               type="button"
               data-testid="open-store-erp-rpc-btn"
-              onClick={onOpenStoreErpModal}
+              onClick={allowErpEntitlement ? onOpenStoreErpModal : (onOpenSaasStudioModal || onOpenStoreErpModal)}
               data-tooltip="Canlı Birim-Store Teklif ve Birim-Portal ERP Nesting Köprüsü"
               data-tooltip-badge="SUPABASE RPC"
               className={`${
                 isCustomerMode ? "sr-only" : "inline-flex"
-              } items-center gap-1.5 h-8 px-2.5 rounded-2xl text-[11px] font-semibold text-[#141413] bg-sky-500/15 hover:bg-sky-500/25 cursor-pointer`}
+              } items-center gap-1.5 h-8 px-2.5 rounded-xl text-[11px] font-semibold text-[#141413] bg-sky-500/15 hover:bg-sky-500/25 cursor-pointer`}
             >
               <Factory className="w-3.5 h-3.5 text-sky-800 shrink-0" />
               <span className="hidden 2xl:inline">ERP</span>
@@ -669,7 +720,7 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = React.memo(({
           type="button"
           data-testid="open-quick-sell-header-btn"
           onClick={onOpenQuickSell}
-          className="h-10 px-3.5 rounded-[22px] font-semibold text-[11px] inline-flex items-center gap-1.5 birim-ice-charcoal-pill cursor-pointer"
+          className="h-10 px-3.5 rounded-2xl font-semibold text-[11px] inline-flex items-center gap-1.5 birim-ice-charcoal-pill cursor-pointer"
           data-tooltip="Müşteri Teklif & Sipariş Özeti — KDV, nakliye/montaj ve termin dahil teklif föyü."
           data-tooltip-badge="SATIŞ & TEKLİF"
         >

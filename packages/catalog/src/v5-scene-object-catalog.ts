@@ -1480,24 +1480,49 @@ export const V5_COMPOSITE_ASSEMBLIES: MultiModuleCompositePreset[] = [
   },
 ];
 
-const CUSTOM_TPL_STORAGE_KEY = "birim_v5_custom_module_templates";
+import { buildTenantScopedStorageKey } from "@birim/core";
 
-export function loadSavedCustomModuleTemplates(): CustomModuleTemplateRecord[] {
-  if (typeof window === "undefined") return [];
+const CUSTOM_TPL_STORAGE_KEY = "birim_v5_custom_module_templates";
+const BIRIM_DEFAULT_TENANT = "00000000-0000-0000-0000-000000000001";
+const inMemoryCustomTemplatesByTenant = new Map<string, CustomModuleTemplateRecord[]>();
+
+export function resolveCustomTemplatesStorageKey(tenantId?: string | null): string {
+  const clean = (tenantId || BIRIM_DEFAULT_TENANT).trim();
+  if (!clean || clean === BIRIM_DEFAULT_TENANT || clean.toLowerCase() === "birim") {
+    return CUSTOM_TPL_STORAGE_KEY;
+  }
+  return buildTenantScopedStorageKey(clean, "v5_custom_module_templates");
+}
+
+export function loadSavedCustomModuleTemplates(tenantId?: string | null): CustomModuleTemplateRecord[] {
+  const key = resolveCustomTemplatesStorageKey(tenantId);
+  if (typeof window === "undefined") {
+    return [...(inMemoryCustomTemplatesByTenant.get(key) || [])];
+  }
   try {
-    const raw = window.localStorage.getItem(CUSTOM_TPL_STORAGE_KEY);
-    if (!raw) return [];
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return [...(inMemoryCustomTemplatesByTenant.get(key) || [])];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as CustomModuleTemplateRecord[]) : [];
-  } catch {
+    if (Array.isArray(parsed)) {
+      inMemoryCustomTemplatesByTenant.set(key, parsed as CustomModuleTemplateRecord[]);
+      return [...(parsed as CustomModuleTemplateRecord[])];
+    }
     return [];
+  } catch {
+    return [...(inMemoryCustomTemplatesByTenant.get(key) || [])];
   }
 }
 
-export function persistCustomModuleTemplates(list: CustomModuleTemplateRecord[]): void {
+export function persistCustomModuleTemplates(
+  list: CustomModuleTemplateRecord[],
+  tenantId?: string | null
+): void {
+  const key = resolveCustomTemplatesStorageKey(tenantId);
+  const sliced = list.slice(0, 60);
+  inMemoryCustomTemplatesByTenant.set(key, [...sliced]);
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(CUSTOM_TPL_STORAGE_KEY, JSON.stringify(list.slice(0, 60)));
+    window.localStorage.setItem(key, JSON.stringify(sliced));
   } catch {
     // Ignore storage quota errors
   }

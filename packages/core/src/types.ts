@@ -236,6 +236,7 @@ export interface DrillingHole {
   direction: "face_front" | "face_back" | "edge_top" | "edge_bottom" | "edge_left" | "edge_right";
   purpose:
     | "minifix_cam"
+    | "cabineo_pocket"
     | "minifix_bolt"
     | "minifix_through_bolt"
     | "dowel"
@@ -494,6 +495,12 @@ export interface DoorConfig {
   doorEdgeBandThicknessMm?: UnitLength;
   /** Distinguishes CNC-routed 1-piece MDF shaker vs true 5-piece rail-and-stile frame construction */
   doorFrameConstruction?: "monoblock_cnc" | "five_piece_rail_stile";
+  /** Sol kör klapa genişliği (mm) — Eş-düzlem klapada menteşe eksenini otomatik uyarlar */
+  frontFillerLeftMm?: UnitLength;
+  /** Sağ kör klapa genişliği (mm) */
+  frontFillerRightMm?: UnitLength;
+  /** Klapa konumu: dış kapakla eş-düzlem (robot/95° menteşe) veya içerlek kayıt (110° düz menteşe) */
+  frontFillerPosition?: "coplanar_front" | "recessed_inner";
 }
 
 export interface SubDividerConfig {
@@ -569,9 +576,18 @@ export interface CarcassConfig {
   /** Explicitly opt in to 3660x1830mm Jumbo boards when net panel length exceeds 2770mm */
   allowJumboSheet3660?: boolean; // Factory edgebander pre-milling depth (default 0mm)
   carcassJoineryTopology?: CarcassJoineryTopology; // Tip A, B, C, D
+  connectorSystem?: "minifix_dowel" | "lamello_cabineo" | "confirmat";
   kitchenTopStretcherMode?: KitchenTopStretcherMode; // Horizontal, vertical_sink, aluminum_reinforced
   appliedEndPanelLeft?: AppliedEndPanelMode; // Decorative exposed left side cladding
   appliedEndPanelRight?: AppliedEndPanelMode; // Decorative exposed right side cladding
+  /** Görünen sol yan dikmenin ek panel eklenmeden doğrudan kapak malzemesinden üretilmesi */
+  exposedLeftSideUseDoorMaterial?: boolean;
+  /** Görünen sağ yan dikmenin ek panel eklenmeden doğrudan kapak malzemesinden üretilmesi */
+  exposedRightSideUseDoorMaterial?: boolean;
+  /** Yamuk duvar için sol yan/kör parçaya eklenecek montaj tıraş payı (mm) */
+  scribeAllowanceLeftMm?: UnitLength;
+  /** Yamuk duvar için sağ yan/kör parçaya eklenecek montaj tıraş payı (mm) */
+  scribeAllowanceRightMm?: UnitLength;
   baseboardNotch?: BaseboardNotchConfig; // Automatic rear bottom skirting notch (e.g. 15x80mm)
   slopedCeiling?: SlopedCeilingConfig;
   ceilingConfig?: SpaceCeilingConfig; // Mansard / under-stairs sloped ceiling cut
@@ -844,6 +860,7 @@ export interface ContinuousLayersSummary {
 
 export interface DesignProject {
   id: string;
+  tenantId?: string;
   version: number;
   schemaVersion?: number;
   catalogVersion?: string;
@@ -867,6 +884,11 @@ export interface DesignProject {
   sceneObjects?: SceneObjectInstance[];
   customModuleTemplates?: CustomModuleTemplateRecord[];
   customMaterials?: MaterialDefinition[];
+  /** Proje genelinde tek tıkla geçiş için 5 kapak + 5 gövde malzemesi hızlı paleti */
+  materialPaletteSlots?: {
+    doorMaterialIds: string[];
+    bodyMaterialIds: string[];
+  };
   continuousLayers?: ContinuousLayersSummary;
   verificationSnapshot?: ProjectVerificationSnapshot;
   createdAt: string;

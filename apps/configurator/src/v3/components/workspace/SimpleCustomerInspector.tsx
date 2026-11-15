@@ -148,51 +148,62 @@ const DimensionField: React.FC<{
   };
 
   return (
-    <div className="p-2.5 rounded-2xl bg-white/52 backdrop-blur-md border border-white/75 shadow-2xs flex items-center justify-between gap-2">
-      <div>
-        <span className="text-xs font-bold text-[#141413] block">{label}</span>
-        <span className="text-[10px] text-[#78716C]">
-          {unit === "cm"
-            ? `${Math.round(minMm / 10)}–${Math.round(maxMm / 10)} cm`
-            : `${minMm}–${maxMm} mm`}
-        </span>
-      </div>
-      <div className="flex items-center gap-1.5">
-        <button
-          type="button"
-          onClick={() => onCommitMm(Math.max(minMm, valueMm - stepMm))}
-          className="w-8 h-8 rounded-lg bg-white hover:bg-[#EFECE5] border border-[#DED8CC] text-sm font-bold text-[#141413] flex items-center justify-center transition cursor-pointer"
-          title="Azalt"
-        >
-          −
-        </button>
-        <div className="relative flex items-center">
-          <input
-            type="text"
-            inputMode="numeric"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onBlur={commit}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.currentTarget.blur();
-              }
-            }}
-            className="w-20 h-8 pr-7 pl-2 rounded-lg bg-white border border-[#CFC8BA] focus:border-[#141413] focus:outline-none text-center font-mono text-sm font-bold text-[#141413]"
-          />
-          <span className="absolute right-2 text-[10px] font-mono text-[#78716C] pointer-events-none">
-            {unit}
+    <div className="p-3 rounded-2xl bg-white/90 border border-[#E2DCD0] shadow-2xs space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <span className="text-xs font-bold text-[#141413] block">{label}</span>
+          <span className="text-[10px] text-[#78716C]">
+            {unit === "cm"
+              ? `${Math.round(minMm / 10)}–${Math.round(maxMm / 10)} cm`
+              : `${minMm}–${maxMm} mm`}
           </span>
         </div>
-        <button
-          type="button"
-          onClick={() => onCommitMm(Math.min(maxMm, valueMm + stepMm))}
-          className="w-8 h-8 rounded-lg bg-white hover:bg-[#EFECE5] border border-[#DED8CC] text-sm font-bold text-[#141413] flex items-center justify-center transition cursor-pointer"
-          title="Artır"
-        >
-          +
-        </button>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => onCommitMm(Math.max(minMm, valueMm - stepMm))}
+            className="w-8 h-8 rounded-xl birim-ice-btn text-sm font-bold text-[#141413] flex items-center justify-center cursor-pointer"
+            title="Azalt"
+          >
+            −
+          </button>
+          <div className="relative flex items-center">
+            <input
+              type="text"
+              inputMode="numeric"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commit}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.currentTarget.blur();
+                }
+              }}
+              className="w-20 h-8 pr-7 pl-2 rounded-xl bg-white border border-[#CFC8BA] focus:border-[#141413] focus:outline-none text-center font-mono text-sm font-bold text-[#141413]"
+            />
+            <span className="absolute right-2 text-[10px] font-mono text-[#78716C] pointer-events-none">
+              {unit}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => onCommitMm(Math.min(maxMm, valueMm + stepMm))}
+            className="w-8 h-8 rounded-xl birim-ice-btn text-sm font-bold text-[#141413] flex items-center justify-center cursor-pointer"
+            title="Artır"
+          >
+            +
+          </button>
+        </div>
       </div>
+      <input
+        type="range"
+        min={minMm}
+        max={maxMm}
+        step={10}
+        value={Math.max(minMm, Math.min(maxMm, valueMm))}
+        onChange={(e) => onCommitMm(Number(e.target.value))}
+        className="w-full h-1.5 rounded-full accent-[#141413] bg-[#E5E0D5] cursor-pointer"
+      />
     </div>
   );
 };
@@ -203,7 +214,7 @@ const STEP_ORDER: { id: CustomerStepId; shortLabel: string; Icon: React.Componen
   { id: "dimensions", shortLabel: "Ölçü", Icon: Ruler },
   { id: "interior", shortLabel: "Bölme", Icon: Columns },
   { id: "door", shortLabel: "Kapak", Icon: DoorOpen },
-  { id: "led", shortLabel: "LED Işık", Icon: Lightbulb },
+  { id: "led", shortLabel: "Işık", Icon: Lightbulb },
   { id: "material", shortLabel: "Renk", Icon: Palette },
 ];
 
@@ -593,21 +604,17 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = R
                     onToggleDoorOpen();
                   }
                 }}
-                className={`h-11 px-1 rounded-[18px] flex flex-col items-center justify-center gap-0.5 transition cursor-pointer relative ${
+                className={`h-12 px-1 rounded-xl flex flex-col items-center justify-center gap-1 transition cursor-pointer relative ${
                   isAct
                     ? "birim-ice-charcoal-pill font-bold"
-                    : "text-[#44403C] hover:text-[#141413] hover:bg-white/70 font-medium"
+                    : "text-[#44403C] hover:text-[#141413] hover:bg-white/85 font-semibold"
                 }`}
               >
                 {hasLedDot && (
                   <span className="absolute top-1.5 right-2 w-2 h-2 rounded-full bg-amber-400 ring-2 ring-amber-200/60" />
                 )}
                 <IconComp className="w-4 h-4 shrink-0" />
-                {isAct ? (
-                  <span className="text-[9px] leading-none tracking-tight">{step.shortLabel}</span>
-                ) : (
-                  <span className="sr-only">{step.shortLabel}</span>
-                )}
+                <span className="text-[10px] leading-none tracking-tight">{step.shortLabel}</span>
               </button>
             );
           })}
@@ -2446,7 +2453,7 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = R
         </section>
       )}
 
-      {/* PREV / NEXT STEP FOOTER + ARCHITECT SWITCH */}
+      {/* PREV / NEXT STEP FOOTER + DESIGN MODE SWITCH */}
       {!showAllSteps && (
         <div className="flex items-center justify-between gap-2 pt-1">
           <button
@@ -2454,30 +2461,30 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = R
             disabled={stepIndex <= 0}
             title="Önceki Adım"
             onClick={() => stepIndex > 0 && setActiveStep(STEP_ORDER[stepIndex - 1].id)}
-            className="w-9 h-9 rounded-xl birim-ice-btn disabled:opacity-35 text-[#141413] inline-flex items-center justify-center transition cursor-pointer"
+            className="h-10 px-3.5 rounded-xl birim-ice-btn disabled:opacity-35 text-xs font-semibold text-[#141413] inline-flex items-center gap-1.5 cursor-pointer"
           >
-            <ArrowLeft className="w-4 h-4" />
-            <span className="sr-only">Önceki</span>
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Önceki</span>
           </button>
 
           {stepIndex < STEP_ORDER.length - 1 ? (
             <button
               type="button"
-              title={`Sonraki: ${STEP_ORDER[stepIndex + 1].shortLabel}`}
+              title={`Sonraki Adım: ${STEP_ORDER[stepIndex + 1].shortLabel}`}
               onClick={() => setActiveStep(STEP_ORDER[stepIndex + 1].id)}
-              className="h-9 px-3.5 rounded-xl birim-ice-btn-active text-xs font-semibold inline-flex items-center gap-1.5 transition cursor-pointer"
+              className="flex-1 h-10 px-4 rounded-xl birim-ice-btn-active text-xs font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer"
             >
-              <span>{STEP_ORDER[stepIndex + 1].shortLabel}</span>
+              <span>Sonraki: {STEP_ORDER[stepIndex + 1].shortLabel}</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           ) : (
             <button
               type="button"
-              title="Mimar Detay Moduna Geç"
+              title="Detaylı Tasarım Moduna Geç"
               onClick={() => onSwitchTier("architect")}
-              className="h-9 px-3 rounded-xl birim-ice-btn text-xs font-semibold text-[#44403C] inline-flex items-center gap-1.5 transition cursor-pointer"
+              className="flex-1 h-10 px-4 rounded-xl birim-ice-btn text-xs font-semibold text-[#141413] inline-flex items-center justify-center gap-1.5 cursor-pointer"
             >
-              <span>Mimar</span>
+              <span>Detaylı Tasarım Modu</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           )}

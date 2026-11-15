@@ -445,10 +445,19 @@ export function calculateFourSpaceDimensions(
     const bottomOverhang = bay.door.bottomOverhangMm ?? 0; // e.g. +15mm handleless wall cabinet drop
     const rawDoorY0Mm =
       (overlayType === "inset" ? plinth + T + gap : plinth + gap) - bottomOverhang;
-    const doorX0Mm = roundMm(overlayType === "inset" ? bayStartX + gap : bayStartX - leftOverlay);
+    const klapaLeftMm = Math.max(0, bay.door.frontFillerLeftMm || 0);
+    const klapaRightMm = Math.max(0, bay.door.frontFillerRightMm || 0);
+    const klapaLeftGap = klapaLeftMm > 0 ? gap : 0;
+    const klapaRightGap = klapaRightMm > 0 ? gap : 0;
+    const doorX0Mm = roundMm(
+      (overlayType === "inset" ? bayStartX + gap : bayStartX - leftOverlay) + klapaLeftMm + klapaLeftGap
+    );
     const doorY0Mm = roundMm(rawDoorY0Mm + bottomCutMm);
     const doorZ0Mm = roundMm(overlayType === "inset" ? depth - T : depth);
-    const totalDoorSpanW = Math.max(80, roundMm(bayW + leftOverlay + rightOverlay));
+    const totalDoorSpanW = Math.max(
+      80,
+      roundMm(bayW + leftOverlay + rightOverlay - klapaLeftMm - klapaRightMm - klapaLeftGap - klapaRightGap)
+    );
 
     if (module.isOpenFront || dType === "open" || dSys === "open") {
       return {

@@ -10,6 +10,8 @@ import {
   isBuiltInOvenOrFridgeTower,
   isSinkModule,
   isCooktopModule,
+  BoundedLruCache,
+  computeModuleStructuralSignature,
 } from "@birim/core";
 import { ComponentGeometry, ModuleGeometryBreakdown } from "./types";
 import { generateHandleGeometry } from "./handle-geometry";
@@ -20,13 +22,13 @@ export interface GenerateGeometryOptions {
   explodedFactor?: number; // 0 = normal, 1 = fully exploded
 }
 
-const moduleGeometryCache = new Map<string, ModuleGeometryBreakdown>();
+const moduleGeometryCache = new BoundedLruCache<string, ModuleGeometryBreakdown>(512);
 
 export function generateModuleGeometry(
   module: ModuleInstance,
   options: GenerateGeometryOptions = {}
 ): ModuleGeometryBreakdown {
-  const cacheKey = JSON.stringify([module, options]);
+  const cacheKey = `${computeModuleStructuralSignature(module)}|${options.doorOpenAngleDeg || 0}:${options.drawerOpenMm || 0}:${options.explodedFactor || 0}`;
   const cached = moduleGeometryCache.get(cacheKey);
   if (cached) return cached;
 
@@ -1622,6 +1624,9 @@ export function generateModuleGeometry(
       ? Math.max(160, Math.min(sideH, slopedCfg.kneeHeightMm - sideY))
       : sideH;
 
+  const leftSideMatId = module.carcass.exposedLeftSideUseDoorMaterial ? (doorMaterialId || bodyMaterialId) : bodyMaterialId;
+  const rightSideMatId = module.carcass.exposedRightSideUseDoorMaterial ? (doorMaterialId || bodyMaterialId) : bodyMaterialId;
+
   components.push({
     id: `${module.id}_side_left`,
     role: "carcass_side_left",
@@ -1630,10 +1635,13 @@ export function generateModuleGeometry(
         ? "Sol Yan Panel (Eğimli Tavan Kesimli)"
         : joineryTopology === "miter_45"
         ? "Sol Yan Panel (45° Gönye)"
+        : module.carcass.exposedLeftSideUseDoorMaterial
+        ? "Sol Yan Panel (Görünen Yan - Kapak Malzemeli)"
         : "Sol Yan Panel",
     dimensions: { width: T, height: leftSlopeH, depth },
     position: { x: explodeX > 0 ? -explodeX : 0, y: sideY, z: 0 },
-    materialId: bodyMaterialId,
+    materialId: leftSideMatId,
+    isFrontFacing: module.carcass.exposedLeftSideUseDoorMaterial ? true : undefined,
     isManufacturablePanel: true,
     thicknessAxis: "x",
     polygonContourMm: buildBackSlopeSideContour(false),
@@ -1647,10 +1655,13 @@ export function generateModuleGeometry(
         ? "Sağ Yan Panel (Eğimli Tavan Kesimli)"
         : joineryTopology === "miter_45"
         ? "Sağ Yan Panel (45° Gönye)"
+        : module.carcass.exposedRightSideUseDoorMaterial
+        ? "Sağ Yan Panel (Görünen Yan - Kapak Malzemeli)"
         : "Sağ Yan Panel",
     dimensions: { width: T, height: rightSlopeH, depth },
     position: { x: width - T + explodeX, y: sideY, z: 0 },
-    materialId: bodyMaterialId,
+    materialId: rightSideMatId,
+    isFrontFacing: module.carcass.exposedRightSideUseDoorMaterial ? true : undefined,
     isManufacturablePanel: true,
     thicknessAxis: "x",
     polygonContourMm: buildBackSlopeSideContour(true),
@@ -2964,6 +2975,37 @@ export function generateModuleGeometry(
       const rad = (doorOpenAngleDeg * Math.PI) / 180;
       const openRatio = Math.min(1, Math.max(0, doorOpenAngleDeg / 90));
       const doorMatId = bay.door.doorMaterialId || doorMaterialId;
+      const klapaLeftW = Math.max(0, bay.door.frontFillerLeftMm || 0);
+      const klapaRightW = Math.max(0, bay.door.frontFillerRightMm || 0);
+      const klapaZ = bay.door.frontFillerPosition === "recessed_inner" ? depth - T_door : doorZ;
+      if (klapaLeftW > 0 && doorH > 0) {
+        components.push({
+          id: `${bay.door.id}_klapa_left`,
+          role: "wall_filler",
+          label: `Sol Ön Klapa B${bayIdx + 1} (${Math.round(klapaLeftW)}mm)`,
+          bayIndex: bayIdx,
+          dimensions: { width: klapaLeftW, height: doorH, depth: T_door },
+          position: { x: Math.max(0, doorX0 - klapaLeftW - (doorPerimeterGap || 2)), y: doorY, z: klapaZ },
+          materialId: doorMatId,
+          isFrontFacing: true,
+          isManufacturablePanel: true,
+          thicknessAxis: "z",
+        });
+      }
+      if (klapaRightW > 0 && doorH > 0) {
+        components.push({
+          id: `${bay.door.id}_klapa_right`,
+          role: "wall_filler",
+          label: `Sağ Ön Klapa B${bayIdx + 1} (${Math.round(klapaRightW)}mm)`,
+          bayIndex: bayIdx,
+          dimensions: { width: klapaRightW, height: doorH, depth: T_door },
+          position: { x: doorX0 + fullDoorW + (doorPerimeterGap || 2), y: doorY, z: klapaZ },
+          materialId: doorMatId,
+          isFrontFacing: true,
+          isManufacturablePanel: true,
+          thicknessAxis: "z",
+        });
+      }
 
       const isHingedDoubleSplit = !isBlindCornerCab && (
         dSys === "hinged_double" ||
@@ -3861,10 +3903,6 @@ export function generateModuleGeometry(
     netInnerHeight: netInnerH,
     netInnerDepth: netInnerD,
   };
-  if (moduleGeometryCache.size >= 400) {
-    const oldestKey = moduleGeometryCache.keys().next().value;
-    if (oldestKey) moduleGeometryCache.delete(oldestKey);
-  }
   moduleGeometryCache.set(cacheKey, result);
   return result;
 }

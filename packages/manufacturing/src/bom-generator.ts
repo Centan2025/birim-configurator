@@ -21,6 +21,10 @@ import {
   resolveCanonicalHandlePlacement,
   computeProjectGrainContinuityMap,
   resolveMultiHoleSpec,
+  BoundedLruCache,
+  computeModuleStructuralSignature,
+  computeProjectStructuralSignature,
+  resolveKlapaAndHingeBehavior,
 } from "@birim/core";
 import { evaluateFreestandingTipOverRisk, evaluateUnifiedEngineeringModel } from "@birim/core";
 import {
@@ -43,13 +47,54 @@ import { optimizeSheetNesting } from "./sheet-nesting";
 const STANDARD_SHEET_AREA_M2 = (2800 * 2070) / 1_000_000; // 5.796 m²
 const STANDARD_WASTE_FACTOR = 1.12;
 
-const bomProjectCache = new Map<string, ManufacturingBOM>();
+interface ModuleHardwareCallRecord {
+  sku: string;
+  name: string;
+  category: HardwareBOMItem["category"];
+  quantity: number;
+  unit: HardwareBOMItem["unit"];
+  unitPrice: number;
+}
+
+interface CachedModuleBomSlice {
+  cutPieces: CutPiece[];
+  hardwareCalls: ModuleHardwareCallRecord[];
+  shelfDeflections: ShelfDeflectionBOMEntry[];
+  warnings: string[];
+  drillingHolesDelta: number;
+  dimChainClosed: boolean;
+}
+
+const bomProjectCache = new BoundedLruCache<string, ManufacturingBOM>(48);
+const moduleBomSliceCache = new BoundedLruCache<string, CachedModuleBomSlice>(512);
+
+function computeMaterialsMapFingerprint(materialsMap: Map<string, MaterialDefinition>): string {
+  if (materialsMap.size === DEFAULT_MATERIALS.length) {
+    let allMatch = true;
+    for (let i = 0; i < DEFAULT_MATERIALS.length; i++) {
+      const dm = DEFAULT_MATERIALS[i];
+      const cur = materialsMap.get(dm.id);
+      if (!cur || cur.costPerM2 !== dm.costPerM2 || cur.category !== dm.category || cur.thickness !== dm.thickness) {
+        allMatch = false;
+        break;
+      }
+    }
+    if (allMatch) return "DEFAULT_MATS";
+  }
+  let s = "";
+  materialsMap.forEach((m, id) => {
+    s += `${id}:${m.category}:${m.thickness}:${m.costPerM2}:${m.densityKgPerM3 || 0};`;
+  });
+  return s;
+}
 
 function computeProjectBOMKey(
   project: DesignProject,
-  materialsMap: Map<string, MaterialDefinition>
+  materialsMap: Map<string, MaterialDefinition>,
+  sheetCfg?: import("./sheet-nesting").SheetDimension
 ): string {
-  return JSON.stringify([project, Array.from(materialsMap.entries())]);
+  const scSig = sheetCfg ? `${sheetCfg.lengthMm}x${sheetCfg.widthMm}:${sheetCfg.trimCutMm}:${sheetCfg.kerfMm}` : "std";
+  return `${computeProjectStructuralSignature(project)}|SC:${scSig}|MM:${computeMaterialsMapFingerprint(materialsMap)}`;
 }
 
 function formatEdgeBandCode(eb: EdgeBandingConfig): string {
@@ -129,6 +174,7 @@ function hasSinkOrCooktopAppliance(module: ModuleInstance): boolean {
 
 export interface GenerateBOMOptions {
   skipSyncNesting?: boolean;
+  sheetConfig?: import("./sheet-nesting").SheetDimension;
 }
 
 
@@ -233,6 +279,8 @@ export function generateBOMForProject(
   let totalDrillingHolesCount = 0;
   let allDimensionChainsClosed = true;
 
+  let activeModuleHardwareSink: ModuleHardwareCallRecord[] | null = null;
+
   function addHardware(
     sku: string,
     name: string,
@@ -242,6 +290,9 @@ export function generateBOMForProject(
     unitPrice = 0
   ) {
     if (quantity <= 0) return;
+    if (activeModuleHardwareSink) {
+      activeModuleHardwareSink.push({ sku, name, category, quantity, unit, unitPrice });
+    }
     const existing = hardwareMap.get(sku);
     if (existing) {
       existing.quantity = roundMm(existing.quantity + quantity, 2);
@@ -341,7 +392,59 @@ export function generateBOMForProject(
     project.customMaterials.forEach((cm) => materialsMap.set(cm.id, cm));
   }
 
+  const matsFingerprint = computeMaterialsMapFingerprint(materialsMap);
+  const spaceCeilingH = project.space?.ceilingHeight || 2600;
+  const spaceWallsCount = project.space?.walls?.length || 0;
+
   project.modules.forEach((module: ModuleInstance) => {
+    const isCountertopMod = module.category === "complementary" && module.complementaryRole === "countertop";
+    const hasBelowSupport =
+      (module.position?.y || 0) >= 150 &&
+      (module.carcass.plinthHeight ?? 0) === 0 &&
+      module.category !== "complementary" &&
+      project.modules.some(
+        (bm) =>
+          bm.id !== module.id &&
+          bm.category !== "complementary" &&
+          Math.abs(bm.position.y + bm.dimensions.height - module.position.y) <= 20 &&
+          bm.position.x < module.position.x + module.dimensions.width - 20 &&
+          bm.position.x + bm.dimensions.width > module.position.x + 20
+      );
+    let modGrainSig = "";
+    if (grainContinuityMap.size > 0) {
+      grainContinuityMap.forEach((gv, gk) => {
+        if (gk.startsWith(module.id) || module.bays.some((b) => b.door?.id && gk.startsWith(b.door.id))) {
+          modGrainSig += `${gk}:${gv.groupId}:${gv.sequenceLabel}:${gv.offsetXMm}:${gv.offsetYMm};`;
+        }
+      });
+    }
+    const sliceCacheKey = !isCountertopMod
+      ? `${computeModuleStructuralSignature(module)}|BS:${hasBelowSupport ? 1 : 0}|SP:${spaceCeilingH}:${spaceWallsCount}|GR:${modGrainSig}|MM:${matsFingerprint}`
+      : null;
+    if (sliceCacheKey) {
+      const cachedSlice = moduleBomSliceCache.get(sliceCacheKey);
+      if (cachedSlice) {
+        for (let i = 0; i < cachedSlice.cutPieces.length; i++) cutList.push(cachedSlice.cutPieces[i]);
+        for (let i = 0; i < cachedSlice.hardwareCalls.length; i++) {
+          const hc = cachedSlice.hardwareCalls[i];
+          addHardware(hc.sku, hc.name, hc.category, hc.quantity, hc.unit, hc.unitPrice);
+        }
+        for (let i = 0; i < cachedSlice.shelfDeflections.length; i++) shelfDeflectionAnalyses.push(cachedSlice.shelfDeflections[i]);
+        for (let i = 0; i < cachedSlice.warnings.length; i++) validationWarnings.push(cachedSlice.warnings[i]);
+        totalDrillingHolesCount += cachedSlice.drillingHolesDelta;
+        if (!cachedSlice.dimChainClosed) allDimensionChainsClosed = false;
+        return;
+      }
+    }
+
+    const sliceCutStart = cutList.length;
+    const sliceDeflStart = shelfDeflectionAnalyses.length;
+    const sliceWarnStart = validationWarnings.length;
+    const sliceDrillStart = totalDrillingHolesCount;
+    const prevDimChainClosed = allDimensionChainsClosed;
+    const recordedHwCalls: ModuleHardwareCallRecord[] = [];
+    activeModuleHardwareSink = recordedHwCalls;
+
     const geo = generateModuleGeometry(module);
     const fourSpace = calculateFourSpaceDimensions(module, project.customMaterials);
     const bodyMat = materialsMap.get(module.carcass.bodyMaterialId) || DEFAULT_MATERIALS[0];
@@ -1207,7 +1310,16 @@ export function generateBOMForProject(
           let hingeName = selectedHw?.name || "Blum Clip Top Blumotion 110° Frenli Düz Menteşe";
           let hingePrice = selectedHw?.unitPriceEur || 3.8;
 
-          if (!isExplicitNonDefaultHw && leafInfo?.overlayType === "inset") {
+          const klapaRes = resolveKlapaAndHingeBehavior(
+            bay?.door,
+            geo.bayWidths[bayIdx] || 450,
+            Boolean(bay?.drawers?.some((dr) => dr.isInternal && !dr.isHidden))
+          );
+          if (!isExplicitNonDefaultHw && klapaRes.hingeAxisShiftedByKlapa) {
+            hingeSku = klapaRes.recommendedHingeSku;
+            hingeName = klapaRes.recommendedHingeLabelTr;
+            hingePrice = 5.4;
+          } else if (!isExplicitNonDefaultHw && leafInfo?.overlayType === "inset") {
             hingeSku = "71B3750";
             hingeName = "Blum CLIP top BLUMOTION 110° Tam Deveboynu (İçerlek / Inset) Menteşe";
             hingePrice = 4.35;
@@ -1834,6 +1946,7 @@ export function generateBOMForProject(
         cutoutWidthMm,
         cutoutDepthMm,
         carcassJoineryTopology: partJoineryTopology,
+        connectorSystem: module.carcass.connectorSystem,
         kitchenStretcherMode: partStretcherMode,
         backPanelMode: partBackMode,
         hasDrawerBottomGroove,
@@ -1918,7 +2031,19 @@ export function generateBOMForProject(
         grainOffsetXMm: grainAssign?.offsetXMm,
         grainOffsetYMm: grainAssign?.offsetYMm,
         grainSequenceLabel: grainAssign?.sequenceLabel,
-        notes: grainAssign ? `Desen Takibi: ${grainAssign.sequenceLabel}` : undefined,
+        notes: (() => {
+          const noteParts: string[] = [];
+          if (grainAssign) noteParts.push(`Desen Takibi: ${grainAssign.sequenceLabel}`);
+          const scribeL = module.carcass.scribeAllowanceLeftMm || 0;
+          const scribeR = module.carcass.scribeAllowanceRightMm || 0;
+          if (scribeL > 0 && (comp.role === "carcass_side_left" || comp.id.endsWith("_klapa_left"))) {
+            noteParts.push(`Sol Yamuk Duvar Tıraş Payı: +${scribeL}mm`);
+          }
+          if (scribeR > 0 && (comp.role === "carcass_side_right" || comp.id.endsWith("_klapa_right"))) {
+            noteParts.push(`Sağ Yamuk Duvar Tıraş Payı: +${scribeR}mm`);
+          }
+          return noteParts.length > 0 ? noteParts.join(" • ") : undefined;
+        })(),
         cncFileName: `${stablePartId}.dxf`,
         areaM2: roundMm(areaM2, 3),
         edgeBandMeters: roundMm(edgeBandMeters, 3),
@@ -1940,6 +2065,7 @@ export function generateBOMForProject(
         cutoutWidthMm,
         cutoutDepthMm,
         carcassJoineryTopology: partJoineryTopology,
+        connectorSystem: module.carcass.connectorSystem,
         backPanelMode: partBackMode,
         hasDrawerBottomGroove,
         drawerBottomGrooveOffsetMm: hasDrawerBottomGroove ? 13 : undefined,
@@ -2225,9 +2351,21 @@ export function generateBOMForProject(
         16.5
       );
     }
+
+    activeModuleHardwareSink = null;
+    if (sliceCacheKey) {
+      moduleBomSliceCache.set(sliceCacheKey, {
+        cutPieces: cutList.slice(sliceCutStart),
+        hardwareCalls: recordedHwCalls,
+        shelfDeflections: shelfDeflectionAnalyses.slice(sliceDeflStart),
+        warnings: validationWarnings.slice(sliceWarnStart),
+        drillingHolesDelta: totalDrillingHolesCount - sliceDrillStart,
+        dimChainClosed: prevDimChainClosed ? allDimensionChainsClosed : true,
+      });
+    }
   });
 
-  const nestingResults = skipSyncNesting ? [] : optimizeSheetNesting(cutList);
+  const nestingResults = skipSyncNesting ? [] : optimizeSheetNesting(cutList, options?.sheetConfig);
 
   const matUsageMap = new Map<string, { materialName: string; netAreaM2: number }>();
   let totalPanelAreaM2 = 0;
@@ -2365,10 +2503,6 @@ export function generateBOMForProject(
       };
     })(),
   };
-  if (bomProjectCache.size >= 32) {
-    const firstKey = bomProjectCache.keys().next().value;
-    if (firstKey) bomProjectCache.delete(firstKey);
-  }
   bomProjectCache.set(cacheKey, result);
   return result;
 }

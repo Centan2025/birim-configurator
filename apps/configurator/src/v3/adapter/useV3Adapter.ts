@@ -32,6 +32,8 @@ import {
   type HandleCategory,
   type OpeningTechnology,
   calculateModulePlacement,
+  BoundedLruCache,
+  computeProjectStructuralSignature,
 } from "@birim/core";
 import {
   analyzeAndAdviseSpan,
@@ -244,10 +246,14 @@ const cachedCompatByProject = new WeakMap<
   DesignProject,
   ReturnType<typeof evaluateProjectCompatibility>
 >();
-const cachedSpatialByProject = new WeakMap<
-  DesignProject,
+const cachedSpatialBySig = new BoundedLruCache<
+  string,
   ReturnType<typeof validateSpatialAndKitchenEngineering>
->();
+>(64);
+const cachedContinuousLayersBySig = new BoundedLruCache<
+  string,
+  ReturnType<typeof computeContinuousKitchenLayers>
+>(64);
 
 const cachedUnifiedEngByProject = new WeakMap<
   DesignProject,
@@ -271,10 +277,20 @@ function getMemoizedProjectCompatibility(project: DesignProject) {
 }
 
 function getMemoizedSpatialValidation(project: DesignProject) {
-  const hit = cachedSpatialByProject.get(project);
+  const sig = computeProjectStructuralSignature(project);
+  const hit = cachedSpatialBySig.get(sig);
   if (hit) return hit;
   const computed = validateSpatialAndKitchenEngineering(project);
-  cachedSpatialByProject.set(project, computed);
+  cachedSpatialBySig.set(sig, computed);
+  return computed;
+}
+
+function getMemoizedContinuousKitchenLayers(project: DesignProject) {
+  const sig = computeProjectStructuralSignature(project);
+  const hit = cachedContinuousLayersBySig.get(sig);
+  if (hit) return hit;
+  const computed = computeContinuousKitchenLayers(project);
+  cachedContinuousLayersBySig.set(sig, computed);
   return computed;
 }
 
@@ -6719,7 +6735,7 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
 
 
   const continuousKitchenLayers = useMemo(
-    () => (isLite || isDraggingActive ? [] : computeContinuousKitchenLayers(project)),
+    () => (isLite || isDraggingActive ? [] : getMemoizedContinuousKitchenLayers(project)),
     [isLite, isDraggingActive, project]
   );
 

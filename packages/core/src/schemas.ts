@@ -330,6 +330,9 @@ export const DoorConfigSchema = z.object({
   hardwareProductId: z.string().optional(),
   doorThicknessMm: z.number().min(8).max(40).optional(),
   doorMaterialId: z.string().optional(),
+  frontFillerLeftMm: z.number().min(0).max(400).optional(),
+  frontFillerRightMm: z.number().min(0).max(400).optional(),
+  frontFillerPosition: z.enum(["coplanar_front", "recessed_inner"]).optional(),
   grainGroupId: z.string().optional(),
   bottomOverhangMm: z.number().min(-100).max(100).optional(),
   doorBottomGapMm: z.number().min(0).max(2500).optional(),
@@ -409,10 +412,15 @@ export const CarcassConfigSchema = z.object({
   backPanelType: BackPanelTypeSchema.default("grooved"),
   backOffsetMm: z.number().min(0).max(120).optional(),
   preMillingMm: z.number().min(0).max(3).optional(),
+  exposedLeftSideUseDoorMaterial: z.boolean().optional(),
+  exposedRightSideUseDoorMaterial: z.boolean().optional(),
+  scribeAllowanceLeftMm: z.number().min(0).max(120).optional(),
+  scribeAllowanceRightMm: z.number().min(0).max(120).optional(),
   allowJumboSheet3660: z.boolean().optional(),
   carcassJoineryTopology: z
     .enum(["sides_through", "top_bottom_through", "miter_45", "kitchen_stretchers"])
     .optional(),
+  connectorSystem: z.enum(["minifix_dowel", "lamello_cabineo", "confirmat"]).optional(),
   kitchenTopStretcherMode: z
     .enum(["horizontal", "vertical_sink", "aluminum_reinforced"])
     .optional(),
@@ -845,6 +853,7 @@ export const CustomMaterialDefinitionSchema = z.object({
 
 export const DesignProjectSchema = z.object({
   id: z.string(),
+  tenantId: z.string().optional(),
   version: z.number().int().positive().default(1),
   schemaVersion: z
     .number()
@@ -857,6 +866,12 @@ export const DesignProjectSchema = z.object({
     .optional(),
   catalogVersion: z.string().optional(),
   revisionId: z.string().optional(),
+  materialPaletteSlots: z
+    .object({
+      doorMaterialIds: z.array(z.string()),
+      bodyMaterialIds: z.array(z.string()),
+    })
+    .optional(),
   libraryVersionId: z.string().optional(),
   constructionProfileId: z.string().optional(),
   ergonomicProfileId: z
