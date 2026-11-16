@@ -1764,6 +1764,16 @@ export function createComponentMesh(
 
   const isCrossGrain =
     userData?.grainDir === "crosswise" || comp.grainDirection === "crosswise";
+  const rawGrainUv = userData?.continuousGrainUv;
+  const continuousGrainUv =
+    rawGrainUv &&
+    typeof rawGrainUv === "object" &&
+    "offsetXMm" in rawGrainUv &&
+    "offsetYMm" in rawGrainUv &&
+    typeof (rawGrainUv as { offsetXMm: unknown }).offsetXMm === "number" &&
+    typeof (rawGrainUv as { offsetYMm: unknown }).offsetYMm === "number"
+      ? (rawGrainUv as { offsetXMm: number; offsetYMm: number; crosswise?: boolean })
+      : undefined;
   const useWorldUvFlatBox =
     !useTrueBevelGeo &&
     (!comp.primitive || comp.primitive === "box") &&
@@ -1781,7 +1791,7 @@ export function createComponentMesh(
           comp.dimensions.depth,
           bevelRadiusMm,
           comp.id,
-          userData?.continuousGrainUv
+          continuousGrainUv
         )
       : useWorldUvFlatBox
       ? getCachedWorldUvBoxGeometry(
@@ -1789,8 +1799,8 @@ export function createComponentMesh(
           comp.dimensions.height,
           comp.dimensions.depth,
           isCrossGrain,
-          userData?.continuousGrainUv?.offsetXMm || 0,
-          userData?.continuousGrainUv?.offsetYMm || 0
+          continuousGrainUv?.offsetXMm || 0,
+          continuousGrainUv?.offsetYMm || 0
         )
       : box,
     material
