@@ -337,6 +337,8 @@ export interface ParametricPart {
   cutoutDepthMm?: UnitLength;
   /** Carcass joinery topology for matching cam/bolt faces */
   carcassJoineryTopology?: "sides_through" | "top_bottom_through" | "miter_45" | "kitchen_stretchers";
+  /** Optional tenant/module carcass connector system */
+  connectorSystem?: "minifix_dowel" | "lamello_cabineo" | "confirmat";
   /** Kitchen top stretcher mode so side-panel top bolts hit actual stretcher positions */
   kitchenStretcherMode?: "horizontal" | "vertical_sink" | "aluminum_reinforced";
   /** Back panel construction mode */

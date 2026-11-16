@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Check, Cpu, Sparkles } from "lucide-react";
-import { useConfiguratorStore } from "../../store/useConfiguratorStore";
+import { useConfiguratorStore, type ConfiguratorState } from "../../store/useConfiguratorStore";
 import type {
   BackPanelMountingMode,
   CncMachineFormatId,
@@ -14,7 +14,7 @@ import type {
 
 export default function ModulSaasOnboardingWizardPage() {
   const router = useRouter();
-  const switchActiveTenant = useConfiguratorStore((s) => s.switchActiveTenant);
+  const switchActiveTenant = useConfiguratorStore((s: ConfiguratorState) => s.switchActiveTenant);
 
   const [companyDisplayName, setCompanyDisplayName] = useState("NOVA MUTFAK");
   const [companyLegalName, setCompanyLegalName] = useState("Nova Mutfak ve Modüler Mobilya San. A.Ş.");

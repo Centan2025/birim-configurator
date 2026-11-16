@@ -70,6 +70,12 @@ export interface PricingBreakdown {
   vatAmountTry: number;
   totalWithVatEur: number;
   totalWithVatTry: number;
+  dealerDiscountPercent?: number;
+  dealerNetWithVatEur?: number;
+  dealerNetWithVatTry?: number;
+  eurTryExchangeRate?: number;
+  subtotalBeforeVatEur?: number;
+  netProductionCostEur?: number;
   leadTime: LeadTimeEstimate;
   details: {
     materialLines: {

@@ -1,4 +1,4 @@
-import { create } from "zustand";
+import { create, type StoreApi, type UseBoundStore } from "zustand";
 import {
   DesignProject,
   createInitialProject,
@@ -112,7 +112,7 @@ export interface ProjectRevisionDiff {
   modifiedModuleIds: string[];
 }
 
-interface ConfiguratorState {
+export interface ConfiguratorState {
   project: DesignProject;
   activeModuleIndex: number;
   viewMode: ViewMode;
@@ -224,6 +224,7 @@ interface ConfiguratorState {
   // Room, Wall, Obstacle & Floorplan Underlay (WP-06)
   setRoomDimensions: (mainWallLengthMm: number, ceilingHeightMm?: number) => void;
   updateCeilingConfig: (patch: Partial<import("@birim/core").SpaceCeilingConfig>) => void;
+  updateCarcass: (patch: Partial<ModuleInstance["carcass"]>) => void;
   setFacadeGrainContinuity: (enabled: boolean) => void;
   addWallSegment: (wall: {
     name?: string;
@@ -477,7 +478,7 @@ function getTenantProjectsStorageKey(tenantId: string): string {
 
 let storeNestingDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-function scheduleBackgroundStoreNesting(project: DesignProject, bom: ManufacturingBOM) {
+function scheduleBackgroundStoreNesting(project: DesignProject, bom: ManufacturingBOM): void {
   if (typeof window === "undefined" || bom.cutList.length === 0) return;
   if (storeNestingDebounceTimer) clearTimeout(storeNestingDebounceTimer);
   const targetProjectId = project.id;
@@ -506,7 +507,16 @@ function scheduleBackgroundStoreNesting(project: DesignProject, bom: Manufacturi
 
 let deferredCommitRecomputeTimer: ReturnType<typeof setTimeout> | null = null;
 
-function recompute(project: DesignProject, options?: { syncInitial?: boolean }) {
+function recompute(
+  project: DesignProject,
+  options?: { syncInitial?: boolean }
+): {
+  validationIssues: ValidationIssue[];
+  bom: ManufacturingBOM;
+  pricing: PricingBreakdown;
+  smartAdvice: SmartAdvisorFeedback;
+  lastChangeImpact: LiveChangeImpactSummary | null;
+} {
   const compat = evaluateProjectCompatibility(project);
   const unifiedEng = evaluateUnifiedEngineeringModel(project);
   const validationIssues = unifiedEng.findings;
@@ -632,7 +642,7 @@ function animateValueTransition(
   setRafHolder(requestAnimationFrame(step));
 }
 
-export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
+export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = create<ConfiguratorState>()((set, get) => ({
   project: { ...initialProj, tenantId: TENANT_BIRIM_ENTERPRISE.tenantId },
   activeTenantId: TENANT_BIRIM_ENTERPRISE.tenantId,
   activeTenantRole: "org_owner",
@@ -3078,6 +3088,28 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
       pricing,
       smartAdvice,
       lastChangeImpact,
+    });
+  },
+
+  updateCarcass: (patch) => {
+    const { project, activeModuleIndex, history, batchStartProject } = get();
+    const updated = cloneProject(project);
+    const mod = updated.modules[activeModuleIndex] || updated.modules[0];
+    if (!mod) return;
+    mod.carcass = { ...mod.carcass, ...patch };
+    updated.version += 1;
+    updated.updatedAt = new Date().toISOString();
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
+    set({
+      project: updated,
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+      lastChangeImpact,
+      autoSaveStatus: "unsaved",
     });
   },
 

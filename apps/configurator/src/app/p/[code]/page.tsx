@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { getTenantProfileByIdOrSlug, type TenantBrandTheme } from "@birim/core";
-import { useConfiguratorStore } from "../../../store/useConfiguratorStore";
+import { useConfiguratorStore, type ConfiguratorState } from "../../../store/useConfiguratorStore";
 import { V3UnifiedWorkspace } from "../../../v3/components/V3UnifiedWorkspace";
 import { V3BrandBadge } from "../../../v3/design-system";
 import { decodeSharePayloadBase64Url, type VerifiedQuoteRecord } from "../../../lib/quote-codec";
@@ -12,8 +12,8 @@ import { ShieldCheck, AlertCircle } from "lucide-react";
 function SharedProjectQuotePageInner() {
   const params = useParams<{ code: string }>();
   const searchParams = useSearchParams();
-  const importProjectJSON = useConfiguratorStore((s) => s.importProjectJSON);
-  const switchActiveTenant = useConfiguratorStore((s) => s.switchActiveTenant);
+  const importProjectJSON = useConfiguratorStore((s: ConfiguratorState) => s.importProjectJSON);
+  const switchActiveTenant = useConfiguratorStore((s: ConfiguratorState) => s.switchActiveTenant);
 
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [errorText, setErrorText] = useState<string>("");

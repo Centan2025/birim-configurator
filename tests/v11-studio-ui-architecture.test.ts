@@ -376,4 +376,25 @@ describe("V11.4 Studio UI, Fixed Shelf, System-32 Multi-Hole Shelf Snap, Perform
     const sigLine = vpSrc.split("\n").find((l) => l.includes("const viewSigSuffix =")) || "";
     expect(sigLine.includes("showInteriorProps3D")).toBe(false);
   });
+
+  it("enforces V11.6 Zustand v5 UseBoundStore<StoreApi<ConfiguratorState>> & zero circular implicit-any inference", () => {
+    const storeCode = fs.readFileSync(
+      path.resolve(__dirname, "../apps/configurator/src/store/useConfiguratorStore.ts"),
+      "utf8"
+    );
+    expect(storeCode).toContain("export interface ConfiguratorState");
+    expect(storeCode).toContain(
+      "export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = create<ConfiguratorState>()("
+    );
+    expect(storeCode).toContain("updateCarcass: (patch: Partial<ModuleInstance[\"carcass\"]>) => void;");
+
+    const { useConfiguratorStore } = require("../apps/configurator/src/store/useConfiguratorStore");
+    expect(typeof useConfiguratorStore.getState().updateCarcass).toBe("function");
+
+    const v11ConstCode = fs.readFileSync(
+      path.resolve(__dirname, "../apps/configurator/src/v11/v11Constants.ts"),
+      "utf8"
+    );
+    expect(v11ConstCode).toContain("import type { UserExperienceTier } from \"../store/useConfiguratorStore\"");
+  });
 });

@@ -4,8 +4,8 @@ import type {
   DoorCrossSectionProfile,
   EngineeringValidationFinding,
   MaterialDefinition,
-  UserExperienceTier,
 } from "@birim/core";
+import type { UserExperienceTier } from "../store/useConfiguratorStore";
 import type { V4ModuleTemplateDefinition } from "@birim/catalog";
 
 export type V11WorkspaceMode = "3d" | "2d" | "plan" | "showroom";

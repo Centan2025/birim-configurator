@@ -90,6 +90,7 @@ export interface NestingOptimizationResult {
   totalSheetsCount: number;
   totalNetAreaM2: number;
   totalGrossAreaM2: number;
+  usableRemnantAreaM2?: number;
   overallWastePercent: number;
 }
 

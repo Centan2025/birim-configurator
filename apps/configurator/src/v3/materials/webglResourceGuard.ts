@@ -88,14 +88,18 @@ export function attachWebGLContextRecovery(
   callbacks: {
     onContextLost?: () => void;
     onContextRestored?: () => void;
+    onLost?: () => void;
+    onRestored?: () => void;
   }
 ): () => void {
   const handleLost = (event: Event) => {
     event.preventDefault();
     callbacks.onContextLost?.();
+    callbacks.onLost?.();
   };
   const handleRestored = () => {
     callbacks.onContextRestored?.();
+    callbacks.onRestored?.();
   };
 
   canvas.addEventListener("webglcontextlost", handleLost, false);

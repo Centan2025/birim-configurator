@@ -3,7 +3,7 @@
 import React, { useEffect } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { checkTenantEntitlement, getTenantProfileByIdOrSlug } from "@birim/core";
-import { useConfiguratorStore } from "../../../store/useConfiguratorStore";
+import { useConfiguratorStore, type ConfiguratorState } from "../../../store/useConfiguratorStore";
 import { V3UnifiedWorkspace } from "../../../v3/components/V3UnifiedWorkspace";
 import { Lock } from "lucide-react";
 
@@ -13,12 +13,12 @@ function TenantWhiteLabelEmbedPageInner() {
   const slug = String(params?.tenantSlug || "birim").toLowerCase();
   const currencyParam = searchParams?.get("currency");
 
-  const switchActiveTenant = useConfiguratorStore((s) => s.switchActiveTenant);
-  const setUserExperienceTier = useConfiguratorStore((s) => s.setUserExperienceTier);
-  const updateActiveTenantProfile = useConfiguratorStore((s) => s.updateActiveTenantProfile);
-  const activeTenantProfile = useConfiguratorStore((s) => s.activeTenantProfile);
-  const pricing = useConfiguratorStore((s) => s.pricing);
-  const project = useConfiguratorStore((s) => s.project);
+  const switchActiveTenant = useConfiguratorStore((s: ConfiguratorState) => s.switchActiveTenant);
+  const setUserExperienceTier = useConfiguratorStore((s: ConfiguratorState) => s.setUserExperienceTier);
+  const updateActiveTenantProfile = useConfiguratorStore((s: ConfiguratorState) => s.updateActiveTenantProfile);
+  const activeTenantProfile = useConfiguratorStore((s: ConfiguratorState) => s.activeTenantProfile);
+  const pricing = useConfiguratorStore((s: ConfiguratorState) => s.pricing);
+  const project = useConfiguratorStore((s: ConfiguratorState) => s.project);
 
   useEffect(() => {
     const resolved = getTenantProfileByIdOrSlug(slug);

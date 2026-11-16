@@ -2043,10 +2043,10 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       scene.environment = getStudioPmremEnvironment(renderer);
 
       const detachContextRecovery = attachWebGLContextRecovery(renderer.domElement, {
-        onLost: () => {
+        onContextLost: () => {
           setWebglContextLost(true);
         },
-        onRestored: () => {
+        onContextRestored: () => {
           setWebglContextLost(false);
           scene.environment = getStudioPmremEnvironment(renderer);
           renderer.shadowMap.needsUpdate = true;
@@ -5752,7 +5752,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             sc: sobj.scaleFactor || 1,
             pri: sobj.primaryColorHex,
             sec: sobj.secondaryColorHex,
-            glb: sobj.glbSourceUrl || (sobj.customGlbDataUrl ? sobj.customGlbDataUrl.length : 0),
+            glb: sobj.glbUrl || sobj.localAssetKey || "",
             sel: selectedSceneObjectId === sobj.id,
             tick: glbRefreshTick,
           })

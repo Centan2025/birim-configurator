@@ -124,6 +124,8 @@ export interface SceneObjectInstance {
   glbUrl?: string;
   /** Optional IndexedDB persistent asset key when uploaded from local disk */
   localAssetKey?: string;
+  glbSourceUrl?: string;
+  customGlbDataUrl?: string;
   /** Optional host module ID when mounted onto/into a specific cabinet */
   hostModuleId?: string;
   hostWallId?: string;

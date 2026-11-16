@@ -4,12 +4,12 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Building2, KeyRound, ArrowRight } from "lucide-react";
-import { useConfiguratorStore } from "../../store/useConfiguratorStore";
+import { useConfiguratorStore, type ConfiguratorState } from "../../store/useConfiguratorStore";
 import type { SaasRoleId } from "@birim/core";
 
 export default function ModulSaasLoginPage() {
   const router = useRouter();
-  const switchActiveTenant = useConfiguratorStore((s) => s.switchActiveTenant);
+  const switchActiveTenant = useConfiguratorStore((s: ConfiguratorState) => s.switchActiveTenant);
   const [email, setEmail] = useState("info@birim.com");
   const [password, setPassword] = useState("Birim2026!");
   const [errorMsg, setErrorMsg] = useState("");

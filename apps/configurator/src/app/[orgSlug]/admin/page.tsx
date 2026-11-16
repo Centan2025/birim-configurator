@@ -19,7 +19,7 @@ import {
   type SaasPlanId,
   type SaasRoleId,
 } from "@birim/core";
-import { useConfiguratorStore } from "../../../store/useConfiguratorStore";
+import { useConfiguratorStore, type ConfiguratorState } from "../../../store/useConfiguratorStore";
 
 const SAMPLE_CSV = [
   "code,name,brand,category,thicknessMm,costPerM2Eur,edgeBandCostPerMEur,colorHex",
@@ -31,8 +31,8 @@ export default function TenantBackofficeAdminPage() {
   const params = useParams<{ orgSlug: string }>();
   const slug = String(params?.orgSlug || "birim").toLowerCase();
 
-  const activeTenantProfile = useConfiguratorStore((s) => s.activeTenantProfile);
-  const switchActiveTenant = useConfiguratorStore((s) => s.switchActiveTenant);
+  const activeTenantProfile = useConfiguratorStore((s: ConfiguratorState) => s.activeTenantProfile);
+  const switchActiveTenant = useConfiguratorStore((s: ConfiguratorState) => s.switchActiveTenant);
 
   const [csvText, setCsvText] = useState(SAMPLE_CSV);
   const [importedMaterials, setImportedMaterials] = useState<MaterialDefinition[]>([]);

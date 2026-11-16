@@ -1577,10 +1577,18 @@ export function preloadAllWardrobeGlbAssets(): void {
     return;
   }
   idlePreloadScheduled = true;
-  const schedule =
-    typeof window.requestIdleCallback === "function"
-      ? (fn: () => void) => window.requestIdleCallback(fn, { timeout: 1500 })
-      : (fn: () => void) => window.setTimeout(fn, 650);
+  const ric = (
+    window as unknown as {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+    }
+  ).requestIdleCallback;
+  const schedule = (fn: () => void): void => {
+    if (typeof ric === "function") {
+      ric(fn, { timeout: 1500 });
+    } else {
+      window.setTimeout(fn, 650);
+    }
+  };
 
   schedule(() => {
     // Only preload shirt & shoe during idle time (folded stacks use ultra-fast 36-tri architectural slabs!)
