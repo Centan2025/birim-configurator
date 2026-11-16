@@ -32,10 +32,8 @@ import {
 } from "../apps/configurator/src/lib/server-quote-store";
 import { POST as postStoreQuote } from "../apps/configurator/src/app/api/integrations/store-quote/route";
 import { POST as postErpNesting } from "../apps/configurator/src/app/api/integrations/erp-nesting/route";
-import {
-  POST as postR2Upload,
-  buildIsolatedConfiguratorR2Key,
-} from "../apps/configurator/src/app/api/integrations/r2-upload/route";
+import { POST as postR2Upload } from "../apps/configurator/src/app/api/integrations/r2-upload/route";
+import { buildIsolatedConfiguratorR2Key } from "../apps/configurator/src/lib/r2-upload-helpers";
 
 describe("v80 — Modül Multi-Tenant SaaS Architecture, Isolation & Zero-Trust Security", () => {
   it("1. preserves Birim Mobilya A.Ş. as Tenant #1 with authentic brand & 18mm System-32 defaults", () => {

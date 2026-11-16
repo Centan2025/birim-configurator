@@ -9,7 +9,7 @@ import { V3BrandBadge } from "../../../v3/design-system";
 import { decodeSharePayloadBase64Url, type VerifiedQuoteRecord } from "../../../lib/quote-codec";
 import { ShieldCheck, AlertCircle } from "lucide-react";
 
-export default function SharedProjectQuotePage() {
+function SharedProjectQuotePageInner() {
   const params = useParams<{ code: string }>();
   const searchParams = useSearchParams();
   const importProjectJSON = useConfiguratorStore((s) => s.importProjectJSON);
@@ -159,5 +159,13 @@ export default function SharedProjectQuotePage() {
         <V3UnifiedWorkspace initialMode="showroom" />
       </div>
     </div>
+  );
+}
+
+export default function SharedProjectQuotePage() {
+  return (
+    <React.Suspense fallback={null}>
+      <SharedProjectQuotePageInner />
+    </React.Suspense>
   );
 }

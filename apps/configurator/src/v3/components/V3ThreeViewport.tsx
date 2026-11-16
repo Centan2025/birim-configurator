@@ -73,6 +73,7 @@ import {
   createSculptedShoePairGroup,
 } from "../materials/wardrobePropsBuilder";
 import {
+  freezeStaticObject3DSubtree,
   preloadAllWardrobeGlbAssets,
   subscribeWardrobeGlbCatalogChange,
   subscribeWardrobeGlbRenderNeeded,
@@ -784,6 +785,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       bayIndex: number;
     } | null>(null);
     const engineeringBeaconGroupRef = useRef<THREE.Group | null>(null);
+    const interiorPropsGroupRef = useRef<THREE.Group | null>(null);
     const multiHoleMeshCacheRef = useRef<Map<string, THREE.InstancedMesh>>(new Map());
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1797,9 +1799,14 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
     }, []);
 
     useEffect(() => {
-      preloadAllWardrobeGlbAssets();
+      if (showInteriorProps3D) {
+        preloadAllWardrobeGlbAssets();
+      }
+    }, [showInteriorProps3D]);
+
+    useEffect(() => {
       const unsubRender = subscribeWardrobeGlbRenderNeeded(() => {
-        markShadowsAndRender();
+        needsRenderRef.current = true;
       });
       const unsubCatalog = subscribeWardrobeGlbCatalogChange(() => {
         setGlbCatalogRev((rev) => rev + 1);
@@ -1808,7 +1815,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         unsubRender();
         unsubCatalog();
       };
-    }, [markShadowsAndRender]);
+    }, []);
 
     const updateProjectedDimensionLabels = useCallback(() => {
       const curRenderer = rendererRef.current;
@@ -2134,6 +2141,12 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       activeModFrameGroup.name = "v3_active_module_frame";
       scene.add(activeModFrameGroup);
       activeModFrameGroupRef.current = activeModFrameGroup;
+
+      const interiorPropsGroup = new THREE.Group();
+      interiorPropsGroup.name = "v11_interior_props_3d";
+      interiorPropsGroup.raycast = () => {};
+      scene.add(interiorPropsGroup);
+      interiorPropsGroupRef.current = interiorPropsGroup;
 
       const engBeaconGroup = new THREE.Group();
       engBeaconGroup.name = "v11_engineering_beacons_3d";
@@ -2857,6 +2870,14 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               const deltaLiveZ = nextZ - dragModObj.position.z;
               const baseOrigin = calculateModulePlacement(dragModObj).origin;
               modObj3DRot.position.set(baseOrigin.x, dragModObj.position.y, baseOrigin.z + deltaLiveZ);
+              const propNodeRot = interiorPropsGroupRef.current?.children.find(
+                (ch) => ch.userData?.moduleIndex === activeDrag3D?.modIdx
+              );
+              if (propNodeRot) {
+                propNodeRot.position.copy(modObj3DRot.position);
+                propNodeRot.updateMatrix();
+                propNodeRot.updateMatrixWorld(true);
+              }
               if (selectionFrameGroupRef.current) selectionFrameGroupRef.current.position.set(0, 0, deltaLiveZ);
               if (activeModFrameGroupRef.current) activeModFrameGroupRef.current.position.set(0, 0, deltaLiveZ);
               liveDimDeltaRef.current = { dx: 0, dz: deltaLiveZ };
@@ -2955,6 +2976,14 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                 dragMod.position.y,
                 baseOrigin.z + deltaLiveZ
               );
+              const propNode3D = interiorPropsGroupRef.current?.children.find(
+                (ch) => ch.userData?.moduleIndex === activeDrag3D?.modIdx
+              );
+              if (propNode3D) {
+                propNode3D.position.copy(modObj3D.position);
+                propNode3D.updateMatrix();
+                propNode3D.updateMatrixWorld(true);
+              }
               if (selectionFrameGroupRef.current) {
                 selectionFrameGroupRef.current.position.set(deltaLiveX, 0, deltaLiveZ);
               }
@@ -4490,7 +4519,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       if (!meshGroup) return;
 
       const needsActiveModInSig = effectiveDoorsHiddenIn3D || cutawayActiveBay;
-      const viewSigSuffix = `|${doorOpenAngleDeg}:${drawerOpenMm}:${explodedFactor}:${effectiveDoorsHiddenIn3D ? 1 : 0}:${cutawayActiveBay ? 1 : 0}:${renderEdgeMode === "cad" ? 0 : showInteriorProps3D ? 1 : 0}:${renderEdgeMode}:${isXrayActive ? 1 : 0}`;
+      const viewSigSuffix = `|${doorOpenAngleDeg}:${drawerOpenMm}:${explodedFactor}:${effectiveDoorsHiddenIn3D ? 1 : 0}:${cutawayActiveBay ? 1 : 0}:${renderEdgeMode}:${isXrayActive ? 1 : 0}`;
       const moduleSigs = project.modules.map((mod, modIdx) =>
         `${computeModuleStructuralSignature(mod)}|ACT:${needsActiveModInSig && modIdx === activeModuleIndex ? activeBayIndex : -2}${viewSigSuffix}`
       );
@@ -4499,17 +4528,30 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         meshGroup.children.length === project.modules.length &&
         project.modules.every((m, idx) => meshGroup.children[idx]?.userData?.renderSig === moduleSigs[idx])
       ) {
+        let anyModTransformChanged = false;
         project.modules.forEach((m, idx) => {
           const child = meshGroup.children[idx];
           if (child) {
             child.userData.moduleIndex = idx;
             const pl = calculateModulePlacement(m);
-            child.position.set(pl.origin.x, pl.origin.y, pl.origin.z);
-            child.rotation.y = pl.rotationYRad;
+            if (
+              Math.abs(child.position.x - pl.origin.x) > 0.1 ||
+              Math.abs(child.position.y - pl.origin.y) > 0.1 ||
+              Math.abs(child.position.z - pl.origin.z) > 0.1 ||
+              Math.abs(child.rotation.y - pl.rotationYRad) > 0.001
+            ) {
+              child.position.set(pl.origin.x, pl.origin.y, pl.origin.z);
+              child.rotation.y = pl.rotationYRad;
+              anyModTransformChanged = true;
+            }
           }
         });
         updateSelectionAndActiveFrames();
-        markShadowsAndRender();
+        if (anyModTransformChanged) {
+          markShadowsAndRender();
+        } else {
+          requestRender();
+        }
         return;
       }
       solidMeshesCacheRef.current.dirty = true;
@@ -5086,322 +5128,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           }
         }
 
-        const shouldRenderProps =
-          !isStoreBatchDragging &&
-          renderEdgeMode !== "cad" &&
-          showInteriorProps3D &&
-          (doorsHiddenIn3D ||
-            cutawayActiveBay ||
-            doorOpenAngleDeg > 8 ||
-            Boolean(mod.isOpenFront) ||
-            mod.bays.some(
-              (b) =>
-                b.door.type === "open" ||
-                b.door.doorSystemId === "open" ||
-                Boolean(b.door.isGlassFramed) ||
-                b.door.crossSectionProfile === "glass_frame" ||
-                String(b.door.doorMaterialId || "").includes("glass")
-            ));
-
-        if (shouldRenderProps && mod.bays.length >= 1) {
-          const interiorPropsSig = JSON.stringify({
-            id: mod.id,
-            dim: mod.dimensions,
-            sub: mod.moduleSubType,
-            T: mod.carcass.panelThickness || 18,
-            pH: mod.carcass.plinthHeight ?? 100,
-            bays: mod.bays.map((b) => ({
-              sm: b.door?.slidingMountType || b.door?.doorSystemId,
-              s: b.shelves,
-              r: b.hangingRails,
-              dr: b.drawers,
-              sf: b.specialFittings,
-            })),
-          });
-          const cachedModProps = lifestylePropsCacheRef.current.get(interiorPropsSig);
-          if (cachedModProps) {
-            if (cachedModProps.parent) {
-              cachedModProps.parent.remove(cachedModProps);
-            }
-            cachedModProps.visible = true;
-            modContainer.add(cachedModProps);
-          } else {
-          const modPropsHolder = new THREE.Group();
-          modPropsHolder.name = `v3_cached_lifestyle_props_${mod.id}`;
-          modPropsHolder.userData = { isSharedCachedProps: true };
-          const T = mod.carcass.panelThickness || 18;
-          const plinthH = mod.carcass.plinthHeight ?? 100;
-          const innerH =
-            breakdown.netInnerHeight || Math.max(300, mod.dimensions.height - plinthH - 2 * T);
-          const modD = mod.dimensions.depth;
-          let bayStartX = T;
-
-          const disableRaycastRecursive = (grp: THREE.Object3D) => {
-            grp.raycast = () => {};
-            grp.children.forEach(disableRaycastRecursive);
-          };
-
-          const hasInsetSliding = mod.bays.some(
-            (b) =>
-              b.door?.slidingMountType === "inset_inside" ||
-              b.door?.doorSystemId === "sliding_inset"
-          );
-          const isCornerSubType =
-            mod.moduleSubType === "l_corner" ||
-            mod.moduleSubType === "corner_wardrobe" ||
-            mod.moduleSubType === "blind_corner";
-
-          mod.bays.forEach((bayObj, bIdx) => {
-            const bw =
-              breakdown.bayWidths[bIdx] ||
-              Math.round((mod.dimensions.width - (mod.bays.length + 1) * T) / mod.bays.length);
-            const propsGroup = new THREE.Group();
-            propsGroup.name = `v3_lifestyle_props_bay_${bIdx}`;
-
-            // Match exact physical chrome hanging-rail components generated in breakdown.components!
-            const bayRailComps = breakdown.components.filter(
-              (c) =>
-                c.role === "hanging_rail" &&
-                c.bayIndex === bIdx &&
-                c.dimensions.width >= c.dimensions.depth
-            );
-            const effectiveModD = isCornerSubType ? Math.min(modD, 600) : modD;
-            const frontSafeZ = hasInsetSliding ? effectiveModD - 66 : effectiveModD - 22;
-            const backSafeZ = T + 14;
-            const centerZ = (backSafeZ + frontSafeZ) * 0.5;
-
-            // Sorted shelves ascending so we can check clear headroom above EVERY shelf!
-            const sortedShelves = [...(bayObj.shelves || [])].sort(
-              (a, b) => a.elevationY - b.elevationY
-            );
-            const sortedRails = [...(bayObj.hangingRails || [])].sort(
-              (a, b) => (a.elevationY || 0) - (b.elevationY || 0)
-            );
-
-            // 1. Full-Scale 3D Hanging Garments on Contoured Wooden Hangers locked 1:1 to Chrome Rail Center
-            sortedRails.forEach((rail, rIdx) => {
-              const rawRailElev = rail.elevationY || 1650;
-              const clampedRailElev = Math.max(
-                48,
-                Math.min(Math.max(80, innerH - 36), rawRailElev)
-              );
-              const matchedRailComp =
-                bayRailComps.find((rc) => rc.id === rail.id) || bayRailComps[rIdx];
-
-              const railStartX = matchedRailComp ? matchedRailComp.position.x : bayStartX;
-              const railSpanW = matchedRailComp ? matchedRailComp.dimensions.width : bw;
-              const railCenterY = matchedRailComp
-                ? matchedRailComp.position.y + matchedRailComp.dimensions.height * 0.5
-                : plinthH + T + clampedRailElev + 12.5;
-              const railCenterZ = matchedRailComp
-                ? matchedRailComp.position.z + matchedRailComp.dimensions.depth * 0.5
-                : effectiveModD * 0.5 + 0.5;
-
-              // Respect any lower shelf (plus any storage box placed on it), lower rail, or drawer below this rail!
-              const obstaclesBelow = [
-                0,
-                ...sortedShelves
-                  .filter((s) => s.elevationY < clampedRailElev - 140)
-                  .map((s) => {
-                    const gapAboveShelf = clampedRailElev - (s.elevationY + T);
-                    const hasBoxUnderRail = gapAboveShelf > 720 && bw >= 420;
-                    return s.elevationY + T + (hasBoxUnderRail ? 152 : 0);
-                  }),
-                ...sortedRails
-                  .filter((r) => (r.elevationY || 0) < clampedRailElev - 220)
-                  .map((r) => (r.elevationY || 0) + 34),
-                ...(bayObj.drawers || [])
-                  .filter((d) => (d.elevationY || 0) < clampedRailElev - 100)
-                  .map((d) => (d.elevationY || 0) + d.height + 18),
-              ];
-              const floorObstacleY = Math.max(...obstaclesBelow);
-              const clearDropMm = clampedRailElev + 12.5 - floorObstacleY - 22;
-              if (clearDropMm < 330 || railSpanW < 210 || effectiveModD < 340) return;
-
-              const safeClearDepthZ = Math.max(
-                180,
-                2 * Math.min(railCenterZ - backSafeZ, frontSafeZ - railCenterZ)
-              );
-
-              // Strict non-overlapping hanger layout (~86.5° perpendicular hang, ~138mm garment thickness):
-              // sidePadX = 82mm keeps outer garments >=12mm clear of side walls; minStepX = 160mm prevents neighbor intersection!
-              const sidePadX = 82;
-              const innerSpanX = railSpanW - sidePadX * 2;
-              const minStepX = 215;
-              const garmentCount =
-                innerSpanX < 20
-                  ? 1
-                  : Math.max(1, Math.min(3, 1 + Math.floor(innerSpanX / minStepX)));
-
-              for (let g = 0; g < garmentCount; g++) {
-                const gx =
-                  garmentCount === 1
-                    ? railStartX + railSpanW * 0.5
-                    : railStartX +
-                      sidePadX +
-                      ((g + 0.5) / garmentCount) * Math.max(0, railSpanW - sidePadX * 2 + 28) -
-                      14;
-                const clearLeft = gx - (railStartX + 12);
-                const clearRight = railStartX + railSpanW - 12 - gx;
-                const neighborSlot =
-                  garmentCount === 1
-                    ? Math.min(clearLeft, clearRight) * 2
-                    : (railSpanW - sidePadX * 2 + 28) / garmentCount - 16;
-                const maxSlotWidthMm = Math.max(
-                  88,
-                  Math.min(neighborSlot, clearLeft * 2, clearRight * 2)
-                );
-
-                const desiredH = 835 + ((g + rIdx) % 3) * 26;
-                const garmentH = Math.min(desiredH, clearDropMm);
-                const shirtGrp = createSculptedHangingShirtGroup(
-                  g + bIdx * 2 + rIdx,
-                  garmentH,
-                  safeClearDepthZ,
-                  maxSlotWidthMm
-                );
-                shirtGrp.position.set(gx, railCenterY, railCenterZ);
-                propsGroup.add(shirtGrp);
-              }
-            });
-
-            // 2. U-Folded Rounded Knitwear / Towel Stacks & Two-Piece Lidded Storage Boxes on Shelves
-            sortedShelves.forEach((sh, sIdx) => {
-              const shelfTopLocalY = sh.elevationY + T;
-              const shelfTopWorldY = plinthH + T + shelfTopLocalY;
-              const nextShelf = sortedShelves[sIdx + 1];
-              const ceilingLocalY = nextShelf ? nextShelf.elevationY : innerH;
-              const clearHeadroom = ceilingLocalY - shelfTopLocalY;
-              // Skip if a hanging rail sits right inside this compartment directly above this shelf
-              const railInsideSpace = sortedRails.some(
-                (r) =>
-                  (r.elevationY || 0) > shelfTopLocalY + 60 &&
-                  (r.elevationY || 0) < ceilingLocalY - 40 &&
-                  clearHeadroom > 520
-              );
-              if (bw < 310 || modD < 300 || clearHeadroom < 135) return;
-
-              const isTopmostLuggageShelf = !nextShelf && sh.elevationY > innerH * 0.68;
-
-              if (isTopmostLuggageShelf) {
-                // Top luggage shelf: 1 or 2 two-piece lidded architectural linen boxes (matches image_12cb57.jpg!)
-                const boxH = Math.min(155, clearHeadroom - 28);
-                const boxD = Math.min(330, modD - 105);
-                if (bw >= 680) {
-                  const boxW = Math.min(300, bw * 0.41);
-                  [-0.24, 0.24].forEach((frac) => {
-                    const bGrp = createLiddedStorageBoxGroup(boxW, boxH, boxD);
-                    bGrp.position.set(bayStartX + bw * (0.5 + frac), shelfTopWorldY, centerZ);
-                    propsGroup.add(bGrp);
-                  });
-                } else {
-                  const boxW = Math.min(330, bw * 0.64);
-                  const bGrp = createLiddedStorageBoxGroup(boxW, boxH, boxD);
-                  bGrp.position.set(bayStartX + bw * 0.5, shelfTopWorldY, centerZ);
-                  propsGroup.add(bGrp);
-                }
-              } else if (!railInsideSpace) {
-                if (sIdx % 2 === 0) {
-                  // U-folded rounded knitwear/towel stack
-                  const layers = clearHeadroom >= 210 ? 4 : 3;
-                  const stackW = Math.min(345, bw >= 640 ? bw * 0.44 : bw * 0.68);
-                  const stackD = Math.min(350, modD - 95);
-                  const knitGrp = createFoldedKnitwearStackGroup(
-                    stackW,
-                    stackD,
-                    layers,
-                    bIdx + sIdx
-                  );
-                  knitGrp.position.set(
-                    bw >= 640 ? bayStartX + bw * 0.29 : bayStartX + bw * 0.5,
-                    shelfTopWorldY,
-                    centerZ
-                  );
-                  propsGroup.add(knitGrp);
-
-                  if (bw >= 640 && clearHeadroom >= 165) {
-                    const boxW = Math.min(270, bw * 0.39);
-                    const boxH = Math.min(148, clearHeadroom - 24);
-                    const boxD = Math.min(320, modD - 105);
-                    const bGrp = createLiddedStorageBoxGroup(boxW, boxH, boxD);
-                    bGrp.position.set(bayStartX + bw * 0.73, shelfTopWorldY, centerZ);
-                    propsGroup.add(bGrp);
-                  }
-                } else {
-                  // Architectural two-piece lidded storage box
-                  const boxW = Math.min(330, bw * 0.64);
-                  const boxH = Math.min(150, clearHeadroom - 26);
-                  const boxD = Math.min(325, modD - 105);
-                  const bGrp = createLiddedStorageBoxGroup(boxW, boxH, boxD);
-                  bGrp.position.set(bayStartX + bw * 0.5, shelfTopWorldY, centerZ);
-                  propsGroup.add(bGrp);
-                }
-              } else if (clearHeadroom > 720 && bw >= 420) {
-                // Base shelf underneath hanging shirts (e.g. above drawers, matches left compartment in image_12cb57.jpg!)
-                const boxW = Math.min(300, bw * 0.56);
-                const boxH = 138;
-                const boxD = Math.min(315, modD - 115);
-                const bGrp = createLiddedStorageBoxGroup(boxW, boxH, boxD);
-                bGrp.position.set(bayStartX + bw * 0.48, shelfTopWorldY, centerZ);
-                propsGroup.add(bGrp);
-              }
-            });
-
-            // 3. Sculpted 3D Lasted Shoes on Inclined Shoe Racks (Ayakkabılık) & Open Wardrobe Floors
-            const shoeRacks = (bayObj.specialFittings || []).filter((f) => f.type === "shoe_rack");
-            const maxShoeDepthMm = Math.max(200, frontSafeZ - backSafeZ - 24);
-            shoeRacks.forEach((sr, srIdx) => {
-              const rackWorldY = plinthH + T + (sr.elevationY || 180) + 18;
-              const pairCount = Math.max(1, Math.min(2, Math.floor((bw - 40) / 285)));
-              const stepP = (bw - 50) / pairCount;
-              for (let p = 0; p < pairCount; p++) {
-                const shoePair = createSculptedShoePairGroup(p + srIdx + bIdx, maxShoeDepthMm);
-                shoePair.position.set(
-                  bayStartX + 25 + stepP * (p + 0.5),
-                  rackWorldY,
-                  centerZ
-                );
-                shoePair.rotation.x = 0.24; // Angled forward matching inclined shoe-rack shelf
-                propsGroup.add(shoePair);
-              }
-            });
-
-            const hasLowDrawer = (bayObj.drawers || []).some((d) => (d.elevationY || 0) < 280);
-            const hasLowShoeRack = shoeRacks.some((sr) => (sr.elevationY || 0) < 260);
-            const hasLowHangingShirtsToFloor = sortedRails.some(
-              (r) => (r.elevationY || 0) > 650 && (r.elevationY || 0) < 1150 && !hasLowDrawer
-            );
-            if (
-              !hasLowDrawer &&
-              !hasLowShoeRack &&
-              !hasLowHangingShirtsToFloor &&
-              bIdx % 2 === 0 &&
-              bw >= 420 &&
-              mod.dimensions.height >= 1400
-            ) {
-              const floorTopY = plinthH + T;
-              const shoePair = createSculptedShoePairGroup(bIdx, maxShoeDepthMm);
-              shoePair.position.set(bayStartX + bw * 0.5, floorTopY, centerZ + 6);
-              propsGroup.add(shoePair);
-            }
-
-            disableRaycastRecursive(propsGroup);
-            modPropsHolder.add(propsGroup);
-            bayStartX += bw + T;
-          });
-          while (lifestylePropsCacheRef.current.size >= 32) {
-            const oldestKey = lifestylePropsCacheRef.current.keys().next().value;
-            if (!oldestKey) break;
-            const evictedGrp = lifestylePropsCacheRef.current.get(oldestKey);
-            lifestylePropsCacheRef.current.delete(oldestKey);
-            if (evictedGrp && !evictedGrp.parent) {
-              disposeObject3DTree(evictedGrp);
-            }
-          }
-          lifestylePropsCacheRef.current.set(interiorPropsSig, modPropsHolder);
-          modContainer.add(modPropsHolder);
-          }
-        }
+        // Interior styling props are managed in dedicated `interiorPropsGroupRef` layer (zero rebuild on door/material edits!)
 
         if (
           !isXrayActive &&
@@ -5625,8 +5352,6 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       doorsHiddenIn3D,
       effectiveDoorsHiddenIn3D,
       cutawayActiveBay,
-      showInteriorProps3D,
-      glbCatalogRev,
       theme,
       renderEdgeMode,
       isXrayActive,
@@ -5635,6 +5360,373 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       isXrayActive ? storeBom : null,
       requestRender,
       updateSelectionAndActiveFrames,
+    ]);
+
+    // Dedicated O(1) Interior Wardrobe Styling Props Layer (`Eşyalar`) — Decoupled from Cabinet Mesh Rebuilds!
+    useEffect(() => {
+      if (paused) return;
+      const propsRoot = interiorPropsGroupRef.current;
+      if (!propsRoot) return;
+
+      // Instant 0.01ms GPU visibility toggle without disposing or rebuilding any prop geometry!
+      if (!showInteriorProps3D || renderEdgeMode === "cad" || isXrayActive) {
+        if (propsRoot.visible) {
+          propsRoot.visible = false;
+          requestRender();
+        }
+        return;
+      }
+
+      // Skip rebuilding props during active slider/pointer batch drags so dragging stays locked at 60 FPS!
+      if (isStoreBatchDragging) {
+        return;
+      }
+
+      propsRoot.visible = true;
+      const isMultiModuleScene = project.modules.length > 2;
+      const maxGarmentsPerRail = isMultiModuleScene ? 2 : 3;
+
+      const nextHolders: THREE.Group[] = [];
+
+      project.modules.forEach((mod, modIdx) => {
+        if (mod.category === "complementary" || mod.bays.length < 1) return;
+
+        const isModPropsVisible =
+          effectiveDoorsHiddenIn3D ||
+          (cutawayActiveBay && modIdx === activeModuleIndex) ||
+          doorOpenAngleDeg > 8 ||
+          Boolean(mod.isOpenFront) ||
+          mod.bays.some(
+            (b) =>
+              b.door.type === "open" ||
+              b.door.doorSystemId === "open" ||
+              Boolean(b.door.isGlassFramed) ||
+              b.door.crossSectionProfile === "glass_frame" ||
+              String(b.door.doorMaterialId || "").includes("glass")
+          );
+
+        if (!isModPropsVisible) return;
+
+        // Compact, deterministic string signature (avoids expensive JSON.stringify on full bay objects!)
+        const T = mod.carcass.panelThickness || 18;
+        const plinthH = mod.carcass.plinthHeight ?? 100;
+        let interiorPropsSig = `${mod.id}|${mod.dimensions.width}x${mod.dimensions.height}x${mod.dimensions.depth}|${mod.moduleSubType || ""}|${T}:${plinthH}:G${maxGarmentsPerRail}:R${glbCatalogRev}`;
+        for (let b = 0; b < mod.bays.length; b++) {
+          const bay = mod.bays[b];
+          const sPart = (bay.shelves || []).map((sh) => `${sh.elevationY}:${sh.isHidden ? 1 : 0}`).join(",");
+          const rPart = (bay.hangingRails || []).map((hr) => `${hr.elevationY}:${hr.isHidden ? 1 : 0}`).join(",");
+          const dPart = (bay.drawers || []).map((dr) => `${dr.elevationY}:${dr.height}`).join(",");
+          const fPart = (bay.specialFittings || [])
+            .filter((sf) => sf.type === "shoe_rack" && !sf.isHidden)
+            .map((sf) => `${sf.elevationY}`)
+            .join(",");
+          interiorPropsSig += `|B${b}(${bay.customWidth ?? ""}:${bay.widthRatio ?? ""}:${bay.door?.slidingMountingType || bay.door?.doorSystemId || ""}|S[${sPart}]|R[${rPart}]|D[${dPart}]|F[${fPart}])`;
+        }
+
+        let modPropsHolder = lifestylePropsCacheRef.current.get(interiorPropsSig);
+        if (!modPropsHolder) {
+          modPropsHolder = new THREE.Group();
+          modPropsHolder.name = `v3_cached_lifestyle_props_${mod.id}`;
+          modPropsHolder.userData = { isSharedCachedProps: true };
+          modPropsHolder.raycast = () => {};
+
+          const breakdown = generateModuleGeometry(mod, {
+            doorOpenAngleDeg: 0,
+            drawerOpenMm: 0,
+            explodedFactor: 0,
+          });
+          const innerH =
+            breakdown.netInnerHeight || Math.max(300, mod.dimensions.height - plinthH - 2 * T);
+          const modD = mod.dimensions.depth;
+          let bayStartX = T;
+
+          const hasInsetSliding = mod.bays.some(
+            (b) =>
+              b.door?.slidingMountingType === "inset_inside" ||
+              b.door?.doorSystemId === "sliding_bottom_rolling"
+          );
+          const isCornerSubType =
+            Boolean(mod.isCorner) ||
+            mod.moduleSubType === "l_corner" ||
+            mod.moduleSubType === "corner_wardrobe" ||
+            mod.moduleSubType === "blind_corner";
+
+          mod.bays.forEach((bayObj, bIdx) => {
+            const bw =
+              breakdown.bayWidths[bIdx] ||
+              Math.round((mod.dimensions.width - (mod.bays.length + 1) * T) / mod.bays.length);
+            const propsGroup = new THREE.Group();
+            propsGroup.name = `v3_lifestyle_props_bay_${bIdx}`;
+            propsGroup.raycast = () => {};
+
+            const bayRailComps = breakdown.components.filter(
+              (c) =>
+                c.role === "hanging_rail" &&
+                c.bayIndex === bIdx &&
+                c.dimensions.width >= c.dimensions.depth
+            );
+            const effectiveModD = isCornerSubType ? Math.min(modD, 600) : modD;
+            const frontSafeZ = hasInsetSliding ? effectiveModD - 66 : effectiveModD - 22;
+            const backSafeZ = T + 14;
+            const centerZ = (backSafeZ + frontSafeZ) * 0.5;
+
+            const sortedShelves = [...(bayObj.shelves || [])]
+              .filter((sh) => !sh.isHidden)
+              .sort((a, b) => a.elevationY - b.elevationY);
+            const sortedRails = [...(bayObj.hangingRails || [])]
+              .filter((hr) => !hr.isHidden)
+              .sort((a, b) => (a.elevationY || 0) - (b.elevationY || 0));
+
+            sortedRails.forEach((rail, rIdx) => {
+              const rawRailElev = rail.elevationY || 1650;
+              const clampedRailElev = Math.max(
+                48,
+                Math.min(Math.max(80, innerH - 36), rawRailElev)
+              );
+              const matchedRailComp =
+                bayRailComps.find((rc) => rc.id === rail.id) || bayRailComps[rIdx];
+
+              const railStartX = matchedRailComp ? matchedRailComp.position.x : bayStartX;
+              const railSpanW = matchedRailComp ? matchedRailComp.dimensions.width : bw;
+              const railCenterY = matchedRailComp
+                ? matchedRailComp.position.y + matchedRailComp.dimensions.height * 0.5
+                : plinthH + T + clampedRailElev + 12.5;
+              const railCenterZ = matchedRailComp
+                ? matchedRailComp.position.z + matchedRailComp.dimensions.depth * 0.5
+                : effectiveModD * 0.5 + 0.5;
+
+              const obstaclesBelow = [
+                0,
+                ...sortedShelves
+                  .filter((sh) => sh.elevationY < clampedRailElev - 140)
+                  .map((sh) => {
+                    const gapAboveShelf = clampedRailElev - (sh.elevationY + T);
+                    const hasBoxUnderRail = gapAboveShelf > 720 && bw >= 420;
+                    return sh.elevationY + T + (hasBoxUnderRail ? 152 : 0);
+                  }),
+                ...sortedRails
+                  .filter((r) => (r.elevationY || 0) < clampedRailElev - 220)
+                  .map((r) => (r.elevationY || 0) + 34),
+                ...(bayObj.drawers || [])
+                  .filter((d) => (d.elevationY || 0) < clampedRailElev - 100)
+                  .map((d) => (d.elevationY || 0) + d.height + 18),
+              ];
+              const floorObstacleY = Math.max(...obstaclesBelow);
+              const clearDropMm = clampedRailElev + 12.5 - floorObstacleY - 22;
+              if (clearDropMm < 330 || railSpanW < 210 || effectiveModD < 340) return;
+
+              const safeClearDepthZ = Math.max(
+                180,
+                2 * Math.min(railCenterZ - backSafeZ, frontSafeZ - railCenterZ)
+              );
+
+              const sidePadX = 82;
+              const innerSpanX = railSpanW - sidePadX * 2;
+              const minStepX = 225;
+              const garmentCount =
+                innerSpanX < 20
+                  ? 1
+                  : Math.max(1, Math.min(maxGarmentsPerRail, 1 + Math.floor(innerSpanX / minStepX)));
+
+              for (let g = 0; g < garmentCount; g++) {
+                const gx =
+                  garmentCount === 1
+                    ? railStartX + railSpanW * 0.5
+                    : railStartX +
+                      sidePadX +
+                      ((g + 0.5) / garmentCount) * Math.max(0, railSpanW - sidePadX * 2 + 28) -
+                      14;
+                const clearLeft = gx - (railStartX + 12);
+                const clearRight = railStartX + railSpanW - 12 - gx;
+                const neighborSlot =
+                  garmentCount === 1
+                    ? Math.min(clearLeft, clearRight) * 2
+                    : (railSpanW - sidePadX * 2 + 28) / garmentCount - 16;
+                const maxSlotWidthMm = Math.max(
+                  88,
+                  Math.min(neighborSlot, clearLeft * 2, clearRight * 2)
+                );
+
+                const desiredH = 835 + ((g + rIdx) % 3) * 26;
+                const garmentH = Math.min(desiredH, clearDropMm);
+                const shirtGrp = createSculptedHangingShirtGroup(
+                  g + bIdx * 2 + rIdx,
+                  garmentH,
+                  safeClearDepthZ,
+                  maxSlotWidthMm
+                );
+                shirtGrp.position.set(gx, railCenterY, railCenterZ);
+                propsGroup.add(shirtGrp);
+              }
+            });
+
+            sortedShelves.forEach((sh, sIdx) => {
+              const shelfTopLocalY = sh.elevationY + (sh.thickness || T);
+              const shelfTopWorldY = plinthH + T + shelfTopLocalY;
+              const nextShelf = sortedShelves[sIdx + 1];
+              const ceilingLocalY = nextShelf ? nextShelf.elevationY : innerH;
+              const clearHeadroom = ceilingLocalY - shelfTopLocalY;
+              const railInsideSpace = sortedRails.some(
+                (r) =>
+                  (r.elevationY || 0) > shelfTopLocalY + 60 &&
+                  (r.elevationY || 0) < ceilingLocalY - 40 &&
+                  clearHeadroom > 520
+              );
+              if (bw < 310 || modD < 300 || clearHeadroom < 135) return;
+
+              const isTopmostLuggageShelf = !nextShelf && sh.elevationY > innerH * 0.68;
+
+              if (isTopmostLuggageShelf) {
+                const boxH = Math.min(155, clearHeadroom - 28);
+                const boxD = Math.min(330, modD - 105);
+                if (bw >= 680 && !isMultiModuleScene) {
+                  const boxW = Math.min(300, bw * 0.41);
+                  [-0.24, 0.24].forEach((frac) => {
+                    const bGrp = createLiddedStorageBoxGroup(boxW, boxH, boxD);
+                    bGrp.position.set(bayStartX + bw * (0.5 + frac), shelfTopWorldY, centerZ);
+                    propsGroup.add(bGrp);
+                  });
+                } else {
+                  const boxW = Math.min(330, bw * 0.64);
+                  const bGrp = createLiddedStorageBoxGroup(boxW, boxH, boxD);
+                  bGrp.position.set(bayStartX + bw * 0.5, shelfTopWorldY, centerZ);
+                  propsGroup.add(bGrp);
+                }
+              } else if (!railInsideSpace) {
+                if (sIdx % 2 === 0) {
+                  const layers = clearHeadroom >= 210 ? 3 : 2;
+                  const stackW = Math.min(345, bw >= 640 ? bw * 0.44 : bw * 0.68);
+                  const stackD = Math.min(350, modD - 95);
+                  const knitGrp = createFoldedKnitwearStackGroup(
+                    stackW,
+                    stackD,
+                    layers,
+                    bIdx + sIdx
+                  );
+                  knitGrp.position.set(
+                    bw >= 640 && !isMultiModuleScene ? bayStartX + bw * 0.29 : bayStartX + bw * 0.5,
+                    shelfTopWorldY,
+                    centerZ
+                  );
+                  propsGroup.add(knitGrp);
+
+                  if (bw >= 640 && clearHeadroom >= 165 && !isMultiModuleScene) {
+                    const boxW = Math.min(270, bw * 0.39);
+                    const boxH = Math.min(148, clearHeadroom - 24);
+                    const boxD = Math.min(320, modD - 105);
+                    const bGrp = createLiddedStorageBoxGroup(boxW, boxH, boxD);
+                    bGrp.position.set(bayStartX + bw * 0.73, shelfTopWorldY, centerZ);
+                    propsGroup.add(bGrp);
+                  }
+                } else {
+                  const boxW = Math.min(330, bw * 0.64);
+                  const boxH = Math.min(150, clearHeadroom - 26);
+                  const boxD = Math.min(325, modD - 105);
+                  const bGrp = createLiddedStorageBoxGroup(boxW, boxH, boxD);
+                  bGrp.position.set(bayStartX + bw * 0.5, shelfTopWorldY, centerZ);
+                  propsGroup.add(bGrp);
+                }
+              } else if (clearHeadroom > 720 && bw >= 420) {
+                const boxW = Math.min(300, bw * 0.56);
+                const boxH = 138;
+                const boxD = Math.min(315, modD - 115);
+                const bGrp = createLiddedStorageBoxGroup(boxW, boxH, boxD);
+                bGrp.position.set(bayStartX + bw * 0.48, shelfTopWorldY, centerZ);
+                propsGroup.add(bGrp);
+              }
+            });
+
+            const shoeRacks = (bayObj.specialFittings || []).filter(
+              (f) => f.type === "shoe_rack" && !f.isHidden
+            );
+            const maxShoeDepthMm = Math.max(200, frontSafeZ - backSafeZ - 24);
+            shoeRacks.forEach((sr, srIdx) => {
+              const rackWorldY = plinthH + T + (sr.elevationY || 180) + 18;
+              const pairCount = isMultiModuleScene ? 1 : Math.max(1, Math.min(2, Math.floor((bw - 40) / 285)));
+              const stepP = (bw - 50) / pairCount;
+              for (let p = 0; p < pairCount; p++) {
+                const shoePair = createSculptedShoePairGroup(p + srIdx + bIdx, maxShoeDepthMm);
+                shoePair.position.set(
+                  bayStartX + 25 + stepP * (p + 0.5),
+                  rackWorldY,
+                  centerZ
+                );
+                shoePair.rotation.x = 0.24;
+                propsGroup.add(shoePair);
+              }
+            });
+
+            const hasLowDrawer = (bayObj.drawers || []).some((d) => (d.elevationY || 0) < 280);
+            const hasLowShoeRack = shoeRacks.some((sr) => (sr.elevationY || 0) < 260);
+            const hasLowHangingShirtsToFloor = sortedRails.some(
+              (r) => (r.elevationY || 0) > 650 && (r.elevationY || 0) < 1150 && !hasLowDrawer
+            );
+            if (
+              !hasLowDrawer &&
+              !hasLowShoeRack &&
+              !hasLowHangingShirtsToFloor &&
+              bIdx % 2 === 0 &&
+              bw >= 420 &&
+              mod.dimensions.height >= 1400
+            ) {
+              const floorTopY = plinthH + T;
+              const shoePair = createSculptedShoePairGroup(bIdx, maxShoeDepthMm);
+              shoePair.position.set(bayStartX + bw * 0.5, floorTopY, centerZ + 6);
+              propsGroup.add(shoePair);
+            }
+
+            modPropsHolder!.add(propsGroup);
+            bayStartX += bw + T;
+          });
+
+          freezeStaticObject3DSubtree(modPropsHolder, true);
+
+          while (lifestylePropsCacheRef.current.size >= 32) {
+            const oldestKey = lifestylePropsCacheRef.current.keys().next().value;
+            if (!oldestKey) break;
+            const evictedGrp = lifestylePropsCacheRef.current.get(oldestKey);
+            lifestylePropsCacheRef.current.delete(oldestKey);
+            if (evictedGrp && !evictedGrp.parent) {
+              disposeObject3DTree(evictedGrp);
+            }
+          }
+          lifestylePropsCacheRef.current.set(interiorPropsSig, modPropsHolder);
+        }
+
+        const pl = calculateModulePlacement(mod);
+        modPropsHolder.position.set(pl.origin.x, pl.origin.y, pl.origin.z);
+        modPropsHolder.rotation.y = pl.rotationYRad;
+        modPropsHolder.visible = true;
+        modPropsHolder.userData = {
+          ...modPropsHolder.userData,
+          isSharedCachedProps: true,
+          moduleIndex: modIdx,
+          moduleId: mod.id,
+        };
+        modPropsHolder.updateMatrix();
+        modPropsHolder.updateMatrixWorld(true);
+        modPropsHolder.matrixAutoUpdate = false;
+        nextHolders.push(modPropsHolder);
+      });
+
+      propsRoot.clear();
+      for (let i = 0; i < nextHolders.length; i++) {
+        propsRoot.add(nextHolders[i]);
+      }
+      requestRender();
+    }, [
+      paused,
+      project.modules,
+      showInteriorProps3D,
+      renderEdgeMode,
+      isXrayActive,
+      isStoreBatchDragging,
+      effectiveDoorsHiddenIn3D,
+      cutawayActiveBay,
+      activeModuleIndex,
+      doorOpenAngleDeg > 8,
+      glbCatalogRev,
+      requestRender,
     ]);
 
     useEffect(() => {

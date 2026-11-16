@@ -7,7 +7,7 @@ import { useConfiguratorStore } from "../../../store/useConfiguratorStore";
 import { V3UnifiedWorkspace } from "../../../v3/components/V3UnifiedWorkspace";
 import { Lock } from "lucide-react";
 
-export default function TenantWhiteLabelEmbedPage() {
+function TenantWhiteLabelEmbedPageInner() {
   const params = useParams<{ tenantSlug: string }>();
   const searchParams = useSearchParams();
   const slug = String(params?.tenantSlug || "birim").toLowerCase();
@@ -85,5 +85,13 @@ export default function TenantWhiteLabelEmbedPage() {
         Sepete / Teklife Aktar
       </button>
     </div>
+  );
+}
+
+export default function TenantWhiteLabelEmbedPage() {
+  return (
+    <React.Suspense fallback={null}>
+      <TenantWhiteLabelEmbedPageInner />
+    </React.Suspense>
   );
 }

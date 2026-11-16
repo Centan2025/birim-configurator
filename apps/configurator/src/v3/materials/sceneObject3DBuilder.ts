@@ -5,6 +5,7 @@ import { KTX2Loader } from "three/examples/jsm/loaders/KTX2Loader.js";
 import type { SceneObjectInstance } from "@birim/core";
 import { resolvePersistentGlbAssetUrl } from "@birim/integrations";
 import { markSharedGeometry, markSharedMaterial } from "./webglResourceGuard";
+import { decimateHighPolyBufferGeometry } from "./wardrobeGlbAssetLoader";
 
 let sharedSceneGltfLoader: GLTFLoader | null = null;
 const glbSceneCache = new Map<string, THREE.Group>();
@@ -54,35 +55,70 @@ export function getUniversalSceneGltfLoader(renderer?: THREE.WebGLRenderer | nul
   return loader;
 }
 
-function tagSelectableHierarchy(root: THREE.Object3D, sceneObjectId: string): void {
+const SHARED_SCENE_UNIT_BOX = markSharedGeometry(new THREE.BoxGeometry(1, 1, 1));
+const SHARED_INVISIBLE_HITBOX_MAT = markSharedMaterial(
+  new THREE.MeshBasicMaterial({ visible: false })
+);
+const sharedSceneMatPool = new Map<string, THREE.MeshStandardMaterial>();
+
+function tagSelectableHierarchy(
+  root: THREE.Object3D,
+  inner: THREE.Group,
+  sceneObjectId: string,
+  W: number,
+  H: number,
+  D: number
+): void {
   root.userData = {
     ...root.userData,
     isSceneObject: true,
     sceneObjectId,
   };
-  root.traverse((child) => {
+  // Disable expensive per-triangle raycasting on all inner visual/GLB meshes and freeze static matrices!
+  inner.traverse((child) => {
+    child.raycast = () => {};
     child.userData = {
       ...child.userData,
       isSceneObject: true,
       sceneObjectId,
     };
     if (child instanceof THREE.Mesh) {
-      child.castShadow = true;
+      child.castShadow = false;
       child.receiveShadow = true;
     }
+    if (child !== inner) {
+      child.updateMatrix();
+      child.matrixAutoUpdate = false;
+    }
   });
+  // Attach 1 single 12-triangle O(1) proxy hitbox (material.visible=false => 0 WebGL draw calls, instant raycast!)
+  const hitProxy = new THREE.Mesh(SHARED_SCENE_UNIT_BOX, SHARED_INVISIBLE_HITBOX_MAT);
+  hitProxy.scale.set(Math.max(20, W), Math.max(20, H), Math.max(20, D));
+  hitProxy.position.set(W / 2, H / 2, D / 2);
+  hitProxy.userData = {
+    isSceneObject: true,
+    sceneObjectId,
+    isSceneObjectHitbox: true,
+  };
+  inner.add(hitProxy);
 }
 
 function makeMat(hex: string, roughness = 0.5, metalness = 0.1, opacity = 1): THREE.MeshStandardMaterial {
-  return markSharedMaterial(
-    new THREE.MeshStandardMaterial({
-      color: new THREE.Color(hex),
-      roughness,
-      metalness,
-      transparent: opacity < 0.99,
-      opacity,
-    })
-  );
+  const key = `${hex}_${roughness.toFixed(2)}_${metalness.toFixed(2)}_${opacity.toFixed(2)}`;
+  let mat = sharedSceneMatPool.get(key);
+  if (!mat) {
+    mat = markSharedMaterial(
+      new THREE.MeshStandardMaterial({
+        color: new THREE.Color(hex),
+        roughness,
+        metalness,
+        transparent: opacity < 0.99,
+        opacity,
+      })
+    );
+    sharedSceneMatPool.set(key, mat);
+  }
+  return mat;
 }
 
 function addBox(
@@ -95,9 +131,10 @@ function addBox(
   z: number,
   mat: THREE.Material
 ): THREE.Mesh {
-  const geo = markSharedGeometry(new THREE.BoxGeometry(Math.max(2, w), Math.max(2, h), Math.max(2, d)));
-  const m = new THREE.Mesh(geo, mat);
+  const m = new THREE.Mesh(SHARED_SCENE_UNIT_BOX, mat);
+  m.scale.set(Math.max(2, w), Math.max(2, h), Math.max(2, d));
   m.position.set(x, y, z);
+  m.raycast = () => {};
   parent.add(m);
   return m;
 }
@@ -202,7 +239,7 @@ export function buildSceneObject3DGroup(
     }
   }
 
-  tagSelectableHierarchy(root, obj.id);
+  tagSelectableHierarchy(root, inner, obj.id, W, H, D);
   return root;
 }
 
@@ -248,6 +285,15 @@ async function loadCustomSceneGlbAsync(
       }
       if (!resolvedUrl) return null;
       const gltf: GLTF = await loader.loadAsync(resolvedUrl);
+      gltf.scene.traverse((child) => {
+        child.raycast = () => {};
+        if (child instanceof THREE.Mesh && child.geometry) {
+          child.geometry = decimateHighPolyBufferGeometry(child.geometry, 20);
+          markSharedGeometry(child.geometry);
+          child.castShadow = false;
+          child.receiveShadow = true;
+        }
+      });
       glbSceneCache.set(cacheKey, gltf.scene);
       return gltf.scene;
     } catch {

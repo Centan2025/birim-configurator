@@ -251,4 +251,129 @@ describe("V11.4 Studio UI, Fixed Shelf, System-32 Multi-Hole Shelf Snap, Perform
     expect(formatFindingForTier(sampleFinding as any, "simple").detail).not.toContain("DIN");
     expect(formatFindingForTier(sampleFinding as any, "factory").detail).toContain("DIN 68874");
   });
+
+  it("enforces V11.5 Next.js 15 App Router route/page export rules (fixes Vercel r2-upload build error)", () => {
+    const allowedRouteExports = new Set([
+      "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS",
+      "runtime", "dynamic", "dynamicParams", "revalidate", "fetchCache", "preferredRegion", "maxDuration"
+    ]);
+    const allowedPageExports = new Set([
+      "default", "metadata", "generateMetadata", "viewport", "generateViewport",
+      "dynamic", "dynamicParams", "revalidate", "fetchCache", "runtime", "preferredRegion", "maxDuration", "generateStaticParams"
+    ]);
+
+    function walkAppDir(dir: string, acc: string[] = []): string[] {
+      for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, ent.name);
+        if (ent.isDirectory()) walkAppDir(full, acc);
+        else if (/\.(ts|tsx)$/.test(ent.name)) acc.push(full);
+      }
+      return acc;
+    }
+
+    const appFiles = walkAppDir(path.resolve(__dirname, "../apps/configurator/src/app"));
+    expect(appFiles.length).toBeGreaterThan(15);
+
+    for (const file of appFiles) {
+      const base = path.basename(file);
+      if (!["route.ts", "route.tsx", "page.tsx", "page.ts", "layout.tsx", "layout.ts"].includes(base)) continue;
+      const content = fs.readFileSync(file, "utf8");
+      const namedMatches = [...content.matchAll(/^\s*export\s+(?:async\s+)?(?:function|const|let|var|class)\s+([A-Za-z0-9_]+)/gm)];
+      for (const m of namedMatches) {
+        const expName = m[1];
+        if (base.startsWith("route.")) {
+          expect(allowedRouteExports.has(expName)).toBe(true);
+        } else {
+          expect(allowedPageExports.has(expName)).toBe(true);
+        }
+      }
+    }
+
+    const { buildIsolatedConfiguratorR2Key, buildR2SigV4PutHeaders } = require("../apps/configurator/src/lib/r2-upload-helpers");
+    const key = buildIsolatedConfiguratorR2Key({
+      organizationId: "birim-org-01",
+      subFolder: "glb",
+      fileName: "wardrobe.glb",
+      timestampMs: 1700000000000,
+    });
+    expect(key).toBe("birim-org-01/configurator/glb/1700000000000-wardrobe.glb");
+    expect(typeof buildR2SigV4PutHeaders).toBe("function");
+  });
+
+  it("compresses >=900-tri GLB props by >12x, freezes static matrices, and decouples interiorPropsGroupRef from door animations", () => {
+    const THREE = require("three");
+    const {
+      decimateHighPolyBufferGeometry,
+    } = require("../apps/configurator/src/v3/materials/wardrobeGlbAssetLoader");
+    const {
+      createSculptedHangingShirtGroup,
+      createFoldedKnitwearStackGroup,
+      createLiddedStorageBoxGroup,
+      createSculptedShoePairGroup,
+    } = require("../apps/configurator/src/v3/materials/wardrobePropsBuilder");
+    const { buildSceneObject3DGroup } = require("../apps/configurator/src/v3/materials/sceneObject3DBuilder");
+
+    // 19,800-triangle sphere (simulates 19,517-tri shirt_baked.glb that previously escaped >20,500 threshold!)
+    const hiSphere = new THREE.SphereGeometry(220, 100, 99);
+    const rawTriCount = hiSphere.index ? hiSphere.index.count / 3 : hiSphere.attributes.position.count / 3;
+    expect(rawTriCount).toBeGreaterThan(19000);
+
+    const decimated = decimateHighPolyBufferGeometry(hiSphere, 13);
+    const decTriCount = decimated.index ? decimated.index.count / 3 : decimated.attributes.position.count / 3;
+    expect(decTriCount).toBeLessThan(1600);
+
+    // Build full bay interior props set & verify frozen matrices, zero shadows, zero raycast, ultra-low triangle count
+    const bayProps = new THREE.Group();
+    bayProps.add(createSculptedHangingShirtGroup(0, 820, 500, 145));
+    bayProps.add(createSculptedHangingShirtGroup(1, 820, 500, 145));
+    bayProps.add(createFoldedKnitwearStackGroup(300, 300, 3, 0));
+    bayProps.add(createLiddedStorageBoxGroup(280, 145, 290));
+    bayProps.add(createSculptedShoePairGroup(0, 300));
+
+    let totalPropTris = 0;
+    let unFrozenNodes = 0;
+    bayProps.traverse((obj: any) => {
+      if (obj !== bayProps && obj.parent !== bayProps && obj.matrixAutoUpdate !== false) {
+        unFrozenNodes++;
+      }
+      if (obj.isMesh && obj.geometry) {
+        expect(obj.castShadow).toBe(false);
+        const tris = obj.geometry.index
+          ? obj.geometry.index.count / 3
+          : obj.geometry.attributes.position.count / 3;
+        totalPropTris += tris;
+      }
+    });
+    expect(unFrozenNodes).toBe(0);
+    expect(totalPropTris).toBeLessThan(1500);
+
+    // Verify SceneObject 3D uses O(1) 12-triangle proxy hitbox and disables raycast on visual meshes
+    const soGrp = buildSceneObject3DGroup({
+      id: "so_fridge_1",
+      catalogId: "app_fridge_90",
+      name: "Gardırop Tipi Buzdolabı",
+      category: "appliance",
+      visualKind: "fridge_french_door",
+      position: { x: 0, y: 0, z: 0 },
+      dimensions: { width: 900, height: 1820, depth: 700 },
+      quantity: 1,
+      unitPriceEur: 1450,
+      commercialRole: "catalog_priced",
+    });
+    let hitboxCount = 0;
+    soGrp.traverse((ch: any) => {
+      if (ch.userData?.isSceneObjectHitbox) hitboxCount++;
+    });
+    expect(hitboxCount).toBe(1);
+
+    // Verify V3ThreeViewport decouples interiorPropsGroupRef from meshGroup viewSigSuffix
+    const vpSrc = fs.readFileSync(
+      path.resolve(__dirname, "../apps/configurator/src/v3/components/V3ThreeViewport.tsx"),
+      "utf8"
+    );
+    expect(vpSrc).toContain("v11_interior_props_3d");
+    expect(vpSrc).toContain("doorOpenAngleDeg > 8");
+    const sigLine = vpSrc.split("\n").find((l) => l.includes("const viewSigSuffix =")) || "";
+    expect(sigLine.includes("showInteriorProps3D")).toBe(false);
+  });
 });

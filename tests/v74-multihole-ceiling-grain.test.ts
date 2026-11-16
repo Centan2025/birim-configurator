@@ -376,10 +376,8 @@ describe("V7.4 — Çoklu Delik Sistemi (System 32), Mimari Tavan Tipleri ve Des
     expect(nextCfg).toContain("externalDir: true");
     expect(nextCfg).toContain('"@birim/integrations"');
 
-    const {
-      buildR2SigV4PutHeaders,
-      POST: postR2Upload,
-    } = require("../apps/configurator/src/app/api/integrations/r2-upload/route");
+    const { buildR2SigV4PutHeaders } = require("../apps/configurator/src/lib/r2-upload-helpers");
+    const { POST: postR2Upload } = require("../apps/configurator/src/app/api/integrations/r2-upload/route");
 
     const signed = buildR2SigV4PutHeaders({
       endpointUrl: "https://acc123.r2.cloudflarestorage.com",

@@ -519,6 +519,10 @@ export interface DoorConfig {
   frontFillerRightMm?: UnitLength;
   /** Klapa konumu: dış kapakla eş-düzlem (robot/95° menteşe) veya içerlek kayıt (110° düz menteşe) */
   frontFillerPosition?: "coplanar_front" | "recessed_inner";
+  /** Optional legacy hinge swing direction alias */
+  direction?: "left" | "right";
+  /** Optional legacy alias for slidingMountingType */
+  slidingMountType?: SlidingMountingType;
 }
 
 export interface SubDividerConfig {
@@ -668,6 +672,14 @@ export interface CarcassConfig {
   ledAlignShelfAndSide?: boolean; // Default true: locks shelf & vertical LEDs on one continuous plane
   ledChannelWidthMm?: number; // Default 12mm CNC groove width (6..32mm)
   ledChannelDepthMm?: number; // Default 8mm CNC groove depth (4..15mm)
+  /** Optional front material alias for legacy icon/preset comparators */
+  frontMaterialId?: string;
+  /** Optional carcass-level default sliding mounting system */
+  slidingMountingType?: SlidingMountingType;
+  /** Optional carcass-level default drawer box system */
+  drawerBoxSystem?: DrawerBoxSystemType;
+  /** Optional top construction mode alias */
+  topConstruction?: string;
 }
 
 export interface ModuleInstance {
@@ -675,6 +687,7 @@ export interface ModuleInstance {
   name: string;
   category: ModuleCategory;
   moduleFamilyId?: ModuleFamilyId;
+  moduleSubType?: string;
   templateId?: string;
   position: Position3D;
   rotation?: Rotation3D;
@@ -797,6 +810,7 @@ export interface SpaceDefinition {
   /** Structural wall substrate material for EN 14749 wall-hanger anchor verification */
   wallSubstrateType?: "reinforced_concrete" | "solid_brick" | "hollow_brick" | "aerated_concrete" | "drywall_reinforced" | "drywall_unreinforced";
   slopedCeiling?: SlopedCeilingConfig;
+  ceilingConfig?: SpaceCeilingConfig;
   elements: ArchitecturalElement[];
   floorPlanUnderlay?: FloorPlanUnderlay;
 }
