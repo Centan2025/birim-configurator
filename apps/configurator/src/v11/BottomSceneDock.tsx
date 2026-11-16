@@ -22,7 +22,7 @@ import { SectionPlaneMiniMap } from "./SectionPlaneMiniMap";
 export interface BottomSceneDockProps {
   activeModule?: ModuleInstance;
   doorOpenAngleDeg: number;
-  onChangeDoorAngle: (deg: number) => void;
+  onChangeDoorAngle: (deg: number, animated?: boolean) => void;
   doorsHidden: boolean;
   onToggleDoorsHidden: () => void;
   showDimensions: boolean;
@@ -364,7 +364,7 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
           <div className="flex items-center gap-2 px-1.5">
             <button
               type="button"
-              onClick={() => onChangeDoorAngle(doorOpenAngleDeg > 10 ? 0 : 82)}
+              onClick={() => onChangeDoorAngle(doorOpenAngleDeg > 10 ? 0 : 82, true)}
               title={doorOpenAngleDeg > 10 ? "Kapakları Kapat" : "Kapakları Aç"}
               className={`h-8 px-2.5 rounded-full flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer ${
                 doorOpenAngleDeg > 10
@@ -383,7 +383,7 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
               max={85}
               step={1}
               value={Math.round(doorOpenAngleDeg)}
-              onChange={(e) => onChangeDoorAngle(Number(e.target.value))}
+              onChange={(e) => onChangeDoorAngle(Number(e.target.value), false)}
               className="hidden sm:block w-18 accent-[#141413] h-1.5 bg-[#DFD9CE] rounded-full cursor-pointer"
             />
             <span className="hidden md:inline-block w-8 font-mono text-[10.5px] text-[#78716C]">

@@ -413,8 +413,8 @@ export function generateBOMForProject(
     let modGrainSig = "";
     if (grainContinuityMap.size > 0) {
       grainContinuityMap.forEach((gv, gk) => {
-        if (gk.startsWith(module.id) || module.bays.some((b) => b.door?.id && gk.startsWith(b.door.id))) {
-          modGrainSig += `${gk}:${gv.groupId}:${gv.sequenceLabel}:${gv.offsetXMm}:${gv.offsetYMm};`;
+        if (gv.moduleId === module.id && gk === `${gv.moduleId}::${gv.componentId}`) {
+          modGrainSig += `${gv.componentId}:${gv.grainGroupId}:${gv.sequenceLabel}:${gv.offsetXMm}:${gv.offsetYMm};`;
         }
       });
     }
@@ -1128,7 +1128,17 @@ export function generateBOMForProject(
         };
         const isFixedOrApplianceShelf =
           comp.label.includes("Sabit") || comp.label.includes("Taşıyıcı Tabla");
-        if (isFixedOrApplianceShelf) {
+        const isRafixShelf = comp.label.includes("Rafix");
+        if (isFixedOrApplianceShelf && isRafixShelf) {
+          addHardware(
+            "HW_RAFIX_20_SET",
+            "Häfele Rafix 20 Sabit Raf Gövdesi + Ø5mm Pim [262.34.502]",
+            "connector",
+            4,
+            "adet",
+            0.55
+          );
+        } else if (isFixedOrApplianceShelf) {
           addHardware(
             "HW_MINIFIX_SET",
             "Häfele Minifix 15 + Mil Bağlantı Elemanı",
@@ -1479,7 +1489,7 @@ export function generateBOMForProject(
           module.componentGrainOverrides?.__drawers__ ||
           module.componentGrainOverrides?.__doors__ ||
           module.componentGrainOverrides?.__all__;
-        const drwContAssign = grainContinuityMap.get(comp.id);
+        const drwContAssign = grainContinuityMap.get(`${module.id}::${comp.id}`) || grainContinuityMap.get(comp.id);
         grain = mat.hasGrain ? (drwGrain === "crosswise" ? "crosswise" : "lengthwise") : "none";
         const isVertContDrawer = Boolean(drwContAssign && drwContAssign.grainDirection === "lengthwise" && mat.hasGrain);
         length = isVertContDrawer ? comp.dimensions.height : comp.dimensions.width;
@@ -1752,22 +1762,63 @@ export function generateBOMForProject(
         ((module.position?.y || 0) >= 150 && (module.carcass.plinthHeight ?? 0) === 0);
 
       // Compute fixed & appliance-carrier shelf Y offsets on outer side panels so Minifix/Dowel rows are drilled accurately!
-      const sideFixedShelfYs =
+      const sideFixedShelfSplit =
         comp.role === "carcass_side_left" || comp.role === "carcass_side_right"
           ? (() => {
               const sideBaseY = comp.position.y || 0;
+              const panelT_fs = module.carcass.panelThickness || 18;
+              const plinth_fs = module.carcass.plinthHeight || 0;
               const adjBay =
                 comp.role === "carcass_side_right"
                   ? module.bays[Math.max(0, module.bays.length - 1)]
                   : module.bays[0];
-              const shelfYs = (adjBay?.shelves || [])
-                .filter((s) => s.isFixed)
-                .map((s) => roundMm((module.carcass.plinthHeight || 0) + (module.carcass.panelThickness || 18) + s.elevationY - sideBaseY, 2));
+              const minifixYs: number[] = [];
+              const rafixYs: number[] = [];
+              for (const s of adjBay?.shelves || []) {
+                if (s.isHidden || s.isGlass) continue;
+                const isFixedSh = s.isFixed === true || s.isAdjustable === false;
+                if (!isFixedSh) continue;
+                const shT = s.thickness || panelT_fs;
+                const centerY = roundMm(plinth_fs + panelT_fs + s.elevationY + shT / 2 - sideBaseY, 2);
+                if (s.fixedConnectorType === "rafix_20") rafixYs.push(centerY);
+                else minifixYs.push(centerY);
+              }
               const carrierComp = geo.components.find((gc) => gc.id === `${module.id}_appliance_shelf`);
               if (carrierComp) {
-                shelfYs.push(roundMm(carrierComp.position.y + carrierComp.dimensions.height / 2 - sideBaseY, 2));
+                minifixYs.push(roundMm(carrierComp.position.y + carrierComp.dimensions.height / 2 - sideBaseY, 2));
               }
-              return shelfYs;
+              return { minifixYs, rafixYs };
+            })()
+          : undefined;
+      const sideFixedShelfYs = sideFixedShelfSplit?.minifixYs;
+      const sideRafixShelfYs = sideFixedShelfSplit?.rafixYs;
+
+      const dividerFixedShelfSplit =
+        comp.role === "carcass_divider" && typeof comp.bayIndex === "number"
+          ? (() => {
+              const panelT_div = module.carcass.panelThickness || 18;
+              const lb = module.bays[comp.bayIndex];
+              const rb = module.bays[comp.bayIndex + 1];
+              const tJYs = tJunctionFixedShelfYs || [];
+              const leftMinifix: number[] = [];
+              const leftRafix: number[] = [];
+              const rightMinifix: number[] = [];
+              const rightRafix: number[] = [];
+              for (const s of lb?.shelves || []) {
+                if (s.isHidden || s.isGlass || (s.isAdjustable !== false && s.isFixed !== true)) continue;
+                const cy = roundMm(s.elevationY + (s.thickness || panelT_div) / 2, 2);
+                if (tJYs.some((ty) => Math.abs(ty - cy) <= 12)) continue;
+                if (s.fixedConnectorType === "rafix_20") leftRafix.push(cy);
+                else leftMinifix.push(cy);
+              }
+              for (const s of rb?.shelves || []) {
+                if (s.isHidden || s.isGlass || (s.isAdjustable !== false && s.isFixed !== true)) continue;
+                const cy = roundMm(s.elevationY + (s.thickness || panelT_div) / 2, 2);
+                if (tJYs.some((ty) => Math.abs(ty - cy) <= 12)) continue;
+                if (s.fixedConnectorType === "rafix_20") rightRafix.push(cy);
+                else rightMinifix.push(cy);
+              }
+              return { leftMinifix, leftRafix, rightMinifix, rightRafix };
             })()
           : undefined;
 
@@ -1905,6 +1956,11 @@ export function generateBOMForProject(
         hingePositionsBackY: partHingePositionsBackY,
         tJunctionFixedShelfYs,
         fixedShelfJointYs: sideFixedShelfYs && sideFixedShelfYs.length > 0 ? sideFixedShelfYs : undefined,
+        rafixShelfJointYs: sideRafixShelfYs && sideRafixShelfYs.length > 0 ? sideRafixShelfYs : undefined,
+        dividerLeftFixedShelfYs: dividerFixedShelfSplit?.leftMinifix.length ? dividerFixedShelfSplit.leftMinifix : undefined,
+        dividerRightFixedShelfYs: dividerFixedShelfSplit?.rightMinifix.length ? dividerFixedShelfSplit.rightMinifix : undefined,
+        dividerLeftRafixYs: dividerFixedShelfSplit?.leftRafix.length ? dividerFixedShelfSplit.leftRafix : undefined,
+        dividerRightRafixYs: dividerFixedShelfSplit?.rightRafix.length ? dividerFixedShelfSplit.rightRafix : undefined,
         ...(() => {
           const mhSpec = resolveMultiHoleSpec(module);
           const panelT_mh = module.carcass.panelThickness || 18;
@@ -1983,8 +2039,8 @@ export function generateBOMForProject(
           ? bay?.drawers.find((d) => `${d.id}_front` === comp.id)
           : undefined;
       const grainAssign =
-        grainContinuityMap.get(comp.id) ||
-        (comp.role.includes("door") && bay?.door?.id ? grainContinuityMap.get(bay.door.id) : undefined);
+        grainContinuityMap.get(`${module.id}::${comp.id}`) || grainContinuityMap.get(comp.id) ||
+        (comp.role.includes("door") && bay?.door?.id ? (grainContinuityMap.get(`${module.id}::${bay.door.id}`) || grainContinuityMap.get(bay.door.id)) : undefined);
       const grainGroupId =
         grainAssign?.grainGroupId ||
         drawerMatchForGrain?.grainGroupId ||

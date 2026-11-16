@@ -19,10 +19,12 @@ import {
   Zap,
   Scissors,
   Box,
+  AlertTriangle,
 } from "lucide-react";
+import type { EngineeringValidationFinding, RemediationProposal } from "@birim/core";
 import { BirimLogo } from "../v3/design-system";
 import type { UserExperienceTier } from "../store/useConfiguratorStore";
-import type { V11WorkspaceMode, V11CadSubMode } from "./v11Constants";
+import { formatFindingForTier, type V11WorkspaceMode, type V11CadSubMode } from "./v11Constants";
 
 export interface StudioHeaderBarProps {
   projectTitle: string;
@@ -38,6 +40,9 @@ export interface StudioHeaderBarProps {
   onRedo: () => void;
   totalPriceEur: number;
   blockingIssueCount: number;
+  engineeringFindings?: EngineeringValidationFinding[];
+  onApplyFindingFix?: (proposal: RemediationProposal) => void;
+  onFocusFinding?: (finding: EngineeringValidationFinding) => void;
   onOpenProjectModal: () => void;
   onOpenWizardModal: () => void;
   onOpenCommandSearch: () => void;
@@ -69,6 +74,9 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
     onRedo,
     totalPriceEur,
     blockingIssueCount,
+    engineeringFindings = [],
+    onApplyFindingFix,
+    onFocusFinding,
     onOpenProjectModal,
     onOpenWizardModal,
     onOpenCommandSearch,
@@ -85,17 +93,25 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
     onOpenSceneHubModal,
   }) => {
     const [outputsOpen, setOutputsOpen] = useState(false);
+    const [issuesOpen, setIssuesOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
+    const issuesRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-      if (!outputsOpen) return;
+      if (!outputsOpen && !issuesOpen) return;
       const onDown = (e: MouseEvent) => {
         if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
           setOutputsOpen(false);
         }
+        if (issuesRef.current && !issuesRef.current.contains(e.target as Node)) {
+          setIssuesOpen(false);
+        }
       };
       const onKey = (e: KeyboardEvent) => {
-        if (e.key === "Escape") setOutputsOpen(false);
+        if (e.key === "Escape") {
+          setOutputsOpen(false);
+          setIssuesOpen(false);
+        }
       };
       document.addEventListener("mousedown", onDown);
       window.addEventListener("keydown", onKey);
@@ -103,7 +119,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
         document.removeEventListener("mousedown", onDown);
         window.removeEventListener("keydown", onKey);
       };
-    }, [outputsOpen]);
+    }, [outputsOpen, issuesOpen]);
 
     const formattedPrice = new Intl.NumberFormat("tr-TR", {
       style: "currency",
@@ -240,6 +256,110 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                 );
               })}
             </div>
+
+            {/* Aktif Mühendislik Hata / Uyarı Açıklama Menüsü */}
+            {engineeringFindings.length > 0 && (
+              <div ref={issuesRef} className="relative">
+                <button
+                  type="button"
+                  data-testid="v11-header-issues-btn"
+                  onClick={() => setIssuesOpen((v) => !v)}
+                  className={`h-9 px-3 rounded-full border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                    blockingIssueCount > 0
+                      ? "bg-red-50 hover:bg-red-100 border-red-300 text-red-800"
+                      : "bg-amber-50 hover:bg-amber-100 border-amber-300 text-amber-900"
+                  }`}
+                  title="Projede tespit edilen hata ve önerilerin açıklamalarını gör"
+                >
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                  <span>
+                    {blockingIssueCount > 0
+                      ? `${blockingIssueCount} Hata`
+                      : `${engineeringFindings.length} Öneri`}
+                  </span>
+                </button>
+
+                {issuesOpen && (
+                  <div
+                    data-testid="v11-header-issues-popover"
+                    className="absolute right-0 top-full mt-2 w-96 max-w-[calc(100vw-24px)] max-h-[76vh] overflow-y-auto rounded-3xl bg-[#FAF8F4]/98 backdrop-blur-xl border border-[#DFD9CE] shadow-[0_24px_56px_rgba(20,20,19,0.18)] p-3.5 z-50 text-xs text-[#141413] space-y-2.5"
+                  >
+                    <div className="flex items-center justify-between pb-1.5 border-b border-[#E6E1D6]">
+                      <span className="font-bold text-[13px]">
+                        Tasarım Kontrol & Hata Açıklamaları ({engineeringFindings.length})
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setIssuesOpen(false)}
+                        className="w-6 h-6 rounded-full hover:bg-[#EFECE4] flex items-center justify-center cursor-pointer"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    {engineeringFindings.slice(0, 12).map((fd, idx) => {
+                      const fmt = formatFindingForTier(fd, experienceTier);
+                      const isErr = fd.severity === "error";
+                      return (
+                        <div
+                          key={`${fd.code}_${fd.targetId || idx}`}
+                          className={`p-3 rounded-2xl border space-y-1.5 ${
+                            isErr
+                              ? "bg-red-50/70 border-red-200"
+                              : "bg-white border-[#E5DFD3]"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-bold flex items-center gap-1.5">
+                              <span
+                                className={`w-2 h-2 rounded-full shrink-0 ${
+                                  isErr ? "bg-red-600" : "bg-amber-500"
+                                }`}
+                              />
+                              <span>{fmt.title}</span>
+                            </span>
+                            {onFocusFinding && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onFocusFinding(fd);
+                                  setIssuesOpen(false);
+                                }}
+                                className="text-[10.5px] font-semibold text-[#6B4F28] hover:underline cursor-pointer shrink-0"
+                              >
+                                Göster →
+                              </button>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-[#57534E] leading-relaxed">
+                            {fmt.detail}
+                          </p>
+                          {fd.remediationProposals &&
+                            fd.remediationProposals.length > 0 &&
+                            onApplyFindingFix && (
+                              <div className="flex flex-wrap gap-1.5 pt-1">
+                                {fd.remediationProposals.slice(0, 2).map((prop) => (
+                                  <button
+                                    key={prop.id}
+                                    type="button"
+                                    onClick={() => {
+                                      onApplyFindingFix(prop);
+                                      setIssuesOpen(false);
+                                    }}
+                                    className="px-3 py-1 rounded-full bg-[#141413] hover:bg-[#292524] text-white text-[10.5px] font-semibold cursor-pointer transition"
+                                  >
+                                    ✓ Uygula: {prop.label}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Çıktılar, Teknik Araçlar ve ERP Menüsü */}
             <div ref={menuRef} className="relative">

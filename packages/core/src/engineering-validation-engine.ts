@@ -80,7 +80,8 @@ export interface RemediationProposal {
     | "increase_hinge_count"
     | "confirm_wall_substrate"
     | "upgrade_wet_zone_board"
-    | "switch_topology_sides_through";
+    | "switch_topology_sides_through"
+    | "convert_mid_shelf_to_fixed";
   patchPayload: Record<string, number | string | boolean>;
 }
 
@@ -316,8 +317,9 @@ function evaluateUnifiedEngineeringModelUncached(
 
   const findingsMap = new Map<string, EngineeringValidationFinding>();
   const addFinding = (f: EngineeringValidationFinding) => {
-    const key = `${f.code}::${f.targetComponentId || f.targetId || "global"}`;
-    if (!findingsMap.has(key)) {
+    const key = `${f.code}::${f.targetId || f.targetComponentId || "global"}`;
+    const prev = findingsMap.get(key);
+    if (!prev || (!prev.remediationProposals?.length && f.remediationProposals?.length) || (!prev.worldPositionMm && f.worldPositionMm)) {
       findingsMap.set(key, f);
     }
   };
@@ -1066,7 +1068,64 @@ function evaluateUnifiedEngineeringModelUncached(
           ? "metal"
           : "melamine";
       const designLoadKgPerM =
-        mod.category === "kitchen_tall" || mod.name.toLowerCase().includes("kitap") ? 45 : 35;
+        mod.category === "kitchen_tall" || mod.name.toLowerCase().includes("kitap") ? 45 : 28;
+
+      // Tall multi-shelf bay structural fixed tie check (DIN 68871 / EN 14749 Konstruktionsboden)
+      const visibleBayShelves = bay.shelves.filter((s) => !s.isHidden);
+      const hasFixedTieInBay = visibleBayShelves.some(
+        (s) => s.isAdjustable === false || s.isFixed === true
+      );
+      const hasPulloutFrameInBay = (bay.specialFittings || []).some(
+        (f) => !f.isHidden && f.type === "pantry_pullout"
+      );
+      if (
+        mod.dimensions.height >= 1800 &&
+        mod.category !== "complementary" &&
+        visibleBayShelves.length >= 3 &&
+        !hasFixedTieInBay &&
+        bay.drawers.length === 0 &&
+        !hasPulloutFrameInBay
+      ) {
+        const midY = netInnerH * 0.5;
+        const bestMidShelf = [...visibleBayShelves].sort(
+          (a, b) => Math.abs(a.elevationY - midY) - Math.abs(b.elevationY - midY)
+        )[0];
+        addFinding({
+          severity: "warning",
+          code: "INFO_TALL_CARCASS_NEEDS_FIXED_SHELF",
+          message: `"${mod.name}" Bölme ${bayIdx + 1}: Çok raflı yüksek dolapta (${mod.dimensions.height}mm) tüm raflar hareketli seçilmiş; dikmelerin bel vermemesi için orta kotta en az 1 Sabit Taşıyıcı Raf önerilir.`,
+          targetId: `bay_${bayIdx}`,
+          targetModuleId: mod.id,
+          targetComponentId: bestMidShelf?.id,
+          compatibilityStatus: "COMPATIBLE_WITH_CONDITIONS",
+          sourceId: "SRC_STD_ISO7170_2021",
+          ruleNature: "ENGINEERING_VALIDITY",
+          worldPositionMm: {
+            x: roundGeometryMm(mod.position.x + bayCursorX + bayW / 2),
+            y: roundGeometryMm(mod.position.y + plinthH + T + (bestMidShelf?.elevationY || midY)),
+            z: roundGeometryMm(mod.position.z + mod.dimensions.depth * 0.5),
+          },
+          suggestions: [
+            "Orta kottaki rafı Minifix/Kavela veya Rafix 20 bağlantılı Sabit Taşıyıcı Raf yapın.",
+          ],
+          remediationProposals: bestMidShelf
+            ? [
+                {
+                  id: `fix_mid_fixed_shelf_${mod.id}_${bayIdx}`,
+                  label: "Orta Rafı Sabit Taşıyıcı Raf Yap",
+                  description:
+                    "Orta kottaki rafı Minifix + Kavela bağlantılı sabit taşıyıcı rafa dönüştürerek yan dikmeleri birbirine kilitler.",
+                  requiresExplicitUserApproval: true,
+                  targetModuleId: mod.id,
+                  targetBayIndex: bayIdx,
+                  targetComponentId: bestMidShelf.id,
+                  patchKind: "convert_mid_shelf_to_fixed",
+                  patchPayload: { shelfId: bestMidShelf.id },
+                },
+              ]
+            : undefined,
+        });
+      }
 
       bay.shelves.forEach((sh) => {
         if (sh.isHidden) return;
@@ -1074,9 +1133,10 @@ function evaluateUnifiedEngineeringModelUncached(
         const shCat = sh.isGlass ? "glass" : baseShelfMatCat;
         const shDepth = Math.max(150, netInnerD - (sh.frontSetbackMm ?? 15));
         const rawDefl = calculateShelfDeflection(bayW, shDepth, shThick, shCat, designLoadKgPerM);
-        // Fixed cam-locked shelves supported along the rear grooved/flush back panel act as 3-edge supported plates (factor 0.42)
+        // Semi-rigid cam-lock + dowel rotational end-restraint reduces midspan deflection by ~15% (0.85), never hiding truly excessive spans!
+        const isFixedShelf = sh.isAdjustable === false || sh.isFixed === true;
         const supportBoundaryFactor =
-          !sh.isAdjustable && !sh.isGlass && mod.carcass.backPanelType !== "none" ? 0.42 : 1.0;
+          isFixedShelf && !sh.isGlass && mod.carcass.backPanelType !== "none" ? 0.85 : 1.0;
         const effDeflectionMm = roundGeometryMm(rawDefl.deflectionMm * supportBoundaryFactor);
         const en16122LimitMm = roundGeometryMm(bayW / 200);
         const glassTooThinForSpan =
@@ -2047,6 +2107,20 @@ export function applyApprovedRemediationProposal(
     }
     case "switch_topology_sides_through": {
       mod.carcass.carcassJoineryTopology = "sides_through";
+      break;
+    }
+    case "convert_mid_shelf_to_fixed": {
+      const bIdx = proposal.targetBayIndex ?? 0;
+      const targetId = String(proposal.patchPayload.shelfId || proposal.targetComponentId || "");
+      const bay = mod.bays[bIdx];
+      if (bay && bay.shelves.length > 0) {
+        const sh = bay.shelves.find((s) => s.id === targetId) || bay.shelves[Math.floor(bay.shelves.length / 2)];
+        if (sh) {
+          sh.isAdjustable = false;
+          sh.isFixed = true;
+          sh.fixedConnectorType = sh.fixedConnectorType || "minifix_dowel";
+        }
+      }
       break;
     }
   }

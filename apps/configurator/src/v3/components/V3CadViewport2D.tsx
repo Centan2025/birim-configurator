@@ -55,6 +55,7 @@ import {
 import {
   computeElevationSnapTargets,
   resolveElevationSnap,
+  snapShelfToMultiHoleOrElevationTargets,
   findDraggableInteriorComponent,
   ElevationSnapTarget,
 } from "../engine/elevationSnapEngine";
@@ -7840,11 +7841,18 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             interiorDrag.targetId,
             interiorDrag.itemHeightMm
           );
-      const { elevationY: rawSnappedY, snappedTarget } = resolveElevationSnap(
-        rawElevY,
-        snapTargets,
-        18
-      );
+      const { elevationY: rawSnappedY, snappedTarget } =
+        interiorDrag.kind === "shelf"
+          ? snapShelfToMultiHoleOrElevationTargets({
+              project,
+              moduleIndex: activeModuleIndex,
+              bayIndex: interiorDrag.bayIdx,
+              shelfId: interiorDrag.targetId,
+              rawElevationY: rawElevY,
+              snapTargets,
+              bypassMultiHole: e.altKey,
+            })
+          : resolveElevationSnap(rawElevY, snapTargets, 18);
       setActiveElevSnap((prev) =>
         prev?.elevationY === snappedTarget?.elevationY && prev?.label === snappedTarget?.label
           ? prev
@@ -9601,7 +9609,15 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       width={Math.min(390, el.width * 0.96)}
                       height={42}
                       rx={10}
-                      fill={isActiveDrag ? "#EA580C" : isSelected ? "#1D4ED8" : "#1C1917"}
+                      fill={
+                        isActiveDrag
+                          ? "#EA580C"
+                          : isSelected
+                          ? "#1D4ED8"
+                          : isShelf && el.label.includes("Sabit")
+                          ? "#6B4F28"
+                          : "#1C1917"
+                      }
                       opacity={0.94}
                     />
                     <text
@@ -9615,7 +9631,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     >
                       {truncateCadLabel(
                         isShelf
-                          ? `↕ Raf (Y:${formatElevationValue(elevMm ?? 0, elevDisplayUnit)})`
+                          ? `${el.label.includes("Sabit") ? "Sabit Raf" : "↕ Hareketli Raf"} (Y:${formatElevationValue(elevMm ?? 0, elevDisplayUnit)})`
                           : `↕ Çekmece (H:${formatElevationValue(el.height + 3, elevDisplayUnit, false)} • Y:${formatElevationValue(elevMm ?? 0, elevDisplayUnit)})`,
                         el.width * 0.9,
                         13

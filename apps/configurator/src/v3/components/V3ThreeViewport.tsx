@@ -38,6 +38,7 @@ import {
 import {
   computeElevationSnapTargets,
   resolveElevationSnap,
+  snapShelfToMultiHoleOrElevationTargets,
   findDraggableInteriorComponent,
   type ElevationSnapTarget,
 } from "../engine/elevationSnapEngine";
@@ -772,6 +773,18 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
     const [cutawayActiveBay, setCutawayActiveBay] = useState<boolean>(false);
     const [showInteriorProps3D, setShowInteriorProps3D] = useState<boolean>(true);
     const [engineeringAlertCollapsed, setEngineeringAlertCollapsed] = useState<boolean>(false);
+    const [selectedBeaconFinding, setSelectedBeaconFinding] = useState<{
+      code: string;
+      severity: string;
+      title: string;
+      message: string;
+      suggestions: string[];
+      remediationProposals: import("@birim/core").RemediationProposal[];
+      moduleIndex: number;
+      bayIndex: number;
+    } | null>(null);
+    const engineeringBeaconGroupRef = useRef<THREE.Group | null>(null);
+    const multiHoleMeshCacheRef = useRef<Map<string, THREE.InstancedMesh>>(new Map());
   useEffect(() => {
     if (typeof window === "undefined") return;
     const onNightLedToggle = () => {
@@ -2122,6 +2135,11 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       scene.add(activeModFrameGroup);
       activeModFrameGroupRef.current = activeModFrameGroup;
 
+      const engBeaconGroup = new THREE.Group();
+      engBeaconGroup.name = "v11_engineering_beacons_3d";
+      scene.add(engBeaconGroup);
+      engineeringBeaconGroupRef.current = engBeaconGroup;
+
       const getCachedSolidMeshes = (curGroup: THREE.Object3D, includeBayVolumes: boolean) => {
         const cache = solidMeshesCacheRef.current;
         if (cache.dirty) {
@@ -2191,6 +2209,27 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
 
         raycaster.setFromCamera(pointer, curCam);
         const state = latestStateRef.current;
+
+        // 0. Check 3D Red/Amber Engineering Error Beacons FIRST (since they render on top with depthTest=false!)
+        if (engineeringBeaconGroupRef.current && engineeringBeaconGroupRef.current.children.length > 0) {
+          const bHits = raycaster.intersectObjects(engineeringBeaconGroupRef.current.children, false);
+          const hitBeacon = bHits.find((bh) => bh.object?.userData?.isEngineeringBeacon);
+          if (hitBeacon) {
+            const ud = hitBeacon.object.userData;
+            setSelectedBeaconFinding({
+              code: String(ud.findingCode || "UYARI"),
+              severity: String(ud.findingSeverity || "error"),
+              title: String(ud.findingTitle || "Mühendislik Uyarısı"),
+              message: String(ud.findingMessage || ""),
+              suggestions: Array.isArray(ud.findingSuggestions) ? ud.findingSuggestions : [],
+              remediationProposals: Array.isArray(ud.remediationProposals) ? ud.remediationProposals : [],
+              moduleIndex: typeof ud.moduleIndex === "number" && ud.moduleIndex >= 0 ? ud.moduleIndex : state.activeModuleIndex,
+              bayIndex: typeof ud.bayIndex === "number" && ud.bayIndex >= 0 ? ud.bayIndex : state.activeBayIndex,
+            });
+            e.stopImmediatePropagation();
+            return;
+          }
+        }
 
         // 1. Raycast solid cabinet meshes FIRST so upper & base cabinets always take priority over wall obstacles behind them!
         const anyDoorsOpen =
@@ -2551,8 +2590,9 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             }
             return;
           }
+          if (isOrbitingRef.current) return;
           const now = performance.now();
-          if (now - lastHoverCheckTime < 90) return;
+          if (now - lastHoverCheckTime < 110) return;
           lastHoverCheckTime = now;
 
           const curGroup = meshGroupRef.current;
@@ -2565,6 +2605,20 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
           pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
           raycaster.setFromCamera(pointer, curCam);
+
+          // Hovering a 3D Red/Amber Engineering Beacon shows immediate clear explanation tooltip!
+          if (engineeringBeaconGroupRef.current && engineeringBeaconGroupRef.current.children.length > 0) {
+            const bHover = raycaster
+              .intersectObjects(engineeringBeaconGroupRef.current.children, false)
+              .find((bh) => bh.object?.userData?.isEngineeringBeacon);
+            if (bHover) {
+              const ud = bHover.object.userData;
+              hoverOverlayGroup.visible = false;
+              setHoverBadgeDirect(`⚠️ ${ud.findingTitle || "Hata Noktası"} — Açıklama ve çözüm için tıklayın`);
+              curRenderer.domElement.style.cursor = "pointer";
+              return;
+            }
+          }
 
           const st = latestStateRef.current;
           const anyDoorsOpen =
@@ -2953,11 +3007,18 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             activeDrag3D.targetId,
             activeDrag3D.itemHeightMm
           );
-        const { elevationY: rawSnappedY, snappedTarget } = resolveElevationSnap(
-          rawElevY,
-          targets,
-          18
-        );
+        const { elevationY: rawSnappedY, snappedTarget } =
+          activeDrag3D.kind === "shelf"
+            ? snapShelfToMultiHoleOrElevationTargets({
+                project: state.project,
+                moduleIndex: activeDrag3D.modIdx,
+                bayIndex: activeDrag3D.bayIdx,
+                shelfId: activeDrag3D.targetId,
+                rawElevationY: rawElevY,
+                snapTargets: targets,
+                bypassMultiHole: e.altKey,
+              })
+            : resolveElevationSnap(rawElevY, targets, 18);
         setActive3DSnap(snappedTarget);
 
         const modForClamp = state.project.modules[activeDrag3D.modIdx];
@@ -3002,6 +3063,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             if (activeDrag3D.kind === "shelf") {
               match =
                 cid === tId ||
+                cid.startsWith(`${tId}_pin_`) ||
+                cid.startsWith(`${tId}_cam_`) ||
                 shOwner === tId ||
                 (sIdx >= 0 &&
                   (cid === `${mId}_bay_${bIdx}_shelf_${sIdx}` ||
@@ -3112,12 +3175,6 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           setActive3DSnap(null);
           if (curRenderer) {
             curRenderer.domElement.style.cursor = (e.ctrlKey || e.metaKey) ? "move" : "grab";
-          }
-          if (selectionFrameGroupRef.current) {
-            selectionFrameGroupRef.current.position.set(0, 0, 0);
-          }
-          if (activeModFrameGroupRef.current) {
-            activeModFrameGroupRef.current.position.set(0, 0, 0);
           }
           if (selectionFrameGroupRef.current) {
             selectionFrameGroupRef.current.position.set(0, 0, 0);
@@ -3888,7 +3945,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           const sc = sceneRef.current;
           const ctrl = controlsRef.current;
           if (!r || !sc || !ctrl || pausedRef.current || isOrbitingRef.current) return;
-          const sharpDpr = Math.min(window.devicePixelRatio || 1, 2);
+          const sharpDpr = Math.min(window.devicePixelRatio || 1, 1.75);
           if (r.getPixelRatio() < sharpDpr) {
             r.setPixelRatio(sharpDpr);
             const cam = (ctrl.object as THREE.Camera) || perspCamRef.current;
@@ -3908,7 +3965,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
 
         const updated = curControls.update();
         if (needsRenderRef.current || updated) {
-          const fastDpr = isLegacyGpu ? 1 : Math.min(window.devicePixelRatio || 1, 1.5);
+          const fastDpr = isLegacyGpu ? 1 : Math.min(window.devicePixelRatio || 1, 1.25);
           if ((updated || isOrbitingRef.current) && curRenderer.getPixelRatio() > fastDpr) {
             curRenderer.setPixelRatio(fastDpr);
             isHiDpiSettled = false;
@@ -5030,6 +5087,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         }
 
         const shouldRenderProps =
+          !isStoreBatchDragging &&
           renderEdgeMode !== "cad" &&
           showInteriorProps3D &&
           (doorsHiddenIn3D ||
@@ -5347,6 +5405,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
 
         if (
           !isXrayActive &&
+          !isStoreBatchDragging &&
           (doorOpenAngleDeg > 4 ||
             doorsHiddenIn3D ||
             cutawayActiveBay ||
@@ -5354,9 +5413,23 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             mod.bays.some((b) => b.door?.type === "open") ||
             mod.carcass.showMultiHolesIn3D === true)
         ) {
-          const multiHoleInst = build3DModuleMultiHoleInstancedMesh(mod, breakdown.components);
-          if (multiHoleInst) {
-            modContainer.add(multiHoleInst);
+          const mhSig = computeModuleStructuralSignature(mod);
+          let cachedMh = multiHoleMeshCacheRef.current.get(mhSig);
+          if (!cachedMh) {
+            const builtMh = build3DModuleMultiHoleInstancedMesh(mod, breakdown.components);
+            if (builtMh) {
+              if (multiHoleMeshCacheRef.current.size > 24) {
+                multiHoleMeshCacheRef.current.clear();
+              }
+              multiHoleMeshCacheRef.current.set(mhSig, builtMh);
+              cachedMh = builtMh;
+            }
+          }
+          if (cachedMh) {
+            const mhClone = cachedMh.clone();
+            mhClone.instanceMatrix = cachedMh.instanceMatrix;
+            mhClone.raycast = () => {};
+            modContainer.add(mhClone);
           }
         }
 
@@ -5467,55 +5540,71 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         meshGroup.add(modContainer);
       });
 
-      // V6.1 (Bölüm 9): Render 3D Spatial Engineering Error & Verification Beacons directly on offending 3D objects!
-      const spatialFindings3D = (live3DEngineeringReport?.findings || []).filter(
-        (f) =>
-          Boolean(f.worldPositionMm) &&
-          (f.severity === "error" || f.ruleNature === "VERIFICATION_REQUIRED")
-      );
-      if (spatialFindings3D.length > 0) {
-        const errBeaconGeo = new THREE.SphereGeometry(24, 16, 16);
-        const errRingGeo = new THREE.RingGeometry(32, 44, 24);
-        spatialFindings3D.slice(0, 16).forEach((ef, efIdx) => {
-          const wp = ef.worldPositionMm!;
-          const isHardErr = ef.severity === "error";
-          const colHex = isHardErr ? 0xdc2626 : 0xd97706;
-          const beaconMat = new THREE.MeshBasicMaterial({
-            color: colHex,
-            transparent: true,
-            opacity: 0.9,
-            depthTest: false,
-          });
-          const beaconMesh = new THREE.Mesh(
-            efIdx === 0 ? errBeaconGeo : errBeaconGeo.clone(),
-            beaconMat
-          );
-          beaconMesh.position.set(wp.x, wp.y, wp.z + 28);
-          beaconMesh.renderOrder = 999;
-          beaconMesh.userData = {
-            isEngineeringBeacon: true,
-            findingCode: ef.code,
-            findingMessage: ef.message,
-            moduleIndex: project.modules.findIndex((m) => m.id === ef.targetModuleId),
-          };
-          meshGroup.add(beaconMesh);
+      // Render 3D Spatial Engineering Error & Warning Beacons inside dedicated `engineeringBeaconGroupRef`
+      // (NEVER inside `meshGroup`, so `meshGroup.children.length === project.modules.length` O(1) cache stays intact!)
+      const beaconHolder = engineeringBeaconGroupRef.current;
+      if (beaconHolder) {
+        disposeObject3DTree(beaconHolder);
+        beaconHolder.clear();
+        const spatialFindings3D = (live3DEngineeringReport?.findings || []).filter(
+          (f) =>
+            Boolean(f.worldPositionMm) &&
+            (f.severity === "error" || f.ruleNature === "VERIFICATION_REQUIRED")
+        );
+        if (spatialFindings3D.length > 0) {
+          const errBeaconGeo = new THREE.SphereGeometry(28, 18, 18);
+          const errRingGeo = new THREE.RingGeometry(36, 50, 28);
+          spatialFindings3D.slice(0, 16).forEach((ef, efIdx) => {
+            const wp = ef.worldPositionMm!;
+            const isHardErr = ef.severity === "error";
+            const colHex = isHardErr ? 0xdc2626 : 0xd97706;
+            const modIdxFound = project.modules.findIndex((m) => m.id === ef.targetModuleId);
+            const bayMatch = String(ef.targetId || "").match(/bay_(\d+)/);
+            const bayIdxFound = bayMatch ? Number(bayMatch[1]) : 0;
+            const humanTitle = formatEngineeringErrorCode(ef.code);
 
-          const ringMat = new THREE.MeshBasicMaterial({
-            color: colHex,
-            side: THREE.DoubleSide,
-            transparent: true,
-            opacity: 0.55,
-            depthTest: false,
+            const beaconMat = new THREE.MeshBasicMaterial({
+              color: colHex,
+              transparent: true,
+              opacity: 0.92,
+              depthTest: false,
+            });
+            const beaconMesh = new THREE.Mesh(
+              efIdx === 0 ? errBeaconGeo : errBeaconGeo.clone(),
+              beaconMat
+            );
+            beaconMesh.position.set(wp.x, wp.y, wp.z + 28);
+            beaconMesh.renderOrder = 999;
+            beaconMesh.userData = {
+              isEngineeringBeacon: true,
+              findingCode: ef.code,
+              findingSeverity: ef.severity,
+              findingTitle: humanTitle,
+              findingMessage: ef.message,
+              findingSuggestions: ef.suggestions || [],
+              remediationProposals: ef.remediationProposals || [],
+              moduleIndex: modIdxFound >= 0 ? modIdxFound : 0,
+              bayIndex: bayIdxFound,
+            };
+            beaconHolder.add(beaconMesh);
+
+            const ringMat = new THREE.MeshBasicMaterial({
+              color: colHex,
+              side: THREE.DoubleSide,
+              transparent: true,
+              opacity: 0.58,
+              depthTest: false,
+            });
+            const ringMesh = new THREE.Mesh(
+              efIdx === 0 ? errRingGeo : errRingGeo.clone(),
+              ringMat
+            );
+            ringMesh.position.set(wp.x, wp.y, wp.z + 29);
+            ringMesh.renderOrder = 998;
+            ringMesh.raycast = () => {};
+            beaconHolder.add(ringMesh);
           });
-          const ringMesh = new THREE.Mesh(
-            efIdx === 0 ? errRingGeo : errRingGeo.clone(),
-            ringMat
-          );
-          ringMesh.position.set(wp.x, wp.y, wp.z + 29);
-          ringMesh.renderOrder = 998;
-          ringMesh.raycast = () => {};
-          meshGroup.add(ringMesh);
-        });
+        }
       }
       reusableGroupsBySig.forEach((leftovers) => {
         leftovers.forEach((unusedGroup) => disposeObject3DTree(unusedGroup));
@@ -5541,8 +5630,9 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       theme,
       renderEdgeMode,
       isXrayActive,
+      isStoreBatchDragging,
       paused,
-      storeBom,
+      isXrayActive ? storeBom : null,
       requestRender,
       updateSelectionAndActiveFrames,
     ]);
@@ -10422,6 +10512,183 @@ const clear3DGhostPreview = useCallback(() => {
           open={glbLibraryOpen}
           onClose={() => setGlbLibraryOpen(false)}
         />
+
+        {/* V11.4 ETKİLEŞİMLİ 3B KIRMIZI / TURUNCU HATA NOKTASI AÇIKLAMA & ÇÖZÜM KARTI */}
+        {live3DEngineeringReport &&
+          (() => {
+            const spatialItems = (live3DEngineeringReport.findings || []).filter(
+              (f) =>
+                Boolean(f.worldPositionMm) &&
+                (f.severity === "error" || f.ruleNature === "VERIFICATION_REQUIRED")
+            );
+            if (spatialItems.length === 0 && !selectedBeaconFinding) return null;
+
+            return (
+              <>
+                {spatialItems.length > 0 && !selectedBeaconFinding && (
+                  <button
+                    type="button"
+                    data-testid="v11-3d-beacon-summary-pill"
+                    onClick={() => {
+                      const first = spatialItems[0];
+                      const mIdx = project.modules.findIndex((m) => m.id === first.targetModuleId);
+                      const bMatch = String(first.targetId || "").match(/bay_(\d+)/);
+                      setSelectedBeaconFinding({
+                        code: first.code,
+                        severity: first.severity,
+                        title: formatEngineeringErrorCode(first.code),
+                        message: first.message,
+                        suggestions: first.suggestions || [],
+                        remediationProposals: first.remediationProposals || [],
+                        moduleIndex: mIdx >= 0 ? mIdx : activeModuleIndex,
+                        bayIndex: bMatch ? Number(bMatch[1]) : activeBayIndex,
+                      });
+                    }}
+                    style={{
+                      top: `${(stageSafeInsets?.topPx ?? 74) + 10}px`,
+                      left: `${stageSafeInsets?.leftPx ?? 80}px`,
+                    }}
+                    className="absolute z-30 px-3.5 py-2 rounded-full bg-[#FAF8F4]/95 hover:bg-white backdrop-blur-xl border border-red-300 shadow-[0_10px_28px_rgba(185,28,28,0.16)] flex items-center gap-2 text-xs font-semibold text-[#141413] cursor-pointer transition"
+                    title="3B model üzerindeki kırmızı/turuncu işaretlerin açıklamasını gör"
+                  >
+                    <span className="w-2.5 h-2.5 rounded-full bg-red-600 animate-pulse shrink-0" />
+                    <span>
+                      3B Modelde {spatialItems.length} Uyarı Noktası • Açıklama İçin Tıklayın
+                    </span>
+                  </button>
+                )}
+
+                {selectedBeaconFinding && (
+                  <div
+                    data-testid="v11-3d-beacon-popover"
+                    style={{
+                      top: `${(stageSafeInsets?.topPx ?? 74) + 10}px`,
+                      left: `${stageSafeInsets?.leftPx ?? 80}px`,
+                    }}
+                    className="absolute z-40 w-[360px] max-w-[calc(100vw-32px)] rounded-3xl bg-[#FAF8F4]/97 backdrop-blur-2xl border border-[#DFD9CE] shadow-[0_24px_60px_rgba(20,20,19,0.22)] p-4 space-y-3 text-xs text-[#141413]"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          className={`w-3 h-3 rounded-full shrink-0 ${
+                            selectedBeaconFinding.severity === "error"
+                              ? "bg-red-600"
+                              : "bg-amber-500"
+                          }`}
+                        />
+                        <div>
+                          <div className="font-bold text-[13px] leading-snug">
+                            {selectedBeaconFinding.title}
+                          </div>
+                          <div className="text-[10.5px] text-[#78716C]">
+                            Modül {selectedBeaconFinding.moduleIndex + 1} •{" "}
+                            {selectedBeaconFinding.bayIndex + 1}. Bölme
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedBeaconFinding(null)}
+                        className="w-7 h-7 rounded-full hover:bg-[#EFECE4] text-[#57534E] flex items-center justify-center cursor-pointer shrink-0"
+                        title="Kapat"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    <p className="text-[11.5px] text-[#44403C] leading-relaxed bg-white/80 rounded-2xl p-3 border border-[#EAE4D8]">
+                      {selectedBeaconFinding.message}
+                    </p>
+
+                    {selectedBeaconFinding.suggestions.length > 0 && (
+                      <div className="space-y-1 text-[11px] text-[#57534E] px-1">
+                        {selectedBeaconFinding.suggestions.slice(0, 2).map((sg, idx) => (
+                          <div key={idx} className="flex items-start gap-1.5">
+                            <span className="text-[#8C7A6B] font-bold">•</span>
+                            <span>{sg}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      {selectedBeaconFinding.remediationProposals.slice(0, 2).map((prop) => (
+                        <button
+                          key={prop.id}
+                          type="button"
+                          onClick={() => {
+                            applyApprovedEngineeringFix(prop);
+                            setSelectedBeaconFinding(null);
+                          }}
+                          className="px-3.5 py-2 rounded-full bg-[#141413] hover:bg-[#292524] text-white font-semibold text-[11px] cursor-pointer transition"
+                        >
+                          ✓ Otomatik Düzelt: {prop.label}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveModuleIndex(selectedBeaconFinding.moduleIndex);
+                          setActiveBayIndex(selectedBeaconFinding.bayIndex);
+                          if (typeof window !== "undefined") {
+                            window.dispatchEvent(
+                              new CustomEvent("birim:select-bay-3d", {
+                                detail: {
+                                  moduleIndex: selectedBeaconFinding.moduleIndex,
+                                  bayIndex: selectedBeaconFinding.bayIndex,
+                                },
+                              })
+                            );
+                          }
+                          setSelectedBeaconFinding(null);
+                        }}
+                        className="px-3 py-2 rounded-full bg-[#EFECE4] hover:bg-[#E4DFD3] text-[#141413] font-semibold text-[11px] cursor-pointer transition"
+                      >
+                        Sağ Panelde Göster →
+                      </button>
+                    </div>
+
+                    {spatialItems.length > 1 && (
+                      <div className="flex items-center justify-between pt-2 border-t border-[#E6E1D6] text-[10.5px] text-[#78716C]">
+                        <span>Diğer kırmızı/turuncu noktalar ({spatialItems.length}):</span>
+                        <div className="flex items-center gap-1">
+                          {spatialItems.slice(0, 5).map((it, idx) => (
+                            <button
+                              key={`${it.code}_${idx}`}
+                              type="button"
+                              onClick={() => {
+                                const mIdx = project.modules.findIndex(
+                                  (m) => m.id === it.targetModuleId
+                                );
+                                const bMatch = String(it.targetId || "").match(/bay_(\d+)/);
+                                setSelectedBeaconFinding({
+                                  code: it.code,
+                                  severity: it.severity,
+                                  title: formatEngineeringErrorCode(it.code),
+                                  message: it.message,
+                                  suggestions: it.suggestions || [],
+                                  remediationProposals: it.remediationProposals || [],
+                                  moduleIndex: mIdx >= 0 ? mIdx : activeModuleIndex,
+                                  bayIndex: bMatch ? Number(bMatch[1]) : activeBayIndex,
+                                });
+                              }}
+                              className={`w-6 h-6 rounded-full font-mono font-bold text-[10px] cursor-pointer ${
+                                selectedBeaconFinding.code === it.code
+                                  ? "bg-red-600 text-white"
+                                  : "bg-[#EFECE4] text-[#44403C] hover:bg-[#E2DDD0]"
+                              }`}
+                            >
+                              {idx + 1}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            );
+          })()}
         {!minimalChrome && live3DEngineeringReport && live3DEngineeringReport.blockingSafetyAndEngineeringErrors.length > 0 && (
           <div
             data-testid="viewport-3d-engineering-alert-hud"

@@ -64,7 +64,21 @@ const DEFAULT_HARDWARE_SOURCE_MAP: Record<string, { sourceId: string; revision: 
  * Evaluates a module across all 15 engineering, hardware, door, handle, and manufacturing categories,
  * returning structured ValidationIssues with automatic remediation suggestions.
  */
+const moduleCompatLruCache = new BoundedLruCache<string, ValidationIssue[]>(512);
+
 export function evaluateModuleCompatibility(module: ModuleInstance): ValidationIssue[] {
+  if (loadCustomStandardRulesCount() === 0) {
+    const sig = `${computeModuleStructuralSignature(module)}|DM:${DEFAULT_MATERIALS.length}`;
+    const hit = moduleCompatLruCache.get(sig);
+    if (hit) return hit;
+    const computed = evaluateModuleCompatibilityUncached(module);
+    moduleCompatLruCache.set(sig, computed);
+    return computed;
+  }
+  return evaluateModuleCompatibilityUncached(module);
+}
+
+function evaluateModuleCompatibilityUncached(module: ModuleInstance): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   if (module.category === "complementary" || module.complementaryRole || module.carcass.hullShape === "capsule_table") {
     return issues;
@@ -159,18 +173,31 @@ export function evaluateModuleCompatibility(module: ModuleInstance): ValidationI
         ? "soft_close"
         : "manual_standard");
 
-    // Category 12: Material Suitability (Shelf Span Deflection & J-Pull Material Check)
-    if ((bayW > 900 && bay.shelves.some((s) => !s.isGlass && s.isAdjustable && (s.thickness || 18) <= 18)) || (bayW > 1200 && (bay.shelves.length > 0 || bay.hangingRails.length > 0))) {
+    // Category 12: Material Suitability (Consistent Shelf Span Deflection & J-Pull Material Check)
+    const isHeavyBookOrPantry =
+      module.category === "kitchen_tall" || module.name.toLowerCase().includes("kitap");
+    const nonGlassShelves = bay.shelves.filter((s) => !s.isHidden && !s.isGlass);
+    const has18mmMovable = nonGlassShelves.some(
+      (s) => s.isAdjustable !== false && (s.thickness || module.carcass.panelThickness || 18) <= 18
+    );
+    const has18mmFixed = nonGlassShelves.some(
+      (s) => s.isAdjustable === false && (s.thickness || module.carcass.panelThickness || 18) <= 18
+    );
+    const spanLimit18 = isHeavyBookOrPantry ? 850 : has18mmMovable ? 980 : 1000;
+    if (
+      ((has18mmMovable || has18mmFixed) && bayW > spanLimit18) ||
+      (bayW > 1200 && (nonGlassShelves.length > 0 || bay.hangingRails.length > 0))
+    ) {
       issues.push({
         severity: "warning",
         code: "CHK_12_SHELF_SPAN_DEFLECTION",
-        message: `Bölme ${bayIdx + 1} net iç genişliği (${bayW}mm), 18mm panel için 950mm sehim sınırını aşıyor.`,
+        message: `Bölme ${bayIdx + 1} net iç genişliği (${bayW}mm), 18mm panel için ${spanLimit18}mm sehim sınırını aşıyor.`,
         targetId: `bay_${bayIdx}`,
         compatibilityStatus: "COMPATIBLE_WITH_CONDITIONS",
         categoryIndex: 12,
         suggestions: [
-          "Bölme sayısını artırarak orta dikme ekleyin.",
-          "Raf kalınlığını 25mm'ye yükseltin veya arka destek kayıtı kullanın.",
+          "Bölme sayısını artırarak orta ara dikme ekleyin.",
+          "Raf kalınlığını 25mm'ye yükseltin.",
         ],
         sourceId: "SRC_STD_ISO7170_2021",
       });
@@ -642,7 +669,7 @@ export function evaluateModuleCompatibility(module: ModuleInstance): ValidationI
  * Evaluates full project compatibility combining base V3.1 geometric validations
  * with the 15-category V4 Universal Compatibility Engine.
  */
-import { BoundedLruCache, computeProjectStructuralSignature } from "./lru-cache";
+import { BoundedLruCache, computeModuleStructuralSignature, computeProjectStructuralSignature } from "./lru-cache";
 const compatLruCache = new BoundedLruCache<string, CompatibilityReport>(64);
 
 export function evaluateProjectCompatibility(

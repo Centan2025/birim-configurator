@@ -198,6 +198,7 @@ export const ShelfConfigSchema = z.preprocess(
     elevationY: z.number().min(0),
     isAdjustable: z.boolean().default(true),
     isFixed: z.boolean().optional(),
+    fixedConnectorType: z.enum(["minifix_dowel", "rafix_20"]).optional(),
     thickness: z.number().min(4).max(50).optional(),
     frontSetbackMm: z.number().min(0).max(300).optional(),
     pinHoleGroup: z.enum(["single", "triple_32", "five_64", "full_line"]).optional(),

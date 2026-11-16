@@ -249,8 +249,12 @@ export interface DrillingHole {
     | "wall_hanger"
     | "aventos_locator"
     | "cable_exit"
+    | "rafix_housing"
+    | "rafix_stud"
     | "handle";
 }
+
+export type FixedShelfConnectorType = "minifix_dowel" | "rafix_20";
 
 export interface ParametricPart {
   id: string; // Deterministic stable ID (e.g. "P_mod1_side_left")
@@ -286,8 +290,18 @@ export interface ParametricPart {
   hingePositionsBackY?: UnitLength[];
   /** T-junction Y positions on intermediate divider where opposing fixed shelves meet (requires through-bolt minifix) */
   tJunctionFixedShelfYs?: UnitLength[];
-  /** Fixed shelf Y positions on a single side of side/divider panel */
+  /** Fixed shelf Y positions on a single side of side/divider panel (Minifix 15 + Dowel) */
   fixedShelfJointYs?: UnitLength[];
+  /** Fixed shelf Y positions using Rafix 20 cam connector (Ø5mm stud on upright, Ø20mm pocket on shelf) */
+  rafixShelfJointYs?: UnitLength[];
+  /** Single-sided fixed shelf Y positions on front/left face of intermediate divider */
+  dividerLeftFixedShelfYs?: UnitLength[];
+  /** Single-sided fixed shelf Y positions on back/right face of intermediate divider */
+  dividerRightFixedShelfYs?: UnitLength[];
+  /** Rafix 20 stud Y positions on front/left face of intermediate divider */
+  dividerLeftRafixYs?: UnitLength[];
+  /** Rafix 20 stud Y positions on back/right face of intermediate divider */
+  dividerRightRafixYs?: UnitLength[];
   /** Vertical offset from bottom of floor-standing upright to bottom carcass panel (e.g. plinthHeight on wardrobes) */
   bottomJointOffsetY?: UnitLength;
   /** Top carcass panel thickness for accurate upper Minifix bolt positioning */
@@ -357,6 +371,10 @@ export interface ShelfConfig {
   bayIndex: number;
   elevationY: UnitLength; // offset from inner bottom panel
   isAdjustable: boolean;
+  /** Synchronized structural tie flag (`true` === `!isAdjustable`, Konstruktionsboden) */
+  isFixed?: boolean;
+  /** Industrial KD connector hardware used when shelf is fixed (`!isAdjustable`) */
+  fixedConnectorType?: FixedShelfConnectorType;
   thickness?: UnitLength;
   frontSetbackMm?: UnitLength; // default 10-20mm, >=25mm when vertical LED active
   pinHoleGroup?: "single" | "triple_32" | "five_64" | "full_line";

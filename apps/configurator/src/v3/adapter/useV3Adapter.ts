@@ -1,4 +1,5 @@
 "use client";
+import { computeBaySystem32ShelfHoleElevations } from "../engine/elevationSnapEngine";
 import { solveAngledWallSnapForModule, originToModulePosition } from "../engine/angledWallSnapEngine";
 import { applyValidatedDimensionsToModule } from "../components/workspace/moduleLibraryUtils";
 import { useMemo, useCallback, useRef } from "react";
@@ -975,6 +976,8 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
   );
 
   const addShelf = useConfiguratorStore((s) => s.addShelf);
+  const addFixedShelf = useConfiguratorStore((s) => s.addFixedShelf);
+  const setShelfMountType = useConfiguratorStore((s) => s.setShelfMountType);
   const removeShelf = useConfiguratorStore((s) => s.removeShelf);
   const addHangingRail = useConfiguratorStore((s) => s.addHangingRail);
   const removeHangingRail = useConfiguratorStore((s) => s.removeHangingRail);
@@ -1147,13 +1150,25 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
     null
   );
   const unifiedEngineeringReport = useMemo(() => {
+    if (isLite) {
+      return (
+        lastSettledEngineeringRef.current || {
+          findings: EMPTY_VALIDATION_ISSUES as any,
+          blockingSafetyAndEngineeringErrors: EMPTY_VALIDATION_ISSUES as any,
+          verificationRequiredFindings: EMPTY_VALIDATION_ISSUES as any,
+          ergonomicAdvisories: EMPTY_VALIDATION_ISSUES as any,
+          canExportToCncAndSaw: true,
+          canApproveFinalErpRelease: true,
+        }
+      ) as ReturnType<typeof evaluateUnifiedEngineeringModel>;
+    }
     if (isDraggingActive && lastSettledEngineeringRef.current) {
       return lastSettledEngineeringRef.current;
     }
     const fresh = getMemoizedUnifiedEngineering(project);
     lastSettledEngineeringRef.current = fresh;
     return fresh;
-  }, [isDraggingActive, project]);
+  }, [isLite, isDraggingActive, project]);
 
   const ergonomicProfileId: RegionErgonomicProfileId =
     project.ergonomicProfileId || "TR_RESIDENTIAL";
@@ -4014,9 +4029,22 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
       commitActiveModuleUpdate((mod) => {
         const netH = calculateNetInnerHeight(mod);
         const T = mod.carcass.panelThickness || 18;
-        const clampedY = Math.max(60, Math.min(Math.max(100, netH - 60), Math.round(elevationY)));
+        let clampedY = Math.max(60, Math.min(Math.max(100, netH - 60), Math.round(elevationY)));
         const bay = mod.bays[bayIdx];
         if (!bay) return mod;
+        const holeYs = computeBaySystem32ShelfHoleElevations(mod, bayIdx, shelfId);
+        if (holeYs && holeYs.length > 0) {
+          let bestHole = holeYs[0];
+          let bestDiff = Math.abs(clampedY - bestHole);
+          for (let i = 1; i < holeYs.length; i++) {
+            const diff = Math.abs(clampedY - holeYs[i]);
+            if (diff < bestDiff) {
+              bestDiff = diff;
+              bestHole = holeYs[i];
+            }
+          }
+          clampedY = bestHole;
+        }
         bay.shelves = bay.shelves.map((s) =>
           s.id === shelfId ? { ...s, elevationY: clampedY } : s
         );
@@ -4461,13 +4489,21 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
 
         if (presetId === "shelves_5") {
           const count = 5;
+          const midFixedIdx = Math.ceil(count / 2); // Shelf 3 of 5 at exact mid-height (~1042mm) acts as structural Konstruktionsboden!
           const step = Math.round(netH / (count + 1));
+          const needs25mm = bw > 980;
           for (let i = 1; i <= count; i++) {
+            const isMidFixed = netH >= 1400 && i === midFixedIdx;
+            const rawY = i * step;
+            const snappedY = isMidFixed ? rawY : Math.round(rawY / 32) * 32;
             bay.shelves.push({
               id: `${mod.id}_b${bayIdx}_sh_${i}_${Date.now()}`,
               bayIndex: bayIdx,
-              elevationY: Math.min(netH - 80, Math.max(80, i * step)),
-              isAdjustable: i !== 2,
+              elevationY: Math.min(netH - 80, Math.max(80, snappedY)),
+              isAdjustable: !isMidFixed,
+              isFixed: isMidFixed,
+              ...(isMidFixed ? { fixedConnectorType: "minifix_dowel" as const } : {}),
+              ...(needs25mm ? { thickness: 25 } : {}),
             });
           }
         } else if (presetId === "rail_double") {
@@ -6072,10 +6108,15 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
     []
   );
 
-  const activeSpatialMetrics = useMemo(
-    () => computeWallAndModuleClearances(activeModuleIndex),
-    [computeWallAndModuleClearances, activeModuleIndex, project]
-  );
+  const lastSpatialMetricsRef = useRef<ReturnType<typeof computeWallAndModuleClearances> | null>(null);
+  const activeSpatialMetrics = useMemo(() => {
+    if (isDraggingActive && lastSpatialMetricsRef.current) {
+      return lastSpatialMetricsRef.current;
+    }
+    const computed = computeWallAndModuleClearances(activeModuleIndex);
+    lastSpatialMetricsRef.current = computed;
+    return computed;
+  }, [isDraggingActive, computeWallAndModuleClearances, activeModuleIndex, project]);
 
   /**
    * Screen 7 (FAZ 2, 4 & 8): Align active module along its host wall
@@ -7213,6 +7254,8 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
     setModuleUtilityCutouts,
     autoResolveCornerCollisions,
     addShelf,
+    addFixedShelf,
+    setShelfMountType,
     removeShelf,
     addHangingRail,
     removeHangingRail,

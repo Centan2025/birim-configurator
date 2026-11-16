@@ -193,6 +193,13 @@ interface ConfiguratorState {
 
   // Interior fittings
   addShelf: (bayIdx: number) => void;
+  addFixedShelf: (bayIdx: number) => void;
+  setShelfMountType: (
+    bayIdx: number,
+    shelfId: string,
+    isAdjustable: boolean,
+    fixedConnectorType?: "minifix_dowel" | "rafix_20"
+  ) => void;
   removeShelf: (bayIdx: number, shelfId: string) => void;
   addHangingRail: (bayIdx: number) => void;
   removeHangingRail: (bayIdx: number, railId: string) => void;
@@ -758,11 +765,18 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     const current = get().doorOpenAngleDeg;
     // Closing door is snappier, opening is smooth
     const isClosing = doorOpenAngleDeg < current;
+    let lastCommittedDeg = Math.round(current);
     animateValueTransition(
       current,
       doorOpenAngleDeg,
-      isClosing ? 260 : 320,
-      (val) => set({ doorOpenAngleDeg: val }),
+      isClosing ? 220 : 260,
+      (val) => {
+        const rounded = val === doorOpenAngleDeg ? doorOpenAngleDeg : Math.round(val / 2) * 2;
+        if (rounded !== lastCommittedDeg || val === doorOpenAngleDeg) {
+          lastCommittedDeg = rounded;
+          set({ doorOpenAngleDeg: rounded });
+        }
+      },
       () => activeDoorAnimRaf,
       (raf) => {
         activeDoorAnimRaf = raf;
@@ -1437,27 +1451,145 @@ export const useConfiguratorStore = create<ConfiguratorState>((set, get) => ({
     const minY = Math.min(netH - 80, drawerTopY + 64);
     const maxY = Math.max(minY + 32, netH - 64);
 
+    const fixedYs = bay.shelves
+      .filter((s) => !s.isHidden && (s.isAdjustable === false || s.isFixed === true))
+      .map((s) => s.elevationY)
+      .sort((a, b) => a - b);
+
+    // Find the largest open vertical zone between [drawerTopY, ...fixedYs, netH] so fixed structural shelves NEVER shift!
+    const anchors = [drawerTopY, ...fixedYs.filter((fy) => fy > drawerTopY + 40 && fy < netH - 40), netH];
+    let bestLow = drawerTopY;
+    let bestHigh = netH;
+    for (let ai = 0; ai < anchors.length - 1; ai++) {
+      if (anchors[ai + 1] - anchors[ai] > bestHigh - bestLow) {
+        bestLow = anchors[ai];
+        bestHigh = anchors[ai + 1];
+      }
+    }
+
+    const newMovableId = `shelf_${bayIdx}_${Date.now()}`;
     bay.shelves.push({
-      id: `shelf_${bayIdx}_${Date.now()}`,
+      id: newMovableId,
       bayIndex: bayIdx,
-      elevationY: Math.round((minY + maxY) / 2),
+      elevationY: Math.round((bestLow + bestHigh) / 2),
       isAdjustable: true,
+      isFixed: false,
     });
 
-    // Intelligently distribute all shelves in this bay evenly inside the usable cavity [drawerTopY .. netH]
-    const totalShelves = bay.shelves.length;
-    const usableSpan = Math.max(120, netH - drawerTopY);
-    bay.shelves.forEach((sh, idx) => {
-      const idealY = drawerTopY + ((idx + 1) * usableSpan) / (totalShelves + 1);
+    // Evenly distribute ONLY movable shelves within [bestLow .. bestHigh] on System-32 grid
+    const movablesInZone = bay.shelves.filter(
+      (sh) =>
+        sh.isAdjustable !== false &&
+        sh.isFixed !== true &&
+        (sh.id === newMovableId || (sh.elevationY > bestLow + 20 && sh.elevationY < bestHigh - 20))
+    );
+    const zoneSpan = Math.max(120, bestHigh - bestLow);
+    movablesInZone.forEach((sh, idx) => {
+      const idealY = bestLow + ((idx + 1) * zoneSpan) / (movablesInZone.length + 1);
       const snappedY = Math.round(idealY / 32) * 32;
       sh.elevationY = Math.max(48, Math.min(netH - 48, snappedY));
     });
+    bay.shelves.sort((a, b) => a.elevationY - b.elevationY);
 
     if (batchStartProject) {
       set({
         project: updated,
         autoSaveStatus: "unsaved",
       });
+      return;
+    }
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
+    set({
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      project: updated,
+      autoSaveStatus: "unsaved",
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+      lastChangeImpact,
+    });
+  },
+
+  addFixedShelf: (bayIdx) => {
+    const { project, history, activeModuleIndex, batchStartProject } = get();
+    const updated = cloneProject(project);
+    const mod = updated.modules[activeModuleIndex] || updated.modules[0];
+    if (!mod || !mod.bays[bayIdx]) return;
+
+    const bay = mod.bays[bayIdx];
+    const T = mod.carcass.panelThickness || 18;
+    const plinthH = mod.carcass.plinthHeight ?? 80;
+    const netH = Math.max(200, mod.dimensions.height - plinthH - 2 * T);
+    const drawerTopY =
+      bay.drawers.length > 0
+        ? Math.max(...bay.drawers.map((d) => d.elevationY + d.height))
+        : 0;
+    const existingYs = bay.shelves
+      .filter((s) => !s.isHidden)
+      .map((s) => s.elevationY)
+      .sort((a, b) => a - b);
+
+    const bounds = [drawerTopY, ...existingYs.filter((y) => y > drawerTopY + 60 && y < netH - 60), netH];
+    let gapStart = drawerTopY;
+    let gapEnd = netH;
+    for (let i = 0; i < bounds.length - 1; i++) {
+      if (bounds[i + 1] - bounds[i] > gapEnd - gapStart) {
+        gapStart = bounds[i];
+        gapEnd = bounds[i + 1];
+      }
+    }
+    const targetY = Math.max(96, Math.min(netH - 96, Math.round((gapStart + gapEnd) / 2)));
+
+    bay.shelves.push({
+      id: `fixed_shelf_${bayIdx}_${Date.now()}`,
+      bayIndex: bayIdx,
+      elevationY: targetY,
+      isAdjustable: false,
+      isFixed: true,
+      fixedConnectorType: "minifix_dowel",
+    });
+    bay.shelves.sort((a, b) => a.elevationY - b.elevationY);
+
+    if (batchStartProject) {
+      set({ project: updated, autoSaveStatus: "unsaved" });
+      return;
+    }
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
+    set({
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      project: updated,
+      autoSaveStatus: "unsaved",
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+      lastChangeImpact,
+    });
+  },
+
+  setShelfMountType: (bayIdx, shelfId, isAdjustable, fixedConnectorType) => {
+    const { project, history, activeModuleIndex, batchStartProject } = get();
+    const updated = cloneProject(project);
+    const mod = updated.modules[activeModuleIndex] || updated.modules[0];
+    if (!mod || !mod.bays[bayIdx]) return;
+
+    mod.bays[bayIdx].shelves = mod.bays[bayIdx].shelves.map((sh) => {
+      if (sh.id !== shelfId) return sh;
+      return {
+        ...sh,
+        isAdjustable,
+        isFixed: !isAdjustable,
+        fixedConnectorType: !isAdjustable
+          ? fixedConnectorType || sh.fixedConnectorType || "minifix_dowel"
+          : sh.fixedConnectorType,
+      };
+    });
+
+    if (batchStartProject) {
+      set({ project: updated, autoSaveStatus: "unsaved" });
       return;
     }
     const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);

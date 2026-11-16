@@ -88,6 +88,8 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
     setBayCustomWidth,
     applyBayInteriorPreset,
     addShelf,
+    addFixedShelf,
+    setShelfMountType,
     removeShelf,
     setShelfElevation,
     setShelfThickness,
@@ -118,6 +120,8 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
     fillWallGapWithParametricModule,
     setRoomDimensions,
     setFacadeGrainContinuity,
+    beginHistoryTransaction,
+    commitHistoryTransaction,
     addSpaceObstacle,
     removeSpaceObstacle,
     applyGuidedWizardLayout,
@@ -214,7 +218,10 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
   useEffect(() => {
     if (typeof window === "undefined") return;
     const onBay3D = (ev: Event) => {
-      const detail = (ev as CustomEvent<{ bayIndex?: number }>).detail;
+      const detail = (ev as CustomEvent<{ bayIndex?: number; moduleIndex?: number }>).detail;
+      if (typeof detail?.moduleIndex === "number" && detail.moduleIndex >= 0) {
+        setActiveModuleIndex(detail.moduleIndex);
+      }
       if (typeof detail?.bayIndex === "number") {
         setActiveBayIndex(detail.bayIndex);
       }
@@ -514,6 +521,19 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
         onRedo={redo}
         totalPriceEur={pricing?.totalWithVatEur || 0}
         blockingIssueCount={blockingCount}
+        engineeringFindings={allFindings}
+        onApplyFindingFix={(prop) => {
+          applyApprovedEngineeringFix(prop);
+          showToast("Önerilen iyileştirme uygulandı.");
+        }}
+        onFocusFinding={(fd) => {
+          const mIdx = project.modules.findIndex((m) => m.id === fd.targetModuleId);
+          if (mIdx >= 0) setActiveModuleIndex(mIdx);
+          const bMatch = String(fd.targetId || "").match(/bay_(\d+)/);
+          if (bMatch) setActiveBayIndex(Number(bMatch[1]));
+          setInspectorTab(fd.code.includes("DOOR") || fd.code.includes("HINGE") || fd.code.includes("HANDLE") ? "doors" : "interior");
+          setIsInspectorOpen(true);
+        }}
         onOpenProjectModal={() => setProjectModalOpen(true)}
         onOpenWizardModal={() => setWizardModalOpen(true)}
         onOpenCommandSearch={() => setCommandSearchOpen(true)}
@@ -530,33 +550,33 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
         onOpenSceneHubModal={() => setSceneHubTab("capsule_curved")}
       />
 
-      {/* 2. ANA ÇALIŞMA SAHNESİ */}
+      {/* 2. ANA ÇALIŞMA SAHNESİ — WebGL kanvası sekme geçişlerinde ASLA sökülmez (paused={!show3DCanvas} ile 0ms anlık geçiş) */}
       <div className="w-full h-full flex">
-        {show3DCanvas && (
-          <div
-            className={
-              workspaceMode === "2d" && cadSubMode === "split"
-                ? "w-1/2 h-full border-r border-[#D8D2C5] relative"
-                : "w-full h-full relative"
-            }
-          >
-            <V3ThreeViewport
-              paused={false}
-              theme="warm-light"
-              showGrid={!isShowroom}
-              showInCanvasHud={!isShowroom}
-              minimalChrome={true}
-              showDimensions={isShowroom ? false : showDimensions3D}
-              isRightInspectorOpen={!isShowroom && isInspectorOpen}
-              stageSafeInsets={stageSafeInsets}
-              onToggleDimensions={() => setShowDimensions3D((v) => !v)}
-              onRequest2DElevation={() => {
-                setWorkspaceMode("2d");
-                setCadSubMode("elevation");
-              }}
-            />
-          </div>
-        )}
+        <div
+          className={
+            !show3DCanvas
+              ? "hidden"
+              : workspaceMode === "2d" && cadSubMode === "split"
+              ? "w-1/2 h-full border-r border-[#D8D2C5] relative"
+              : "w-full h-full relative"
+          }
+        >
+          <V3ThreeViewport
+            paused={!show3DCanvas}
+            theme="warm-light"
+            showGrid={!isShowroom}
+            showInCanvasHud={!isShowroom}
+            minimalChrome={true}
+            showDimensions={isShowroom ? false : showDimensions3D}
+            isRightInspectorOpen={!isShowroom && isInspectorOpen}
+            stageSafeInsets={stageSafeInsets}
+            onToggleDimensions={() => setShowDimensions3D((v) => !v)}
+            onRequest2DElevation={() => {
+              setWorkspaceMode("2d");
+              setCadSubMode("elevation");
+            }}
+          />
+        </div>
 
         {workspaceMode === "2d" && (
           <div
@@ -731,6 +751,8 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
           onSelectModuleIndex={setActiveModuleIndex}
           onSelectBayIndex={setActiveBayIndex}
           onSetDimensions={setDimensions}
+          onBeginSliderDrag={beginHistoryTransaction}
+          onCommitSliderDrag={commitHistoryTransaction}
           onSetPlinthHeight={setPlinthHeight}
           onSplitBayIntoTwo={splitBayIntoTwo}
           onEqualizeBaysAndShelves={equalizeBaysAndShelves}
@@ -738,6 +760,8 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
           onSetBayCustomWidth={(bIdx, w) => setBayCustomWidth(bIdx, w, true)}
           onApplyBayPreset={applyBayInteriorPreset}
           onAddShelf={addShelf}
+          onAddFixedShelf={addFixedShelf}
+          onSetShelfMountType={setShelfMountType}
           onRemoveShelf={removeShelf}
           onSetShelfElevation={setShelfElevation}
           onSetShelfThickness={setShelfThickness}
@@ -778,7 +802,7 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
         <BottomSceneDock
           activeModule={activeModule}
           doorOpenAngleDeg={doorOpenAngleDeg}
-          onChangeDoorAngle={(deg) => setDoorOpenAngleDeg(deg, true)}
+          onChangeDoorAngle={(deg, animated = false) => setDoorOpenAngleDeg(deg, animated)}
           doorsHidden={doorsHidden3D}
           onToggleDoorsHidden={handleToggleDoorsHidden}
           showDimensions={isShowroom ? false : showDimensions3D}

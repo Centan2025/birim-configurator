@@ -1,4 +1,9 @@
-import { DesignProject, ModuleInstance } from "@birim/core";
+import {
+  DesignProject,
+  ModuleInstance,
+  computeSystem32MultiHoleYs,
+  resolveMultiHoleSpec,
+} from "@birim/core";
 
 export interface ElevationSnapTarget {
   elevationY: number;
@@ -6,7 +11,7 @@ export interface ElevationSnapTarget {
   label: string;
   sourceModuleIndex: number;
   sourceBayIndex: number;
-  kind: "shelf" | "drawer_top" | "drawer_bottom" | "rail" | "mid";
+  kind: "shelf" | "drawer_top" | "drawer_bottom" | "rail" | "mid" | "system32_hole";
 }
 
 export function findDraggableInteriorComponent(
@@ -257,5 +262,147 @@ export function resolveElevationSnap(
   return {
     elevationY: Math.round(rawElevationY / 5) * 5,
     snappedTarget: null,
+  };
+}
+
+/**
+ * Computes exact valid System-32 Ø5mm shelf-pin hole elevations (`elevationY` above inner bottom panel)
+ * for a movable shelf (`isAdjustable !== false && !isFixed`) when multi-hole boring (`mode !== "none"`) is active.
+ * Coordinates match `build3DModuleMultiHoleInstancedMesh` and `drilling-engine.ts` to 0.00 mm!
+ */
+export function computeBaySystem32ShelfHoleElevations(
+  mod: ModuleInstance,
+  bayIndex: number,
+  draggedShelfId?: string
+): number[] | null {
+  const bay = mod.bays[bayIndex];
+  if (!bay) return null;
+
+  if (draggedShelfId) {
+    const draggedShelf = bay.shelves.find((s) => s.id === draggedShelfId);
+    if (draggedShelf && (draggedShelf.isAdjustable === false || draggedShelf.isFixed === true)) {
+      return null; // Fixed structural shelves (Minifix / Rafix) are not restricted to Ø5mm pin holes
+    }
+  }
+
+  const spec = resolveMultiHoleSpec(mod);
+  if (spec.mode === "none" || mod.category === "complementary") {
+    return null;
+  }
+
+  const panelT = mod.carcass.panelThickness || 18;
+  const plinthH = mod.carcass.plinthHeight ?? 80;
+  const sideToFloor =
+    plinthH > 0 &&
+    mod.carcass.plinthConstruction !== "box_plinth" &&
+    mod.carcass.plinthConstruction !== "clip_legs";
+  const bottomOffsetY = sideToFloor ? plinthH : 0;
+  const sidePanelHeight = sideToFloor ? mod.dimensions.height : Math.max(200, mod.dimensions.height - plinthH);
+  const netInnerH = Math.max(200, mod.dimensions.height - plinthH - 2 * panelT);
+
+  const drawerTopY =
+    bay.drawers.length > 0
+      ? Math.max(...bay.drawers.map((d) => d.elevationY + d.height))
+      : 0;
+
+  const fixedPanelYs = bay.shelves
+    .filter(
+      (s) =>
+        s.id !== draggedShelfId &&
+        !s.isHidden &&
+        (s.isAdjustable === false || s.isFixed === true)
+    )
+    .map((s) => bottomOffsetY + panelT + s.elevationY);
+
+  // For full_system_32 & zone_32, use exact drilled hole rows; for cluster_3 / cluster_5 / single_pin,
+  // generate the canonical 32mm System-32 grid so the hole cluster moves cleanly on the 32mm System-32 pitch!
+  const effectiveGridMode =
+    spec.mode === "zone_32" ? "zone_32" : "full_system_32";
+
+  const panelHoleYs = computeSystem32MultiHoleYs({
+    mode: effectiveGridMode,
+    panelHeightMm: sidePanelHeight,
+    bottomOffsetY,
+    panelThicknessMm: panelT,
+    edgeMarginMm: spec.edgeMarginMm,
+    adjustableShelfYsMm: [],
+    blockedYsMm: fixedPanelYs.map((fy) => ({ y: fy, clearanceMm: 22 })),
+  });
+
+  const shelfElevYs = panelHoleYs
+    .map((py) => Math.round(py - bottomOffsetY - panelT))
+    .filter((ey) => ey >= Math.max(48, drawerTopY + 32) && ey <= netInnerH - 48);
+
+  return shelfElevYs.length > 0 ? shelfElevYs : null;
+}
+
+/**
+ * Snaps a dragged shelf strictly to physical System-32 multi-hole coordinates whenever multi-hole mode is active
+ * on a movable shelf (unless `bypassMultiHole` / Alt key is held), while still highlighting cross-bay shelf alignments!
+ */
+export function snapShelfToMultiHoleOrElevationTargets(params: {
+  project: DesignProject;
+  moduleIndex: number;
+  bayIndex: number;
+  shelfId: string;
+  rawElevationY: number;
+  snapTargets: ElevationSnapTarget[];
+  bypassMultiHole?: boolean;
+}): { elevationY: number; snappedTarget: ElevationSnapTarget | null } {
+  const {
+    project,
+    moduleIndex,
+    bayIndex,
+    shelfId,
+    rawElevationY,
+    snapTargets,
+    bypassMultiHole = false,
+  } = params;
+
+  const mod = project.modules[moduleIndex] || project.modules[0];
+  if (!mod || bypassMultiHole) {
+    return resolveElevationSnap(rawElevationY, snapTargets, 18);
+  }
+
+  const holeYs = computeBaySystem32ShelfHoleElevations(mod, bayIndex, shelfId);
+  if (!holeYs || holeYs.length === 0) {
+    return resolveElevationSnap(rawElevationY, snapTargets, 18);
+  }
+
+  let bestHoleIdx = 0;
+  let bestDist = Infinity;
+  for (let i = 0; i < holeYs.length; i++) {
+    const d = Math.abs(rawElevationY - holeYs[i]);
+    if (d < bestDist) {
+      bestDist = d;
+      bestHoleIdx = i;
+    }
+  }
+
+  const snappedHoleY = holeYs[bestHoleIdx];
+  const baseWorldY =
+    (mod.position?.y ?? 0) +
+    (mod.carcass.plinthHeight ?? 80) +
+    (mod.carcass.panelThickness || 18);
+
+  // Check if an adjacent bay's shelf or drawer top also aligns with this System-32 hole
+  const matchingCrossTarget = snapTargets.find(
+    (t) => Math.abs(t.elevationY - snappedHoleY) <= 4
+  );
+
+  const label = matchingCrossTarget
+    ? `${matchingCrossTarget.label} • Sistem 32 Delik #${bestHoleIdx + 1}`
+    : `Sistem 32 Delik #${bestHoleIdx + 1} (${snappedHoleY} mm)`;
+
+  return {
+    elevationY: snappedHoleY,
+    snappedTarget: {
+      elevationY: snappedHoleY,
+      worldY: baseWorldY + snappedHoleY,
+      label,
+      sourceModuleIndex: moduleIndex,
+      sourceBayIndex: bayIndex,
+      kind: "system32_hole",
+    },
   };
 }

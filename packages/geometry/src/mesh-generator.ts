@@ -2369,24 +2369,103 @@ export function generateModuleGeometry(
     bay.shelves.forEach((shelf, sIdx) => {
       if (shelf.isHidden) return;
       const shelfT = shelf.thickness || T;
-      const frontSetback = shelf.frontSetbackMm ?? (moduleHasVertLed ? 26 : shelf.isAdjustable ? 15 : 4);
+      const isFixedSh = shelf.isAdjustable === false || shelf.isFixed === true;
+      const fixedConnLabel = shelf.fixedConnectorType === "rafix_20" ? "Rafix 20" : "Minifix";
+      const frontSetback = shelf.frontSetbackMm ?? (moduleHasVertLed ? 26 : isFixedSh ? 4 : 15);
       const effShelfD = Math.max(100, netInnerD - rearChimneyMm - frontSetback);
-      const effShelfW = Math.max(80, bayW - pocketClearOffset - (shelf.isAdjustable ? 4 : 0));
+      const effShelfW = Math.max(80, bayW - pocketClearOffset - (isFixedSh ? 0 : 4));
+      const shelfIdResolved = shelf.id || `${module.id}_bay_${bayIdx}_shelf_${sIdx}`;
+      const shelfY =
+        plinthHeight + T + Math.max(24, Math.min(Math.max(48, netInnerH - shelfT - 16), shelf.elevationY));
+      const shelfX = bayStartX + pocketClearOffset + (isFixedSh ? 0 : 2);
       components.push({
-        id: shelf.id || `${module.id}_bay_${bayIdx}_shelf_${sIdx}`,
+        id: shelfIdResolved,
         role: "shelf",
-        label: `Raf B${bayIdx + 1}-${sIdx + 1} (${shelf.isAdjustable ? "Hareketli" : "Sabit"}${rearChimneyMm > 0 ? ", 50mm Baca Boşluklu" : ""})`,
+        label: `Raf B${bayIdx + 1}-${sIdx + 1} (${isFixedSh ? `Sabit · ${fixedConnLabel}` : "Hareketli"}${rearChimneyMm > 0 ? ", 50mm Baca Boşluklu" : ""})`,
         bayIndex: bayIdx,
         dimensions: { width: effShelfW, height: shelfT, depth: effShelfD },
         position: {
-          x: bayStartX + pocketClearOffset + (shelf.isAdjustable ? 2 : 0),
-          y: plinthHeight + T + Math.max(24, Math.min(Math.max(48, netInnerH - shelfT - 16), shelf.elevationY)),
+          x: shelfX,
+          y: shelfY,
           z: shelfRearZ,
         },
         materialId: shelf.isGlass ? "mat_smoked_glass" : bodyMaterialId,
         isManufacturablePanel: !shelf.isGlass,
         thicknessAxis: "y",
       });
+
+      // 3D Hardware Visuals: System-32 Ø5mm Steel Spoon Pins under Movable Shelves vs Recessed Cam Housings under Fixed Shelves
+      if (effShelfD >= 140 && effShelfW >= 120) {
+        const zFrontPin = shelfRearZ + Math.max(32, effShelfD - 37);
+        const zRearPin = shelfRearZ + 37;
+        if (!isFixedSh) {
+          [zRearPin, zFrontPin].forEach((pz, pIdx) => {
+            components.push(
+              {
+                id: `${shelfIdResolved}_pin_L_${pIdx}`,
+                role: "special_fitting",
+                label: "Kilitli Çelik Raf Pimi Ø5mm (Sol)",
+                bayIndex: bayIdx,
+                dimensions: { width: 8, height: 6, depth: 12 },
+                position: { x: bayStartX + pocketClearOffset, y: shelfY - 6, z: pz - 6 },
+                materialId: "mat_metal_chrome",
+                isManufacturablePanel: false,
+              },
+              {
+                id: `${shelfIdResolved}_pin_R_${pIdx}`,
+                role: "special_fitting",
+                label: "Kilitli Çelik Raf Pimi Ø5mm (Sağ)",
+                bayIndex: bayIdx,
+                dimensions: { width: 8, height: 6, depth: 12 },
+                position: {
+                  x: bayStartX + bayW - 8,
+                  y: shelfY - 6,
+                  z: pz - 6,
+                },
+                materialId: "mat_metal_chrome",
+                isManufacturablePanel: false,
+              }
+            );
+          });
+        } else if (!shelf.isGlass) {
+          const camDiam = shelf.fixedConnectorType === "rafix_20" ? 20 : 15;
+          const camInsetX = shelf.fixedConnectorType === "rafix_20" ? 2 : 26;
+          [zRearPin, zFrontPin].forEach((cz, cIdx) => {
+            components.push(
+              {
+                id: `${shelfIdResolved}_cam_L_${cIdx}`,
+                role: "special_fitting",
+                label: `${fixedConnLabel} Sabit Raf Kilit Gövdesi (Sol)`,
+                bayIndex: bayIdx,
+                dimensions: { width: camDiam, height: 2, depth: camDiam },
+                position: {
+                  x: shelfX + camInsetX,
+                  y: shelfY - 1.5,
+                  z: cz - camDiam * 0.5,
+                },
+                primitive: "cylinder",
+                materialId: "mat_anodized_metal",
+                isManufacturablePanel: false,
+              },
+              {
+                id: `${shelfIdResolved}_cam_R_${cIdx}`,
+                role: "special_fitting",
+                label: `${fixedConnLabel} Sabit Raf Kilit Gövdesi (Sağ)`,
+                bayIndex: bayIdx,
+                dimensions: { width: camDiam, height: 2, depth: camDiam },
+                position: {
+                  x: shelfX + effShelfW - camInsetX - camDiam,
+                  y: shelfY - 1.5,
+                  z: cz - camDiam * 0.5,
+                },
+                primitive: "cylinder",
+                materialId: "mat_anodized_metal",
+                isManufacturablePanel: false,
+              }
+            );
+          });
+        }
+      }
     });
 
     // Mandatory fixed shelf directly above bottom drawer stack when upper bay space exists
@@ -2748,10 +2827,11 @@ export function generateModuleGeometry(
         ? Math.max(60, bayLeafSpec?.fullDoorSpanWidthMm || bayW - 4)
         : Math.max(60, bayW - 4);
       const pulledZ = drawerOpenMm;
+      const drawerDoorLeafT = bayLeafSpec?.leafThicknessMm || bay.door?.doorThicknessMm || module.carcass.doorThickness || 18;
       const trackRecessMm =
         isFullHeightTrackDoor &&
         (bay.door?.slidingMountingType === "inset_inside" || bay.door?.type === "sliding_bottom")
-          ? 2 * T_door + 22
+          ? 2 * drawerDoorLeafT + 22
           : 24;
       const frontZ = isExtDrawer
         ? (bayLeafSpec?.doorZ0Mm ?? depth) + pulledZ + explodeZ

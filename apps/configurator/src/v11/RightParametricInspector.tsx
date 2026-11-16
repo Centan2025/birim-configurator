@@ -17,11 +17,14 @@ import {
   Lightbulb,
   Scissors,
   BookmarkPlus,
+  Lock,
+  ArrowUpDown,
 } from "lucide-react";
 import {
   calculateFourSpaceDimensions,
   type DoorCrossSectionProfile,
   type EngineeringValidationFinding,
+  type FixedShelfConnectorType,
   type HandleCategory,
   type MaterialDefinition,
   type ModuleInstance,
@@ -69,6 +72,8 @@ export interface RightParametricInspectorProps {
   onSelectModuleIndex: (idx: number) => void;
   onSelectBayIndex: (idx: number) => void;
   onSetDimensions: (w: number, h: number, d: number) => void;
+  onBeginSliderDrag?: () => void;
+  onCommitSliderDrag?: () => void;
   onSetPlinthHeight: (h: number) => void;
   onSplitBayIntoTwo: (bayIdx: number) => void;
   onEqualizeBaysAndShelves: () => void;
@@ -79,6 +84,13 @@ export interface RightParametricInspectorProps {
     presetId: "rail_double" | "shelves_5" | "rail_drawers_3" | "mixed_combo"
   ) => void;
   onAddShelf: (bayIdx: number) => void;
+  onAddFixedShelf: (bayIdx: number) => void;
+  onSetShelfMountType: (
+    bayIdx: number,
+    shelfId: string,
+    isAdjustable: boolean,
+    fixedConnectorType?: FixedShelfConnectorType
+  ) => void;
   onRemoveShelf: (bayIdx: number, shelfId: string) => void;
   onSetShelfElevation: (bayIdx: number, shelfId: string, elevMm: number) => void;
   onSetShelfThickness: (bayIdx: number, shelfId: string | "all", thicknessMm: number) => void;
@@ -199,6 +211,8 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
       onSelectModuleIndex,
       onSelectBayIndex,
       onSetDimensions,
+      onBeginSliderDrag,
+      onCommitSliderDrag,
       onSetPlinthHeight,
       onSplitBayIntoTwo,
       onEqualizeBaysAndShelves,
@@ -206,6 +220,8 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
       onSetBayCustomWidth,
       onApplyBayPreset,
       onAddShelf,
+      onAddFixedShelf,
+      onSetShelfMountType,
       onRemoveShelf,
       onSetShelfElevation,
       onSetShelfThickness,
@@ -589,6 +605,10 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                     max={dim.maxMm}
                     step={10}
                     value={dim.valMm}
+                    onPointerDown={() => onBeginSliderDrag?.()}
+                    onPointerUp={() => onCommitSliderDrag?.()}
+                    onPointerCancel={() => onCommitSliderDrag?.()}
+                    onBlur={() => onCommitSliderDrag?.()}
                     onChange={(e) => dim.apply(Number(e.target.value))}
                     className="w-full accent-[#141413] cursor-pointer"
                   />
@@ -800,6 +820,10 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                       max={Math.max(400, wMm - 320)}
                       step={10}
                       value={Math.round(bayClearWidths[safeBayIdx] || 600)}
+                      onPointerDown={() => onBeginSliderDrag?.()}
+                      onPointerUp={() => onCommitSliderDrag?.()}
+                      onPointerCancel={() => onCommitSliderDrag?.()}
+                      onBlur={() => onCommitSliderDrag?.()}
                       onChange={(e) => onSetBayCustomWidth(safeBayIdx, Number(e.target.value))}
                       className="w-full accent-[#141413] cursor-pointer"
                     />
@@ -868,8 +892,19 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                   {[
                     {
                       label: "Hareketli Raf",
-                      count: activeBay?.shelves.length || 0,
+                      count:
+                        activeBay?.shelves.filter(
+                          (s) => !s.isHidden && s.isAdjustable !== false && !s.isFixed
+                        ).length || 0,
                       onClick: () => onAddShelf(safeBayIdx),
+                    },
+                    {
+                      label: "Sabit Taşıyıcı Raf",
+                      count:
+                        activeBay?.shelves.filter(
+                          (s) => !s.isHidden && (s.isAdjustable === false || Boolean(s.isFixed))
+                        ).length || 0,
+                      onClick: () => onAddFixedShelf(safeBayIdx),
                     },
                     ...(isSlidingBay
                       ? []
@@ -946,47 +981,127 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                       <button
                         type="button"
                         onClick={() => {
-                          const curThick = activeBay.shelves[0]?.thicknessMm || 18;
+                          const curThick =
+                            activeBay.shelves[0]?.thickness ||
+                            activeModule.carcass.panelThickness ||
+                            18;
                           onSetShelfThickness(safeBayIdx, "all", curThick === 25 ? 18 : 25);
                         }}
                         className="px-2 py-0.5 rounded-full bg-[#F5F2EA] hover:bg-[#EAE3D5] text-[10.5px] font-semibold cursor-pointer"
                       >
-                        Raf Kalınlığı: {activeBay.shelves[0]?.thicknessMm || 18} mm
+                        Tüm Raflar: {activeBay.shelves[0]?.thickness || activeModule.carcass.panelThickness || 18} mm
                       </button>
                     )}
                   </div>
 
+                  {activeBay.shelves.length > 0 && (
+                    <div className="space-y-1.5">
+                      {activeBay.shelves.map((sh, i) => {
+                        const isFixedSh = sh.isAdjustable === false || Boolean(sh.isFixed);
+                        const connType = sh.fixedConnectorType || "minifix_dowel";
+                        const shThick = sh.thickness || activeModule.carcass.panelThickness || 18;
+                        return (
+                          <div
+                            key={sh.id}
+                            className={`flex items-center justify-between gap-1.5 px-2.5 py-1.5 rounded-xl border text-[11px] ${
+                              isFixedSh
+                                ? "bg-[#F6EFE2] border-[#DFCFAF]"
+                                : "bg-[#F8F6F1] border-[#E6E1D6]"
+                            }`}
+                          >
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className="font-bold text-[#141413] shrink-0">
+                                Raf {i + 1}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onSetShelfMountType(safeBayIdx, sh.id, isFixedSh, connType)
+                                }
+                                title={
+                                  isFixedSh
+                                    ? "Sabit taşıyıcı raf (gövdeyi birbirine kilitler) — hareketli rafa çevirmek için tıklayın"
+                                    : "Hareketli raf (Sistem 32 Ø5mm pimli) — sabit taşıyıcı rafa çevirmek için tıklayın"
+                                }
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold transition cursor-pointer ${
+                                  isFixedSh
+                                    ? "bg-[#141413] text-[#F5EFE6]"
+                                    : "bg-white border border-[#DAD3C5] text-[#44403C] hover:bg-[#EFECE4]"
+                                }`}
+                              >
+                                {isFixedSh ? (
+                                  <>
+                                    <Lock className="w-2.5 h-2.5" />
+                                    <span>Sabit</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <ArrowUpDown className="w-2.5 h-2.5" />
+                                    <span>Hareketli</span>
+                                  </>
+                                )}
+                              </button>
+
+                              {!isSimple && isFixedSh && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    onSetShelfMountType(
+                                      safeBayIdx,
+                                      sh.id,
+                                      false,
+                                      connType === "rafix_20" ? "minifix_dowel" : "rafix_20"
+                                    )
+                                  }
+                                  title="Sabit raf bağlantı tipini değiştir (Minifix 15 + Kavela veya Rafix 20)"
+                                  className="px-1.5 py-0.5 rounded bg-white/90 border border-[#D8C8AA] text-[9.5px] font-mono font-semibold text-[#6B4F28] cursor-pointer"
+                                >
+                                  {connType === "rafix_20" ? "Rafix 20" : "Minifix"}
+                                </button>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-1 shrink-0">
+                              {!isSimple ? (
+                                <>
+                                  <input
+                                    type="number"
+                                    value={Math.round(sh.elevationY)}
+                                    onChange={(e) =>
+                                      onSetShelfElevation(
+                                        safeBayIdx,
+                                        sh.id,
+                                        Math.max(64, Number(e.target.value) || 0)
+                                      )
+                                    }
+                                    className="w-12 px-1 py-0.5 rounded bg-white border border-[#DED8CC] font-mono text-[10px] text-center"
+                                    title="Alt tabladan yükseklik (mm)"
+                                  />
+                                  <span className="text-[9.5px] font-mono text-[#78716C]">
+                                    {shThick}mm
+                                  </span>
+                                </>
+                              ) : (
+                                <span className="text-[10px] font-mono text-[#78716C]">
+                                  {Math.round(sh.elevationY / 10)} cm
+                                </span>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => onRemoveShelf(safeBayIdx, sh.id)}
+                                className="w-5 h-5 rounded-full hover:bg-red-50 text-[#78716C] hover:text-red-600 flex items-center justify-center cursor-pointer"
+                                title="Rafı Kaldır"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
                   <div className="flex flex-wrap gap-1.5">
-                    {activeBay.shelves.map((sh, i) => (
-                      <span
-                        key={sh.id}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#F5F2EA] text-[11px] font-medium"
-                      >
-                        <span>Raf {i + 1}</span>
-                        {!isSimple && (
-                          <input
-                            type="number"
-                            value={Math.round(sh.elevationY)}
-                            onChange={(e) =>
-                              onSetShelfElevation(
-                                safeBayIdx,
-                                sh.id,
-                                Math.max(80, Number(e.target.value) || 0)
-                              )
-                            }
-                            className="w-12 px-1 py-0.5 rounded bg-white border border-[#DED8CC] font-mono text-[10px] text-center"
-                            title="Yerden yükseklik (mm)"
-                          />
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => onRemoveShelf(safeBayIdx, sh.id)}
-                          className="text-[#78716C] hover:text-red-600 cursor-pointer"
-                        >
-                          ✕
-                        </button>
-                      </span>
-                    ))}
 
                     {activeBay.drawers.map((dr, i) => (
                       <span

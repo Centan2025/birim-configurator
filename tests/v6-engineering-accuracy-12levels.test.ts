@@ -887,6 +887,7 @@ describe("Birim Configurator V6 — 12 Seviyeli Mühendislik Doğruluğu ve Üre
     // 5) P1-05: 0.4mm fiziksel iç içe geçme ERR_MODULE_COLLISION verirken 0.0mm tam temas hatasız geçer
     const obbProj = createInitialProject();
     const mA = obbProj.modules[0];
+    mA.position.x = 0;
     mA.dimensions.width = 1000;
     mA.bays[0].customWidth = undefined;
     const mB = JSON.parse(JSON.stringify(mA));

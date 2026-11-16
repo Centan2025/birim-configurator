@@ -84,7 +84,7 @@ export function computeModuleStructuralSignature(mod: ModuleInstance): string {
     let shelvesSig = "";
     for (let s = 0; s < (b.shelves?.length || 0); s++) {
       const sh = b.shelves[s];
-      shelvesSig += `${sh.id}:${sh.elevationY}:${sh.isAdjustable ? 1 : 0}:${sh.thickness || 0}:${sh.frontSetbackMm || 0}:${sh.pinHoleGroup || ""}:${sh.isGlass ? 1 : 0}:${sh.isHidden ? 1 : 0};`;
+      shelvesSig += `${sh.id}:${sh.elevationY}:${sh.isAdjustable ? 1 : 0}:${sh.isFixed ? 1 : 0}:${sh.fixedConnectorType || ""}:${sh.thickness || 0}:${sh.frontSetbackMm || 0}:${sh.pinHoleGroup || ""}:${sh.isGlass ? 1 : 0}:${sh.isHidden ? 1 : 0};`;
     }
     let drawersSig = "";
     for (let k = 0; k < (b.drawers?.length || 0); k++) {
@@ -191,7 +191,10 @@ export function computeProjectStructuralSignature(project: DesignProject): strin
         )
         .join("|")
     : "";
-  const ceilSig = space?.ceilingConfig ? JSON.stringify(space.ceilingConfig) : "";
+  const ceilSig = (space as { ceilingConfig?: unknown })?.ceilingConfig ? JSON.stringify((space as { ceilingConfig?: unknown }).ceilingConfig) : "";
+  const spaceSlopeSig = space?.slopedCeiling
+    ? `${space.slopedCeiling.mode}:${space.slopedCeiling.kneeHeightMm}:${space.slopedCeiling.slopeAngleDeg}:${space.slopedCeiling.topFlatSpanMm || 0}`
+    : "";
   const customMatSig = project.customMaterials?.length
     ? project.customMaterials.map((m) => `${m.id}:${m.category}:${m.thickness}:${m.costPerM2}`).join("|")
     : "";
@@ -201,5 +204,5 @@ export function computeProjectStructuralSignature(project: DesignProject): strin
         .join("|")
     : "";
 
-  return `T:${project.tenantId || "birim"}|E:${project.ergonomicProfileId || ""}|C:${space?.ceilingHeight || 0}|W:${wallsSig}|EL:${elSig}|CL:${ceilSig}|CM:${customMatSig}|SO:${sceneObjSig}|M:${modsSig}`;
+  return `T:${project.tenantId || "birim"}|E:${project.ergonomicProfileId || ""}|ST:${space?.type || ""}|WS:${space?.wallSubstrateType || ""}|SS:${spaceSlopeSig}|C:${space?.ceilingHeight || 0}|W:${wallsSig}|EL:${elSig}|CL:${ceilSig}|CM:${customMatSig}|SO:${sceneObjSig}|M:${modsSig}`;
 }

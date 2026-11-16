@@ -198,7 +198,7 @@ function buildTemplateFromSeed(seed: TemplateSeed): V4ModuleTemplateDefinition {
       const bays: ModuleInstance["bays"] = Array.from({ length: baysCount }, (_, bayIdx) => {
         const bayDoorSys = seed.bayDoorSystems?.[bayIdx] || seed.doorSystemId;
         const estBayW = seed.bayCustomWidths?.[bayIdx] || estFlexBayW;
-        const needsHeavy25mmShelf = estBayW > 880 && !seed.isCorner;
+        const needsHeavy25mmShelf = estBayW > 980 && !seed.isCorner;
         const hasDrawersInBay = !seed.bayDrawersIndices || seed.bayDrawersIndices.includes(bayIdx);
         const rawDrawerHeights = hasDrawersInBay ? seed.drawersHeights || [] : [];
         const shelvesCount = seed.bayShelvesCount?.[bayIdx] ?? seed.shelvesPerBay ?? (rawDrawerHeights.length && !seed.isInternalDrawers ? 0 : 1);
@@ -209,13 +209,22 @@ function buildTemplateFromSeed(seed: TemplateSeed): V4ModuleTemplateDefinition {
                 ? rawDrawerHeights.reduce((s, h) => s + h + 5, -5)
                 : Math.round(rawDrawerHeights.reduce((s, h) => s + h + 5, -5) + (sIdx * (innerH - rawDrawerHeights.reduce((s, h) => s + h + 5, -5))) / shelvesCount))
             : Math.round(((sIdx + 1) * innerH) / (shelvesCount + 1));
-          const isStructuralFixed = (seed.h > 1800 && sIdx === 0) || (estBayW > 880 && seed.isCorner);
+          const isStructuralFixed =
+            (seed.h >= 1800 &&
+              (rawDrawerHeights.length > 0
+                ? sIdx === 0 || (shelvesCount >= 2 && sIdx === shelvesCount - 1)
+                : shelvesCount >= 3
+                ? sIdx === Math.floor(shelvesCount / 2)
+                : sIdx === shelvesCount - 1)) ||
+            (estBayW > 980 && seed.isCorner);
           return {
             id: `shelf_${id}_${bayIdx}_${sIdx}`,
             bayIndex: bayIdx,
             elevationY: Math.min(rawElev, maxSafeShelfElev),
             isAdjustable: !isStructuralFixed,
-            ...(needsHeavy25mmShelf || (estBayW > 880 && seed.isCorner) ? { thickness: 25 } : {}),
+            isFixed: isStructuralFixed,
+            ...(isStructuralFixed ? { fixedConnectorType: "minifix_dowel" as const } : {}),
+            ...(needsHeavy25mmShelf || (estBayW > 980 && seed.isCorner) ? { thickness: 25 } : {}),
           };
         });
 
@@ -437,14 +446,14 @@ const TEMPLATE_SEEDS: TemplateSeed[] = [
   // ============================================================================
   { templateId: "tpl_wd_01_single_door", familyId: "fam_wardrobe", category: "wardrobe", name: "Tek Kapaklı Gardırop", description: "500x2200x600mm tek kapaklı askı ve raflı gardırop", w: 500, h: 2200, d: 600, minW: 400, maxW: 600, doorSystemId: "hinged_single", shelvesPerBay: 2, hangingRailsPerBay: 1 },
   { templateId: "tpl_wd_02_two_door", familyId: "fam_wardrobe", category: "wardrobe", name: "Çift Kapaklı Gardırop", description: "1000x2200x600mm çift kapaklı standart gardırop", w: 1000, h: 2200, d: 600, minW: 800, maxW: 1200, doorSystemId: "hinged_double", shelvesPerBay: 2, hangingRailsPerBay: 1 },
-  { templateId: "tpl_wd_03_three_door", familyId: "fam_wardrobe", category: "wardrobe", name: "Üç Kapaklı Gardırop", description: "1500x2200x600mm 2 bölmeli, 3 kapaklı master gardırop", w: 1500, h: 2200, d: 600, minW: 1200, maxW: 1800, baysCount: 2, bayCustomWidths: [475, undefined], bayDoorSystems: ["hinged_single", "hinged_double"], bayDoorTypes: ["single_left", "double"], bayShelvesCount: [4, 2], bayHangingRailsCount: [0, 1], bayDrawersIndices: [1], doorSystemId: "hinged_double", shelvesPerBay: 2, hangingRailsPerBay: 1, drawersHeights: [180, 180], isInternalDrawers: false },
+  { templateId: "tpl_wd_03_three_door", familyId: "fam_wardrobe", category: "wardrobe", name: "Üç Kapaklı Gardırop", description: "1500x2200x600mm 2 bölmeli, 3 eşit kapaklı master gardırop", w: 1500, h: 2200, d: 600, minW: 1200, maxW: 1800, baysCount: 2, bayCustomWidths: [473, undefined], bayDoorSystems: ["hinged_single", "hinged_double"], bayDoorTypes: ["single_left", "double"], bayShelvesCount: [4, 2], bayHangingRailsCount: [0, 1], bayDrawersIndices: [1], doorSystemId: "hinged_double", shelvesPerBay: 2, hangingRailsPerBay: 1, drawersHeights: [180, 180], isInternalDrawers: false },
   { templateId: "tpl_wd_04_four_door", familyId: "fam_wardrobe", category: "wardrobe", name: "Dört Kapaklı Gardırop", description: "2000x2200x600mm 2 eşit bölmeli, 4 kapaklı geniş gardırop", w: 2000, h: 2200, d: 600, minW: 1600, maxW: 2400, baysCount: 2, doorSystemId: "hinged_double", shelvesPerBay: 2, hangingRailsPerBay: 1 },
   { templateId: "tpl_wd_05_sliding_2door", familyId: "fam_wardrobe", category: "wardrobe", name: "Sürgülü İki Kapaklı Gardırop", description: "1800x2200x650mm Hettich TopLine L 2 kapaklı sürgülü gardırop", w: 1800, h: 2200, d: 650, minW: 1400, maxW: 2400, minD: 580, baysCount: 2, doorSystemId: "sliding_top_hung", hardwareProductId: "hw_hettich_topline_l", shelvesPerBay: 2, hangingRailsPerBay: 1 },
   { templateId: "tpl_wd_06_sliding_3door", familyId: "fam_wardrobe", category: "wardrobe", name: "Sürgülü Üç Kapaklı Gardırop", description: "2700x2200x650mm 3 bölmeli sürgülü gardırop", w: 2700, h: 2200, d: 650, minW: 2100, maxW: 3600, minD: 580, baysCount: 3, doorSystemId: "sliding_top_hung", hardwareProductId: "hw_hettich_topline_l", shelvesPerBay: 2, hangingRailsPerBay: 1 },
   { templateId: "tpl_wd_07_sliding_4door", familyId: "fam_wardrobe", category: "wardrobe", name: "Sürgülü Dört Kapaklı Gardırop", description: "3200x2200x650mm 4 bölmeli senkronize sürgülü gardırop", w: 3200, h: 2200, d: 650, minW: 2600, maxW: 3600, minD: 580, baysCount: 4, doorSystemId: "sliding_top_hung", hardwareProductId: "hw_hettich_topline_l", shelvesPerBay: 2, hangingRailsPerBay: 1 },
   { templateId: "tpl_wd_08_open_walkin", familyId: "fam_wardrobe", category: "wardrobe_walkin", name: "Açık Gövde Giyinme Modülü", description: "1000x2300x550mm kapaksız modern walk-in giyinme modülü", w: 1000, h: 2300, d: 550, minW: 500, maxW: 1200, doorSystemId: "open", isOpenFront: true, shelvesPerBay: 2, hangingRailsPerBay: 2, drawersHeights: [160, 160] },
   { templateId: "tpl_wd_09_hanging_heavy", familyId: "fam_wardrobe", category: "wardrobe", name: "Askılık Ağırlıklı Gardırop (Asansörlü)", description: "1000x2300x600mm üstte asansör askılık + altta sabit askı", w: 1000, h: 2300, d: 600, minW: 800, maxW: 1200, doorSystemId: "hinged_double", shelvesPerBay: 1, hangingRailsPerBay: 2, specialFitting: "wardrobe_lift" },
-  { templateId: "tpl_wd_10_shelf_heavy", familyId: "fam_wardrobe", category: "wardrobe", name: "Raf Ağırlıklı Gardırop", description: "800x2200x600mm 5 hareketli raflı katlı kıyafet dolabı", w: 800, h: 2200, d: 600, minW: 400, maxW: 1000, doorSystemId: "hinged_double", shelvesPerBay: 5 },
+  { templateId: "tpl_wd_10_shelf_heavy", familyId: "fam_wardrobe", category: "wardrobe", name: "Raf Ağırlıklı Gardırop", description: "800x2200x600mm 1 orta sabit taşıyıcı + 4 hareketli raflı dolap", w: 800, h: 2200, d: 600, minW: 400, maxW: 1000, doorSystemId: "hinged_double", shelvesPerBay: 5 },
   { templateId: "tpl_wd_11_drawer_heavy", familyId: "fam_wardrobe", category: "wardrobe", name: "Çekmece Ağırlıklı Gardırop", description: "900x2200x600mm 4 dış çekmeceli + üst raflı gardırop", w: 900, h: 2200, d: 600, minW: 600, maxW: 1200, doorSystemId: "hinged_double", drawersHeights: [180, 180, 180, 180], shelvesPerBay: 3 },
   { templateId: "tpl_wd_12_mixed_organizer", familyId: "fam_wardrobe", category: "wardrobe", name: "Karma İç Düzenli Gardırop", description: "1200x2300x600mm askı, raf ve iç çekmece kombinasyonu", w: 1200, h: 2300, d: 600, minW: 900, maxW: 1600, baysCount: 2, bayDoorSystems: ["hinged_single", "hinged_single"], bayDoorTypes: ["single_left", "single_right"], bayShelvesCount: [4, 2], bayHangingRailsCount: [0, 1], bayDrawersIndices: [1], doorSystemId: "hinged_single", shelvesPerBay: 2, hangingRailsPerBay: 1, drawersHeights: [180, 180], isInternalDrawers: true },
   { templateId: "tpl_wd_13_corner_wardrobe", familyId: "fam_wardrobe", category: "wardrobe_corner", name: "Köşe Gardırop Modülü", description: "1050x2200x1050mm katlanır kapaklı L köşe gardırop", w: 1050, h: 2200, d: 1050, minW: 950, maxW: 1200, doorSystemId: "folding_side", isCorner: true, shelvesPerBay: 2, hangingRailsPerBay: 1 },

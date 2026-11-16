@@ -367,7 +367,7 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
     }
 
     // Fixed shelf / Oven carrier shelf intermediate Minifix + Dowel rows on side panel
-    (part.fixedShelfJointYs || []).forEach((fsY, fsIdx) => {
+    if (topology !== "miter_45") (part.fixedShelfJointYs || []).forEach((fsY, fsIdx) => {
       if (fsY <= botJointY + 32 || fsY >= topJointY - 32) return;
       jointSpecs.slice(0, 2).forEach((jt, idx) => {
         holes.push({
@@ -392,6 +392,23 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
             purpose: "dowel",
           });
         }
+      });
+    });
+
+    // Rafix 20 fixed shelf Ø5x11mm connecting bolt holes on side panel (9.5mm above shelf underside -> shelf center - 9 + 9.5 = center + 0.5mm, aligned at System 32 front/back columns)
+    (part.rafixShelfJointYs || []).forEach((rfY, rfIdx) => {
+      if (rfY <= botJointY + 32 || rfY >= topJointY - 32) return;
+      [37, Math.max(101, width - 37)].forEach((rx, xIdx) => {
+        holes.push({
+          id: `H_${part.id}_rafix_stud_${rfIdx}_${xIdx}`,
+          diameter: 5,
+          depth: 11,
+          x: mapX(rx),
+          y: roundMm(rfY, 2),
+          z: 0,
+          direction: face,
+          purpose: "rafix_stud",
+        });
       });
     });
 
@@ -449,7 +466,7 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
       panelThicknessMm: panelT,
       edgeMarginMm: part.multiHoleEdgeMarginMm ?? 96,
       adjustableShelfYsMm: part.adjustableShelfPositionsY ?? [],
-      blockedYsMm: (part.fixedShelfJointYs || []).map((fsy) => ({ y: fsy, clearanceMm: 18 })),
+      blockedYsMm: [...(part.fixedShelfJointYs || []), ...(part.rafixShelfJointYs || [])].map((fsy) => ({ y: fsy, clearanceMm: 18 })),
     });
 
     for (const y of sideMultiHoleYs) {
@@ -602,6 +619,93 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
       });
     });
 
+    // Single-sided Fixed Shelves on Intermediate Divider (face_front = left bay, face_back = right bay)
+    const divBlindDepth = Math.min(11, Math.max(8, partThickness - 5));
+    (part.dividerLeftFixedShelfYs || []).forEach((ly, lIdx) => {
+      if (ly <= 48 || ly >= height - 48) return;
+      divJointSpecs.slice(0, 2).forEach((js, xIdx) => {
+        holes.push({
+          id: `H_${part.id}_div_lfs_bolt_${lIdx}_${xIdx}`,
+          diameter: 8,
+          depth: divBlindDepth,
+          x: js.boltFromFront,
+          y: roundMm(ly, 2),
+          z: 0,
+          direction: "face_front",
+          purpose: "minifix_bolt",
+        });
+        if (js.dowelFromFront !== null) {
+          holes.push({
+            id: `H_${part.id}_div_lfs_dowel_${lIdx}_${xIdx}`,
+            diameter: 8,
+            depth: divBlindDepth,
+            x: js.dowelFromFront,
+            y: roundMm(ly, 2),
+            z: 0,
+            direction: "face_front",
+            purpose: "dowel",
+          });
+        }
+      });
+    });
+    (part.dividerRightFixedShelfYs || []).forEach((ry, rIdx) => {
+      if (ry <= 48 || ry >= height - 48) return;
+      divJointSpecs.slice(0, 2).forEach((js, xIdx) => {
+        holes.push({
+          id: `H_${part.id}_div_rfs_bolt_${rIdx}_${xIdx}`,
+          diameter: 8,
+          depth: divBlindDepth,
+          x: js.boltFromFront,
+          y: roundMm(ry, 2),
+          z: partThickness,
+          direction: "face_back",
+          purpose: "minifix_bolt",
+        });
+        if (js.dowelFromFront !== null) {
+          holes.push({
+            id: `H_${part.id}_div_rfs_dowel_${rIdx}_${xIdx}`,
+            diameter: 8,
+            depth: divBlindDepth,
+            x: js.dowelFromFront,
+            y: roundMm(ry, 2),
+            z: partThickness,
+            direction: "face_back",
+            purpose: "dowel",
+          });
+        }
+      });
+    });
+    (part.dividerLeftRafixYs || []).forEach((ly, lIdx) => {
+      if (ly <= 48 || ly >= height - 48) return;
+      [37, Math.max(101, width - 37)].forEach((rx, xIdx) => {
+        holes.push({
+          id: `H_${part.id}_div_lrafix_${lIdx}_${xIdx}`,
+          diameter: 5,
+          depth: divBlindDepth,
+          x: rx,
+          y: roundMm(ly, 2),
+          z: 0,
+          direction: "face_front",
+          purpose: "rafix_stud",
+        });
+      });
+    });
+    (part.dividerRightRafixYs || []).forEach((ry, rIdx) => {
+      if (ry <= 48 || ry >= height - 48) return;
+      [37, Math.max(101, width - 37)].forEach((rx, xIdx) => {
+        holes.push({
+          id: `H_${part.id}_div_rrafix_${rIdx}_${xIdx}`,
+          diameter: 5,
+          depth: divBlindDepth,
+          x: rx,
+          y: roundMm(ry, 2),
+          z: partThickness,
+          direction: "face_back",
+          purpose: "rafix_stud",
+        });
+      });
+    });
+
     const frontX = part.isInsetDoor ? insetSetbackX : drillTpl.system32FrontSetbackMm;
     const kDivSteps = Math.max(2, Math.floor((Math.max(frontX + 64, width - 37) - frontX) / 32));
     const backX = Math.min(width - 37, frontX + kDivSteps * 32);
@@ -685,7 +789,13 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
       panelThicknessMm: 0,
       edgeMarginMm: part.multiHoleEdgeMarginMm ?? 96,
       adjustableShelfYsMm: part.adjustableShelfPositionsY ?? [],
-      blockedYsMm: tJunctionYs.map((ty) => ({ y: ty, clearanceMm: 18 })),
+      blockedYsMm: [
+        ...tJunctionYs,
+        ...(part.dividerLeftFixedShelfYs || []),
+        ...(part.dividerRightFixedShelfYs || []),
+        ...(part.dividerLeftRafixYs || []),
+        ...(part.dividerRightRafixYs || []),
+      ].map((ty) => ({ y: ty, clearanceMm: 18 })),
     });
 
     for (const y of divMultiHoleYs) {
@@ -915,6 +1025,36 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
     const camFace = part.role === "carcass_top" || part.role === "shelf" ? "face_back" : "face_front";
     const camZ = camFace === "face_back" ? partThickness : 0;
     const midZ = roundMm(partThickness / 2, 2);
+
+    // Rafix 20 Fixed Shelf Housing Bores (Ø20x14.2mm on underside, 9.5mm edge center, zero edge boring required!)
+    if (isFixedOrCarrierShelf && part.label.includes("Rafix")) {
+      const rafixPocketDepth = roundMm(Math.min(14.2, Math.max(12.5, partThickness - 3.8)), 2);
+      [37, Math.max(101, width - 37)].forEach((rx, idx) => {
+        holes.push(
+          {
+            id: `H_${part.id}_rafix_pocket_left_${idx}`,
+            diameter: 20,
+            depth: rafixPocketDepth,
+            x: rx,
+            y: 9.5,
+            z: camZ,
+            direction: camFace,
+            purpose: "rafix_housing",
+          },
+          {
+            id: `H_${part.id}_rafix_pocket_right_${idx}`,
+            diameter: 20,
+            depth: rafixPocketDepth,
+            x: rx,
+            y: roundMm(height - 9.5, 2),
+            z: camZ,
+            direction: camFace,
+            purpose: "rafix_housing",
+          }
+        );
+      });
+      return holes;
+    }
 
     jointSpecs.forEach((jt, idx) => {
       holes.push(

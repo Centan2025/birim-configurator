@@ -1,4 +1,4 @@
-import { BoundedLruCache, computeModuleStructuralSignature } from "./lru-cache";
+import { BoundedLruCache, computeModuleStructuralSignature, computeProjectStructuralSignature } from "./lru-cache";
 import { calculateFourSpaceDimensions } from "./v4-profiles";
 import {
   ModuleInstance,
@@ -88,7 +88,7 @@ export const DEFAULT_RULES: SystemRulesConfig = {
   maxCarcassHeight: 2800,
   minCarcassDepth: 200,
   maxCarcassDepth: 950,
-  maxShelfSpanWithoutSupport: 900,
+  maxShelfSpanWithoutSupport: 980,
   minDrawerHeight: 80,
   maxDrawerHeight: 450,
   minHangingSpaceHeight: 850,
@@ -578,15 +578,26 @@ function validateModuleUncached(
       });
     } else {
       const bayObj = module.bays[idx];
-      const hasMovable18mmShelf = bayObj?.shelves?.some(
-        (sh) => !sh.isHidden && !sh.isGlass && sh.isAdjustable && (sh.thickness || module.carcass.panelThickness || 18) <= 18
+      const isHeavyDutyBookOrPantry =
+        module.category === "kitchen_tall" || module.name.toLowerCase().includes("kitap");
+      const activeWoodenShelves = (bayObj?.shelves || []).filter((sh) => !sh.isHidden && !sh.isGlass);
+      const hasThin18mmMovable = activeWoodenShelves.some(
+        (sh) => sh.isAdjustable !== false && (sh.thickness || module.carcass.panelThickness || 18) <= 18
       );
-      const effMaxSpan = hasMovable18mmShelf ? rules.maxShelfSpanWithoutSupport : 1200;
-      if (bayWidth > effMaxSpan) {
+      const hasThin18mmFixed = activeWoodenShelves.some(
+        (sh) => sh.isAdjustable === false && (sh.thickness || module.carcass.panelThickness || 18) <= 18
+      );
+      const base18mmLimit = isHeavyDutyBookOrPantry ? 850 : rules.maxShelfSpanWithoutSupport;
+      const effMaxSpan = hasThin18mmMovable
+        ? base18mmLimit
+        : hasThin18mmFixed
+        ? base18mmLimit + 20
+        : 1200;
+      if (activeWoodenShelves.length > 0 && bayWidth > effMaxSpan) {
         issues.push({
           severity: "warning",
           code: "WARN_SHELF_SPAN_DEFLECTION",
-          message: `Bölme ${idx + 1} genişliği (${bayWidth}mm), ${effMaxSpan}mm sehim sınırını aşıyor; 25mm raf veya orta ara dikme önerilir.`,
+          message: `Bölme ${idx + 1} net açıklığı (${bayWidth}mm), 18mm raf sehim sınırını (${effMaxSpan}mm) aşıyor; 25mm raf veya orta ara dikme önerilir.`,
           targetId: `bay_${idx}`,
         });
       }
@@ -598,17 +609,24 @@ function validateModuleUncached(
       const hasStructuralPulloutFrame = (bay.specialFittings || []).some(
         (f) => !f.isHidden && f.type === "pantry_pullout"
       );
+      const visibleShelvesInBay = bay.shelves.filter((s) => !s.isHidden);
+      const hasFixedStructuralShelf = visibleShelvesInBay.some(
+        (s) => s.isAdjustable === false || s.isFixed === true
+      );
       if (
-        height > 1800 &&
+        height >= 1800 &&
         module.category !== "complementary" &&
-        !bay.shelves.some((s) => !s.isAdjustable && !s.isHidden) &&
+        !hasFixedStructuralShelf &&
         bay.drawers.length === 0 &&
         !hasStructuralPulloutFrame
       ) {
+        const isMultiShelfStack = visibleShelvesInBay.length >= 3;
         issues.push({
-          severity: "info",
+          severity: isMultiShelfStack ? "warning" : "info",
           code: "INFO_TALL_CARCASS_NEEDS_FIXED_SHELF",
-          message: `Bölme ${idx + 1}: 1800mm üzeri gövdede yan dikmelerin bel vermemesi için en az 1 adet sabit yapısal raf önerilir.`,
+          message: isMultiShelfStack
+            ? `Bölme ${idx + 1}: Çok raflı yüksek gövdede (${height}mm) yan dikmelerin bel vermesini ve raf pimi kurtulmasını önlemek için orta kotta en az 1 adet Sabit Taşıyıcı Raf (Minifix/Rafix) bulunmalıdır.`
+            : `Bölme ${idx + 1}: 1800mm üzeri gövdede yan dikmelerin bel vermemesi için en az 1 adet sabit taşıyıcı raf önerilir.`,
           targetId: `bay_${idx}`,
         });
       }
@@ -736,7 +754,18 @@ function validateModuleUncached(
  * Validates entire project including multi-module collisions, front opening sweeps,
  * lift-door ceiling sweeps, countertop slab seams, and architectural space boundaries.
  */
+const projectValidationLruCache = new BoundedLruCache<string, ValidationIssue[]>(64);
+
 export function validateProject(project: DesignProject): ValidationIssue[] {
+  const sig = computeProjectStructuralSignature(project);
+  const hit = projectValidationLruCache.get(sig);
+  if (hit) return hit;
+  const computed = validateProjectUncached(project);
+  projectValidationLruCache.set(sig, computed);
+  return computed;
+}
+
+function validateProjectUncached(project: DesignProject): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
 
   project.modules.forEach((mod) => {
@@ -1142,7 +1171,7 @@ export function calculateShelfDeflection(
     ((5 * totalForceN * Math.pow(L, 3)) / (384 * elasticModulusMpa * momentOfInertiaMm4));
   const deflectionMm = roundMm(rawDeflectionMm, 2);
   const maxAllowedDeflectionMm = roundMm(L / 300, 2);
-  const maxSafeSpanForThickness = t <= 18 ? 900 : 1150;
+  const maxSafeSpanForThickness = t <= 18 ? 980 : 1200;
   const passed = deflectionMm <= maxAllowedDeflectionMm && L <= maxSafeSpanForThickness;
   const safetyRatio = roundMm(maxAllowedDeflectionMm / Math.max(0.01, deflectionMm), 2);
 

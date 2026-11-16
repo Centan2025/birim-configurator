@@ -52,7 +52,7 @@ describe("Birim Configurator V5 — Modül Ekleme, 3D Sahne Objeleri & Endüstri
 
   it("finds free wall gaps, generates auto-fillers/crown panels, and notches obstacles", () => {
     const proj = createInitialProject();
-    proj.space.walls[0].length = 1920; // 1800mm wardrobe + 120mm wall-end gap
+    proj.space.walls[0].length = proj.modules[0].position.x + proj.modules[0].dimensions.width + 120;
     proj.space.elements.push({
       id: "col_test",
       type: "column",

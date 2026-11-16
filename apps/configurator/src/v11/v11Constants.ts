@@ -106,7 +106,7 @@ export const V11_INTERIOR_PRESETS: readonly V11InteriorPresetOption[] = [
   {
     id: "shelves_5",
     title: "Çok Raflı",
-    subtitle: "Katlı giysiler için 5 eşit raf",
+    subtitle: "1 orta sabit + 4 hareketli raf",
     diagram: "shelves",
   },
   {
@@ -194,6 +194,16 @@ export function formatFindingForTier(
     })
     .replace(/\s{2,}/g, " ")
     .trim();
+
+  if (finding.code === "INFO_TALL_CARCASS_NEEDS_FIXED_SHELF") {
+    return {
+      title: "Sabit Taşıyıcı Raf Önerisi",
+      detail:
+        tier === "simple"
+          ? "Yüksek raflı dolaplarda yan panellerin bel vermesini önlemek için orta kottaki rafın Sabit Raf (Minifix/Rafix) olması önerilir."
+          : cleaned,
+    };
+  }
 
   if (finding.code.includes("SPAN") || raw.toLowerCase().includes("sehim")) {
     return {

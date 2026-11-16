@@ -79,7 +79,7 @@ export const CONSTRUCTION_PROFILES: Record<string, ConstructionProfile> = {
     centerRevealGapMm: 3.0,
     defaultOverlayMm: 16.0,
     plinthHeightMm: 100,
-    maxShelfSpanMm: 900,
+    maxShelfSpanMm: 980,
     wallMountClearanceMm: 35,
     edgeBandThicknessMm: 1.0,
     system32PitchMm: 32,
@@ -99,7 +99,7 @@ export const CONSTRUCTION_PROFILES: Record<string, ConstructionProfile> = {
     centerRevealGapMm: 3.0,
     defaultOverlayMm: 16.0,
     plinthHeightMm: 100,
-    maxShelfSpanMm: 900,
+    maxShelfSpanMm: 980,
     wallMountClearanceMm: 35,
     edgeBandThicknessMm: 1.0,
     system32PitchMm: 32,
@@ -119,7 +119,7 @@ export const CONSTRUCTION_PROFILES: Record<string, ConstructionProfile> = {
     centerRevealGapMm: 3.0,
     defaultOverlayMm: 16.0,
     plinthHeightMm: 80,
-    maxShelfSpanMm: 900,
+    maxShelfSpanMm: 980,
     wallMountClearanceMm: 35,
     edgeBandThicknessMm: 1.0,
     system32PitchMm: 32,
@@ -257,7 +257,25 @@ export function resolveEffectiveConstructionProfile(module: ModuleInstance): Con
   };
 }
 
+import { BoundedLruCache, computeModuleStructuralSignature } from "./lru-cache";
+const fourSpaceLruCache = new BoundedLruCache<string, FourSpaceDimensionsBreakdown>(512);
+
 export function calculateFourSpaceDimensions(
+  module: ModuleInstance,
+  customMaterials?: import("./types").MaterialDefinition[]
+): FourSpaceDimensionsBreakdown {
+  const cmSig = customMaterials?.length
+    ? customMaterials.map((m) => `${m.id}:${m.thickness}:${m.category}:${m.densityKgPerM3 || 0}`).join(",")
+    : "";
+  const cacheKey = `${computeModuleStructuralSignature(module)}|DM:${DEFAULT_MATERIALS.length}|CM:${cmSig}`;
+  const cached = fourSpaceLruCache.get(cacheKey);
+  if (cached) return cached;
+  const computed = calculateFourSpaceDimensionsUncached(module, customMaterials);
+  fourSpaceLruCache.set(cacheKey, computed);
+  return computed;
+}
+
+function calculateFourSpaceDimensionsUncached(
   module: ModuleInstance,
   customMaterials?: import("./types").MaterialDefinition[]
 ): FourSpaceDimensionsBreakdown {

@@ -484,6 +484,7 @@ export const DEFAULT_MATERIALS: MaterialDefinition[] = [
 ];
 
 export function createDefaultWardrobeModule(id = "module_1"): ModuleInstance {
+  const pfx = id === "module_1" ? "" : `${id}_`;
   return {
     id,
     name: "Master Gardırop Modülü",
@@ -492,7 +493,7 @@ export function createDefaultWardrobeModule(id = "module_1"): ModuleInstance {
     templateId: "tpl_wardrobe_3door_drawers",
     position: { x: 0, y: 0, z: 0 },
     dimensions: {
-      width: 1800,
+      width: 1500,
       height: 2200,
       depth: 600,
     },
@@ -513,7 +514,7 @@ export function createDefaultWardrobeModule(id = "module_1"): ModuleInstance {
       {
         index: 0,
         door: {
-          id: "door_0",
+          id: `${pfx}door_0`,
           bayIndex: 0,
           type: "single_left",
           doorSystemId: "hinged_single",
@@ -527,17 +528,24 @@ export function createDefaultWardrobeModule(id = "module_1"): ModuleInstance {
           hingeCount: 4,
         },
         shelves: [
-          { id: "shelf_0_1", bayIndex: 0, elevationY: 1750, isAdjustable: false },
-          { id: "shelf_0_2", bayIndex: 0, elevationY: 350, isAdjustable: true },
+          {
+            id: `${pfx}shelf_0_1`,
+            bayIndex: 0,
+            elevationY: 1750,
+            isAdjustable: false,
+            isFixed: true,
+            fixedConnectorType: "minifix_dowel",
+          },
+          { id: `${pfx}shelf_0_2`, bayIndex: 0, elevationY: 350, isAdjustable: true, isFixed: false },
         ],
-        hangingRails: [{ id: "rail_0_1", bayIndex: 0, elevationY: 1680 }],
+        hangingRails: [{ id: `${pfx}rail_0_1`, bayIndex: 0, elevationY: 1680 }],
         drawers: [],
         specialFittings: [],
       },
       {
         index: 1,
         door: {
-          id: "door_1",
+          id: `${pfx}door_1`,
           bayIndex: 1,
           type: "double",
           doorSystemId: "hinged_double",
@@ -551,13 +559,27 @@ export function createDefaultWardrobeModule(id = "module_1"): ModuleInstance {
           hingeCount: 4,
         },
         shelves: [
-          { id: "shelf_1_drw_top", bayIndex: 1, elevationY: 365, isAdjustable: false },
-          { id: "shelf_1_top", bayIndex: 1, elevationY: 1800, isAdjustable: false },
+          {
+            id: `${pfx}shelf_1_drw_top`,
+            bayIndex: 1,
+            elevationY: 365,
+            isAdjustable: false,
+            isFixed: true,
+            fixedConnectorType: "minifix_dowel",
+          },
+          {
+            id: `${pfx}shelf_1_top`,
+            bayIndex: 1,
+            elevationY: 1800,
+            isAdjustable: false,
+            isFixed: true,
+            fixedConnectorType: "minifix_dowel",
+          },
         ],
-        hangingRails: [{ id: "rail_1_1", bayIndex: 1, elevationY: 1730 }],
+        hangingRails: [{ id: `${pfx}rail_1_1`, bayIndex: 1, elevationY: 1730 }],
         drawers: [
-          { id: "drawer_1_1", bayIndex: 1, elevationY: 0, height: 180, slideType: "soft_close" },
-          { id: "drawer_1_2", bayIndex: 1, elevationY: 185, height: 180, slideType: "soft_close" },
+          { id: `${pfx}drawer_1_1`, bayIndex: 1, elevationY: 0, height: 180, slideType: "soft_close" },
+          { id: `${pfx}drawer_1_2`, bayIndex: 1, elevationY: 185, height: 180, slideType: "soft_close" },
         ],
         specialFittings: [],
       },
@@ -568,7 +590,7 @@ export function createDefaultWardrobeModule(id = "module_1"): ModuleInstance {
 export function createInitialProject(): DesignProject {
   const mod = createDefaultWardrobeModule();
   mod.position.x = 50; // Standard 50mm left wall filler clearance for full 90° door/handle swing
-  mod.bays[0].customWidth = 575;
+  mod.bays[0].customWidth = 473; // 1:2 proportional 3-door split (482mm left 1-door + 964mm right 2-door = 3 equal leaves)
   return {
     id: "proj_demo_01",
     version: 1,

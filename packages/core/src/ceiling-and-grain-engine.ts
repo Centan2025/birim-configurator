@@ -781,28 +781,32 @@ export function computeProjectGrainContinuityMap(
         grainDirection: m.grainDirection,
       };
 
-      assignments.set(m.componentId, assignment);
+      const setScopedAndFallback = (key: string) => {
+        assignments.set(`${m.moduleId}::${key}`, assignment);
+        if (!assignments.has(key)) assignments.set(key, assignment);
+      };
+      setScopedAndFallback(m.componentId);
       // 3D mesh-generator (`_leaf_left`, `_leaf_right`, `_left`, `_right`, `_sliding_front`, `_fold_wing_1` vb.) ve BOM takma adlarını birebir eşle
       if (m.role === "door") {
         if (m.componentId.endsWith("_leaf_left")) {
           const baseDoorId = m.componentId.slice(0, -"_leaf_left".length);
-          assignments.set(`${baseDoorId}_left`, assignment);
-          assignments.set(`${baseDoorId}_sliding_front`, assignment);
-          assignments.set(`${baseDoorId}_fold_wing_1`, assignment);
+          setScopedAndFallback(`${baseDoorId}_left`);
+          setScopedAndFallback(`${baseDoorId}_sliding_front`);
+          setScopedAndFallback(`${baseDoorId}_fold_wing_1`);
         } else if (m.componentId.endsWith("_leaf_right")) {
           const baseDoorId = m.componentId.slice(0, -"_leaf_right".length);
-          assignments.set(`${baseDoorId}_right`, assignment);
-          assignments.set(`${baseDoorId}_sliding_rear`, assignment);
-          assignments.set(`${baseDoorId}_fold_wing_2`, assignment);
+          setScopedAndFallback(`${baseDoorId}_right`);
+          setScopedAndFallback(`${baseDoorId}_sliding_rear`);
+          setScopedAndFallback(`${baseDoorId}_fold_wing_2`);
         } else if (!m.componentId.includes("_lift_bifold_")) {
-          assignments.set(`${m.componentId}_left`, assignment);
-          assignments.set(`${m.componentId}_right`, assignment);
-          assignments.set(`${m.componentId}_single`, assignment);
-          assignments.set(`${m.componentId}_leaf`, assignment);
-          assignments.set(`${m.componentId}_lift_stay`, assignment);
-          assignments.set(`${m.componentId}_lift_parallel`, assignment);
-          assignments.set(`${m.componentId}_pocket_leaf`, assignment);
-          assignments.set(`${m.componentId}_tambour_curtain`, assignment);
+          setScopedAndFallback(`${m.componentId}_left`);
+          setScopedAndFallback(`${m.componentId}_right`);
+          setScopedAndFallback(`${m.componentId}_single`);
+          setScopedAndFallback(`${m.componentId}_leaf`);
+          setScopedAndFallback(`${m.componentId}_lift_stay`);
+          setScopedAndFallback(`${m.componentId}_lift_parallel`);
+          setScopedAndFallback(`${m.componentId}_pocket_leaf`);
+          setScopedAndFallback(`${m.componentId}_tambour_curtain`);
         }
       }
     });
@@ -885,7 +889,7 @@ export function computeProjectGrainNeighborMap(
   // Yalnızca birincil (alias olmayan) atamaları grupla
   const groupBuckets = new Map<string, ContinuousGrainPartAssignment[]>();
   continuityMap.forEach((assign, key) => {
-    if (key !== assign.componentId) return;
+    if (key !== `${assign.moduleId}::${assign.componentId}`) return;
     const arr = groupBuckets.get(assign.grainGroupId) || [];
     arr.push(assign);
     groupBuckets.set(assign.grainGroupId, arr);
@@ -1041,18 +1045,22 @@ export function computeProjectGrainNeighborMap(
         compactNeighborAscii: asciiParts.length > 0 ? asciiParts.join(" ") : "TEKIL REFERANS",
       };
 
+      primaryByCompId.set(`${cur.moduleId}::${cur.componentId}`, info);
       primaryByCompId.set(cur.componentId, info);
-      result.set(cur.componentId, info);
+      result.set(`${cur.moduleId}::${cur.componentId}`, info);
+      if (!result.has(cur.componentId)) result.set(cur.componentId, info);
       result.set(cutPieceId, info);
     }
   });
 
   // Takma ad (alias) anahtarlarını da hem componentId hem P_<modId>_<alias> olarak eşle
   continuityMap.forEach((assign, aliasKey) => {
-    const primary = primaryByCompId.get(assign.componentId);
+    const primary = primaryByCompId.get(`${assign.moduleId}::${assign.componentId}`) || primaryByCompId.get(assign.componentId);
     if (!primary) return;
+    const rawKey = aliasKey.startsWith(`${assign.moduleId}::`) ? aliasKey.slice(assign.moduleId.length + 2) : aliasKey;
     result.set(aliasKey, primary);
-    result.set(`P_${assign.moduleId}_${aliasKey}`, primary);
+    if (!result.has(rawKey)) result.set(rawKey, primary);
+    result.set(`P_${assign.moduleId}_${rawKey}`, primary);
   });
 
   return result;
