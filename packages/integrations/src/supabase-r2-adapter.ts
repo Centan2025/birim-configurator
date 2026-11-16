@@ -58,7 +58,7 @@ export async function saveGlbAssetPersistent(
   const blob =
     fileOrBytes instanceof Blob
       ? fileOrBytes
-      : new Blob([fileOrBytes], { type: "model/gltf-binary" });
+      : new Blob([fileOrBytes as unknown as BlobPart], { type: "model/gltf-binary" });
 
   // 1. Always cache locally in IndexedDB for instant reload resilience
   const db = await openBirimIndexedDb();

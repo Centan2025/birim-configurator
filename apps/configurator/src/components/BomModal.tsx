@@ -241,7 +241,7 @@ function BomModalInner({ isOpen, onClose, initialTab = "cutlist" }: BomModalProp
   const downloadCamZipArchive = () => {
     if (!checkGateBeforeProductionExport("CAM ZIP")) return;
     const zipBytes = exportIndustrialCamZipArchive(project, bom);
-    const blob = new Blob([zipBytes], { type: "application/zip" });
+    const blob = new Blob([zipBytes as unknown as BlobPart], { type: "application/zip" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;

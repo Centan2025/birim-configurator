@@ -397,4 +397,37 @@ describe("V11.4 Studio UI, Fixed Shelf, System-32 Multi-Hole Shelf Snap, Perform
     );
     expect(v11ConstCode).toContain("import type { UserExperienceTier } from \"../store/useConfiguratorStore\"");
   });
+
+  it("enforces V11.7 TS 5.7 Uint8Array<ArrayBufferLike> -> BlobPart / BodyInit / BufferSource safety across all files", () => {
+    const bomModal = fs.readFileSync(
+      path.resolve(__dirname, "../apps/configurator/src/components/BomModal.tsx"),
+      "utf8"
+    );
+    expect(bomModal).toContain("zipBytes as unknown as BlobPart");
+
+    const erpModal = fs.readFileSync(
+      path.resolve(__dirname, "../apps/configurator/src/components/StoreErpModal.tsx"),
+      "utf8"
+    );
+    expect(erpModal).toContain("zipBytes as unknown as BodyInit");
+
+    const arModal = fs.readFileSync(
+      path.resolve(__dirname, "../apps/configurator/src/v3/components/workspace/ArRoomPreviewModal.tsx"),
+      "utf8"
+    );
+    expect(arModal).toContain("bytesOrText as unknown as BlobPart");
+    expect(arModal).toContain("glb as unknown as BlobPart");
+
+    const r2Route = fs.readFileSync(
+      path.resolve(__dirname, "../apps/configurator/src/app/api/integrations/r2-upload/route.ts"),
+      "utf8"
+    );
+    expect(r2Route).toContain("new Uint8Array(bodyBuffer) as unknown as BodyInit");
+
+    const libAdmin = fs.readFileSync(
+      path.resolve(__dirname, "../packages/catalog/src/v4-library-admin.ts"),
+      "utf8"
+    );
+    expect(libAdmin).toContain("as unknown as BufferSource");
+  });
 });

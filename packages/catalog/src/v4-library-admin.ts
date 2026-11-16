@@ -227,7 +227,7 @@ export class V4LibraryAdminStore {
     );
     if (!publishedEntries.length) throw new Error("Yayınlanmış doğrulanmış kayıt yok.");
     const payload = JSON.stringify(publishedEntries.sort((a, b) => a.id.localeCompare(b.id)));
-    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(payload));
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(payload) as unknown as BufferSource);
     const snapshot: PublishedLibraryReleaseSnapshot = {
       releaseId: `rel_${semver.replace(/\./g, "_")}_${Date.now()}`,
       semver,

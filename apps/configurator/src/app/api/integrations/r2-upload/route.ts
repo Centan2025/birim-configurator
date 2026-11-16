@@ -138,7 +138,7 @@ export async function POST(request: Request) {
   const putRes = await fetch(signed.url, {
     method: "PUT",
     headers: signed.headers,
-    body: new Uint8Array(bodyBuffer),
+    body: new Uint8Array(bodyBuffer) as unknown as BodyInit,
   });
 
   if (!putRes.ok) {

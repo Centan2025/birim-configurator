@@ -365,7 +365,7 @@ function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
           "x-birim-org-id": organizationId.trim() || DEFAULT_BIRIM_ORG_UUID,
           "x-birim-share-portal-r2": sharePortalR2Bucket ? "true" : "false",
         },
-        body: zipBytes,
+        body: zipBytes as unknown as BodyInit,
       });
       const json = await res.json();
       if (!res.ok || !json?.ok) {

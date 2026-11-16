@@ -38,7 +38,7 @@ function triggerDownload(bytesOrText: Uint8Array | string, fileName: string, mim
   const blob =
     typeof bytesOrText === "string"
       ? new Blob([bytesOrText], { type: mime })
-      : new Blob([bytesOrText], { type: mime });
+      : new Blob([bytesOrText as unknown as BlobPart], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -135,7 +135,7 @@ export const ArRoomPreviewModal: React.FC<ArRoomPreviewModalProps> = ({
 
   const handleLaunchMobileArSceneViewer = () => {
     const glb = exportPartsToGLB(combinedExportParts, materials, project.title);
-    const blob = new Blob([glb], { type: "model/gltf-binary" });
+    const blob = new Blob([glb as unknown as BlobPart], { type: "model/gltf-binary" });
     const blobUrl = URL.createObjectURL(blob);
     const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
     if (/Android/i.test(ua)) {
