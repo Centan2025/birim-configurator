@@ -100,8 +100,8 @@ const nestingMaterialGroupCache = new BoundedLruCache<string, NestingOptimizatio
 function computePiecesDimensionSig(pieces: CutPiece[]): string {
   let s = "";
   for (let i = 0; i < pieces.length; i++) {
-    const p = pieces[i];
-    s += `${p.id}:${p.partCode}:${p.materialId}:${p.thicknessMm}:${p.lengthMm}x${p.widthMm}:${p.netCutLengthMm ?? ""}x${p.netCutWidthMm ?? ""}:${p.quantity}:${p.grain}:${p.grainGroupId || ""}:${p.grainSequenceIndex ?? ""};`;
+    const p = pieces[i] as CutPiece & { partCode?: string; grainSequenceIndex?: number };
+    s += `${p.id}:${p.partCode ?? ""}:${p.materialId}:${p.thicknessMm}:${p.lengthMm}x${p.widthMm}:${p.netCutLengthMm ?? ""}x${p.netCutWidthMm ?? ""}:${p.quantity}:${p.grain}:${p.grainGroupId || ""}:${p.grainSequenceIndex ?? ""};`;
   }
   return s;
 }

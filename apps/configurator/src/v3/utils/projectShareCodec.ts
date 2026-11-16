@@ -88,6 +88,6 @@ export function buildProjectShareQrSvg(project: DesignProject): {
         }?proj=${encodeURIComponent(project.id)}&title=${encodeURIComponent(project.title || "Birim")}`;
   return {
     shareUrl,
-    qrSvg: generateQrCodeSvg(qrTarget, 156),
+    qrSvg: generateQrCodeSvg(qrTarget, { sizePx: 156 }),
   };
 }

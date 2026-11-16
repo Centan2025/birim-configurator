@@ -461,7 +461,7 @@ function evaluateUnifiedEngineeringModelUncached(
           bay.door.hardwareProductId === "hw_blum_71b7550" ||
           bay.door.hardwareProductId === "hw_hettich_9099540" ||
           mod.carcass.internalDrawerHingeSolution === "spacer_block_25mm" ||
-          mod.carcass.internalDrawerHingeSolution === "zero_protrusion_155deg";
+          String(mod.carcass.internalDrawerHingeSolution) === "zero_protrusion_155deg";
 
         bay.drawers.forEach((drw) => {
           if (!drw.isInternal) return;
@@ -631,7 +631,7 @@ function evaluateUnifiedEngineeringModelUncached(
         bay.door?.hardwareProductId === "hw_blum_71b7550" ||
         bay.door?.hardwareProductId === "hw_hettich_9099540" ||
         mod.carcass.internalDrawerHingeSolution === "spacer_block_25mm" ||
-        mod.carcass.internalDrawerHingeSolution === "zero_protrusion_155deg";
+        String(mod.carcass.internalDrawerHingeSolution) === "zero_protrusion_155deg";
 
       (bay.specialFittings || []).forEach((fit) => {
         if (fit.isHidden) return;
@@ -1180,7 +1180,7 @@ function evaluateUnifiedEngineeringModelUncached(
                 patchPayload: { thickness: targetThick },
               },
               ...(mod.bays.reduce((sum, b) => sum + b.shelves.length, 0) > 1
-                ? [
+                ? ([
                     {
                       id: `fix_shelf_thick_all_${mod.id}`,
                       label: `Modüldeki Tüm Rafları ${targetThick}mm Yap`,
@@ -1196,7 +1196,7 @@ function evaluateUnifiedEngineeringModelUncached(
                         isGlass: Boolean(sh.isGlass),
                       } as Record<string, number | string | boolean>,
                     },
-                  ]
+                  ] as RemediationProposal[])
                 : []),
             ],
           });
@@ -1360,7 +1360,7 @@ function evaluateUnifiedEngineeringModelUncached(
     const isWallHungNoBase =
       mod.category === "kitchen_wall" ||
       Boolean(mod.templateId?.includes("floating")) ||
-      (mod.category !== "complementary" &&
+      (String(mod.category) !== "complementary" &&
         mod.position.y >= 150 &&
         plinthH === 0 &&
         !project.modules.some(
@@ -1586,7 +1586,7 @@ function evaluateUnifiedEngineeringModelUncached(
           ],
         });
       } else if (
-        mod.category !== "complementary" &&
+        String(mod.category) !== "complementary" &&
         ceilClear.minClearHeightMm - modTopY < 15 &&
         mod.bays.some((b) => b.door && b.door.type !== "open" && b.door.type !== "sliding")
       ) {
@@ -1721,7 +1721,7 @@ function evaluateUnifiedEngineeringModelUncached(
     if (supportingBases.length === 0) {
       const hasWallSuspension =
         upper.carcass.wallAnchored === true ||
-        Boolean(upper.carcass.wallSuspensionType && upper.carcass.wallSuspensionType !== "none");
+        Boolean(upper.carcass.wallSuspensionType && String(upper.carcass.wallSuspensionType) !== "none");
       if (!hasWallSuspension) {
         addFinding({
           severity: "error",

@@ -31,6 +31,12 @@ export type ComponentRole =
   | "door_rail_top"
   | "door_rail_bottom"
   | "door_center_panel"
+  | "door_sliding"
+  | "door_lift"
+  | "sub_divider"
+  | "carcass_side"
+  | "wall_filler"
+  | "led_strip"
   | "kerf_curve"
   | "countertop";
 

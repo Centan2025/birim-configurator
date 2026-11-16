@@ -181,14 +181,13 @@ export const PresentationQuoteModal: React.FC<PresentationQuoteModalProps> = ({
   const netTotalEur = listTotalEur - discountEur;
   const monthlyEur = netTotalEur / Math.max(1, quoteInstallments);
 
-  const ecoPrice = Math.round(
-    pricing.materialAlternatives?.find((a) => a.tier === "economy")?.estimatedTotalEur ??
-      listTotalEur * 0.86
+  const sortedAlts = [...(pricing.materialAlternatives || [])].sort(
+    (a, b) => a.totalWithVatEur - b.totalWithVatEur
   );
+  const ecoPrice = Math.round(sortedAlts[0]?.totalWithVatEur ?? listTotalEur * 0.86);
   const smartPrice = Math.round(listTotalEur);
   const signaturePrice = Math.round(
-    pricing.materialAlternatives?.find((a) => a.tier === "premium")?.estimatedTotalEur ??
-      listTotalEur * 1.18
+    sortedAlts[sortedAlts.length - 1]?.totalWithVatEur ?? listTotalEur * 1.18
   );
 
   const handleCreateShareLink = async () => {

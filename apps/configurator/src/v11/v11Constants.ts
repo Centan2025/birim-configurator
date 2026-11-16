@@ -57,9 +57,9 @@ export function classifyTemplateGroup(
     id.includes("bathroom") ||
     id.includes("vestiyer") ||
     id.includes("laundry") ||
-    cat === "bathroom" ||
-    cat === "hallway" ||
-    cat === "living" ||
+    String(cat) === "bathroom" ||
+    String(cat) === "hallway" ||
+    String(cat) === "living" ||
     name.includes("tv") ||
     name.includes("konsol") ||
     name.includes("kitaplık") ||

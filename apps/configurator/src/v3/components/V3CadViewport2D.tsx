@@ -639,7 +639,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
           const hasLeftReturnWall = spaceWalls.some(
             (w) => (w.rotationY === 90 || w.rotationY === 270) && w.position.x <= 50
           );
-          if (hasLeftReturnWall && mx1 < 25 && (firstDoorDir === "left" || firstDoorDir === "double")) {
+          if (hasLeftReturnWall && mx1 < 25 && (firstDoorDir === "left" || String(firstDoorDir) === "double")) {
             alerts.push({
               id: `door_wall_left_${mod.id}`,
               kind: "door_swing",
@@ -658,7 +658,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             (w) => (w.rotationY === 90 || w.rotationY === 270) && Math.abs(w.position.x - (spaceWalls[0]?.length || 3600)) <= 60
           );
           const mainLen = spaceWalls[0]?.length || 3600;
-          if (hasRightReturnWall && mainLen - mx2 >= 0 && mainLen - mx2 < 25 && (lastDoorDir === "right" || lastDoorDir === "double")) {
+          if (hasRightReturnWall && mainLen - mx2 >= 0 && mainLen - mx2 < 25 && (lastDoorDir === "right" || String(lastDoorDir) === "double")) {
             alerts.push({
               id: `door_wall_right_${mod.id}`,
               kind: "door_swing",
@@ -1237,6 +1237,10 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
               beam: "Tavan Kirişi",
               plumbing: "Tesisat Noktası",
               electrical: "Elektrik Noktası",
+              gas_valve: "Doğalgaz Vanası",
+              flue_duct: "Baca / Davlumbaz Kanalı",
+              radiator: "Radyatör / Petek",
+              baseboard: "Süpürgelik",
               ventilation: "Havalandırma Kanalı",
               niche: "Duvar Nişi",
               protrusion: "Duvar Çıkıntısı",
@@ -1471,6 +1475,10 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
           beam: "Tavan Kirişi",
           plumbing: "Tesisat Noktası",
           electrical: "Elektrik Noktası",
+          gas_valve: "Doğalgaz Vanası",
+          flue_duct: "Baca / Davlumbaz Kanalı",
+          radiator: "Radyatör / Petek",
+          baseboard: "Süpürgelik",
           ventilation: "Havalandırma Kanalı",
           niche: "Duvar Nişi",
           protrusion: "Duvar Çıkıntısı",
@@ -1949,8 +1957,8 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             let snappedEnd: { x: number; z: number; label: string } | null = null;
             if (magnetEnabled && !e.altKey) {
               let bestDist = 110;
-              spaceWalls.forEach((otherW) => {
-                if (otherW.id === wallId) return;
+              for (const otherW of spaceWalls) {
+                if (otherW.id === wallId) continue;
                 const rad = ((otherW.rotationY || 0) * Math.PI) / 180;
                 const ox1 = otherW.position.x;
                 const oz1 = otherW.position.z;
@@ -1970,7 +1978,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     snappedEnd = c;
                   }
                 }
-              });
+              }
             }
 
             if (snappedEnd && targetWall) {
@@ -3387,7 +3395,6 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       thickness: 150,
                       position: { x: mainWall.length, y: 0, z: 0 },
                       rotationY: 45,
-                      elements: [],
                     });
                   }}
                   className="px-2.5 py-1.5 rounded-xl bg-white hover:bg-amber-50 text-[#0F172A] border border-slate-200 font-bold cursor-pointer"
@@ -5783,7 +5790,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                             }
 
                             // 3. LIFT-UP FLAP DOOR SYSTEM (Blum AVENTOS HK / HL / HF Yukarı Kalkar Kapak)
-                            if (dSys.startsWith("lift_") || dType === "flap" || dType.startsWith("lift_")) {
+                            if (dSys.startsWith("lift_") || String(dType) === "flap" || dType.startsWith("lift_")) {
                               const liftProjD = 240;
                               return (
                                 <g key={`door_sys_${bIdx}`} className="pointer-events-none">
@@ -7361,7 +7368,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 const cz = sz + sd / 2;
                 const isSelObj = selectedSceneObjectId === so.id;
                 const isTableObj =
-                  so.visualKind === "dining_table" ||
+                  String(so.visualKind) === "dining_table" ||
                   so.visualKind === "coffee_table" ||
                   so.name.toLowerCase().includes("masa");
                 let textRot = 0;

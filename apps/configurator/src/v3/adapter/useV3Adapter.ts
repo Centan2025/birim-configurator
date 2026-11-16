@@ -11,6 +11,7 @@ import {
   createDefaultWardrobeModule,
   type MaterialDefinition,
   type ModuleInstance,
+  type DesignProject,
   type ArchitecturalElement,
   calculateBayWidths,
   calculateNetInnerHeight,
@@ -1398,18 +1399,19 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
         },
         bays: Array.from({ length: bayCnt }, (_, bIdx) => ({
           index: bIdx,
-          shelves: [{ id: `${islId}_sh_${bIdx}`, bayIndex: bIdx, elevationY: 340, isFixed: false }],
+          shelves: [{ id: `${islId}_sh_${bIdx}`, bayIndex: bIdx, elevationY: 340, isAdjustable: true }],
           drawers:
             bIdx === 0
               ? [
-                  { id: `${islId}_drw_${bIdx}_0`, bayIndex: bIdx, elevationY: 0, height: 280 },
-                  { id: `${islId}_drw_${bIdx}_1`, bayIndex: bIdx, elevationY: 284, height: 280 },
+                  { id: `${islId}_drw_${bIdx}_0`, bayIndex: bIdx, elevationY: 0, height: 280, slideType: "soft_close" as const },
+                  { id: `${islId}_drw_${bIdx}_1`, bayIndex: bIdx, elevationY: 284, height: 280, slideType: "soft_close" as const },
                 ]
               : [],
           hangingRails: [],
           specialFittings: [],
           door: {
             id: `${islId}_door_${bIdx}`,
+            bayIndex: bIdx,
             type: bIdx === 0 ? "open" : "single_left",
             doorSystemId: bIdx === 0 ? "open" : "hinged_single",
             softClose: true,
@@ -2341,6 +2343,9 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
         handleMaterialId?: string;
         handleOrientation?: "auto" | "vertical" | "horizontal";
         handleOffsetY?: number;
+        doorBottomGapMm?: number;
+        doorTopGapMm?: number;
+        doorSubType?: string;
         handleEdgeInsetX?: number;
         handleLengthMm?: number;
         openingTechnology?: OpeningTechnology;
@@ -2505,8 +2510,9 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
       const state = useConfiguratorStore.getState();
       const curProj = state.project;
       const baseMod = tpl.createInstance(`mod_${Date.now()}`);
-      const newMod = "dimensionLimits" in tpl
-        ? applyValidatedDimensionsToModule(baseMod, tpl, customDimensions)
+      const v4TplMatch = V4_MODULE_TEMPLATES.find((v) => v.templateId === templateId);
+      const newMod = v4TplMatch
+        ? applyValidatedDimensionsToModule(baseMod, v4TplMatch, customDimensions)
         : baseMod;
       const activeMod = curProj.modules[state.activeModuleIndex] || curProj.modules.find((m) => m.category !== "complementary") || curProj.modules[0];
 
@@ -2515,7 +2521,8 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
         const parentMod = activeMod.category === "complementary"
           ? (curProj.modules.find((m) => m.category !== "complementary") || activeMod)
           : activeMod;
-        const codeUpper = (tpl.code || tpl.id || "").toUpperCase();
+        const tplAny = tpl as { code?: string; id?: string; templateId?: string };
+        const codeUpper = (tplAny.code || tplAny.id || tplAny.templateId || "").toUpperCase();
         const nameLower = (tpl.name || newMod.name || "").toLowerCase();
         const pX = parentMod.position.x;
         const pY = parentMod.position.y;
@@ -3391,7 +3398,7 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
 
             if (wiz.interiorFocus === "hanging") {
               nextShelves = [
-                { id: `sh_${m.id}_${bIdx}_top`, bayIndex: bIdx, elevationY: topShelfY, isAdjustable: false, thicknessMm: useThickShelf },
+                { id: `sh_${m.id}_${bIdx}_top`, bayIndex: bIdx, elevationY: topShelfY, isAdjustable: false, thickness: useThickShelf },
               ];
               nextRails = [
                 { id: `rl_${m.id}_${bIdx}_1`, bayIndex: bIdx, elevationY: railHighY },
@@ -3405,7 +3412,7 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
                   bayIndex: bIdx,
                   elevationY: Math.max(420, stepS * sIdx),
                   isAdjustable: sIdx !== 2,
-                  thicknessMm: useThickShelf,
+                  thickness: useThickShelf,
                 }))
                 .filter((s) => s.elevationY < netH - 140);
               nextRails = [];
@@ -3434,7 +3441,7 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
             } else {
               if (!isDrawerBay) {
                 nextShelves = [
-                  { id: `sh_${m.id}_${bIdx}_top`, bayIndex: bIdx, elevationY: topShelfY, isAdjustable: false, thicknessMm: useThickShelf },
+                  { id: `sh_${m.id}_${bIdx}_top`, bayIndex: bIdx, elevationY: topShelfY, isAdjustable: false, thickness: useThickShelf },
                 ];
                 nextRails = [
                   { id: `rl_${m.id}_${bIdx}_1`, bayIndex: bIdx, elevationY: railHighY },
@@ -5266,7 +5273,7 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
                 bayIndex: bIdx,
                 type: "led_profile",
                 elevationY: Math.max(200, netH - 20),
-                height: mod.carcass.ledChannelDepthMm,
+                height: mod.carcass.ledChannelDepthMm ?? 12,
                 width: Math.max(60, bw - 12),
                 depth: shelfSetback,
               });
@@ -6786,8 +6793,6 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
 
       baseMod.dimensions = { width: safeW, height: safeH, depth: safeD };
       baseMod.isOpenFront = spec.doorType === "open";
-      baseMod.bodyMaterialId = bodyMat;
-      baseMod.doorMaterialId = doorMat;
       baseMod.carcass = {
         ...baseMod.carcass,
         bodyMaterialId: bodyMat,
@@ -6905,7 +6910,7 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
             doorSystemId: doorSys,
             openingTechnology: "soft_close",
             softClose: true,
-            handleCategory: "linear_bar",
+            handleCategory: "bar_handle",
             doorMaterialId: doorMat,
           },
         });
@@ -6964,8 +6969,7 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
     [bom]
   );
   const exportThermalLabelsHtmlString = useCallback(() => {
-    const matMap = new Map(DEFAULT_MATERIALS.map((m) => [m.id, m]));
-    return generateThermalPartLabelsHtml(project, bom, matMap);
+    return generateThermalPartLabelsHtml(project, bom);
   }, [project, bom]);
 
 

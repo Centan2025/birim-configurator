@@ -177,10 +177,14 @@ export function computeProjectStructuralSignature(project: DesignProject): strin
   const space = project.space;
   const wallsSig = space?.walls
     ? space.walls
-        .map(
-          (w) =>
-            `${w.id}:${w.length}x${w.height}:${w.angleDeg ?? ""}:${w.startPoint?.x ?? ""},${w.startPoint?.z ?? ""}->${w.endPoint?.x ?? ""},${w.endPoint?.z ?? ""}`
-        )
+        .map((w) => {
+          const wExt = w as typeof w & {
+            angleDeg?: number;
+            startPoint?: { x: number; z: number };
+            endPoint?: { x: number; z: number };
+          };
+          return `${w.id}:${w.length}x${w.height}:${wExt.angleDeg ?? ""}:${wExt.startPoint?.x ?? ""},${wExt.startPoint?.z ?? ""}->${wExt.endPoint?.x ?? ""},${wExt.endPoint?.z ?? ""}`;
+        })
         .join("|")
     : "";
   const elSig = space?.elements

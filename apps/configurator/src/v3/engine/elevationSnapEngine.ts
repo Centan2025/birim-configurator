@@ -294,8 +294,8 @@ export function computeBaySystem32ShelfHoleElevations(
   const plinthH = mod.carcass.plinthHeight ?? 80;
   const sideToFloor =
     plinthH > 0 &&
-    mod.carcass.plinthConstruction !== "box_plinth" &&
-    mod.carcass.plinthConstruction !== "clip_legs";
+    String(mod.carcass.plinthConstruction) !== "box_plinth" &&
+    String(mod.carcass.plinthConstruction) !== "clip_legs";
   const bottomOffsetY = sideToFloor ? plinthH : 0;
   const sidePanelHeight = sideToFloor ? mod.dimensions.height : Math.max(200, mod.dimensions.height - plinthH);
   const netInnerH = Math.max(200, mod.dimensions.height - plinthH - 2 * panelT);

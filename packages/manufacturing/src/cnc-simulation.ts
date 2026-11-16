@@ -61,7 +61,14 @@ export function simulateCncPostProcessorBundle(
   bom: ManufacturingBOM,
   machineProfile?: Partial<TenantMachineProfile> & { postProcessorCalibratedOnMachine?: boolean }
 ): CncProjectSimulationReport {
-  const format = machineProfile?.cncFormat || "biesse_cix";
+  const rawFormat =
+    (machineProfile as { cncFormat?: string; postProcessorFormat?: string } | undefined)?.cncFormat ||
+    (machineProfile as { postProcessorFormat?: string } | undefined)?.postProcessorFormat ||
+    "biesse_cix";
+  const format: "homag_mpr" | "biesse_cix" | "scm_xcs" | "iso_gcode" =
+    rawFormat === "homag_mpr" || rawFormat === "biesse_cix" || rawFormat === "scm_xcs" || rawFormat === "iso_gcode"
+      ? rawFormat
+      : "biesse_cix";
   const isCalibrated = Boolean(machineProfile?.postProcessorCalibratedOnMachine);
 
   const pieceResults: CncPieceSimulationResult[] = [];

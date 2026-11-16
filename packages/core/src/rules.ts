@@ -839,7 +839,7 @@ function validateProjectUncached(project: DesignProject): ValidationIssue[] {
 
     // Kinematic Upward Lift Door Sweep vs Ceiling / Crown Check (Checklist #14)
     mod.bays.forEach((bay) => {
-      const ds = bay.door?.doorSystemId || bay.door?.type || "";
+      const ds: string = bay.door?.doorSystemId || bay.door?.type || "";
       if (ds === "lift_up_stay" || ds === "lift_parallel" || ds === "lift_bi_fold" || ds === "lift") {
         const doorH = Math.max(200, mod.dimensions.height - (mod.carcass.plinthHeight || 0));
         const upwardRiseMm =

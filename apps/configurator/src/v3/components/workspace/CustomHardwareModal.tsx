@@ -157,8 +157,8 @@ export const CustomHardwareModal: React.FC<CustomHardwareModalProps> = ({
         "fam_kitchen_base",
         "fam_kitchen_wall",
         "fam_kitchen_tall",
-        "fam_bathroom_storage",
-        "fam_bespoke_custom",
+        "fam_special_corner",
+        "fam_complementary",
       ],
       compatibleDoorSystems: [
         "hinged_single",

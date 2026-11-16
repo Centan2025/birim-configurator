@@ -124,7 +124,7 @@ function doesBayDoorHingeOnLeft(bay: ModuleInstance["bays"][number] | undefined)
   }
   return (
     dType === "single_left" ||
-    dType === "left" ||
+    String(dType) === "left" ||
     dType === "double" ||
     dType === "inset_left" ||
     dType === "inset_double" ||
@@ -151,7 +151,7 @@ function doesBayDoorHingeOnRight(bay: ModuleInstance["bays"][number] | undefined
   }
   return (
     dType === "single_right" ||
-    dType === "right" ||
+    String(dType) === "right" ||
     dType === "double" ||
     dType === "inset_right" ||
     dType === "inset_double" ||
@@ -517,7 +517,10 @@ export function generateBOMForProject(
               unfoldedArcLengthMm: kerf.unfoldedArcLengthMm,
               kerfCount: kerf.kerfCount,
               kerfSpacingMm: kerf.kerfSpacingMm,
-              residualWebMm: kerf.residualSkinThicknessMm,
+              residualWebMm:
+                (kerf as { residualSkinThicknessMm?: number; skinRemainingMm?: number }).residualSkinThicknessMm ??
+                (kerf as { skinRemainingMm?: number }).skinRemainingMm ??
+                2,
             },
           });
         }
@@ -813,9 +816,9 @@ export function generateBOMForProject(
       if (module.carcass.plinthHeight > 0 && !isDishwasherSlot) {
         const isWardrobeMod =
           module.category === "wardrobe" ||
-          module.category === "vestiyer" ||
-          module.category === "living" ||
-          module.category === "tall";
+          String(module.category) === "vestiyer" ||
+          String(module.category) === "living" ||
+          String(module.category) === "tall";
         const effPType =
           module.carcass.plinthConstruction ||
           (module.carcass.hasAdjustableLegs === false
@@ -884,11 +887,11 @@ export function generateBOMForProject(
         Boolean(module.templateId?.includes("floating")) ||
         ((module.position?.y || 0) >= 150 &&
           (module.carcass.plinthHeight ?? 0) === 0 &&
-          module.category !== "complementary" &&
+          String(module.category) !== "complementary" &&
           !project.modules.some(
             (bm) =>
               bm.id !== module.id &&
-              bm.category !== "complementary" &&
+              String(bm.category) !== "complementary" &&
               Math.abs(bm.position.y + bm.dimensions.height - module.position.y) <= 20 &&
               bm.position.x < module.position.x + module.dimensions.width - 20 &&
               bm.position.x + bm.dimensions.width > module.position.x + 20
@@ -1208,6 +1211,7 @@ export function generateBOMForProject(
                 countertopCutouts.push({
                   id: `cutout_${isSink ? "sink" : "hob"}_${cand.id}`,
                   targetPanel: "bottom",
+                  kind: "plumbing_pass",
                   shape: "rect",
                   centerXMm: roundMm(width * 0.52, 1),
                   centerYMm: localAlongY,
@@ -1229,6 +1233,7 @@ export function generateBOMForProject(
             countertopCutouts.push({
               id: `cutout_${isSink ? "sink" : "hob"}_${module.id}`,
               targetPanel: "bottom",
+              kind: "plumbing_pass",
               shape: "rect",
               centerXMm: roundMm(width * 0.52, 1),
               centerYMm: roundMm(length / 2, 1),
@@ -1377,7 +1382,7 @@ export function generateBOMForProject(
                   "Gömme Çift Kanallı Eloksallı Alüminyum Üst/Alt Sürgü Rayı",
                   "slide",
                   Number((trackMeters * 2).toFixed(2)),
-                  "mt",
+                  "metre",
                   19.5
                 );
               } else if (sMount === "coplanar_flush") {
@@ -1403,7 +1408,7 @@ export function generateBOMForProject(
                   "TopLine XL Üstten Askılı Çift Yollu Alüminyum Taşıyıcı Ray",
                   "slide",
                   trackMeters,
-                  "mt",
+                  "metre",
                   28.0
                 );
                 if (sMount === "top_hung_pelmet") {

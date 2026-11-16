@@ -265,7 +265,7 @@ function filterTemplatesForStudioSubCategory(
 
   return templates.filter((t) => {
     const nameLower = (t?.name || "").toLowerCase();
-    const codeLower = (t?.code || t?.templateId || "").toLowerCase();
+    const codeLower = (t?.templateId || "").toLowerCase();
     const isOpen =
       t.defaultDoorSystemId === "open" ||
       nameLower.includes("açık") ||
@@ -2292,8 +2292,8 @@ export const V3UnifiedWorkspace: React.FC<{
       if (catalogFeatureFilter === "drawer") {
         return (
           vt.name.toLowerCase().includes("çekmece") ||
-          vt.templateId.includes("drawer") ||
-          vt.code.toLowerCase().includes("drw")
+          vt.templateId.toLowerCase().includes("drawer") ||
+          vt.templateId.toLowerCase().includes("drw")
         );
       }
       return true;
@@ -5226,7 +5226,7 @@ export const V3UnifiedWorkspace: React.FC<{
                                       costPerM2: newSurfCost,
                                       textureUrl: newSurfTexUrl || undefined,
                                     });
-                                    applyMaterialByTargetScope(created.id, materialTargetScope);
+                                    applyMaterialByTargetScope(materialTargetScope, created.id);
                                     setNewSurfTexUrl("");
                                     setShowNewSurfaceCreator(false);
                                     setApprovalBanner({
@@ -6778,7 +6778,7 @@ export const V3UnifiedWorkspace: React.FC<{
                 <button
                   type="button"
                   data-testid="plan-right-door-toggle"
-                  onClick={toggleDoorOpen}
+                  onClick={() => toggleDoorOpen()}
                   className={`px-2 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer ${
                     doorOpenAngleDeg > 0
                       ? "bg-[#EFF6FF] text-[#1D4ED8] border border-[#BFDBFE]"
@@ -6805,7 +6805,7 @@ export const V3UnifiedWorkspace: React.FC<{
           {/* Hidden Studio Door Toggle Hook (In Design Studio, modules are in the bottom film strip and Interior View is on the left 3D pill) */}
           {mode === "studio" && (
             <div data-testid="studio-top-module-bar" className="hidden">
-              <button type="button" data-testid="studio-door-toggle" onClick={toggleDoorOpen}>
+              <button type="button" data-testid="studio-door-toggle" onClick={() => toggleDoorOpen()}>
                 {doorOpenAngleDeg > 0 ? "Kapakları Kapat" : "İçini Göster"}
               </button>
             </div>
@@ -6970,7 +6970,7 @@ export const V3UnifiedWorkspace: React.FC<{
 
                   <button
                     type="button"
-                    onClick={rotateActiveModule90}
+                    onClick={() => rotateActiveModule90()}
                     title="90° Köşe Dönüşü"
                     className="w-8 h-8 rounded-xl bg-white hover:bg-slate-100 border border-slate-200/90 text-slate-700 flex items-center justify-center shadow-2xs transition active:scale-95 cursor-pointer"
                   >
@@ -7184,7 +7184,7 @@ export const V3UnifiedWorkspace: React.FC<{
                       type="button"
                       data-testid="showroom-door-toggle"
                       title={doorOpenAngleDeg > 0 ? "Kapakları Kapat" : "İç Düzeni Göster"}
-                      onClick={toggleDoorOpen}
+                      onClick={() => toggleDoorOpen()}
                       className={`w-10 h-10 rounded-xl flex items-center justify-center transition cursor-pointer ${
                         doorOpenAngleDeg > 0
                           ? "birim-ice-btn-active"
@@ -7670,7 +7670,9 @@ export const V3UnifiedWorkspace: React.FC<{
                   onSetBayDoorType={setBayDoorType}
                   onSetSlidingMountingType={setModuleSlidingMountingType}
                   onSetBayV4DoorConfig={setBayV4DoorConfig}
-                  onApplyBayPreset={(bIdx, preset) => applyBayInteriorPreset(bIdx, preset)}
+                  onApplyBayPreset={(bIdx, preset) =>
+                    applyBayInteriorPreset(bIdx, preset === "shelves_4" ? "shelves_5" : preset)
+                  }
                   onAddShelf={addShelf}
                   onRemoveShelf={removeShelf}
                   onAddSubDivider={addSubDivider}
@@ -7748,7 +7750,9 @@ export const V3UnifiedWorkspace: React.FC<{
                         ].map((jt) => {
                           const curTopo =
                             activeModule.carcass.carcassJoineryTopology ||
-                            (activeModule.category === "base" ? "kitchen_stretchers" : "sides_through");
+                            (String(activeModule.category) === "base" || activeModule.category === "kitchen_base"
+                              ? "kitchen_stretchers"
+                              : "sides_through");
                           const act = curTopo === jt.id;
                           return (
                             <button
@@ -7790,7 +7794,7 @@ export const V3UnifiedWorkspace: React.FC<{
                               onClick={() =>
                                 updateCarcassConfig({
                                   backPanelType: bp.id,
-                                  backThickness: bp.id === "flush" ? 18 : bp.id === "none" ? 0 : 8,
+                                  backPanelThickness: bp.id === "flush" ? 18 : bp.id === "none" ? 0 : 8,
                                 })
                               }
                               className={`py-1.5 px-1 rounded-xl border text-center text-[10.5px] font-bold transition cursor-pointer ${
@@ -7963,29 +7967,31 @@ export const V3UnifiedWorkspace: React.FC<{
                         type="button"
                         onClick={() =>
                           updateCarcassConfig({
-                            slopedCeiling: activeModule.carcass.slopedCeiling?.enabled
-                              ? {
-                                  enabled: false,
-                                  slopeType: "side_gable",
-                                  kneeWallHeightMm: 1500,
-                                  slopeAngleDeg: 32,
-                                }
-                              : {
-                                  enabled: true,
-                                  slopeType: "side_gable",
-                                  kneeWallHeightMm: Math.max(1100, height - 600),
-                                  slopeAngleDeg: 32,
-                                },
+                            slopedCeiling:
+                              activeModule.carcass.slopedCeiling &&
+                              activeModule.carcass.slopedCeiling.mode !== "none"
+                                ? {
+                                    mode: "none",
+                                    kneeHeightMm: 1500,
+                                    slopeAngleDeg: 32,
+                                  }
+                                : {
+                                    mode: "left_slope",
+                                    kneeHeightMm: Math.max(1100, height - 600),
+                                    slopeAngleDeg: 32,
+                                  },
                           })
                         }
                         className={`p-2 rounded-2xl border text-[11px] font-bold transition cursor-pointer ${
-                          activeModule.carcass.slopedCeiling?.enabled
+                          activeModule.carcass.slopedCeiling &&
+                          activeModule.carcass.slopedCeiling.mode !== "none"
                             ? "birim-ice-charcoal-pill"
                             : "birim-ice-btn text-[#141413]"
                         }`}
                         title="Çatı arası / mansard eğimli tavan açılı karkas ve kapak kesimi"
                       >
-                        {activeModule.carcass.slopedCeiling?.enabled
+                        {activeModule.carcass.slopedCeiling &&
+                        activeModule.carcass.slopedCeiling.mode !== "none"
                           ? "✓ Çatı Eğimi (32°)"
                           : "Çatı Eğimli Kesim"}
                       </button>
@@ -8030,7 +8036,7 @@ export const V3UnifiedWorkspace: React.FC<{
                             updateCarcassConfig({
                               internalDrawerHingeSolution: e.target.value as
                                 | "spacer_block_25mm"
-                                | "zero_protrusion_155deg",
+                                | "auto_155_hinge",
                             })
                           }
                           className="w-full p-1.5 rounded-xl birim-ice-btn text-[11px] font-bold text-[#141413] cursor-pointer"
@@ -8541,7 +8547,8 @@ export const V3UnifiedWorkspace: React.FC<{
                     Boolean(b.door?.doorSystemId?.startsWith("lift"))
                   );
                   const has155ZeroHinge =
-                    activeModule.carcass.internalDrawerHingeSolution === "zero_protrusion_155deg" ||
+                    activeModule.carcass.internalDrawerHingeSolution === "auto_155_hinge" ||
+                    String(activeModule.carcass.internalDrawerHingeSolution) === "zero_protrusion_155deg" ||
                     activeModule.bays.some((b) => b.door?.hardwareProductId?.includes("155"));
                   const maxDoorDeg = isSlidingMod || isLiftMod ? 90 : has155ZeroHinge ? 155 : 110;
                   const allDrawers = activeModule.bays.flatMap((b) => b.drawers || []);
@@ -9720,15 +9727,15 @@ export const V3UnifiedWorkspace: React.FC<{
                               (activeModule.carcass.plinthConstruction ||
                                 (activeModule.carcass.hasAdjustableLegs === false
                                   ? activeModule.category === "wardrobe" ||
-                                    activeModule.category === "vestiyer" ||
-                                    activeModule.category === "living" ||
-                                    activeModule.category === "tall"
+                                    String(activeModule.category) === "vestiyer" ||
+                                    String(activeModule.category) === "living" ||
+                                    String(activeModule.category) === "tall"
                                     ? "gable_rails"
                                     : "pedestal_box"
                                   : activeModule.category === "wardrobe" ||
-                                    activeModule.category === "vestiyer" ||
-                                    activeModule.category === "living" ||
-                                    activeModule.category === "tall"
+                                    String(activeModule.category) === "vestiyer" ||
+                                    String(activeModule.category) === "living" ||
+                                    String(activeModule.category) === "tall"
                                   ? "pedestal_box"
                                   : "adjustable_legs_clip")) === "pedestal_box",
                             onSelect: () => {
@@ -9750,9 +9757,9 @@ export const V3UnifiedWorkspace: React.FC<{
                               plinthH > 0 &&
                               (activeModule.carcass.plinthConstruction ||
                                 (activeModule.category === "wardrobe" ||
-                                activeModule.category === "vestiyer" ||
-                                activeModule.category === "living" ||
-                                activeModule.category === "tall"
+                                String(activeModule.category) === "vestiyer" ||
+                                String(activeModule.category) === "living" ||
+                                String(activeModule.category) === "tall"
                                   ? "pedestal_box"
                                   : "adjustable_legs_clip")) === "adjustable_legs_clip",
                             onSelect: () => {
@@ -9776,9 +9783,9 @@ export const V3UnifiedWorkspace: React.FC<{
                                 (!activeModule.carcass.plinthConstruction &&
                                   activeModule.carcass.hasAdjustableLegs === false &&
                                   (activeModule.category === "wardrobe" ||
-                                    activeModule.category === "vestiyer" ||
-                                    activeModule.category === "living" ||
-                                    activeModule.category === "tall"))),
+                                    String(activeModule.category) === "vestiyer" ||
+                                    String(activeModule.category) === "living" ||
+                                    String(activeModule.category) === "tall"))),
                             onSelect: () => {
                               const nextH = plinthH > 0 ? plinthH : 80;
                               updateCarcassConfig({
@@ -15812,14 +15819,24 @@ export const V3UnifiedWorkspace: React.FC<{
                       type="button"
                       data-testid="studio-pill-fill-wall-gap"
                       onClick={() => {
-                        const res = fillWallGapWithParametricModule();
-                        if (res) {
-                          setApprovalBanner({
-                            ok: true,
-                            text: `✓ Kalan duvar boşluğu (${isSimpleBlumMode ? `${Math.round(remGapMm / 10)} cm` : `${remGapMm} mm`}) uyumlu modülle tamamlandı.`,
-                          });
-                          setTimeout(() => setApprovalBanner(null), 3200);
-                        }
+                        fillWallGapWithParametricModule({
+                          id: "studio_rem_gap",
+                          wallId: spaceWalls[0]?.id || "wall_1",
+                          wallName: spaceWalls[0]?.name || "Ana Duvar",
+                          zone: "base",
+                          startAlongMm: totalWidthMm,
+                          endAlongMm: totalWidthMm + remGapMm,
+                          widthMm: remGapMm,
+                          targetElevationY: 0,
+                          worldOriginX: totalWidthMm,
+                          worldOriginZ: 0,
+                          moduleRotationYDeg: 0,
+                        });
+                        setApprovalBanner({
+                          ok: true,
+                          text: `✓ Kalan duvar boşluğu (${isSimpleBlumMode ? `${Math.round(remGapMm / 10)} cm` : `${remGapMm} mm`}) uyumlu modülle tamamlandı.`,
+                        });
+                        setTimeout(() => setApprovalBanner(null), 3200);
                       }}
                       className="h-8 px-2.5 rounded-xl bg-emerald-500/18 hover:bg-emerald-500/28 border border-emerald-600/30 flex items-center gap-1 text-[11px] font-extrabold text-emerald-950 cursor-pointer shrink-0 whitespace-nowrap transition"
                       title="Duvardaki kalan boşluğa tam oturan parametrik modül ekler"
@@ -16135,7 +16152,7 @@ export const V3UnifiedWorkspace: React.FC<{
                 <button
                   type="button"
                   data-testid="plan-rotate-mod-btn"
-                  onClick={rotateActiveModule90}
+                  onClick={() => rotateActiveModule90()}
                   className="px-2.5 py-1.5 rounded-xl bg-white hover:bg-slate-50 border border-slate-200/90 text-slate-800 font-bold flex items-center gap-1 shadow-2xs cursor-pointer"
                   title="90° Köşe Dönüşü"
                 >
@@ -16584,7 +16601,7 @@ export const V3UnifiedWorkspace: React.FC<{
                     className="p-3 rounded-2xl bg-white hover:bg-[#F8FAFC]/40 border border-stone-200/90 hover:border-amber-700 shadow-xs hover:shadow-md flex flex-col items-center text-center justify-between gap-2 transition group cursor-grab active:cursor-grabbing"
                   >
                     <div className="w-full flex items-center justify-between text-[10px] font-mono text-stone-400 px-1">
-                      <span className="font-bold text-[#57534E]">{vt.code}</span>
+                      <span className="font-bold text-[#57534E]">{vt.templateId}</span>
                       <span>
                         {vt.defaultDimensions.width}×{vt.defaultDimensions.height}×
                         {vt.defaultDimensions.depth}
@@ -17524,7 +17541,7 @@ export const V3UnifiedWorkspace: React.FC<{
             sensorType: "ir_door",
           })
         }
-        onAddTrouserUpsell={() => addSpecialFitting(activeBayIndex, "trouser_pullout")}
+        onAddTrouserUpsell={() => addSpecialFitting(activeBayIndex, "trouser_rack")}
         onAddJewelryUpsell={() => addSpecialFitting(activeBayIndex, "jewelry_tray")}
         onApplyGlassDoorUpsell={() => {
           setBayV4DoorConfig(activeBayIndex, {

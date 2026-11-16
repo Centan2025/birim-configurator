@@ -632,7 +632,8 @@ export function computeProjectGrainContinuityMap(
           bay.door.doorSystemId === "hinged_double" ||
           bay.door.type === "sliding" ||
           bay.door.type === "sliding_bottom" ||
-          bay.door.doorSystemId === "folding_bifold";
+          bay.door.type === "folding" ||
+          String(bay.door.doorSystemId) === "folding_bifold";
 
         if (isLiftBiFold) {
           const halfGap = 2;

@@ -185,7 +185,7 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
           );
         }
       });
-    } else if (topology === "miter_45") {
+    } else if (String(topology) === "miter_45") {
       // Tip C: 45° Mitered carcass — omit 9mm edge-splitting minifix bolts; place internal alignment dowels!
       jointSpecs.slice(0, 2).forEach((jt, idx) => {
         const dx = mapX(jt.boltFromFront);

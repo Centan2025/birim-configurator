@@ -38,16 +38,16 @@ export const PanelCutoutModal: React.FC<PanelCutoutModalProps> = React.memo(
         (roomObstacles || []).map((o) => ({
           id: o.id,
           type: o.type,
-          name: o.label || (o as any).name || o.type,
+          name: o.name || o.type,
           position: {
-            x: o.x ?? (o as any).position?.x ?? 0,
-            y: o.y ?? (o as any).position?.y ?? 0,
-            z: (o as any).position?.z ?? 0,
+            x: o.position?.x ?? 0,
+            y: o.position?.y ?? 0,
+            z: o.position?.z ?? 0,
           },
           dimensions: {
-            width: o.width ?? (o as any).dimensions?.width ?? 300,
-            height: o.height ?? (o as any).dimensions?.height ?? 300,
-            depth: o.depth ?? (o as any).dimensions?.depth ?? 150,
+            width: o.dimensions?.width ?? 300,
+            height: o.dimensions?.height ?? 300,
+            depth: o.dimensions?.depth ?? 150,
           },
         })),
       [roomObstacles]

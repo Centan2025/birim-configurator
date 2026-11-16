@@ -160,7 +160,8 @@ export function calculateProjectPrice(
 
     // 2a. Paintshop polyurethane primer + sanding + double-face lacquer booth cost
     if (mat.category === "lacquer" || mat.name.toLowerCase().includes("lake")) {
-      const isGloss = mat.finish === "gloss" || mat.name.toLowerCase().includes("parlak");
+      const matFinish = (mat as { finish?: string }).finish;
+      const isGloss = matFinish === "gloss" || mat.name.toLowerCase().includes("parlak");
       const faceFactor = isExteriorVisibleRole(piece.componentRole) ? 1.35 : 1.0;
       paintshopLacquerCostEur += piece.areaM2 * (isGloss ? glossRate : matteRate) * faceFactor;
     }
@@ -325,9 +326,10 @@ export function calculateProjectPrice(
 
     const altExteriorMatCost = billableExtArea * altMat.costPerM2;
     const altExteriorEbCost = exteriorEdgeBandMeters * (altMat.edgeBandCostPerM || 1.5);
+    const altMatFinish = (altMat as { finish?: string }).finish;
     const altPaintshop =
       altMat.category === "lacquer" || altMat.name.toLowerCase().includes("lake")
-        ? rawExtArea * (altMat.finish === "gloss" ? glossRate : matteRate) * 1.25
+        ? rawExtArea * (altMatFinish === "gloss" ? glossRate : matteRate) * 1.25
         : 0;
 
     const altMatCostEur = structuralCarcassCostEur + altExteriorMatCost;
@@ -386,7 +388,7 @@ export function calculateProjectPrice(
     vatAmountTry: roundMm(vatAmountTry, 2),
     totalWithVatEur: roundMm(totalWithVatEur, 2),
     totalWithVatTry: roundMm(totalWithVatTry, 2),
-    eurTryExchangeRate: params.eurToTryRate,
+    eurTryExchangeRate: params.eurTryExchangeRate,
     subtotalBeforeVatEur: roundMm(subtotalNetEur, 2),
     netProductionCostEur: roundMm(netProductionCost, 2),
     dealerDiscountPercent: params.dealerDiscountPercent ?? 0,

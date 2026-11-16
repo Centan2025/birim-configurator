@@ -267,7 +267,7 @@ export function buildReconciledStoreQuotationLines(
 
   const commercialObjs = pricing.details.commercialObjectLines || [];
   const commercialNetEur = commercialObjs.reduce((s, c) => s + c.totalEur, 0);
-  const parametricNetEur = Math.max(1, roundMm(pricing.subtotalBeforeVatEur - commercialNetEur, 2));
+  const parametricNetEur = Math.max(1, roundMm((pricing.subtotalBeforeVatEur ?? pricing.subtotalNetEur) - commercialNetEur, 2));
 
   const mainMod = project.modules[0];
   const dimsSummary =
@@ -353,10 +353,10 @@ export function buildReconciledStoreQuotationLines(
     const matchedSceneObj = (project.sceneObjects || []).find((s) => s.sku === cObj.sku);
     lines.push({
       lineKey: `cfg_${project.id}_v${project.version}_obj_${idx + 1}`,
-      productId: matchedSceneObj && isValidUuid(matchedSceneObj.catalogItemId)
-        ? matchedSceneObj.catalogItemId
+      productId: matchedSceneObj && isValidUuid(matchedSceneObj.catalogId)
+        ? matchedSceneObj.catalogId
         : `scene_sku_${cObj.sku}`,
-      isCustom: !(matchedSceneObj && isValidUuid(matchedSceneObj.catalogItemId)),
+      isCustom: !(matchedSceneObj && isValidUuid(matchedSceneObj.catalogId)),
       sku: cObj.sku,
       name: cObj.name,
       title: cObj.name,

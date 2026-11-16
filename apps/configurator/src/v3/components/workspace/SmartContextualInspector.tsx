@@ -112,13 +112,13 @@ export const SmartContextualInspector: React.FC<SmartContextualInspectorProps> =
       <div data-testid="smart-contextual-inspector" className="space-y-2 text-xs text-[#141413]">
         {actionableAdvices.map((adv) => (
           <div
-            key={adv.code}
+            key={`${adv.componentKind}-${adv.bayIndex}-${adv.targetId}`}
             className="p-3 rounded-2xl bg-amber-50/95 border border-amber-300/80 space-y-2 shadow-2xs"
           >
             <div className="flex items-start gap-2">
               <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
               <div className="space-y-0.5">
-                <div className="font-bold text-[11.5px] text-amber-950">{adv.titleTr}</div>
+                <div className="font-bold text-[11.5px] text-amber-950">{adv.selectedLabelTr}</div>
                 <div className="text-[11px] text-amber-900/90 leading-snug">{adv.reasonTr}</div>
               </div>
             </div>
@@ -128,7 +128,13 @@ export const SmartContextualInspector: React.FC<SmartContextualInspectorProps> =
                   <button
                     key={alt.id}
                     type="button"
-                    onClick={() => handleApplyAlternative(alt.applyTarget, alt.field, alt.value)}
+                    onClick={() =>
+                      handleApplyAlternative(
+                        alt.applyPatch.target,
+                        alt.applyPatch.field,
+                        alt.applyPatch.value
+                      )
+                    }
                     className="px-2.5 py-1 rounded-xl bg-[#141413] hover:bg-[#292524] text-white text-[10.5px] font-semibold cursor-pointer transition"
                   >
                     ✓ {alt.labelTr}
@@ -231,8 +237,8 @@ export const SmartContextualInspector: React.FC<SmartContextualInspectorProps> =
                         </button>
                       </div>
                       <div className="p-2 rounded-lg bg-white/70 text-[10px] text-[#44403C] leading-snug">
-                        Net kapak: <strong>{klapaResolution.effectiveDoorSpanMm} mm</strong> •{" "}
-                        {klapaResolution.hingeLabelTr}
+                        Net kapak: <strong>{klapaResolution.netDoorOpeningWidthMm} mm</strong> •{" "}
+                        {klapaResolution.recommendedHingeSku}
                       </div>
                     </div>
                   )}

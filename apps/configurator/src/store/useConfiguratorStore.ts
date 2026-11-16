@@ -7,6 +7,7 @@ import {
   ValidationIssue,
   createDefaultWardrobeModule,
   ModuleInstance,
+  type DrawerConfig,
   DesignProjectSchema,
   evaluateProjectCompatibility,
   evaluateUnifiedEngineeringModel,
@@ -849,9 +850,9 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
     const next = cloneProject(project);
     let fixedTotal = 0;
     next.modules = next.modules.map((mod) => {
-      const res = autoFixModuleIssues(mod, next.space.ceilingHeight);
+      const res = autoFixModuleIssues(mod);
       fixedTotal += res.appliedFixes.length;
-      return res.module;
+      return res.updatedModule;
     });
     if (fixedTotal === 0) return 0;
     const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(next);
@@ -3208,7 +3209,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
         project: updated,
         autoSaveStatus: "unsaved",
       });
-      return;
+      return wallId;
     }
     const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
@@ -3466,7 +3467,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
         project: updated,
         autoSaveStatus: "unsaved",
       });
-      return;
+      return extractedWalls.length;
     }
     const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({

@@ -95,7 +95,16 @@ export function mapCutPieceToCncPieceInput(cp: CutPiece): CncPieceInput {
     cutoutDepthMm: cp.cutoutDepthMm,
     utilityCutouts: cp.utilityCutouts,
     polygonContourMm: cp.polygonContourMm,
-    kerfBendingMeta: cp.kerfBendingMeta,
+    kerfBendingMeta: cp.kerfBendingMeta
+      ? {
+          ...cp.kerfBendingMeta,
+          slotDepthMm: (cp.kerfBendingMeta as { slotDepthMm?: number }).slotDepthMm ?? 15,
+          skinRemainingMm:
+            (cp.kerfBendingMeta as { skinRemainingMm?: number }).skinRemainingMm ??
+            cp.kerfBendingMeta.residualWebMm ??
+            2,
+        }
+      : undefined,
     drillingOperations: (cp.holes || []).map((h) => ({
       x: h.x,
       y: h.y,

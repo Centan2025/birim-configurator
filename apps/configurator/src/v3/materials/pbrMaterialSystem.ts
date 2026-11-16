@@ -420,7 +420,7 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
   }
 
   // 2. BRUSHED ARCHITECTURAL METALS (Anodized Black, Brushed Brass, Inox, Anthracite)
-  if (matDef.category === "metal") {
+  if (String(matDef.category) === "metal") {
     const S = 64;
     const roughCanvas = document.createElement("canvas");
     roughCanvas.width = S;
@@ -588,7 +588,7 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
   }
 
   // 2. ARCHITECTURAL CALACATTA / SINTERED STONE COUNTERTOP VEINING (512x512)
-  if (matDef.category === "stone" || matDef.id.includes("stone") || matDef.id.includes("calacatta")) {
+  if (String(matDef.category) === "stone" || matDef.id.includes("stone") || matDef.id.includes("calacatta")) {
     const S = 128;
     const colorCanvas = document.createElement("canvas");
     colorCanvas.width = S;
@@ -664,7 +664,7 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
   }
 
   // 3. ANISOTROPIC BRUSHED ARCHITECTURAL METAL (Inox, Brass, Anthracite, Matte Black)
-  if (matDef.category === "metal") {
+  if (String(matDef.category) === "metal") {
     const S = 64;
     const roughCanvas = document.createElement("canvas");
     roughCanvas.width = S;
@@ -1331,7 +1331,7 @@ export function getV3PbrMaterial(
   }
 
   // 5. Honed / Polished Calacatta Marble & Sintered Stone Countertop
-  if (matDef.category === "stone" || matDef.id.includes("stone") || matDef.id.includes("calacatta")) {
+  if (String(matDef.category) === "stone" || matDef.id.includes("stone") || matDef.id.includes("calacatta")) {
     const mat = new THREE.MeshPhysicalMaterial({
       color: new THREE.Color("#ffffff"),
       map: maps.colorMap || null,

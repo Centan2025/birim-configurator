@@ -62,7 +62,7 @@ export function runPortableGuillotineNestingKernel(
       freeRects: { x: number; y: number; w: number; h: number }[];
     }[] = [];
 
-    const createNewSheet = (idx: number) => ({
+    const createNewSheet = (idx: number): (typeof activeSheets)[number] => ({
       sheet: {
         sheetIndex: idx + 1,
         materialId: matId,

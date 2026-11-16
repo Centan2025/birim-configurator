@@ -468,12 +468,19 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
       return geom.components.map((c) => ({
         id: `${mod.id}_${c.id}`,
         name: c.label,
-        width: c.dimensions.width,
-        height: c.dimensions.height,
-        depth: c.dimensions.depth,
-        x: mod.position.x + c.position.x,
-        y: mod.position.y + c.position.y,
-        z: mod.position.z + c.position.z,
+        role: c.role,
+        moduleId: mod.id,
+        moduleName: mod.name,
+        positionMm: {
+          x: mod.position.x + c.position.x,
+          y: mod.position.y + c.position.y,
+          z: mod.position.z + c.position.z,
+        },
+        dimensionsMm: {
+          width: c.dimensions.width,
+          height: c.dimensions.height,
+          depth: c.dimensions.depth,
+        },
         materialId: c.materialId,
       }));
     });
@@ -671,7 +678,11 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
             const cur = (project.sceneObjects || []).find((o) => o.id === id);
             if (cur) {
               updateSceneObject(id, {
-                rotationYDeg: ((cur.rotationYDeg || 0) + 90) % 360,
+                rotation: {
+                  x: cur.rotation?.x ?? 0,
+                  y: ((cur.rotation?.y ?? 0) + 90) % 360,
+                  z: cur.rotation?.z ?? 0,
+                },
               });
             }
           }}
@@ -718,7 +729,7 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
           handleProfiles={handleProfiles}
           engineeringFindings={allFindings}
           facadeGrainContinuity={
-            activeModule.carcass.grainContinuityMode === "continuous_facade"
+            String(activeModule.carcass.grainContinuityMode) === "continuous_facade"
           }
           onToggleFacadeGrainContinuity={(enabled) => {
             setFacadeGrainContinuity(enabled);
@@ -1039,8 +1050,8 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
           onAddCompositeAssembly={addCompositeAssemblyPreset}
           onSaveActiveModuleAsTemplate={saveActiveModuleAsCustomTemplate}
           onDeleteCustomTemplate={deleteCustomModuleTemplate}
-          onAddSceneObjectCatalog={(catId, role) =>
-            addSceneObjectFromCatalog(catId, undefined, role)
+          onAddSceneObjectCatalog={(catId) =>
+            addSceneObjectFromCatalog(catId, undefined)
           }
           onAddCustomSceneObject={addCustomSceneObject}
           onUpdateSceneObject={updateSceneObject}

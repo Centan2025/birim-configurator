@@ -804,12 +804,17 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                       onClick={() =>
                         onAddSpaceObstacle({
                           type: "window",
-                          label: "Pencere",
-                          x: Math.max(200, Math.round(wallWidthMm * 0.65)),
-                          y: 900,
-                          width: 900,
-                          height: 1200,
-                          depth: 180,
+                          name: "Pencere",
+                          position: {
+                            x: Math.max(200, Math.round(wallWidthMm * 0.65)),
+                            y: 900,
+                            z: 0,
+                          },
+                          dimensions: {
+                            width: 900,
+                            height: 1200,
+                            depth: 180,
+                          },
                         })
                       }
                       className="py-2 px-2 rounded-xl bg-[#F5F2EA] hover:bg-[#EAE4D7] font-semibold transition cursor-pointer"
@@ -821,12 +826,13 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                       onClick={() =>
                         onAddSpaceObstacle({
                           type: "column",
-                          label: "Kolon",
-                          x: 0,
-                          y: 0,
-                          width: 300,
-                          height: ceilingHeightMm,
-                          depth: 300,
+                          name: "Kolon",
+                          position: { x: 0, y: 0, z: 0 },
+                          dimensions: {
+                            width: 300,
+                            height: ceilingHeightMm,
+                            depth: 300,
+                          },
                         })
                       }
                       className="py-2 px-2 rounded-xl bg-[#F5F2EA] hover:bg-[#EAE4D7] font-semibold transition cursor-pointer"
@@ -838,12 +844,17 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                       onClick={() =>
                         onAddSpaceObstacle({
                           type: "door",
-                          label: "Oda Kapısı",
-                          x: Math.max(400, wallWidthMm - 950),
-                          y: 0,
-                          width: 900,
-                          height: 2100,
-                          depth: 120,
+                          name: "Oda Kapısı",
+                          position: {
+                            x: Math.max(400, wallWidthMm - 950),
+                            y: 0,
+                            z: 0,
+                          },
+                          dimensions: {
+                            width: 900,
+                            height: 2100,
+                            depth: 120,
+                          },
                         })
                       }
                       className="py-2 px-2 rounded-xl bg-[#F5F2EA] hover:bg-[#EAE4D7] font-semibold transition cursor-pointer"
@@ -860,8 +871,8 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                           className="flex items-center justify-between px-2.5 py-1.5 rounded-xl bg-[#FAF8F4]"
                         >
                           <span className="font-medium">
-                            {obs.label || obs.type} ({Math.round(obs.width / 10)}×
-                            {Math.round(obs.height / 10)} cm)
+                            {obs.name || obs.type} ({Math.round(obs.dimensions.width / 10)}×
+                            {Math.round(obs.dimensions.height / 10)} cm)
                           </span>
                           <button
                             type="button"

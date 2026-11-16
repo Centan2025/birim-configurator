@@ -2064,8 +2064,8 @@ export function generateModuleGeometry(
   const isKitchenBaseOrCorner =
     module.category === "kitchen_base" ||
     module.category === "kitchen_corner" ||
-    module.moduleFamilyId === "fam_base" ||
-    (module.moduleFamilyId === "fam_corner" && height <= 1150) ||
+    String(module.moduleFamilyId) === "fam_base" ||
+    (String(module.moduleFamilyId) === "fam_corner" && height <= 1150) ||
     tplLower.includes("kitchen_base") ||
     tplLower.includes("_kb_") ||
     tplLower.includes("_kc_");

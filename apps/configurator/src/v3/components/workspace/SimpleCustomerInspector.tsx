@@ -75,6 +75,8 @@ interface SimpleCustomerInspectorProps {
       handleCategory?: HandleCategory;
       handleProfileId?: string;
       handleMaterialId?: string;
+      doorBottomGapMm?: number;
+      doorTopGapMm?: number;
     }
   ) => void;
   onApplyBayPreset: (
@@ -727,9 +729,9 @@ export const SimpleCustomerInspector: React.FC<SimpleCustomerInspectorProps> = R
             const curPlinthH = activeModule.carcass.plinthHeight ?? 80;
             const isWardrobeCat =
               activeModule.category === "wardrobe" ||
-              activeModule.category === "vestiyer" ||
-              activeModule.category === "living" ||
-              activeModule.category === "tall";
+              String(activeModule.category) === "vestiyer" ||
+              String(activeModule.category) === "living" ||
+              String(activeModule.category) === "tall";
             const curPlinthType: PlinthConstructionType =
               activeModule.carcass.plinthConstruction ||
               (activeModule.carcass.hasAdjustableLegs === false

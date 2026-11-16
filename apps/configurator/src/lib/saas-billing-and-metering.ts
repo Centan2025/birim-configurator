@@ -174,7 +174,7 @@ export function updateTenantSubscriptionStatus(params: {
       params.status === "suspended" || params.status === "canceled"
         ? "suspended"
         : params.status === "past_due"
-          ? "past_due"
+          ? "past_due_grace"
           : params.status === "trialing"
             ? "trialing"
             : "active",

@@ -365,7 +365,7 @@ function buildExplodedIsoBoxes(
         const isBiFoldLift = door.type === "lift_bi_fold" || dSysId === "lift_bi_fold";
         const isSingleLift =
           !isBiFoldLift &&
-          (door.type === "flap_up" ||
+          (String(door.type) === "flap_up" ||
             door.type === "lift_parallel" ||
             dSysId === "lift_up_stay" ||
             dSysId === "lift_parallel");
@@ -583,7 +583,7 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
     }, 0);
     const isWallCab = mod.category === "kitchen_wall" || (mod.position.y || 0) >= 1100;
     const topStretcherMode = mod.category === "kitchen_base" && mod.carcass.topConstruction === "stretcher_90mm";
-    const jointTopology = mod.carcass.carcassJoineryTopology || "type_a_top_bottom_between_sides";
+    const jointTopology: string = mod.carcass.carcassJoineryTopology || "type_a_top_bottom_between_sides";
     const isMiter45 = jointTopology === "type_c_miter_45_clamex";
 
     const modCutPieces = (bom?.cutList || []).filter((p) => p.moduleId === mod.id);

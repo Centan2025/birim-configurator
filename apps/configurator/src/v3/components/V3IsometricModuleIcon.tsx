@@ -1070,7 +1070,7 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
       const pb = pm.bays[i];
       const nb = nm.bays[i];
       if (
-        pb.customWidthMm !== nb.customWidthMm ||
+        pb.customWidth !== nb.customWidth ||
         pb.door?.type !== nb.door?.type ||
         pb.door?.doorSystemId !== nb.door?.doorSystemId ||
         pb.door?.doorMaterialId !== nb.door?.doorMaterialId ||

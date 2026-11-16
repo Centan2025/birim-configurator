@@ -34,6 +34,7 @@ import {
   computeProjectGrainContinuityMap,
   syncProjectCustomMaterials,
   computeModuleStructuralSignature,
+  type MaterialDefinition,
 } from "@birim/core";
 import {
   computeElevationSnapTargets,
@@ -63,6 +64,7 @@ import {
   attachWebGLContextRecovery,
   createSafeWebGL2Renderer,
   disposeWebGLRendererCleanly,
+  type WebGL2CapabilityReport,
 } from "../materials/webglResourceGuard";
 import { buildCapsuleParametricModuleGroup } from "../materials/capsuleAndProfileGeometry";
 import { Software3DFallbackViewport } from "./Software3DFallbackViewport";
@@ -2267,7 +2269,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               suggestions: Array.isArray(ud.findingSuggestions) ? ud.findingSuggestions : [],
               remediationProposals: Array.isArray(ud.remediationProposals) ? ud.remediationProposals : [],
               moduleIndex: typeof ud.moduleIndex === "number" && ud.moduleIndex >= 0 ? ud.moduleIndex : state.activeModuleIndex,
-              bayIndex: typeof ud.bayIndex === "number" && ud.bayIndex >= 0 ? ud.bayIndex : state.activeBayIndex,
+              bayIndex: typeof ud.bayIndex === "number" && ud.bayIndex >= 0 ? ud.bayIndex : 0,
             });
             e.stopImmediatePropagation();
             return;
@@ -3552,7 +3554,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               setContextMenuTarget({
                 kind: "obstacle",
                 obstacleId: obsId,
-                label: obsObj?.label || obsObj?.type || "Mimari Engel",
+                label: obsObj?.name || obsObj?.type || "Mimari Engel",
                 clientX: e.clientX,
                 clientY: e.clientY,
               });
@@ -4641,23 +4643,29 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       const matMap = new Map(DEFAULT_MATERIALS.map((m) => [m.id, m]));
       const isLight = theme !== "dark";
 
-      const fallbackStoneDef = {
+      const fallbackStoneDef: MaterialDefinition = {
         id: "mat_stone_calacatta",
         name: "Çimstone Calacatta Kuvars",
-        category: "stone" as const,
+        category: "compact",
         colorHex: "#f5f4f0",
         roughness: 0.22,
         metalness: 0.02,
-        pricePerSqm: 185,
+        thickness: 20,
+        costPerM2: 185,
+        edgeBandCostPerM: 0,
+        hasGrain: false,
       };
-      const fallbackLedDef = {
+      const fallbackLedDef: MaterialDefinition = {
         id: "mat_led_warm_3000k",
         name: "Häfele Loox5 3000K Sıcak LED",
-        category: "metal" as const,
+        category: "compact",
         colorHex: "#fff7d6",
         roughness: 0.2,
         metalness: 0.05,
-        pricePerSqm: 45,
+        thickness: 8,
+        costPerM2: 45,
+        edgeBandCostPerM: 0,
+        hasGrain: false,
       };
 
       let activeSceneLedLights = 0;
@@ -4760,7 +4768,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           const edgeMat = getCachedEdgeMaterial(isSelected, isActiveMod, isLight, renderEdgeMode === "photoreal");
 
           const isDoorPart =
-            comp.role === "door" ||
+            String(comp.role) === "door" ||
             comp.role.startsWith("door_") ||
             comp.role === "door_handle" ||
             comp.role === "door_hinge";
@@ -6563,7 +6571,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
 
     const activeModForDim = project.modules[activeModuleIndex] || project.modules[0];
     const activeModuleDimSig = activeModForDim
-      ? `${activeModForDim.id}|${activeModForDim.dimensions.width}x${activeModForDim.dimensions.height}x${activeModForDim.dimensions.depth}|${activeModForDim.position.x},${activeModForDim.position.y},${activeModForDim.position.z}|${activeModForDim.rotation?.y || 0}|${activeModForDim.carcass.panelThickness}|${activeModForDim.carcass.plinthHeight}|${activeModForDim.bays.map((b) => `${b.customWidthMm || 0}_${b.shelves.length}_${b.drawers.length}`).join(",")}`
+      ? `${activeModForDim.id}|${activeModForDim.dimensions.width}x${activeModForDim.dimensions.height}x${activeModForDim.dimensions.depth}|${activeModForDim.position.x},${activeModForDim.position.y},${activeModForDim.position.z}|${activeModForDim.rotation?.y || 0}|${activeModForDim.carcass.panelThickness}|${activeModForDim.carcass.plinthHeight}|${activeModForDim.bays.map((b) => `${b.customWidth || 0}_${b.shelves.length}_${b.drawers.length}`).join(",")}`
       : "none";
 
     // Rebuild 3D Dimension Lines & Labels ONLY when active module dimensions/placement or showDimensions changes (never on unrelated module/shelf drags!)
@@ -10944,7 +10952,9 @@ const clear3DGhostPreview = useCallback(() => {
             }
           }}
           onFlipDoorDirection={flipActiveDoorDirection}
-          onSetBayDoorType={setBayDoorType}
+          onSetBayDoorType={(bayIdx, type) =>
+            setBayDoorType(bayIdx, type as Parameters<typeof setBayDoorType>[1])
+          }
           onApplyMaterialToSimilar={applyMaterialToSimilarComponents}
           onAddInteriorItemAtElevation={addInteriorItemAtElevation}
           onApplyBayInteriorPreset={applyBayInteriorPreset}
@@ -10960,7 +10970,9 @@ const clear3DGhostPreview = useCallback(() => {
           onAddAdjacentModule={addAdjacentModule}
           onDuplicateActiveModule={duplicateActiveModule}
           onRotateActiveModule90={rotateActiveModule90}
-          onSwapModuleWithNeighbor={swapModuleWithNeighbor}
+          onSwapModuleWithNeighbor={(modIdx, dir) =>
+            swapModuleWithNeighbor(modIdx, dir === 1 ? "right" : "left")
+          }
           onToggleModuleLedLighting={toggleModuleLedLighting}
           onSetPlinthHeight={setPlinthHeight}
           onRemoveActiveModule={removeActiveModule}
