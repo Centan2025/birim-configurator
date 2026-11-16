@@ -3119,6 +3119,12 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           if (activeModFrameGroupRef.current) {
             activeModFrameGroupRef.current.position.set(0, 0, 0);
           }
+          if (selectionFrameGroupRef.current) {
+            selectionFrameGroupRef.current.position.set(0, 0, 0);
+          }
+          if (activeModFrameGroupRef.current) {
+            activeModFrameGroupRef.current.position.set(0, 0, 0);
+          }
           const state = latestStateRef.current;
           if (dragKind === "scene_object_3d") {
             if (moved && (typeof pendingGpuX === "number" || typeof pendingGpuZ === "number")) {
