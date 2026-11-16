@@ -22,10 +22,6 @@ const ORDERED_CATEGORIES: WardrobeGlbCategory[] = [
   "jacket",
   "shirt",
   "shoe",
-  "folded_cloth",
-  "silk_pouf",
-  "sunglasses",
-  "watch",
 ];
 
 export const WardrobeGlbLibraryModal: React.FC<WardrobeGlbLibraryModalProps> = ({

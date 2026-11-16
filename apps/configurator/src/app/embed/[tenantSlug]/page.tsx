@@ -4,7 +4,7 @@ import React, { useEffect } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { checkTenantEntitlement, getTenantProfileByIdOrSlug } from "@birim/core";
 import { useConfiguratorStore, type ConfiguratorState } from "../../../store/useConfiguratorStore";
-import { V3UnifiedWorkspace } from "../../../v3/components/V3UnifiedWorkspace";
+import { BirimStudioWorkspace } from "../../../v11/BirimStudioWorkspace";
 import { Lock } from "lucide-react";
 
 function TenantWhiteLabelEmbedPageInner() {
@@ -56,7 +56,7 @@ function TenantWhiteLabelEmbedPageInner() {
 
   return (
     <div className="relative h-screen w-screen overflow-hidden">
-      <V3UnifiedWorkspace initialMode="studio" />
+      <BirimStudioWorkspace initialMode="studio" />
       <button
         type="button"
         data-testid="embed-send-to-cart-btn"

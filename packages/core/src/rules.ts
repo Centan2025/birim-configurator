@@ -9,6 +9,7 @@ import {
 } from "./types";
 import {
   computeContinuousKitchenLayers,
+  computeSlidingSafeBayCustomWidths,
   evaluateSlidingDoorDeadZones,
 } from "./parametric-spec-engine";
 import { evaluateKitchenWorkTriangleAndErgonomics } from "./scene-objects-engine";
@@ -736,6 +737,25 @@ function validateModuleUncached(
         }
       });
 
+      const isSlidingBayDoor =
+        bay.door.type === "sliding" ||
+        bay.door.type === "sliding_bottom" ||
+        String(bay.door.doorSystemId || "").startsWith("sliding");
+
+      if (isSlidingBayDoor) {
+        bay.drawers.forEach((drawer, dIdx) => {
+          if (!drawer.isHidden && !drawer.isInternal) {
+            issues.push({
+              severity: "error",
+              code: "ERR_SLIDING_DOOR_REQUIRES_INTERNAL_DRAWER",
+              message: `Bölme ${idx + 1} Çekmece ${dIdx + 1}: Sürgülü kapak arkasında dıştan binmeli çekmece kullanılamaz; ray gerisinde gizli iç çekmece olmalıdır.`,
+              targetId: drawer.id,
+              blockingProduction: true,
+            });
+          }
+        });
+      }
+
       if (bay.door.type === "sliding" && depth < 580 && module.carcass.hullShape !== "capsule_stadium") {
         issues.push({
           severity: "warning",
@@ -1248,8 +1268,10 @@ export function autoFixModuleIssues(module: ModuleInstance): AutoFixModuleResult
   const hasSliding = nextMod.bays.some(
     (b) =>
       b.door.type === "sliding" ||
+      b.door.type === "sliding_bottom" ||
       b.door.doorSystemId === "sliding_top_hung" ||
-      b.door.doorSystemId === "sliding_bottom_rolling"
+      b.door.doorSystemId === "sliding_bottom_rolling" ||
+      String(b.door.doorSystemId || "").startsWith("sliding")
   );
   if (hasSliding) {
     if (nextMod.dimensions.depth < 600) {
@@ -1260,13 +1282,45 @@ export function autoFixModuleIssues(module: ModuleInstance): AutoFixModuleResult
       nextMod.dimensions.width = 1200;
       appliedFixes.push("Sürgülü kapak için gövde genişliği en az 1200mm yapıldı.");
     }
-    // Fix sliding door dead-zone clashes by equalizing custom widths or moving pullouts
+    let convertedInternalCount = 0;
+    nextMod.bays.forEach((b) => {
+      const bayIsSliding =
+        b.door.type === "sliding" ||
+        b.door.type === "sliding_bottom" ||
+        String(b.door.doorSystemId || "").startsWith("sliding");
+      if (!bayIsSliding) return;
+      b.drawers.forEach((d) => {
+        if (!d.isHidden && !d.isInternal) {
+          d.isInternal = true;
+          convertedInternalCount += 1;
+        }
+      });
+    });
+    if (convertedInternalCount > 0) {
+      appliedFixes.push("Sürgülü kapak arkasındaki çekmeceler gizli iç çekmeceye (isInternal) çevrildi.");
+    }
+    // Fix sliding door dead-zone clashes using safe asymmetrical bay widths when pull-outs exist
     const deadZoneIssues = evaluateSlidingDoorDeadZones(nextMod);
     if (deadZoneIssues.length > 0) {
-      nextMod.bays.forEach((b) => {
-        b.customWidth = undefined;
+      const pulloutIdx = nextMod.bays.findIndex(
+        (b) =>
+          b.drawers.some((d) => !d.isHidden) ||
+          (b.specialFittings || []).some(
+            (f) =>
+              !f.isHidden &&
+              ["trouser_rack", "wire_basket", "jewelry_tray", "shoe_rack"].includes(f.type)
+          )
+      );
+      const safeCustoms = computeSlidingSafeBayCustomWidths(
+        nextMod.dimensions.width,
+        nextMod.carcass.panelThickness || 18,
+        nextMod.bays.length,
+        pulloutIdx >= 0 ? pulloutIdx : 1
+      );
+      nextMod.bays.forEach((b, idx) => {
+        b.customWidth = safeCustoms[idx];
       });
-      appliedFixes.push("Sürgü kapak ölü bölge çekmece çakışmasını önlemek için bölmeler eşitlendi.");
+      appliedFixes.push("Sürgü kapak ölü bölge çekmece çakışmasını önlemek için bölmeler ray açıklığına uyarlandı.");
     }
   }
 

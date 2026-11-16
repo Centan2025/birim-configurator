@@ -49,6 +49,7 @@ export interface RightParametricInspectorProps {
   activeTab: V11InspectorTab;
   onChangeTab: (tab: V11InspectorTab) => void;
   experienceTier: UserExperienceTier;
+  onChangeExperienceTier?: (tier: UserExperienceTier) => void;
   modules: ModuleInstance[];
   activeModule: ModuleInstance;
   activeModuleIndex: number;
@@ -195,6 +196,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
       activeTab,
       onChangeTab,
       experienceTier,
+      onChangeExperienceTier,
       modules,
       activeModule,
       activeModuleIndex,
@@ -295,25 +297,6 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
       [activeFinding, experienceTier]
     );
 
-    // DARALTILMIŞ DURUM: Sağ dikey merkezde (sol başlatıcı ile simetrik) durur — hiçbir üst/alt araç çubuğunun üzerine binmez!
-    if (!isOpen) {
-      return (
-        <button
-          type="button"
-          data-testid="v11-expand-inspector-btn"
-          onClick={onToggleOpen}
-          title="Modül Özellikleri Panelini Aç"
-          className="fixed right-4 top-1/2 -translate-y-1/2 z-30 py-3.5 px-2.5 rounded-full bg-[#FAF8F4]/94 backdrop-blur-xl border border-[#DFD9CE] shadow-[0_10px_30px_rgba(20,20,19,0.1)] text-xs font-semibold text-[#141413] flex flex-col items-center gap-2 hover:bg-white transition cursor-pointer"
-        >
-          <ChevronLeft className="w-4 h-4 text-[#57534E]" />
-          <SlidersHorizontal className="w-4 h-4 text-[#8C7A6B]" />
-          <span className="[writing-mode:vertical-rl] rotate-180 text-[11px] font-bold tracking-wide py-0.5">
-            Özellikler
-          </span>
-        </button>
-      );
-    }
-
     const wMm = activeModule.dimensions.width;
     const hMm = activeModule.dimensions.height;
     const dMm = activeModule.dimensions.depth;
@@ -334,11 +317,38 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
     const hasBaseboardNotch = Boolean(activeModule.carcass.baseboardNotch?.enabled);
 
     return (
-      <aside
-        aria-label="Modül Parametreleri"
-        data-testid="v11-right-inspector"
-        className="fixed right-4 top-[78px] bottom-[84px] w-[372px] max-w-[calc(100vw-32px)] z-30 rounded-3xl bg-[#FAF8F4]/94 backdrop-blur-2xl border border-[#DFD9CE] shadow-[0_24px_60px_rgba(20,20,19,0.12)] flex flex-col overflow-hidden text-[#141413]"
-      >
+      <>
+        {/* DARALTILMIŞ DURUM: Sağ dikey merkezde durur, açılıp kapanırken yumuşak ölçek/opaklık geçişi yapar */}
+        <button
+          type="button"
+          data-testid="v11-expand-inspector-btn"
+          aria-hidden={isOpen}
+          tabIndex={isOpen ? -1 : 0}
+          onClick={onToggleOpen}
+          title="Modül Özellikleri Panelini Aç"
+          className={`fixed right-4 top-1/2 -translate-y-1/2 z-30 py-3.5 px-2.5 rounded-full bg-[#FAF8F4]/94 backdrop-blur-xl border border-[#DFD9CE] shadow-[0_10px_30px_rgba(20,20,19,0.1)] text-xs font-semibold text-[#141413] flex flex-col items-center gap-2 hover:bg-white cursor-pointer origin-right transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+            isOpen
+              ? "opacity-0 scale-90 translate-x-4 pointer-events-none"
+              : "opacity-100 scale-100 translate-x-0 pointer-events-auto"
+          }`}
+        >
+          <ChevronLeft className="w-4 h-4 text-[#57534E]" />
+          <SlidersHorizontal className="w-4 h-4 text-[#8C7A6B]" />
+          <span className="[writing-mode:vertical-rl] rotate-180 text-[11px] font-bold tracking-wide py-0.5">
+            Özellikler
+          </span>
+        </button>
+
+        <aside
+          aria-label="Modül Parametreleri"
+          aria-hidden={!isOpen}
+          data-testid="v11-right-inspector"
+          className={`fixed right-4 top-[78px] bottom-[84px] w-[372px] max-w-[calc(100vw-32px)] z-30 rounded-3xl bg-[#FAF8F4]/94 backdrop-blur-2xl border border-[#DFD9CE] shadow-[0_24px_60px_rgba(20,20,19,0.12)] flex flex-col overflow-hidden text-[#141413] origin-right transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+            isOpen
+              ? "opacity-100 scale-100 translate-x-0 pointer-events-auto"
+              : "opacity-0 scale-95 translate-x-6 pointer-events-none"
+          }`}
+        >
         {/* ÜST MODÜL SEÇİCİ VE AKSİYON BAŞLIĞI */}
         <div className="px-4 pt-3.5 pb-3 border-b border-[#E6E1D6] shrink-0 space-y-2.5">
           <div className="flex items-center justify-between gap-2">
@@ -478,6 +488,45 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
               )}
             </div>
           </div>
+
+          {onChangeExperienceTier && (
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[10.5px] font-semibold text-[#8C7A6B] uppercase tracking-wider">
+                Panel Seviyesi
+              </span>
+              <div
+                className="inline-flex items-center p-0.5 rounded-full bg-[#ECE7DD]/80 border border-[#DFD9CE]"
+                title="Sağ Panel Detay Seviyesi"
+              >
+                {(
+                  [
+                    { id: "simple", label: "Sade" },
+                    { id: "architect", label: "Detaylı" },
+                  ] as const
+                ).map((t) => {
+                  const active =
+                    t.id === "simple"
+                      ? experienceTier === "simple"
+                      : experienceTier !== "simple";
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      data-testid={`v11-tier-${t.id}`}
+                      onClick={() => onChangeExperienceTier(t.id)}
+                      className={`h-6 px-3 rounded-full text-[11px] font-semibold transition cursor-pointer ${
+                        active
+                          ? "bg-white text-[#141413] shadow-2xs border border-[#DFD9CE]"
+                          : "text-[#57534E] hover:text-[#141413]"
+                      }`}
+                    >
+                      {t.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-4 gap-1 p-1 rounded-2xl bg-[#ECE7DD]/85 border border-[#DFD9CE]">
             {(
@@ -1722,6 +1771,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
           )}
         </div>
       </aside>
+      </>
     );
   }
 );

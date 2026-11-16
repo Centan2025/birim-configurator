@@ -32,8 +32,10 @@ export interface StudioHeaderBarProps {
   onChangeWorkspaceMode: (mode: V11WorkspaceMode) => void;
   cadSubMode: V11CadSubMode;
   onChangeCadSubMode: (sub: V11CadSubMode) => void;
+  split2DViewMode?: "elevation" | "plan" | "section";
+  onChangeSplit2DViewMode?: (mode: "elevation" | "plan" | "section") => void;
   experienceTier: UserExperienceTier;
-  onChangeExperienceTier: (tier: UserExperienceTier) => void;
+  onChangeExperienceTier?: (tier: UserExperienceTier) => void;
   canUndo: boolean;
   canRedo: boolean;
   onUndo: () => void;
@@ -66,6 +68,8 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
     onChangeWorkspaceMode,
     cadSubMode,
     onChangeCadSubMode,
+    split2DViewMode = "elevation",
+    onChangeSplit2DViewMode,
     experienceTier,
     onChangeExperienceTier,
     canUndo,
@@ -225,36 +229,6 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
               >
                 <Search className="w-3.5 h-3.5" />
               </button>
-            </div>
-
-            <div
-              className="hidden xl:flex items-center p-0.5 rounded-full bg-[#ECE7DD]/75 border border-[#DFD9CE]"
-              title="Arayüz Detay Seviyesi"
-            >
-              {(
-                [
-                  { id: "simple", label: "Sade" },
-                  { id: "architect", label: "Detaylı" },
-                  { id: "factory", label: "Üretim" },
-                ] as const
-              ).map((t) => {
-                const active = experienceTier === t.id;
-                return (
-                  <button
-                    key={t.id}
-                    type="button"
-                    data-testid={`v11-tier-${t.id}`}
-                    onClick={() => onChangeExperienceTier(t.id)}
-                    className={`h-8 px-2.5 rounded-full text-[11px] font-semibold transition cursor-pointer ${
-                      active
-                        ? "bg-white text-[#141413] shadow-2xs border border-[#DFD9CE]"
-                        : "text-[#57534E] hover:text-[#141413]"
-                    }`}
-                  >
-                    {t.label}
-                  </button>
-                );
-              })}
             </div>
 
             {/* Aktif Mühendislik Hata / Uyarı Açıklama Menüsü */}
@@ -586,6 +560,37 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                 </button>
               );
             })}
+            {cadSubMode === "split" && onChangeSplit2DViewMode && (
+              <>
+                <span className="h-4 w-px bg-[#DFD9CE] mx-1" />
+                <div
+                  data-testid="split-2d-view-switcher"
+                  className="inline-flex items-center gap-0.5 bg-[#EFECE4] p-0.5 rounded-full"
+                >
+                  {(
+                    [
+                      { id: "elevation", label: "Cephe" },
+                      { id: "plan", label: "Plan" },
+                      { id: "section", label: "Kesit" },
+                    ] as const
+                  ).map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      data-testid={`split-2d-mode-${item.id}-btn`}
+                      onClick={() => onChangeSplit2DViewMode(item.id)}
+                      className={`h-6 px-2.5 rounded-full text-[11px] font-semibold transition cursor-pointer ${
+                        split2DViewMode === item.id
+                          ? "bg-[#141413] text-white shadow-2xs"
+                          : "text-[#57534E] hover:text-[#141413]"
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         )}
       </header>

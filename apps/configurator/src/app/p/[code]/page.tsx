@@ -4,7 +4,7 @@ import React, { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { getTenantProfileByIdOrSlug, type TenantBrandTheme } from "@birim/core";
 import { useConfiguratorStore, type ConfiguratorState } from "../../../store/useConfiguratorStore";
-import { V3UnifiedWorkspace } from "../../../v3/components/V3UnifiedWorkspace";
+import { BirimStudioWorkspace } from "../../../v11/BirimStudioWorkspace";
 import { V3BrandBadge } from "../../../v3/design-system";
 import { decodeSharePayloadBase64Url, type VerifiedQuoteRecord } from "../../../lib/quote-codec";
 import { ShieldCheck, AlertCircle } from "lucide-react";
@@ -156,7 +156,7 @@ function SharedProjectQuotePageInner() {
         </div>
       )}
       <div className="flex-1 relative overflow-hidden">
-        <V3UnifiedWorkspace initialMode="showroom" />
+        <BirimStudioWorkspace initialMode="showroom" />
       </div>
     </div>
   );

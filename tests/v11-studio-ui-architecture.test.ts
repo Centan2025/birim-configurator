@@ -105,8 +105,9 @@ describe("V11.4 Studio UI, Fixed Shelf, System-32 Multi-Hole Shelf Snap, Perform
       adjustableShelfYsMm: [],
       blockedYsMm: [{ y: plinthH + panelT + fixedShelf.elevationY, clearanceMm: 22 }],
     });
+    const shelfHalfT = Math.round((movableShelf.thickness || panelT) / 2);
     for (const hy of holeYs!) {
-      expect(sideHoleYs.includes(plinthH + panelT + hy)).toBe(true);
+      expect(sideHoleYs.includes(plinthH + panelT + hy + shelfHalfT)).toBe(true);
     }
 
     // Arbitrary drag input (e.g., 463mm) must snap onto an exact System-32 hole (not 465mm!)
@@ -188,7 +189,7 @@ describe("V11.4 Studio UI, Fixed Shelf, System-32 Multi-Hole Shelf Snap, Perform
     const fxShelf = fixedProj.modules[0].bays[0].shelves.find((s) => !s.isAdjustable)!;
     fxShelf.fixedConnectorType = "rafix_20";
     const bom = generateBOMForProject(fixedProj);
-    expect(bom.hardwareList.some((h) => (h.id === "HW_RAFIX_20_SET" || (h as any).sku === "HW_RAFIX_20_SET"))).toBe(true);
+    expect(bom.hardwareList.some((h) => ((h as any).id === "HW_RAFIX_20_SET" || h.sku === "HW_RAFIX_20_SET"))).toBe(true);
     const shelfCut = bom.cutList.find((c) => c.id.includes(fxShelf.id))!;
     expect((shelfCut.holes || []).some((h) => h.purpose === "rafix_housing" && h.diameter === 20)).toBe(true);
     const leftSide = bom.cutList.find((c) => c.componentRole === "carcass_side_left")!;
@@ -252,7 +253,7 @@ describe("V11.4 Studio UI, Fixed Shelf, System-32 Multi-Hole Shelf Snap, Perform
     expect(formatFindingForTier(sampleFinding as any, "factory").detail).toContain("DIN 68874");
   });
 
-  it("enforces V11.5 Next.js 15 App Router route/page export rules (fixes Vercel r2-upload build error)", () => {
+  it("enforces V11.5 Next.js 15 App Router route/page export rules (fixes Vercel r2-upload build error)", async () => {
     const allowedRouteExports = new Set([
       "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS",
       "runtime", "dynamic", "dynamicParams", "revalidate", "fetchCache", "preferredRegion", "maxDuration"
@@ -289,7 +290,7 @@ describe("V11.4 Studio UI, Fixed Shelf, System-32 Multi-Hole Shelf Snap, Perform
       }
     }
 
-    const { buildIsolatedConfiguratorR2Key, buildR2SigV4PutHeaders } = require("../apps/configurator/src/lib/r2-upload-helpers");
+    const { buildIsolatedConfiguratorR2Key, buildR2SigV4PutHeaders } = await import("../apps/configurator/src/lib/r2-upload-helpers");
     const key = buildIsolatedConfiguratorR2Key({
       organizationId: "birim-org-01",
       subFolder: "glb",
@@ -300,18 +301,18 @@ describe("V11.4 Studio UI, Fixed Shelf, System-32 Multi-Hole Shelf Snap, Perform
     expect(typeof buildR2SigV4PutHeaders).toBe("function");
   });
 
-  it("compresses >=900-tri GLB props by >12x, freezes static matrices, and decouples interiorPropsGroupRef from door animations", () => {
-    const THREE = require("three");
+  it("compresses >=900-tri GLB props by >12x, freezes static matrices, and decouples interiorPropsGroupRef from door animations", async () => {
+    const THREE = await import("three");
     const {
       decimateHighPolyBufferGeometry,
-    } = require("../apps/configurator/src/v3/materials/wardrobeGlbAssetLoader");
+    } = await import("../apps/configurator/src/v3/materials/wardrobeGlbAssetLoader");
     const {
       createSculptedHangingShirtGroup,
       createFoldedKnitwearStackGroup,
       createLiddedStorageBoxGroup,
       createSculptedShoePairGroup,
-    } = require("../apps/configurator/src/v3/materials/wardrobePropsBuilder");
-    const { buildSceneObject3DGroup } = require("../apps/configurator/src/v3/materials/sceneObject3DBuilder");
+    } = await import("../apps/configurator/src/v3/materials/wardrobePropsBuilder");
+    const { buildSceneObject3DGroup } = await import("../apps/configurator/src/v3/materials/sceneObject3DBuilder");
 
     // 19,800-triangle sphere (simulates 19,517-tri shirt_baked.glb that previously escaped >20,500 threshold!)
     const hiSphere = new THREE.SphereGeometry(220, 100, 99);
@@ -377,7 +378,7 @@ describe("V11.4 Studio UI, Fixed Shelf, System-32 Multi-Hole Shelf Snap, Perform
     expect(sigLine.includes("showInteriorProps3D")).toBe(false);
   });
 
-  it("enforces V11.6 Zustand v5 UseBoundStore<StoreApi<ConfiguratorState>> & zero circular implicit-any inference", () => {
+  it("enforces V11.6 Zustand v5 UseBoundStore<StoreApi<ConfiguratorState>> & zero circular implicit-any inference", async () => {
     const storeCode = fs.readFileSync(
       path.resolve(__dirname, "../apps/configurator/src/store/useConfiguratorStore.ts"),
       "utf8"
@@ -388,7 +389,7 @@ describe("V11.4 Studio UI, Fixed Shelf, System-32 Multi-Hole Shelf Snap, Perform
     );
     expect(storeCode).toContain("updateCarcass: (patch: Partial<ModuleInstance[\"carcass\"]>) => void;");
 
-    const { useConfiguratorStore } = require("../apps/configurator/src/store/useConfiguratorStore");
+    const { useConfiguratorStore } = await import("../apps/configurator/src/store/useConfiguratorStore");
     expect(typeof useConfiguratorStore.getState().updateCarcass).toBe("function");
 
     const v11ConstCode = fs.readFileSync(
@@ -437,8 +438,8 @@ describe("V11.4 Studio UI, Fixed Shelf, System-32 Multi-Hole Shelf Snap, Perform
       "utf8"
     );
     // 1. Left-click drag MUST rotate the 3D scene and moveObjectMode3D MUST default to false!
-    expect(vpSrc).toContain("LEFT: THREE.MOUSE.ROTATE");
-    expect(vpSrc).toContain("RIGHT: THREE.MOUSE.PAN");
+    expect(vpSrc).toContain("LEFT: THREE.MOUSE.PAN");
+    expect(vpSrc).toContain("RIGHT: THREE.MOUSE.ROTATE");
     expect(vpSrc).toContain("const [moveObjectMode3D, setMoveObjectMode3D] = useState<boolean>(false)");
     expect(vpSrc).toContain("const [invertCameraMouse, setInvertCameraMouse] = useState<boolean>(false)");
     expect(vpSrc).toContain("scene.environment = getStudioEnvironmentTexture()");

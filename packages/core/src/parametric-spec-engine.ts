@@ -293,6 +293,54 @@ export function evaluateSlidingDoorDeadZones(
 }
 
 /**
+ * Computes bay `customWidth` overrides for 2-bay or 3-bay sliding wardrobes so that the
+ * designated pull-out bay (`pulloutBayIndex`) avoids both dead-zone door overlap and
+ * 3D sliding door edges when the opposite leaf is stacked aside.
+ */
+export function computeSlidingSafeBayCustomWidths(
+  outerWidthMm: number,
+  panelThicknessMm = 18,
+  bayCount = 2,
+  pulloutBayIndex = 1,
+  overlapMm = 60
+): (number | undefined)[] {
+  if (bayCount < 2) {
+    return new Array(Math.max(1, bayCount)).fill(undefined);
+  }
+  const T = panelThicknessMm || 18;
+  const innerSpan = Math.max(200, outerWidthMm - 2 * T);
+  const outerDoorOverlap = 26;
+  const effDoorW3D = Math.ceil((outerWidthMm + outerDoorOverlap * (bayCount - 1)) / bayCount);
+
+  if (bayCount === 2) {
+    const leafWDead = Math.ceil((innerSpan + overlapMm) / 2);
+    const maxClearSpan = Math.min(innerSpan - leafWDead, outerWidthMm - T - effDoorW3D) - 8;
+    const safePulloutW = Math.max(360, Math.floor(maxClearSpan));
+    const otherBayW = Math.max(360, innerSpan - T - safePulloutW);
+    return pulloutBayIndex === 0 ? [safePulloutW, undefined] : [otherBayW, undefined];
+  }
+
+  if (bayCount === 3) {
+    const leafWDead = Math.ceil((innerSpan + overlapMm * 2) / 3);
+    if (pulloutBayIndex === 1) {
+      const maxClearCenter =
+        Math.min(innerSpan - 2 * leafWDead, outerWidthMm - 2 * effDoorW3D) - 10;
+      const safeCenterW = Math.max(380, Math.floor(maxClearCenter));
+      return [undefined, safeCenterW, undefined];
+    }
+    const maxClearSide =
+      Math.min(innerSpan - leafWDead, outerWidthMm - T - 2 * effDoorW3D) - 8;
+    const safeSideW = Math.max(360, Math.floor(maxClearSide));
+    if (pulloutBayIndex === 2) {
+      return [undefined, undefined, safeSideW];
+    }
+    return [safeSideW, undefined, undefined];
+  }
+
+  return new Array(bayCount).fill(undefined);
+}
+
+/**
  * Computes CNC L-Gola (26×57mm top front corner) and C-Gola (26×73.5mm intermediate drawer gap)
  * notches on side panels and intermediate dividers when Gola handleless system is active.
  */

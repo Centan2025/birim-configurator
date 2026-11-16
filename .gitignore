@@ -22,3 +22,4 @@ test-results/
 
 # Local temporary AI handoff
 .handoff.local.md
+tsconfig.tsbuildinfo

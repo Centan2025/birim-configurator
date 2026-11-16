@@ -334,7 +334,8 @@ export const ElevationMultiHoleAndGrainSvg: React.FC<{
   el: { id: string; role: string; x: number; y: number; width: number; height: number; bayIndex?: number };
   activeModule: ModuleInstance;
   grainAssignment?: ContinuousGrainPartAssignment;
-}> = React.memo(({ el, activeModule, grainAssignment }) => {
+  draggedShelfId?: string;
+}> = React.memo(({ el, activeModule, grainAssignment, draggedShelfId }) => {
   const isSideOrDiv =
     el.role === "carcass_side_left" ||
     el.role === "carcass_side_right" ||
@@ -346,30 +347,44 @@ export const ElevationMultiHoleAndGrainSvg: React.FC<{
     const panelT = activeModule.carcass.panelThickness || 18;
     const isLeft = el.role === "carcass_side_left";
     const isRight = el.role === "carcass_side_right";
-    const bottomOffsetY =
-      isLeft || isRight ? Math.max(0, activeModule.carcass.plinthHeight || 0) : 0;
+    const plinthH = activeModule.carcass.plinthHeight || 0;
+    const elBottomWorld = activeModule.dimensions.height - (el.y + el.height);
+    const innerBottomWorld = plinthH + panelT;
+    const deltaBelowInner = Math.max(0, innerBottomWorld - elBottomWorld);
+    const bottomOffsetY = Math.max(0, deltaBelowInner - panelT);
+    const effPanelT = Math.min(panelT, deltaBelowInner);
 
     let adjShelfYs: number[] = [];
+    let fixedShelfYs: number[] = [];
     if (isLeft || isRight) {
       const bIdx = isRight ? Math.max(0, activeModule.bays.length - 1) : 0;
-      adjShelfYs = (activeModule.bays[bIdx]?.shelves || [])
-        .filter((s) => !s.isHidden && s.isAdjustable !== false)
-        .map((s) => bottomOffsetY + panelT + s.elevationY);
+      const shelves = (activeModule.bays[bIdx]?.shelves || []).filter((s) => !s.isHidden);
+      adjShelfYs = shelves
+        .filter((s) => s.isAdjustable !== false && s.isFixed !== true)
+        .map((s) => deltaBelowInner + s.elevationY);
+      fixedShelfYs = shelves
+        .filter((s) => s.id !== draggedShelfId && (s.isAdjustable === false || s.isFixed === true))
+        .map((s) => deltaBelowInner + s.elevationY);
     } else if (typeof el.bayIndex === "number") {
       const lb = activeModule.bays[el.bayIndex];
       const rb = activeModule.bays[el.bayIndex + 1];
-      adjShelfYs = [...(lb?.shelves || []), ...(rb?.shelves || [])]
-        .filter((s) => !s.isHidden && s.isAdjustable !== false)
-        .map((s) => s.elevationY);
+      const allShelves = [...(lb?.shelves || []), ...(rb?.shelves || [])].filter((s) => !s.isHidden);
+      adjShelfYs = allShelves
+        .filter((s) => s.isAdjustable !== false && s.isFixed !== true)
+        .map((s) => deltaBelowInner + s.elevationY);
+      fixedShelfYs = allShelves
+        .filter((s) => s.id !== draggedShelfId && (s.isAdjustable === false || s.isFixed === true))
+        .map((s) => deltaBelowInner + s.elevationY);
     }
 
     const ys = computeSystem32MultiHoleYs({
       mode: mhSpec.mode,
       panelHeightMm: el.height,
       bottomOffsetY,
-      panelThicknessMm: el.role === "carcass_divider" ? 0 : panelT,
+      panelThicknessMm: effPanelT,
       edgeMarginMm: mhSpec.edgeMarginMm,
       adjustableShelfYsMm: adjShelfYs,
+      blockedYsMm: fixedShelfYs.map((fy) => ({ y: fy, clearanceMm: 18 })),
     });
 
     const dotX = isLeft

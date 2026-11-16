@@ -53,10 +53,6 @@ export function verifyWebhookPayloadHmac256(
   }
 }
 
-export function listTenantOutboxEvents(tenantId: string): IntegrationOutboxEvent[] {
-  return [...(OUTBOX_BY_TENANT.get(tenantId) || [])];
-}
-
 export class OutboundWebhookErpAdapter {
   private readonly tenantId: string;
   private readonly endpointUrl: string;

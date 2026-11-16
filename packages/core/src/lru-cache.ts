@@ -66,6 +66,24 @@ export class BoundedLruCache<K, V> {
   }
 }
 
+function serializeSortedStringRecord(rec?: Record<string, string>): string {
+  if (!rec) return "";
+  const keys = Object.keys(rec);
+  const len = keys.length;
+  if (len === 0) return "";
+  if (len === 1) {
+    const k = keys[0];
+    return `${k}=${rec[k]}`;
+  }
+  keys.sort();
+  let out = `${keys[0]}=${rec[keys[0]]}`;
+  for (let i = 1; i < len; i++) {
+    const k = keys[i];
+    out += `,${k}=${rec[k]}`;
+  }
+  return out;
+}
+
 /**
  * Fast, deterministic structural fingerprint for a `ModuleInstance`.
  * Captures all geometry-, BOM-, drilling-, and validation-affecting fields
@@ -113,18 +131,8 @@ export function computeModuleStructuralSignature(mod: ModuleInstance): string {
     baysSig += `[${b.index}:${b.widthRatio ?? ""}:${b.customWidth ?? ""}|D(${doorSig})|S(${shelvesSig})|DR(${drawersSig})|HR(${railsSig})|SF(${fitSig})|SD(${subSig})]`;
   }
 
-  const overridesSig = mod.componentMaterialOverrides
-    ? Object.entries(mod.componentMaterialOverrides)
-        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-        .map(([k, v]) => `${k}=${v}`)
-        .join(",")
-    : "";
-  const grainOverridesSig = mod.componentGrainOverrides
-    ? Object.entries(mod.componentGrainOverrides)
-        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-        .map(([k, v]) => `${k}=${v}`)
-        .join(",")
-    : "";
+  const overridesSig = serializeSortedStringRecord(mod.componentMaterialOverrides);
+  const grainOverridesSig = serializeSortedStringRecord(mod.componentGrainOverrides);
   const cutoutsSig = mod.utilityCutouts?.length ? JSON.stringify(mod.utilityCutouts) : "";
   const cellSig = mod.rootCell ? JSON.stringify(mod.rootCell) : "";
   const slopeSig = c.slopedCeiling
@@ -175,38 +183,46 @@ export function computeProjectStructuralSignature(project: DesignProject): strin
     modsSig += computeModuleStructuralSignature(project.modules[i]) + "\n";
   }
   const space = project.space;
-  const wallsSig = space?.walls
-    ? space.walls
-        .map((w) => {
-          const wExt = w as typeof w & {
-            angleDeg?: number;
-            startPoint?: { x: number; z: number };
-            endPoint?: { x: number; z: number };
-          };
-          return `${w.id}:${w.length}x${w.height}:${wExt.angleDeg ?? ""}:${wExt.startPoint?.x ?? ""},${wExt.startPoint?.z ?? ""}->${wExt.endPoint?.x ?? ""},${wExt.endPoint?.z ?? ""}`;
-        })
-        .join("|")
-    : "";
-  const elSig = space?.elements
-    ? space.elements
-        .map(
-          (e) =>
-            `${e.id}:${e.type}:${e.position.x},${e.position.y},${e.position.z}:${e.dimensions.width}x${e.dimensions.height}x${e.dimensions.depth}`
-        )
-        .join("|")
-    : "";
+  let wallsSig = "";
+  if (space?.walls && space.walls.length > 0) {
+    for (let i = 0; i < space.walls.length; i++) {
+      const w = space.walls[i] as (typeof space.walls)[number] & {
+        angleDeg?: number;
+        startPoint?: { x: number; z: number };
+        endPoint?: { x: number; z: number };
+      };
+      if (i > 0) wallsSig += "|";
+      wallsSig += `${w.id}:${w.length}x${w.height}:${w.angleDeg ?? ""}:${w.startPoint?.x ?? ""},${w.startPoint?.z ?? ""}->${w.endPoint?.x ?? ""},${w.endPoint?.z ?? ""}`;
+    }
+  }
+  let elSig = "";
+  if (space?.elements && space.elements.length > 0) {
+    for (let i = 0; i < space.elements.length; i++) {
+      const e = space.elements[i];
+      if (i > 0) elSig += "|";
+      elSig += `${e.id}:${e.type}:${e.position.x},${e.position.y},${e.position.z}:${e.dimensions.width}x${e.dimensions.height}x${e.dimensions.depth}`;
+    }
+  }
   const ceilSig = (space as { ceilingConfig?: unknown })?.ceilingConfig ? JSON.stringify((space as { ceilingConfig?: unknown }).ceilingConfig) : "";
   const spaceSlopeSig = space?.slopedCeiling
     ? `${space.slopedCeiling.mode}:${space.slopedCeiling.kneeHeightMm}:${space.slopedCeiling.slopeAngleDeg}:${space.slopedCeiling.topFlatSpanMm || 0}`
     : "";
-  const customMatSig = project.customMaterials?.length
-    ? project.customMaterials.map((m) => `${m.id}:${m.category}:${m.thickness}:${m.costPerM2}`).join("|")
-    : "";
-  const sceneObjSig = project.sceneObjects?.length
-    ? project.sceneObjects
-        .map((so) => `${so.id}:${so.catalogId}:${so.position.x},${so.position.y},${so.position.z}:${so.cutoutTrigger?.kind || ""}`)
-        .join("|")
-    : "";
+  let customMatSig = "";
+  if (project.customMaterials && project.customMaterials.length > 0) {
+    for (let i = 0; i < project.customMaterials.length; i++) {
+      const m = project.customMaterials[i];
+      if (i > 0) customMatSig += "|";
+      customMatSig += `${m.id}:${m.category}:${m.thickness}:${m.costPerM2}`;
+    }
+  }
+  let sceneObjSig = "";
+  if (project.sceneObjects && project.sceneObjects.length > 0) {
+    for (let i = 0; i < project.sceneObjects.length; i++) {
+      const so = project.sceneObjects[i];
+      if (i > 0) sceneObjSig += "|";
+      sceneObjSig += `${so.id}:${so.catalogId}:${so.position.x},${so.position.y},${so.position.z}:${so.cutoutTrigger?.kind || ""}`;
+    }
+  }
 
   return `T:${project.tenantId || "birim"}|E:${project.ergonomicProfileId || ""}|ST:${space?.type || ""}|WS:${space?.wallSubstrateType || ""}|SS:${spaceSlopeSig}|C:${space?.ceilingHeight || 0}|W:${wallsSig}|EL:${elSig}|CL:${ceilSig}|CM:${customMatSig}|SO:${sceneObjSig}|M:${modsSig}`;
 }

@@ -10,11 +10,7 @@ import {
 export type WardrobeGlbCategory =
   | "jacket"
   | "shirt"
-  | "shoe"
-  | "folded_cloth"
-  | "silk_pouf"
-  | "sunglasses"
-  | "watch";
+  | "shoe";
 
 export interface WardrobeGlbCatalogEntry {
   category: WardrobeGlbCategory;
@@ -72,54 +68,6 @@ export const DEFAULT_WARDROBE_GLB_CATALOG: Record<
     sourceUrl:
       "https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/MaterialsVariantsShoe",
     targetMm: { w: 116, h: 118, d: 292 },
-    anchor: "bottom",
-  },
-  folded_cloth: {
-    category: "folded_cloth",
-    label: "Katlı Kazak / Triko İstifi (Khronos SheenCloth .GLB)",
-    localOverridePath: "/models/wardrobe/folded_cloth.glb",
-    remoteUrl:
-      "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/SheenCloth/glTF-Binary/SheenCloth.glb",
-    sourceTitle: "Khronos Group glTF-Sample-Assets — SheenCloth",
-    sourceUrl:
-      "https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/SheenCloth",
-    targetMm: { w: 325, h: 70, d: 325 },
-    anchor: "bottom",
-  },
-  silk_pouf: {
-    category: "silk_pouf",
-    label: "Dolap İçi Keten Düzenleyici & Çanta Pufu (Khronos .GLB)",
-    localOverridePath: "/models/wardrobe/silk_pouf.glb",
-    remoteUrl:
-      "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/SpecularSilkPouf/glTF-Binary/SpecularSilkPouf.glb",
-    sourceTitle: "Khronos Group glTF-Sample-Assets — SpecularSilkPouf",
-    sourceUrl:
-      "https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/SpecularSilkPouf",
-    targetMm: { w: 325, h: 158, d: 315 },
-    anchor: "bottom",
-  },
-  sunglasses: {
-    category: "sunglasses",
-    label: "Güneş Gözlüğü Aksesuarı (Khronos .GLB)",
-    localOverridePath: "/models/wardrobe/sunglasses.glb",
-    remoteUrl:
-      "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/SunglassesKhronos/glTF-Binary/SunglassesKhronos.glb",
-    sourceTitle: "Khronos Group glTF-Sample-Assets — SunglassesKhronos",
-    sourceUrl:
-      "https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/SunglassesKhronos",
-    targetMm: { w: 155, h: 54, d: 150 },
-    anchor: "bottom",
-  },
-  watch: {
-    category: "watch",
-    label: "Kronograf Kol Saati (Khronos .GLB)",
-    localOverridePath: "/models/wardrobe/watch.glb",
-    remoteUrl:
-      "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/ChronographWatch/glTF-Binary/ChronographWatch.glb",
-    sourceTitle: "Khronos Group glTF-Sample-Assets — ChronographWatch",
-    sourceUrl:
-      "https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/ChronographWatch",
-    targetMm: { w: 90, h: 60, d: 96 },
     anchor: "bottom",
   },
 };
@@ -775,9 +723,7 @@ function optimizeGlbSceneFor60Fps(
   const geoDecimateCache = new WeakMap<THREE.BufferGeometry, THREE.BufferGeometry>();
 
   const targetGrid =
-    category === "folded_cloth"
-      ? 11
-      : category === "shoe"
+    category === "shoe"
       ? 11
       : category === "shirt" || category === "jacket"
       ? 13

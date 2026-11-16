@@ -37,19 +37,6 @@ export function roundCncCoordMm(value: number): UnitLength {
   return Math.round((value + Number.EPSILON) * f) / f;
 }
 
-export function roundSawCutMm(value: number): UnitLength {
-  const f = 10 ** ENGINEERING_TOLERANCE_POLICY.SAW_CUT_DECIMALS;
-  return Math.round((value + Number.EPSILON) * f) / f;
-}
-
-/**
- * Stoklanabilir artık plaka (remnant) ölçüsü asla yukarı yuvarlanmaz;
- * fiziksel olarak sığmayacak parça atamasını önlemek için aşağı yuvarlanır.
- */
-export function floorRemnantMm(value: number): UnitLength {
-  return Math.max(0, Math.floor(value + 1e-6));
-}
-
 /**
  * Kural Yönetişim Doğası (Bölüm 5 & Bölüm 8):
  * Zorunlu güvenlik/mevzuat kuralları ile ergonomik önerileri kesin biçimde birbirinden ayırır.

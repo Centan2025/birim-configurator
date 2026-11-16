@@ -1,4 +1,5 @@
 import { DEFAULT_MATERIALS } from "./defaults";
+import { BoundedLruCache, computeModuleStructuralSignature } from "./lru-cache";
 import { calculateBayWidths, roundMm } from "./rules";
 import type {
   CeilingType,
@@ -125,7 +126,7 @@ export function computeSystem32MultiHoleYs(params: {
     return [];
   }
 
-  const minSafeY = Math.max(bottomOffsetY + panelThicknessMm + Math.max(48, edgeMarginMm), panelThicknessMm > 0 ? 160 : 96);
+  const minSafeY = bottomOffsetY + panelThicknessMm + Math.max(96, edgeMarginMm);
   const maxSafeY = panelHeightMm - (panelThicknessMm + Math.max(48, edgeMarginMm));
   if (maxSafeY < minSafeY) return [];
 
@@ -492,6 +493,8 @@ export interface ContinuousGrainPartAssignment {
   grainDirection: "lengthwise" | "crosswise";
 }
 
+const grainContinuityCache = new BoundedLruCache<string, Map<string, ContinuousGrainPartAssignment>>(48);
+
 /**
  * Projede desen takibi aktif olan tüm modül kapak ve çekmece klapaları için
  * **hem 3D GPU UV faz ofsetlerini hem de üretim/ERP Nesting `grainGroupId` kesim koordinatlarını**
@@ -501,6 +504,25 @@ export function computeProjectGrainContinuityMap(
   project: Pick<DesignProject, "modules" | "customMaterials" | "facadeGrainContinuity">,
   materialsMap?: Map<string, MaterialDefinition>
 ): Map<string, ContinuousGrainPartAssignment> {
+  let cacheKey: string | null = null;
+  if (!materialsMap) {
+    let customKey = "";
+    const cms = project.customMaterials || [];
+    for (let i = 0; i < cms.length; i++) {
+      const m = cms[i];
+      customKey += `${m.id}:${m.category}:${m.hasGrain ? 1 : 0}:${m.colorHex};`;
+    }
+    let modsKey = "";
+    const mods = project.modules || [];
+    for (let i = 0; i < mods.length; i++) {
+      if (i > 0) modsKey += "\n";
+      modsKey += computeModuleStructuralSignature(mods[i]);
+    }
+    cacheKey = `FG:${project.facadeGrainContinuity ? 1 : 0}|CM:${customKey}|M:${modsKey}`;
+    const hit = grainContinuityCache.get(cacheKey);
+    if (hit) return hit;
+  }
+
   const matLookup =
     materialsMap ||
     new Map([...DEFAULT_MATERIALS, ...(project.customMaterials || [])].map((m) => [m.id, m]));
@@ -813,6 +835,9 @@ export function computeProjectGrainContinuityMap(
     });
   });
 
+  if (cacheKey) {
+    grainContinuityCache.set(cacheKey, assignments);
+  }
   return assignments;
 }
 

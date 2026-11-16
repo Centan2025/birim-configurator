@@ -179,9 +179,33 @@ export function formatFindingForTier(
   tier: "simple" | "architect" | "factory"
 ): { title: string; detail: string } {
   const raw = finding.message || "";
+  const codeUpper = (finding.code || "").toUpperCase();
+
+  const resolveTurkishTitle = (): string => {
+    if (codeUpper === "INFO_TALL_CARCASS_NEEDS_FIXED_SHELF") {
+      return "Sabit Taşıyıcı Raf Önerisi";
+    }
+    if (codeUpper.includes("SPAN") || codeUpper.includes("DEFLECTION") || raw.toLowerCase().includes("sehim")) {
+      return "Raf Sehim & Açıklık Kontrolü";
+    }
+    if (codeUpper.includes("TIP") || raw.toLowerCase().includes("devrilme")) {
+      return "Duvar Sabitleme Önerisi";
+    }
+    if (codeUpper.includes("HINGE") || raw.toLowerCase().includes("menteşe")) {
+      return "Menteşe Yerleşim Kontrolü";
+    }
+    if (codeUpper.includes("DRAWER") || raw.toLowerCase().includes("çekmece")) {
+      return "Çekmece & Donanım Kontrolü";
+    }
+    if (codeUpper.includes("COLLISION") || raw.toLowerCase().includes("çakış")) {
+      return "Parça Çakışma Kontrolü";
+    }
+    return tier === "factory" ? "Teknik Üretim Kontrolü" : "Tasarım İyileştirme Önerisi";
+  };
+
   if (tier === "factory") {
     return {
-      title: finding.code.replace(/_/g, " "),
+      title: resolveTurkishTitle(),
       detail: raw,
     };
   }

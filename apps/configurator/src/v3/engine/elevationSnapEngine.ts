@@ -273,15 +273,21 @@ export function resolveElevationSnap(
 export function computeBaySystem32ShelfHoleElevations(
   mod: ModuleInstance,
   bayIndex: number,
-  draggedShelfId?: string
+  draggedShelfId?: string,
+  options?: { includeFixedShelves?: boolean }
 ): number[] | null {
   const bay = mod.bays[bayIndex];
   if (!bay) return null;
 
-  if (draggedShelfId) {
-    const draggedShelf = bay.shelves.find((s) => s.id === draggedShelfId);
+  const draggedShelf = draggedShelfId
+    ? bay.shelves.find((s) => s.id === draggedShelfId)
+    : undefined;
+  const shelfT = draggedShelf?.thickness || mod.carcass.panelThickness || 18;
+  const shelfHalfT = Math.round(shelfT / 2);
+
+  if (draggedShelfId && !options?.includeFixedShelves) {
     if (draggedShelf && (draggedShelf.isAdjustable === false || draggedShelf.isFixed === true)) {
-      return null; // Fixed structural shelves (Minifix / Rafix) are not restricted to Ø5mm pin holes
+      return null; // Fixed structural shelves (Minifix / Rafix) are not restricted to Ø5mm pin holes unless explicitly requested
     }
   }
 
@@ -293,9 +299,7 @@ export function computeBaySystem32ShelfHoleElevations(
   const panelT = mod.carcass.panelThickness || 18;
   const plinthH = mod.carcass.plinthHeight ?? 80;
   const sideToFloor =
-    plinthH > 0 &&
-    String(mod.carcass.plinthConstruction) !== "box_plinth" &&
-    String(mod.carcass.plinthConstruction) !== "clip_legs";
+    plinthH > 0 && String(mod.carcass.plinthConstruction) === "gable_rails";
   const bottomOffsetY = sideToFloor ? plinthH : 0;
   const sidePanelHeight = sideToFloor ? mod.dimensions.height : Math.max(200, mod.dimensions.height - plinthH);
   const netInnerH = Math.max(200, mod.dimensions.height - plinthH - 2 * panelT);
@@ -330,7 +334,7 @@ export function computeBaySystem32ShelfHoleElevations(
   });
 
   const shelfElevYs = panelHoleYs
-    .map((py) => Math.round(py - bottomOffsetY - panelT))
+    .map((py) => Math.round(py - bottomOffsetY - panelT - shelfHalfT))
     .filter((ey) => ey >= Math.max(48, drawerTopY + 32) && ey <= netInnerH - 48);
 
   return shelfElevYs.length > 0 ? shelfElevYs : null;
@@ -364,7 +368,9 @@ export function snapShelfToMultiHoleOrElevationTargets(params: {
     return resolveElevationSnap(rawElevationY, snapTargets, 18);
   }
 
-  const holeYs = computeBaySystem32ShelfHoleElevations(mod, bayIndex, shelfId);
+  const holeYs = computeBaySystem32ShelfHoleElevations(mod, bayIndex, shelfId, {
+    includeFixedShelves: true,
+  });
   if (!holeYs || holeYs.length === 0) {
     return resolveElevationSnap(rawElevationY, snapTargets, 18);
   }

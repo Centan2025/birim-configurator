@@ -1,5 +1,6 @@
 import {
   ModuleInstance,
+  SlidingMountingType,
   calculateBayWidths,
   calculateNetInnerHeight,
   calculateNetInnerDepth,
@@ -2201,6 +2202,177 @@ export function generateModuleGeometry(
       (b.specialFittings || []).some((f) => !f.isHidden && f.type === "led_rod_strip")
     );
 
+  const slidingLeafStateMap = new Map<
+    number,
+    {
+      bayIdx: number;
+      mountKind: SlidingMountingType;
+      isFrontTrack: boolean;
+      effDoorW: number;
+      currentX: number;
+      minX: number;
+      maxX: number;
+      popZ: number;
+    }
+  >();
+
+  const hasAnySlidingBay =
+    !module.isOpenFront &&
+    module.bays.some((b) => {
+      const ds = b.door?.doorSystemId || inferDoorSystemIdFromType(b.door?.type || "open");
+      return (
+        b.door &&
+        b.door.type !== "open" &&
+        ds !== "open" &&
+        (ds.startsWith("sliding") || b.door.type === "sliding" || b.door.type === "sliding_bottom")
+      );
+    });
+
+  if (hasAnySlidingBay) {
+    const totalBays = Math.max(1, module.bays.length);
+    const slideOpenRatio = Math.min(1, Math.max(0, doorOpenAngleDeg / 75));
+    const foundPulloutIdx = module.bays.findIndex(
+      (b) =>
+        b.drawers.some((d) => !d.isHidden) ||
+        (b.specialFittings || []).some(
+          (f) =>
+            !f.isHidden &&
+            (f.type === "trouser_rack" ||
+              f.type === "wire_basket" ||
+              f.type === "jewelry_tray" ||
+              f.type === "shoe_rack")
+        )
+    );
+    const primaryPulloutBayIdx =
+      foundPulloutIdx >= 0
+        ? foundPulloutIdx
+        : totalBays >= 3
+        ? 1
+        : Math.max(0, totalBays - 1);
+
+    module.bays.forEach((sBay, bIdx) => {
+      if (!sBay.door || sBay.door.type === "open" || sBay.door.doorSystemId === "open") return;
+      const dType = sBay.door.type;
+      const dSys = sBay.door.doorSystemId || inferDoorSystemIdFromType(dType);
+      if (!dSys.startsWith("sliding") && dType !== "sliding" && dType !== "sliding_bottom") {
+        return;
+      }
+
+      const mountKind: SlidingMountingType =
+        sBay.door.slidingMountingType ||
+        (dSys === "sliding_bottom_rolling" || dType === "sliding_bottom"
+          ? "inset_inside"
+          : dSys === "sliding_coplanar"
+          ? "coplanar_flush"
+          : "top_hung_pelmet");
+
+      let effDoorW = 0;
+      let maxLeft = 0;
+      let maxRight = 0;
+      let baseClosedX = 0;
+
+      if (mountKind === "inset_inside") {
+        const innerClearSpanW = Math.max(240, width - 2 * T);
+        const overlapMm = totalBays > 1 ? 22 : 0;
+        effDoorW = Math.round((innerClearSpanW + overlapMm * (totalBays - 1)) / totalBays);
+        maxLeft = T;
+        maxRight = Math.max(T, width - T - effDoorW);
+        baseClosedX = Math.round(
+          T + bIdx * ((innerClearSpanW - effDoorW) / Math.max(1, totalBays - 1))
+        );
+      } else if (mountKind === "coplanar_flush") {
+        const leafSpecS = fourSpace.doorLeaves[bIdx];
+        effDoorW = leafSpecS?.leafWidthMm || Math.round(width / totalBays);
+        maxLeft = 0;
+        maxRight = Math.max(0, width - effDoorW);
+        baseClosedX = Math.max(
+          maxLeft,
+          Math.min(maxRight, leafSpecS?.doorX0Mm ?? bIdx * effDoorW)
+        );
+      } else {
+        const overlapMm = totalBays > 1 ? 26 : 0;
+        effDoorW = Math.round((width + overlapMm * (totalBays - 1)) / totalBays);
+        maxLeft = 0;
+        maxRight = Math.max(0, width - effDoorW);
+        baseClosedX = Math.round(
+          bIdx * ((width - effDoorW) / Math.max(1, totalBays - 1))
+        );
+      }
+
+      const isFrontTrack =
+        totalBays === 1
+          ? true
+          : totalBays === 2
+          ? bIdx === 1
+          : bIdx > 0 && bIdx < totalBays - 1
+          ? bIdx % 2 === 1
+          : false;
+
+      let targetOpenX = baseClosedX;
+      if (totalBays === 2) {
+        if (primaryPulloutBayIdx === 0) {
+          targetOpenX = maxRight;
+        } else {
+          targetOpenX = maxLeft;
+        }
+      } else if (totalBays === 3) {
+        if (primaryPulloutBayIdx === 1) {
+          targetOpenX = bIdx === 0 ? maxLeft : bIdx === 2 ? maxRight : maxLeft;
+        } else if (primaryPulloutBayIdx === 2) {
+          targetOpenX =
+            bIdx === 0
+              ? maxLeft
+              : bIdx === 1
+              ? maxLeft
+              : Math.min(baseClosedX, maxLeft + effDoorW + 4);
+        } else {
+          targetOpenX =
+            bIdx === 2
+              ? maxRight
+              : bIdx === 1
+              ? maxRight
+              : Math.max(baseClosedX, maxRight - effDoorW - 4);
+        }
+      } else if (totalBays >= 4) {
+        targetOpenX =
+          bIdx === primaryPulloutBayIdx
+            ? primaryPulloutBayIdx < totalBays / 2
+              ? maxRight
+              : maxLeft
+            : baseClosedX;
+      }
+
+      let popZ = 0;
+      let currentX = baseClosedX;
+      if (mountKind === "coplanar_flush") {
+        const popProgress = Math.min(1, slideOpenRatio * 3.5);
+        const slideProgress = Math.max(0, (slideOpenRatio - 0.22) / 0.78);
+        const isMovingLeaf = Math.abs(targetOpenX - baseClosedX) > 1;
+        popZ = isMovingLeaf ? popProgress * 48 : 0;
+        currentX = Math.max(
+          maxLeft,
+          Math.min(maxRight, Math.round(baseClosedX + (targetOpenX - baseClosedX) * slideProgress))
+        );
+      } else {
+        currentX = Math.max(
+          maxLeft,
+          Math.min(maxRight, Math.round(baseClosedX + (targetOpenX - baseClosedX) * slideOpenRatio))
+        );
+      }
+
+      slidingLeafStateMap.set(bIdx, {
+        bayIdx: bIdx,
+        mountKind,
+        isFrontTrack,
+        effDoorW,
+        currentX,
+        minX: currentX,
+        maxX: currentX + effDoorW,
+        popZ,
+      });
+    });
+  }
+
   module.bays.forEach((bay, bayIdx) => {
     const bayW = bayWidths[bayIdx] || 0;
     const bayStartX = currentX;
@@ -2826,7 +2998,28 @@ export function generateModuleGeometry(
       const frontW = isExtDrawer
         ? Math.max(60, bayLeafSpec?.fullDoorSpanWidthMm || bayW - 4)
         : Math.max(60, bayW - 4);
-      const pulledZ = drawerOpenMm;
+      let pulledZ = drawerOpenMm;
+      if (!isExtDrawer) {
+        if (slidingLeafStateMap.size > 0 || isFullHeightTrackDoor) {
+          const drwMinX = bayStartX + 2;
+          const drwMaxX = bayStartX + bayW - 2;
+          const blockedBySlidingLeaf = Array.from(slidingLeafStateMap.values()).some(
+            (lf) => lf.minX < drwMaxX - 2 && lf.maxX > drwMinX + 2
+          );
+          const blockedByPocketOrTambour =
+            (bay.door?.type === "pocket" ||
+              bay.door?.type === "tambour" ||
+              bayDoorSysForDrw === "pocket_retractable" ||
+              bayDoorSysForDrw === "tambour_roller") &&
+            doorOpenAngleDeg < 65;
+          pulledZ = blockedBySlidingLeaf || blockedByPocketOrTambour ? 0 : drawerOpenMm;
+        } else if (!hasNoUpperDoor) {
+          pulledZ =
+            doorOpenAngleDeg < 60
+              ? 0
+              : Math.round(drawerOpenMm * Math.min(1, (doorOpenAngleDeg - 60) / 15));
+        }
+      }
       const drawerDoorLeafT = bayLeafSpec?.leafThicknessMm || bay.door?.doorThicknessMm || module.carcass.doorThickness || 18;
       const trackRecessMm =
         isFullHeightTrackDoor &&
@@ -3145,7 +3338,9 @@ export function generateModuleGeometry(
           thicknessAxis: "z",
         });
       } else if (dSys === "sliding_top_hung" || dSys === "sliding_bottom_rolling" || dSys === "sliding_coplanar" || dType === "sliding" || dType === "sliding_bottom") {
+        const preLeaf = slidingLeafStateMap.get(bayIdx);
         const mountKind =
+          preLeaf?.mountKind ||
           bay.door.slidingMountingType ||
           (dSys === "sliding_bottom_rolling" || dType === "sliding_bottom"
             ? "inset_inside"
@@ -3154,40 +3349,25 @@ export function generateModuleGeometry(
             : "top_hung_pelmet");
 
         const totalBays = Math.max(1, module.bays.length);
-        const isFrontTrack = bayIdx % 2 === 1 || totalBays === 1;
-        const slideDir = bayIdx >= totalBays - 1 ? -1 : 1;
+        const isFrontTrack = preLeaf?.isFrontTrack ?? (bayIdx % 2 === 1 || totalBays === 1);
 
-        // Calculate realistic door width, Y-span, and Z-plane per mounting system
-        let effDoorW = leafSpec.leafWidthMm;
+        // Consume canonical precomputed sliding leaf dimensions & travel coordinates
+        let effDoorW = preLeaf?.effDoorW ?? leafSpec.leafWidthMm;
         let effDoorH = doorH;
         let effDoorY = doorY;
-        let baseClosedX = Math.max(0, Math.min(width - effDoorW, doorX0));
         let leafZ = doorZ;
+        const resolvedLeafX = preLeaf?.currentX ?? Math.max(0, Math.min(width - effDoorW, doorX0));
 
         if (mountKind === "inset_inside") {
-          // 1. INSET DUAL-TRACK (Hettich SlideLine M / Häfele Slido F-Line21):
-          // Runs strictly INSIDE carcass side panels & top/bottom horizontal boards with 24mm center overlap!
-          const innerClearSpanW = Math.max(240, width - 2 * T);
-          const overlapMm = totalBays > 1 ? 22 : 0;
-          effDoorW = Math.round((innerClearSpanW + overlapMm * (totalBays - 1)) / totalBays);
-          baseClosedX = Math.round(
-            T + bayIdx * ((innerClearSpanW - effDoorW) / Math.max(1, totalBays - 1))
-          );
           effDoorY = plinthHeight + T + 12; // 12mm bottom recessed track clearance
           effDoorH = Math.max(160, height - plinthHeight - 2 * T - 24); // 12mm top + 12mm bottom track clearance
           leafZ = isFrontTrack ? depth - T_door - 4 : depth - 2 * T_door - 12;
         } else if (mountKind === "coplanar_flush") {
-          // 4. COPLANAR FLUSH (Hettich InLine XL / Cinetto PS48):
-          // Completely flush in a single Z plane when closed; active front leaf pops out +48mm on pantograph arms then slides!
-          const popProgress = Math.min(1, openRatio * 3.5);
-          const slideProgress = Math.max(0, (openRatio - 0.22) / 0.78);
-          const popZ = isFrontTrack ? popProgress * 48 : 0;
+          const popZ = preLeaf?.popZ ?? 0;
           effDoorY = plinthHeight + 4;
           effDoorH = Math.max(160, height - plinthHeight - 6);
           leafZ = depth + 4 + popZ;
-          const coplanarSlideOffset = isFrontTrack ? slideProgress * (bayW * 0.84) * slideDir : 0;
-          baseClosedX = Math.max(0, Math.min(width - effDoorW, doorX0));
-          const coplanarX = Math.max(0, Math.min(width - effDoorW, baseClosedX + coplanarSlideOffset));
+          const coplanarX = resolvedLeafX;
 
           components.push({
             id: `${bay.door.id}_sliding_${isFrontTrack ? "front" : "rear"}`,
@@ -3218,22 +3398,13 @@ export function generateModuleGeometry(
             materialId: "mat_metal_chrome",
           });
         } else {
-          // 2 & 3. TOP-HUNG EXTERNAL OVERLAY (Exposed TopLine XL vs Concealed Pelmet Fascia):
-          const overlapMm = totalBays > 1 ? 26 : 0;
-          effDoorW = Math.round((width + overlapMm * (totalBays - 1)) / totalBays);
-          baseClosedX = Math.round(
-            bayIdx * ((width - effDoorW) / Math.max(1, totalBays - 1))
-          );
           effDoorY = plinthHeight + 4;
           effDoorH = Math.max(160, height - plinthHeight - 4);
           leafZ = isFrontTrack ? depth + 34 : depth + 8;
         }
 
         if (mountKind !== "coplanar_flush") {
-          const maxLeft = mountKind === "inset_inside" ? T : 0;
-          const maxRight = mountKind === "inset_inside" ? width - T - effDoorW : width - effDoorW;
-          const rawSlideOffset = isFrontTrack ? openRatio * (bayW * 0.82) * slideDir : 0;
-          const clampedSlideX = Math.max(maxLeft, Math.min(maxRight, baseClosedX + rawSlideOffset));
+          const clampedSlideX = resolvedLeafX;
 
           const mountTitle =
             mountKind === "inset_inside"
@@ -4014,11 +4185,4 @@ export function generateModuleGeometry(
   };
   moduleGeometryCache.set(cacheKey, result);
   return result;
-}
-
-export function generateMultiModuleGeometry(
-  modules: ModuleInstance[],
-  options: GenerateGeometryOptions = {}
-): ModuleGeometryBreakdown[] {
-  return modules.map((m) => generateModuleGeometry(m, options));
 }

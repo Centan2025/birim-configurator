@@ -765,6 +765,21 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
     });
   },
   setDoorOpenAngleDeg: (doorOpenAngleDeg, animated = false) => {
+    if (doorOpenAngleDeg < 55 && get().drawerOpenMm > 0) {
+      const hasCoveredInternalDrawers = get().project.modules.some((m) =>
+        m.bays.some(
+          (b) =>
+            b.drawers.some((d) => !d.isHidden) &&
+            (b.drawers.some((d) => !d.isHidden && Boolean(d.isInternal)) ||
+              b.door?.type === "sliding" ||
+              b.door?.type === "sliding_bottom" ||
+              String(b.door?.doorSystemId || "").startsWith("sliding"))
+        )
+      );
+      if (hasCoveredInternalDrawers) {
+        get().setDrawerOpenMm(0, animated);
+      }
+    }
     if (!animated) {
       if (activeDoorAnimRaf !== null) {
         cancelAnimationFrame(activeDoorAnimRaf);

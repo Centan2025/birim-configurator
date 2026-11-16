@@ -504,10 +504,6 @@ export const V4_MODULE_TEMPLATES: V4ModuleTemplateDefinition[] = [
   ...V5_SPECIALIZED_MODULE_TEMPLATES,
 ];
 
-export function getTemplatesByFamily(familyId: ModuleFamilyId): V4ModuleTemplateDefinition[] {
-  return V4_MODULE_TEMPLATES.filter((t) => t.familyId === familyId);
-}
-
 export function getV4TemplateById(templateId: string): V4ModuleTemplateDefinition | undefined {
   const direct = V4_MODULE_TEMPLATES.find((t) => t.templateId === templateId);
   if (direct) return direct;

@@ -275,10 +275,15 @@ export function evaluateLongTermShelfDeflection(params: {
 /**
  * Merkezi Birleşik Mühendislik, Konstrüksiyon, Mekân ve Üretilebilirlik Doğrulama Motoru (Bölüm 8 & 9).
  */
-import { BoundedLruCache, computeProjectStructuralSignature } from "./lru-cache";
+import {
+  BoundedLruCache,
+  computeModuleStructuralSignature,
+  computeProjectStructuralSignature,
+} from "./lru-cache";
 import { loadCustomStandardRules } from "./standards-registry";
 
 const unifiedEngineeringLruCache = new BoundedLruCache<string, ReturnType<typeof evaluateUnifiedEngineeringModelUncached>>(64);
+const moduleEngineeringSliceCache = new BoundedLruCache<string, EngineeringValidationFinding[]>(512);
 
 export function evaluateUnifiedEngineeringModel(
   project: DesignProject,
@@ -316,13 +321,30 @@ function evaluateUnifiedEngineeringModelUncached(
   );
 
   const findingsMap = new Map<string, EngineeringValidationFinding>();
-  const addFinding = (f: EngineeringValidationFinding) => {
+  const addProjectFinding = (f: EngineeringValidationFinding) => {
     const key = `${f.code}::${f.targetId || f.targetComponentId || "global"}`;
     const prev = findingsMap.get(key);
     if (!prev || (!prev.remediationProposals?.length && f.remediationProposals?.length) || (!prev.worldPositionMm && f.worldPositionMm)) {
       findingsMap.set(key, f);
     }
   };
+  let addFinding = addProjectFinding;
+
+  const targetIdToModule = new Map<string, ModuleInstance>();
+  for (let mi = 0; mi < project.modules.length; mi++) {
+    const m = project.modules[mi];
+    targetIdToModule.set(m.id, m);
+    for (let bi = 0; bi < m.bays.length; bi++) {
+      const b = m.bays[bi];
+      if (b.door?.id) targetIdToModule.set(b.door.id, m);
+      for (let di = 0; di < b.drawers.length; di++) {
+        targetIdToModule.set(b.drawers[di].id, m);
+      }
+      for (let si = 0; si < b.shelves.length; si++) {
+        targetIdToModule.set(b.shelves[si].id, m);
+      }
+    }
+  }
 
   // 1. Mevcut çekirdek ve V4 uyumluluk bulgularını yönetişim sınıflarıyla zenginleştir (compatReport.issues zaten validateProject bulgularını içerir!)
   for (const iss of compatReport.issues) {
@@ -349,16 +371,7 @@ function evaluateUnifiedEngineeringModelUncached(
       ? "ERGONOMIC_ADVISORY"
       : "ENGINEERING_VALIDITY";
 
-    const hostMod = project.modules.find(
-      (m) =>
-        m.id === iss.targetId ||
-        m.bays.some(
-          (b) =>
-            b.door?.id === iss.targetId ||
-            b.drawers.some((d) => d.id === iss.targetId) ||
-            b.shelves.some((s) => s.id === iss.targetId)
-        )
-    );
+    const hostMod = iss.targetId ? targetIdToModule.get(iss.targetId) : undefined;
 
     const worldPos: Position3D | undefined = hostMod
       ? {
@@ -368,7 +381,7 @@ function evaluateUnifiedEngineeringModelUncached(
         }
       : undefined;
 
-    addFinding({
+    addProjectFinding({
       ...iss,
       ruleNature,
       targetModuleId: hostMod?.id,
@@ -382,10 +395,68 @@ function evaluateUnifiedEngineeringModelUncached(
     ...(project.space.walls || []).flatMap((w) => w.elements || []),
   ];
   const roomWidthMm = project.space.walls?.[0]?.length || 4000;
+  const roomDepthMmEnv = project.space?.walls?.[1]?.length || 3200;
+  let customMatsEnvSig = "";
+  const customMatsArr = project.customMaterials || [];
+  for (let i = 0; i < customMatsArr.length; i++) {
+    const cm = customMatsArr[i];
+    customMatsEnvSig += `${cm.id}:${cm.densityKgPerM3 || 0}:${cm.elasticModulusMpa || 0}:${cm.mechanicalDataVerified ? 1 : 0};`;
+  }
+  let obsEnvSig = "";
+  for (let i = 0; i < allObstacles.length; i++) {
+    const ob = allObstacles[i];
+    obsEnvSig += `${ob.id}:${ob.type}:${ob.position.x},${ob.position.y},${ob.position.z}:${ob.dimensions.width}x${ob.dimensions.height}x${ob.dimensions.depth}:${ob.rotationY || 0};`;
+  }
+  const spaceSlopeEnv = project.space.slopedCeiling
+    ? `${project.space.slopedCeiling.mode}:${project.space.slopedCeiling.kneeHeightMm}:${project.space.slopedCeiling.slopeAngleDeg}:${project.space.slopedCeiling.topFlatSpanMm || 0}`
+    : "";
+  const spaceCeilCfgEnv = project.space?.ceilingConfig
+    ? JSON.stringify(project.space.ceilingConfig)
+    : "";
+  const spaceEnvSig = `${roomWidthMm}x${roomDepthMmEnv}|H:${project.space.ceilingHeight || 0}|WS:${project.space.wallSubstrateType || ""}|SLP:${spaceSlopeEnv}|CEIL:${spaceCeilCfgEnv}|OBS:${obsEnvSig}|CM:${customMatsEnvSig}`;
 
   // 2. Modül bazlı derin mühendislik denetimleri (P0-03, P1-02, P1-06, P2-01, P2-02, P2-04)
   for (const mod of project.modules) {
     if (mod.category === "complementary") continue;
+
+    const hasLeftFillerMod = project.modules.some(
+      (other) =>
+        other.id !== mod.id &&
+        other.complementaryRole === "wall_filler" &&
+        Math.abs(other.position.x + other.dimensions.width - mod.position.x) <= 15
+    );
+    const hasRightFillerMod = project.modules.some(
+      (other) =>
+        other.id !== mod.id &&
+        other.complementaryRole === "wall_filler" &&
+        Math.abs(other.position.x - (mod.position.x + mod.dimensions.width)) <= 15
+    );
+    const hasLowerBaseSupportMod =
+      mod.position.y >= 150 &&
+      (mod.carcass.plinthHeight || 0) === 0 &&
+      project.modules.some(
+        (bm) =>
+          bm.id !== mod.id &&
+          bm.category !== "complementary" &&
+          Math.abs(bm.position.y + bm.dimensions.height - mod.position.y) <= 20 &&
+          bm.position.x < mod.position.x + mod.dimensions.width - 20 &&
+          bm.position.x + bm.dimensions.width > mod.position.x + 20
+      );
+
+    const modSliceKey = `${computeModuleStructuralSignature(mod)}|ERG:${ergProfile.id}|SP:${spaceEnvSig}|LF:${hasLeftFillerMod ? 1 : 0}|RF:${hasRightFillerMod ? 1 : 0}|SB:${hasLowerBaseSupportMod ? 1 : 0}`;
+    const cachedModFindings = moduleEngineeringSliceCache.get(modSliceKey);
+    if (cachedModFindings) {
+      for (let i = 0; i < cachedModFindings.length; i++) {
+        addProjectFinding(cachedModFindings[i]);
+      }
+      continue;
+    }
+
+    const modFindings: EngineeringValidationFinding[] = [];
+    const addFinding = (f: EngineeringValidationFinding) => {
+      modFindings.push(f);
+      addProjectFinding(f);
+    };
 
     const T = mod.carcass.panelThickness || 18;
     const plinthH = mod.carcass.plinthHeight || 0;
@@ -818,18 +889,8 @@ function evaluateUnifiedEngineeringModelUncached(
           bay.door.type === "double" ||
           bay.door.type === "inset_double";
 
-        const hasLeftFiller = project.modules.some(
-          (other) =>
-            other.id !== mod.id &&
-            other.complementaryRole === "wall_filler" &&
-            Math.abs(other.position.x + other.dimensions.width - mod.position.x) <= 15
-        );
-        const hasRightFiller = project.modules.some(
-          (other) =>
-            other.id !== mod.id &&
-            other.complementaryRole === "wall_filler" &&
-            Math.abs(other.position.x - (mod.position.x + mod.dimensions.width)) <= 15
-        );
+        const hasLeftFiller = hasLeftFillerMod;
+        const hasRightFiller = hasRightFillerMod;
 
         const modRotNorm = (((mod.rotation?.y ?? 0) % 360) + 360) % 360;
         const roomDepthMm = project.space?.walls?.[1]?.length || 3200;
@@ -1363,14 +1424,7 @@ function evaluateUnifiedEngineeringModelUncached(
       (String(mod.category) !== "complementary" &&
         mod.position.y >= 150 &&
         plinthH === 0 &&
-        !project.modules.some(
-          (bm) =>
-            bm.id !== mod.id &&
-            bm.category !== "complementary" &&
-            Math.abs(bm.position.y + bm.dimensions.height - mod.position.y) <= 20 &&
-            bm.position.x < mod.position.x + mod.dimensions.width - 20 &&
-            bm.position.x + bm.dimensions.width > mod.position.x + 20
-        ));
+        !hasLowerBaseSupportMod);
 
     if (isWallHungNoBase) {
       const volM3 =
@@ -1690,8 +1744,10 @@ function evaluateUnifiedEngineeringModelUncached(
         ],
       });
     }
+    moduleEngineeringSliceCache.set(modSliceKey, modFindings);
   }
 
+  void addFinding;
   // 3. Üst Üste İstiflenen Modüllerde (Stacked Modules) Yük Aktarımı, Konsol Taşma ve Taşıyıcı Dikme Hizası (Bölüm 3)
   for (const upper of project.modules) {
     if (

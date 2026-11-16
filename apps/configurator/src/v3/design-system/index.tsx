@@ -1,45 +1,11 @@
 "use client";
 
 import React from "react";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { Check, ChevronDown, AlertCircle, Info, Sparkles } from "lucide-react";
 import { useConfiguratorStore } from "../../store/useConfiguratorStore";
 
 // ---------------------------------------------------------------------------
-// 1. DESIGN SYSTEM TOKENS (Warm Cashmere & Espresso Monochrome Architectural Theme)
-// ---------------------------------------------------------------------------
-export const V3_TOKENS = {
-  colors: {
-    canvasWarm: "#F5F3EE",
-    surfacePrimary: "#FFFFFF",
-    surfaceSecondary: "#FAF9F6",
-    surfaceMuted: "#EFECE5",
-    borderSubtle: "#E4DFD5",
-    borderFocus: "#141413",
-    textPrimary: "#141413",
-    textSecondary: "#44403C",
-    textMuted: "#78716C",
-    accentPrimary: "#141413",
-    accentHover: "#292524",
-    accentSoft: "#F5F3EE",
-    accentBronze: "#8C7A6B",
-    statusSuccess: "#2E6F40",
-    statusWarning: "#8C5A2B",
-    statusError: "#9E2A2B",
-  },
-  spacing: {
-    xs: "4px",
-    sm: "8px",
-    md: "12px",
-    lg: "16px",
-    xl: "24px",
-  },
-  touchTargetMin: "44px",
-} as const;
-
-// ---------------------------------------------------------------------------
-// 2. OFFICIAL BİRİM® BRAND LOGO (Authentic B1R1M® Geometric Wordmark from birim-store)
+// 1. OFFICIAL BİRİM® BRAND LOGO (Authentic B1R1M® Geometric Wordmark from birim-store)
 // ---------------------------------------------------------------------------
 export const BirimLogo: React.FC<{ className?: string; dark?: boolean }> = ({
   className = "h-5 w-auto",
@@ -128,49 +94,7 @@ export const V3BrandBadge: React.FC<{ subtitle?: string; dark?: boolean }> = ({
 };
 
 // ---------------------------------------------------------------------------
-// 3. PROTOTYPE ROUTE SWITCHER PILL
-// ---------------------------------------------------------------------------
-export const V3PrototypeSwitcher: React.FC<{ dark?: boolean }> = ({ dark = false }) => {
-  const pathname = usePathname();
-  const routes = [
-    { href: "/v3/studio", label: "Studio", desc: "Minimal 3D" },
-    { href: "/v3/plan", label: "Plan", desc: "2D CAD & Mekân" },
-    { href: "/v3/showroom", label: "Showroom", desc: "Sunum Modu" },
-  ];
-
-  return (
-    <nav
-      aria-label="V3 Prototip Seçici"
-      className={`inline-flex items-center p-1 rounded-xl border text-xs ${
-        dark
-          ? "bg-stone-900/80 border-stone-700/80 text-stone-300 backdrop-blur-md"
-          : "birim-ice-pill text-[#44403C]"
-      }`}
-    >
-      {routes.map((r) => {
-        const active = pathname === r.href;
-        return (
-          <Link
-            key={r.href}
-            href={r.href}
-            className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 ${
-              active
-                ? "bg-[#EEF3F8] text-[#1C1917] border border-[#CBD5E1] shadow-xs"
-                : dark
-                ? "text-stone-300 hover:text-white"
-                : "text-[#57534E] hover:text-[#1C1917]"
-            }`}
-          >
-            <span>{r.label}</span>
-          </Link>
-        );
-      })}
-    </nav>
-  );
-};
-
-// ---------------------------------------------------------------------------
-// 4. BUTTONS (Warm Cashmere & Espresso Monochrome Style)
+// 2. BUTTONS (Warm Cashmere & Espresso Monochrome Style)
 // ---------------------------------------------------------------------------
 interface V3ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: "primary" | "secondary" | "outline" | "ghost" | "danger";

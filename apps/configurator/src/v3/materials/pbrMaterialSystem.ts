@@ -14,22 +14,6 @@ const rotatedTexCache = new Map<string, THREE.CanvasTexture>();
 const pbrMaterialCache = new Map<string, THREE.MeshPhysicalMaterial>();
 const customImageTexCache = new Map<string, THREE.Texture>();
 
-export function invalidateCustomMaterialCache(matId?: string): void {
-  if (!matId) {
-    pbrMaterialCache.clear();
-    swatchDataUrlCache.clear();
-    customImageTexCache.clear();
-    return;
-  }
-  swatchDataUrlCache.delete(matId);
-  for (const k of Array.from(pbrMaterialCache.keys())) {
-    if (k.includes(matId)) pbrMaterialCache.delete(k);
-  }
-  for (const k of Array.from(customImageTexCache.keys())) {
-    if (k.startsWith(matId)) customImageTexCache.delete(k);
-  }
-}
-
 function getOrLoadCustomImageTexture(
   matDef: MaterialDefinition,
   rotRad: number
@@ -1410,31 +1394,6 @@ export function getV3PbrMaterial(
   return mat;
 }
 
-export function getPbrCacheStats(): { texturesCount: number; materialsCount: number } {
-  return {
-    texturesCount:
-      textureCache.size * 3 +
-      rotatedTexCache.size +
-      floorTextureCache.size +
-      floorNormalCache.size +
-      wallTextureCache.size +
-      wallNormalCache.size,
-    materialsCount: pbrMaterialCache.size,
-  };
-}
-
-export function computePhysicalUvScale(
-  widthMm: number,
-  heightMm: number,
-  grain: "lengthwise" | "crosswise" | "none" = "lengthwise"
-): { repeatX: number; repeatY: number; rotationRad: number } {
-  const referenceTileMm = 650;
-  const repeatX = Math.max(0.1, Number((widthMm / referenceTileMm).toFixed(3)));
-  const repeatY = Math.max(0.1, Number((heightMm / referenceTileMm).toFixed(3)));
-  const rotationRad = grain === "crosswise" ? Math.PI / 2 : 0;
-  return { repeatX, repeatY, rotationRad };
-}
-
 
 export type PhysicalMaterialClass =
   | "wood"
@@ -1458,102 +1417,6 @@ export function classifyPhysicalMaterial(matDef: MaterialDefinition): PhysicalMa
   return "melamine";
 }
 
-const swatchDataUrlCache = new Map<string, string>();
-
-/**
- * Generates and caches a crisp 96x96 photorealistic material swatch DataURL for UI cards,
- * dropdowns, and callout badges so every wood veneer, stone slab, smoked glass, mirror,
- * woven linen, brushed metal, and soft-touch lacquer displays accurate visual character.
- */
-export function getMaterialPreviewDataUrl(matDef: MaterialDefinition | undefined | null): string {
-  if (!matDef || typeof document === "undefined") return "";
-  const hit = swatchDataUrlCache.get(matDef.id);
-  if (hit) return hit;
-
-  const S = 96;
-  const c = document.createElement("canvas");
-  c.width = S;
-  c.height = S;
-  const ctx = c.getContext("2d");
-  if (!ctx) return "";
-
-  const cls = classifyPhysicalMaterial(matDef);
-
-  if (cls === "wood" || cls === "stone" || cls === "fabric") {
-    const maps = getOrCreateProceduralMaps(matDef);
-    const srcImg = maps.colorMap?.image as HTMLCanvasElement | undefined;
-    if (srcImg) {
-      ctx.drawImage(srcImg, 0, 0, Math.min(384, srcImg.width), Math.min(384, srcImg.height), 0, 0, S, S);
-      // Soft studio directional lighting gradient across swatch
-      const sheen = ctx.createLinearGradient(0, 0, S, S);
-      sheen.addColorStop(0, "rgba(255,255,255,0.16)");
-      sheen.addColorStop(0.5, "rgba(255,255,255,0)");
-      sheen.addColorStop(1, "rgba(0,0,0,0.14)");
-      ctx.fillStyle = sheen;
-      ctx.fillRect(0, 0, S, S);
-      const url = c.toDataURL("image/png");
-      swatchDataUrlCache.set(matDef.id, url);
-      return url;
-    }
-  }
-
-  if (cls === "glass") {
-    const g = ctx.createLinearGradient(0, 0, S, S);
-    g.addColorStop(0, "#3b4450");
-    g.addColorStop(0.45, "#232931");
-    g.addColorStop(1, "#181d23");
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, S, S);
-    // Crisp architectural window reflection slash + dark aluminum perimeter frame
-    ctx.fillStyle = "rgba(255,255,255,0.24)";
-    ctx.beginPath();
-    ctx.moveTo(14, 0);
-    ctx.lineTo(42, 0);
-    ctx.lineTo(0, 56);
-    ctx.lineTo(0, 22);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = "#111317";
-    ctx.lineWidth = 6;
-    ctx.strokeRect(3, 3, S - 6, S - 6);
-    const url = c.toDataURL("image/png");
-    swatchDataUrlCache.set(matDef.id, url);
-    return url;
-  }
-
-  if (cls === "mirror") {
-    const isBronze = matDef.id.toLowerCase().includes("bronze") || matDef.id.toLowerCase().includes("bronz");
-    const g = ctx.createLinearGradient(0, 0, S, S);
-    g.addColorStop(0, isBronze ? "#efe0cc" : "#f8fafc");
-    g.addColorStop(0.48, isBronze ? "#bfa488" : "#cbd5e1");
-    g.addColorStop(0.54, isBronze ? "#fff5e8" : "#ffffff");
-    g.addColorStop(1, isBronze ? "#7b654f" : "#64748b");
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, S, S);
-    ctx.strokeStyle = "rgba(255,255,255,0.75)";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(5, 5, S - 10, S - 10);
-    const url = c.toDataURL("image/png");
-    swatchDataUrlCache.set(matDef.id, url);
-    return url;
-  }
-
-  // Lacquer / Melamine / Metal brushed or velvet sheen
-  const baseHex = matDef.colorHex || "#e5e5e0";
-  ctx.fillStyle = baseHex;
-  ctx.fillRect(0, 0, S, S);
-  const isGloss = (matDef.roughness ?? 0.4) <= 0.15 || matDef.id.includes("evogloss");
-  const grad = ctx.createLinearGradient(0, 0, S, S);
-  grad.addColorStop(0, isGloss ? "rgba(255,255,255,0.42)" : "rgba(255,255,255,0.18)");
-  grad.addColorStop(0.45, "rgba(255,255,255,0.02)");
-  grad.addColorStop(1, "rgba(0,0,0,0.14)");
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, S, S);
-  const url = c.toDataURL("image/png");
-  swatchDataUrlCache.set(matDef.id, url);
-  return url;
-}
-
 export function getMaterialSwatchStyle(
   matDef: MaterialDefinition | undefined | null
 ): { backgroundColor: string; backgroundImage?: string; backgroundSize?: string; backgroundPosition?: string } {
@@ -1567,17 +1430,6 @@ export function getMaterialSwatchStyle(
     };
   }
   if (!matDef) return { backgroundColor: fallbackHex };
-
-  // Check if a cached dataUrl already exists from 3D/export usage without forcing heavy procedural map generation
-  const cachedUrl = swatchDataUrlCache.get(matDef.id);
-  if (cachedUrl) {
-    return {
-      backgroundColor: fallbackHex,
-      backgroundImage: `url("${cachedUrl}")`,
-      backgroundSize: "cover",
-      backgroundPosition: "center",
-    };
-  }
 
   const cls = classifyPhysicalMaterial(matDef);
   if (cls === "glass") {

@@ -25,14 +25,6 @@ export const STANDARD_SHEET_2800x2070: SheetDimension = {
   kerfMm: 4.0,
 };
 
-export const STANDARD_ERP_SHEET_2800x2100: SheetDimension = {
-  name: "Birim ERP Standart Levha 2800x2100",
-  lengthMm: 2800,
-  widthMm: 2100,
-  trimCutMm: 15,
-  kerfMm: 4.0,
-};
-
 export interface PlacedPiece {
   pieceId: string;
   pieceName: string;

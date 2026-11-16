@@ -112,6 +112,41 @@ function getContactAoShadowTexture(): THREE.CanvasTexture | null {
   return tex;
 }
 
+const SHARED_UNIT_AO_PLANE_GEO = markSharedGeometry(new THREE.PlaneGeometry(1, 1));
+const SHARED_BASE_CREVICE_MAT = markSharedMaterial(
+  new THREE.MeshBasicMaterial({
+    color: 0x0f0e0d,
+    transparent: true,
+    opacity: 0.55,
+    depthWrite: false,
+  })
+);
+let cachedGroundAoMat: THREE.MeshBasicMaterial | null = null;
+let cachedWallAoMat: THREE.MeshBasicMaterial | null = null;
+function getCachedContactAoMaterials(aoTex: THREE.CanvasTexture) {
+  if (!cachedGroundAoMat) {
+    cachedGroundAoMat = markSharedMaterial(
+      new THREE.MeshBasicMaterial({
+        map: aoTex,
+        transparent: true,
+        opacity: 0.72,
+        depthWrite: false,
+      })
+    );
+  }
+  if (!cachedWallAoMat) {
+    cachedWallAoMat = markSharedMaterial(
+      new THREE.MeshBasicMaterial({
+        map: aoTex,
+        transparent: true,
+        opacity: 0.84,
+        depthWrite: false,
+      })
+    );
+  }
+  return { groundAoMat: cachedGroundAoMat, wallAoMat: cachedWallAoMat };
+}
+
 let cachedCreviceAoTex: THREE.CanvasTexture | null = null;
 function getLinearCreviceAoTexture(): THREE.CanvasTexture | null {
   if (typeof document === "undefined") return null;
@@ -3094,7 +3129,9 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         const itemH = activeDrag3D.itemHeightMm || TClamp;
         const clampedSnappedY =
           activeDrag3D.kind === "shelf"
-            ? Math.max(60, Math.min(Math.max(100, netHClamp - 60), Math.round(rawSnappedY)))
+            ? snappedTarget?.kind === "system32_hole"
+              ? Math.round(rawSnappedY)
+              : Math.max(60, Math.min(Math.max(100, netHClamp - 60), Math.round(rawSnappedY)))
             : activeDrag3D.kind === "drawer"
             ? Math.max(0, Math.min(Math.max(0, netHClamp - itemH), Math.round(rawSnappedY)))
             : activeDrag3D.kind === "rail"
@@ -4583,10 +4620,13 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       const meshGroup = meshGroupRef.current;
       if (!meshGroup) return;
 
-      const needsActiveModInSig = effectiveDoorsHiddenIn3D || cutawayActiveBay;
-      const viewSigSuffix = `|${doorOpenAngleDeg}:${drawerOpenMm}:${explodedFactor}:${effectiveDoorsHiddenIn3D ? 1 : 0}:${cutawayActiveBay ? 1 : 0}:${renderEdgeMode}:${isXrayActive ? 1 : 0}`;
-      const moduleSigs = project.modules.map((mod, modIdx) =>
-        `${computeModuleStructuralSignature(mod)}|ACT:${needsActiveModInSig && modIdx === activeModuleIndex ? activeBayIndex : -2}${viewSigSuffix}`
+      const needsActiveModInSig = cutawayActiveBay;
+      const baseViewSuffix = `|${effectiveDoorsHiddenIn3D ? 1 : 0}:${cutawayActiveBay ? 1 : 0}:${renderEdgeMode}:${isXrayActive ? 1 : 0}`;
+      const baseSigs = project.modules.map((mod, modIdx) =>
+        `${computeModuleStructuralSignature(mod)}|ACT:${needsActiveModInSig && modIdx === activeModuleIndex ? activeBayIndex : -2}${baseViewSuffix}`
+      );
+      const moduleSigs = baseSigs.map(
+        (bSig) => `${bSig}|KIN:${doorOpenAngleDeg}:${drawerOpenMm}:${explodedFactor}`
       );
 
       if (
@@ -4617,6 +4657,50 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         } else {
           requestRender();
         }
+        return;
+      }
+
+      // Zero-rebuild 60fps kinematic fast-path for door/drawer/exploded transforms
+      if (
+        meshGroup.children.length === project.modules.length &&
+        project.modules.every(
+          (m, idx) =>
+            meshGroup.children[idx]?.userData?.baseRenderSig === baseSigs[idx] &&
+            m.carcass.hullShape !== "capsule_stadium" &&
+            m.carcass.hullShape !== "capsule_table"
+        )
+      ) {
+        project.modules.forEach((m, idx) => {
+          const child = meshGroup.children[idx];
+          if (!child) return;
+          child.userData.moduleIndex = idx;
+          child.userData.renderSig = moduleSigs[idx];
+          const pl = calculateModulePlacement(m);
+          child.position.set(pl.origin.x, pl.origin.y, pl.origin.z);
+          child.rotation.y = pl.rotationYRad;
+
+          const bd = generateModuleGeometry(m, {
+            doorOpenAngleDeg,
+            drawerOpenMm,
+            explodedFactor,
+          });
+          const compById = new Map(bd.components.map((c) => [c.id, c]));
+          for (const sub of child.children) {
+            const compId = sub.userData?.componentId;
+            if (typeof compId !== "string") continue;
+            const comp = compById.get(compId);
+            if (!comp) continue;
+            const pivot = comp.pivot ?? comp.position;
+            sub.position.set(pivot.x, pivot.y, pivot.z);
+            if (comp.rotation) {
+              sub.rotation.set(comp.rotation[0], comp.rotation[1], comp.rotation[2]);
+            } else {
+              sub.rotation.set(0, 0, 0);
+            }
+          }
+        });
+        updateSelectionFramesRef.current();
+        requestRender();
         return;
       }
       solidMeshesCacheRef.current.dirty = true;
@@ -4692,7 +4776,12 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
 
         const isActiveMod = modIdx === activeModuleIndex;
         const modContainer = createModuleGroup(mod);
-        modContainer.userData = { moduleId: mod.id, renderSig: moduleSigs[modIdx], moduleIndex: modIdx };
+        modContainer.userData = {
+          moduleId: mod.id,
+          renderSig: moduleSigs[modIdx],
+          baseRenderSig: baseSigs[modIdx],
+          moduleIndex: modIdx,
+        };
 
         if (
           mod.carcass.hullShape === "capsule_stadium" ||
@@ -4720,7 +4809,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             },
             capEdgeMat,
             modIdx,
-            (viewportRenderStyle === "carcass_only" || (isActiveMod && doorsHiddenIn3D)) ? 85 : doorOpenAngleDeg
+            effectiveDoorsHiddenIn3D ? 85 : doorOpenAngleDeg
           );
           modContainer.add(capGroup);
         } else {
@@ -4778,7 +4867,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             isDoorPart &&
             comp.bayIndex === activeBayIndex &&
             !comp.id.includes("sliding");
-          if (((isActiveMod && (doorsHiddenIn3D || isCutawayBayDoor)) || viewportRenderStyle === "carcass_only") && isDoorPart) {
+          if ((effectiveDoorsHiddenIn3D || isCutawayBayDoor) && isDoorPart) {
             return;
           }
           const grainMatch = grainContinuityMap3D.get(comp.id);
@@ -4828,18 +4917,10 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
 
         const aoTex = renderEdgeMode === "cad" ? null : getContactAoShadowTexture();
         if (aoTex) {
+          const { groundAoMat, wallAoMat } = getCachedContactAoMaterials(aoTex);
           if (mod.position.y <= 80) {
-            const aoGeo = new THREE.PlaneGeometry(
-              mod.dimensions.width + 150,
-              mod.dimensions.depth + 150
-            );
-            const aoMat = new THREE.MeshBasicMaterial({
-              map: aoTex,
-              transparent: true,
-              opacity: 0.72,
-              depthWrite: false,
-            });
-            const aoMesh = new THREE.Mesh(aoGeo, aoMat);
+            const aoMesh = new THREE.Mesh(SHARED_UNIT_AO_PLANE_GEO, groundAoMat);
+            aoMesh.scale.set(mod.dimensions.width + 150, mod.dimensions.depth + 150, 1);
             aoMesh.raycast = () => {};
             aoMesh.rotation.x = -Math.PI / 2;
             aoMesh.position.set(
@@ -4850,15 +4931,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             modContainer.add(aoMesh);
 
             // Crisp dark grounding contact shadow line directly beneath plinth toe-kick & side panels
-            const baseCrevice = new THREE.Mesh(
-              new THREE.PlaneGeometry(mod.dimensions.width + 8, mod.dimensions.depth + 8),
-              new THREE.MeshBasicMaterial({
-                color: 0x0f0e0d,
-                transparent: true,
-                opacity: 0.55,
-                depthWrite: false,
-              })
-            );
+            const baseCrevice = new THREE.Mesh(SHARED_UNIT_AO_PLANE_GEO, SHARED_BASE_CREVICE_MAT);
+            baseCrevice.scale.set(mod.dimensions.width + 8, mod.dimensions.depth + 8, 1);
             baseCrevice.raycast = () => {};
             baseCrevice.rotation.x = -Math.PI / 2;
             baseCrevice.position.set(
@@ -4870,17 +4944,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           }
 
           // Wide Back-Wall Contact Shadow Halo behind EVERY cabinet so carcass NEVER blends into the wall
-          const wallAoGeo = new THREE.PlaneGeometry(
-            mod.dimensions.width + 280,
-            mod.dimensions.height + 260
-          );
-          const wallAoMat = new THREE.MeshBasicMaterial({
-            map: aoTex,
-            transparent: true,
-            opacity: 0.84,
-            depthWrite: false,
-          });
-          const wallAoMesh = new THREE.Mesh(wallAoGeo, wallAoMat);
+          const wallAoMesh = new THREE.Mesh(SHARED_UNIT_AO_PLANE_GEO, wallAoMat);
+          wallAoMesh.scale.set(mod.dimensions.width + 280, mod.dimensions.height + 260, 1);
           wallAoMesh.raycast = () => {};
           wallAoMesh.position.set(
             mod.dimensions.width / 2,
@@ -5418,7 +5483,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       toggleDoorOpen,
       setDrawerOpenMm,
       explodedFactor,
-      effectiveDoorsHiddenIn3D ? activeModuleIndex : -1,
+      cutawayActiveBay ? activeModuleIndex : -1,
       cutawayActiveBay ? activeBayIndex : -1,
       doorsHiddenIn3D,
       effectiveDoorsHiddenIn3D,

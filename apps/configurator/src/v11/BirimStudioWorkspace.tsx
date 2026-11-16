@@ -1,49 +1,119 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import dynamic from "next/dynamic";
 import {
   DEFAULT_MATERIALS,
   loadCustomStandardRules,
   type CustomStandardMetric,
   type CustomStandardRule,
+  type DesignProject,
 } from "@birim/core";
 import { V5_SPECIALIZED_MODULE_TEMPLATES } from "@birim/catalog";
 import { convertSceneObjectsToExportBoxes, generateModuleGeometry } from "@birim/geometry";
-import { useV3Adapter, KITCHEN_ENGINEERING_RULE_REGISTRY } from "../v3/adapter/useV3Adapter";
+import {
+  useV3Adapter,
+  KITCHEN_ENGINEERING_RULE_REGISTRY,
+  type EngineeringValidationFinding,
+} from "../v3/adapter/useV3Adapter";
 import { useConfiguratorStore } from "../store/useConfiguratorStore";
 import { V3ThreeViewport } from "../v3/components/V3ThreeViewport";
-import { V3CadViewport2D } from "../v3/components/V3CadViewport2D";
-import { V3ProjectModal } from "../v3/components/V3ProjectModal";
-import BomModal from "../components/BomModal";
-import StoreErpModal from "../components/StoreErpModal";
-import { AssemblyDiagramModal } from "../v3/components/workspace/AssemblyDiagramModal";
-import { StudioRenderModal } from "../v3/components/workspace/StudioRenderModal";
-import { ArRoomPreviewModal } from "../v3/components/workspace/ArRoomPreviewModal";
-import { RulesStandardsModal } from "../v3/components/workspace/RulesStandardsModal";
-import { SaasTenantStudioModal } from "../v3/components/workspace/SaasTenantStudioModal";
-import {
-  CommandSearchModal,
-  type CommandPaletteAction,
-} from "../v3/components/workspace/CommandSearchModal";
-import { KitchenIslandTableModal } from "../v3/components/workspace/KitchenIslandTableModal";
-import { CustomHardwareModal } from "../v3/components/workspace/CustomHardwareModal";
-import { MepCoordinationModal } from "../v3/components/workspace/MepCoordinationModal";
-import { SceneObjectAndModuleHubModal } from "../v3/components/workspace/SceneObjectAndModuleHubModal";
+import type { CommandPaletteAction } from "../v3/components/workspace/CommandSearchModal";
 
 import { StudioHeaderBar } from "./StudioHeaderBar";
 import { LeftCatalogLauncher } from "./LeftCatalogLauncher";
 import { RightParametricInspector } from "./RightParametricInspector";
 import { BottomSceneDock } from "./BottomSceneDock";
-import { GuidedSetupModal } from "./GuidedSetupModal";
-import { QuoteSummaryModal } from "./QuoteSummaryModal";
-import { SectionPlaneMiniMap } from "./SectionPlaneMiniMap";
-import { PanelCutoutModal } from "./PanelCutoutModal";
 import type {
   V11CadSubMode,
   V11InspectorTab,
   V11LeftDrawerTab,
   V11WorkspaceMode,
 } from "./v11Constants";
+
+const V3CadViewport2D = dynamic(() => import("../v3/components/V3CadViewport2D"), { ssr: false });
+const V3ProjectModal = dynamic(
+  () => import("../v3/components/V3ProjectModal").then((m) => m.V3ProjectModal),
+  { ssr: false }
+);
+const BomModal = dynamic(() => import("../components/BomModal"), { ssr: false });
+const StoreErpModal = dynamic(() => import("../components/StoreErpModal"), { ssr: false });
+const AssemblyDiagramModal = dynamic(
+  () =>
+    import("../v3/components/workspace/AssemblyDiagramModal").then(
+      (m) => m.AssemblyDiagramModal
+    ),
+  { ssr: false }
+);
+const StudioRenderModal = dynamic(
+  () => import("../v3/components/workspace/StudioRenderModal").then((m) => m.StudioRenderModal),
+  { ssr: false }
+);
+const ArRoomPreviewModal = dynamic(
+  () => import("../v3/components/workspace/ArRoomPreviewModal").then((m) => m.ArRoomPreviewModal),
+  { ssr: false }
+);
+const RulesStandardsModal = dynamic(
+  () =>
+    import("../v3/components/workspace/RulesStandardsModal").then((m) => m.RulesStandardsModal),
+  { ssr: false }
+);
+const SaasTenantStudioModal = dynamic(
+  () =>
+    import("../v3/components/workspace/SaasTenantStudioModal").then(
+      (m) => m.SaasTenantStudioModal
+    ),
+  { ssr: false }
+);
+const CommandSearchModal = dynamic(
+  () => import("../v3/components/workspace/CommandSearchModal").then((m) => m.CommandSearchModal),
+  { ssr: false }
+);
+const KitchenIslandTableModal = dynamic(
+  () =>
+    import("../v3/components/workspace/KitchenIslandTableModal").then(
+      (m) => m.KitchenIslandTableModal
+    ),
+  { ssr: false }
+);
+const CustomHardwareModal = dynamic(
+  () =>
+    import("../v3/components/workspace/CustomHardwareModal").then((m) => m.CustomHardwareModal),
+  { ssr: false }
+);
+const MepCoordinationModal = dynamic(
+  () =>
+    import("../v3/components/workspace/MepCoordinationModal").then(
+      (m) => m.MepCoordinationModal
+    ),
+  { ssr: false }
+);
+const SceneObjectAndModuleHubModal = dynamic(
+  () =>
+    import("../v3/components/workspace/SceneObjectAndModuleHubModal").then(
+      (m) => m.SceneObjectAndModuleHubModal
+    ),
+  { ssr: false }
+);
+const GuidedSetupModal = dynamic(
+  () => import("./GuidedSetupModal").then((m) => m.GuidedSetupModal),
+  { ssr: false }
+);
+const QuoteSummaryModal = dynamic(
+  () => import("./QuoteSummaryModal").then((m) => m.QuoteSummaryModal),
+  { ssr: false }
+);
+const SectionPlaneMiniMap = dynamic(
+  () => import("./SectionPlaneMiniMap").then((m) => m.SectionPlaneMiniMap),
+  { ssr: false }
+);
+const PanelCutoutModal = dynamic(
+  () => import("./PanelCutoutModal").then((m) => m.PanelCutoutModal),
+  { ssr: false }
+);
+
+const EMPTY_SCENE_OBJECTS: NonNullable<DesignProject["sceneObjects"]> = [];
+const EMPTY_FINDINGS: EngineeringValidationFinding[] = [];
 
 export interface BirimStudioWorkspaceProps {
   initialMode?: "studio" | "plan" | "showroom";
@@ -159,6 +229,9 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
     initialMode === "plan" ? "plan" : initialMode === "showroom" ? "showroom" : "3d"
   );
   const [cadSubMode, setCadSubMode] = useState<V11CadSubMode>("elevation");
+  const [split2DViewMode, setSplit2DViewMode] = useState<"elevation" | "plan" | "section">("elevation");
+  const [splitRatio3D, setSplitRatio3D] = useState<number>(50);
+  const splitContainerRef = useRef<HTMLDivElement | null>(null);
   const [sectionAxis2D, setSectionAxis2D] = useState<"X" | "Z">("X");
   const [sectionRatio2D, setSectionRatio2D] = useState<number>(0.5);
 
@@ -313,7 +386,7 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
   const ceilingHeightMm = spaceWalls?.[0]?.height || project.space?.ceilingHeight || 2600;
 
   const allFindings = useMemo(() => {
-    if (!unifiedEngineeringReport) return [];
+    if (!unifiedEngineeringReport) return EMPTY_FINDINGS;
     if (Array.isArray(unifiedEngineeringReport.findings)) {
       return unifiedEngineeringReport.findings;
     }
@@ -508,6 +581,262 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
   // to V3CadViewport2D's internal convention ("Z" = A-A cut along width, "X" = B-B cut along depth)
   const cadExternalSectionDir: "Z" | "X" = sectionAxis2D === "X" ? "Z" : "X";
 
+  const stableSceneObjects = project.sceneObjects || EMPTY_SCENE_OBJECTS;
+
+  const latestRef = useRef({
+    project,
+    activeModule,
+    isShowroom,
+    showToast,
+    applyApprovedEngineeringFix,
+    setActiveModuleIndex,
+    setActiveBayIndex,
+    applyV4Template,
+    dropV4TemplateWithSnap,
+    addCompositeAssemblyPreset,
+    addSceneObjectFromCatalog,
+    updateSceneObject,
+    duplicateActiveModule,
+    addStackedTopModule,
+    loadLinearKitchen,
+    loadLKitchen,
+    loadUKitchen,
+    setFacadeGrainContinuity,
+    runAutoFillersAndCrown,
+    saveActiveModuleAsCustomTemplate,
+    addCustomMaterialToProject,
+    setBayCustomWidth,
+    addInternalDrawer,
+    addSubDivider,
+    applyMaterialByTargetScope,
+    toggleModuleLedLighting,
+    rotateActiveModule90,
+    setDoorOpenAngleDeg,
+  });
+  latestRef.current = {
+    project,
+    activeModule,
+    isShowroom,
+    showToast,
+    applyApprovedEngineeringFix,
+    setActiveModuleIndex,
+    setActiveBayIndex,
+    applyV4Template,
+    dropV4TemplateWithSnap,
+    addCompositeAssemblyPreset,
+    addSceneObjectFromCatalog,
+    updateSceneObject,
+    duplicateActiveModule,
+    addStackedTopModule,
+    loadLinearKitchen,
+    loadLKitchen,
+    loadUKitchen,
+    setFacadeGrainContinuity,
+    runAutoFillersAndCrown,
+    saveActiveModuleAsCustomTemplate,
+    addCustomMaterialToProject,
+    setBayCustomWidth,
+    addInternalDrawer,
+    addSubDivider,
+    applyMaterialByTargetScope,
+    toggleModuleLedLighting,
+    rotateActiveModule90,
+    setDoorOpenAngleDeg,
+  };
+
+  // Memoized callbacks so React.memo on StudioHeaderBar, LeftCatalogLauncher,
+  // RightParametricInspector & BottomSceneDock stays intact during 60fps animations
+  const handleApplyFindingFix = useCallback((prop: Parameters<typeof applyApprovedEngineeringFix>[0]) => {
+    latestRef.current.applyApprovedEngineeringFix(prop);
+    latestRef.current.showToast("Önerilen iyileştirme uygulandı.");
+  }, []);
+
+  const handleFocusFinding = useCallback((fd: EngineeringValidationFinding) => {
+    const mIdx = latestRef.current.project.modules.findIndex((m) => m.id === fd.targetModuleId);
+    if (mIdx >= 0) latestRef.current.setActiveModuleIndex(mIdx);
+    const bMatch = String(fd.targetId || "").match(/bay_(\d+)/);
+    if (bMatch) latestRef.current.setActiveBayIndex(Number(bMatch[1]));
+    setInspectorTab(
+      fd.code.includes("DOOR") || fd.code.includes("HINGE") || fd.code.includes("HANDLE")
+        ? "doors"
+        : "interior"
+    );
+    setIsInspectorOpen(true);
+  }, []);
+
+  const handleOpenProjectModal = useCallback(() => setProjectModalOpen(true), []);
+  const handleOpenWizardModal = useCallback(() => setWizardModalOpen(true), []);
+  const handleOpenCommandSearch = useCallback(() => setCommandSearchOpen(true), []);
+  const handleOpenQuoteModal = useCallback(() => setQuoteModalOpen(true), []);
+  const handleOpenBomModal = useCallback(
+    (tab?: "cutlist" | "nesting" | "cnc_mpr_cix" | "blum_bxf") => setBomModalTab(tab || "cutlist"),
+    []
+  );
+  const handleOpenAssemblyModal = useCallback(() => setAssemblyModalOpen(true), []);
+  const handleOpenStudioRenderModal = useCallback(() => setStudioRenderOpen(true), []);
+  const handleOpenArModal = useCallback(() => setArModalOpen(true), []);
+  const handleOpenStoreErpModal = useCallback(() => setStoreErpOpen(true), []);
+  const handleOpenStandardsModal = useCallback(() => setStandardsModalOpen(true), []);
+  const handleOpenSaasModal = useCallback(() => setSaasModalOpen(true), []);
+  const handleOpenMepModal = useCallback(() => setMepModalOpen(true), []);
+  const handleOpenCutoutModal = useCallback(() => setCutoutModalOpen(true), []);
+  const handleOpenSceneHubCapsule = useCallback(() => setSceneHubTab("capsule_curved"), []);
+
+  const handleToggleDimensions3D = useCallback(() => setShowDimensions3D((v) => !v), []);
+  const handleRequest2DElevation = useCallback(() => {
+    setWorkspaceMode("2d");
+    setCadSubMode("elevation");
+  }, []);
+
+  const handleExternalSectionChange = useCallback((dir: "Z" | "X", r: number) => {
+    setSectionAxis2D(dir === "Z" ? "X" : "Z");
+    setSectionRatio2D(r);
+  }, []);
+
+  const handleApplyTemplateToActive = useCallback((tplId: string) => {
+    latestRef.current.applyV4Template(tplId);
+    latestRef.current.showToast("Ürün şablonu uygulandı.");
+  }, []);
+
+  const handleAppendTemplateAdjacent = useCallback((tplId: string) => {
+    latestRef.current.dropV4TemplateWithSnap(tplId);
+    latestRef.current.showToast("Yeni ürün yanına eklendi.");
+  }, []);
+
+  const handleAddCompositeAssembly = useCallback((presetId: string) => {
+    latestRef.current.addCompositeAssemblyPreset(presetId);
+    latestRef.current.showToast("Hazır set sahneye eklendi.");
+  }, []);
+
+  const handleAddSceneObject = useCallback((catalogId: string) => {
+    latestRef.current.addSceneObjectFromCatalog(catalogId);
+    latestRef.current.showToast("3B eşya sahneye yerleştirildi.");
+  }, []);
+
+  const handleRotateSceneObject = useCallback((id: string) => {
+    const cur = (latestRef.current.project.sceneObjects || []).find((o) => o.id === id);
+    if (cur) {
+      latestRef.current.updateSceneObject(id, {
+        rotation: {
+          x: cur.rotation?.x ?? 0,
+          y: ((cur.rotation?.y ?? 0) + 90) % 360,
+          z: cur.rotation?.z ?? 0,
+        },
+      });
+    }
+  }, []);
+
+  const handleDuplicateActiveModule = useCallback(() => {
+    latestRef.current.duplicateActiveModule();
+    latestRef.current.showToast("Modül yanına kopyalandı.");
+  }, []);
+
+  const handleAddStackedTopModule = useCallback(() => {
+    latestRef.current.addStackedTopModule();
+    latestRef.current.showToast("Üst yüklük modülü eklendi.");
+  }, []);
+
+  const handleLoadKitchenPreset = useCallback((kind: "linear" | "l" | "u") => {
+    if (kind === "linear") latestRef.current.loadLinearKitchen();
+    else if (kind === "l") latestRef.current.loadLKitchen();
+    else latestRef.current.loadUKitchen();
+    latestRef.current.showToast("Hazır mutfak yerleşimi yüklendi.");
+  }, []);
+
+  const handleOpenKitchenIslandModal = useCallback(() => setKitchenIslandOpen(true), []);
+  const handleToggleInspectorOpen = useCallback(() => setIsInspectorOpen((v) => !v), []);
+  const handleToggleFacadeGrainContinuity = useCallback((enabled: boolean) => {
+    latestRef.current.setFacadeGrainContinuity(enabled);
+    latestRef.current.showToast(
+      enabled ? "Cephe ahşap desen takibi açıldı." : "Cephe ahşap desen takibi kapatıldı."
+    );
+  }, []);
+
+  const handleRunAutoFillersAndCrown = useCallback(() => {
+    const res = latestRef.current.runAutoFillersAndCrown();
+    latestRef.current.showToast(
+      res.count > 0
+        ? `${res.count} adet bitiş/taç parçası eklendi.`
+        : "Mevcut yerleşim için ek bitiş parçası gerekmiyor."
+    );
+  }, []);
+
+  const handleSaveModuleAsTemplate = useCallback((name: string) => {
+    latestRef.current.saveActiveModuleAsCustomTemplate(
+      name,
+      latestRef.current.activeModule?.moduleFamilyId || "fam_wardrobe"
+    );
+    latestRef.current.showToast("Modül özel şablon olarak kütüphaneye kaydedildi.");
+  }, []);
+
+  const handleAddCustomMaterial = useCallback(
+    (matInput: Parameters<typeof addCustomMaterialToProject>[0]) => {
+      latestRef.current.addCustomMaterialToProject(matInput);
+      latestRef.current.showToast(`"${matInput.name}" kartelaya eklendi.`);
+    },
+    []
+  );
+
+  const handleSetBayCustomWidth = useCallback(
+    (bIdx: number, w: number | null) => latestRef.current.setBayCustomWidth(bIdx, w, true),
+    []
+  );
+  const handleAddInternalDrawer = useCallback(
+    (bIdx: number) => latestRef.current.addInternalDrawer(bIdx, 140),
+    []
+  );
+  const handleAddSubDivider = useCallback(
+    (bIdx: number) => latestRef.current.addSubDivider(bIdx),
+    []
+  );
+  const handleApplyMaterialScope = useCallback(
+    (scope: Parameters<typeof applyMaterialByTargetScope>[0], matId: string) =>
+      latestRef.current.applyMaterialByTargetScope(scope, matId),
+    []
+  );
+  const handleToggleModuleLed = useCallback(
+    (enabled: boolean, opts?: { colorTempK?: 2700 | 3000 | 4000 }) =>
+      latestRef.current.toggleModuleLedLighting(enabled, { colorTempK: opts?.colorTempK }),
+    []
+  );
+  const handleRotateActiveModule90 = useCallback(
+    () => latestRef.current.rotateActiveModule90(90),
+    []
+  );
+  const handleOpenCustomHardwareModal = useCallback(() => setCustomHardwareOpen(true), []);
+
+  const handleChangeDoorAngle = useCallback(
+    (deg: number, animated = false) => latestRef.current.setDoorOpenAngleDeg(deg, animated),
+    []
+  );
+  const handleToggleDockDimensions = useCallback(() => {
+    if (latestRef.current.isShowroom) setWorkspaceMode("3d");
+    setShowDimensions3D((v) => !v);
+  }, []);
+
+  const studioSafeInsets2DSplit = useMemo(
+    () => ({ topPx: 112, bottomPx: 24, leftPx: 16, rightPx: isInspectorOpen ? 392 : 64 }),
+    [isInspectorOpen]
+  );
+  const studioSafeInsets2DFull = useMemo(
+    () => ({
+      topPx: 112,
+      bottomPx: 24,
+      leftPx: leftDrawer ? 480 : 76,
+      rightPx: isInspectorOpen ? 392 : 64,
+    }),
+    [leftDrawer, isInspectorOpen]
+  );
+  const studioSafeInsetsPlan = useMemo(
+    () => ({
+      topPx: 76,
+      bottomPx: 24,
+      leftPx: leftDrawer ? 480 : 76,
+      rightPx: isInspectorOpen ? 392 : 64,
+    }),
+    [leftDrawer, isInspectorOpen]
+  );
+
   return (
     <main
       data-testid="v11-birim-studio-workspace"
@@ -520,6 +849,8 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
         onChangeWorkspaceMode={setWorkspaceMode}
         cadSubMode={cadSubMode}
         onChangeCadSubMode={setCadSubMode}
+        split2DViewMode={split2DViewMode}
+        onChangeSplit2DViewMode={setSplit2DViewMode}
         experienceTier={experienceTier}
         onChangeExperienceTier={setExperienceTier}
         canUndo={canUndo}
@@ -529,42 +860,37 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
         totalPriceEur={pricing?.totalWithVatEur || 0}
         blockingIssueCount={blockingCount}
         engineeringFindings={allFindings}
-        onApplyFindingFix={(prop) => {
-          applyApprovedEngineeringFix(prop);
-          showToast("Önerilen iyileştirme uygulandı.");
-        }}
-        onFocusFinding={(fd) => {
-          const mIdx = project.modules.findIndex((m) => m.id === fd.targetModuleId);
-          if (mIdx >= 0) setActiveModuleIndex(mIdx);
-          const bMatch = String(fd.targetId || "").match(/bay_(\d+)/);
-          if (bMatch) setActiveBayIndex(Number(bMatch[1]));
-          setInspectorTab(fd.code.includes("DOOR") || fd.code.includes("HINGE") || fd.code.includes("HANDLE") ? "doors" : "interior");
-          setIsInspectorOpen(true);
-        }}
-        onOpenProjectModal={() => setProjectModalOpen(true)}
-        onOpenWizardModal={() => setWizardModalOpen(true)}
-        onOpenCommandSearch={() => setCommandSearchOpen(true)}
-        onOpenQuoteModal={() => setQuoteModalOpen(true)}
-        onOpenBomModal={(tab) => setBomModalTab(tab || "cutlist")}
-        onOpenAssemblyModal={() => setAssemblyModalOpen(true)}
-        onOpenStudioRenderModal={() => setStudioRenderOpen(true)}
-        onOpenArModal={() => setArModalOpen(true)}
-        onOpenStoreErpModal={() => setStoreErpOpen(true)}
-        onOpenStandardsModal={() => setStandardsModalOpen(true)}
-        onOpenSaasModal={() => setSaasModalOpen(true)}
-        onOpenMepModal={() => setMepModalOpen(true)}
-        onOpenCutoutModal={() => setCutoutModalOpen(true)}
-        onOpenSceneHubModal={() => setSceneHubTab("capsule_curved")}
+        onApplyFindingFix={handleApplyFindingFix}
+        onFocusFinding={handleFocusFinding}
+        onOpenProjectModal={handleOpenProjectModal}
+        onOpenWizardModal={handleOpenWizardModal}
+        onOpenCommandSearch={handleOpenCommandSearch}
+        onOpenQuoteModal={handleOpenQuoteModal}
+        onOpenBomModal={handleOpenBomModal}
+        onOpenAssemblyModal={handleOpenAssemblyModal}
+        onOpenStudioRenderModal={handleOpenStudioRenderModal}
+        onOpenArModal={handleOpenArModal}
+        onOpenStoreErpModal={handleOpenStoreErpModal}
+        onOpenStandardsModal={handleOpenStandardsModal}
+        onOpenSaasModal={handleOpenSaasModal}
+        onOpenMepModal={handleOpenMepModal}
+        onOpenCutoutModal={handleOpenCutoutModal}
+        onOpenSceneHubModal={handleOpenSceneHubCapsule}
       />
 
       {/* 2. ANA ÇALIŞMA SAHNESİ — WebGL kanvası sekme geçişlerinde ASLA sökülmez (paused={!show3DCanvas} ile 0ms anlık geçiş) */}
-      <div className="w-full h-full flex">
+      <div ref={splitContainerRef} className="w-full h-full flex">
         <div
+          style={
+            workspaceMode === "2d" && cadSubMode === "split" && show3DCanvas
+              ? { width: `${splitRatio3D}%` }
+              : undefined
+          }
           className={
             !show3DCanvas
               ? "hidden"
               : workspaceMode === "2d" && cadSubMode === "split"
-              ? "w-1/2 h-full border-r border-[#D8D2C5] relative"
+              ? "h-full relative shrink-0 min-w-0"
               : "w-full h-full relative"
           }
         >
@@ -577,46 +903,91 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
             showDimensions={isShowroom ? false : showDimensions3D}
             isRightInspectorOpen={!isShowroom && isInspectorOpen}
             stageSafeInsets={stageSafeInsets}
-            onToggleDimensions={() => setShowDimensions3D((v) => !v)}
-            onRequest2DElevation={() => {
-              setWorkspaceMode("2d");
-              setCadSubMode("elevation");
-            }}
+            onToggleDimensions={handleToggleDimensions3D}
+            onRequest2DElevation={handleRequest2DElevation}
           />
         </div>
 
-        {workspaceMode === "2d" && (
+        {workspaceMode === "2d" && cadSubMode === "split" && show3DCanvas && (
           <div
+            role="separator"
+            aria-orientation="vertical"
+            title="3B / 2B ekran genişliğini sürükleyerek ayarlayın (Çift tıkla: %50 / %50)"
+            onDoubleClick={() => setSplitRatio3D(50)}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              const container = splitContainerRef.current;
+              if (!container) return;
+              document.body.style.userSelect = "none";
+              document.body.style.cursor = "col-resize";
+              const onMove = (ev: MouseEvent) => {
+                const rect = container.getBoundingClientRect();
+                if (rect.width <= 0) return;
+                const pct = ((ev.clientX - rect.left) / rect.width) * 100;
+                setSplitRatio3D(Math.max(22, Math.min(78, Math.round(pct * 10) / 10)));
+              };
+              const onUp = () => {
+                document.body.style.userSelect = "";
+                document.body.style.cursor = "";
+                window.removeEventListener("mousemove", onMove);
+                window.removeEventListener("mouseup", onUp);
+              };
+              window.addEventListener("mousemove", onMove);
+              window.addEventListener("mouseup", onUp);
+            }}
+            className="w-2 h-full shrink-0 cursor-col-resize relative z-30 flex items-center justify-center group bg-[#E6E0D3]/60 hover:bg-[#1C1917]/15 transition-colors select-none"
+          >
+            <span className="w-1 h-10 rounded-full bg-[#A8A29E] group-hover:bg-[#1C1917] transition-colors" />
+          </div>
+        )}
+
+        {workspaceMode === "2d" && (() => {
+          const effective2DMode =
+            cadSubMode === "section"
+              ? "section"
+              : cadSubMode === "split"
+              ? split2DViewMode
+              : "elevation";
+          return (
+          <div
+            style={
+              cadSubMode === "split"
+                ? { width: `calc(${100 - splitRatio3D}% - 8px)` }
+                : undefined
+            }
             className={
-              cadSubMode === "split" ? "w-1/2 h-full relative" : "w-full h-full relative"
+              cadSubMode === "split"
+                ? "h-full relative flex-1 min-w-0"
+                : "w-full h-full relative"
             }
           >
             <V3CadViewport2D
-              mode={cadSubMode === "section" ? "section" : "elevation"}
+              mode={effective2DMode}
+              interactivePlan={effective2DMode === "plan"}
               externalSectionDirection={cadExternalSectionDir}
               externalSectionRatio={sectionRatio2D}
-              onExternalSectionChange={(dir, r) => {
-                setSectionAxis2D(dir === "Z" ? "X" : "Z");
-                setSectionRatio2D(r);
-              }}
+              onExternalSectionChange={handleExternalSectionChange}
               hideLegacySectionBar={true}
               studioSafeInsets={
                 cadSubMode === "split"
-                  ? { topPx: 112, bottomPx: 24, leftPx: 16, rightPx: isInspectorOpen ? 392 : 64 }
-                  : {
-                      topPx: 112,
-                      bottomPx: 24,
-                      leftPx: leftDrawer ? 480 : 76,
-                      rightPx: isInspectorOpen ? 392 : 64,
-                    }
+                  ? studioSafeInsets2DSplit
+                  : studioSafeInsets2DFull
               }
             />
 
             {/* 2B KESİT MODUNDA DOĞRUDAN GÖRSEL ÜST PLAN KESİT SEÇİCİSİ */}
-            {cadSubMode === "section" && activeModule && (
+            {effective2DMode === "section" && activeModule && (
               <div
-                style={{ left: leftDrawer ? "488px" : "80px" }}
-                className="fixed top-[168px] z-20 w-[312px] transition-[left] duration-200"
+                style={
+                  cadSubMode === "split"
+                    ? undefined
+                    : { left: leftDrawer ? "488px" : "80px" }
+                }
+                className={
+                  cadSubMode === "split"
+                    ? "absolute top-[156px] left-4 z-20 w-[290px]"
+                    : "fixed top-[168px] z-20 w-[312px] transition-[left] duration-200"
+                }
               >
                 <SectionPlaneMiniMap
                   activeModule={activeModule}
@@ -628,19 +999,15 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
               </div>
             )}
           </div>
-        )}
+          );
+        })()}
 
         {workspaceMode === "plan" && (
           <div className="w-full h-full relative">
             <V3CadViewport2D
               mode="plan"
               interactivePlan={true}
-              studioSafeInsets={{
-                topPx: 76,
-                bottomPx: 24,
-                leftPx: leftDrawer ? 480 : 76,
-                rightPx: isInspectorOpen ? 392 : 64,
-              }}
+              studioSafeInsets={studioSafeInsetsPlan}
             />
           </div>
         )}
@@ -653,63 +1020,29 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
           onChangeDrawer={setLeftDrawer}
           templates={combinedTemplates}
           modules={project.modules}
-          sceneObjects={project.sceneObjects || []}
+          sceneObjects={stableSceneObjects}
           activeModuleIndex={activeModuleIndex}
           wallWidthMm={wallWidthMm}
           ceilingHeightMm={ceilingHeightMm}
           obstacles={spaceObstacles}
-          onApplyTemplateToActive={(tplId) => {
-            applyV4Template(tplId);
-            showToast("Ürün şablonu uygulandı.");
-          }}
-          onAppendTemplateAdjacent={(tplId) => {
-            dropV4TemplateWithSnap(tplId);
-            showToast("Yeni ürün yanına eklendi.");
-          }}
-          onAddCompositeAssembly={(presetId) => {
-            addCompositeAssemblyPreset(presetId);
-            showToast("Hazır set sahneye eklendi.");
-          }}
-          onAddSceneObject={(catalogId) => {
-            addSceneObjectFromCatalog(catalogId);
-            showToast("3B eşya sahneye yerleştirildi.");
-          }}
-          onRotateSceneObject={(id) => {
-            const cur = (project.sceneObjects || []).find((o) => o.id === id);
-            if (cur) {
-              updateSceneObject(id, {
-                rotation: {
-                  x: cur.rotation?.x ?? 0,
-                  y: ((cur.rotation?.y ?? 0) + 90) % 360,
-                  z: cur.rotation?.z ?? 0,
-                },
-              });
-            }
-          }}
+          onApplyTemplateToActive={handleApplyTemplateToActive}
+          onAppendTemplateAdjacent={handleAppendTemplateAdjacent}
+          onAddCompositeAssembly={handleAddCompositeAssembly}
+          onAddSceneObject={handleAddSceneObject}
+          onRotateSceneObject={handleRotateSceneObject}
           onRemoveSceneObject={removeSceneObject}
           onSelectModuleIndex={setActiveModuleIndex}
-          onDuplicateActiveModule={() => {
-            duplicateActiveModule();
-            showToast("Modül yanına kopyalandı.");
-          }}
-          onAddStackedTopModule={() => {
-            addStackedTopModule();
-            showToast("Üst yüklük modülü eklendi.");
-          }}
+          onDuplicateActiveModule={handleDuplicateActiveModule}
+          onAddStackedTopModule={handleAddStackedTopModule}
           onFillRemainingWallGap={handleFillRemainingWallGap}
           onRemoveModuleAt={removeModuleAt}
           onSetRoomDimensions={setRoomDimensions}
           onAddSpaceObstacle={addSpaceObstacle}
           onRemoveSpaceObstacle={removeSpaceObstacle}
-          onLoadKitchenPreset={(kind) => {
-            if (kind === "linear") loadLinearKitchen();
-            else if (kind === "l") loadLKitchen();
-            else loadUKitchen();
-            showToast("Hazır mutfak yerleşimi yüklendi.");
-          }}
-          onOpenWizardModal={() => setWizardModalOpen(true)}
-          onOpenKitchenIslandModal={() => setKitchenIslandOpen(true)}
-          onOpenCapsuleAndGlbHub={(tab) => setSceneHubTab(tab)}
+          onLoadKitchenPreset={handleLoadKitchenPreset}
+          onOpenWizardModal={handleOpenWizardModal}
+          onOpenKitchenIslandModal={handleOpenKitchenIslandModal}
+          onOpenCapsuleAndGlbHub={setSceneHubTab}
         />
       )}
 
@@ -717,10 +1050,11 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
       {!isShowroom && activeModule && (
         <RightParametricInspector
           isOpen={isInspectorOpen}
-          onToggleOpen={() => setIsInspectorOpen((v) => !v)}
+          onToggleOpen={handleToggleInspectorOpen}
           activeTab={inspectorTab}
           onChangeTab={setInspectorTab}
           experienceTier={experienceTier}
+          onChangeExperienceTier={setExperienceTier}
           modules={project.modules}
           activeModule={activeModule}
           activeModuleIndex={activeModuleIndex}
@@ -731,34 +1065,11 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
           facadeGrainContinuity={
             String(activeModule.carcass.grainContinuityMode) === "continuous_facade"
           }
-          onToggleFacadeGrainContinuity={(enabled) => {
-            setFacadeGrainContinuity(enabled);
-            showToast(
-              enabled
-                ? "Cephe ahşap desen takibi açıldı."
-                : "Cephe ahşap desen takibi kapatıldı."
-            );
-          }}
-          onRunAutoFillersAndCrown={() => {
-            const res = runAutoFillersAndCrown();
-            showToast(
-              res.count > 0
-                ? `${res.count} adet bitiş/taç parçası eklendi.`
-                : "Mevcut yerleşim için ek bitiş parçası gerekmiyor."
-            );
-          }}
-          onOpenCutoutModal={() => setCutoutModalOpen(true)}
-          onSaveModuleAsTemplate={(name) => {
-            saveActiveModuleAsCustomTemplate(
-              name,
-              activeModule.moduleFamilyId || "fam_wardrobe"
-            );
-            showToast("Modül özel şablon olarak kütüphaneye kaydedildi.");
-          }}
-          onAddCustomMaterial={(matInput) => {
-            addCustomMaterialToProject(matInput);
-            showToast(`"${matInput.name}" kartelaya eklendi.`);
-          }}
+          onToggleFacadeGrainContinuity={handleToggleFacadeGrainContinuity}
+          onRunAutoFillersAndCrown={handleRunAutoFillersAndCrown}
+          onOpenCutoutModal={handleOpenCutoutModal}
+          onSaveModuleAsTemplate={handleSaveModuleAsTemplate}
+          onAddCustomMaterial={handleAddCustomMaterial}
           onSelectModuleIndex={setActiveModuleIndex}
           onSelectBayIndex={setActiveBayIndex}
           onSetDimensions={setDimensions}
@@ -768,7 +1079,7 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
           onSplitBayIntoTwo={splitBayIntoTwo}
           onEqualizeBaysAndShelves={equalizeBaysAndShelves}
           onRemoveBayAt={removeBayAt}
-          onSetBayCustomWidth={(bIdx, w) => setBayCustomWidth(bIdx, w, true)}
+          onSetBayCustomWidth={handleSetBayCustomWidth}
           onApplyBayPreset={applyBayInteriorPreset}
           onAddShelf={addShelf}
           onAddFixedShelf={addFixedShelf}
@@ -777,34 +1088,27 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
           onSetShelfElevation={setShelfElevation}
           onSetShelfThickness={setShelfThickness}
           onAddDrawer={addDrawer}
-          onAddInternalDrawer={(bIdx) => addInternalDrawer(bIdx, 140)}
+          onAddInternalDrawer={handleAddInternalDrawer}
           onRemoveDrawer={removeDrawer}
           onAddHangingRail={addHangingRail}
           onRemoveHangingRail={removeHangingRail}
           onAddSpecialFitting={addSpecialFitting}
           onRemoveSpecialFitting={removeSpecialFitting}
-          onAddSubDivider={(bIdx) => addSubDivider(bIdx)}
+          onAddSubDivider={handleAddSubDivider}
           onRemoveSubDivider={removeSubDivider}
           onSetBayDoorType={setBayDoorType}
           onSetSlidingMountingType={setModuleSlidingMountingType}
           onSetBayV4DoorConfig={setBayV4DoorConfig}
           onCopyDoorToAllBays={copyDoorConfigToAllBays}
           onUpdateCarcassConfig={updateCarcassConfig}
-          onApplyMaterialScope={(scope, matId) => {
-            applyMaterialByTargetScope(scope, matId);
-          }}
-          onToggleModuleLed={(enabled, opts) =>
-            toggleModuleLedLighting(enabled, { colorTempK: opts?.colorTempK })
-          }
-          onApplyApprovedFix={(prop) => {
-            applyApprovedEngineeringFix(prop);
-            showToast("Önerilen iyileştirme uygulandı.");
-          }}
+          onApplyMaterialScope={handleApplyMaterialScope}
+          onToggleModuleLed={handleToggleModuleLed}
+          onApplyApprovedFix={handleApplyFindingFix}
           onDuplicateActiveModule={duplicateActiveModule}
           onAddStackedTopModule={addStackedTopModule}
-          onRotateActiveModule90={() => rotateActiveModule90(90)}
+          onRotateActiveModule90={handleRotateActiveModule90}
           onRemoveActiveModule={removeActiveModule}
-          onOpenCustomHardwareModal={() => setCustomHardwareOpen(true)}
+          onOpenCustomHardwareModal={handleOpenCustomHardwareModal}
         />
       )}
 
@@ -813,14 +1117,11 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
         <BottomSceneDock
           activeModule={activeModule}
           doorOpenAngleDeg={doorOpenAngleDeg}
-          onChangeDoorAngle={(deg, animated = false) => setDoorOpenAngleDeg(deg, animated)}
+          onChangeDoorAngle={handleChangeDoorAngle}
           doorsHidden={doorsHidden3D}
           onToggleDoorsHidden={handleToggleDoorsHidden}
           showDimensions={isShowroom ? false : showDimensions3D}
-          onToggleDimensions={() => {
-            if (isShowroom) setWorkspaceMode("3d");
-            setShowDimensions3D((v) => !v);
-          }}
+          onToggleDimensions={handleToggleDockDimensions}
           showInteriorProps={showInteriorProps3D}
           onToggleInteriorProps={handleToggleInteriorProps}
           renderStyle={viewportRenderStyle}
