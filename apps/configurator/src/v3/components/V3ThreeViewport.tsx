@@ -1178,8 +1178,16 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
     >([]);
     const hwCalloutDomMapRef = useRef<Map<string, HTMLDivElement>>(new Map());
     const [renderEdgeMode, setRenderEdgeMode] = useState<"photoreal" | "cad">("photoreal");
-    const [moveObjectMode3D, setMoveObjectMode3D] = useState<boolean>(true);
-    const [invertCameraMouse, setInvertCameraMouse] = useState<boolean>(true);
+    const [moveObjectMode3D, setMoveObjectMode3D] = useState<boolean>(false);
+    const [invertCameraMouse, setInvertCameraMouse] = useState<boolean>(false);
+    const minimalChromeRef = useRef<boolean>(Boolean(minimalChrome));
+    minimalChromeRef.current = Boolean(minimalChrome);
+    const lastSnapBannerRef = useRef<string | null>(null);
+    const setSnapBannerDedup = useCallback((msg: string | null) => {
+      if (lastSnapBannerRef.current === msg) return;
+      lastSnapBannerRef.current = msg;
+      setDragDropSnapBanner(msg);
+    }, []);
     const [active3DSnap, setActive3DSnap] = useState<ElevationSnapTarget | null>(null);
     const roomArchGroupRef = useRef<THREE.Group | null>(null);
     const sceneObjectsGroupRef = useRef<THREE.Group | null>(null);
@@ -1243,7 +1251,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           setSection3DMenuOpen(false);
           setExplode3DMenuOpen(false);
           setDismissedBayPopover(true);
-          setDragDropSnapBanner(null);
+          setSnapBannerDedup(null);
         }
         if ((ev.key === "Control" || ev.key === "Meta") && !ev.shiftKey && !ev.altKey) {
           setIsCtrlPressed(true);
@@ -1326,6 +1334,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       latestStateRef.current = {
         project,
         activeModuleIndex,
+        selectedComponentId,
         doorOpenAngleDeg,
         doorsHiddenIn3D,
         moveObjectMode3D,
@@ -1387,7 +1396,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
     // Sync OrbitControls mouse direction (Natural object rotation vs standard camera orbit)
     useEffect(() => {
       if (controlsRef.current) {
-        controlsRef.current.rotateSpeed = invertCameraMouse ? -0.85 : 0.9;
+        controlsRef.current.rotateSpeed = invertCameraMouse ? -0.85 : 0.85;
       }
     }, [invertCameraMouse]);
 
@@ -1821,8 +1830,9 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       const curRenderer = rendererRef.current;
       const cam = (controlsRef.current?.object as THREE.Camera) || perspCamRef.current;
       if (!curRenderer || !cam) return;
-      const w = curRenderer.domElement.clientWidth;
-      const h = curRenderer.domElement.clientHeight;
+      const cachedRect = canvasRectRef.current;
+      const w = cachedRect && cachedRect.width > 0 ? cachedRect.width : curRenderer.domElement.clientWidth;
+      const h = cachedRect && cachedRect.height > 0 ? cachedRect.height : curRenderer.domElement.clientHeight;
       if (w === 0 || h === 0) return;
 
       cam.updateMatrixWorld();
@@ -2014,10 +2024,15 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       const activeCam = isOrthographic ? orthoCamera : perspCamera;
       const controls = new OrbitControls(activeCam, renderer.domElement);
       controls.mouseButtons = {
-        LEFT: THREE.MOUSE.PAN,
+        LEFT: THREE.MOUSE.ROTATE,
         MIDDLE: THREE.MOUSE.DOLLY,
-        RIGHT: THREE.MOUSE.ROTATE,
+        RIGHT: THREE.MOUSE.PAN,
       };
+      controls.touches = {
+        ONE: THREE.TOUCH.ROTATE,
+        TWO: THREE.TOUCH.DOLLY_PAN,
+      };
+      controls.rotateSpeed = invertCameraMouse ? -0.85 : 0.85;
       controls.screenSpacePanning = true;
       controls.enableDamping = true;
       controls.dampingFactor = 0.09;
@@ -2040,7 +2055,18 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       });
       controlsRef.current = controls;
 
-      scene.environment = getStudioPmremEnvironment(renderer);
+      // Instant <0.2ms equirectangular studio reflection on frame 0 so initial focus & orbit NEVER freeze;
+      // upgrades asynchronously to full PMREM cubemap once idle!
+      scene.environment = getStudioEnvironmentTexture();
+      let idlePmremTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+        idlePmremTimer = null;
+        if (!pausedRef.current && rendererRef.current === renderer && sceneRef.current === scene) {
+          if (!isOrbitingRef.current) {
+            scene.environment = getStudioPmremEnvironment(renderer);
+            needsRenderRef.current = true;
+          }
+        }
+      }, 260);
 
       const detachContextRecovery = attachWebGLContextRecovery(renderer.domElement, {
         onContextLost: () => {
@@ -2064,8 +2090,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       keyLight.target.position.set(1400, 900, 200);
       scene.add(keyLight.target);
       keyLight.castShadow = !isLegacyGpu;
-      keyLight.shadow.mapSize.width = isLegacyGpu ? 1024 : 2048;
-      keyLight.shadow.mapSize.height = isLegacyGpu ? 1024 : 2048;
+      keyLight.shadow.mapSize.width = 1024;
+      keyLight.shadow.mapSize.height = 1024;
       keyLight.shadow.camera.left = -2500;
       keyLight.shadow.camera.right = 2800;
       keyLight.shadow.camera.top = 2700;
@@ -2074,7 +2100,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       keyLight.shadow.camera.far = 9500;
       keyLight.shadow.bias = -0.00018;
       keyLight.shadow.normalBias = 0.85;
-      keyLight.shadow.radius = 3.6;
+      keyLight.shadow.radius = 2.4;
       scene.add(keyLight);
       keyLightRef.current = keyLight;
 
@@ -2213,7 +2239,11 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         const curControls = controlsRef.current;
         if (!curRenderer || !curGroup || !curControls) return;
 
-        const rect = curRenderer.domElement.getBoundingClientRect();
+        const rect =
+          canvasRectRef.current && canvasRectRef.current.width > 0
+            ? canvasRectRef.current
+            : curRenderer.domElement.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return;
         pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
         pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
@@ -2244,7 +2274,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           }
         }
 
-        // 1. Raycast solid cabinet meshes FIRST so upper & base cabinets always take priority over wall obstacles behind them!
+        const isMoveGesture = Boolean(state.moveObjectMode3D || e.shiftKey);
         const anyDoorsOpen =
           state.doorsHiddenIn3D ||
           state.doorOpenAngleDeg > 5 ||
@@ -2253,6 +2283,16 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               Boolean(m.isOpenFront) ||
               m.bays.some((b) => b.door.type === "open" || b.door.doorSystemId === "open")
           );
+
+        // ULTRA-FAST ORBIT PATH: When doors are closed, not in Move Mode, and no unlocked 3D scene objects exist,
+        // let OrbitControls handle left-drag camera rotation immediately in 0.0ms without mesh raycasting or state updates!
+        const hasUnlockedSceneObjects = (state.project.sceneObjects || []).some((o) => !o.isHidden && !o.isLocked);
+        if (!isMoveGesture && !anyDoorsOpen && !hasUnlockedSceneObjects && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          curControls.enabled = true;
+          return;
+        }
+
+        // 1. Raycast solid cabinet meshes FIRST so upper & base cabinets always take priority over wall obstacles behind them!
         const solidMeshes = getCachedSolidMeshes(curGroup, anyDoorsOpen);
         const hits = raycaster.intersectObjects(solidMeshes, false);
         const closestCabinetDist = hits.length > 0 ? hits[0].distance : Infinity;
@@ -2409,7 +2449,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             cMod.bays.some((b) => b.door.type === "open" || b.door.doorSystemId === "open");
 
           const wantInteriorDrag = !state.moveObjectMode3D ? !e.shiftKey : e.ctrlKey || e.metaKey;
-          if (wantInteriorDrag && (doorsAreOpen || isExternalDrawerFront)) {
+          if (wantInteriorDrag && (doorsAreOpen || (isExternalDrawerFront && (e.ctrlKey || e.metaKey || e.altKey)))) {
             const fs = calculateFourSpaceDimensions(cMod);
             const dm = findDraggableInteriorComponent(
               cMod,
@@ -2430,19 +2470,12 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         }
         if (!hitObj?.userData?.componentId || !mod) return;
 
-        // Immediately select the hit module, bay, and component on pointerdown so clicks NEVER fail!
+        // Defer selection state updates to handlePointerUp (on non-drag click) unless an actual 3D drag starts below,
+        // so pressing left-mouse to rotate the 3D scene causes ZERO synchronous React/Zustand re-renders!
         const clickedCompId =
           String(hitObj.userData.role) === "door_handle" && hitObj.userData.parentComponentId
             ? String(hitObj.userData.parentComponentId)
             : String(hitObj.userData.componentId);
-        selectModuleBayComponentSafe({
-          activeModuleIndex: modIdx,
-          ...(typeof hitObj.userData.bayIndex === "number"
-            ? { activeBayIndex: hitObj.userData.bayIndex }
-            : {}),
-          selectedComponentId: clickedCompId,
-        });
-        // Selection is shown directly in the frosted top pill & floating inspector card (no duplicate overlapping banner)
 
         // Calculate world-mm per screen-pixel at the hit point
         const hitDist = Math.max(300, hits[0].distance);
@@ -2737,7 +2770,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             sobjNode.position.set(nextX, activeDrag3D.startSecondValueMm || 0, nextZ);
             needsRenderRef.current = true;
           }
-          setDragDropSnapBanner(`✋ Sahne Objesi Taşınıyor: X:${nextX}mm • Z:${nextZ}mm`);
+          setSnapBannerDedup(`✋ Sahne Objesi Taşınıyor: X:${nextX}mm • Z:${nextZ}mm`);
           return;
         }
 
@@ -2801,7 +2834,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           } else {
             state.updateObstaclePosition(activeDrag3D.targetId, nextX, nextZ, nextY);
           }
-          setDragDropSnapBanner(
+          setSnapBannerDedup(
             activeDrag3D.isSideWallObs
               ? `🎯 Yan Duvar Pencere/Engel Taşınıyor: Z:${nextZ}mm • Yükseklik Kotu Y:${nextY}mm`
               : `🎯 3D Pencere/Engel Taşınıyor: X:${nextX}mm • Yükseklik Kotu Y:${nextY}mm`
@@ -2860,7 +2893,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               0,
               Math.round(((activeDrag3D.startSecondValueMm || 0) + dzMm) / 10) * 10
             );
-            setDragDropSnapBanner(`✋ 3D Köşe/Yan Modül Taşınıyor: Z: ${nextZ}mm`);
+            setSnapBannerDedup(`✋ 3D Köşe/Yan Modül Taşınıyor: Z: ${nextZ}mm`);
             activeDrag3D.liveGpuX = activeDrag3D.startValueMm;
             activeDrag3D.liveGpuZ = nextZ;
             const modObj3DRot = meshGroupRef.current?.children.find(
@@ -2958,7 +2991,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             });
           }
 
-          setDragDropSnapBanner(snapText);
+          setSnapBannerDedup(snapText);
           if (dragMod) {
             const targetZ = activeDrag3D.startSecondValueMm || 0;
             (activeDrag3D as { liveGpuX?: number; liveGpuZ?: number }).liveGpuX = nextX;
@@ -3225,7 +3258,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                 });
               }
             }
-            setDragDropSnapBanner(null);
+            setSnapBannerDedup(null);
             state.commitHistoryTransaction();
           } else if (dragKind === "module_3d" || dragKind === "obstacle_3d") {
             if (dragKind === "module_3d") {
@@ -3251,7 +3284,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               if (moved && typeof pendingGpuX === "number" && typeof pendingGpuY === "number" && typeof pendingGpuZ === "number") {
                 state.updateObstaclePosition(dragTargetId, pendingGpuX, pendingGpuZ, pendingGpuY);
               }
-              setDragDropSnapBanner(null);
+              setSnapBannerDedup(null);
               state.commitHistoryTransaction();
             } else if (dragKind === "module_3d" && moved) {
               if (typeof pendingGpuX === "number" || typeof pendingGpuZ === "number") {
@@ -3268,10 +3301,10 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               const swapMsg = state.finishModuleDragWithSmartSwap(dragModIdx, dragStartX);
               state.commitHistoryTransaction();
               if (swapMsg) {
-                setDragDropSnapBanner(swapMsg);
-                setTimeout(() => setDragDropSnapBanner(null), 2800);
+                setSnapBannerDedup(swapMsg);
+                setTimeout(() => setSnapBannerDedup(null), 2800);
               } else {
-                setDragDropSnapBanner(null);
+                setSnapBannerDedup(null);
               }
             } else {
               state.commitHistoryTransaction();
@@ -3307,11 +3340,15 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           if (moved) return;
         }
 
-        if (Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y) > 16) return;
+        if (Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y) > 8) return;
         const curGroup = meshGroupRef.current;
         if (!curRenderer || !curGroup) return;
 
-        const rect = curRenderer.domElement.getBoundingClientRect();
+        const rect =
+          canvasRectRef.current && canvasRectRef.current.width > 0
+            ? canvasRectRef.current
+            : curRenderer.domElement.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return;
         pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
         pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
@@ -3337,29 +3374,25 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               typeof hitObj.userData.moduleIndex === "number"
                 ? hitObj.userData.moduleIndex
                 : state.activeModuleIndex;
-            state.setActiveModuleIndex(hitModIdx);
             const hitMod = state.project.modules[hitModIdx];
             const roleStr = String(hitObj.userData.role || "");
 
-            // Determine bayIndex either from mesh userData or by projecting 3D hit point along module X
+            // Determine bayIndex either from mesh userData or fast O(1) bay widths without full 3D mesh generation!
             let resolvedBayIdx =
               typeof hitObj.userData.bayIndex === "number" ? hitObj.userData.bayIndex : -1;
             if (resolvedBayIdx < 0 && hitMod && hitMod.bays.length > 0) {
-              const bd = generateModuleGeometry(hitMod, { doorOpenAngleDeg: 0 });
+              const bayWidths = calculateBayWidths(hitMod);
               const T = hitMod.carcass.panelThickness || 18;
               const localX = h.point.x - hitMod.position.x;
               let accX = T;
               for (let bIdx = 0; bIdx < hitMod.bays.length; bIdx++) {
-                const bw = bd.bayWidths[bIdx] || 500;
+                const bw = bayWidths[bIdx] || 500;
                 if (localX <= accX + bw + T * 0.5 || bIdx === hitMod.bays.length - 1) {
                   resolvedBayIdx = bIdx;
                   break;
                 }
                 accX += bw + T;
               }
-            }
-            if (resolvedBayIdx >= 0) {
-              state.setActiveBayIndex(resolvedBayIdx);
             }
 
             const rawCompId = String(hitObj.userData.componentId);
@@ -3368,10 +3401,12 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                 ? String(hitObj.userData.parentComponentId)
                 : rawCompId;
 
-            (state.setSelectedComponentId as (id: string | null, mIdx?: number) => void)(
-              resolvedCompId,
-              hitModIdx
-            );
+            // Single atomic Zustand update (instead of 3 sequential setState calls!)
+            selectModuleBayComponentSafe({
+              activeModuleIndex: hitModIdx,
+              ...(resolvedBayIdx >= 0 ? { activeBayIndex: resolvedBayIdx } : {}),
+              selectedComponentId: resolvedCompId,
+            });
 
             const isDoorHit =
               roleStr === "door" ||
@@ -3381,15 +3416,17 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             const safeBay = Math.max(0, resolvedBayIdx);
 
             if (isDoorHit && !state.doorsHiddenIn3D) {
-              const leafSideLabel = resolvedCompId.includes("right") ? "Sağ Kapak" : "Sol Kapak";
-              setDoorMenuSubSection(null);
-              setClicked3DContext({
-                kind: "door",
-                bayIndex: safeBay,
-                role: roleStr,
-                componentId: resolvedCompId,
-                label: `Bölme ${safeBay + 1} • ${leafSideLabel}`,
-              });
+              if (!minimalChromeRef.current) {
+                const leafSideLabel = resolvedCompId.includes("right") ? "Sağ Kapak" : "Sol Kapak";
+                setDoorMenuSubSection(null);
+                setClicked3DContext({
+                  kind: "door",
+                  bayIndex: safeBay,
+                  role: roleStr,
+                  componentId: resolvedCompId,
+                  label: `Bölme ${safeBay + 1} • ${leafSideLabel}`,
+                });
+              }
               if (typeof window !== "undefined") {
                 window.dispatchEvent(
                   new CustomEvent("birim:select-door-3d", {
@@ -3402,12 +3439,14 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                 );
               }
             } else {
-              setClicked3DContext({
-                kind: "bay",
-                bayIndex: safeBay,
-                role: roleStr,
-                label: `Bölme ${safeBay + 1}`,
-              });
+              if (!minimalChromeRef.current) {
+                setClicked3DContext({
+                  kind: "bay",
+                  bayIndex: safeBay,
+                  role: roleStr,
+                  label: `Bölme ${safeBay + 1}`,
+                });
+              }
               if (typeof window !== "undefined") {
                 window.dispatchEvent(
                   new CustomEvent("birim:select-bay-3d", {
@@ -3529,10 +3568,28 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         });
       };
 
+      const handlePointerCancelOrBlur = () => {
+        if (dragMoveRafId) {
+          window.cancelAnimationFrame(dragMoveRafId);
+          dragMoveRafId = 0;
+        }
+        latestDragPointerEvent = null;
+        delete document.body.dataset.birimUiDragging;
+        if (activeDrag3D) {
+          activeDrag3D = null;
+          latestStateRef.current.commitHistoryTransaction();
+        }
+        if (controlsRef.current) {
+          controlsRef.current.enabled = true;
+        }
+      };
+
       renderer.domElement.addEventListener("pointerdown", handlePointerDown, { capture: true });
       renderer.domElement.addEventListener("contextmenu", handleContextMenu, { capture: true });
       window.addEventListener("pointermove", handlePointerMove, { capture: true });
       window.addEventListener("pointerup", handlePointerUp, { capture: true });
+      window.addEventListener("pointercancel", handlePointerCancelOrBlur, { capture: true });
+      window.addEventListener("blur", handlePointerCancelOrBlur);
 
       const captureStudioSnapshot = (opts?: {
         angle?: "current" | "iso" | "front";
@@ -4055,6 +4112,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
 
       return () => {
         if (idleHiDpiTimer) clearTimeout(idleHiDpiTimer);
+        if (idlePmremTimer) clearTimeout(idlePmremTimer);
         delete (window as unknown as { __birimRenderUltraStudioPhoto?: unknown }).__birimRenderUltraStudioPhoto;
         cancelAnimationFrame(animId);
         resizeObserver.disconnect();
@@ -4064,6 +4122,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         renderer.domElement.removeEventListener("contextmenu", handleContextMenu, { capture: true });
         window.removeEventListener("pointermove", handlePointerMove, { capture: true });
         window.removeEventListener("pointerup", handlePointerUp, { capture: true });
+        window.removeEventListener("pointercancel", handlePointerCancelOrBlur, { capture: true });
+        window.removeEventListener("blur", handlePointerCancelOrBlur);
         controls.dispose();
         disposeObject3DTree(scene);
         scene.clear();
@@ -4093,7 +4153,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         sceneRef.current.environment =
           renderEdgeMode === "cad" || !rendererRef.current
             ? null
-            : getStudioPmremEnvironment(rendererRef.current);
+            : sceneRef.current.environment || getStudioEnvironmentTexture();
       }
       if (roomArchGroupRef.current) {
         roomArchGroupRef.current.visible = showRoomArchitecture3D && renderEdgeMode !== "cad";
@@ -4512,6 +4572,9 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       requestRender();
     }, [activeModuleIndex, activeBayIndex, cutawayActiveBay, doorsHiddenIn3D, doorOpenAngleDeg, selectedComponentId, project, theme, renderEdgeMode, requestRender]);
 
+    const updateSelectionFramesRef = useRef(updateSelectionAndActiveFrames);
+    updateSelectionFramesRef.current = updateSelectionAndActiveFrames;
+
     // Rebuild Parametric Meshes ONLY when project geometry or kinematic sliders change
     useEffect(() => {
       if (paused) return;
@@ -4546,7 +4609,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             }
           }
         });
-        updateSelectionAndActiveFrames();
+        updateSelectionFramesRef.current();
         if (anyModTransformChanged) {
           markShadowsAndRender();
         } else {
@@ -5338,7 +5401,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       });
 
       if (rendererRef.current) publishSceneDiagnostics(rendererRef.current.domElement, meshGroup);
-      updateSelectionAndActiveFrames();
+      updateSelectionFramesRef.current();
       markShadowsAndRender();
     }, [
       project,
@@ -5347,8 +5410,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       toggleDoorOpen,
       setDrawerOpenMm,
       explodedFactor,
-      activeModuleIndex,
-      activeBayIndex,
+      effectiveDoorsHiddenIn3D ? activeModuleIndex : -1,
+      cutawayActiveBay ? activeBayIndex : -1,
       doorsHiddenIn3D,
       effectiveDoorsHiddenIn3D,
       cutawayActiveBay,
@@ -5359,7 +5422,6 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       paused,
       isXrayActive ? storeBom : null,
       requestRender,
-      updateSelectionAndActiveFrames,
     ]);
 
     // Dedicated O(1) Interior Wardrobe Styling Props Layer (`Eşyalar`) — Decoupled from Cabinet Mesh Rebuilds!
@@ -7046,15 +7108,15 @@ const clear3DGhostPreview = useCallback(() => {
         }
 
         if (accKind === "sub_divider") {
-          setDragDropSnapBanner(
+          setSnapBannerDedup(
             `📐 Raf Arası Dikme • Bölme ${targetBayIdx + 1} • Sol Mesafe X: ${localBayX} mm (Boy: ${subSpanH} mm)`
           );
         } else if (accKind === "carcass_divider") {
-          setDragDropSnapBanner(
+          setSnapBannerDedup(
             `📐 Ara Dikme (Bölme ${targetBayIdx + 1} İç Düzeniyle 2'ye Bölünür) • X: ${localBayX} mm`
           );
         } else {
-          setDragDropSnapBanner(`📐 ${activeAcc?.title || "Aksesuar"} • Bölme ${targetBayIdx + 1} • Y: ${snappedElevY} mm`);
+          setSnapBannerDedup(`📐 ${activeAcc?.title || "Aksesuar"} • Bölme ${targetBayIdx + 1} • Y: ${snappedElevY} mm`);
         }
         return;
       }
@@ -7066,7 +7128,7 @@ const clear3DGhostPreview = useCallback(() => {
         e.preventDefault();
         e.dataTransfer.dropEffect = "copy";
         const wx = resolve3DWorldXFromDragEvent(e);
-        setDragDropSnapBanner(`🧲 3D OBJE YERLEŞTİRME: X ≈ ${wx} mm (Yüzey / Tezgâh Mıknatısı Aktif)`);
+        setSnapBannerDedup(`🧲 3D OBJE YERLEŞTİRME: X ≈ ${wx} mm (Yüzey / Tezgâh Mıknatısı Aktif)`);
         return;
       }
 
@@ -7163,7 +7225,7 @@ const clear3DGhostPreview = useCallback(() => {
         requestRender();
       }
 
-      setDragDropSnapBanner(
+      setSnapBannerDedup(
         `🧲 SİLUET SNAP: ${preview.previewModule.name} (${preview.previewModule.dimensions.width}×${preview.previewModule.dimensions.height}mm) → ${preview.snapLabel}`
       );
     };
@@ -7187,8 +7249,8 @@ const clear3DGhostPreview = useCallback(() => {
           setDoorOpenAngleDeg(85);
         }
 
-        setDragDropSnapBanner(`✓ ${acc.title} yerleştirildi: Bölme ${bayIdx + 1} (Y: ${elevY} mm)`);
-        setTimeout(() => setDragDropSnapBanner(null), 3500);
+        setSnapBannerDedup(`✓ ${acc.title} yerleştirildi: Bölme ${bayIdx + 1} (Y: ${elevY} mm)`);
+        setTimeout(() => setSnapBannerDedup(null), 3500);
 
         lastAccessoryDropTargetRef.current = null;
         if (typeof window !== "undefined") {
@@ -7207,8 +7269,8 @@ const clear3DGhostPreview = useCallback(() => {
         const wx = resolve3DWorldXFromDragEvent(e);
         const placed = addSceneObjectFromCatalog(droppedSceneCatId, { x: wx, z: 0 });
         if (placed) {
-          setDragDropSnapBanner(`✓ ${placed.name} sahneye yerleştirildi`);
-          setTimeout(() => setDragDropSnapBanner(null), 3200);
+          setSnapBannerDedup(`✓ ${placed.name} sahneye yerleştirildi`);
+          setTimeout(() => setSnapBannerDedup(null), 3200);
         }
         return;
       }
@@ -7223,10 +7285,10 @@ const clear3DGhostPreview = useCallback(() => {
       const rawWorldX = resolve3DWorldXFromDragEvent(e);
       const res = dropV4TemplateWithSnap(tplId, rawWorldX);
       if (res) {
-        setDragDropSnapBanner(`✓ ${res.placedName} → ${res.snapLabel}`);
-        setTimeout(() => setDragDropSnapBanner(null), 3200);
+        setSnapBannerDedup(`✓ ${res.placedName} → ${res.snapLabel}`);
+        setTimeout(() => setSnapBannerDedup(null), 3200);
       } else {
-        setDragDropSnapBanner(null);
+        setSnapBannerDedup(null);
       }
     };
 
@@ -7237,7 +7299,7 @@ const clear3DGhostPreview = useCallback(() => {
         onDragLeave={(e) => {
           if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
             clear3DGhostPreview();
-            setDragDropSnapBanner(null);
+            setSnapBannerDedup(null);
           }
         }}
         onDrop={handle3DDrop}
@@ -7287,7 +7349,7 @@ const clear3DGhostPreview = useCallback(() => {
               <span className="truncate">{dragDropSnapBanner}</span>
               <button
                 type="button"
-                onClick={() => setDragDropSnapBanner(null)}
+                onClick={() => setSnapBannerDedup(null)}
                 className="ml-1 text-slate-300 hover:text-white font-bold cursor-pointer shrink-0"
               >
                 ✕
@@ -8265,10 +8327,10 @@ const clear3DGhostPreview = useCallback(() => {
                                 role: "bay_compartment",
                                 label: `Bölme ${targetBayIdx + 1}`,
                               });
-                              setDragDropSnapBanner(
+                              setSnapBannerDedup(
                                 `${targetBayIdx + 1}. Bölme kapağı kaldırıldı (Açık bölme)`
                               );
-                              setTimeout(() => setDragDropSnapBanner(null), 2200);
+                              setTimeout(() => setSnapBannerDedup(null), 2200);
                             }}
                             title="Sadece bu bölmenin kapağını kaldırıp açık raf düzenine çevirir"
                             className="shrink-0 px-2 py-1 rounded-lg bg-[#FAF9F6] hover:bg-red-50 border border-[#DED8CC] hover:border-red-200 text-[10px] font-semibold text-[#57534E] hover:text-red-700 transition cursor-pointer"
@@ -8524,10 +8586,10 @@ const clear3DGhostPreview = useCallback(() => {
                                       : floatingMatScope === "module_similar"
                                       ? "Modüldeki tüm kapaklara"
                                       : fullDoorPartName;
-                                  setDragDropSnapBanner(
+                                  setSnapBannerDedup(
                                     `${scopeText}: "${m.name.split(" (")[0]}" uygulandı`
                                   );
-                                  setTimeout(() => setDragDropSnapBanner(null), 2200);
+                                  setTimeout(() => setSnapBannerDedup(null), 2200);
                                 }}
                                 className="p-1.5 rounded-lg bg-[#FAF9F6] hover:bg-[#EFECE5] border border-[#DED8CC] flex items-center gap-1.5 text-[10px] font-medium text-[#141413] text-left cursor-pointer"
                                 title={m.name}
@@ -8550,10 +8612,10 @@ const clear3DGhostPreview = useCallback(() => {
                         data-testid="floating-door-copy-to-all"
                         onClick={() => {
                           copyDoorConfigToAllBays(targetBayIdx);
-                          setDragDropSnapBanner(
+                          setSnapBannerDedup(
                             "Seçili kapak modeli ve kulp tüm bölmelere uygulandı"
                           );
-                          setTimeout(() => setDragDropSnapBanner(null), 2400);
+                          setTimeout(() => setSnapBannerDedup(null), 2400);
                         }}
                         className="py-1.5 px-1.5 rounded-lg bg-white hover:bg-[#EFECE5] border border-[#DED8CC] text-[10px] font-semibold text-[#141413] cursor-pointer"
                         title="Bu kapağın model, kulp ve renk ayarlarını tüm kapaklara kopyalar"
@@ -8598,10 +8660,10 @@ const clear3DGhostPreview = useCallback(() => {
                             onClick={() => {
                               shrinkDoubleBayToSingle(targetBayIdx);
                               setClicked3DContext(null);
-                              setDragDropSnapBanner(
+                              setSnapBannerDedup(
                                 `${targetBayIdx + 1}. Bölme tek kapağa düşürüldü (Dolap ${halfShrunkOuterCmDoor} cm oldu)`
                               );
-                              setTimeout(() => setDragDropSnapBanner(null), 2500);
+                              setTimeout(() => setSnapBannerDedup(null), 2500);
                             }}
                             className="w-full px-2.5 py-1.5 rounded-xl bg-white hover:bg-[#EFECE5] border border-[#DED8CC] text-left transition cursor-pointer"
                           >
@@ -8620,10 +8682,10 @@ const clear3DGhostPreview = useCallback(() => {
                               onClick={() => {
                                 removeBayAt(targetBayIdx);
                                 setClicked3DContext(null);
-                                setDragDropSnapBanner(
+                                setSnapBannerDedup(
                                   `${targetBayIdx + 1}. Bölme komşu bölmeyle birleştirildi (${Math.round(activeModule.dimensions.width / 10)} cm sabit)`
                                 );
-                                setTimeout(() => setDragDropSnapBanner(null), 2500);
+                                setTimeout(() => setSnapBannerDedup(null), 2500);
                               }}
                               className="w-full px-2.5 py-1.5 rounded-xl bg-white hover:bg-[#EFECE5] border border-[#DED8CC] text-left transition cursor-pointer"
                             >
@@ -8639,10 +8701,10 @@ const clear3DGhostPreview = useCallback(() => {
                               onClick={() => {
                                 removeBayAndShrinkModule(targetBayIdx);
                                 setClicked3DContext(null);
-                                setDragDropSnapBanner(
+                                setSnapBannerDedup(
                                   `${targetBayIdx + 1}. Bölme çıkarıldı (Dolap ${shrunkOuterCmDoor} cm genişliğe daraltıldı)`
                                 );
-                                setTimeout(() => setDragDropSnapBanner(null), 2500);
+                                setTimeout(() => setSnapBannerDedup(null), 2500);
                               }}
                               className="w-full px-2.5 py-1.5 rounded-xl bg-white hover:bg-red-50 border border-[#E5E0D5] hover:border-red-200 text-left transition cursor-pointer"
                             >
@@ -8838,8 +8900,8 @@ const clear3DGhostPreview = useCallback(() => {
                               onClick={() => {
                                 const labelShort = selPart.label.split(" (")[0];
                                 if (removeSelectedInteriorComponent()) {
-                                  setDragDropSnapBanner(`"${labelShort}" parçası silindi`);
-                                  setTimeout(() => setDragDropSnapBanner(null), 2200);
+                                  setSnapBannerDedup(`"${labelShort}" parçası silindi`);
+                                  setTimeout(() => setSnapBannerDedup(null), 2200);
                                 }
                               }}
                               title="Sadece seçili iç parçayı siler (bölmeyi silmez)"
@@ -8853,8 +8915,8 @@ const clear3DGhostPreview = useCallback(() => {
                               data-testid="floating-card-delete-selected-part"
                               onClick={() => {
                                 removeBayAt(activeBayIndex);
-                                setDragDropSnapBanner("Ara dikme kaldırıldı ve bölmeler birleştirildi");
-                                setTimeout(() => setDragDropSnapBanner(null), 2200);
+                                setSnapBannerDedup("Ara dikme kaldırıldı ve bölmeler birleştirildi");
+                                setTimeout(() => setSnapBannerDedup(null), 2200);
                               }}
                               className="shrink-0 px-2 py-1 rounded-lg bg-red-50 hover:bg-red-100 border border-red-200 text-[10px] font-semibold text-red-700 transition cursor-pointer"
                             >
@@ -8866,10 +8928,10 @@ const clear3DGhostPreview = useCallback(() => {
                               data-testid="floating-card-delete-selected-part"
                               onClick={() => {
                                 setBayDoorType(activeBayIndex, "open");
-                                setDragDropSnapBanner(
+                                setSnapBannerDedup(
                                   `${activeBayIndex + 1}. Bölme kapağı kaldırıldı`
                                 );
-                                setTimeout(() => setDragDropSnapBanner(null), 2200);
+                                setTimeout(() => setSnapBannerDedup(null), 2200);
                               }}
                               className="shrink-0 px-2 py-1 rounded-lg bg-[#FAF9F6] hover:bg-red-50 border border-[#DED8CC] text-[10px] font-semibold text-[#57534E] hover:text-red-700 transition cursor-pointer"
                             >
@@ -9124,10 +9186,10 @@ const clear3DGhostPreview = useCallback(() => {
                             data-testid="floating-bay-shrink-double"
                             onClick={() => {
                               shrinkDoubleBayToSingle(activeBayIndex);
-                              setDragDropSnapBanner(
+                              setSnapBannerDedup(
                                 `${activeBayIndex + 1}. Bölme tek kapağa düşürüldü (Dolap ${halfShrunkOuterCm} cm oldu)`
                               );
-                              setTimeout(() => setDragDropSnapBanner(null), 2500);
+                              setTimeout(() => setSnapBannerDedup(null), 2500);
                             }}
                             className="w-full px-2.5 py-1.5 rounded-xl bg-white hover:bg-[#EFECE5] border border-[#DED8CC] text-left transition cursor-pointer"
                           >
@@ -9146,10 +9208,10 @@ const clear3DGhostPreview = useCallback(() => {
                               data-testid="floating-bay-merge-bay"
                               onClick={() => {
                                 removeBayAt(activeBayIndex);
-                                setDragDropSnapBanner(
+                                setSnapBannerDedup(
                                   `${activeBayIndex + 1}. Bölme komşu bölmeyle birleştirildi (${Math.round(activeModule.dimensions.width / 10)} cm sabit)`
                                 );
-                                setTimeout(() => setDragDropSnapBanner(null), 2400);
+                                setTimeout(() => setSnapBannerDedup(null), 2400);
                               }}
                               className="w-full px-2.5 py-1.5 rounded-xl bg-white hover:bg-[#EFECE5] border border-[#DED8CC] text-left transition cursor-pointer"
                             >
@@ -9165,10 +9227,10 @@ const clear3DGhostPreview = useCallback(() => {
                               data-testid="floating-bay-delete-bay"
                               onClick={() => {
                                 removeBayAndShrinkModule(activeBayIndex);
-                                setDragDropSnapBanner(
+                                setSnapBannerDedup(
                                   `${activeBayIndex + 1}. Bölme çıkarıldı (Dolap ${shrunkOuterCm} cm genişliğe daraltıldı)`
                                 );
-                                setTimeout(() => setDragDropSnapBanner(null), 2400);
+                                setTimeout(() => setSnapBannerDedup(null), 2400);
                               }}
                               className="w-full px-2.5 py-1.5 rounded-xl bg-white hover:bg-red-50 border border-[#E5E0D5] hover:border-red-200 text-left transition cursor-pointer"
                             >
@@ -9592,8 +9654,8 @@ const clear3DGhostPreview = useCallback(() => {
                   data-testid="hud-mat-tool-clear"
                   onClick={() => {
                     resetModuleMaterialOverrides();
-                    setDragDropSnapBanner("🧹 Özel parça malzeme atamaları temizlendi");
-                    setTimeout(() => setDragDropSnapBanner(null), 2000);
+                    setSnapBannerDedup("🧹 Özel parça malzeme atamaları temizlendi");
+                    setTimeout(() => setSnapBannerDedup(null), 2000);
                   }}
                   className="w-9 h-9 rounded-xl flex items-center justify-center text-red-600 hover:bg-red-500/15 transition cursor-pointer"
                   title="Özel parça malzeme atamalarını sıfırla"
@@ -9725,12 +9787,12 @@ const clear3DGhostPreview = useCallback(() => {
               data-testid="hud-tool-toggle-doors"
               onClick={() => {
                 toggleDoorOpen();
-                setDragDropSnapBanner(
+                setSnapBannerDedup(
                   doorOpenAngleDeg > 0
                     ? "🚪 Kapaklar Kapatıldı"
                     : "🚪 Kapaklar Açıldı (İç Donanım Görünümü)"
                 );
-                setTimeout(() => setDragDropSnapBanner(null), 2000);
+                setTimeout(() => setSnapBannerDedup(null), 2000);
               }}
               className={`w-9 h-9 rounded-xl flex items-center justify-center transition cursor-pointer ${
                 doorOpenAngleDeg > 0
@@ -9752,8 +9814,8 @@ const clear3DGhostPreview = useCallback(() => {
               data-testid="in-canvas-flip-door-dir"
               onClick={() => {
                 flipActiveDoorDirection(activeBayIndex);
-                setDragDropSnapBanner("⇄ Kapak Açılış Yönü Aynalandı (Sol ⇄ Sağ)");
-                setTimeout(() => setDragDropSnapBanner(null), 2200);
+                setSnapBannerDedup("⇄ Kapak Açılış Yönü Aynalandı (Sol ⇄ Sağ)");
+                setTimeout(() => setSnapBannerDedup(null), 2200);
               }}
               className="w-9 h-9 rounded-xl flex items-center justify-center text-[#44403C] hover:bg-white/70 hover:text-[#141413] transition cursor-pointer"
               title="Kapak Açılış Yönünü Aynala (Sol ⇄ Sağ)"
@@ -10546,8 +10608,8 @@ const clear3DGhostPreview = useCallback(() => {
                           setTimeout(() => {
                             if (a.parentNode) a.parentNode.removeChild(a);
                           }, 1000);
-                          setDragDropSnapBanner("2K Ultra Stüdyo Render indirildi");
-                          setTimeout(() => setDragDropSnapBanner(null), 2800);
+                          setSnapBannerDedup("2K Ultra Stüdyo Render indirildi");
+                          setTimeout(() => setSnapBannerDedup(null), 2800);
                         }
                       }}
                       className="flex-1 h-8 px-2.5 rounded-xl birim-ice-btn-active disabled:opacity-60 font-semibold text-[11px] flex items-center justify-center gap-1.5 transition cursor-pointer"

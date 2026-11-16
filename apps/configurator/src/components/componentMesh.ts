@@ -156,10 +156,14 @@ function getCachedCountertopCutoutGeometry(
   w: number,
   h: number,
   d: number,
-  hole: NonNullable<import("@birim/geometry").ComponentBox3D["cutoutHole"]>,
+  hole: NonNullable<ComponentGeometry["cutoutHole"]>,
   grainCrosswise = false
 ): { geo: THREE.BufferGeometry; edges: THREE.EdgesGeometry } {
-  const key = `${Math.round(w)}_${Math.round(h)}_${Math.round(d)}_${Math.round(hole.offsetX)}_${Math.round(hole.offsetZ)}_${Math.round(hole.width)}_${Math.round(hole.depth)}_${Math.round(hole.cornerRadiusMm || 10)}_${grainCrosswise ? 1 : 0}`;
+  const resolvedW = hole.widthMm ?? hole.width ?? 0;
+  const resolvedD = hole.depthMm ?? hole.depth ?? 0;
+  const resolvedOffX = hole.offsetX ?? (hole.centerXMm ?? w / 2) - resolvedW / 2;
+  const resolvedOffZ = hole.offsetZ ?? (hole.centerZMm ?? d / 2) - resolvedD / 2;
+  const key = `${Math.round(w)}_${Math.round(h)}_${Math.round(d)}_${Math.round(resolvedOffX)}_${Math.round(resolvedOffZ)}_${Math.round(resolvedW)}_${Math.round(resolvedD)}_${Math.round(hole.cornerRadiusMm || 10)}_${grainCrosswise ? 1 : 0}`;
   const hit = countertopCutoutCache.get(key);
   if (hit) return hit;
 
@@ -187,11 +191,11 @@ function getCachedCountertopCutoutGeometry(
   shape.closePath();
 
   // Clamp inner cutout safely inside countertop margins (minimum 35mm front/rear/side bridge)
-  const holeW = Math.max(80, Math.min(w - 70, hole.width));
-  const holeD = Math.max(80, Math.min(d - 70, hole.depth));
-  const x0 = Math.max(-hw + 35, Math.min(hw - 35 - holeW, -hw + hole.offsetX));
+  const holeW = Math.max(80, Math.min(w - 70, resolvedW));
+  const holeD = Math.max(80, Math.min(d - 70, resolvedD));
+  const x0 = Math.max(-hw + 35, Math.min(hw - 35 - holeW, -hw + resolvedOffX));
   // Shape Y maps to -Z after rotateX(-PI/2), so z in [-hd..hd] maps to shapeY = -z
-  const zFront = Math.max(-hd + 35, Math.min(hd - 35 - holeD, -hd + hole.offsetZ));
+  const zFront = Math.max(-hd + 35, Math.min(hd - 35 - holeD, -hd + resolvedOffZ));
   const yTop = -zFront;
   const yBot = -(zFront + holeD);
   const r = Math.max(2, Math.min(hole.cornerRadiusMm ?? 12, holeW * 0.2, holeD * 0.2));
@@ -1705,7 +1709,9 @@ export function createComponentMesh(
   }
 
   // 5.9 TRUE 3D COUNTERTOP / PANEL APERTURE EXTRUSION (Sink & Cooktop See-Through Cutout!)
-  if (comp.cutoutHole && comp.cutoutHole.width > 40 && comp.cutoutHole.depth > 40) {
+  const cutoutW = comp.cutoutHole?.widthMm ?? comp.cutoutHole?.width ?? 0;
+  const cutoutD = comp.cutoutHole?.depthMm ?? comp.cutoutHole?.depth ?? 0;
+  if (comp.cutoutHole && cutoutW > 40 && cutoutD > 40) {
     const isCross =
       userData?.grainDir === "crosswise" || comp.grainDirection === "crosswise";
     const { geo: cutGeo, edges: cutEdges } = getCachedCountertopCutoutGeometry(

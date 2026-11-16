@@ -14,6 +14,7 @@ import {
   Scissors,
   Box,
   Download,
+  Move,
 } from "lucide-react";
 import type { ModuleInstance } from "@birim/core";
 import type { ViewportRenderStyle } from "../store/useConfiguratorStore";
@@ -68,6 +69,7 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
     const [sectionAxis, setSectionAxis] = useState<null | "X" | "Z">(null);
     const [sectionRatio, setSectionRatio] = useState<number>(0.5);
     const [renderingPhoto, setRenderingPhoto] = useState(false);
+    const [moveMode3D, setMoveMode3D] = useState(false);
     const popRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -358,6 +360,31 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
               <Maximize2 className="w-3.5 h-3.5" />
             </button>
           </div>
+
+          <button
+            type="button"
+            data-testid="v11-bottom-move-mode-btn"
+            onClick={() => {
+              const next = !moveMode3D;
+              setMoveMode3D(next);
+              if (typeof window !== "undefined") {
+                window.dispatchEvent(new CustomEvent("birim:set-move-mode-3d", { detail: next }));
+              }
+            }}
+            title={
+              moveMode3D
+                ? "Modül Taşıma Açık — Ekranı sol tuşla döndürmek için kapatın"
+                : "Sol Tuş: Ekranı Döndür • Dolabı duvarda kaydırmak için tıklayın (veya Shift basılı tutun)"
+            }
+            className={`h-8 px-2.5 rounded-full flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer ${
+              moveMode3D
+                ? "bg-[#C2410C] text-white"
+                : "hover:bg-[#EFECE4] text-[#44403C]"
+            }`}
+          >
+            <Move className="w-3.5 h-3.5" />
+            <span className="hidden lg:inline">{moveMode3D ? "Taşıma Açık" : "Taşı"}</span>
+          </button>
 
           <span className="h-5 w-px bg-[#DFD9CE]" />
 

@@ -52,12 +52,19 @@ export interface ComponentGeometry {
   isInternalDrawer?: boolean;
   crossSectionProfile?: import("@birim/core").DoorCrossSectionProfile;
   customCadPolygon?: { x: number; y: number }[];
+  /** Optional explicit grain orientation for 3D UV projection */
+  grainDirection?: "lengthwise" | "crosswise" | "none";
   /** Analytical rectangular 3D aperture cut through a countertop (sink / cooktop hole) */
   cutoutHole?: {
-    centerXMm: UnitLength;
-    centerZMm: UnitLength;
-    widthMm: UnitLength;
-    depthMm: UnitLength;
+    centerXMm?: UnitLength;
+    centerZMm?: UnitLength;
+    widthMm?: UnitLength;
+    depthMm?: UnitLength;
+    offsetX?: UnitLength;
+    offsetZ?: UnitLength;
+    width?: UnitLength;
+    depth?: UnitLength;
+    cornerRadiusMm?: UnitLength;
   };
   /** U-shaped siphon cutout on under-sink drawer bottom & back */
   siphonCutout?: {
@@ -91,3 +98,5 @@ export interface ModuleGeometryBreakdown {
   netInnerHeight: UnitLength;
   netInnerDepth: UnitLength;
 }
+
+export type ComponentBox3D = ComponentGeometry;

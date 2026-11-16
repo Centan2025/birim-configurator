@@ -94,7 +94,7 @@ export async function renderSceneWithBlenderCycles(
   onProgress?.(22);
 
   const formData = new FormData();
-  formData.append("glb", new Blob([glbBuffer], { type: "model/gltf-binary" }), "scene.glb");
+  formData.append("glb", new Blob([glbBuffer as unknown as BlobPart], { type: "model/gltf-binary" }), "scene.glb");
   formData.append(
     "meta",
     JSON.stringify({

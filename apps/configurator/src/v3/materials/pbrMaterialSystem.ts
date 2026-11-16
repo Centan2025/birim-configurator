@@ -198,7 +198,7 @@ function buildNormalMapFromHeightField(
   normalTex.wrapS = THREE.RepeatWrapping;
   normalTex.wrapT = THREE.RepeatWrapping;
   normalTex.repeat.set(repeatX, repeatY);
-  normalTex.anisotropy = 8;
+  normalTex.anisotropy = 4;
   normalTex.needsUpdate = true;
   return normalTex;
 }
@@ -217,7 +217,7 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
 
   // 0. WOVEN ARCHITECTURAL LINEN / TEXTILE PANEL (Cross-Slub Yarn Albedo + Weave Normal + Roughness)
   if (matDef.id.includes("linen") || matDef.id.includes("fabric") || matDef.id.includes("keten")) {
-    const S = 256;
+    const S = 96;
     const colorCanvas = document.createElement("canvas");
     colorCanvas.width = S;
     colorCanvas.height = S;
@@ -264,7 +264,7 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     colorMap.wrapT = THREE.RepeatWrapping;
     colorMap.repeat.set(2.4, 2.4);
     colorMap.colorSpace = THREE.SRGBColorSpace;
-    colorMap.anisotropy = 8;
+    colorMap.anisotropy = 4;
     colorMap.needsUpdate = true;
 
     const roughnessMap = markSharedTexture(new THREE.CanvasTexture(roughCanvas));
@@ -281,8 +281,8 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
 
   // 1. HIGH-DEFINITION RIFT-CUT / CATHEDRAL ARCHITECTURAL WOOD VENEERS (768x768 3-Map PBR)
   if (matDef.category === "wood" || (matDef.category === "laminate" && matDef.hasGrain)) {
-    const W = 512;
-    const H = 512;
+    const W = 128;
+    const H = 128;
     const colorCanvas = document.createElement("canvas");
     colorCanvas.width = W;
     colorCanvas.height = H;
@@ -323,12 +323,12 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
         const nx = x / W;
 
         // Pure longitudinal rift-cut fiber meander (zero horizontal banding)
-        const meander = (periodicFbm(nx, ny, 3, 1, 3) - 0.5) * 0.09;
+        const meander = (periodicNoise(nx * 3, ny, 3, 1) - 0.5) * 0.08;
         const ux = fract(nx + meander);
         const uy = ny;
 
-        const broadHeartwood = periodicFbm(ux, uy, 4, 1, 3);
-        const mediumFibers = periodicFbm(ux, uy, isWalnut ? 20 : 26, 2, 4);
+        const broadHeartwood = periodicFbm(ux, uy, 4, 1, 2);
+        const mediumFibers = periodicFbm(ux, uy, isWalnut ? 18 : 22, 2, 2);
         const fineGrain = periodicNoise(ux * 84, uy * 8, 84, 8);
 
         // Open-pore longitudinal wood vessels (characteristic recessed capillaries of European Oak & American Walnut)
@@ -341,7 +341,7 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
           : 0;
 
         // Organic non-periodic latewood fiber density (zero periodic sine stripes)
-        const latewoodBand = periodicFbm(ux + 0.41, uy, isWalnut ? 10 : 14, 1, 3);
+        const latewoodBand = periodicNoise((ux + 0.41) * (isWalnut ? 10 : 14), uy, isWalnut ? 10 : 14, 1);
 
         // Authentic tangential cathedral V-crown growth ring modulation blended with rift-cut flank fibers
         const plankCenter = ((ux * 2.0) % 1.0) - 0.5;
@@ -398,13 +398,13 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     colorMap.wrapS = THREE.RepeatWrapping;
     colorMap.wrapT = THREE.RepeatWrapping;
     colorMap.colorSpace = THREE.SRGBColorSpace;
-    colorMap.anisotropy = 8;
+    colorMap.anisotropy = 4;
     colorMap.needsUpdate = true;
 
     const roughnessMap = markSharedTexture(new THREE.CanvasTexture(roughCanvas));
     roughnessMap.wrapS = THREE.RepeatWrapping;
     roughnessMap.wrapT = THREE.RepeatWrapping;
-    roughnessMap.anisotropy = 8;
+    roughnessMap.anisotropy = 4;
     roughnessMap.needsUpdate = true;
 
     const normalMap = buildNormalMapFromHeightField(heightField, W, H, 1.85, 1, 1);
@@ -421,7 +421,7 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
 
   // 2. BRUSHED ARCHITECTURAL METALS (Anodized Black, Brushed Brass, Inox, Anthracite)
   if (matDef.category === "metal") {
-    const S = 256;
+    const S = 64;
     const roughCanvas = document.createElement("canvas");
     roughCanvas.width = S;
     roughCanvas.height = S;
@@ -450,7 +450,7 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     const roughnessMap = markSharedTexture(new THREE.CanvasTexture(roughCanvas));
     roughnessMap.wrapS = THREE.RepeatWrapping;
     roughnessMap.wrapT = THREE.RepeatWrapping;
-    roughnessMap.anisotropy = 8;
+    roughnessMap.anisotropy = 4;
     roughnessMap.needsUpdate = true;
 
     const normalMap = buildNormalMapFromHeightField(heightField, S, S, 0.9, 1, 1);
@@ -461,7 +461,7 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
 
   // 3. SILK MATTE ITALIAN LACQUER & SUPRAMAT MELAMINE (Micro-velvet roughness + subtle sprayed lacquer skin normal)
   if (matDef.category === "lacquer" || matDef.category === "laminate") {
-    const S = 256;
+    const S = 64;
     const roughCanvas = document.createElement("canvas");
     roughCanvas.width = S;
     roughCanvas.height = S;
@@ -490,7 +490,7 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     roughnessMap.wrapS = THREE.RepeatWrapping;
     roughnessMap.wrapT = THREE.RepeatWrapping;
     roughnessMap.repeat.set(2.5, 2.5);
-    roughnessMap.anisotropy = 8;
+    roughnessMap.anisotropy = 4;
     roughnessMap.needsUpdate = true;
 
     const normalMap = buildNormalMapFromHeightField(heightField, S, S, 0.35, 2.5, 2.5);
@@ -502,8 +502,8 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
 
   // 4. NEOLITH SINTERED STONE, DEKTON, BELENCO & HONED MARBLE VEINING (768x768 3-Map PBR)
   if (matDef.category === "stone") {
-    const W = 256;
-    const H = 256;
+    const W = 128;
+    const H = 128;
     const colorCanvas = document.createElement("canvas");
     colorCanvas.width = W;
     colorCanvas.height = H;
@@ -571,13 +571,13 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     colorMap.wrapS = THREE.RepeatWrapping;
     colorMap.wrapT = THREE.RepeatWrapping;
     colorMap.colorSpace = THREE.SRGBColorSpace;
-    colorMap.anisotropy = 8;
+    colorMap.anisotropy = 4;
     colorMap.needsUpdate = true;
 
     const roughnessMap = markSharedTexture(new THREE.CanvasTexture(roughCanvas));
     roughnessMap.wrapS = THREE.RepeatWrapping;
     roughnessMap.wrapT = THREE.RepeatWrapping;
-    roughnessMap.anisotropy = 8;
+    roughnessMap.anisotropy = 4;
     roughnessMap.needsUpdate = true;
 
     const normalMap = buildNormalMapFromHeightField(heightField, W, H, 0.75, 1, 1);
@@ -589,7 +589,7 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
 
   // 2. ARCHITECTURAL CALACATTA / SINTERED STONE COUNTERTOP VEINING (512x512)
   if (matDef.category === "stone" || matDef.id.includes("stone") || matDef.id.includes("calacatta")) {
-    const S = 512;
+    const S = 128;
     const colorCanvas = document.createElement("canvas");
     colorCanvas.width = S;
     colorCanvas.height = S;
@@ -648,13 +648,13 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     colorMap.wrapS = THREE.RepeatWrapping;
     colorMap.wrapT = THREE.RepeatWrapping;
     colorMap.colorSpace = THREE.SRGBColorSpace;
-    colorMap.anisotropy = 8;
+    colorMap.anisotropy = 4;
     colorMap.needsUpdate = true;
 
     const roughnessMap = markSharedTexture(new THREE.CanvasTexture(roughCanvas));
     roughnessMap.wrapS = THREE.RepeatWrapping;
     roughnessMap.wrapT = THREE.RepeatWrapping;
-    roughnessMap.anisotropy = 8;
+    roughnessMap.anisotropy = 4;
     roughnessMap.needsUpdate = true;
 
     const normalMap = buildNormalMapFromHeightField(heightField, S, S, 0.45, 1, 1);
@@ -665,7 +665,7 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
 
   // 3. ANISOTROPIC BRUSHED ARCHITECTURAL METAL (Inox, Brass, Anthracite, Matte Black)
   if (matDef.category === "metal") {
-    const S = 256;
+    const S = 64;
     const roughCanvas = document.createElement("canvas");
     roughCanvas.width = S;
     roughCanvas.height = S;
@@ -691,7 +691,7 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     const roughnessMap = markSharedTexture(new THREE.CanvasTexture(roughCanvas));
     roughnessMap.wrapS = THREE.RepeatWrapping;
     roughnessMap.wrapT = THREE.RepeatWrapping;
-    roughnessMap.anisotropy = 8;
+    roughnessMap.anisotropy = 4;
     roughnessMap.needsUpdate = true;
     const normalMap = buildNormalMapFromHeightField(heightField, S, S, 0.35, 2, 2);
     const set: CachedTextureSet = { roughnessMap, normalMap };
@@ -724,7 +724,7 @@ export function getArchitecturalWallTexture(
   const cached = wallTextureCache.get(tone);
   if (cached) return cached;
 
-  const S = 256;
+  const S = 96;
   const canvas = document.createElement("canvas");
   canvas.width = S;
   canvas.height = S;
@@ -745,14 +745,14 @@ export function getArchitecturalWallTexture(
     const ny = y / S;
     for (let x = 0; x < S; x++) {
       const nx = x / S;
-      const cloud = (periodicFbm(nx, ny, 4, 4, 3) - 0.5) * (isConcrete ? 20 : 11);
-      const trowel = (periodicFbm(nx + 0.3, ny + 0.7, 12, 8, 2) - 0.5) * (isConcrete ? 9 : 6);
+      const cloud = (periodicFbm(nx, ny, 4, 4, 2) - 0.5) * (isConcrete ? 20 : 11);
+      const trowel = (periodicNoise((nx + 0.3) * 12, (ny + 0.7) * 8, 12, 8) - 0.5) * (isConcrete ? 9 : 6);
       const fineMineral = (hash2D(x * 0.7, y * 0.7) - 0.5) * 5;
-      const isFormworkJoint = isConcrete && (x % 128 === 0 || y % 128 === 0);
+      const isFormworkJoint = isConcrete && (x % 48 === 0 || y % 48 === 0);
 
       // Subtle architectural concrete tie-cone dimples at panel centers
-      const dxTie = ((x + 128) % 256) - 128;
-      const dyTie = ((y + 128) % 256) - 128;
+      const dxTie = ((x + 48) % 96) - 48;
+      const dyTie = ((y + 48) % 96) - 48;
       const distTie = Math.sqrt(dxTie * dxTie + dyTie * dyTie);
       const isTieCone = isConcrete && distTie < 3.6;
 
@@ -779,7 +779,7 @@ export function getArchitecturalWallTexture(
   tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(3.2, 2.1);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 8;
+  tex.anisotropy = 4;
   tex.needsUpdate = true;
   wallTextureCache.set(tone, tex);
 
@@ -815,7 +815,7 @@ export function getArchitecturalFloorTexture(
   const cached = floorTextureCache.get(style);
   if (cached) return cached;
 
-  const S = 512;
+  const S = 128;
   const canvas = document.createElement("canvas");
   canvas.width = S;
   canvas.height = S;
@@ -830,38 +830,38 @@ export function getArchitecturalFloorTexture(
       const idx = (y * S + x) * 4;
       if (style === "oak_parquet" || style === "walnut_parquet") {
         const isWalnut = style === "walnut_parquet";
-        const plankRow = Math.floor(y / 32);
-        const plankX = (x + (plankRow % 2) * 64) % 128;
-        const plankY = y % 32;
+        const plankRow = Math.floor(y / 8);
+        const plankX = (x + (plankRow % 2) * 16) % 32;
+        const plankY = y % 8;
         const isMicroJoint = plankX === 0 || plankY === 0;
-        const plankSeed = hash2D(plankRow, Math.floor((x + (plankRow % 2) * 64) / 128));
+        const plankSeed = hash2D(plankRow, Math.floor((x + (plankRow % 2) * 16) / 32));
         const fiber =
-          (periodicFbm(nx, ny, 8, 40, 2) - 0.5) * 14 + (plankSeed - 0.5) * 9;
+          (periodicNoise(nx * 8, ny * 36, 8, 36) - 0.5) * 14 + (plankSeed - 0.5) * 9;
         const baseR = isWalnut ? 118 : 182;
         const baseG = isWalnut ? 90 : 162;
         const baseB = isWalnut ? 70 : 136;
-        const seamDrop = isMicroJoint ? 22 : 0;
+        const seamDrop = isMicroJoint ? 20 : 0;
         img.data[idx] = clampByte(baseR + fiber - seamDrop);
         img.data[idx + 1] = clampByte(baseG + fiber * 0.92 - seamDrop);
         img.data[idx + 2] = clampByte(baseB + fiber * 0.82 - seamDrop);
         img.data[idx + 3] = 255;
-        heightField[y * S + x] = 0.5 + fiber * 0.008 - (isMicroJoint ? 0.36 : 0);
+        heightField[y * S + x] = 0.5 + fiber * 0.008 - (isMicroJoint ? 0.28 : 0);
       } else if (style === "herringbone_oak") {
-        const col = Math.floor(x / 32);
-        const diag = col % 2 === 0 ? (x + y) % 32 : (x - y + 256) % 32;
-        const isSeam = x % 32 === 0 || diag === 0;
-        const plankId = Math.floor((col % 2 === 0 ? x + y : x - y + 256) / 32);
+        const col = Math.floor(x / 8);
+        const diag = col % 2 === 0 ? (x + y) % 8 : (x - y + 128) % 8;
+        const isSeam = x % 8 === 0 || diag === 0;
+        const plankId = Math.floor((col % 2 === 0 ? x + y : x - y + 128) / 8);
         const plankTint = (hash2D(col, plankId) - 0.5) * 9;
-        const grain = (periodicFbm(nx, ny, 16, 16, 3) - 0.5) * 14 + plankTint;
-        const seamDrop = isSeam ? 28 : 0;
+        const grain = (periodicNoise(nx * 16, ny * 16, 16, 16) - 0.5) * 14 + plankTint;
+        const seamDrop = isSeam ? 24 : 0;
         img.data[idx] = clampByte(178 + grain - seamDrop);
         img.data[idx + 1] = clampByte(158 + grain * 0.92 - seamDrop);
         img.data[idx + 2] = clampByte(132 + grain * 0.82 - seamDrop);
         img.data[idx + 3] = 255;
-        heightField[y * S + x] = 0.5 + grain * 0.007 - (isSeam ? 0.35 : 0);
+        heightField[y * S + x] = 0.5 + grain * 0.007 - (isSeam ? 0.28 : 0);
       } else if (style === "neolith_calacatta") {
-        const tileX = x % 256;
-        const tileY = y % 256;
+        const tileX = x % 64;
+        const tileY = y % 64;
         const isGrout = tileX === 0 || tileY === 0;
         const warp = periodicFbm(nx, ny, 4, 4, 3);
         const vein = Math.pow(
@@ -881,8 +881,8 @@ export function getArchitecturalFloorTexture(
         img.data[idx + 3] = 255;
         heightField[y * S + x] = 0.5 + n * 0.01;
       } else {
-        const tileX = x % 256;
-        const tileY = y % 256;
+        const tileX = x % 64;
+        const tileY = y % 64;
         const isGrout = tileX === 0 || tileY === 0;
         const n = (periodicFbm(nx, ny, 8, 4, 3) - 0.5) * 13;
         img.data[idx] = isGrout ? 202 : clampByte(226 + n);
@@ -900,7 +900,7 @@ export function getArchitecturalFloorTexture(
   tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(rep, rep);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 8;
+  tex.anisotropy = 4;
   tex.needsUpdate = true;
   floorTextureCache.set(style, tex);
 
@@ -1045,8 +1045,8 @@ export function getStudioPmremEnvironment(renderer: THREE.WebGLRenderer): THREE.
 export function getStudioEnvironmentTexture(): THREE.DataTexture {
   if (cachedStudioEnvTexture) return cachedStudioEnvTexture;
 
-  const width = 256;
-  const height = 128;
+  const width = 64;
+  const height = 32;
   const data = new Uint8Array(width * height * 4);
 
   for (let y = 0; y < height; y++) {

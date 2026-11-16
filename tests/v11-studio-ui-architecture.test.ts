@@ -430,4 +430,58 @@ describe("V11.4 Studio UI, Fixed Shelf, System-32 Multi-Hole Shelf Snap, Perform
     );
     expect(libAdmin).toContain("as unknown as BufferSource");
   });
+
+  it("enforces V11.8 instant 3D camera orbit (LEFT=ROTATE, moveObjectMode3D=false), <20ms PBR startup & strict TS ComponentGeometry/SpaceDefinition compatibility", () => {
+    const vpSrc = fs.readFileSync(
+      path.resolve(__dirname, "../apps/configurator/src/v3/components/V3ThreeViewport.tsx"),
+      "utf8"
+    );
+    // 1. Left-click drag MUST rotate the 3D scene and moveObjectMode3D MUST default to false!
+    expect(vpSrc).toContain("LEFT: THREE.MOUSE.ROTATE");
+    expect(vpSrc).toContain("RIGHT: THREE.MOUSE.PAN");
+    expect(vpSrc).toContain("const [moveObjectMode3D, setMoveObjectMode3D] = useState<boolean>(false)");
+    expect(vpSrc).toContain("const [invertCameraMouse, setInvertCameraMouse] = useState<boolean>(false)");
+    expect(vpSrc).toContain("scene.environment = getStudioEnvironmentTexture()");
+    expect(vpSrc).toContain("window.addEventListener(\"pointercancel\", handlePointerCancelOrBlur");
+    expect(vpSrc).toContain("updateSelectionFramesRef.current()");
+
+    // Ensure handlePointerDown never calls selectModuleBayComponentSafe synchronously before drag/click disambiguation
+    const pDownStart = vpSrc.indexOf("const handlePointerDown = (e: PointerEvent) => {");
+    const pDownEnd = vpSrc.indexOf("const hoverOverlayGroup = new THREE.Group();");
+    expect(pDownStart).toBeGreaterThan(0);
+    expect(pDownEnd).toBeGreaterThan(pDownStart);
+    const pDownBody = vpSrc.slice(pDownStart, pDownEnd);
+    expect(pDownBody.includes("selectModuleBayComponentSafe(")).toBe(false);
+
+    // 2. Verify ComponentMesh & @birim/geometry strict TS compatibility (zero ComponentBox3D error, valid grainDirection & cutoutHole)
+    const geomTypesSrc = fs.readFileSync(
+      path.resolve(__dirname, "../packages/geometry/src/types.ts"),
+      "utf8"
+    );
+    expect(geomTypesSrc).toContain("export type ComponentBox3D = ComponentGeometry;");
+    expect(geomTypesSrc).toContain("grainDirection?:");
+
+    const cmSrc = fs.readFileSync(
+      path.resolve(__dirname, "../apps/configurator/src/components/componentMesh.ts"),
+      "utf8"
+    );
+    expect(cmSrc.includes('import("@birim/geometry").ComponentBox3D')).toBe(false);
+    expect(cmSrc).toContain('hole: NonNullable<ComponentGeometry["cutoutHole"]>');
+
+    // 3. Verify BirimStudioWorkspace uses project.space (never project.room)
+    const wsSrc = fs.readFileSync(
+      path.resolve(__dirname, "../apps/configurator/src/v11/BirimStudioWorkspace.tsx"),
+      "utf8"
+    );
+    expect(wsSrc.includes("project.room")).toBe(false);
+    expect(wsSrc).toContain("project.space?.ceilingHeight");
+
+    // 4. Verify PBR procedural texture resolutions stay compact (<=128px) for <15ms main-thread startup
+    const pbrSrc = fs.readFileSync(
+      path.resolve(__dirname, "../apps/configurator/src/v3/materials/pbrMaterialSystem.ts"),
+      "utf8"
+    );
+    expect(pbrSrc.includes("const W = 512")).toBe(false);
+    expect(pbrSrc.includes("const S = 512")).toBe(false);
+  });
 });

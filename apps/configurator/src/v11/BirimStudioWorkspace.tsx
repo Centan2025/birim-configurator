@@ -309,8 +309,8 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
     [project.customMaterials]
   );
 
-  const wallWidthMm = spaceWalls?.[0]?.length || project.room?.width || 3600;
-  const ceilingHeightMm = spaceWalls?.[0]?.height || project.room?.height || 2600;
+  const wallWidthMm = spaceWalls?.[0]?.length || project.space?.walls?.[0]?.length || 3600;
+  const ceilingHeightMm = spaceWalls?.[0]?.height || project.space?.ceilingHeight || 2600;
 
   const allFindings = useMemo(() => {
     if (!unifiedEngineeringReport) return [];
