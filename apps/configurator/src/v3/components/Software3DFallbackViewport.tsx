@@ -585,7 +585,7 @@ export const Software3DFallbackViewport: React.FC<Software3DFallbackViewportProp
         onPointerDown={(e) => {
           (e.currentTarget as HTMLCanvasElement).setPointerCapture(e.pointerId);
           dragRef.current = {
-            mode: e.button === 2 || e.shiftKey ? "pan" : "orbit",
+            mode: e.button === 2 || e.shiftKey ? "orbit" : "pan",
             startX: e.clientX,
             startY: e.clientY,
             startYaw: yawDeg,

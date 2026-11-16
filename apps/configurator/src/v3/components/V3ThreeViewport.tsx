@@ -2026,9 +2026,9 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       const activeCam = isOrthographic ? orthoCamera : perspCamera;
       const controls = new OrbitControls(activeCam, renderer.domElement);
       controls.mouseButtons = {
-        LEFT: THREE.MOUSE.ROTATE,
+        LEFT: THREE.MOUSE.PAN,
         MIDDLE: THREE.MOUSE.DOLLY,
-        RIGHT: THREE.MOUSE.PAN,
+        RIGHT: THREE.MOUSE.ROTATE,
       };
       controls.touches = {
         ONE: THREE.TOUCH.ROTATE,
