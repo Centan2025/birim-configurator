@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
+import { getTenantProfileByIdOrSlug, type TenantBrandTheme } from "@birim/core";
 import { useConfiguratorStore } from "../../../store/useConfiguratorStore";
 import { V3UnifiedWorkspace } from "../../../v3/components/V3UnifiedWorkspace";
 import { V3BrandBadge } from "../../../v3/design-system";
@@ -12,12 +13,15 @@ export default function SharedProjectQuotePage() {
   const params = useParams<{ code: string }>();
   const searchParams = useSearchParams();
   const importProjectJSON = useConfiguratorStore((s) => s.importProjectJSON);
+  const switchActiveTenant = useConfiguratorStore((s) => s.switchActiveTenant);
 
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [errorText, setErrorText] = useState<string>("");
   const [verifiedBadge, setVerifiedBadge] = useState<{
     code: string;
-    totalEur: number;
+    brandName: string;
+    currency: "EUR" | "TRY";
+    totalFormatted: string;
     hmacShort: string;
   } | null>(null);
 
@@ -30,13 +34,27 @@ export default function SharedProjectQuotePage() {
       try {
         const res = await fetch(`/api/quotes/${encodeURIComponent(code)}`);
         if (res.ok) {
-          const data = (await res.json()) as { ok: boolean; quote?: VerifiedQuoteRecord };
+          const data = (await res.json()) as {
+            ok: boolean;
+            quote?: VerifiedQuoteRecord;
+            brand?: TenantBrandTheme;
+            currency?: "EUR" | "TRY";
+          };
           if (!cancelled && data.ok && data.quote?.projectSnapshot) {
+            const tenantProfile = getTenantProfileByIdOrSlug(data.quote.tenantId);
+            switchActiveTenant(tenantProfile.tenantId);
             const imported = importProjectJSON(JSON.stringify(data.quote.projectSnapshot));
             if (imported.success) {
+              const cur = data.currency || tenantProfile.pricing.currency;
+              const formatted =
+                cur === "TRY"
+                  ? `₺ ${Math.round(data.quote.serverVerifiedTotalWithVatTry).toLocaleString("tr-TR")}`
+                  : `€ ${data.quote.serverVerifiedDiscountedTotalEur.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`;
               setVerifiedBadge({
                 code: data.quote.code,
-                totalEur: data.quote.serverVerifiedDiscountedTotalEur,
+                brandName: (data.brand || tenantProfile.brand).displayName,
+                currency: cur,
+                totalFormatted: formatted,
                 hmacShort: data.quote.hmacSignature.slice(0, 10),
               });
               setStatus("ready");
@@ -48,16 +66,26 @@ export default function SharedProjectQuotePage() {
         if (fallbackToken) {
           const decoded = decodeSharePayloadBase64Url<{
             code: string;
+            tenantId?: string;
             verifiedTotalEur: number;
             sig: string;
             project: unknown;
           }>(fallbackToken);
           if (!cancelled && decoded?.project) {
+            const tenantProfile = getTenantProfileByIdOrSlug(decoded.tenantId);
+            switchActiveTenant(tenantProfile.tenantId);
             const imported = importProjectJSON(JSON.stringify(decoded.project));
             if (imported.success) {
+              const cur = tenantProfile.pricing.currency;
+              const formatted =
+                cur === "TRY"
+                  ? `₺ ${Math.round((decoded.verifiedTotalEur || 0) * tenantProfile.pricing.eurTryExchangeRate).toLocaleString("tr-TR")}`
+                  : `€ ${(decoded.verifiedTotalEur || 0).toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`;
               setVerifiedBadge({
                 code: decoded.code || code,
-                totalEur: decoded.verifiedTotalEur || 0,
+                brandName: tenantProfile.brand.displayName,
+                currency: cur,
+                totalFormatted: formatted,
                 hmacShort: decoded.sig || "stateless",
               });
               setStatus("ready");
@@ -67,7 +95,7 @@ export default function SharedProjectQuotePage() {
         }
 
         if (!cancelled) {
-          setErrorText("Paylaşılan Birim proje bağlantısı bulunamadı veya süresi dolmuş.");
+          setErrorText("Paylaşılan proje bağlantısı bulunamadı veya geçerlilik süresi dolmuş.");
           setStatus("error");
         }
       } catch {
@@ -82,13 +110,13 @@ export default function SharedProjectQuotePage() {
     return () => {
       cancelled = true;
     };
-  }, [params, searchParams, importProjectJSON]);
+  }, [params, searchParams, importProjectJSON, switchActiveTenant]);
 
   if (status === "loading") {
     return (
       <div className="flex flex-col items-center justify-center h-screen w-screen bg-[#F5F3EE] text-[#141413] gap-3">
         <V3BrandBadge subtitle="PAYLAŞIM" />
-        <p className="text-xs text-[#57534E]">Paylaşılan 3D tasarım ve doğrulanmış teklif yükleniyor...</p>
+        <p className="text-xs text-[#57534E]">Paylaşılan 3D tasarım ve imzalı teklif yükleniyor...</p>
       </div>
     );
   }
@@ -117,15 +145,17 @@ export default function SharedProjectQuotePage() {
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
             <span>
-              Doğrulanmış Birim Teklif Kodu: <strong className="font-mono">{verifiedBadge.code}</strong>
+              Doğrulanmış {verifiedBadge.brandName} Teklif Kodu:{" "}
+              <strong className="font-mono">{verifiedBadge.code}</strong>
             </span>
           </div>
-          <div className="font-mono text-stone-300">
-            Net Teklif: <strong className="text-white">€{verifiedBadge.totalEur.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</strong> • İmza: #{verifiedBadge.hmacShort}
+          <div className="flex items-center gap-3 font-mono">
+            <span>KDV Dahil: {verifiedBadge.totalFormatted}</span>
+            <span className="text-stone-400 hidden sm:inline">HMAC:{verifiedBadge.hmacShort}</span>
           </div>
         </div>
       )}
-      <div className="flex-1 min-h-0 relative">
+      <div className="flex-1 relative overflow-hidden">
         <V3UnifiedWorkspace initialMode="showroom" />
       </div>
     </div>

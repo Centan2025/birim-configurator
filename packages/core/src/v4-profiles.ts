@@ -1,4 +1,4 @@
-import {
+import type {
   BackPanelType,
   DesignProject,
   DoorOverlayType,
@@ -258,11 +258,14 @@ export function resolveEffectiveConstructionProfile(module: ModuleInstance): Con
 }
 
 export function calculateFourSpaceDimensions(
-  module: ModuleInstance
+  module: ModuleInstance,
+  customMaterials?: import("./types").MaterialDefinition[]
 ): FourSpaceDimensionsBreakdown {
   const profile = resolveEffectiveConstructionProfile(module);
   const { width, height, depth } = module.dimensions;
   const T = profile.panelThicknessMm;
+  const T_top = module.carcass.topPanelThicknessMm || T;
+  const hasCustomTopThick = T_top !== T;
   const T_door = profile.doorThicknessMm;
   const plinth = profile.plinthHeightMm;
   const gap = profile.doorPerimeterGapMm;
@@ -280,21 +283,21 @@ export function calculateFourSpaceDimensions(
       : "adjustable_legs_clip");
   const joinery = module.carcass.carcassJoineryTopology || "sides_through";
   const sideRunsToFloor = plinth > 0 && effPlinthConstruction === "gable_rails";
-  const carcassBoxHeightMm = Math.max(0, roundIntMm(height - plinth));
-  const sidePanelHeightMm =
-    joinery === "top_bottom_through"
-      ? Math.max(0, carcassBoxHeightMm - 2 * T)
-      : sideRunsToFloor
-      ? roundIntMm(height)
-      : carcassBoxHeightMm;
-  const sidePanelBottomYMm =
-    joinery === "top_bottom_through"
-      ? roundIntMm(plinth + T)
-      : sideRunsToFloor
-      ? 0
-      : roundIntMm(plinth);
+  const carcassBoxHeightMm = Math.max(0, roundIntMm(height - plinth - (hasCustomTopThick ? T_top : 0)));
+  const sidePanelHeightMm = hasCustomTopThick
+    ? Math.max(0, roundIntMm((sideRunsToFloor ? height : height - plinth) - T_top))
+    : sideRunsToFloor
+    ? Math.max(0, roundIntMm(joinery === "top_bottom_through" ? height - T : height))
+    : joinery === "top_bottom_through"
+    ? Math.max(0, carcassBoxHeightMm - 2 * T)
+    : carcassBoxHeightMm;
+  const sidePanelBottomYMm = sideRunsToFloor
+    ? 0
+    : joinery === "top_bottom_through" && !hasCustomTopThick
+    ? roundIntMm(plinth + T)
+    : roundIntMm(plinth);
   const horizontalPanelWidthMm =
-    joinery === "top_bottom_through" || joinery === "miter_45"
+    hasCustomTopThick || joinery === "top_bottom_through" || joinery === "miter_45"
       ? roundIntMm(width)
       : Math.max(0, roundIntMm(width - 2 * T));
 
@@ -355,7 +358,9 @@ export function calculateFourSpaceDimensions(
 
     const bayDoorMatId = bay.door.doorMaterialId || module.carcass.doorMaterialId;
     const doorMat =
-      DEFAULT_MATERIALS.find((m) => m.id === bayDoorMatId) || DEFAULT_MATERIALS[2];
+      (customMaterials || []).find((m) => m.id === bayDoorMatId) ||
+      DEFAULT_MATERIALS.find((m) => m.id === bayDoorMatId) ||
+      DEFAULT_MATERIALS[2];
     const densityKgM3 = doorMat.densityKgPerM3 || 750;
 
     const dType = bay.door.type;
@@ -426,22 +431,33 @@ export function calculateFourSpaceDimensions(
 
     const applyPartialDoorCut =
       !dSys.startsWith("sliding") && dSys !== "pocket_retractable" && dSys !== "tambour_roller";
-    const bottomCutMm = applyPartialDoorCut ? openCavityBottomCut : 0;
+    const userBottomOpenMm = Math.max(0, bay.door.doorBottomGapMm || 0);
+    const userTopOpenMm = Math.max(0, bay.door.doorTopGapMm || 0);
+    const bottomCutMm = (applyPartialDoorCut ? openCavityBottomCut : 0) + userBottomOpenMm;
     const topCutMm =
-      applyPartialDoorCut && topExtDrawers.length > 0
+      (applyPartialDoorCut && topExtDrawers.length > 0
         ? Math.max(
             0,
             netInnerHeightMm - Math.min(...topExtDrawers.map((d) => d.elevationY)) + T
           )
-        : 0;
+        : 0) + userTopOpenMm;
 
     const bottomOverhang = bay.door.bottomOverhangMm ?? 0; // e.g. +15mm handleless wall cabinet drop
     const rawDoorY0Mm =
       (overlayType === "inset" ? plinth + T + gap : plinth + gap) - bottomOverhang;
-    const doorX0Mm = roundMm(overlayType === "inset" ? bayStartX + gap : bayStartX - leftOverlay);
+    const klapaLeftMm = Math.max(0, bay.door.frontFillerLeftMm || 0);
+    const klapaRightMm = Math.max(0, bay.door.frontFillerRightMm || 0);
+    const klapaLeftGap = klapaLeftMm > 0 ? gap : 0;
+    const klapaRightGap = klapaRightMm > 0 ? gap : 0;
+    const doorX0Mm = roundMm(
+      (overlayType === "inset" ? bayStartX + gap : bayStartX - leftOverlay) + klapaLeftMm + klapaLeftGap
+    );
     const doorY0Mm = roundMm(rawDoorY0Mm + bottomCutMm);
     const doorZ0Mm = roundMm(overlayType === "inset" ? depth - T : depth);
-    const totalDoorSpanW = Math.max(80, roundMm(bayW + leftOverlay + rightOverlay));
+    const totalDoorSpanW = Math.max(
+      80,
+      roundMm(bayW + leftOverlay + rightOverlay - klapaLeftMm - klapaRightMm - klapaLeftGap - klapaRightGap)
+    );
 
     if (module.isOpenFront || dType === "open" || dSys === "open") {
       return {
@@ -478,7 +494,7 @@ export function calculateFourSpaceDimensions(
       dType === "inset_double" ||
       dSys === "hinged_double" ||
       dSys === "folding_side" ||
-      (isHingedOrFold && totalDoorSpanW > 600);
+      dType === "folding";
     const isBiFoldLift = dType === "lift_bi_fold" || dSys === "lift_bi_fold";
     const leafCount = isDouble || isBiFoldLift ? 2 : 1;
 
@@ -488,9 +504,29 @@ export function calculateFourSpaceDimensions(
         : isDouble
         ? Math.max(0, roundIntMm((totalDoorSpanW - centerGap) / 2))
         : roundIntMm(totalDoorSpanW);
-    const isFoldDoor = dSys === "folding_side" || dType === "folding";
-    const leafWidthMm =
-      isHingedOrFold && !isFoldDoor ? Math.min(600, rawLeafWidthMm) : rawLeafWidthMm;
+    // P1-01 Engineering Fix: Never silently clamp regular cabinet leafWidthMm; for Blind Corner & 45° Diagonal Corner,
+    // use the actual hinged access opening width rather than full L/blind carcass span!
+    const nameLowerForCorner = (module.name || "").toLowerCase();
+    const isBlindCornerMod =
+      module.bays.length === 1 &&
+      (tplId.includes("blind") || nameLowerForCorner.includes("kör köşe"));
+    const isDiagCornerMod =
+      module.bays.length === 1 &&
+      (tplId.includes("diagonal") || nameLowerForCorner.includes("diyagonal"));
+    const blindAccessSpanMm = isBlindCornerMod
+      ? Math.max(400, roundIntMm(width - Math.max(120, Math.round((width - 2 * T) * 0.45)) - 2 * gap))
+      : rawLeafWidthMm;
+    const diagWingDMm = isWardrobe
+      ? Math.min(600, Math.round(Math.min(width, depth) * 0.58))
+      : Math.min(580, Math.round(Math.min(width, depth) * 0.64));
+    const diagBevelSpanMm = isDiagCornerMod
+      ? Math.max(380, roundIntMm(Math.hypot(Math.max(120, width - diagWingDMm), Math.max(120, depth - diagWingDMm)) - 2 * gap))
+      : rawLeafWidthMm;
+    const leafWidthMm = isBlindCornerMod
+      ? Math.min(rawLeafWidthMm, blindAccessSpanMm)
+      : isDiagCornerMod
+      ? Math.min(rawLeafWidthMm, diagBevelSpanMm)
+      : rawLeafWidthMm;
 
     // Horizontal Top L-Gola finger clearance deduction (35mm on base cabinets, 0mm on wall cabinets with bottom overhang)
     const golaDeduction =
@@ -506,11 +542,28 @@ export function calculateFourSpaceDimensions(
       : roundIntMm(baseDoorHeight);
 
     const leafThicknessMm = bay.door.doorThicknessMm || T_door;
-    const handleWeightKg =
-      bay.door.handleCategory === "handleless_plain" || bay.door.handleType === "none" ? 0 : 0.18;
+    const hCatWeight = bay.door.handleCategory;
+    const isIntegratedHandleless =
+      hCatWeight === "handleless_plain" ||
+      hCatWeight === "j_pull" ||
+      hCatWeight === "gola_profile" ||
+      hCatWeight === "milled_wood_grip" ||
+      bay.door.crossSectionProfile === "j_pull_bevel" ||
+      bay.door.crossSectionProfile === "bevel_45" ||
+      bay.door.handleType === "none";
+    const handleWeightKg = isIntegratedHandleless ? 0 : 0.18;
 
+    const leafAreaM2 = (leafWidthMm * leafHeightMm) / 1_000_000;
+    const activeDoorProf =
+      bay.door.crossSectionProfile || module.carcass.crossSectionProfile || "flat_slab";
+    // P1-03: 4mm silver mirror bonded onto carrier panel adds 0.004m * 2500 kg/m³ = 10.0 kg/m²!
+    const mirrorExtraKg = activeDoorProf === "mirror_door" ? leafAreaM2 * 10.0 : 0;
     const singleLeafBoardKg =
-      ((leafWidthMm * leafHeightMm * leafThicknessMm) / 1_000_000_000) * densityKgM3;
+      activeDoorProf === "glass_frame"
+        ? ((2 * (leafWidthMm + leafHeightMm)) / 1000) * 0.95 +
+          Math.max(0, ((leafWidthMm - 90) * (leafHeightMm - 90)) / 1_000_000) * 10.0
+        : ((leafWidthMm * leafHeightMm * leafThicknessMm) / 1_000_000_000) * densityKgM3 +
+          mirrorExtraKg;
     const leafWeightKg = roundMm(singleLeafBoardKg + handleWeightKg, 2);
 
     const totalLiftPanelBoardKg = singleLeafBoardKg * leafCount;
@@ -713,5 +766,283 @@ export function migrateV3ProjectToV4(project: DesignProject): DesignProject {
         }),
       };
     }),
+  };
+}
+
+
+export interface ResolvedDrawerCuttingFormula {
+  bottomWidthDeductionMm: number;
+  backWidthDeductionMm: number;
+  lengthDeductionMm: number;
+  sideClearancePerSideMm: number;
+  requiresBottomGroove: boolean;
+  sourceId: string;
+  isVerifiedCatalogFormula: boolean;
+}
+
+/**
+ * Resolves manufacturer-verified wooden cutting deductions for drawer bottoms, backs, and box lengths
+ * directly by SKU / hardwareProductId (`Blum LEGRABOX`, `Blum TANDEMBOX`, `Blum MOVENTO 760H`, `Hettich AvanTech YOU`).
+ * Never invents verified status when an unknown custom SKU is supplied (Section 7).
+ */
+export function resolveCanonicalDrawerCuttingFormula(
+  hardwareProductId?: string,
+  boxSystemType?: string
+): ResolvedDrawerCuttingFormula {
+  const hw = (hardwareProductId || "").toLowerCase();
+  const sys = boxSystemType || "";
+
+  if (hw === "hw_blum_tandembox_m" || hw.includes("tandembox") || (!hw && sys === "metal_box_tandembox")) {
+    return {
+      bottomWidthDeductionMm: 75,
+      backWidthDeductionMm: 87,
+      lengthDeductionMm: 24,
+      sideClearancePerSideMm: 21.5,
+      requiresBottomGroove: false,
+      sourceId: "SRC_BLUM_TANDEMBOX",
+      isVerifiedCatalogFormula: !hw || hw === "hw_blum_tandembox_m" || hw.startsWith("hw_blum_"),
+    };
+  }
+  if (hw === "hw_blum_legrabox_m" || hw.includes("legrabox") || (!hw && sys === "metal_box_legrabox")) {
+    return {
+      bottomWidthDeductionMm: 38,
+      backWidthDeductionMm: 38,
+      lengthDeductionMm: 10,
+      sideClearancePerSideMm: 19,
+      requiresBottomGroove: false,
+      sourceId: "SRC_BLUM_LEGRABOX",
+      isVerifiedCatalogFormula: !hw || hw === "hw_blum_legrabox_m" || hw.startsWith("hw_blum_"),
+    };
+  }
+  if (hw === "hw_hettich_avantech_m" || hw.includes("avantech") || (!hw && sys === "metal_box_avantech")) {
+    return {
+      bottomWidthDeductionMm: 24,
+      backWidthDeductionMm: 24,
+      lengthDeductionMm: 21,
+      sideClearancePerSideMm: 12,
+      requiresBottomGroove: false,
+      sourceId: "SRC_HETTICH_AVANTECH",
+      isVerifiedCatalogFormula: !hw || hw === "hw_hettich_avantech_m" || hw.startsWith("hw_hettich_"),
+    };
+  }
+  if (sys === "ball_bearing_side" || hw.includes("ball_bearing")) {
+    return {
+      bottomWidthDeductionMm: 46,
+      backWidthDeductionMm: 58,
+      lengthDeductionMm: 10,
+      sideClearancePerSideMm: 13,
+      requiresBottomGroove: true,
+      sourceId: "SRC_HAFELE_BALL_RUNNER",
+      isVerifiedCatalogFormula: !hw || hw.startsWith("hw_hafele_"),
+    };
+  }
+  if (
+    !hw ||
+    hw === "hw_blum_movento_760h" ||
+    hw === "hw_blum_tandem_560h" ||
+    hw.includes("movento") ||
+    hw.includes("tandem_560")
+  ) {
+    // Blum MOVENTO 760H / TANDEM: SKW = LW - 42mm; 8mm grooved bottom slots 2x6mm into 16mm wooden sides -> LW - 30mm!
+    return {
+      bottomWidthDeductionMm: 30,
+      backWidthDeductionMm: 42,
+      lengthDeductionMm: 10,
+      sideClearancePerSideMm: 21,
+      requiresBottomGroove: true,
+      sourceId: "SRC_BLUM_MOVENTO",
+      isVerifiedCatalogFormula: true,
+    };
+  }
+
+  // Unknown / custom user-supplied hardwareProductId without manufacturer cutting specification!
+  return {
+    bottomWidthDeductionMm: 30,
+    backWidthDeductionMm: 42,
+    lengthDeductionMm: 10,
+    sideClearancePerSideMm: 21,
+    requiresBottomGroove: true,
+    sourceId: "UNVERIFIED_CUSTOM_HARDWARE",
+    isVerifiedCatalogFormula: false,
+  };
+}
+
+
+export interface CanonicalHandlePlacementInput {
+  partRole: string;
+  partId?: string;
+  partLabel?: string;
+  /** Horizontal width of front in 3D view (mm) */
+  frontWidthMm: number;
+  /** Vertical height of front in 3D view (mm) */
+  frontHeightMm: number;
+  /** Bottom elevation Y of front relative to module base (mm) */
+  frontElevationYMm?: number;
+  moduleCategory?: import("./types").ModuleCategory;
+  moduleElevationYMm?: number;
+  handleCategory?: import("./types").HandleCategory;
+  openingTechnology?: string;
+  crossSectionProfile?: string;
+  spacingCcMm?: number;
+  handleOrientation?: "auto" | "vertical" | "horizontal";
+  handleOffsetY?: number;
+  handleEdgeInsetX?: number;
+}
+
+export interface CanonicalHandlePlacementResult {
+  hasVisualHandle: boolean;
+  isDrilledThrough: boolean;
+  orientation: "horizontal" | "vertical";
+  /** X from left edge of 3D front (0 .. frontWidthMm) */
+  centerXMm: number;
+  /** Y from bottom edge of 3D front (0 .. frontHeightMm) */
+  centerYMm: number;
+  /** Exact manufacturer screw pitch (1 = single M4 knob bore, >=32 = two M4 bores) */
+  spacingCcMm: number;
+  exceedsPanelSpan: boolean;
+  minRequiredSpanMm: number;
+}
+
+/**
+ * Tekil Doğrulanmış Kulp Yerleşim ve CNC Delik Hesabı (P0-02 & P1-01):
+ * 3B sahne (`handle-geometry.ts`), BOM, `drilling-engine.ts` ve `engineering-validation-engine.ts`
+ * aynı koordinatı kullanır; AVENTOS HF üst kanada asla delik açmaz ve C-C ölçüsünü sessizce kırpmaz!
+ */
+export function resolveCanonicalHandlePlacement(
+  input: CanonicalHandlePlacementInput
+): CanonicalHandlePlacementResult {
+  const idStr = input.partId || "";
+  const lblStr = input.partLabel || "";
+  const isBifoldUpperLeaf =
+    idStr.includes("_lift_bifold_top") ||
+    lblStr.includes("Katlanır Kalkar Üst Kanat") ||
+    lblStr.includes("AVENTOS HF Üst");
+
+  const cat = input.handleCategory || "bar_handle";
+  const prof = input.crossSectionProfile || "flat_slab";
+  const opTech = input.openingTechnology || "soft_close";
+
+  if (isBifoldUpperLeaf || cat === "handleless_plain") {
+    return {
+      hasVisualHandle: false,
+      isDrilledThrough: false,
+      orientation: "horizontal",
+      centerXMm: roundMm(input.frontWidthMm / 2, 2),
+      centerYMm: roundMm(input.frontHeightMm / 2, 2),
+      spacingCcMm: 0,
+      exceedsPanelSpan: false,
+      minRequiredSpanMm: 0,
+    };
+  }
+
+  const isDrilledCategory =
+    (cat === "bar_handle" ||
+      cat === "knob" ||
+      cat === "long_profile_handle" ||
+      cat === "decorative_bespoke") &&
+    prof !== "j_pull_bevel" &&
+    prof !== "bevel_45" &&
+    opTech !== "push_to_open" &&
+    opTech !== "servo_electric" &&
+    !idStr.includes("_sliding_rear");
+
+  const isDrawer = input.partRole === "drawer_front";
+  const isLiftLeaf =
+    idStr.includes("lift_") ||
+    lblStr.includes("Kalkar") ||
+    idStr.includes("_dsh_door");
+
+  const frontElevY = input.frontElevationYMm ?? 0;
+  const isWallOrHighFront =
+    !isDrawer &&
+    (input.moduleCategory === "kitchen_wall" ||
+      (input.moduleElevationYMm ?? 0) >= 1100 ||
+      frontElevY >= 1100);
+  const isTallOrWardrobeFront =
+    !isDrawer &&
+    !isWallOrHighFront &&
+    (input.moduleCategory === "wardrobe" ||
+      input.moduleCategory === "wardrobe_walkin" ||
+      input.moduleCategory === "wardrobe_corner" ||
+      input.moduleCategory === "kitchen_tall" ||
+      input.moduleCategory === "special_corner" ||
+      input.frontHeightMm >= 1200);
+
+  const isTopBottomEdgeProfile =
+    cat === "edge_profile" || cat === "j_pull" || cat === "gola_profile";
+  const autoHorizontal =
+    isDrawer || isLiftLeaf || (isTopBottomEdgeProfile && !isTallOrWardrobeFront);
+
+  const horizontal =
+    !isDrawer && input.handleOrientation === "horizontal"
+      ? true
+      : !isDrawer && input.handleOrientation === "vertical" && !isLiftLeaf
+      ? false
+      : autoHorizontal;
+
+  const spacingCcMm =
+    cat === "knob"
+      ? 1
+      : typeof input.spacingCcMm === "number" && input.spacingCcMm > 0
+      ? input.spacingCcMm
+      : 160;
+
+  const defaultEdgeInset = prof === "shaker_frame" ? 35 : 42;
+  const edgeInset = Math.max(22, Math.min(120, input.handleEdgeInsetX ?? defaultEdgeInset));
+  const openingSideX =
+    input.partRole === "door_right"
+      ? Math.min(edgeInset, input.frontWidthMm / 2)
+      : Math.max(input.frontWidthMm / 2, input.frontWidthMm - edgeInset);
+
+  const centerXMm = roundMm(horizontal ? input.frontWidthMm / 2 : openingSideX, 2);
+
+  const approxVisualSpan = spacingCcMm <= 1 ? 32 : spacingCcMm + 24;
+  const ergonomicTallCy = Math.max(
+    120,
+    Math.min(input.frontHeightMm - 180, 1020 - frontElevY)
+  );
+  const wallVerticalCy =
+    cat === "knob"
+      ? 48
+      : Math.min(input.frontHeightMm / 2, Math.max(70, Math.round(approxVisualSpan / 2 + 45)));
+
+  const defaultCy = isDrawer
+    ? input.frontHeightMm <= 260
+      ? input.frontHeightMm / 2
+      : Math.max(input.frontHeightMm / 2, input.frontHeightMm - 38)
+    : isLiftLeaf || (isWallOrHighFront && horizontal)
+    ? Math.min(input.frontHeightMm / 2, 40)
+    : isWallOrHighFront
+    ? wallVerticalCy
+    : isTallOrWardrobeFront
+    ? ergonomicTallCy
+    : horizontal
+    ? Math.max(input.frontHeightMm / 2, input.frontHeightMm - 40)
+    : Math.max(
+        input.frontHeightMm / 2,
+        input.frontHeightMm - Math.max(60, Math.round(approxVisualSpan / 2 + 32))
+      );
+
+  const centerYMm = roundMm(
+    !isDrawer && typeof input.handleOffsetY === "number" && input.handleOffsetY >= 30
+      ? Math.max(36, Math.min(input.frontHeightMm - 36, input.handleOffsetY))
+      : defaultCy,
+    2
+  );
+
+  const axisSpanMm = horizontal ? input.frontWidthMm : input.frontHeightMm;
+  const edgeMarginMinMm = 32;
+  const minRequiredSpanMm = spacingCcMm <= 1 ? 50 : spacingCcMm + 2 * edgeMarginMinMm;
+  const exceedsPanelSpan = isDrilledCategory && axisSpanMm < minRequiredSpanMm;
+
+  return {
+    hasVisualHandle: true,
+    isDrilledThrough: isDrilledCategory,
+    orientation: horizontal ? "horizontal" : "vertical",
+    centerXMm,
+    centerYMm,
+    spacingCcMm: isDrilledCategory ? spacingCcMm : 0,
+    exceedsPanelSpan,
+    minRequiredSpanMm,
   };
 }

@@ -6,6 +6,10 @@ import {
 } from "./types";
 import { DEFAULT_MATERIALS } from "./defaults";
 import { validateProject } from "./rules";
+import { loadCustomStandardRules } from "./standards-registry";
+function loadCustomStandardRulesCount(): number {
+  return loadCustomStandardRules().filter((r) => r.enabled).length;
+}
 import {
   calculateFourSpaceDimensions,
   inferDoorSystemIdFromType,
@@ -36,6 +40,7 @@ const DEFAULT_HARDWARE_SOURCE_MAP: Record<string, { sourceId: string; revision: 
   hw_blum_71b3750: { sourceId: "SRC_BLUM_CAT_HINGE", revision: "2024.1" },
   hw_blum_71b7550: { sourceId: "SRC_BLUM_CAT_HINGE", revision: "2024.1" },
   hw_blum_71b9550: { sourceId: "SRC_BLUM_CAT_HINGE", revision: "2024.1" },
+  hw_blum_79b9458: { sourceId: "SRC_BLUM_CAT_HINGE", revision: "2024.1" },
   hw_hettich_9071205: { sourceId: "SRC_HETTICH_SENSYS", revision: "2024.1" },
   hw_hettich_9099540: { sourceId: "SRC_HETTICH_SENSYS", revision: "2024.1" },
   hw_salice_c7p6ae9: { sourceId: "SRC_SALICE_SILENTIA", revision: "2024.1" },
@@ -47,7 +52,7 @@ const DEFAULT_HARDWARE_SOURCE_MAP: Record<string, { sourceId: string; revision: 
   hw_blum_aventos_hk_27: { sourceId: "SRC_BLUM_AVENTOS", revision: "2024.1" },
   hw_blum_aventos_hf_25: { sourceId: "SRC_BLUM_AVENTOS", revision: "2024.1" },
   hw_blum_aventos_hl_25: { sourceId: "SRC_BLUM_AVENTOS", revision: "2024.1" },
-  hw_hettich_topline_l: { sourceId: "SRC_HETTICH_WINGLINE", revision: "2024.1" },
+  hw_hettich_topline_l: { sourceId: "SRC_HETTICH_TOPLINE", revision: "2024.1" },
   hw_hafele_slido_bottom: { sourceId: "SRC_HAFELE_MATRIX", revision: "2024.1" },
   hw_hettich_wingline_l: { sourceId: "SRC_HETTICH_WINGLINE", revision: "2024.1" },
   hw_blum_revego_uno: { sourceId: "SRC_BLUM_REVEGO", revision: "2024.1" },
@@ -61,6 +66,9 @@ const DEFAULT_HARDWARE_SOURCE_MAP: Record<string, { sourceId: string; revision: 
  */
 export function evaluateModuleCompatibility(module: ModuleInstance): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
+  if (module.category === "complementary" || module.complementaryRole || module.carcass.hullShape === "capsule_table") {
+    return issues;
+  }
   const fourSpace = calculateFourSpaceDimensions(module);
   const { width, height, depth } = module.dimensions;
   const T_panel = module.carcass.panelThickness;
@@ -86,12 +94,16 @@ export function evaluateModuleCompatibility(module: ModuleInstance): ValidationI
   }
 
   // Category 14: Kitchen Built-in Appliance Recess Rules (EN 1116:2018)
+  const isSoloSurround =
+    module.templateId?.includes("fridge_surround") ||
+    module.name.toLowerCase().includes("solo buzdolabı");
   const isApplianceHousing =
-    module.templateId?.includes("oven") ||
-    module.templateId?.includes("fridge") ||
-    module.templateId?.includes("microwave") ||
-    module.name.toLowerCase().includes("fırın") ||
-    module.name.toLowerCase().includes("ankastre");
+    !isSoloSurround &&
+    (module.templateId?.includes("oven") ||
+      module.templateId?.includes("fridge") ||
+      module.templateId?.includes("microwave") ||
+      module.name.toLowerCase().includes("fırın") ||
+      module.name.toLowerCase().includes("ankastre"));
 
   if (isApplianceHousing) {
     if (width !== 600) {
@@ -148,7 +160,7 @@ export function evaluateModuleCompatibility(module: ModuleInstance): ValidationI
         : "manual_standard");
 
     // Category 12: Material Suitability (Shelf Span Deflection & J-Pull Material Check)
-    if ((bayW > 900 && bay.shelves.some((s) => s.isAdjustable && (s.thickness || 18) <= 18)) || (bayW > 1200 && (bay.shelves.length > 0 || bay.hangingRails.length > 0))) {
+    if ((bayW > 900 && bay.shelves.some((s) => !s.isGlass && s.isAdjustable && (s.thickness || 18) <= 18)) || (bayW > 1200 && (bay.shelves.length > 0 || bay.hangingRails.length > 0))) {
       issues.push({
         severity: "warning",
         code: "CHK_12_SHELF_SPAN_DEFLECTION",
@@ -185,6 +197,7 @@ export function evaluateModuleCompatibility(module: ModuleInstance): ValidationI
 
     // Category 1: Carcass / Door System Fit
     if (
+      module.carcass.hullShape !== "capsule_stadium" &&
       (dSys === "sliding_top_hung" || dSys === "sliding_bottom_rolling") &&
       (module.bays.length < 2 || width < 1100)
     ) {
@@ -241,23 +254,33 @@ export function evaluateModuleCompatibility(module: ModuleInstance): ValidationI
 
     // Category 3: Door Weight & Power Factor (LF) Limits
     if (leafInfo && leafInfo.leafCount > 0) {
+      const maxKgByHinges: Record<number, number> = { 1: 6, 2: 12, 3: 17, 4: 22, 5: 28 };
+      const activeHingeCount = Math.max(2, Math.min(5, leafInfo.effectiveHingeCount || 2));
+      const maxAllowedLeafKg = maxKgByHinges[activeHingeCount] ?? 28;
       if (
-        (dSys === "hinged_single" || dSys === "hinged_double" || dSys === "hinged_inset") &&
-        leafInfo.leafWeightKg > 28
+        (dSys === "hinged_single" || dSys === "hinged_double" || dSys === "hinged_inset" || dSys === "hinged_overlay_variant") &&
+        leafInfo.leafWeightKg > maxAllowedLeafKg
       ) {
+        const exceedsAbsoluteMax = leafInfo.leafWeightKg > 28;
         issues.push({
           severity: "error",
           code: "CHK_03_DOOR_WEIGHT_EXCEEDS_HINGE_LIMIT",
-          message: `Bölme ${bayIdx + 1} kapak kanat ağırlığı (${leafInfo.leafWeightKg} kg), 5 menteşe için azami 28 kg taşıma sınırını aşıyor.`,
+          message: exceedsAbsoluteMax
+            ? `Bölme ${bayIdx + 1} kapak kanat ağırlığı (${leafInfo.leafWeightKg} kg), 5 menteşe için bile azami 28 kg taşıma sınırını aşıyor.`
+            : `Bölme ${bayIdx + 1} kapak kanat ağırlığı (${leafInfo.leafWeightKg} kg), seçili ${activeHingeCount} adet menteşenin güvenli taşıma sınırını (${maxAllowedLeafKg} kg) aşıyor (en az ${leafInfo.recommendedHingesPerLeaf} menteşe gerekir).`,
           targetId: bay.door.id,
           blockingProduction: true,
           compatibilityStatus: "INCOMPATIBLE",
           categoryIndex: 3,
-          suggestions: [
-            "Daha hafif bir kapak malzemesi seçin (Melamin veya MDF Lake).",
-            "Tek kapağı Çift Kapağa (hinged_double) bölün.",
-            "Bölme genişliğini daraltın.",
-          ],
+          suggestions: exceedsAbsoluteMax
+            ? [
+                "Tek kapağı Çift Kapağa (hinged_double) bölün veya bölme genişliğini daraltın.",
+                "Aynalı/ağır kapak yerine daha hafif kapak malzemesi seçin.",
+              ]
+            : [
+                `Menteşe sayısını en az ${leafInfo.recommendedHingesPerLeaf} adede yükseltin.`,
+                "Tek kapağı Çift Kapağa (hinged_double) bölün.",
+              ],
           sourceId: "SRC_BLUM_CAT_HINGE",
         });
       }
@@ -357,6 +380,25 @@ export function evaluateModuleCompatibility(module: ModuleInstance): ValidationI
         suggestions: [
           "Tek kapak yerine Çift Kapak (hinged_double) seçin.",
           "Menteşe sayısını +1 artırın.",
+        ],
+        sourceId: "SRC_BLUM_CAT_HINGE",
+      });
+    } else if (
+      leafInfo &&
+      leafInfo.leafCount === 1 &&
+      (dSys === "hinged_single" || dSys === "hinged_inset") &&
+      leafInfo.leafWidthMm > 650
+    ) {
+      issues.push({
+        severity: "warning",
+        code: "CHK_05_SINGLE_LEAF_SAG_ADVISORY",
+        message: `Bölme ${bayIdx + 1} tek kanat menteşeli kapak genişliği (${leafInfo.leafWidthMm}mm > 650mm) uzun dönemde menteşe sarkma momenti oluşturabilir.`,
+        targetId: bay.door.id,
+        compatibilityStatus: "COMPATIBLE_WITH_CONDITIONS",
+        categoryIndex: 5,
+        suggestions: [
+          "Kullanıcı onayıyla Çift Kanatlı Kapak (hinged_double) sistemine geçin.",
+          "Geniş tek kanatta +1 ilave menteşe kullanın.",
         ],
         sourceId: "SRC_BLUM_CAT_HINGE",
       });
@@ -600,10 +642,23 @@ export function evaluateModuleCompatibility(module: ModuleInstance): ValidationI
  * Evaluates full project compatibility combining base V3.1 geometric validations
  * with the 15-category V4 Universal Compatibility Engine.
  */
+import { BoundedLruCache, computeProjectStructuralSignature } from "./lru-cache";
+const compatLruCache = new BoundedLruCache<string, CompatibilityReport>(64);
+
 export function evaluateProjectCompatibility(
   project: DesignProject,
   options: EvaluateCompatibilityOptions = {}
 ): CompatibilityReport {
+  const isDefaultCall =
+    !options.hardwareSourceMap &&
+    !options.referenceDateIso &&
+    !options.activeCatalogVersion &&
+    loadCustomStandardRulesCount() === 0;
+  const structKey = isDefaultCall ? `${project.libraryVersionId || "v4"}|${computeProjectStructuralSignature(project)}` : null;
+  if (structKey) {
+    const cached = compatLruCache.get(structKey);
+    if (cached) return cached;
+  }
   const baseIssues = validateProject(project);
   const hwMap = { ...DEFAULT_HARDWARE_SOURCE_MAP, ...(options.hardwareSourceMap || {}) };
   const refDate = options.referenceDateIso || "2026-11-05";
@@ -792,7 +847,7 @@ export function evaluateProjectCompatibility(
 
   const canApproveProduction = !hasIncompatible && !hasUnverified;
 
-  return {
+  const finalCompatReport: CompatibilityReport = {
     overallStatus,
     canApproveProduction,
     checkedCategoriesCount: 15,
@@ -805,4 +860,8 @@ export function evaluateProjectCompatibility(
       allProductionGatesSatisfied: canApproveProduction,
     },
   };
+  if (structKey) {
+    compatLruCache.set(structKey, finalCompatReport);
+  }
+  return finalCompatReport;
 }

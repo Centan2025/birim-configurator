@@ -8,3 +8,6 @@ export * from "./technical-outputs";
 export * from "./cnc-postprocessors";
 export * from "./cam-export-pipeline";
 export * from "./mep-architectural-plan";
+export * from "./cartonization-and-assembly";
+export * from "./shared-worker-nesting-kernel";
+export * from "./cnc-simulation";

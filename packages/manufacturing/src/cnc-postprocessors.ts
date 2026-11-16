@@ -1,3 +1,15 @@
+import type { CutPiece } from "./types";
+
+export interface CncKerfBendingInput {
+  outerRadiusMm: number;
+  bendAngleDeg: number;
+  unfoldedArcLengthMm: number;
+  kerfCount: number;
+  kerfSpacingMm: number;
+  slotDepthMm: number;
+  skinRemainingMm: number;
+}
+
 export interface CncDrillOpInput {
   x: number;
   y: number;
@@ -51,12 +63,58 @@ export interface CncPieceInput {
   cutoutWidthMm?: number;
   cutoutDepthMm?: number;
   utilityCutouts?: CncCutoutInput[];
+  /** True non-rectangular 2D outer contour [xMm, yMm][] (sloped ceiling trapezoids, capsule stadium tops/bottoms) */
+  polygonContourMm?: [number, number][];
+  /** Parametric CNC kerf-bending saw/router slot schedule for curved shells */
+  kerfBendingMeta?: CncKerfBendingInput;
   drillingOperations: CncDrillOpInput[];
+}
+
+/**
+ * Canonical CutPiece -> CncPieceInput mapper ensuring zero data loss between BOM/DXF and .MPR/.CIX/.XCS postprocessors.
+ */
+export function mapCutPieceToCncPieceInput(cp: CutPiece): CncPieceInput {
+  return {
+    id: cp.id,
+    moduleId: cp.moduleId,
+    moduleName: cp.moduleName,
+    partRole: cp.componentRole,
+    pieceName: cp.pieceName,
+    thicknessMm: cp.thicknessMm,
+    lengthMm: cp.lengthMm,
+    widthMm: cp.widthMm,
+    netCutLengthMm: cp.netCutLengthMm,
+    netCutWidthMm: cp.netCutWidthMm,
+    rawOriginOffsetXMm: cp.rawOriginOffsetXMm,
+    rawOriginOffsetYMm: cp.rawOriginOffsetYMm,
+    mirrorInnerFaceX: cp.mirrorInnerFaceX,
+    hasBackGroove: cp.hasBackGroove,
+    backGrooveOffsetMm: cp.backGrooveOffsetMm,
+    hasSinkOrHobCutout: cp.hasSinkOrHobCutout,
+    cutoutWidthMm: cp.cutoutWidthMm,
+    cutoutDepthMm: cp.cutoutDepthMm,
+    utilityCutouts: cp.utilityCutouts,
+    polygonContourMm: cp.polygonContourMm,
+    kerfBendingMeta: cp.kerfBendingMeta,
+    drillingOperations: (cp.holes || []).map((h) => ({
+      x: h.x,
+      y: h.y,
+      diameter: h.diameter,
+      depth: h.depth,
+      face:
+        h.direction === "face_back"
+          ? "bottom"
+          : h.direction.startsWith("edge_")
+          ? (h.direction as CncDrillOpInput["face"])
+          : "top",
+      type: h.purpose || "drill",
+    })),
+  };
 }
 
 export interface CncProgramFile {
   fileName: string;
-  format: "homag_mpr" | "biesse_cix";
+  format: "homag_mpr" | "biesse_cix" | "scm_xcs";
   pieceId: string;
   pieceName: string;
   faceSetup: "TOP_SETUP_1" | "FLIP_BOTTOM_SETUP_2" | "UNIFIED_MULTI_SIDE";
@@ -181,6 +239,32 @@ export function generateHomagMprPrograms(piece: CncPieceInput): CncProgramFile[]
       "",
     ];
 
+    const polyPts =
+      !isFlipSetup && piece.polygonContourMm && piece.polygonContourMm.length >= 3
+        ? piece.polygonContourMm
+        : null;
+    if (polyPts) {
+      const [p0x, p0y] = polyPts[0];
+      lines.push(
+        "$E1",
+        "KP",
+        `X=${fmtNum(p0y)}`,
+        `Y=${fmtNum(p0x)}`,
+        "Z=0.0",
+        "KO=00",
+        ""
+      );
+      for (let vi = 1; vi <= polyPts.length; vi++) {
+        const [vx, vy] = polyPts[vi % polyPts.length];
+        lines.push(
+          "KL",
+          `X=${fmtNum(vy)}`,
+          `Y=${fmtNum(vx)}`,
+          ""
+        );
+      }
+    }
+
     let opCount = 0;
 
     for (const op of vertOps) {
@@ -284,6 +368,46 @@ export function generateHomagMprPrograms(piece: CncPieceInput): CncProgramFile[]
           ""
         );
         opCount++;
+      }
+
+      if (polyPts) {
+        lines.push(
+          "<105 \\Konturfraesen\\",
+          `EA="1:0"`,
+          `EE="1:${polyPts.length}"`,
+          'MDA="SEN"',
+          'MDE="SEN_AB"',
+          'STUFEN="0"',
+          `Z_="${fmtNum(D + 1)}"`,
+          'RK="WRKL"',
+          'T_="120"',
+          'KM="POLYGON_OUTER_CONTOUR"',
+          ""
+        );
+        opCount++;
+      }
+
+      if (piece.kerfBendingMeta && piece.kerfBendingMeta.kerfCount > 0) {
+        const km = piece.kerfBendingMeta;
+        const slotDepth = Math.min(D - Math.max(1.2, km.skinRemainingMm || 2), km.slotDepthMm || D - 2);
+        const startOffset = Math.max(2, km.kerfSpacingMm * 0.5);
+        for (let ki = 0; ki < km.kerfCount; ki++) {
+          const slotPos = Math.min(B - 2, startOffset + ki * km.kerfSpacingMm);
+          lines.push(
+            "<109 \\Nut\\",
+            'XA="0.00"',
+            `YA="${fmtNum(slotPos)}"`,
+            `XE="${fmtNum(L)}"`,
+            `YE="${fmtNum(slotPos)}"`,
+            'NB="3.20"',
+            'RK="NOWRK"',
+            `TI="${fmtNum(slotDepth)}"`,
+            'MN="GL"',
+            `KM="CNC_KERF_BEND_SLOT_${ki + 1}_OF_${km.kerfCount}"`,
+            ""
+          );
+          opCount++;
+        }
       }
     }
 
@@ -464,6 +588,77 @@ export function generateBiesseCixProgram(piece: CncPieceInput): CncProgramFile {
     );
   }
 
+  if (piece.polygonContourMm && piece.polygonContourMm.length >= 3) {
+    const poly = piece.polygonContourMm;
+    const [sx, sy] = poly[0];
+    lines.push(
+      "BEGIN MACRO",
+      "  NAME=GEO",
+      '  PARAM,NAME=ID,VALUE="POLY_GEO_1"',
+      "  PARAM,NAME=SIDE,VALUE=0",
+      '  PARAM,NAME=CRN,VALUE="1"',
+      "END MACRO",
+      "",
+      "BEGIN MACRO",
+      "  NAME=START_POINT",
+      `  PARAM,NAME=X,VALUE=${fmtNum(sy)}`,
+      `  PARAM,NAME=Y,VALUE=${fmtNum(sx)}`,
+      "END MACRO",
+      ""
+    );
+    for (let vi = 1; vi <= poly.length; vi++) {
+      const [vx, vy] = poly[vi % poly.length];
+      lines.push(
+        "BEGIN MACRO",
+        "  NAME=LINE_EP",
+        `  PARAM,NAME=XE,VALUE=${fmtNum(vy)}`,
+        `  PARAM,NAME=YE,VALUE=${fmtNum(vx)}`,
+        "END MACRO",
+        ""
+      );
+    }
+    lines.push(
+      "BEGIN MACRO",
+      "  NAME=ENDPATH",
+      "END MACRO",
+      "",
+      "BEGIN MACRO",
+      "  NAME=ROUTG",
+      `  PARAM,NAME=ID,VALUE="ROUT_POLY_${opIdx++}"`,
+      '  PARAM,NAME=GID,VALUE="POLY_GEO_1"',
+      `  PARAM,NAME=DP,VALUE=${fmtNum(LPZ + 1)}`,
+      "  PARAM,NAME=DIA,VALUE=12.00",
+      "  PARAM,NAME=TRC,VALUE=1",
+      "END MACRO",
+      ""
+    );
+  }
+
+  if (piece.kerfBendingMeta && piece.kerfBendingMeta.kerfCount > 0) {
+    const km = piece.kerfBendingMeta;
+    const slotDepth = Math.min(LPZ - Math.max(1.2, km.skinRemainingMm || 2), km.slotDepthMm || LPZ - 2);
+    const startOffset = Math.max(2, km.kerfSpacingMm * 0.5);
+    for (let ki = 0; ki < km.kerfCount; ki++) {
+      const slotY = Math.min(LPY - 2, startOffset + ki * km.kerfSpacingMm);
+      lines.push(
+        "BEGIN MACRO",
+        "  NAME=CUT_G",
+        `  PARAM,NAME=ID,VALUE="KERF_SLOT_${ki + 1}"`,
+        "  PARAM,NAME=SIDE,VALUE=0",
+        '  PARAM,NAME=CRN,VALUE="1"',
+        "  PARAM,NAME=X,VALUE=0",
+        `  PARAM,NAME=Y,VALUE=${fmtNum(slotY)}`,
+        `  PARAM,NAME=XE,VALUE=${fmtNum(LPX)}`,
+        `  PARAM,NAME=YE,VALUE=${fmtNum(slotY)}`,
+        `  PARAM,NAME=DP,VALUE=${fmtNum(slotDepth)}`,
+        "  PARAM,NAME=TH,VALUE=3.20",
+        "END MACRO",
+        ""
+      );
+      opIdx++;
+    }
+  }
+
   return {
     fileName: `${safeSlug}.cix`,
     format: "biesse_cix",
@@ -479,10 +674,12 @@ export function generateBiesseCixProgram(piece: CncPieceInput): CncProgramFile {
 export function generateProjectCncPostProcessorBundle(pieces: CncPieceInput[]): {
   homagMprFiles: CncProgramFile[];
   biesseCixFiles: CncProgramFile[];
+  scmXcsFiles: CncProgramFile[];
   flipRequiredPieceIds: string[];
 } {
   const homagMprFiles: CncProgramFile[] = [];
   const biesseCixFiles: CncProgramFile[] = [];
+  const scmXcsFiles: CncProgramFile[] = [];
   const flipRequiredPieceIds: string[] = [];
 
   for (const p of pieces) {
@@ -490,10 +687,125 @@ export function generateProjectCncPostProcessorBundle(pieces: CncPieceInput[]): 
     homagMprFiles.push(...mprs);
     const cix = generateBiesseCixProgram(p);
     biesseCixFiles.push(cix);
+    const xcs = generateScmXcsProgram(p);
+    scmXcsFiles.push(xcs);
     if (cix.requiresOperatorFlip) {
       flipRequiredPieceIds.push(p.id);
     }
   }
 
-  return { homagMprFiles, biesseCixFiles, flipRequiredPieceIds };
+  return { homagMprFiles, biesseCixFiles, scmXcsFiles, flipRequiredPieceIds };
 }
+
+/**
+ * Generates SCM Maestro (.XCS) CNC macro script with pre-milling offset and G41/G42 tool radius compensation
+ * for SCM Morbidelli / Accord 5-axis and nesting machining centers.
+ */
+export function generateScmXcsProgram(piece: CncPieceInput): CncProgramFile {
+  const L = piece.netCutLengthMm ?? piece.lengthMm;
+  const B = piece.netCutWidthMm ?? piece.widthMm;
+  const D = piece.thicknessMm || 18;
+  const safeName = sanitizeCncComment(piece.pieceName || piece.id);
+  const lines: string[] = [
+    `// Birim Configurator V6.2 — SCM Maestro .XCS Post-Processor`,
+    `// Parca: ${safeName} (${piece.id}) | Modul: ${sanitizeCncComment(piece.moduleName)}`,
+    `SetMachiningParameters("AD", 1, 10, 0, false);`,
+    `CreateFinishedWorkpieceBox("${piece.id}", ${fmtNum(L)}, ${fmtNum(B)}, ${fmtNum(D)});`,
+    `SetWorkpieceSetupPosition(0, 0, 0, 0);`,
+  ];
+
+  let opCount = 0;
+  if (piece.polygonContourMm && piece.polygonContourMm.length >= 3) {
+    const poly = piece.polygonContourMm;
+    const [sx, sy] = poly[0];
+    lines.push(`CreatePolyline("POLY_CONTOUR_${piece.id}", ${fmtNum(sy)}, ${fmtNum(sx)});`);
+    for (let vi = 1; vi <= poly.length; vi++) {
+      const [vx, vy] = poly[vi % poly.length];
+      lines.push(`AddSegmentToPolyline(${fmtNum(vy)}, ${fmtNum(vx)});`);
+    }
+    lines.push(
+      `CreateRoughFinishCut("POLYGON_SIZING_PASS", ${fmtNum(D + 0.5)}, "", TypeOfProcess.GeneralRouting, "E010", "-1", 1, -1, -1, -1, 0);`
+    );
+    opCount++;
+  } else {
+    // Standard rectangular perimeter sizing pass with left-hand tool radius compensation (ToolComp = 1 -> G41)
+    lines.push(
+      `CreatePolyline("PERIM_${piece.id}", 0, 0);`,
+      `AddSegmentToPolyline(${fmtNum(L)}, 0);`,
+      `AddSegmentToPolyline(${fmtNum(L)}, ${fmtNum(B)});`,
+      `AddSegmentToPolyline(0, ${fmtNum(B)});`,
+      `AddSegmentToPolyline(0, 0);`,
+      `CreateRoughFinishCut("SIZING_PASS", ${fmtNum(D + 0.5)}, "", TypeOfProcess.GeneralRouting, "E010", "-1", 1, -1, -1, -1, 0);`
+    );
+    opCount++;
+  }
+
+  piece.drillingOperations.forEach((op, idx) => {
+    const adj = adjustOpToWorkpieceOrigin(op, piece);
+    // P0-01 Fix: Workpiece Box has X = L (lengthMm -> adj.y) and Y = B (widthMm -> adj.x), matching Homag .MPR & Biesse .CIX!
+    const scmX = Math.max(0, Math.min(L, adj.y));
+    const rawScmY = Math.max(0, Math.min(B, adj.x));
+    if (isHorizontalEdgeOp(op.face)) {
+      let edgeX = scmX;
+      let edgeY = rawScmY;
+      if (op.face === "edge_bottom") edgeX = 0;
+      else if (op.face === "edge_top") edgeX = L;
+      else if (op.face === "edge_left" || op.face === "left") edgeY = 0;
+      else if (op.face === "edge_right" || op.face === "right") edgeY = B;
+      lines.push(
+        `CreateDrill("H_DRILL_${idx + 1}", ${fmtNum(edgeX)}, ${fmtNum(edgeY)}, ${fmtNum(D / 2)}, ${fmtNum(op.diameter)}, "", TypeOfProcess.Drilling, "-1", "-1", 0, -1, -1, "P");`
+      );
+    } else {
+      const isOpp = isOppositeFaceOp(op.face);
+      const effScmY = isOpp ? Math.max(0, B - rawScmY) : rawScmY;
+      const sideFlag = isOpp ? 2 : 1;
+      lines.push(
+        `CreateDrill("V_DRILL_${idx + 1}", ${fmtNum(scmX)}, ${fmtNum(effScmY)}, ${fmtNum(Math.min(D + 2, op.depth))}, ${fmtNum(op.diameter)}, "", TypeOfProcess.Drilling, "-1", "-1", ${sideFlag}, -1, -1, "P");`
+      );
+    }
+    opCount++;
+  });
+
+  if (
+    piece.hasBackGroove &&
+    (piece.partRole === "carcass_side" ||
+      piece.partRole === "carcass_side_left" ||
+      piece.partRole === "carcass_side_right" ||
+      piece.partRole === "side_left" ||
+      piece.partRole === "side_right" ||
+      piece.partRole === "carcass_top" ||
+      piece.partRole === "carcass_bottom")
+  ) {
+    const gOff = piece.backGrooveOffsetMm ?? 20;
+    const grooveY = piece.mirrorInnerFaceX ? Math.max(4, gOff - 4) : Math.max(8, B - gOff + 4);
+    lines.push(
+      `CreateBladeCut("BACK_GROOVE_8_5MM", "GROOVE_SAW", TypeOfProcess.Groove, 0.00, ${fmtNum(grooveY)}, ${fmtNum(L)}, ${fmtNum(grooveY)}, 8.5, 8.5, 90, 0, true);`
+    );
+    opCount++;
+  }
+
+  if (piece.kerfBendingMeta && piece.kerfBendingMeta.kerfCount > 0) {
+    const km = piece.kerfBendingMeta;
+    const slotDepth = Math.min(D - Math.max(1.2, km.skinRemainingMm || 2), km.slotDepthMm || D - 2);
+    const startOffset = Math.max(2, km.kerfSpacingMm * 0.5);
+    for (let ki = 0; ki < km.kerfCount; ki++) {
+      const slotPos = Math.min(B - 2, startOffset + ki * km.kerfSpacingMm);
+      lines.push(
+        `CreateBladeCut("KERF_SLOT_${ki + 1}", "KERF_SAW_3_2MM", TypeOfProcess.Groove, 0, ${fmtNum(slotPos)}, ${fmtNum(L)}, ${fmtNum(slotPos)}, 3.2, ${fmtNum(slotDepth)}, 90, 0, true);`
+      );
+      opCount++;
+    }
+  }
+
+  return {
+    fileName: `${piece.id}_SCM_MAESTRO.xcs`,
+    format: "scm_xcs",
+    pieceId: piece.id,
+    pieceName: piece.pieceName,
+    faceSetup: "UNIFIED_MULTI_SIDE",
+    requiresOperatorFlip: piece.drillingOperations.some((op) => isOppositeFaceOp(op.face)),
+    operationsCount: opCount,
+    content: lines.join("\n"),
+  };
+}
+

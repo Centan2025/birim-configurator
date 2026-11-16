@@ -160,6 +160,24 @@ export function computeProjectMepUtilityPoints(project: DesignProject): MepUtili
     }
   });
 
+  // V5 SceneObjects MEP Rough-In Points (Appliances, Undermount Sinks, Wall TVs, Combi Boilers, Washers)
+  for (const obj of project.sceneObjects || []) {
+    if (obj.isHidden || !obj.mepTriggers || obj.mepTriggers.length === 0) continue;
+    const centerX = roundMm(obj.position.x + obj.dimensions.width / 2, 0);
+    obj.mepTriggers.forEach((trig, tIdx) => {
+      points.push({
+        id: `mep_sobj_${obj.id}_${tIdx}`,
+        discipline: trig.discipline,
+        label: `${trig.label} (${obj.name})`,
+        codeNote: trig.codeNote,
+        xFromLeftWallMm: Math.max(50, roundMm(centerX + trig.offsetXFromCenterMm, 0)),
+        yFromFloorMm: trig.elevationFromFloorMm,
+        diameterOrSpec: trig.diameterOrSpec,
+        moduleId: obj.hostModuleId || obj.id,
+      });
+    });
+  }
+
   return points;
 }
 

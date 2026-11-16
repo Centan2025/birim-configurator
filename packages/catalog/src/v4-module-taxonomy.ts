@@ -1,3 +1,4 @@
+import { V5_SPECIALIZED_MODULE_TEMPLATES, loadSavedCustomModuleTemplates } from "./v5-scene-object-catalog";
 import {
   DoorOverlayType,
   DoorSystemId,
@@ -189,18 +190,34 @@ function buildTemplateFromSeed(seed: TemplateSeed): V4ModuleTemplateDefinition {
           ? 100
           : 80;
       const innerH = Math.max(100, seed.h - plinthHeight - 36);
+      const totalInnerW = Math.max(120, seed.w - (baysCount + 1) * 18);
+      const fixedSum = (seed.bayCustomWidths || []).reduce<number>((acc, cw) => acc + (cw || 0), 0);
+      const flexCount = Math.max(1, baysCount - (seed.bayCustomWidths || []).filter(Boolean).length);
+      const estFlexBayW = Math.round((totalInnerW - fixedSum) / flexCount);
 
       const bays: ModuleInstance["bays"] = Array.from({ length: baysCount }, (_, bayIdx) => {
         const bayDoorSys = seed.bayDoorSystems?.[bayIdx] || seed.doorSystemId;
+        const estBayW = seed.bayCustomWidths?.[bayIdx] || estFlexBayW;
+        const needsHeavy25mmShelf = estBayW > 880 && !seed.isCorner;
         const hasDrawersInBay = !seed.bayDrawersIndices || seed.bayDrawersIndices.includes(bayIdx);
         const rawDrawerHeights = hasDrawersInBay ? seed.drawersHeights || [] : [];
         const shelvesCount = seed.bayShelvesCount?.[bayIdx] ?? seed.shelvesPerBay ?? (rawDrawerHeights.length && !seed.isInternalDrawers ? 0 : 1);
-        const shelves = Array.from({ length: shelvesCount }, (__, sIdx) => ({
-          id: `shelf_${id}_${bayIdx}_${sIdx}`,
-          bayIndex: bayIdx,
-          elevationY: !seed.topDrawerCombo && rawDrawerHeights.length > 0 && rawDrawerHeights.reduce((s, h) => s + h + 5, -5) + 120 < innerH ? (sIdx === 0 ? rawDrawerHeights.reduce((s, h) => s + h + 5, -5) : Math.round(rawDrawerHeights.reduce((s, h) => s + h + 5, -5) + (sIdx * (innerH - rawDrawerHeights.reduce((s, h) => s + h + 5, -5))) / shelvesCount)) : Math.round(((sIdx + 1) * innerH) / (shelvesCount + 1)),
-          isAdjustable: true,
-        }));
+        const maxSafeShelfElev = Math.max(120, 2040 - (seed.familyId === "fam_kitchen_wall" ? 1450 : 0) - plinthHeight - 18);
+        const shelves = Array.from({ length: shelvesCount }, (__, sIdx) => {
+          const rawElev = !seed.topDrawerCombo && rawDrawerHeights.length > 0 && rawDrawerHeights.reduce((s, h) => s + h + 5, -5) + 120 < innerH
+            ? (sIdx === 0
+                ? rawDrawerHeights.reduce((s, h) => s + h + 5, -5)
+                : Math.round(rawDrawerHeights.reduce((s, h) => s + h + 5, -5) + (sIdx * (innerH - rawDrawerHeights.reduce((s, h) => s + h + 5, -5))) / shelvesCount))
+            : Math.round(((sIdx + 1) * innerH) / (shelvesCount + 1));
+          const isStructuralFixed = (seed.h > 1800 && sIdx === 0) || (estBayW > 880 && seed.isCorner);
+          return {
+            id: `shelf_${id}_${bayIdx}_${sIdx}`,
+            bayIndex: bayIdx,
+            elevationY: Math.min(rawElev, maxSafeShelfElev),
+            isAdjustable: !isStructuralFixed,
+            ...(needsHeavy25mmShelf || (estBayW > 880 && seed.isCorner) ? { thickness: 25 } : {}),
+          };
+        });
 
         const drawers = rawDrawerHeights.map((dh, dIdx) => ({
           id: `drw_${id}_${bayIdx}_${dIdx}`,
@@ -327,7 +344,7 @@ function buildTemplateFromSeed(seed: TemplateSeed): V4ModuleTemplateDefinition {
         category: seed.category,
         moduleFamilyId: seed.familyId,
         templateId: seed.templateId,
-        position: { x: 0, y: seed.familyId === "fam_kitchen_wall" ? 1450 : 0, z: 0 },
+        position: { x: seed.isInternalDrawers && baysCount === 1 ? 50 : 0, y: seed.familyId === "fam_kitchen_wall" ? 1450 : 0, z: 0 },
         dimensions: { width: seed.w, height: seed.h, depth: seed.d },
         carcass: {
           panelThickness: 18,
@@ -342,6 +359,7 @@ function buildTemplateFromSeed(seed: TemplateSeed): V4ModuleTemplateDefinition {
             (seed.familyId.startsWith("fam_kitchen") ? "mat_lacquer_sage" : "mat_veneer_oak"),
           jointType: "minifix_dowel",
           constructionProfileId: "profile_birim_factory_std",
+          ...(seed.w > 2800 ? { allowJumboSheet3660: true } : {}),
         },
         isOpenFront: seed.isOpenFront ?? seed.doorSystemId === "open",
         isCorner: seed.isCorner,
@@ -360,7 +378,7 @@ const TEMPLATE_SEEDS: TemplateSeed[] = [
   // ============================================================================
   { templateId: "tpl_kb_01_single_door", familyId: "fam_kitchen_base", category: "kitchen_base", name: "Tek Kapaklı Alt Dolap", description: "450mm tek kapaklı, 1 orta raflı alt modül", w: 450, h: 720, d: 580, minW: 300, maxW: 600, doorSystemId: "hinged_single", shelvesPerBay: 1 },
   { templateId: "tpl_kb_02_double_door", familyId: "fam_kitchen_base", category: "kitchen_base", name: "Çift Kapaklı Alt Dolap", description: "800mm çift kapaklı alt modül", w: 800, h: 720, d: 580, minW: 600, maxW: 1200, doorSystemId: "hinged_double", shelvesPerBay: 1 },
-  { templateId: "tpl_kb_03_single_drawer", familyId: "fam_kitchen_base", category: "kitchen_base", name: "Tek Derin Çekmeceli Alt Dolap", description: "600mm 70kg ağır hizmet tek çekmeceli alt dolap", w: 600, h: 720, d: 580, minW: 400, maxW: 1000, doorSystemId: "open", drawersHeights: [560] },
+  { templateId: "tpl_kb_03_single_drawer", familyId: "fam_kitchen_base", category: "kitchen_base", name: "Tek Derin Çekmeceli Alt Dolap", description: "600mm 70kg ağır hizmet tek çekmeceli alt dolap", w: 600, h: 720, d: 580, minW: 400, maxW: 1000, doorSystemId: "open", drawersHeights: [440] },
   { templateId: "tpl_kb_04_two_drawers", familyId: "fam_kitchen_base", category: "kitchen_base", name: "İki Çekmeceli Alt Dolap (2 Derin)", description: "800mm 2 eşit derin tencere çekmeceli modül", w: 800, h: 720, d: 580, minW: 450, maxW: 1200, doorSystemId: "open", drawersHeights: [285, 285] },
   { templateId: "tpl_kb_05_three_drawers", familyId: "fam_kitchen_base", category: "kitchen_base", name: "Üç Çekmeceli Alt Dolap (1+2)", description: "1 çatal-kaşık + 2 derin tencere çekmeceli modül", w: 800, h: 720, d: 580, minW: 450, maxW: 1200, doorSystemId: "open", drawersHeights: [215, 215, 140] },
   { templateId: "tpl_kb_06_four_drawers", familyId: "fam_kitchen_base", category: "kitchen_base", name: "Dört Çekmeceli Alt Dolap", description: "600mm 4 eşit çekmeceli bıçak/baharat/servis modülü", w: 600, h: 720, d: 580, minW: 400, maxW: 900, doorSystemId: "open", drawersHeights: [140, 140, 140, 140] },
@@ -389,9 +407,9 @@ const TEMPLATE_SEEDS: TemplateSeed[] = [
   { templateId: "tpl_kw_05_lift_stay_single", familyId: "fam_kitchen_wall", category: "kitchen_wall", name: "Yukarı Kalkar Tek Kapak (HK top)", description: "800x450mm Blum AVENTOS HK top tek parça kalkar üst dolap", w: 800, h: 450, d: 350, minW: 400, maxW: 1200, maxH: 600, doorSystemId: "lift_up_stay", hardwareProductId: "hw_blum_aventos_hk_27", shelvesPerBay: 1 },
   { templateId: "tpl_kw_06_lift_bifold", familyId: "fam_kitchen_wall", category: "kitchen_wall", name: "İki Parçalı Katlanır Kalkar (HF top)", description: "900x780mm Blum AVENTOS HF top katlanır kalkar üst dolap", w: 900, h: 780, d: 350, minW: 450, maxW: 1800, minH: 480, maxH: 1040, doorSystemId: "lift_bi_fold", hardwareProductId: "hw_blum_aventos_hf_25", shelvesPerBay: 2 },
   { templateId: "tpl_kw_07_lift_parallel", familyId: "fam_kitchen_wall", category: "kitchen_wall", name: "Paralel Yukarı Kalkar (HL top)", description: "900x500mm Blum AVENTOS HL top paralel kalkar üst dolap", w: 900, h: 500, d: 350, minW: 450, maxW: 1800, minH: 300, maxH: 580, doorSystemId: "lift_parallel", hardwareProductId: "hw_blum_aventos_hl_25", shelvesPerBay: 1 },
-  { templateId: "tpl_kw_08_lift_up_over", familyId: "fam_kitchen_wall", category: "kitchen_wall", name: "Üstten Döner Kalkar (HS top)", description: "900x720mm üstten aşarak döner kalkar üst dolap", w: 900, h: 720, d: 350, minW: 450, maxW: 1800, doorSystemId: "lift_up_stay", shelvesPerBay: 2 },
-  { templateId: "tpl_kw_09_hood_cabinet", familyId: "fam_kitchen_wall", category: "kitchen_wall", name: "Davlumbaz Üst Dolabı", description: "600mm ankastre davlumbaz ve baca geçişli üst dolap", w: 600, h: 720, d: 350, minW: 600, maxW: 900, doorSystemId: "lift_up_stay", shelvesPerBay: 1 },
-  { templateId: "tpl_kw_10_microwave_wall", familyId: "fam_kitchen_wall", category: "kitchen_wall", name: "Mikrodalga Nişli Üst Dolap", description: "600x720x380mm mikrodalga yuvalı üst dolap", w: 600, h: 720, d: 380, minW: 600, maxW: 600, minD: 380, doorSystemId: "lift_up_stay", shelvesPerBay: 1, isFixedWidth: true },
+  { templateId: "tpl_kw_08_lift_up_over", familyId: "fam_kitchen_wall", category: "kitchen_wall", name: "Üstten Döner Kalkar (HS top)", description: "900x720mm üstten aşarak döner kalkar üst dolap", w: 900, h: 720, d: 350, minW: 450, maxW: 1800, doorSystemId: "lift_bi_fold", hardwareProductId: "hw_blum_aventos_hf_25", shelvesPerBay: 2 },
+  { templateId: "tpl_kw_09_hood_cabinet", familyId: "fam_kitchen_wall", category: "kitchen_wall", name: "Davlumbaz Üst Dolabı", description: "600mm ankastre davlumbaz ve baca geçişli üst dolap", w: 600, h: 600, d: 350, minW: 600, maxW: 900, doorSystemId: "lift_up_stay", hardwareProductId: "hw_blum_aventos_hk_27", shelvesPerBay: 1 },
+  { templateId: "tpl_kw_10_microwave_wall", familyId: "fam_kitchen_wall", category: "kitchen_wall", name: "Mikrodalga Nişli Üst Dolap", description: "600x720x380mm mikrodalga yuvalı üst dolap", w: 600, h: 720, d: 380, minW: 600, maxW: 600, minD: 380, doorSystemId: "hinged_single", shelvesPerBay: 1, isFixedWidth: true },
   { templateId: "tpl_kw_11_corner_wall", familyId: "fam_kitchen_wall", category: "kitchen_wall", name: "Köşe Üst Dolabı", description: "650x650mm L köşe üst dolabı", w: 650, h: 720, d: 650, minW: 600, maxW: 750, doorSystemId: "folding_side", isCorner: true, shelvesPerBay: 2 },
   { templateId: "tpl_kw_12_horizontal_wide", familyId: "fam_kitchen_wall", category: "kitchen_wall", name: "Yatay Geniş Üst Dolap", description: "1200x360mm geniş yatay kalkar kapaklı modül", w: 1200, h: 360, d: 350, minW: 800, maxW: 1800, baysCount: 2, doorSystemId: "lift_up_stay", shelvesPerBay: 0 },
   { templateId: "tpl_kw_13_narrow_wall", familyId: "fam_kitchen_wall", category: "kitchen_wall", name: "Dar Üst Dolap", description: "300mm dar tamamlayıcı üst dolap", w: 300, h: 720, d: 350, minW: 150, maxW: 350, doorSystemId: "hinged_single", shelvesPerBay: 2 },
@@ -402,12 +420,12 @@ const TEMPLATE_SEEDS: TemplateSeed[] = [
   // C. BOY VE CİHAZ DOLAPLARI (12 Şablon)
   // ============================================================================
   { templateId: "tpl_kt_01_pantry_shelved", familyId: "fam_kitchen_tall", category: "kitchen_tall", name: "Raflı Boy Kiler Dolabı", description: "600x2150mm 5 raflı standart boy kiler", w: 600, h: 2150, d: 580, minW: 400, maxW: 900, doorSystemId: "hinged_single", shelvesPerBay: 5 },
-  { templateId: "tpl_kt_02_pantry_pullout", familyId: "fam_kitchen_tall", category: "kitchen_tall", name: "Çekmeceli / Tandem Kiler Dolabı", description: "450x2150mm Dispensa 100kg çekme kiler mekanizmalı boy dolap", w: 450, h: 2150, d: 580, minW: 300, maxW: 600, doorSystemId: "hinged_single", specialFitting: "pantry_pullout", shelvesPerBay: 0 },
+  { templateId: "tpl_kt_02_pantry_pullout", familyId: "fam_kitchen_tall", category: "kitchen_tall", name: "Çekmeceli / Tandem Kiler Dolabı", description: "450x2150mm Dispensa 100kg çekme kiler mekanizmalı boy dolap", w: 450, h: 2150, d: 580, minW: 300, maxW: 600, doorSystemId: "hinged_single", hardwareProductId: "hw_blum_71b7550", specialFitting: "pantry_pullout", shelvesPerBay: 0 },
   { templateId: "tpl_kt_03_pantry_internal_drawers", familyId: "fam_kitchen_tall", category: "kitchen_tall", name: "İç Çekmeceli Boy Kiler (SPACE TOWER)", description: "600x2150mm 155° sıfır çıkıntılı menteşe + 4 iç çekmece", w: 600, h: 2150, d: 580, minW: 450, maxW: 900, doorSystemId: "hinged_single", hardwareProductId: "hw_blum_71b7550", drawersHeights: [180, 180, 180, 180], isInternalDrawers: true, shelvesPerBay: 2 },
   { templateId: "tpl_kt_04_oven_tower", familyId: "fam_kitchen_tall", category: "kitchen_tall", name: "Ankastre Fırın Kulesi", description: "600x2150mm EN 1116 fırın kulesi + alt 2 çekmece + üst dolap", w: 600, h: 2150, d: 580, minW: 600, maxW: 600, doorSystemId: "hinged_single", drawersHeights: [180, 180], shelvesPerBay: 2, isFixedWidth: true },
   { templateId: "tpl_kt_05_oven_microwave_tower", familyId: "fam_kitchen_tall", category: "kitchen_tall", name: "Fırın + Mikrodalga Kulesi", description: "600x2150mm çift ankastre cihaz kulesi", w: 600, h: 2150, d: 580, minW: 600, maxW: 600, doorSystemId: "hinged_single", drawersHeights: [180, 180], shelvesPerBay: 3, isFixedWidth: true },
   { templateId: "tpl_kt_06_builtin_fridge", familyId: "fam_kitchen_tall", category: "kitchen_tall", name: "Ankastre Buzdolabı Boy Dolabı", description: "600x2150mm 200cm² havalandırma menfezli ankastre soğutucu kulesi", w: 600, h: 2150, d: 580, minW: 600, maxW: 600, doorSystemId: "hinged_single", shelvesPerBay: 1, isFixedWidth: true },
-  { templateId: "tpl_kt_07_fridge_surround", familyId: "fam_kitchen_tall", category: "kitchen_tall", name: "Solo Buzdolabı Çevresi Ünitesi", description: "950x2150x650mm solo buzdolabı üstü ve yan kapama modülü", w: 950, h: 2150, d: 650, minW: 850, maxW: 1200, doorSystemId: "lift_up_stay", shelvesPerBay: 1 },
+  { templateId: "tpl_kt_07_fridge_surround", familyId: "fam_kitchen_tall", category: "kitchen_tall", name: "Solo Buzdolabı Çevresi Ünitesi", description: "950x2150x650mm solo buzdolabı üstü ve yan kapama modülü", w: 950, h: 2150, d: 650, minW: 850, maxW: 1200, doorSystemId: "hinged_double", shelvesPerBay: 1 },
   { templateId: "tpl_kt_08_utility_cleaning", familyId: "fam_kitchen_tall", category: "kitchen_tall", name: "Temizlik Dolabı", description: "600x2150mm ütü masası ve temizlik malzemesi boy dolabı", w: 600, h: 2150, d: 600, minW: 450, maxW: 800, doorSystemId: "hinged_single", shelvesPerBay: 3 },
   { templateId: "tpl_kt_09_broom_vacuum", familyId: "fam_kitchen_tall", category: "kitchen_tall", name: "Süpürge & Şarj İstasyonu Dolabı", description: "500x2150mm dikey şarjlı süpürge dolabı", w: 500, h: 2150, d: 580, minW: 400, maxW: 600, doorSystemId: "hinged_single", shelvesPerBay: 2 },
   { templateId: "tpl_kt_10_open_niche_tall", familyId: "fam_kitchen_tall", category: "kitchen_tall", name: "Açık Kahve Nişli Boy Dolap", description: "800x2150mm LED aydınlatmalı kahve nişli boy modül", w: 800, h: 2150, d: 580, minW: 600, maxW: 1200, doorSystemId: "hinged_double", drawersHeights: [200, 200], shelvesPerBay: 2, specialFitting: "led_profile" },
@@ -472,7 +490,10 @@ const TEMPLATE_SEEDS: TemplateSeed[] = [
   { templateId: "tpl_cm_15_service_spacer", familyId: "fam_complementary", category: "complementary", name: "Montaj / Tesisat Servis Boşluğu Elemanı", description: "600x2150x50mm arka havalandırma ve tesisat boşluk modülü", w: 600, h: 2150, d: 50, minW: 200, maxW: 1200, minH: 300, maxH: 2600, minD: 20, maxD: 150, doorSystemId: "open", isOpenFront: true, shelvesPerBay: 0, complementaryRole: "service_spacer" },
 ];
 
-export const V4_MODULE_TEMPLATES: V4ModuleTemplateDefinition[] = TEMPLATE_SEEDS.map(buildTemplateFromSeed);
+export const V4_MODULE_TEMPLATES: V4ModuleTemplateDefinition[] = [
+  ...TEMPLATE_SEEDS.map(buildTemplateFromSeed),
+  ...V5_SPECIALIZED_MODULE_TEMPLATES,
+];
 
 export function getTemplatesByFamily(familyId: ModuleFamilyId): V4ModuleTemplateDefinition[] {
   return V4_MODULE_TEMPLATES.filter((t) => t.familyId === familyId);
@@ -481,11 +502,36 @@ export function getTemplatesByFamily(familyId: ModuleFamilyId): V4ModuleTemplate
 export function getV4TemplateById(templateId: string): V4ModuleTemplateDefinition | undefined {
   const direct = V4_MODULE_TEMPLATES.find((t) => t.templateId === templateId);
   if (direct) return direct;
+  const savedCustom = loadSavedCustomModuleTemplates().find((c) => c.templateId === templateId);
+  if (savedCustom) {
+    return {
+      templateId: savedCustom.templateId,
+      familyId: savedCustom.familyId,
+      category: savedCustom.category,
+      name: savedCustom.name,
+      description: savedCustom.description,
+      defaultDimensions: { ...savedCustom.baseDimensions },
+      dimensionLimits: { minW: 200, maxW: 3600, minH: 200, maxH: 2850, minD: 200, maxD: 1000 },
+      defaultDoorSystemId: "hinged_double",
+      compatibleDoorSystems: ["hinged_single", "hinged_double", "sliding_top_hung", "open"],
+      createInstance: (id: string, customName?: string) => {
+        const cloned = structuredClone(savedCustom.serializedModuleSnapshot);
+        cloned.id = id;
+        cloned.templateId = savedCustom.templateId;
+        if (customName) cloned.name = customName;
+        return cloned;
+      },
+    };
+  }
   // Aliases for legacy/shorthand template IDs
   const aliasMap: Record<string, string> = {
     tpl_kt_01_single_door_pantry: "tpl_kt_01_pantry_shelved",
     tpl_kt_03_space_tower: "tpl_kt_03_pantry_internal_drawers",
     tpl_kb_04_three_drawer: "tpl_kb_05_three_drawers",
+    tpl_kb_06_sink_double_door: "tpl_kb_08_sink_base",
+    tpl_wd_03_two_door_wardrobe: "tpl_wd_02_two_door",
+    tpl_kw_01_single_wall: "tpl_kw_01_single_door",
+    v5_tv_floating_console_240: "v5_tv_media_console_240",
   };
   const alias = aliasMap[templateId];
   return alias ? V4_MODULE_TEMPLATES.find((t) => t.templateId === alias) : undefined;

@@ -3,10 +3,11 @@ import "./globals.css";
 import { BirimTooltipPortal } from "../v3/design-system/BirimTooltip";
 
 export const metadata: Metadata = {
-  title: "Birim Configurator | Parametrik Dolap ve Mutfak Platformu",
-  description: "Birim Mağaza & Üretim Entegre Parametrik Tasarım ve Konfigürasyon Motoru",
+  title: "BİRİM® Studio | Parametrik Dolap ve Mutfak Platformu",
+  description: "Birim Mağaza & Üretim Entegre Parametrik Tasarım ve Konfigürasyon Stüdyosu",
   icons: {
-    icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%232563EB'/><text x='16' y='22' text-anchor='middle' fill='white' font-family='sans-serif' font-weight='800' font-size='18'>B</text></svg>",
+    icon: "/icon.svg",
+    shortcut: "/favicon.ico",
   },
 };
 
@@ -16,8 +17,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="tr" className="dark">
-      <body className="h-screen w-screen overflow-hidden bg-slate-950 text-slate-100 antialiased">
+    <html lang="tr">
+      <body className="h-screen w-screen overflow-hidden bg-[#ECE8E0] text-[#141413] antialiased">
         {children}
         <BirimTooltipPortal />
       </body>

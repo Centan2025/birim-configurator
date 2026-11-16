@@ -430,6 +430,57 @@ export const DEFAULT_MATERIALS: MaterialDefinition[] = [
     edgeBandCostPerM: 0,
     hasGrain: false,
   },
+  {
+    id: "mat_egger_19_white",
+    name: "Egger W1100 ST9 Alp Beyazı 19mm",
+    brand: "Egger",
+    decorCode: "W1100 ST9",
+    category: "laminate",
+    thickness: 19,
+    densityKgPerM3: 670,
+    elasticModulusMpa: 2450,
+    mechanicalDataVerified: true,
+    colorHex: "#F7F7F5",
+    roughness: 0.42,
+    metalness: 0.02,
+    costPerM2: 19.8,
+    edgeBandCostPerM: 1.45,
+    hasGrain: false,
+  },
+  {
+    id: "mat_egger_19_cashmere",
+    name: "Egger U702 ST9 Kaşmir Gri 19mm",
+    brand: "Egger",
+    decorCode: "U702 ST9",
+    category: "laminate",
+    thickness: 19,
+    densityKgPerM3: 670,
+    elasticModulusMpa: 2450,
+    mechanicalDataVerified: true,
+    colorHex: "#CBC4BC",
+    roughness: 0.44,
+    metalness: 0.02,
+    costPerM2: 22.4,
+    edgeBandCostPerM: 1.65,
+    hasGrain: false,
+  },
+  {
+    id: "mat_egger_4mm_hdf_back",
+    name: "Egger 4mm Beyaz HDF Arkalık",
+    brand: "Egger",
+    decorCode: "W1000 HDF-4",
+    category: "laminate",
+    thickness: 4,
+    densityKgPerM3: 820,
+    elasticModulusMpa: 3100,
+    mechanicalDataVerified: true,
+    colorHex: "#F4F4F2",
+    roughness: 0.5,
+    metalness: 0.0,
+    costPerM2: 7.9,
+    edgeBandCostPerM: 0,
+    hasGrain: false,
+  },
 ];
 
 export function createDefaultWardrobeModule(id = "module_1"): ModuleInstance {
@@ -455,6 +506,7 @@ export function createDefaultWardrobeModule(id = "module_1"): ModuleInstance {
       bodyMaterialId: "mat_melamine_white",
       doorMaterialId: "mat_veneer_oak",
       jointType: "minifix_dowel",
+      grainContinuityMode: "module_4way",
     },
     isOpenFront: false,
     bays: [
@@ -515,6 +567,7 @@ export function createDefaultWardrobeModule(id = "module_1"): ModuleInstance {
 
 export function createInitialProject(): DesignProject {
   const mod = createDefaultWardrobeModule();
+  mod.position.x = 50; // Standard 50mm left wall filler clearance for full 90° door/handle swing
   mod.bays[0].customWidth = 575;
   return {
     id: "proj_demo_01",
@@ -551,4 +604,28 @@ export function createInitialProject(): DesignProject {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
+}
+
+/**
+ * Registers or updates a user-created custom surface/material (e.g. custom RAL/HEX lacquer
+ * or uploaded .JPG/.PNG wood/marble texture) inside `DEFAULT_MATERIALS` so 3D PBR, BOM,
+ * pricing, and customer PDFs immediately recognize it across the entire monorepo.
+ */
+export function registerRuntimeMaterial(mat: MaterialDefinition): MaterialDefinition {
+  const existingIdx = DEFAULT_MATERIALS.findIndex((m) => m.id === mat.id);
+  if (existingIdx >= 0) {
+    DEFAULT_MATERIALS[existingIdx] = { ...DEFAULT_MATERIALS[existingIdx], ...mat };
+    return DEFAULT_MATERIALS[existingIdx];
+  }
+  DEFAULT_MATERIALS.unshift(mat);
+  return mat;
+}
+
+export function syncProjectCustomMaterials(mats?: MaterialDefinition[] | null): void {
+  if (!Array.isArray(mats)) return;
+  for (const m of mats) {
+    if (m && typeof m.id === "string" && m.id.trim()) {
+      registerRuntimeMaterial(m);
+    }
+  }
 }

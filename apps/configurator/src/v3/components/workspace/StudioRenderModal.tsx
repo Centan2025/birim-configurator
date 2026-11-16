@@ -87,7 +87,8 @@ export const StudioRenderModal: React.FC<StudioRenderModalProps> = ({
     if (typeof window === "undefined") return;
     const win = window as unknown as StudioRenderWindow;
     if (typeof win.__birimGetLiveSceneStats === "function") {
-      setSceneMetrics(win.__birimGetLiveSceneStats());
+      const stats = win.__birimGetLiveSceneStats();
+      if (stats) setSceneMetrics(stats);
     }
   }, []);
 

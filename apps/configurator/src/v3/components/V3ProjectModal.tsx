@@ -1,26 +1,79 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { TENANT_BIRIM_ENTERPRISE, buildTenantScopedStorageKey } from "@birim/core";
 import { useV3Adapter } from "../adapter/useV3Adapter";
-import { SavedProjectMeta } from "../../store/useConfiguratorStore";
-import { FolderOpen, Save, Trash2, Check, X, Share2, Copy } from "lucide-react";
+import { SavedProjectMeta, useConfiguratorStore } from "../../store/useConfiguratorStore";
+import { FolderOpen, Save, Trash2, Check, X, Share2, Copy, Cloud, Lock } from "lucide-react";
 import { startZeroLagModalDrag } from "../design-system/zeroLagDrag";
 import { buildProjectShareQrSvg } from "../utils/projectShareCodec";
+
+interface CloudVersionItem {
+  id: string;
+  versionNo: number;
+  isOrderLocked: boolean;
+  createdAt: string;
+  designDocument: unknown;
+}
 
 export const V3ProjectModal: React.FC<{
   isOpen: boolean;
   onClose: () => void;
 }> = ({ isOpen, onClose }) => {
   const { project, saveToStorage, loadFromStorage, getSavedProjects } = useV3Adapter();
+  const activeTenantId = useConfiguratorStore((s) => s.activeTenantId);
+  const activeTenantProfile = useConfiguratorStore((s) => s.activeTenantProfile);
+  const pricing = useConfiguratorStore((s) => s.pricing);
+  const importProjectJSON = useConfiguratorStore((s) => s.importProjectJSON);
+
   const [saveTitle, setSaveTitle] = useState(project.title);
   const [savedList, setSavedList] = useState<SavedProjectMeta[]>([]);
+  const [cloudVersions, setCloudVersions] = useState<CloudVersionItem[]>([]);
+  const [lockAsOrder, setLockAsOrder] = useState(false);
+  const [cloudBusy, setCloudBusy] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [feedbackIsError, setFeedbackIsError] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
 
-  const refresh = () => {
+  const tenantStorageKey = useMemo(
+    () =>
+      !activeTenantId || activeTenantId === TENANT_BIRIM_ENTERPRISE.tenantId
+        ? "birim_saved_projects"
+        : buildTenantScopedStorageKey(activeTenantId, "saved_projects"),
+    [activeTenantId]
+  );
+
+  const buildAuthHeaders = useCallback((): Record<string, string> => {
+    const token =
+      typeof window !== "undefined" ? window.localStorage.getItem("modul_saas_session_token") : null;
+    return {
+      "Content-Type": "application/json",
+      ...(token
+        ? { "x-modul-session-token": token }
+        : { "x-modul-tenant-id": activeTenantId }),
+    };
+  }, [activeTenantId]);
+
+  const refreshCloudVersions = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `/api/saas/projects?projectId=${encodeURIComponent(project.id)}`,
+        { headers: buildAuthHeaders(), credentials: "same-origin" }
+      );
+      if (!res.ok) return;
+      const data = (await res.json()) as { ok: boolean; versions?: CloudVersionItem[] };
+      if (data.ok && Array.isArray(data.versions)) {
+        setCloudVersions(data.versions);
+      }
+    } catch {
+      // Offline local mode fallback
+    }
+  }, [project.id, buildAuthHeaders]);
+
+  const refresh = useCallback(() => {
     setSavedList(getSavedProjects());
-  };
+    void refreshCloudVersions();
+  }, [getSavedProjects, refreshCloudVersions]);
 
   useEffect(() => {
     if (isOpen) {
@@ -30,7 +83,7 @@ export const V3ProjectModal: React.FC<{
       setFeedbackIsError(false);
       setCopiedLink(false);
     }
-  }, [isOpen, project.title]);
+  }, [isOpen, project.title, refresh]);
 
   const shareBundle = useMemo(
     () => (isOpen ? buildProjectShareQrSvg(project) : null),
@@ -43,11 +96,77 @@ export const V3ProjectModal: React.FC<{
     try {
       const id = saveToStorage(saveTitle.trim() || project.title);
       setFeedbackIsError(false);
-      setFeedback(`Tasarım kaydedildi (${id.slice(0, 10)})`);
+      setFeedback(`Tasarım cihaz belleğine (${activeTenantProfile.brand.displayName}) kaydedildi (${id.slice(0, 10)})`);
       refresh();
     } catch (error) {
       setFeedbackIsError(true);
       setFeedback(error instanceof Error ? error.message : "Kayıt başarısız.");
+    }
+  };
+
+  const handleCloudSave = async () => {
+    setCloudBusy(true);
+    try {
+      const nextProj = { ...project, title: saveTitle.trim() || project.title };
+      const res = await fetch("/api/saas/projects", {
+        method: "POST",
+        headers: buildAuthHeaders(),
+        credentials: "same-origin",
+        body: JSON.stringify({
+          project: nextProj,
+          lockAsOrder,
+          pricingSnapshot: {
+            currency: activeTenantProfile.pricing.currency,
+            totalWithVatEur: pricing.totalWithVatEur,
+            totalWithVatTry: pricing.totalWithVatTry,
+            dealerNetWithVatTry: pricing.dealerNetWithVatTry,
+          },
+        }),
+      });
+      const data = (await res.json()) as {
+        ok: boolean;
+        error?: string;
+        versionRecord?: { versionNo: number; isOrderLocked: boolean };
+      };
+      if (!res.ok || !data.ok) {
+        setFeedbackIsError(true);
+        setFeedback(data.error || "Bulut versiyon kaydı başarısız.");
+      } else {
+        setFeedbackIsError(false);
+        setFeedback(
+          `Bulut v${data.versionRecord?.versionNo ?? 1} kaydedildi${
+            data.versionRecord?.isOrderLocked ? " (Sipariş Kilidi Aktif)" : ""
+          }.`
+        );
+        setLockAsOrder(false);
+        await refreshCloudVersions();
+      }
+    } catch {
+      setFeedbackIsError(true);
+      setFeedback("Bulut sunucusuna ulaşılamadı.");
+    } finally {
+      setCloudBusy(false);
+    }
+  };
+
+  const handleCloudDeleteVersion = async (versionNo: number) => {
+    try {
+      const res = await fetch(
+        `/api/saas/projects?projectId=${encodeURIComponent(project.id)}&versionNo=${versionNo}`,
+        { method: "DELETE", headers: buildAuthHeaders(), credentials: "same-origin" }
+      );
+      const data = (await res.json()) as { ok: boolean; error?: string };
+      if (!res.ok || !data.ok) {
+        setFeedbackIsError(true);
+        setFeedback(data.error || "Kilitli sipariş versiyonu silinemez.");
+        return;
+      }
+      setFeedbackIsError(false);
+      setFeedback(`Bulut versiyon v${versionNo} silindi.`);
+      await refreshCloudVersions();
+    } catch {
+      setFeedbackIsError(true);
+      setFeedback("Versiyon silinirken hata oluştu.");
     }
   };
 
@@ -88,11 +207,11 @@ export const V3ProjectModal: React.FC<{
 
   const handleDelete = (id: string) => {
     try {
-      const raw = localStorage.getItem("birim_saved_projects");
+      const raw = localStorage.getItem(tenantStorageKey);
       if (raw) {
         const parsed: SavedProjectMeta[] = JSON.parse(raw);
         localStorage.setItem(
-          "birim_saved_projects",
+          tenantStorageKey,
           JSON.stringify(parsed.filter((p) => p.id !== id))
         );
         refresh();
@@ -120,7 +239,7 @@ export const V3ProjectModal: React.FC<{
         >
           <div className="flex items-center gap-2">
             <FolderOpen className="w-4 h-4 text-amber-700" />
-            <h2 className="text-sm font-bold">Proje Kayıt, Bulut Linki &amp; Mobil QR Paylaşım</h2>
+            <h2 className="text-sm font-bold">Proje Kayıt, Bulut Versiyon &amp; Mobil QR Paylaşım</h2>
           </div>
           <button
             type="button"
@@ -147,7 +266,7 @@ export const V3ProjectModal: React.FC<{
         )}
 
         <div className="p-5 space-y-4 max-h-[78vh] overflow-y-auto">
-          {/* 1. Canlı Taşınabilir Link & Mobil QR Paylaşım (localStorage sınırını aşar!) */}
+          {/* 1. Canlı Taşınabilir Link & Mobil QR Paylaşım */}
           {shareBundle && (
             <div className="p-3.5 rounded-2xl bg-white/90 border border-stone-200/90 flex flex-col sm:flex-row items-center gap-3.5 shadow-2xs">
               <div
@@ -160,7 +279,7 @@ export const V3ProjectModal: React.FC<{
                   <span>Cihazlar Arası Canlı Tasarım Linki &amp; Mobil QR</span>
                 </div>
                 <p className="text-[11px] text-stone-500 leading-snug">
-                  Mağazada hazırladığınız bu tasarımı müşterinin telefonunda veya evdeki bilgisayarında tarayıcı belleğine bağlı kalmadan doğrudan açar.
+                  Mağazada hazırladığınız bu tasarımı müşterinin telefonunda veya evdeki bilgisayarında doğrudan açar.
                 </p>
                 <div className="flex items-center gap-2">
                   <input
@@ -183,15 +302,15 @@ export const V3ProjectModal: React.FC<{
             </div>
           )}
 
-          {/* 2. Yerel Hızlı Kayıt */}
-          <div>
+          {/* 2. Yerel & Bulut SaaS Versiyon Kaydı */}
+          <div className="space-y-2">
             <label
               htmlFor="v3-save-input"
-              className="block text-xs font-semibold text-stone-600 mb-1.5"
+              className="block text-xs font-semibold text-stone-600"
             >
-              Bu Cihaza Tasarım Kaydet
+              Proje Başlığı ({activeTenantProfile.brand.displayName})
             </label>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <input
                 id="v3-save-input"
                 data-testid="v3-save-title-input"
@@ -199,31 +318,104 @@ export const V3ProjectModal: React.FC<{
                 value={saveTitle}
                 onChange={(e) => setSaveTitle(e.target.value)}
                 placeholder="Örn: Ebeveyn Yatak Odası Gardırop"
-                className="flex-1 bg-white border border-stone-300 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-amber-700"
+                className="flex-1 min-w-[180px] bg-white border border-stone-300 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-amber-700"
               />
               <button
                 type="button"
                 data-testid="v3-save-confirm-btn"
                 onClick={handleSave}
-                className="px-4 py-2 rounded-xl bg-stone-900 hover:bg-stone-800 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                className="px-3.5 py-2 rounded-xl bg-stone-900 hover:bg-stone-800 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
               >
                 <Save className="w-3.5 h-3.5" />
-                <span>Kaydet</span>
+                <span>Cihaza Kaydet</span>
+              </button>
+              <button
+                type="button"
+                data-testid="v3-cloud-save-btn"
+                disabled={cloudBusy}
+                onClick={handleCloudSave}
+                className="px-3.5 py-2 rounded-xl bg-sky-800 hover:bg-sky-900 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <Cloud className="w-3.5 h-3.5" />
+                <span>{cloudBusy ? "Kaydediliyor..." : "Buluta Versiyon Kaydet"}</span>
               </button>
             </div>
+            <label className="inline-flex items-center gap-2 text-[11px] text-stone-600 cursor-pointer pt-0.5">
+              <input
+                type="checkbox"
+                checked={lockAsOrder}
+                onChange={(e) => setLockAsOrder(e.target.checked)}
+                className="rounded border-stone-300"
+              />
+              <span>Bu bulut versiyonunu onaylı sipariş olarak kilitle (değiştirilemez / silinemez)</span>
+            </label>
           </div>
 
-          {/* 3. Kayıtlı Tasarımlar Listesi */}
+          {/* 3. Bulut Proje Versiyon Geçmişi (`/api/saas/projects`) */}
+          {cloudVersions.length > 0 && (
+            <div>
+              <div className="text-xs font-semibold text-stone-600 mb-1.5 flex items-center gap-1.5">
+                <Cloud className="w-3.5 h-3.5 text-sky-700" />
+                <span>Bulut Versiyon Geçmişi ({cloudVersions.length})</span>
+              </div>
+              <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                {cloudVersions.map((ver) => (
+                  <div
+                    key={ver.id}
+                    className="p-2.5 rounded-xl border border-sky-200/80 bg-sky-50/40 flex items-center justify-between gap-2 text-xs"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="font-mono font-bold text-sky-950">v{ver.versionNo}</span>
+                      {ver.isOrderLocked && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[10px] font-bold">
+                          <Lock className="w-2.5 h-2.5" /> Kilitli Sipariş
+                        </span>
+                      )}
+                      <span className="text-[11px] text-stone-500 truncate">
+                        {new Date(ver.createdAt).toLocaleString("tr-TR")}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const ok = importProjectJSON(JSON.stringify(ver.designDocument));
+                          if (ok.success) {
+                            setFeedback(`Bulut versiyon v${ver.versionNo} sahneye yüklendi.`);
+                            onClose();
+                          }
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-sky-700 hover:bg-sky-800 text-white text-[11px] font-semibold cursor-pointer"
+                      >
+                        Yükle
+                      </button>
+                      <button
+                        type="button"
+                        disabled={ver.isOrderLocked}
+                        title={ver.isOrderLocked ? "Sipariş kilitli versiyon silinemez" : "Versiyonu sil"}
+                        onClick={() => void handleCloudDeleteVersion(ver.versionNo)}
+                        className="p-1 rounded-lg text-stone-400 hover:text-red-600 disabled:opacity-30 cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 4. Cihazdaki Kayıtlı Tasarımlar Listesi */}
           <div>
             <div className="text-xs font-semibold text-stone-600 mb-2">
-              Kayıtlı Tasarımlarım ({savedList.length})
+              Bu Cihazdaki Kayıtlı Tasarımlarım ({savedList.length})
             </div>
             {savedList.length === 0 ? (
               <div className="p-5 text-center border border-dashed border-stone-300 rounded-2xl text-xs text-stone-400">
-                Henüz bu cihazda kayıtlı bir projeniz bulunmuyor.
+                Henüz bu organizasyonda kayıtlı yerel bir projeniz bulunmuyor.
               </div>
             ) : (
-              <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+              <div className="space-y-2 max-h-44 overflow-y-auto pr-1">
                 {savedList.map((item) => (
                   <div
                     key={item.id}
@@ -235,8 +427,7 @@ export const V3ProjectModal: React.FC<{
                         {item.title}
                       </div>
                       <div className="text-[11px] text-stone-500">
-                        {item.dimensionsLabel} •{" "}
-                        {new Date(item.updatedAt).toLocaleDateString("tr-TR")}
+                        {new Date(item.date).toLocaleDateString("tr-TR")} • € {Math.round(item.priceEur)}
                       </div>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">

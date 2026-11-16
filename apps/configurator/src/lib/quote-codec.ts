@@ -2,6 +2,8 @@ import type { DesignProject } from "@birim/core";
 
 export interface VerifiedQuoteRecord {
   code: string;
+  tenantId?: string;
+  dealerNetTotalWithVatTry?: number;
   projectId: string;
   projectTitle: string;
   version: number;

@@ -131,13 +131,22 @@ export function convertCutPieceToErpPartInput(
     can_rotate = true;
   }
 
-  // Modül adı + Parça adı birleşimi (ERP operatör etiketinde modül izlenebilirliği için)
+  // Desen takibi grubundaki parçalar kesinlikle döndürülemez ve sıra numarası operatör etiketine basılır
+  if (piece.grainGroupId) {
+    grain_direction = "vertical";
+    can_rotate = false;
+  }
+
+  // Modül adı + Parça adı + Desen Takibi Sıra Kodu birleşimi
   const cleanMod = (piece.moduleName || "").trim();
   const cleanName = (piece.pieceName || piece.id).trim();
-  const part_label =
+  const baseLabel =
     cleanMod && !cleanName.toLowerCase().includes(cleanMod.toLowerCase())
       ? `${cleanMod} - ${cleanName}`
       : cleanName;
+  const part_label = piece.grainGroupId
+    ? `${baseLabel} [DT:${piece.grainSequenceLabel || piece.grainGroupId}]`
+    : baseLabel;
 
   const summary = buildErpEdgeSummaryCode({ edgeL1, edgeL2, edgeW1, edgeW2 });
 
@@ -324,15 +333,18 @@ export function buildBirimErpNestingBundle(
 
       for (const conv of convertedList) {
         const p = conv.partInput;
-        const sig = [
-          p.part_label,
-          p.width_mm,
-          p.height_mm,
-          p.can_rotate ? "1" : "0",
-          p.grain_direction || "none",
-          p.edge_banding || "",
-          p.material_code || "",
-        ].join("|");
+        // Desen takibi (`grainGroupId`) olan parçaları asla rastgele adet altında birleştirme; her biri kendi sıra koordinatını korur!
+        const sig = conv.sourcePiece.grainGroupId
+          ? `GRAIN_UNIQUE_${conv.sourcePiece.id}`
+          : [
+              p.part_label,
+              p.width_mm,
+              p.height_mm,
+              p.can_rotate ? "1" : "0",
+              p.grain_direction || "none",
+              p.edge_banding || "",
+              p.material_code || "",
+            ].join("|");
 
         const existing = aggMap.get(sig);
         if (existing) {

@@ -87,7 +87,8 @@ export function calculateProjectPrice(
   params: PricingParameters = DEFAULT_PRICING_PARAMS,
   materialsMap: Map<string, MaterialDefinition> = new Map(
     DEFAULT_MATERIALS.map((m) => [m.id, m])
-  )
+  ),
+  sceneObjects: import("@birim/core").SceneObjectInstance[] = []
 ): PricingBreakdown {
   const materialLines: PricingBreakdown["details"]["materialLines"] = [];
   const surchargeLines: PricingBreakdown["details"]["surchargeLines"] = [];
@@ -95,8 +96,10 @@ export function calculateProjectPrice(
   let totalEdgeBandCostEur = 0;
 
   const wasteMultiplier = 1 + Math.max(0, params.wasteFactorPercent) / 100;
+  const sheetM2 = params.standardSheetAreaM2 && params.standardSheetAreaM2 > 1 ? params.standardSheetAreaM2 : STANDARD_SHEET_M2;
+  const stockedSet = params.stockedMaterialIds ? new Set(params.stockedMaterialIds) : STOCKED_CORE_MATERIAL_IDS;
   const minSpecialBoardM2 = roundMm(
-    STANDARD_SHEET_M2 * (params.minSpecialDecorBoardFraction ?? 0.5),
+    sheetM2 * (params.minSpecialDecorBoardFraction ?? 0.5),
     3
   );
 
@@ -120,7 +123,7 @@ export function calculateProjectPrice(
     const nestedArea = nestedEffectiveAreaByMat.get(item.materialId);
     const paramGrossArea = roundMm(item.netAreaM2 * wasteMultiplier, 2);
 
-    const isStockedDecor = STOCKED_CORE_MATERIAL_IDS.has(mat.id);
+    const isStockedDecor = stockedSet.has(mat.id);
     const baseBillable =
       nestedArea && params.wasteFactorPercent === DEFAULT_PRICING_PARAMS.wasteFactorPercent
         ? roundMm(Math.max(paramGrossArea, nestedArea), 2)
@@ -259,12 +262,29 @@ export function calculateProjectPrice(
   const marginAmount =
     (netProductionCost + logisticsTotal) * (params.targetMarginPercent / 100);
 
+  // 9b. Commercial Scene Objects (Quoted Appliances, Sinks, Faucets & Birim Freestanding Furniture)
+  const commercialObjectLines: NonNullable<PricingBreakdown["details"]["commercialObjectLines"]> = [];
+  let commercialObjectsCostEur = 0;
+  for (const obj of sceneObjects) {
+    if (obj.isHidden || obj.commercialRole !== "quoted_product" || obj.unitPriceEur <= 0) continue;
+    const qty = Math.max(1, obj.quantity || 1);
+    const lineTot = roundMm(qty * obj.unitPriceEur, 2);
+    commercialObjectsCostEur += lineTot;
+    commercialObjectLines.push({
+      sku: obj.sku,
+      name: obj.name,
+      qty,
+      unitPriceEur: obj.unitPriceEur,
+      totalEur: lineTot,
+    });
+  }
+
   // 10. Net subtotal before VAT
-  const subtotalNetEur = netProductionCost + logisticsTotal + marginAmount;
+  const subtotalNetEur = netProductionCost + logisticsTotal + marginAmount + commercialObjectsCostEur;
   const subtotalNetTry = subtotalNetEur * params.eurTryExchangeRate;
 
   // 11. VAT (KDV %20)
-  const vatRatePercent = 20;
+  const vatRatePercent = typeof params.vatRatePercent === "number" ? Math.max(0, params.vatRatePercent) : 20;
   const vatAmountEur = subtotalNetEur * (vatRatePercent / 100);
   const vatAmountTry = subtotalNetTry * (vatRatePercent / 100);
 
@@ -351,6 +371,7 @@ export function calculateProjectPrice(
     miterAndSpecialCncCostEur: roundMm(miterAndSpecialCncCostEur, 2),
     glassAndAluminumFrameCostEur: roundMm(glassAndAluminumFrameCostEur, 2),
     deliveryAndInstallationEur: roundMm(deliveryAndInstallationEur, 2),
+    commercialObjectsCostEur: roundMm(commercialObjectsCostEur, 2),
     rawMaterialsTotal: roundMm(rawMaterialsTotal, 2),
     laborCost: roundMm(laborCost, 2),
     operationalOverhead: roundMm(operationalOverhead, 2),
@@ -365,14 +386,56 @@ export function calculateProjectPrice(
     vatAmountTry: roundMm(vatAmountTry, 2),
     totalWithVatEur: roundMm(totalWithVatEur, 2),
     totalWithVatTry: roundMm(totalWithVatTry, 2),
+    dealerDiscountPercent: params.dealerDiscountPercent ?? 0,
+    dealerNetWithVatEur: roundMm(totalWithVatEur * (1 - Math.max(0, Math.min(60, params.dealerDiscountPercent ?? 0)) / 100), 2),
+    dealerNetWithVatTry: Math.round(totalWithVatTry * (1 - Math.max(0, Math.min(60, params.dealerDiscountPercent ?? 0)) / 100)),
     leadTime,
     details: {
       materialLines,
       hardwareLines,
       surchargeLines,
+      commercialObjectLines,
       totalEdgeBandMeters: bom.summary.totalEdgeBandMeters,
       totalHolesCount,
     },
     materialAlternatives,
+    workshopMetrics: (() => {
+      const lacquerGrossM2 = bom.cutList
+        .filter((cp) => {
+          const m = materialsMap.get(cp.materialId);
+          return m?.category === "lacquer" || (m?.name || "").toLowerCase().includes("lake");
+        })
+        .reduce((acc, cp) => acc + cp.areaM2 * 2, 0);
+      const totalFasteners = bom.hardwareList
+        .filter((h) => h.category === "connector" || h.category === "hinge")
+        .reduce((acc, h) => acc + h.quantity, 0);
+      const estLinearMt = Math.max(0.6, roundMm(bom.summary.totalPanelAreaM2 / 3.4, 2));
+      const estVolumeM3 = roundMm(
+        bom.cutList.reduce((acc, cp) => acc + cp.areaM2 * ((cp.thicknessMm || 18) / 1000), 0) * 3.8,
+        2
+      );
+      return {
+        isConfigurableWorkshopDraftRule: true as const,
+        totalWeightKg: bom.summary.totalWeightKg || Math.max(12, Math.round(bom.summary.totalPanelAreaM2 * 13.5)),
+        totalVolumeM3: estVolumeM3,
+        estimatedLinearMeterMt: estLinearMt,
+        costPerLinearMeterEur: roundMm(totalWithVatEur / estLinearMt, 2),
+        costPerLinearMeterTry: Math.round(totalWithVatTry / estLinearMt),
+        fastenersWith10PctWasteCount: Math.ceil(totalFasteners * 1.1),
+        edgeBandGlueGrams: Math.round(bom.summary.totalEdgeBandMeters * 18),
+        lacquerPrimerGrams: Math.round(lacquerGrossM2 * 220),
+        lacquerTopcoatGrams: Math.round(lacquerGrossM2 * 160),
+        lacquerThinnerGrams: Math.round(lacquerGrossM2 * 115),
+        subcontractCuttingAndBandingEur: roundMm(
+          bom.materialUsage.reduce((s, u) => s + u.estimatedSheetsCount, 0) * 14 + bom.summary.totalEdgeBandMeters * 0.45,
+          2
+        ),
+        paymentScenarios: {
+          cashDiscount3PctTry: Math.round(totalWithVatTry * 0.97),
+          standardTransferTry: Math.round(totalWithVatTry),
+          installment6MonthsTry: Math.round(totalWithVatTry * 1.095),
+        },
+      };
+    })(),
   };
 }

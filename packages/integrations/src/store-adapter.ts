@@ -1,4 +1,4 @@
-import { DesignProject, evaluateProjectCompatibility } from "@birim/core";
+import { DesignProject, evaluateProjectCompatibility, evaluateUnifiedEngineeringModel } from "@birim/core";
 import { ManufacturingBOM } from "@birim/manufacturing";
 import { PricingBreakdown } from "@birim/pricing";
 import { IStoreAdapter, StoreQuoteItemPayload, AuditLogEntry } from "./types";
@@ -27,6 +27,7 @@ export class MockStoreAdapter implements IStoreAdapter {
     const mainMod = project.modules[0];
     const snapshotId = `snp_${project.id}_v${project.version}_${Date.now()}`;
     const compatibility = evaluateProjectCompatibility(project);
+    const unified = evaluateUnifiedEngineeringModel(project);
 
     const selectedDoorSystems = Array.from(
       new Set(
@@ -61,7 +62,7 @@ export class MockStoreAdapter implements IStoreAdapter {
           : "Çoklu Malzeme",
         selectedDoorSystems,
         selectedHardwareSkus,
-        compatibilityStatus: compatibility.overallStatus,
+        compatibilityStatus: !unified.canExportToCncAndSaw ? "INCOMPATIBLE" : !unified.canApproveFinalErpRelease ? "UNVERIFIED" : compatibility.overallStatus,
         bomSummary: {
           totalPieces: bom.summary.totalPiecesCount,
           totalAreaM2: bom.summary.totalPanelAreaM2,

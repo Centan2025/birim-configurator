@@ -1,3 +1,4 @@
+import type { SceneObjectInstance, CustomModuleTemplateRecord } from "./scene-objects-engine";
 import type { PanelCutoutConfig } from "./panel-cutouts";
 
 export type UnitLength = number; // in millimeters (mm)
@@ -97,6 +98,48 @@ export type DrawerBoxSystemType =
 
 export type SlopedCeilingMode = "none" | "back_slope" | "left_slope" | "right_slope";
 
+export type MultiHoleBoringMode =
+  | "full_system_32"
+  | "zone_32"
+  | "cluster_5"
+  | "cluster_3"
+  | "single_pin"
+  | "none";
+
+export type CeilingType =
+  | "flat_plaster"
+  | "dropped_perimeter_cove"
+  | "gypsum_soffit_bulkhead"
+  | "exposed_wood_beams"
+  | "coffered_baffle"
+  | "sloped_attic";
+
+export type GrainContinuityMode =
+  | "none"
+  | "module_vertical"
+  | "module_4way"
+  | "facade_continuous";
+
+export interface SpaceCeilingConfig {
+  enabled: boolean;
+  ceilingType: CeilingType;
+  showIn3D?: boolean;
+  showInElevation2D?: boolean;
+  translucentCutawayIn3D?: boolean;
+  dropHeightMm?: UnitLength;
+  soffitDepthMm?: UnitLength;
+  beamHeightMm?: UnitLength;
+  beamWidthMm?: UnitLength;
+  beamSpacingMm?: UnitLength;
+  bafflePitchMm?: UnitLength;
+  hasHiddenLedCove?: boolean;
+  hasRecessedSpots?: boolean;
+  slopeKneeHeightMm?: UnitLength;
+  slopeAngleDeg?: number;
+  slopeDirection?: "left_to_right" | "right_to_left" | "back_to_front";
+  colorHex?: string;
+}
+
 export interface SlopedCeilingConfig {
   mode: SlopedCeilingMode;
   kneeHeightMm: UnitLength; // H_knee (diz duvarı / eğim başlangıç yüksekliği)
@@ -161,6 +204,10 @@ export interface MaterialDefinition {
   category: "wood" | "lacquer" | "laminate" | "glass" | "stone" | "metal" | "mirror" | "compact";
   thickness: UnitLength; // standard: 18mm, 8mm, etc.
   densityKgPerM3?: number; // default: 650 laminate, 750 lacquer/MDF, 920 glass
+  /** Young's Modulus (MPa) for EN 16122 shelf deflection (e.g. 2200 particleboard, 2800 MDF, 70000 tempered glass) */
+  elasticModulusMpa?: number;
+  /** True when manufacturer/lab mechanical datasheet is verified; false/omitted on custom materials triggers VERIFICATION_REQUIRED */
+  mechanicalDataVerified?: boolean;
   colorHex: string;
   roughness: number;
   metalness: number;
@@ -189,6 +236,7 @@ export interface DrillingHole {
   direction: "face_front" | "face_back" | "edge_top" | "edge_bottom" | "edge_left" | "edge_right";
   purpose:
     | "minifix_cam"
+    | "cabineo_pocket"
     | "minifix_bolt"
     | "minifix_through_bolt"
     | "dowel"
@@ -214,6 +262,15 @@ export interface ParametricPart {
   materialId: string;
   grain: GrainDirection;
   grainGroupId?: string;
+  grainOffsetXMm?: UnitLength;
+  grainOffsetYMm?: UnitLength;
+  grainSequenceLabel?: string;
+  multiHoleMode?: MultiHoleBoringMode;
+  multiHoleRowCount?: 2 | 3;
+  multiHoleFrontSetbackMm?: UnitLength;
+  multiHoleEdgeMarginMm?: UnitLength;
+  multiHoleDividerThroughBore?: boolean;
+  adjustableShelfPositionsY?: UnitLength[];
   edgeBanding: EdgeBandingSpec;
   jointType: JointType;
   holes: DrillingHole[];
@@ -278,6 +335,21 @@ export interface ParametricPart {
   isWoodenDrawerBox?: boolean;
   isWallCabinet?: boolean;
   cutoutCenterXMm?: UnitLength;
+  /** Actual door leaf thickness (mm) for dynamic inset setback X = 37 + T_door + reveal */
+  insetDoorThicknessMm?: UnitLength;
+  /** Front flush reveal clearance (mm) on inset doors (default 2mm) */
+  insetRevealGapMm?: UnitLength;
+  /** Y coordinates along carcass_bottom / carcass_top where intermediate dividers mate coaxially */
+  dividerJointPositionsY?: UnitLength[];
+  /** Non-rectangular 2D CNC outer contour vertices [xMm, yMm][] (e.g. sloped ceiling trapezoid or stadium slab) */
+  polygonContourMm?: [number, number][];
+  /** Canonical 3D-synced handle drilling spec so 3D handle posts and CNC Ø5mm through-bores match 1:1 */
+  handleDrillSpec?: {
+    orientation: "horizontal" | "vertical";
+    centerXMm: UnitLength;
+    centerYMm: UnitLength;
+    spacingCcMm: UnitLength;
+  };
 }
 
 export interface ShelfConfig {
@@ -368,6 +440,8 @@ export type DoorCrossSectionProfile =
   | "glass_frame"
   | "mirror_door"
   | "bevel_45"
+  | "j_pull_bevel"
+  | "cove_arch"
   | "custom_cad_profile";
 
 export interface DoorConfig {
@@ -402,6 +476,8 @@ export interface DoorConfig {
   doorMaterialId?: string;
   grainGroupId?: string;
   bottomOverhangMm?: UnitLength; // Örn. üst dolapta -15mm kulpsuz alt sarkıtma
+  doorBottomGapMm?: UnitLength; // Kısmi kapak: alttan açık bırakılan yükseklik (mm)
+  doorTopGapMm?: UnitLength; // Kısmi kapak: üstten açık bırakılan yükseklik (mm)
   handleType?: "standard" | "integrated_profile" | "push_to_open" | "none";
   softClose: boolean;
   hingeCount?: number;
@@ -417,6 +493,14 @@ export interface DoorConfig {
   handleLengthMm?: UnitLength;
   handleMaterialId?: string;
   doorEdgeBandThicknessMm?: UnitLength;
+  /** Distinguishes CNC-routed 1-piece MDF shaker vs true 5-piece rail-and-stile frame construction */
+  doorFrameConstruction?: "monoblock_cnc" | "five_piece_rail_stile";
+  /** Sol kör klapa genişliği (mm) — Eş-düzlem klapada menteşe eksenini otomatik uyarlar */
+  frontFillerLeftMm?: UnitLength;
+  /** Sağ kör klapa genişliği (mm) */
+  frontFillerRightMm?: UnitLength;
+  /** Klapa konumu: dış kapakla eş-düzlem (robot/95° menteşe) veya içerlek kayıt (110° düz menteşe) */
+  frontFillerPosition?: "coplanar_front" | "recessed_inner";
 }
 
 export interface SubDividerConfig {
@@ -474,25 +558,56 @@ export type PlinthConstructionType =
   | "adjustable_legs_clip" // DIN 68935 / Häfele Axilo legs + snap-on C-clip front/side plinth + PVC water seal (Kitchen/Bath standard)
   | "gable_rails"; // Full-height side panels to floor + dual front/rear structural plinth rails + divider ribs (Built-in standard)
 
+export interface CrownMoldingConfig {
+  enabled: boolean;
+  style: "modern_flat" | "stepped" | "classic_coving" | "led_channel";
+  heightMm: UnitLength;
+  projectionMm: UnitLength;
+  materialId?: string;
+}
+
 export interface CarcassConfig {
   panelThickness: UnitLength; // default 18
+  topPanelThicknessMm?: UnitLength; // Bağımsız üst tabla kalınlığı (TV bench, konsol vb. için)
   backPanelThickness: UnitLength; // default 8
   backPanelType: BackPanelType;
   backOffsetMm?: UnitLength; // Rear plumbing/hanger offset for grooved back (default 18mm)
-  preMillingMm?: UnitLength; // Factory edgebander pre-milling depth (default 0mm)
+  preMillingMm?: UnitLength;
+  /** Explicitly opt in to 3660x1830mm Jumbo boards when net panel length exceeds 2770mm */
+  allowJumboSheet3660?: boolean; // Factory edgebander pre-milling depth (default 0mm)
   carcassJoineryTopology?: CarcassJoineryTopology; // Tip A, B, C, D
+  connectorSystem?: "minifix_dowel" | "lamello_cabineo" | "confirmat";
   kitchenTopStretcherMode?: KitchenTopStretcherMode; // Horizontal, vertical_sink, aluminum_reinforced
   appliedEndPanelLeft?: AppliedEndPanelMode; // Decorative exposed left side cladding
   appliedEndPanelRight?: AppliedEndPanelMode; // Decorative exposed right side cladding
+  /** Görünen sol yan dikmenin ek panel eklenmeden doğrudan kapak malzemesinden üretilmesi */
+  exposedLeftSideUseDoorMaterial?: boolean;
+  /** Görünen sağ yan dikmenin ek panel eklenmeden doğrudan kapak malzemesinden üretilmesi */
+  exposedRightSideUseDoorMaterial?: boolean;
+  /** Yamuk duvar için sol yan/kör parçaya eklenecek montaj tıraş payı (mm) */
+  scribeAllowanceLeftMm?: UnitLength;
+  /** Yamuk duvar için sağ yan/kör parçaya eklenecek montaj tıraş payı (mm) */
+  scribeAllowanceRightMm?: UnitLength;
   baseboardNotch?: BaseboardNotchConfig; // Automatic rear bottom skirting notch (e.g. 15x80mm)
-  slopedCeiling?: SlopedCeilingConfig; // Mansard / under-stairs sloped ceiling cut
+  slopedCeiling?: SlopedCeilingConfig;
+  ceilingConfig?: SpaceCeilingConfig; // Mansard / under-stairs sloped ceiling cut
+  crownMolding?: CrownMoldingConfig; // Üst taç profili (Modern düz, basamaklı, klasik, LED kanallı)
   hasPlinthDrawer?: boolean; // Toe-kick plinth drawer option
   hasWaterfallLeft?: boolean; // 45° mitered waterfall countertop left
   hasWaterfallRight?: boolean; // 45° mitered waterfall countertop right
+  countertopJointMode?: "butt_90" | "miter_45" | "masons_miter";
+  hasCountertopUpstand?: boolean; // 30mm rear water upstand strip
+  hasUnderSinkAluminumTray?: boolean; // Waterproof aluminum drip tray inside sink base
   islandBackCladding?: boolean; // Decorative rear cladding for kitchen island
   islandOverhangRearMm?: UnitLength; // Seating bar overhang (250-350mm; >300mm steel bracket rule)
   internalDrawerHingeSolution?: "auto_155_hinge" | "spacer_block_25mm";
   wallSuspensionType?: "visible_bracket" | "concealed_camar_807";
+  /** EN 14749 anti-tip wall anchor confirmation for tall/slender floor-standing units */
+  wallAnchored?: boolean;
+  /** Structural floor anchor confirmation for freestanding island/room-divider tall units */
+  floorAnchored?: boolean;
+  /** Depth-based 3-connector rule toggle for deep panels (>500mm) */
+  useDepthBasedConnectors?: boolean;
   plinthHeight: UnitLength; // default 80 or 100
   plinthConstruction?: PlinthConstructionType;
   plinthSetbackMm?: UnitLength; // Front toe-kick recess from carcass front edge (default 35mm wardrobe, 55mm kitchen)
@@ -507,10 +622,20 @@ export interface CarcassConfig {
   crossSectionProfile?: DoorCrossSectionProfile;
   customCadProfileName?: string;
   customCadPolygon?: { x: number; y: number }[];
+  hullShape?: "rectangular" | "capsule_stadium" | "capsule_table" | "rounded_corners";
+  cornerRadiusMm?: UnitLength;
+  tambourSlatPitchMm?: UnitLength;
   jointType: JointType;
   doorThickness?: UnitLength; // default 18
   overlayDistance?: UnitLength;
   system32FrontSetback?: UnitLength; // default 37
+  multiHoleMode?: MultiHoleBoringMode;
+  multiHoleRowCount?: 2 | 3;
+  multiHoleFrontSetbackMm?: UnitLength;
+  multiHoleEdgeMarginMm?: UnitLength;
+  multiHoleDividerThroughBore?: boolean;
+  showMultiHolesIn3D?: boolean;
+  grainContinuityMode?: GrainContinuityMode;
   constructionProfileId?: string;
   hingeDrillingTemplateId?: string;
   drawerDrillingSetId?: string;
@@ -651,6 +776,8 @@ export interface SpaceDefinition {
     | "kitchen_peninsula";
   walls: WallDefinition[];
   ceilingHeight: UnitLength;
+  /** Structural wall substrate material for EN 14749 wall-hanger anchor verification */
+  wallSubstrateType?: "reinforced_concrete" | "solid_brick" | "hollow_brick" | "aerated_concrete" | "drywall_reinforced" | "drywall_unreinforced";
   slopedCeiling?: SlopedCeilingConfig;
   elements: ArchitecturalElement[];
   floorPlanUnderlay?: FloorPlanUnderlay;
@@ -733,13 +860,16 @@ export interface ContinuousLayersSummary {
 
 export interface DesignProject {
   id: string;
+  tenantId?: string;
   version: number;
   schemaVersion?: number;
   catalogVersion?: string;
   revisionId?: string;
   libraryVersionId?: string;
   constructionProfileId?: string;
+  ergonomicProfileId?: "TR_RESIDENTIAL" | "EU_EN_STANDARD" | "ACCESSIBLE_EN17210";
   displayUnit?: "mm" | "cm";
+  facadeGrainContinuity?: boolean;
   title: string;
   customerName?: string;
   branchId: string;
@@ -751,6 +881,14 @@ export interface DesignProject {
     | "exported_to_erp";
   space: SpaceDefinition;
   modules: ModuleInstance[];
+  sceneObjects?: SceneObjectInstance[];
+  customModuleTemplates?: CustomModuleTemplateRecord[];
+  customMaterials?: MaterialDefinition[];
+  /** Proje genelinde tek tıkla geçiş için 5 kapak + 5 gövde malzemesi hızlı paleti */
+  materialPaletteSlots?: {
+    doorMaterialIds: string[];
+    bodyMaterialIds: string[];
+  };
   continuousLayers?: ContinuousLayersSummary;
   verificationSnapshot?: ProjectVerificationSnapshot;
   createdAt: string;

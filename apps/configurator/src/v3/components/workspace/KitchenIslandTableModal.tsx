@@ -182,7 +182,7 @@ export const KitchenIslandTableModal: React.FC<KitchenIslandTableModalProps> = (
                       ADA / TEZGÂH
                     </text>
 
-                    {/* Pivot Joint + Angled Attached Table */}
+                    {/* Pivot Joint + Angled Attached Table (Exact Room-Plan Heading Match) */}
                     {(() => {
                       const px =
                         attachSide === "left_end"
@@ -194,9 +194,17 @@ export const KitchenIslandTableModal: React.FC<KitchenIslandTableModalProps> = (
                         attachSide === "front_center_t" || attachSide === "front_right_corner"
                           ? 92
                           : 65;
+                      const planHeadingDeg =
+                        attachSide === "left_end"
+                          ? 180 - angleDeg
+                          : attachSide === "front_center_t"
+                          ? angleDeg === 90 || angleDeg === 0
+                            ? 90
+                            : 90 - angleDeg
+                          : angleDeg;
                       return (
                         <g>
-                          <g transform={`translate(${px}, ${pz}) rotate(${angleDeg})`}>
+                          <g transform={`translate(${px}, ${pz}) rotate(${planHeadingDeg})`}>
                             <rect
                               x={0}
                               y={-18}

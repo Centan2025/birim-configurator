@@ -244,7 +244,12 @@ export function evaluateSlidingDoorDeadZones(
           (f.type === "trouser_rack" ||
             f.type === "wire_basket" ||
             f.type === "jewelry_tray" ||
-            f.type === "shoe_rack")
+            f.type === "shoe_rack" ||
+            f.type === "pantry_pullout" ||
+            f.type === "foldable_ironing_board" ||
+            f.type === "swivel_mirror" ||
+            f.type === "waste_bin" ||
+            f.type === "spice_pullout")
       );
     if (!hasPullout) return;
 

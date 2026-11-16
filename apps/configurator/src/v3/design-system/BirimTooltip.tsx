@@ -834,6 +834,8 @@ export const BirimTooltipPortal: React.FC = () => {
       });
     };
 
+    let suppressedAnchor: HTMLElement | null = null;
+
     const handlePointerOver = (e: PointerEvent) => {
       if (e.pointerType === "touch") return;
       if (document.body.dataset.birimUiDragging === "1") {
@@ -843,6 +845,7 @@ export const BirimTooltipPortal: React.FC = () => {
 
       const anchor = findTooltipAnchor(e.target);
       if (!anchor) {
+        suppressedAnchor = null;
         if (activeAnchorRef.current && hideTimerRef.current === null) {
           hideTimerRef.current = window.setTimeout(() => {
             hideImmediately(false);
@@ -850,6 +853,10 @@ export const BirimTooltipPortal: React.FC = () => {
         }
         return;
       }
+      if (suppressedAnchor && (anchor === suppressedAnchor || suppressedAnchor.contains(anchor))) {
+        return;
+      }
+      suppressedAnchor = null;
 
       if (anchor === activeAnchorRef.current) {
         if (hideTimerRef.current !== null) {
@@ -906,10 +913,14 @@ export const BirimTooltipPortal: React.FC = () => {
       showForAnchor(anchor);
     };
 
+    const handlePointerDownDismiss = (e: Event) => {
+      const clickedAnchor = findTooltipAnchor(e.target);
+      suppressedAnchor = clickedAnchor || activeAnchorRef.current;
+      hideImmediately(true);
+    };
+
     const handleDismissAction = () => {
-      if (activeAnchorRef.current || visible) {
-        hideImmediately(false);
-      }
+      hideImmediately(true);
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -922,7 +933,8 @@ export const BirimTooltipPortal: React.FC = () => {
     document.addEventListener("pointerout", handlePointerOut, { passive: true });
     document.addEventListener("focusin", handleFocusIn, { passive: true });
     document.addEventListener("focusout", handleDismissAction, { passive: true });
-    document.addEventListener("pointerdown", handleDismissAction, { passive: true });
+    document.addEventListener("pointerdown", handlePointerDownDismiss, { passive: true, capture: true });
+    document.addEventListener("click", handlePointerDownDismiss, { passive: true, capture: true });
     window.addEventListener("scroll", handleDismissAction, { passive: true, capture: true });
     window.addEventListener("wheel", handleDismissAction, { passive: true });
     window.addEventListener("resize", handleDismissAction, { passive: true });
@@ -934,13 +946,14 @@ export const BirimTooltipPortal: React.FC = () => {
       document.removeEventListener("pointerout", handlePointerOut);
       document.removeEventListener("focusin", handleFocusIn);
       document.removeEventListener("focusout", handleDismissAction);
-      document.removeEventListener("pointerdown", handleDismissAction);
+      document.removeEventListener("pointerdown", handlePointerDownDismiss, true);
+      document.removeEventListener("click", handlePointerDownDismiss, true);
       window.removeEventListener("scroll", handleDismissAction, true);
       window.removeEventListener("wheel", handleDismissAction);
       window.removeEventListener("resize", handleDismissAction);
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [mounted, isPrimaryInstance, visible]);
+  }, [mounted, isPrimaryInstance]);
 
   // Boyama öncesi (pre-paint) senkron ölçüm: ilk açılışta asla ekranın altından/eski Y konumundan kayarak gelmez!
   useLayoutEffect(() => {

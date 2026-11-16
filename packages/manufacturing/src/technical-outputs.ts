@@ -4,6 +4,7 @@ import {
   ModuleInstance,
   calculateFourSpaceDimensions,
   calculateNetInnerHeight,
+  computeProjectGrainNeighborMap,
   createDefaultWardrobeModule,
   roundIntMm,
   roundMm,
@@ -21,60 +22,157 @@ export interface AssemblyStep {
   requiredParts: string[];
   requiredHardware: string[];
   safetyNotes?: string;
+  safetyWarning?: string;
 }
 
 export function generateAssemblyInstructions(
   project: DesignProject,
   bom: ManufacturingBOM
 ): AssemblyStep[] {
-  void project;
-  void bom;
-  return [
-    {
-      stepNumber: 1,
-      title: "Saha Hazırlığı ve Baza Montajı",
+  const ceilingH = project.space?.ceilingHeight || 2600;
+  const steps: AssemblyStep[] = [];
+  let stepNo = 1;
+
+  // Check tilt-up diagonal clearance √(H² + D²) vs room ceiling height!
+  const requiresUprightAssemblyMods = project.modules.filter((m) => {
+    if (m.category === "complementary" || m.category === "kitchen_wall") return false;
+    const diagMm = Math.hypot(m.dimensions.height, m.dimensions.depth);
+    return diagMm + 25 > ceilingH;
+  });
+
+  const plinthParts = bom.cutList
+    .filter((p) => p.componentRole === "plinth")
+    .slice(0, 4)
+    .map((p) => p.pieceName);
+  steps.push({
+    stepNumber: stepNo++,
+    title: "Saha Röleve, Tesisat Ekseni ve Baza Terazisi",
+    description:
+      "Lazer terazi ile zemin eğimini ve arka duvar gönyesini kontrol ediniz. Baza kutusunu veya ayarlı ayakları teraziye alıp tesisat/priz noktalarının açıkta kaldığını doğrulayınız.",
+    requiredParts: plinthParts.length > 0 ? plinthParts : ["Baza Ön", "Baza Yan Dönüşler"],
+    requiredHardware: bom.hardwareList
+      .filter((h) => h.category === "leg")
+      .map((h) => h.sku)
+      .slice(0, 3),
+    safetyNotes:
+      requiresUprightAssemblyMods.length > 0
+        ? `DİKKAT (Tavan Kaldırma Engeli): ${requiresUprightAssemblyMods
+            .map((m) => `"${m.name}" (√(H²+D²)=${Math.round(Math.hypot(m.dimensions.height, m.dimensions.depth))}mm > Tavan ${ceilingH}mm)`)
+            .join(", ")} yerde toplanıp ayağa kaldırılamaz! Gövdeyi nihai konumunda DİK OLARAK kurunuz.`
+        : "Zemin eğimi 5mm'den fazlaysa terazi ayaklarını yük aktarım dikmelerinin tam altında sabitleyiniz.",
+  });
+
+  const carcassParts = bom.cutList
+    .filter((p) => p.componentRole.startsWith("carcass_") && p.componentRole !== "carcass_back")
+    .slice(0, 6)
+    .map((p) => p.pieceName);
+  const hasMiter45 = project.modules.some((m) => m.carcass.carcassJoineryTopology === "miter_45");
+  steps.push({
+    stepNumber: stepNo++,
+    title: hasMiter45
+      ? "45° Gönye Karkas Kurulumu ve Köşe Birleştirme"
+      : "Gövde Karkas Kurulumu (System 32 Eş-Eksenli Minifix & Kavela)",
+    description: hasMiter45
+      ? "45° pahlı gövde panellerini koruyucu bant üzerinde hizalayıp gönye bağlantı elemanlarını kilitleyiniz."
+      : "Yan dikmeleri ve ara bölmeleri alt tablaya eş-eksenli kavela + minifix milleriyle birleştirip üst tabla/kayıtları 180° kilitleyiniz.",
+    requiredParts:
+      carcassParts.length > 0
+        ? carcassParts
+        : ["Sol Yan Panel", "Sağ Yan Panel", "Alt Panel", "Üst Panel"],
+    requiredHardware: bom.hardwareList
+      .filter((h) => h.category === "connector")
+      .map((h) => h.sku),
+    safetyNotes: "Minifix eksantrik kamlarını darbeli matkapla değil el torkuyla (max 180°) kilitleyiniz.",
+  });
+
+  const backParts = bom.cutList
+    .filter((p) => p.componentRole === "carcass_back")
+    .slice(0, 3)
+    .map((p) => p.pieceName);
+  if (backParts.length > 0) {
+    steps.push({
+      stepNumber: stepNo++,
+      title: "Köşegen Gönye Doğrulaması ve Arkalık Montajı",
       description:
-        "Zemin terazisini su terazisi ile kontrol ediniz. Baza ayaklarını alt tablanın altına vidalayınız ve yükseklik ayarını yapınız.",
-      requiredParts: ["Baza Ön", "Baza Arka"],
-      requiredHardware: ["HW_LEVELING_FEET"],
-      safetyNotes: "Zemin eğimi 5mm'den fazlaysa ayak ayarını teraziye göre sabitleyiniz.",
-    },
-    {
-      stepNumber: 2,
-      title: "Gövde Karkas Kurulumu (Minifix & Kavela)",
-      description:
-        "Sol yan paneli alt tablaya 90° açıyla yerleştirip minifix millerini kavelalar ile birlikte sıkınız. Ardından ara dikmeleri ve üst tablayı kilitleyiniz.",
-      requiredParts: ["Sol Yan Panel", "Sağ Yan Panel", "Alt Panel", "Üst Panel", "Ara Dikmeler"],
-      requiredHardware: ["HW_MINIFIX_SET", "HW_DOWEL_8X35"],
-      safetyNotes:
-        "Minifix kamlarını aşırı tork ile sıkmayınız, 180° tam kilitlenme yeterlidir.",
-    },
-    {
-      stepNumber: 3,
-      title: "Arkalık Montajı",
-      description:
-        "Gövde köşegenlerini metre ile ölçerek tam gönyede olduğunu doğrulayınız. 8mm arkalık panelini oluk yuvalarına kaydırıp sabitleyiniz.",
-      requiredParts: ["Arkalık Paneli"],
+        "Sol-üst/sağ-alt ile sağ-üst/sol-alt köşegen ölçü farkının ≤ 1.5mm olduğunu doğruladıktan sonra arkalık panellerini 8.5mm oluk kanallarına sürünüz.",
+      requiredParts: backParts,
       requiredHardware: [],
-      safetyNotes: "Köşegen farkı 2mm'yi geçmemelidir.",
-    },
-    {
-      stepNumber: 4,
-      title: "İç Donanım ve Ray Montajı",
+      safetyNotes: "Ankastre fırın/buzdolabı boy kulelerinde arka 50mm baca hava kanalını kesinlikle kapatmayınız.",
+    });
+  }
+
+  // Inter-module M4 alignment & EN 14749 Wall Restraint Step!
+  const hasWallHangerOrAntiTip = bom.hardwareList.some(
+    (h) => h.sku.includes("EN14749") || h.sku.includes("ANTI_TIP") || h.sku.includes("CABINET_CONN_M4")
+  );
+  if (hasWallHangerOrAntiTip || project.modules.length > 1) {
+    steps.push({
+      stepNumber: stepNo++,
+      title: "Modüller Arası Gövde Birleştirme ve EN 14749 Duvar Sabitleme",
       description:
-        "Tandembox çekmece raylarını System 32 deliklerine vidalayınız. Raf pimlerini ve askı borusu flanşlarını yerleştiriniz.",
-      requiredParts: ["Raflar", "Çekmece Kasaları"],
-      requiredHardware: ["HW_BLUM_TANDEM_BOX", "HW_SHELF_PIN", "HW_HANGING_RAIL"],
-    },
-    {
-      stepNumber: 5,
-      title: "Kapak ve Klapa Montajı & İnce Ayar",
-      description:
-        "Blum 110° menteşeleri kapaklara takıp gövde tabanlarına klipsleyiniz. Kapaklar arası 2mm çevre çalışma boşluğunu 3D menteşe vidasından ayarlayınız.",
-      requiredParts: ["Kapaklar", "Çekmece Önleri"],
-      requiredHardware: ["HW_BLUM_HINGE_110", "HW_HANDLE_BAR"],
-    },
-  ];
+        "Yan yana gelen modülleri ön cumbalardan işkenceyle sıfırlayıp Sistem 32 Ø5 deliklerinden M4×34mm kovanlı cıvatalarla birbirine bağlayınız. Üst dolapları ve devrilme riski taşıyan yüksek üniteleri duvar taşıyıcı cinsine uygun dübellerle duvara sabitleyiniz.",
+      requiredParts: [],
+      requiredHardware: bom.hardwareList
+        .filter(
+          (h) =>
+            h.sku.includes("EN14749") ||
+            h.sku.includes("ANTI_TIP") ||
+            h.sku.includes("CABINET_CONN_M4") ||
+            h.sku.includes("VENT_GRILLE")
+        )
+        .map((h) => h.sku),
+      safetyNotes:
+        "ZORUNLU GÜVENLİK (EN 14749): Duvar sabitlemesi tamamlanmadan çekmeceleri ve kapakları aynı anda açmayınız!",
+    });
+  }
+
+  const grainNeighborMap = computeProjectGrainNeighborMap(project);
+  const uniqueGrainParts = Array.from(
+    new Map(
+      Array.from(grainNeighborMap.values()).map((info) => [
+        `${info.moduleId}:${info.componentId}`,
+        info,
+      ])
+    ).values()
+  ).sort(
+    (a, b) =>
+      a.grainGroupId.localeCompare(b.grainGroupId) || a.sequenceIndex - b.sequenceIndex
+  );
+
+  const grainSequenceSummary =
+    uniqueGrainParts.length > 0
+      ? ` DESEN TAKİBİ MONTAJ DİZİLİMİ: Termal parça etiketlerindeki [Sıra/Toplam] ve suyolu yön oklarına uyarak monte ediniz -> ${uniqueGrainParts
+          .map(
+            (g) =>
+              `${g.shortSeqBadge} ${g.partShortLabel} (${g.arrowSymbol} ${g.compactNeighborTextTr})`
+          )
+          .join(" | ")}.`
+      : "";
+
+  const grainSafetyWarning =
+    uniqueGrainParts.length > 0
+      ? `DESEN TAKİBİ UYARISI: Eşit ölçülü alt/üst çekmece klapalarını veya sağ/sol kapakları birbirleriyle değiştirmeyiniz! Parça arkasındaki 100×50mm termal barkod etiketinde yer alan ${uniqueGrainParts[0].shortSeqBadge}..[${uniqueGrainParts[uniqueGrainParts.length - 1].totalInGroup}/${uniqueGrainParts[uniqueGrainParts.length - 1].totalInGroup}] sıra numarasını ve damar yönü okunu (${uniqueGrainParts[0].arrowSymbol}) doğrulayarak takınız.`
+      : undefined;
+
+  steps.push({
+    stepNumber: stepNo++,
+    title: "İç Donanım, Ray, Havalandırma Menfezi ve Kapak 3B Ayarı",
+    description:
+      "Çekmece raylarını ve menteşe tabanlarını Sistem 32 deliklerine monte ediniz. Ankastre cihaz bazalarına 200 cm² havalandırma menfezini takıp kapak 2mm çevre fugalarını 3B ayar vidalarıyla dengeleyiniz." +
+      grainSequenceSummary,
+    requiredParts: bom.cutList
+      .filter((p) => p.componentRole.includes("door") || p.componentRole === "drawer_front" || p.componentRole === "shelf")
+      .slice(0, 6)
+      .map((p) => p.pieceName),
+    requiredHardware: bom.hardwareList
+      .filter((h) => h.category === "hinge" || h.category === "slide" || h.category === "handle")
+      .map((h) => h.sku)
+      .slice(0, 6),
+    safetyNotes: grainSafetyWarning,
+    safetyWarning: grainSafetyWarning,
+  });
+
+  return steps;
 }
 
 /**
@@ -336,22 +434,30 @@ function renderSinglePieceEntities(
   const eb = piece.edgeBanding;
   const ebT = eb?.thickness || 0;
 
-  // 1. Finished panel perimeter rectangle (PANEL_CONTOUR)
-  writer.addRect("PANEL_CONTOUR", offsetX, offsetY, w, h);
-
-  // 1b. Industrial CAM Net-Cut Closed Counter-Clockwise LWPOLYLINE (`OUTLINE_T<thickness>`)
   const preMill = piece.preMillingMm ?? 0;
   const effEbDeduct = ebT - preMill;
   const insetLeft = eb?.left ? effEbDeduct : 0;
   const insetBottom = eb?.bottom ? effEbDeduct : 0;
   const outlineLayer = `OUTLINE_T${Math.round(piece.thicknessMm || 18)}`;
-  writer.addRect(
-    outlineLayer,
-    roundMm(offsetX + insetLeft, 2),
-    roundMm(offsetY + insetBottom, 2),
-    netW,
-    netH
-  );
+
+  // 1 & 1b. True Closed Polygon Contour (sloped ceiling trapezoid / capsule stadium) vs Standard Rectangular Panel
+  if (piece.polygonContourMm && piece.polygonContourMm.length >= 3) {
+    const shiftedPoly: [number, number][] = piece.polygonContourMm.map(([px, py]) => [
+      roundMm(offsetX + px, 2),
+      roundMm(offsetY + py, 2),
+    ]);
+    writer.addPolyline("PANEL_CONTOUR", shiftedPoly, true);
+    writer.addPolyline(outlineLayer, shiftedPoly, true);
+  } else {
+    writer.addRect("PANEL_CONTOUR", offsetX, offsetY, w, h);
+    writer.addRect(
+      outlineLayer,
+      roundMm(offsetX + insetLeft, 2),
+      roundMm(offsetY + insetBottom, 2),
+      netW,
+      netH
+    );
+  }
 
   // 2. Saw net-cut perimeter properly inset/outset by signed edge-banding minus pre-milling (NET_CUT_CONTOUR)
   if (netW !== w || netH !== h) {
@@ -631,12 +737,135 @@ export function exportNestingSheetsDXF(bom: ManufacturingBOM): string {
         `PLAKA #${sheet.sheetIndex} (${nestRes.materialName}) - ${boardW}x${boardH}mm | Fire: %${sheet.wastePercent}`
       );
 
+      const cutPieceById = new Map<string, CutPiece>(bom.cutList.map((cp) => [cp.id, cp]));
       sheet.placedPieces.forEach((placed) => {
         const px = placed.x;
         const py = sheetCursorY + placed.y;
-        const pw = placed.width;
-        const pl = placed.length;
+        const pw = placed.width;   // X extent along 2800mm board length
+        const pl = placed.length;  // Y extent along 2070mm board width
+        const src = cutPieceById.get(placed.pieceId);
+        const outlineLayer = `OUTLINE_T${Math.round(src?.thicknessMm || 18)}`;
+
         writer.addRect("NET_CUT_CONTOUR", px, py, pw, pl);
+        writer.addRect(outlineLayer, px, py, pw, pl);
+
+        // P1-04: Transform part-local raw coordinates (xRaw in 0..netW, yRaw in 0..netL) onto the nested sheet!
+        // When unrotated (`!placed.isRotated`): pw == netCutLengthMm (yRaw -> sheet X), pl == netCutWidthMm (xRaw -> sheet Y)
+        // When rotated (`placed.isRotated`): pw == netCutWidthMm (xRaw -> sheet X), pl == netCutLengthMm (yRaw -> sheet Y)
+        if (src) {
+          const netW = src.netCutWidthMm ?? src.widthMm;
+          const netL = src.netCutLengthMm ?? src.lengthMm;
+          const rawOffX = src.rawOriginOffsetXMm ?? 0;
+          const rawOffY = src.rawOriginOffsetYMm ?? 0;
+          const axesNormal = Math.abs(pw - netL) <= Math.abs(pw - netW);
+
+          const mapLocalPointToSheet = (localFinishedX: number, localFinishedY: number): [number, number] => {
+            const xRaw = Math.max(0, Math.min(netW, localFinishedX - rawOffX));
+            const yRaw = Math.max(0, Math.min(netL, localFinishedY - rawOffY));
+            if (axesNormal) {
+              return [roundMm(px + yRaw, 2), roundMm(py + xRaw, 2)];
+            }
+            return [roundMm(px + xRaw, 2), roundMm(py + (netL - yRaw), 2)];
+          };
+
+          const mapLocalRectToSheet = (
+            layer: string,
+            rx0: number,
+            ry0: number,
+            rw: number,
+            rh: number
+          ) => {
+            const [sx1, sy1] = mapLocalPointToSheet(rx0, ry0);
+            const [sx2, sy2] = mapLocalPointToSheet(rx0 + rw, ry0 + rh);
+            const minSX = Math.min(sx1, sx2);
+            const minSY = Math.min(sy1, sy2);
+            const spanSX = Math.max(0.5, Math.abs(sx2 - sx1));
+            const spanSY = Math.max(0.5, Math.abs(sy2 - sy1));
+            writer.addRect(layer, minSX, minSY, spanSX, spanSY);
+          };
+
+          // 1. Non-rectangular sloped/stadium contour inside nested bounding box
+          if (src.polygonContourMm && src.polygonContourMm.length >= 3) {
+            const nestedPoly = src.polygonContourMm.map(([lx, ly]) => mapLocalPointToSheet(lx, ly));
+            writer.addPolyline(outlineLayer, nestedPoly, true);
+          }
+
+          // 2. 8.5mm Back Groove (`BACK_GROOVE_8MM` & `GROOVE_W8.5_Z10`)
+          const grooveActive =
+            src.hasBackGroove !== undefined
+              ? src.hasBackGroove
+              : src.componentRole === "carcass_side_left" ||
+                src.componentRole === "carcass_side_right" ||
+                src.componentRole === "carcass_top" ||
+                src.componentRole === "carcass_bottom";
+          if (grooveActive && src.widthMm >= 100) {
+            const gw = src.backGrooveWidthMm ?? 8.5;
+            const gOff = src.backGrooveOffsetMm ?? 20;
+            const gx = src.mirrorInnerFaceX ? Math.max(8, gOff - gw) : Math.max(12, src.widthMm - gOff);
+            mapLocalRectToSheet("BACK_GROOVE_8MM", gx, 0, gw, src.lengthMm);
+            mapLocalRectToSheet(`GROOVE_W${gw}_Z10`, gx, 0, gw, src.lengthMm);
+          }
+
+          // 3. Wooden Drawer Bottom Groove (`DRAWER_BOTTOM_GROOVE_8MM`)
+          if (src.hasDrawerBottomGroove && src.widthMm >= 55) {
+            const dgw = src.drawerBottomGrooveWidthMm ?? 8.5;
+            const dgd = src.drawerBottomGrooveDepthMm ?? 6;
+            const dgo = src.drawerBottomGrooveOffsetMm ?? 13;
+            mapLocalRectToSheet(`GROOVE_W${dgw}_Z${dgd}`, Math.min(src.widthMm - dgw - 4, dgo), 0, dgw, src.lengthMm);
+          }
+
+          // 4. Gola L/C Notches & Under-Sink Siphon U-Cutout
+          src.golaNotches?.forEach((gn) => {
+            const gx = src.mirrorInnerFaceX ? src.widthMm - gn.widthMm : 0;
+            mapLocalRectToSheet(
+              gn.kind === "L_TOP" ? "NOTCH_GOLA_L" : "NOTCH_GOLA_C",
+              gx,
+              gn.yBottomMm,
+              gn.widthMm,
+              gn.heightMm
+            );
+          });
+          if (src.siphonCutout) {
+            const sw = Math.min(src.widthMm - 40, src.siphonCutout.widthMm);
+            const sd = Math.min(src.lengthMm - 40, src.siphonCutout.depthMm);
+            if (sw > 40 && sd > 40) {
+              mapLocalRectToSheet("CUTOUT_SIPHON_U", (src.widthMm - sw) / 2, src.lengthMm - sd, sw, sd);
+            }
+          }
+          if (src.ledGrooveSpec?.enabled) {
+            const lw = src.ledGrooveSpec.widthMm || 12;
+            const ld = src.ledGrooveSpec.depthMm || 8;
+            const lOff = src.ledGrooveSpec.offsetFromFrontMm || 75;
+            const lx = src.mirrorInnerFaceX
+              ? Math.max(8, src.widthMm - lOff - lw / 2)
+              : Math.min(src.widthMm - lw - 8, lOff - lw / 2);
+            mapLocalRectToSheet(`GROOVE_W${lw}_Z${ld}`, lx, 0, lw, src.lengthMm);
+          }
+          if (src.wallHangerCornerNotches && src.widthMm >= 200 && src.lengthMm >= 200) {
+            const nw = src.wallHangerCornerNotches.widthMm;
+            const nh = src.wallHangerCornerNotches.heightMm;
+            mapLocalRectToSheet("NOTCH_WALL_HANGER", 0, src.lengthMm - nh, nw, nh);
+            mapLocalRectToSheet("NOTCH_WALL_HANGER", src.widthMm - nw, src.lengthMm - nh, nw, nh);
+          }
+
+          // 5. Vertical CNC Drilling Operations (`DRILL_V_*`) & Secondary Pod-Flip Flag
+          let hasOppositeFaceHoles = false;
+          (src.holes || []).forEach((hole) => {
+            if (hole.direction.startsWith("edge_")) return; // Horizontal edge boring happens on secondary point-to-point / horizontal aggregate
+            if (hole.direction === "face_back" && src.componentRole === "carcass_divider") {
+              hasOppositeFaceHoles = true;
+              return;
+            }
+            const [hx, hy] = mapLocalPointToSheet(hole.x, hole.y);
+            const zDepth = Math.round(hole.depth);
+            const dLayer = `DRILL_V_D${Math.round(hole.diameter)}_Z${zDepth}`;
+            writer.addCircle(dLayer, hx, hy, roundMm(hole.diameter / 2, 2));
+          });
+          if (hasOppositeFaceHoles) {
+            writer.addText("REQUIRES_SECONDARY_POD_FLIP", px + 12, py + 8, 10, "FLIP_ARKA_YUZ_DELIK");
+          }
+        }
+
         writer.addText(
           "PART_LABELS",
           px + 12,

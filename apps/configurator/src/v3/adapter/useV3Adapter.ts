@@ -1,27 +1,39 @@
+"use client";
 import { solveAngledWallSnapForModule, originToModulePosition } from "../engine/angledWallSnapEngine";
-import { useMemo, useCallback } from "react";
-import { useConfiguratorStore } from "../../store/useConfiguratorStore";
+import { applyValidatedDimensionsToModule } from "../components/workspace/moduleLibraryUtils";
+import { useMemo, useCallback, useRef } from "react";
+import { useConfiguratorStore, selectModuleBayComponentSafe } from "../../store/useConfiguratorStore";
 import {
   DEFAULT_MATERIALS,
+  registerRuntimeMaterial,
+  syncProjectCustomMaterials,
   createDefaultWardrobeModule,
-  MaterialDefinition,
-  ModuleInstance,
-  ArchitecturalElement,
+  type MaterialDefinition,
+  type ModuleInstance,
+  type ArchitecturalElement,
   calculateBayWidths,
   calculateNetInnerHeight,
   validateProject,
   calculateFourSpaceDimensions,
   evaluateProjectCompatibility,
+  evaluateUnifiedEngineeringModel,
+  applyApprovedRemediationProposal,
+  REGIONAL_ERGONOMIC_PROFILES,
+  type EngineeringValidationFinding,
+  type RemediationProposal,
+  type RegionErgonomicProfileId,
   computeCornerFillerAutoFix,
   type PanelCutoutConfig,
   type BayConfig,
   computeContinuousKitchenLayers,
-  DoorSystemId,
-  SlidingMountingType,
-  DoorOverlayType,
-  HandleCategory,
-  OpeningTechnology,
+  type DoorSystemId,
+  type SlidingMountingType,
+  type DoorOverlayType,
+  type HandleCategory,
+  type OpeningTechnology,
   calculateModulePlacement,
+  BoundedLruCache,
+  computeProjectStructuralSignature,
 } from "@birim/core";
 import {
   analyzeAndAdviseSpan,
@@ -40,7 +52,7 @@ import {
   getDrillingTemplateForHardware,
   selectOptimalRunnerLengthMm,
   WARDROBE_INTERIOR_WIZARDS,
-  WardrobeInteriorWizardId,
+  type WardrobeInteriorWizardId,
   getV4TemplateById,
   generateSmartWallLayouts,
   distributeModulesAlongWall,
@@ -234,10 +246,27 @@ const cachedCompatByProject = new WeakMap<
   DesignProject,
   ReturnType<typeof evaluateProjectCompatibility>
 >();
-const cachedSpatialByProject = new WeakMap<
-  DesignProject,
+const cachedSpatialBySig = new BoundedLruCache<
+  string,
   ReturnType<typeof validateSpatialAndKitchenEngineering>
+>(64);
+const cachedContinuousLayersBySig = new BoundedLruCache<
+  string,
+  ReturnType<typeof computeContinuousKitchenLayers>
+>(64);
+
+const cachedUnifiedEngByProject = new WeakMap<
+  DesignProject,
+  ReturnType<typeof evaluateUnifiedEngineeringModel>
 >();
+
+export function getMemoizedUnifiedEngineering(project: DesignProject) {
+  const hit = cachedUnifiedEngByProject.get(project);
+  if (hit) return hit;
+  const computed = evaluateUnifiedEngineeringModel(project);
+  cachedUnifiedEngByProject.set(project, computed);
+  return computed;
+}
 
 function getMemoizedProjectCompatibility(project: DesignProject) {
   const hit = cachedCompatByProject.get(project);
@@ -248,10 +277,20 @@ function getMemoizedProjectCompatibility(project: DesignProject) {
 }
 
 function getMemoizedSpatialValidation(project: DesignProject) {
-  const hit = cachedSpatialByProject.get(project);
+  const sig = computeProjectStructuralSignature(project);
+  const hit = cachedSpatialBySig.get(sig);
   if (hit) return hit;
   const computed = validateSpatialAndKitchenEngineering(project);
-  cachedSpatialByProject.set(project, computed);
+  cachedSpatialBySig.set(sig, computed);
+  return computed;
+}
+
+function getMemoizedContinuousKitchenLayers(project: DesignProject) {
+  const sig = computeProjectStructuralSignature(project);
+  const hit = cachedContinuousLayersBySig.get(sig);
+  if (hit) return hit;
+  const computed = computeContinuousKitchenLayers(project);
+  cachedContinuousLayersBySig.set(sig, computed);
   return computed;
 }
 
@@ -279,8 +318,9 @@ function commitAdapterState(patch: Partial<ReturnType<typeof useConfiguratorStor
   const isBrowser = typeof window !== "undefined";
   const bom =
     patch.bom ?? generateBOMForProject(project, undefined, { skipSyncNesting: isBrowser });
-  const pricing = patch.pricing ?? calculateProjectPrice(bom);
-  const validationIssues = patch.validationIssues ?? validateProject(project);
+  const pricing = patch.pricing ?? calculateProjectPrice(bom, undefined, undefined, project.sceneObjects || []);
+  const validationIssues =
+    patch.validationIssues ?? getMemoizedUnifiedEngineering(project).findings;
   const active = project.modules[patch.activeModuleIndex ?? state.activeModuleIndex] ?? project.modules[0] ?? createDefaultWardrobeModule("empty_fallback");
   useConfiguratorStore.setState({
     ...patch,
@@ -307,7 +347,7 @@ function commitAdapterState(patch: Partial<ReturnType<typeof useConfiguratorStor
           const refreshedBom = { ...latest.bom, nestingResults: workerSheets };
           useConfiguratorStore.setState({
             bom: refreshedBom,
-            pricing: calculateProjectPrice(refreshedBom),
+            pricing: calculateProjectPrice(refreshedBom, undefined, undefined, latest.project.sceneObjects || []),
           });
         }
       });
@@ -703,6 +743,8 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
           profile === "shaker_frame" ||
           profile === "fluted_ribbed" ||
           profile === "bevel_45" ||
+          profile === "j_pull_bevel" ||
+          profile === "cove_arch" ||
           profile === "custom_cad_profile";
         const curDoorMat = m.carcass.doorMaterialId;
         const nextDoorMat =
@@ -942,6 +984,7 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
   const removeSpecialFitting = useConfiguratorStore((s) => s.removeSpecialFitting);
 
   const addAdjacentModule = useConfiguratorStore((s) => s.addAdjacentModule);
+  const addStackedTopModule = useConfiguratorStore((s) => s.addStackedTopModule);
   const duplicateActiveModule = useConfiguratorStore((s) => s.duplicateActiveModule);
   const removeActiveModule = useConfiguratorStore((s) => s.removeActiveModule);
   const moveActiveModule = useConfiguratorStore((s) => s.moveActiveModule);
@@ -953,6 +996,8 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
   const batchRemoveSelectedModules = useConfiguratorStore((s) => s.batchRemoveSelectedModules);
 
   const setRoomDimensions = useConfiguratorStore((s) => s.setRoomDimensions);
+  const updateCeilingConfig = useConfiguratorStore((s) => s.updateCeilingConfig);
+  const setFacadeGrainContinuity = useConfiguratorStore((s) => s.setFacadeGrainContinuity);
   const addWallSegment = useConfiguratorStore((s) => s.addWallSegment);
   const updateWallSegment = useConfiguratorStore((s) => s.updateWallSegment);
   const removeWallSegment = useConfiguratorStore((s) => s.removeWallSegment);
@@ -1027,6 +1072,23 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
   const approveProduction = useConfiguratorStore((s) => s.approveProduction);
   const applySmartSpan = useConfiguratorStore((s) => s.applySmartSpan);
 
+  const selectedSceneObjectId = useConfiguratorStore((s) => s.selectedSceneObjectId);
+  const setSelectedSceneObjectId = useConfiguratorStore((s) => s.setSelectedSceneObjectId);
+  const appendModuleWithMultiWallSnap = useConfiguratorStore((s) => s.appendModuleWithMultiWallSnap);
+  const fillWallGapWithParametricModule = useConfiguratorStore((s) => s.fillWallGapWithParametricModule);
+  const addCompositeAssemblyPreset = useConfiguratorStore((s) => s.addCompositeAssemblyPreset);
+  const saveActiveModuleAsCustomTemplate = useConfiguratorStore((s) => s.saveActiveModuleAsCustomTemplate);
+  const deleteCustomModuleTemplate = useConfiguratorStore((s) => s.deleteCustomModuleTemplate);
+  const addSceneObjectFromCatalog = useConfiguratorStore((s) => s.addSceneObjectFromCatalog);
+  const addCustomSceneObject = useConfiguratorStore((s) => s.addCustomSceneObject);
+  const updateSceneObject = useConfiguratorStore((s) => s.updateSceneObject);
+  const duplicateSceneObject = useConfiguratorStore((s) => s.duplicateSceneObject);
+  const removeSceneObject = useConfiguratorStore((s) => s.removeSceneObject);
+  const runAutoFillersAndCrown = useConfiguratorStore((s) => s.runAutoFillersAndCrown);
+  const runAutoNotchObstacles = useConfiguratorStore((s) => s.runAutoNotchObstacles);
+  const importRoomPlanLiDARJson = useConfiguratorStore((s) => s.importRoomPlanLiDARJson);
+  const setModuleOffsetFromLeftWall = useConfiguratorStore((s) => s.setModuleOffsetFromLeftWall);
+
   const undo = useConfiguratorStore((s) => s.undo);
   const redo = useConfiguratorStore((s) => s.redo);
   const applyTemplate = useConfiguratorStore((s) => s.applyTemplate);
@@ -1081,6 +1143,41 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
     [isLite, isDraggingActive, project]
   );
 
+  const lastSettledEngineeringRef = useRef<ReturnType<typeof evaluateUnifiedEngineeringModel> | null>(
+    null
+  );
+  const unifiedEngineeringReport = useMemo(() => {
+    if (isDraggingActive && lastSettledEngineeringRef.current) {
+      return lastSettledEngineeringRef.current;
+    }
+    const fresh = getMemoizedUnifiedEngineering(project);
+    lastSettledEngineeringRef.current = fresh;
+    return fresh;
+  }, [isDraggingActive, project]);
+
+  const ergonomicProfileId: RegionErgonomicProfileId =
+    project.ergonomicProfileId || "TR_RESIDENTIAL";
+
+  const setErgonomicProfileId = useCallback(
+    (profileId: RegionErgonomicProfileId) => {
+      commitAdapterState({
+        project: {
+          ...project,
+          ergonomicProfileId: profileId,
+        },
+      });
+    },
+    [project]
+  );
+
+  const applyApprovedEngineeringFix = useCallback(
+    (proposal: RemediationProposal) => {
+      const nextProj = applyApprovedRemediationProposal(project, proposal);
+      commitAdapterState({ project: nextProj });
+    },
+    [project]
+  );
+
   // Spatial obstacles & walls memoized by spaceSignature so cabinet drags never rebuild 3D room architecture
   const spaceObstacles = useMemo(
     () => getEffectiveSpaceObstacles(project),
@@ -1100,14 +1197,25 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
   const validationIssues = useMemo(() => {
     if (isLite) return EMPTY_VALIDATION_ISSUES;
     const seen = new Set<string>();
-    const combined = [...baseValidationIssues, ...spatialIssues, ...v4CompatibilityReport.issues];
+    const combined = [
+      ...baseValidationIssues,
+      ...spatialIssues,
+      ...v4CompatibilityReport.issues,
+      ...unifiedEngineeringReport.findings,
+    ];
     return combined.filter((item) => {
       const k = `${item.code}_${item.targetId || ""}`;
       if (seen.has(k)) return false;
       seen.add(k);
       return true;
     });
-  }, [isLite, baseValidationIssues, spatialIssues, v4CompatibilityReport.issues]);
+  }, [
+    isLite,
+    baseValidationIssues,
+    spatialIssues,
+    v4CompatibilityReport.issues,
+    unifiedEngineeringReport.findings,
+  ]);
 
   /**
    * Fast component selection handler
@@ -1331,20 +1439,23 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
       });
 
       let pivotLocal = { x: anchor.dimensions.width - 40, z: anchor.dimensions.depth * 0.5 };
-      let baseDirDeg = 0;
+      // Compute outward plan heading (0° = +X right, +90° = +Z forward into room, 180° = -X left)
+      let localPlanHeadingDeg = spec.angleDeg;
       if (spec.attachSide === "left_end") {
         pivotLocal = { x: 40, z: anchor.dimensions.depth * 0.5 };
-        baseDirDeg = 180;
+        localPlanHeadingDeg = 180 - spec.angleDeg;
       } else if (spec.attachSide === "front_center_t") {
         pivotLocal = { x: anchor.dimensions.width * 0.5, z: anchor.dimensions.depth - 40 };
-        baseDirDeg = -90;
+        localPlanHeadingDeg =
+          spec.angleDeg === 90 || spec.angleDeg === 0 ? 90 : 90 - spec.angleDeg;
       } else if (spec.attachSide === "front_right_corner") {
         pivotLocal = { x: anchor.dimensions.width - 60, z: anchor.dimensions.depth - 60 };
-        baseDirDeg = 0;
+        localPlanHeadingDeg = spec.angleDeg;
       }
 
       const pivotWorld = toWorld(pivotLocal.x, pivotLocal.z);
-      const totalModRotDeg = ((((anchor.rotation?.y || 0) + baseDirDeg - spec.angleDeg) % 360) + 360) % 360;
+      // In Three.js Y-up (`x_w = cos(rotY), z_w = -sin(rotY)`), `rotY = -planHeadingDeg`
+      const totalModRotDeg = ((((anchor.rotation?.y || 0) - localPlanHeadingDeg) % 360) + 360) % 360;
       const betaRad = (totalModRotDeg * Math.PI) / 180;
       const originX = pivotWorld.x - (spec.widthMm * 0.5) * Math.sin(betaRad);
       const originZ = pivotWorld.z - (spec.widthMm * 0.5) * Math.cos(betaRad);
@@ -1407,11 +1518,52 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
     const delta = typeof deltaDeg === "number" ? deltaDeg : 90;
     const curRotY = mod.rotation?.y || 0;
     const nextRotY = (((curRotY + delta) % 360) + 360) % 360;
+    // Preserve world center when rotating freestanding / table / island modules so they rotate in place cleanly!
+    const curPlace = calculateModulePlacement(mod);
+    const curRad = curPlace.rotationYRad;
+    const worldCenterX =
+      curPlace.origin.x +
+      (mod.dimensions.width * 0.5) * Math.cos(curRad) +
+      (mod.dimensions.depth * 0.5) * Math.sin(curRad);
+    const worldCenterZ =
+      curPlace.origin.z -
+      (mod.dimensions.width * 0.5) * Math.sin(curRad) +
+      (mod.dimensions.depth * 0.5) * Math.cos(curRad);
+    const nextRad = (nextRotY * Math.PI) / 180;
+    const nextOriginX =
+      worldCenterX -
+      (mod.dimensions.width * 0.5) * Math.cos(nextRad) -
+      (mod.dimensions.depth * 0.5) * Math.sin(nextRad);
+    const nextOriginZ =
+      worldCenterZ +
+      (mod.dimensions.width * 0.5) * Math.sin(nextRad) -
+      (mod.dimensions.depth * 0.5) * Math.cos(nextRad);
+    const centeredPos = originToModulePosition(
+      mod.dimensions.width,
+      mod.dimensions.depth,
+      nextRotY,
+      nextOriginX,
+      nextOriginZ
+    );
+    const isFreeOrTable =
+      mod.complementaryRole === "attached_table" ||
+      mod.category === "kitchen_island" ||
+      Boolean(mod.carcass.hullShape && mod.carcass.hullShape !== "rectangular");
+
     const nextMods = curProj.modules.map((m, i) =>
       i === idx
         ? {
             ...m,
+            position: isFreeOrTable
+              ? { ...m.position, x: centeredPos.x, z: centeredPos.z }
+              : m.position,
             rotation: { x: 0, y: nextRotY, z: 0 },
+            attachedTableConfig: m.attachedTableConfig
+              ? {
+                  ...m.attachedTableConfig,
+                  angleDeg: ((((360 - nextRotY) % 360) + 360) % 360),
+                }
+              : m.attachedTableConfig,
           }
         : m
     );
@@ -2076,7 +2228,10 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
         modules: nextModules,
       };
       if (!pushHistory) {
-        // Fast path during live 3D/2D dragging: update geometry at 60 FPS without blocking on CNC nesting/BOM
+        // Fast path during live 3D/2D dragging: update geometry at 60 FPS without blocking on CNC nesting/BOM.
+        // When an explicit history transaction is active (`batchStartProject !== null`), skip the 180ms timer
+        // completely so pausing the cursor mid-drag NEVER triggers a synchronous BOM/pricing/validation hitch;
+        // `commitHistoryTransaction()` on pointerup performs the full recompute once.
         commitAdapterState({
           project: nextProj,
         });
@@ -2084,16 +2239,23 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
           const w = window as unknown as {
             __birimLiveDragBomTimer?: ReturnType<typeof setTimeout>;
           };
-          if (w.__birimLiveDragBomTimer) clearTimeout(w.__birimLiveDragBomTimer);
-          w.__birimLiveDragBomTimer = setTimeout(() => {
-            const latestProj = useConfiguratorStore.getState().project;
-            const dBom = generateBOMForProject(latestProj, undefined, { skipSyncNesting: true });
-            commitAdapterState({
-              validationIssues: validateProject(latestProj),
-              bom: dBom,
-              pricing: calculateProjectPrice(dBom),
-            });
-          }, 180);
+          if (w.__birimLiveDragBomTimer) {
+            clearTimeout(w.__birimLiveDragBomTimer);
+            w.__birimLiveDragBomTimer = undefined;
+          }
+          if (useConfiguratorStore.getState().batchStartProject === null) {
+            w.__birimLiveDragBomTimer = setTimeout(() => {
+              const latestState = useConfiguratorStore.getState();
+              if (latestState.batchStartProject !== null) return;
+              const latestProj = latestState.project;
+              const dBom = generateBOMForProject(latestProj, undefined, { skipSyncNesting: true });
+              commitAdapterState({
+                validationIssues: validateProject(latestProj),
+                bom: dBom,
+                pricing: calculateProjectPrice(dBom, undefined, undefined, latestProj.sceneObjects || []),
+              });
+            }, 220);
+          }
         }
         return;
       }
@@ -2177,6 +2339,9 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
         doorEdgeBandThicknessMm?: number;
         softClose?: boolean;
         isGlassFramed?: boolean;
+        frontFillerLeftMm?: number;
+        frontFillerRightMm?: number;
+        frontFillerPosition?: "coplanar_front" | "recessed_inner";
       }
     ) => {
       commitActiveModuleUpdate((mod) => {
@@ -2313,7 +2478,8 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
   const dropV4TemplateWithSnap = useCallback(
     (
       templateId: string,
-      dropWorldXMm?: number
+      dropWorldXMm?: number,
+      customDimensions?: { width?: number; height?: number; depth?: number }
     ): { placedName: string; snappedX: number; snappedY: number; snapLabel: string } | null => {
       const tpl =
         getV4TemplateById(templateId) ||
@@ -2323,7 +2489,10 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
 
       const state = useConfiguratorStore.getState();
       const curProj = state.project;
-      const newMod = tpl.createInstance(`mod_${Date.now()}`);
+      const baseMod = tpl.createInstance(`mod_${Date.now()}`);
+      const newMod = "dimensionLimits" in tpl
+        ? applyValidatedDimensionsToModule(baseMod, tpl, customDimensions)
+        : baseMod;
       const activeMod = curProj.modules[state.activeModuleIndex] || curProj.modules.find((m) => m.category !== "complementary") || curProj.modules[0];
 
       // Object-Linked Complementary Module Placement: attach directly to the selected parent cabinet!
@@ -2434,6 +2603,7 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
       const isWallCab =
         newMod.category === "kitchen_wall" || newMod.moduleFamilyId === "fam_kitchen_wall";
       const targetY = isWallCab ? 1400 : 0;
+      const targetTopY = targetY + newMod.dimensions.height;
 
       const sameRowMods = curProj.modules.filter((m) => {
         if (m.category === "complementary") return false;
@@ -2441,8 +2611,16 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
         return mIsWall === isWallCab && (m.rotation?.y || 0) === 0;
       });
 
+      // Check 3D vertical Y-range overlap so wall cabinets snap beside tall wardrobes instead of burying into them,
+      // while still allowing wall cabinets above 720-860mm kitchen base cabinets.
+      const yOverlappingMods = curProj.modules.filter((m) => {
+        if (m.category === "complementary" || (m.rotation?.y || 0) !== 0) return false;
+        const mTopY = m.position.y + m.dimensions.height;
+        return m.position.y < targetTopY - 2 && mTopY > targetY + 2;
+      });
+
       const overlapsAt = (candX: number) =>
-        sameRowMods.some(
+        yOverlappingMods.some(
           (m) =>
             candX < m.position.x + m.dimensions.width - 2 &&
             candX + newMod.dimensions.width > m.position.x + 2
@@ -2451,7 +2629,7 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
       const snapCandidates: { x: number; label: string }[] = [
         { x: 0, label: "Duvar Başlangıcı (X: 0mm)" },
       ];
-      sameRowMods.forEach((m, idx) => {
+      yOverlappingMods.forEach((m, idx) => {
         const rightEdge = m.position.x + m.dimensions.width;
         const leftEdge = Math.max(0, m.position.x - newMod.dimensions.width);
         snapCandidates.push({
@@ -2467,8 +2645,8 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
       const validCandidates = snapCandidates.filter((c) => c.x >= 0 && !overlapsAt(c.x));
       let chosen = validCandidates[validCandidates.length - 1] || {
         x:
-          sameRowMods.length > 0
-            ? Math.max(...sameRowMods.map((m) => m.position.x + m.dimensions.width))
+          yOverlappingMods.length > 0
+            ? Math.max(...yOverlappingMods.map((m) => m.position.x + m.dimensions.width))
             : 0,
         label: "Sıra Sonuna Mıknatıslandı",
       };
@@ -2540,13 +2718,22 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
     []
   );
 
-  const applyV4Template = useCallback((templateId: string, appendToProject = false) => {
-    const tpl = getV4TemplateById(templateId);
-    if (!tpl) return;
-    const state = useConfiguratorStore.getState();
-    const curProj = state.project;
-    const lastMod = curProj.modules[curProj.modules.length - 1];
-    const newMod = tpl.createInstance(`mod_${Date.now()}`);
+  const applyV4Template = useCallback(
+    (
+      templateId: string,
+      appendToProject = false,
+      customDimensions?: { width?: number; height?: number; depth?: number }
+    ) => {
+      const tpl = getV4TemplateById(templateId);
+      if (!tpl) return;
+      const state = useConfiguratorStore.getState();
+      const curProj = state.project;
+      const lastMod = curProj.modules[curProj.modules.length - 1];
+      const newMod = applyValidatedDimensionsToModule(
+        tpl.createInstance(`mod_${Date.now()}`),
+        tpl,
+        customDimensions
+      );
 
     let nextModules: ModuleInstance[];
     let targetIndex = 0;
@@ -2980,14 +3167,30 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
       const safeWallW = Math.max(1200, Math.min(6000, Math.round(wiz.wallWidthMm)));
       const fillerEach = wiz.autoFiller50Mm && safeWallW >= 1400 ? 50 : 0;
       const usableSpan = Math.max(800, safeWallW - fillerEach * 2);
+
+      const effectiveDoorStyle: "hinged" | "sliding" | "glass" | "open" =
+        wiz.spaceCategory === "walkin"
+          ? "open"
+          : wiz.spaceCategory === "kitchen"
+          ? wiz.doorStyle === "glass"
+            ? "glass"
+            : "hinged"
+          : wiz.doorStyle === "sliding" && usableSpan < 1200
+          ? "hinged"
+          : wiz.doorStyle;
+
       const effHeight =
         wiz.spaceCategory === "kitchen"
-          ? 900
+          ? 870
           : Math.max(1800, Math.min(2700, Math.round(wiz.targetHeightMm)));
-      const effDepth = Math.max(350, Math.min(700, Math.round(wiz.targetDepthMm)));
+      const effDepth =
+        effectiveDoorStyle === "sliding"
+          ? Math.max(600, Math.min(700, Math.round(wiz.targetDepthMm)))
+          : wiz.spaceCategory === "kitchen"
+          ? 580
+          : Math.max(450, Math.min(700, Math.round(wiz.targetDepthMm)));
       const ceilH = Math.max(2550, effHeight + 150);
 
-      // Material mapping by selected color swatch & concept tier
       const swatchMatMap: Record<string, { body: string; door: string }> = {
         cashmere: { body: "mat_veneer_oak", door: "mat_ye_kasmir_gri" },
         white: { body: "mat_melamine_white", door: "mat_melamine_white" },
@@ -2995,16 +3198,34 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
         walnut: { body: "mat_ke_mattplus_vizon", door: "mat_veneer_walnut" },
         anthracite: { body: "mat_mdf_anthracite", door: "mat_lacquer_anthracite" },
       };
-      const chosenMats =
-        (wiz.colorSwatchId && swatchMatMap[wiz.colorSwatchId]) ||
-        (wiz.conceptTier === "eco"
-          ? swatchMatMap.white
-          : wiz.conceptTier === "signature"
-          ? swatchMatMap.walnut
-          : swatchMatMap.cashmere);
+      const directMat = wiz.colorSwatchId
+        ? DEFAULT_MATERIALS.find((dm) => dm.id === wiz.colorSwatchId)
+        : undefined;
+      const chosenMats = directMat
+        ? {
+            body: directMat.category === "glass" ? "mat_veneer_oak" : directMat.id,
+            door: directMat.id,
+          }
+        : (wiz.colorSwatchId && swatchMatMap[wiz.colorSwatchId]) ||
+          (wiz.conceptTier === "eco"
+            ? swatchMatMap.white
+            : wiz.conceptTier === "signature"
+            ? swatchMatMap.walnut
+            : swatchMatMap.cashmere);
 
       const modCount =
-        usableSpan < 1300 ? 1 : usableSpan < 2200 ? 2 : usableSpan < 3300 ? 3 : 4;
+        effectiveDoorStyle === "sliding"
+          ? usableSpan <= 2800
+            ? 1
+            : Math.max(2, Math.ceil(usableSpan / 2500))
+          : usableSpan < 1300
+          ? 1
+          : usableSpan < 2200
+          ? 2
+          : usableSpan < 3300
+          ? 3
+          : 4;
+
       const baseUnitW = Math.floor(usableSpan / modCount / 10) * 10;
       const remW = usableSpan - baseUnitW * modCount;
 
@@ -3016,17 +3237,17 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
         const tplId =
           wiz.spaceCategory === "kitchen"
             ? i === 0
-              ? "tpl_kb_06_sink_double_door"
+              ? "tpl_kb_08_sink_base"
               : i === 1
-              ? "tpl_kb_04_three_drawer"
+              ? "tpl_kb_05_three_drawers"
               : "tpl_kb_02_double_door"
-            : i % 2 === 1 && wiz.interiorFocus !== "hanging"
-            ? "tpl_wd_12_mixed_organizer"
+            : effectiveDoorStyle === "sliding"
+            ? thisW >= 1950
+              ? "tpl_wd_06_sliding_3door"
+              : "tpl_wd_05_sliding_2door"
             : "tpl_wd_02_two_door";
 
-        const tpl =
-          getV4TemplateById(tplId) ||
-          WARDROBE_TEMPLATES[0];
+        const tpl = getV4TemplateById(tplId) || WARDROBE_TEMPLATES[0];
         const modTitle =
           wiz.spaceCategory === "kitchen"
             ? i === 0
@@ -3034,11 +3255,15 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
               : i === 1
               ? "Çekmeceli Ocak Altı"
               : `Hazırlık Dolabı #${i + 1}`
+            : effectiveDoorStyle === "sliding"
+            ? modCount === 1
+              ? "Sürgülü Gardırop Modülü"
+              : `Sürgülü Gardırop #${i + 1}`
             : wiz.spaceCategory === "living"
             ? `Vitrin & Depolama #${i + 1}`
             : wiz.spaceCategory === "walkin"
             ? `Giyinme Ünitesi #${i + 1}`
-            : `Gardırop Gövde #${i + 1}`;
+            : `Gardırop Modülü #${i + 1}`;
 
         const m = tpl
           ? tpl.createInstance(`mod_wiz_${Date.now()}_${i + 1}`, modTitle)
@@ -3048,17 +3273,32 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
         m.position = { x: curX, y: 0, z: 0 };
         m.rotation = { x: 0, y: 0, z: 0 };
         m.dimensions = { width: thisW, height: effHeight, depth: effDepth };
-        m.isOpenFront = wiz.doorStyle === "open";
+        m.isOpenFront = effectiveDoorStyle === "open" || tplId === "tpl_kb_05_three_drawers";
         m.carcass = {
           ...m.carcass,
+          wallAnchored: true,
           bodyMaterialId: chosenMats.body,
           doorMaterialId: chosenMats.door,
-          ledLightingEnabled: wiz.addLed,
+          ledLightingEnabled: wiz.addLed && wiz.spaceCategory !== "kitchen",
           ledColorTempK: 3000,
+          ...(thisW > 2750 ? { allowJumboSheet3660: true } : {}),
         };
 
-        // Configure bays cleanly for `thisW` without any customWidth mismatch
-        const targetBayCount = thisW >= 750 ? 2 : 1;
+        const targetBayCount =
+          wiz.spaceCategory === "kitchen"
+            ? tplId === "tpl_kb_05_three_drawers"
+              ? 1
+              : thisW >= 700
+              ? 2
+              : 1
+            : effectiveDoorStyle === "sliding"
+            ? thisW >= 1950
+              ? 3
+              : 2
+            : thisW >= 750
+            ? 2
+            : 1;
+
         while (m.bays.length < targetBayCount) {
           m.bays.push(JSON.parse(JSON.stringify(m.bays[0])));
         }
@@ -3067,32 +3307,57 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
         }
 
         const T = m.carcass.panelThickness || 18;
-        const plinthH = m.carcass.plinthHeight ?? 100;
+        const plinthH = m.carcass.plinthHeight ?? (wiz.spaceCategory === "kitchen" ? 100 : 80);
+        m.carcass.plinthHeight = plinthH;
         const netH = Math.max(400, effHeight - plinthH - 2 * T);
         const topShelfY = Math.round((netH - 360) / 32) * 32;
         const railHighY = Math.max(400, topShelfY - 64);
 
+        const innerSpanMod = Math.max(400, thisW - 2 * T);
+        const sliding2LeafWidth = Math.ceil((innerSpanMod + 60) / 2);
+        const sliding2SafeDrawerBayW = Math.max(400, innerSpanMod - sliding2LeafWidth - 8);
+        const sliding2HangingBayW = Math.max(440, innerSpanMod - T - sliding2SafeDrawerBayW);
+
         m.bays = m.bays.map((b, bIdx) => {
+          const isKitchenDrawerUnit = wiz.spaceCategory === "kitchen" && tplId === "tpl_kb_05_three_drawers";
           const isSingleBayMod = targetBayCount === 1;
-          const nextDoorType =
-            wiz.doorStyle === "open"
-              ? ("open" as const)
-              : wiz.doorStyle === "sliding"
-              ? ("sliding" as const)
-              : isSingleBayMod
+          const nextDoorType = isKitchenDrawerUnit
+            ? ("open" as const)
+            : effectiveDoorStyle === "open"
+            ? ("open" as const)
+            : effectiveDoorStyle === "sliding"
+            ? ("sliding" as const)
+            : isSingleBayMod
+            ? thisW >= 650
               ? ("double" as const)
-              : bIdx === 0
-              ? ("single_left" as const)
-              : ("single_right" as const);
+              : ("single_right" as const)
+            : bIdx === 0
+            ? ("single_left" as const)
+            : ("single_right" as const);
 
           const nextDoorSys =
-            wiz.doorStyle === "open"
+            nextDoorType === "open"
               ? ("open" as const)
-              : wiz.doorStyle === "sliding"
+              : nextDoorType === "sliding"
               ? ("sliding_top_hung" as const)
-              : isSingleBayMod
+              : nextDoorType === "double"
               ? ("hinged_double" as const)
               : ("hinged_single" as const);
+
+          let bayCustomW: number | undefined = undefined;
+          if (effectiveDoorStyle === "sliding" && targetBayCount === 2 && wiz.interiorFocus !== "hanging") {
+            bayCustomW = bIdx === 0 ? sliding2HangingBayW : undefined;
+          }
+
+          const approxBayClearW =
+            bayCustomW !== undefined
+              ? bayCustomW
+              : effectiveDoorStyle === "sliding" && targetBayCount === 2 && wiz.interiorFocus !== "hanging" && bIdx === 1
+              ? sliding2SafeDrawerBayW
+              : Math.floor((innerSpanMod - (targetBayCount - 1) * T) / targetBayCount);
+
+          const useThickShelf = approxBayClearW > 820 ? 25 : 18;
+          const isSlidingMod = effectiveDoorStyle === "sliding";
 
           let nextShelves = b.shelves || [];
           let nextRails = b.hangingRails || [];
@@ -3100,9 +3365,18 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
           const nextFittings: typeof b.specialFittings = [];
 
           if (wiz.spaceCategory !== "kitchen") {
+            const isDrawerBay =
+              wiz.interiorFocus === "hanging"
+                ? false
+                : isSlidingMod
+                ? targetBayCount === 3
+                  ? bIdx === 2
+                  : bIdx === 1
+                : bIdx === targetBayCount - 1;
+
             if (wiz.interiorFocus === "hanging") {
               nextShelves = [
-                { id: `sh_${m.id}_${bIdx}_top`, bayIndex: bIdx, elevationY: topShelfY, isAdjustable: false },
+                { id: `sh_${m.id}_${bIdx}_top`, bayIndex: bIdx, elevationY: topShelfY, isAdjustable: false, thicknessMm: useThickShelf },
               ];
               nextRails = [
                 { id: `rl_${m.id}_${bIdx}_1`, bayIndex: bIdx, elevationY: railHighY },
@@ -3110,25 +3384,42 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
               nextDrawers = [];
             } else if (wiz.interiorFocus === "shelves") {
               const stepS = Math.floor(netH / 5 / 32) * 32;
-              nextShelves = [1, 2, 3, 4].map((sIdx) => ({
-                id: `sh_${m.id}_${bIdx}_${sIdx}`,
-                bayIndex: bIdx,
-                elevationY: Math.max(256, stepS * sIdx),
-                isAdjustable: true,
-              }));
+              nextShelves = [1, 2, 3, 4]
+                .map((sIdx) => ({
+                  id: `sh_${m.id}_${bIdx}_${sIdx}`,
+                  bayIndex: bIdx,
+                  elevationY: Math.max(420, stepS * sIdx),
+                  isAdjustable: sIdx !== 2,
+                  thicknessMm: useThickShelf,
+                }))
+                .filter((s) => s.elevationY < netH - 140);
               nextRails = [];
-              nextDrawers =
-                bIdx === 0
-                  ? [
-                      { id: `drw_${m.id}_${bIdx}_1`, bayIndex: bIdx, height: 192, elevationY: 0, slideType: "soft_close" as const, frontMaterialId: chosenMats.door },
-                      { id: `drw_${m.id}_${bIdx}_2`, bayIndex: bIdx, height: 192, elevationY: 195, slideType: "soft_close" as const, frontMaterialId: chosenMats.door },
-                    ]
-                  : [];
+              nextDrawers = isDrawerBay
+                ? [
+                    {
+                      id: `drw_${m.id}_${bIdx}_1`,
+                      bayIndex: bIdx,
+                      height: 180,
+                      elevationY: 0,
+                      slideType: "soft_close" as const,
+                      isInternal: isSlidingMod ? true : undefined,
+                      frontMaterialId: chosenMats.door,
+                    },
+                    {
+                      id: `drw_${m.id}_${bIdx}_2`,
+                      bayIndex: bIdx,
+                      height: 180,
+                      elevationY: 184,
+                      slideType: "soft_close" as const,
+                      isInternal: isSlidingMod ? true : undefined,
+                      frontMaterialId: chosenMats.door,
+                    },
+                  ]
+                : [];
             } else {
-              // Balanced family layout: Bay 0 = Top Shelf + Hanging Rail, Bay 1 = Shelves + 2 Bottom Drawers
-              if (bIdx === 0) {
+              if (!isDrawerBay) {
                 nextShelves = [
-                  { id: `sh_${m.id}_${bIdx}_top`, bayIndex: bIdx, elevationY: topShelfY, isAdjustable: false },
+                  { id: `sh_${m.id}_${bIdx}_top`, bayIndex: bIdx, elevationY: topShelfY, isAdjustable: false, thicknessMm: useThickShelf },
                 ];
                 nextRails = [
                   { id: `rl_${m.id}_${bIdx}_1`, bayIndex: bIdx, elevationY: railHighY },
@@ -3136,15 +3427,31 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
                 nextDrawers = [];
               } else {
                 nextDrawers = [
-                  { id: `drw_${m.id}_${bIdx}_1`, bayIndex: bIdx, height: 192, elevationY: 0, slideType: "soft_close" as const, frontMaterialId: chosenMats.door },
-                  { id: `drw_${m.id}_${bIdx}_2`, bayIndex: bIdx, height: 192, elevationY: 195, slideType: "soft_close" as const, frontMaterialId: chosenMats.door },
+                  {
+                    id: `drw_${m.id}_${bIdx}_1`,
+                    bayIndex: bIdx,
+                    height: 180,
+                    elevationY: 0,
+                    slideType: "soft_close" as const,
+                    isInternal: isSlidingMod ? true : undefined,
+                    frontMaterialId: chosenMats.door,
+                  },
+                  {
+                    id: `drw_${m.id}_${bIdx}_2`,
+                    bayIndex: bIdx,
+                    height: 180,
+                    elevationY: 184,
+                    slideType: "soft_close" as const,
+                    isInternal: isSlidingMod ? true : undefined,
+                    frontMaterialId: chosenMats.door,
+                  },
                 ];
                 nextShelves = [
-                  { id: `sh_${m.id}_${bIdx}_1`, bayIndex: bIdx, elevationY: 448, isAdjustable: true },
-                  { id: `sh_${m.id}_${bIdx}_2`, bayIndex: bIdx, elevationY: 896, isAdjustable: true },
-                  { id: `sh_${m.id}_${bIdx}_3`, bayIndex: bIdx, elevationY: 1344, isAdjustable: true },
-                  { id: `sh_${m.id}_${bIdx}_4`, bayIndex: bIdx, elevationY: topShelfY, isAdjustable: false },
-                ].filter((s) => s.elevationY < netH - 160);
+                  { id: `sh_${m.id}_${bIdx}_1`, bayIndex: bIdx, elevationY: 416, isAdjustable: false, thicknessMm: useThickShelf },
+                  { id: `sh_${m.id}_${bIdx}_2`, bayIndex: bIdx, elevationY: 864, isAdjustable: true, thicknessMm: useThickShelf },
+                  { id: `sh_${m.id}_${bIdx}_3`, bayIndex: bIdx, elevationY: 1312, isAdjustable: true, thicknessMm: useThickShelf },
+                  { id: `sh_${m.id}_${bIdx}_4`, bayIndex: bIdx, elevationY: topShelfY, isAdjustable: false, thicknessMm: useThickShelf },
+                ].filter((s) => s.elevationY < netH - 150);
                 nextRails = [];
               }
             }
@@ -3158,7 +3465,15 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
                 height: 20,
               });
             }
-            if (wiz.addTrouserRack && i === 0 && bIdx === 0) {
+
+            const canFitPulloutAccessory =
+              approxBayClearW >= 460 &&
+              approxBayClearW <= 1150 &&
+              effDepth >= 530 &&
+              (wiz.spaceCategory === "wardrobe" || wiz.spaceCategory === "walkin") &&
+              (!isSlidingMod || (targetBayCount === 3 ? bIdx === 0 : false));
+
+            if (wiz.addTrouserRack && i === 0 && bIdx === 0 && canFitPulloutAccessory && nextDrawers.length === 0) {
               nextFittings.push({
                 id: `fit_tr_${m.id}_${bIdx}`,
                 bayIndex: bIdx,
@@ -3167,21 +3482,22 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
                 height: 85,
               });
             }
-            if (wiz.addJewelryTray && i === 0 && bIdx === m.bays.length - 1) {
-              nextFittings.push({
-                id: `fit_jw_${m.id}_${bIdx}`,
-                bayIndex: bIdx,
-                elevationY: 512,
-                type: "jewelry_tray",
-                height: 70,
-              });
-            }
           }
+
+          const leafSpanEst = nextDoorType === "double" ? approxBayClearW / 2 : approxBayClearW;
+          const safeHandleCat: HandleCategory =
+            nextDoorType === "sliding"
+              ? "recessed_grip"
+              : nextDoorType === "open" && nextDrawers.length === 0
+              ? "handleless_plain"
+              : leafSpanEst < 380 || approxBayClearW < 380
+              ? "knob"
+              : "bar_handle";
 
           return {
             ...b,
             index: bIdx,
-            customWidth: undefined,
+            customWidth: bayCustomW,
             shelves: nextShelves,
             hangingRails: nextRails,
             drawers: nextDrawers,
@@ -3192,9 +3508,20 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
               bayIndex: bIdx,
               type: nextDoorType,
               doorSystemId: nextDoorSys,
-              doorMaterialId: wiz.doorStyle === "glass" ? "mat_smoked_glass" : chosenMats.door,
-              isGlassFramed: wiz.doorStyle === "glass",
-              crossSectionProfile: wiz.doorStyle === "glass" ? "glass_frame" : "flat_18",
+              slidingMountingType: nextDoorType === "sliding" ? "top_hung_pelmet" : undefined,
+              handleCategory: safeHandleCat,
+              handleProfileId:
+                safeHandleCat === "knob"
+                  ? "KNOB_ROUND_28"
+                  : safeHandleCat === "bar_handle"
+                  ? "K019"
+                  : undefined,
+              hardwareProductId:
+                nextDoorType === "sliding" ? "hw_hettich_topline_l" : "hw_blum_71b3550",
+              doorMaterialId: effectiveDoorStyle === "glass" ? "mat_smoked_glass" : chosenMats.door,
+              isGlassFramed: effectiveDoorStyle === "glass",
+              crossSectionProfile: effectiveDoorStyle === "glass" ? "glass_frame" : "flat_slab",
+              softClose: true,
             },
           };
         });
@@ -4376,6 +4703,30 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
             width: Math.max(200, bw - 36),
             depth: Math.max(300, mod.dimensions.depth - 80),
           });
+        }
+        const bayHasSliding = mod.bays.some(
+          (mb) =>
+            mb.door?.type === "sliding" ||
+            mb.door?.type === "sliding_bottom" ||
+            Boolean(mb.door?.doorSystemId?.startsWith("sliding"))
+        );
+        if (bayHasSliding) {
+          bay.drawers = (bay.drawers || []).map((dr) => ({ ...dr, isInternal: true }));
+          if (mod.bays.length === 2) {
+            const T_m = mod.carcass.panelThickness || 18;
+            const innerSpanM = Math.max(400, mod.dimensions.width - 2 * T_m);
+            const leafWM = Math.ceil((innerSpanM + 60) / 2);
+            const maxClearW = Math.max(380, innerSpanM - leafWM - 6);
+            const b0Pull = mod.bays[0].drawers.length > 0 || mod.bays[0].specialFittings.some((f) => !f.type.startsWith("led_"));
+            const b1Pull = mod.bays[1].drawers.length > 0 || mod.bays[1].specialFittings.some((f) => !f.type.startsWith("led_"));
+            if (b0Pull && !b1Pull) {
+              mod.bays[0].customWidth = maxClearW;
+              mod.bays[1].customWidth = undefined;
+            } else if (b1Pull && !b0Pull) {
+              mod.bays[0].customWidth = Math.max(420, innerSpanM - T_m - maxClearW);
+              mod.bays[1].customWidth = undefined;
+            }
+          }
         }
         return mod;
       }, true);
@@ -6377,7 +6728,7 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
     }) => {
       const state = useConfiguratorStore.getState();
       const curProj = state.project;
-      const tpl = getV4TemplateById(spec.templateId || "tpl_wd_03_two_door_wardrobe") || V4_MODULE_TEMPLATES[0];
+      const tpl = getV4TemplateById(spec.templateId || "tpl_wd_02_two_door") || V4_MODULE_TEMPLATES[0];
       const baseMod = tpl ? tpl.createInstance(`mod_${Date.now()}`) : createDefaultWardrobeModule(`mod_${Date.now()}`);
 
       const T = baseMod.carcass.panelThickness || 18;
@@ -6551,8 +6902,8 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
 
 
   const continuousKitchenLayers = useMemo(
-    () => (isLite ? [] : computeContinuousKitchenLayers(project)),
-    [isLite, project]
+    () => (isLite || isDraggingActive ? [] : getMemoizedContinuousKitchenLayers(project)),
+    [isLite, isDraggingActive, project]
   );
 
   const exportCamZipBytes = useCallback(
@@ -6576,8 +6927,166 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
     return generateThermalPartLabelsHtml(project, bom, matMap);
   }, [project, bom]);
 
+
+  const addCustomMaterialToProject = useCallback(
+    (matInput: {
+      name: string;
+      decorCode?: string;
+      category: import("@birim/core").MaterialDefinition["category"];
+      colorHex: string;
+      roughness: number;
+      costPerM2: number;
+      textureUrl?: string;
+      hasGrain?: boolean;
+    }) => {
+      const state = useConfiguratorStore.getState();
+      const curProj = state.project;
+      const newMat: import("@birim/core").MaterialDefinition = {
+        id: `mat_custom_${Date.now()}`,
+        name: matInput.name.trim() || "Özel Tasarım Yüzey",
+        brand: "Birim Özel Koleksiyon",
+        decorCode: matInput.decorCode?.trim() || "BRM-OZEL",
+        category: matInput.category,
+        thickness: 18,
+        densityKgPerM3: 740,
+        colorHex: matInput.colorHex || "#d6d1c7",
+        roughness: matInput.roughness,
+        metalness: matInput.category === "metal" ? 0.88 : 0.04,
+        textureUrl: matInput.textureUrl,
+        costPerM2: Math.max(5, Number(matInput.costPerM2) || 65),
+        edgeBandCostPerM: 3.5,
+        hasGrain: Boolean(matInput.hasGrain || matInput.textureUrl || matInput.category === "wood"),
+      };
+      registerRuntimeMaterial(newMat);
+      try {
+        if (typeof window !== "undefined") {
+          const prev = JSON.parse(localStorage.getItem("birim_custom_materials_v5") || "[]");
+          const nextArr = [newMat, ...(Array.isArray(prev) ? prev : [])].slice(0, 40);
+          localStorage.setItem("birim_custom_materials_v5", JSON.stringify(nextArr));
+        }
+      } catch {
+        // Ignore quota errors
+      }
+      const nextCustomMats = [newMat, ...(curProj.customMaterials || [])];
+      commitAdapterState({
+        history: [...state.history.slice(-50), curProj],
+        future: [],
+        project: {
+          ...curProj,
+          customMaterials: nextCustomMats,
+          updatedAt: new Date().toISOString(),
+        },
+      });
+      return newMat;
+    },
+    []
+  );
+
+  const addCustomCapsuleModule = useCallback(
+    (spec: {
+      kind: "capsule_bar" | "capsule_table";
+      name?: string;
+      widthMm: number;
+      heightMm: number;
+      depthMm: number;
+      cornerRadiusMm?: number;
+      tambourSlatPitchMm?: number;
+      bodyMaterialId?: string;
+      topMaterialId?: string;
+    }) => {
+      const state = useConfiguratorStore.getState();
+      const curProj = state.project;
+      const id = `mod_cap_${Date.now()}`;
+      const w = Math.max(700, Math.min(3600, Math.round(spec.widthMm)));
+      const d = Math.max(360, Math.min(1200, Math.round(spec.depthMm)));
+      const h = Math.max(450, Math.min(2400, Math.round(spec.heightMm)));
+      const r = Math.max(40, Math.min(Math.floor(d / 2), Math.round(spec.cornerRadiusMm ?? d / 2)));
+      const isTable = spec.kind === "capsule_table";
+
+      // Place cleanly in front of wall or beside existing modules
+      const maxRightX = curProj.modules.reduce(
+        (acc, m) => Math.max(acc, m.position.x + m.dimensions.width),
+        0
+      );
+
+      const newMod: import("@birim/core").ModuleInstance = {
+        id,
+        name:
+          spec.name?.trim() ||
+          (isTable ? "Birim Kapsül Tasarım Masa" : "Birim Kapsül Tamburlu Bar Dolabı"),
+        category: isTable ? "kitchen_island" : "wardrobe",
+        moduleFamilyId: isTable ? "fam_kitchen_base" : "fam_wardrobe",
+        templateId: isTable ? "v5_capsule_dining_table_220" : "v5_capsule_bar_cabinet_120",
+        position: isTable
+          ? { x: Math.max(200, Math.round(maxRightX * 0.25)), y: 0, z: 1250 }
+          : { x: maxRightX + 80, y: 0, z: 40 },
+        dimensions: { width: w, height: h, depth: d },
+        isOpenFront: isTable,
+        carcass: {
+          panelThickness: 18,
+          backPanelThickness: 8,
+          backPanelType: isTable ? "none" : "grooved",
+          hullShape: isTable ? "capsule_table" : "capsule_stadium",
+          cornerRadiusMm: r,
+          tambourSlatPitchMm: spec.tambourSlatPitchMm || 24,
+          plinthHeight: isTable ? 0 : 210,
+          doorPerimeterGap: 2,
+          edgeBandThickness: isTable ? 2 : 1,
+          bodyMaterialId: spec.bodyMaterialId || "mat_veneer_walnut",
+          doorMaterialId: spec.bodyMaterialId || "mat_veneer_walnut",
+          countertopMaterialId:
+            spec.topMaterialId || (isTable ? "mat_veneer_walnut" : "mat_quartz_calacatta"),
+          plinthMaterialId: "mat_metal_brass",
+          crossSectionProfile: isTable ? "bevel_45" : "fluted_ribbed",
+          jointType: isTable ? "miter_45" : "minifix_dowel",
+          ledLightingEnabled: !isTable,
+          ledColorTempK: 2700,
+          ledPlacementMode: "shelf_underside",
+        },
+        bays: [
+          {
+            index: 0,
+            door: {
+              id: `door_${id}_0`,
+              bayIndex: 0,
+              type: isTable ? "open" : "tambour",
+              doorSystemId: isTable ? "open" : "tambour_roller",
+              crossSectionProfile: isTable ? "bevel_45" : "fluted_ribbed",
+              softClose: !isTable,
+            },
+            shelves: isTable
+              ? []
+              : [
+                  { id: `sh_${id}_0_0`, bayIndex: 0, elevationY: Math.round((h - 240) * 0.36), isAdjustable: true },
+                  { id: `sh_${id}_0_1`, bayIndex: 0, elevationY: Math.round((h - 240) * 0.68), isAdjustable: true, isGlass: true },
+                ],
+            hangingRails: [],
+            drawers: [],
+            specialFittings: [],
+          },
+        ],
+      };
+
+      const nextModules = [...curProj.modules, newMod];
+      commitAdapterState({
+        history: [...state.history.slice(-50), curProj],
+        future: [],
+        activeModuleIndex: nextModules.length - 1,
+        project: {
+          ...curProj,
+          modules: nextModules,
+          updatedAt: new Date().toISOString(),
+        },
+      });
+      return newMod;
+    },
+    []
+  );
+
   return {
     project,
+    addCustomMaterialToProject,
+    addCustomCapsuleModule,
     activeBlumEngineering,
     exportBlumBxfString,
     exportAllPanelsDxfString,
@@ -6674,6 +7183,7 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
     setModuleSlidingMountingType,
     flipActiveDoorDirection,
     setBayV4DoorConfig,
+    copyDoorConfigToAllBays,
     applyV4Template,
     dropV4TemplateWithSnap,
     applyWardrobeWizard,
@@ -6711,6 +7221,7 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
     addSpecialFitting,
     removeSpecialFitting,
     addAdjacentModule,
+    addStackedTopModule,
     duplicateActiveModule,
     removeActiveModule,
     removeModuleAt,
@@ -6724,6 +7235,8 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
     batchSetSelectedModulesMaterial,
     batchRemoveSelectedModules,
     setRoomDimensions,
+    updateCeilingConfig,
+    setFacadeGrainContinuity,
     addWallSegment,
     updateWallSegment,
     removeWallSegment,
@@ -6757,6 +7270,7 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
     getSavedProjects,
     exportProjectJSON,
     importProjectJSON,
+    selectModuleBayComponent: selectModuleBayComponentSafe,
     beginHistoryTransaction,
     commitHistoryTransaction,
     createRevisionSnapshot,
@@ -6764,6 +7278,22 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
     diffRevisions,
     approveProduction,
     applySmartSpan,
+    selectedSceneObjectId,
+    setSelectedSceneObjectId,
+    appendModuleWithMultiWallSnap,
+    fillWallGapWithParametricModule,
+    addCompositeAssemblyPreset,
+    saveActiveModuleAsCustomTemplate,
+    deleteCustomModuleTemplate,
+    addSceneObjectFromCatalog,
+    addCustomSceneObject,
+    updateSceneObject,
+    duplicateSceneObject,
+    removeSceneObject,
+    runAutoFillersAndCrown,
+    runAutoNotchObstacles,
+    importRoomPlanLiDARJson,
+    setModuleOffsetFromLeftWall,
     undo,
     redo,
     applyTemplate,
@@ -6771,5 +7301,12 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
     loadLKitchen,
     loadUKitchen,
     resetToDefault,
+    unifiedEngineeringReport,
+    ergonomicProfileId,
+    setErgonomicProfileId,
+    applyApprovedEngineeringFix,
+    regionalErgonomicProfiles: REGIONAL_ERGONOMIC_PROFILES,
   };
 }
+
+export type { EngineeringValidationFinding, RemediationProposal, RegionErgonomicProfileId };
