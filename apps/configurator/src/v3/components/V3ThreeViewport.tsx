@@ -651,6 +651,10 @@ const formatEngineeringErrorCode = (code?: string): string => {
   if (!code) return "Mühendislik Uyarısı";
   const map: Record<string, string> = {
     ERR_SHELF_STRUCTURAL_DEFLECTION: "Raf Dayanımı (EN 16122)",
+    WARN_SHELF_SPAN_DEFLECTION: "Raf Sehim & Açıklık Uyarısı",
+    CHK_12_SHELF_SPAN_DEFLECTION: "Raf Açıklık Sınırı (Sehim)",
+    CHK_10_TAMBOUR_UNVERIFIED_PREVIEW_ONLY: "Tambur Kapak Önizleme Modu",
+    CHK_11_PANEL_TOO_THIN_FOR_SYSTEM32: "Panel Kalınlığı Sınırı",
     ERR_FREESTANDING_TIPOVER_UNSAFE: "Devrilme Güvenliği",
     ERR_INTERNAL_DRAWER_HINGE_BODY_CLASH: "Menteşe Çakışması",
     ERR_INTERNAL_FITTING_ENVELOPE_VIOLATION: "İç Donatı Çakışması",
@@ -670,8 +674,21 @@ const formatEngineeringErrorCode = (code?: string): string => {
     WARN_INTERNAL_PULLOUT_HINGE_SPACER_REQUIRED: "Menteşe Paspayı Gerekli",
     CHK_SPATIAL_WALL_CORNER_HANDLE_SWING_CLASH: "Köşe Kulp Açılımı",
     WARN_CEILING_DOOR_SWEEP_TIGHT: "Tavan Açılım Mesafesi",
+    INFO_TALL_CARCASS_NEEDS_FIXED_SHELF: "Sabit Taşıyıcı Raf Önerisi",
   };
-  return map[code] || code.replace(/^ERR_|^WARN_|^CHK_|^INFO_/, "").replace(/_/g, " ");
+  if (map[code]) return map[code];
+  const upper = code.toUpperCase();
+  if (upper.includes("TAMBOUR")) return "Tambur Kapak Önizleme Modu";
+  if (upper.includes("SHELF") || upper.includes("SPAN") || upper.includes("DEFLECTION")) {
+    return "Raf Sehim & Açıklık Kontrolü";
+  }
+  if (upper.includes("HINGE")) return "Menteşe Yerleşim Kontrolü";
+  if (upper.includes("DRAWER")) return "Çekmece & Donanım Kontrolü";
+  if (upper.includes("TIPOVER") || upper.includes("TIP")) return "Devrilme Güvenliği Kontrolü";
+  if (upper.includes("COLLISION") || upper.includes("CLASH")) return "Parça Çakışma Kontrolü";
+  if (upper.includes("CEILING")) return "Tavan Mesafesi Kontrolü";
+  if (upper.includes("PLINTH") || upper.includes("TOE")) return "Baza & Ayak Kontrolü";
+  return "Teknik Tasarım Kontrolü";
 };
 
 export interface V3ThreeViewportProps {
@@ -783,11 +800,23 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       updateSceneObject,
       duplicateSceneObject,
       removeSceneObject,
+      deleteActiveSelectionSmart,
       applyApprovedEngineeringFix,
     } = useV3Adapter({ lightweightViewport: true });
 
     const pausedRef = useRef<boolean>(Boolean(paused));
     pausedRef.current = Boolean(paused);
+    const removeSceneObjectRef = useRef(removeSceneObject);
+    removeSceneObjectRef.current = removeSceneObject;
+    const duplicateSceneObjectRef = useRef(duplicateSceneObject);
+    duplicateSceneObjectRef.current = duplicateSceneObject;
+    const duplicateActiveModuleRef = useRef(duplicateActiveModule);
+    duplicateActiveModuleRef.current = duplicateActiveModule;
+    const deleteActiveSelectionSmartRef = useRef(deleteActiveSelectionSmart);
+    deleteActiveSelectionSmartRef.current = deleteActiveSelectionSmart;
+    const cadCopyClipboardRef = useRef<
+      { kind: "sceneObject"; id: string } | { kind: "module"; moduleId: string } | null
+    >(null);
     const isStoreBatchDragging = useConfiguratorStore((s) => s.batchStartProject !== null);
     const lastSettled3DEngRef = useRef<ReturnType<typeof evaluateUnifiedEngineeringModel> | null>(null);
     const live3DEngineeringReport = useMemo(() => {
@@ -1278,6 +1307,83 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             curSt.setDoorOpenAngleDeg(opening ? 82 : 0, true);
             curSt.setDrawerOpenMm(opening ? 300 : 0, true);
             return;
+          }
+        }
+        if ((ev.key === "Delete" || ev.key === "Backspace") && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+          const tag = (ev.target as HTMLElement | null)?.tagName?.toLowerCase();
+          const isEditable =
+            tag === "input" ||
+            tag === "textarea" ||
+            tag === "select" ||
+            Boolean((ev.target as HTMLElement | null)?.isContentEditable);
+          if (!isEditable && !pausedRef.current) {
+            const curSt = useConfiguratorStore.getState();
+            if (curSt.selectedSceneObjectId) {
+              ev.preventDefault();
+              removeSceneObjectRef.current(curSt.selectedSceneObjectId);
+              return;
+            }
+            if (curSt.selectedComponentId) {
+              ev.preventDefault();
+              deleteActiveSelectionSmartRef.current();
+              return;
+            }
+          }
+        }
+        if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && !ev.shiftKey) {
+          const k = ev.key.toLowerCase();
+          if (k === "c" || k === "v") {
+            const tag = (ev.target as HTMLElement | null)?.tagName?.toLowerCase();
+            const isEditable =
+              tag === "input" ||
+              tag === "textarea" ||
+              tag === "select" ||
+              Boolean((ev.target as HTMLElement | null)?.isContentEditable);
+            if (!isEditable && !pausedRef.current) {
+              const curSt = useConfiguratorStore.getState();
+              if (k === "c") {
+                if (typeof window !== "undefined" && window.getSelection()?.toString()) {
+                  return;
+                }
+                if (curSt.selectedSceneObjectId) {
+                  ev.preventDefault();
+                  cadCopyClipboardRef.current = {
+                    kind: "sceneObject",
+                    id: curSt.selectedSceneObjectId,
+                  };
+                  return;
+                }
+                const actMod = curSt.project.modules[curSt.activeModuleIndex];
+                if (actMod) {
+                  ev.preventDefault();
+                  cadCopyClipboardRef.current = {
+                    kind: "module",
+                    moduleId: actMod.id,
+                  };
+                  return;
+                }
+              } else if (k === "v" && cadCopyClipboardRef.current) {
+                const clip = cadCopyClipboardRef.current;
+                if (clip.kind === "sceneObject") {
+                  const exists = (curSt.project.sceneObjects || []).some((o) => o.id === clip.id);
+                  if (exists) {
+                    ev.preventDefault();
+                    duplicateSceneObjectRef.current(clip.id);
+                    return;
+                  }
+                } else if (clip.kind === "module") {
+                  const mIdx = curSt.project.modules.findIndex((m) => m.id === clip.moduleId);
+                  if (mIdx >= 0) {
+                    ev.preventDefault();
+                    if (curSt.activeModuleIndex !== mIdx) {
+                      curSt.setActiveModuleIndex(mIdx);
+                    }
+                    duplicateActiveModuleRef.current();
+                    return;
+                  }
+                }
+              }
+            }
           }
         }
         if (ev.key === "Escape") {
@@ -4447,12 +4553,16 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           }
 
           // Lightweight Active Bay Highlight Frame in actModGroup (0ms update on bay/module click!)
+          const isCapsuleHull =
+            activeMod.carcass.hullShape === "capsule_stadium" ||
+            activeMod.carcass.hullShape === "capsule_table";
           const showBayOverlay =
-            cutawayActiveBay ||
-            doorsHiddenIn3D ||
-            doorOpenAngleDeg > 5 ||
-            Boolean(activeMod.isOpenFront) ||
-            activeMod.bays.some((b) => b.door.type === "open" || b.door.doorSystemId === "open");
+            !isCapsuleHull &&
+            (cutawayActiveBay ||
+              doorsHiddenIn3D ||
+              doorOpenAngleDeg > 5 ||
+              Boolean(activeMod.isOpenFront) ||
+              activeMod.bays.some((b) => b.door.type === "open" || b.door.doorSystemId === "open"));
           if (showBayOverlay && activeMod.bays.length >= 1) {
             const T = activeMod.carcass.panelThickness || 18;
             const plinthH = activeMod.carcass.plinthHeight ?? 100;
@@ -4571,32 +4681,65 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               const wScale = new THREE.Vector3();
               targetMesh.getWorldScale(wScale);
 
-              const dFrameGeo = new THREE.BoxGeometry(
-                Math.max(12, lSize.x * Math.abs(wScale.x) + 8),
-                Math.max(12, lSize.y * Math.abs(wScale.y) + 8),
-                Math.max(12, lSize.z * Math.abs(wScale.z) + 8)
-              );
-              const dFrameLines = new THREE.LineSegments(
-                new THREE.EdgesGeometry(dFrameGeo),
-                new THREE.LineBasicMaterial({ color: 0x1d4ed8, linewidth: 2 })
-              );
-              dFrameLines.raycast = () => {};
-              const dFrameFill = new THREE.Mesh(
-                dFrameGeo,
-                new THREE.MeshBasicMaterial({
-                  color: 0x3b82f6,
-                  transparent: true,
-                  opacity: 0.2,
-                  depthWrite: false,
-                })
-              );
-              dFrameFill.raycast = () => {};
-              dFrameLines.position.copy(wCenter);
-              dFrameLines.quaternion.copy(wQuat);
-              dFrameFill.position.copy(wCenter);
-              dFrameFill.quaternion.copy(wQuat);
-              selGroup.add(dFrameLines);
-              selGroup.add(dFrameFill);
+              const isBoxGeo = targetMesh.geometry instanceof THREE.BoxGeometry;
+              if (isBoxGeo) {
+                const dFrameGeo = new THREE.BoxGeometry(
+                  Math.max(12, lSize.x * Math.abs(wScale.x) + 8),
+                  Math.max(12, lSize.y * Math.abs(wScale.y) + 8),
+                  Math.max(12, lSize.z * Math.abs(wScale.z) + 8)
+                );
+                const dFrameLines = new THREE.LineSegments(
+                  new THREE.EdgesGeometry(dFrameGeo),
+                  new THREE.LineBasicMaterial({ color: 0x1d4ed8, linewidth: 2 })
+                );
+                dFrameLines.raycast = () => {};
+                const dFrameFill = new THREE.Mesh(
+                  dFrameGeo,
+                  new THREE.MeshBasicMaterial({
+                    color: 0x3b82f6,
+                    transparent: true,
+                    opacity: 0.2,
+                    depthWrite: false,
+                  })
+                );
+                dFrameFill.raycast = () => {};
+                dFrameLines.position.copy(wCenter);
+                dFrameLines.quaternion.copy(wQuat);
+                dFrameFill.position.copy(wCenter);
+                dFrameFill.quaternion.copy(wQuat);
+                selGroup.add(dFrameLines);
+                selGroup.add(dFrameFill);
+              } else {
+                const wPos = new THREE.Vector3();
+                targetMesh.getWorldPosition(wPos);
+                const clonedGeo = targetMesh.geometry.clone();
+                const dFrameLines = new THREE.LineSegments(
+                  new THREE.EdgesGeometry(clonedGeo, 18),
+                  new THREE.LineBasicMaterial({ color: 0x1d4ed8, linewidth: 2 })
+                );
+                dFrameLines.raycast = () => {};
+                const dFrameFill = new THREE.Mesh(
+                  clonedGeo,
+                  new THREE.MeshBasicMaterial({
+                    color: 0x3b82f6,
+                    transparent: true,
+                    opacity: 0.22,
+                    depthWrite: false,
+                    polygonOffset: true,
+                    polygonOffsetFactor: -2,
+                    polygonOffsetUnits: -2,
+                  })
+                );
+                dFrameFill.raycast = () => {};
+                dFrameLines.position.copy(wPos);
+                dFrameLines.quaternion.copy(wQuat);
+                dFrameLines.scale.copy(wScale);
+                dFrameFill.position.copy(wPos);
+                dFrameFill.quaternion.copy(wQuat);
+                dFrameFill.scale.copy(wScale);
+                selGroup.add(dFrameLines);
+                selGroup.add(dFrameFill);
+              }
 
               activeDoorWorldAnchorRef.current = wCenter.clone();
             }

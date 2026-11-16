@@ -38,6 +38,7 @@ import {
   ElevationBottomBar,
 } from "./workspace/Elevation2DChrome";
 import { NeighborElevationModule } from "./workspace/NeighborElevationModule";
+import { CadContextMenu2D, type CadContextMenuState } from "./workspace/CadContextMenu2D";
 import {
   useV3Adapter,
   generateModuleGeometry,
@@ -94,6 +95,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       activeModule,
       activeModuleIndex,
       setActiveModuleIndex,
+      activeBayIndex,
       setActiveBayIndex,
       selectedComponentId,
       setSelectedComponentId,
@@ -144,10 +146,24 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       selectedSceneObjectId,
       setSelectedSceneObjectId,
       updateSceneObject,
+      duplicateSceneObject,
       removeSceneObject,
+      addShelf,
+      addFixedShelf,
+      setShelfMountType,
+      setShelfThickness,
+      addDrawer,
+      addInternalDrawer,
+      addHangingRail,
+      splitBayIntoTwo,
+      equalizeBaysAndShelves,
+      duplicateActiveModule,
+      addAdjacentModule,
+      addStackedTopModule,
       undo,
       redo,
     } = useV3Adapter({ lightweightViewport: true });
+    const [cadContextMenu, setCadContextMenu] = useState<CadContextMenuState | null>(null);
     const storeValidationIssues = useConfiguratorStore((s) => s.validationIssues);
     const isStoreBatchDragging = useConfiguratorStore((s) => s.batchStartProject !== null);
 
@@ -252,6 +268,16 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       startClientY: number;
       startModX: number;
       startModY: number;
+      mmPerPxX: number;
+      mmPerPxY: number;
+    } | null>(null);
+    const [elevDraggingSceneObj, setElevDraggingSceneObj] = useState<{
+      id: string;
+      startClientX: number;
+      startClientY: number;
+      startX: number;
+      startY: number;
+      startZ: number;
       mmPerPxX: number;
       mmPerPxY: number;
     } | null>(null);
@@ -1810,6 +1836,295 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         }
       };
 
+      type PlanContextTarget =
+        | { kind: "canvas" }
+        | { kind: "module"; modIdx: number }
+        | { kind: "wall"; wallId: string; wallName: string; rotationY: number; length: number }
+        | { kind: "obstacle"; obsId: string; obsName: string; rotationY: number }
+        | { kind: "sceneObject"; soId: string; soName: string; rotationY: number };
+
+      const openPlanContextMenu = (e: React.MouseEvent, target: PlanContextTarget) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        if (target.kind === "module") {
+          const mod = project.modules[target.modIdx];
+          if (!mod) return;
+          setActiveModuleIndex(target.modIdx);
+          const sections: CadContextMenuState["sections"] = [
+            {
+              title: "Modül İşlemleri",
+              items: [
+                {
+                  id: "plan-mod-rotate",
+                  label: "90° Döndür",
+                  shortcut: "R",
+                  onClick: () => rotateActiveModule90(target.modIdx),
+                },
+                {
+                  id: "plan-mod-dup",
+                  label: "Modülü Çoğalt",
+                  onClick: () => {
+                    setActiveModuleIndex(target.modIdx);
+                    duplicateActiveModule();
+                  },
+                },
+                {
+                  id: "plan-mod-adj",
+                  label: "Yanına Modül Ekle",
+                  onClick: () => {
+                    setActiveModuleIndex(target.modIdx);
+                    addAdjacentModule();
+                  },
+                },
+                {
+                  id: "plan-mod-top",
+                  label: "Üstüne Modül Ekle",
+                  onClick: () => {
+                    setActiveModuleIndex(target.modIdx);
+                    addStackedTopModule();
+                  },
+                },
+              ],
+            },
+          ];
+          if (project.modules.length > 1) {
+            sections.push({
+              title: "Sıra & Konum",
+              items: [
+                {
+                  id: "plan-mod-swap-left",
+                  label: "Sola Kaydır (Takas)",
+                  disabled: target.modIdx === 0,
+                  onClick: () => swapModuleWithNeighbor(target.modIdx, "left"),
+                },
+                {
+                  id: "plan-mod-swap-right",
+                  label: "Sağa Kaydır (Takas)",
+                  disabled: target.modIdx >= project.modules.length - 1,
+                  onClick: () => swapModuleWithNeighbor(target.modIdx, "right"),
+                },
+              ],
+            });
+          }
+          sections.push({
+            items: [
+              {
+                id: "plan-mod-delete",
+                label: "Modülü Sil",
+                shortcut: "Del",
+                danger: true,
+                onClick: () => {
+                  setActiveModuleIndex(target.modIdx);
+                  removeActiveModule();
+                },
+              },
+            ],
+          });
+          setCadContextMenu({
+            x: e.clientX,
+            y: e.clientY,
+            headerTitle: mod.name || `Modül ${target.modIdx + 1}`,
+            headerSubtitle: `${Math.round(mod.dimensions.width)}×${Math.round(mod.dimensions.depth)}×${Math.round(mod.dimensions.height)} mm`,
+            sections,
+          });
+          return;
+        }
+
+        if (target.kind === "wall") {
+          setSelectedPlanObject({ kind: "wall", id: target.wallId });
+          setCadContextMenu({
+            x: e.clientX,
+            y: e.clientY,
+            headerTitle: target.wallName || "Duvar",
+            headerSubtitle: `${Math.round(target.length)} mm • ${Math.round(target.rotationY)}°`,
+            sections: [
+              {
+                title: "Duvar İşlemleri",
+                items: [
+                  {
+                    id: "plan-wall-rotate",
+                    label: "90° Döndür",
+                    onClick: () =>
+                      updateWallSegment(target.wallId, {
+                        rotationY: (target.rotationY + 90) % 360,
+                      }),
+                  },
+                  {
+                    id: "plan-wall-draw",
+                    label: "Yeni Duvar Çiz",
+                    onClick: () => setIsDrawingWall(true),
+                  },
+                ],
+              },
+              ...(spaceWalls.length > 1
+                ? [
+                    {
+                      items: [
+                        {
+                          id: "plan-wall-delete",
+                          label: "Duvarı Sil",
+                          shortcut: "Del",
+                          danger: true,
+                          onClick: () => removeWallSegment(target.wallId),
+                        },
+                      ],
+                    },
+                  ]
+                : []),
+            ],
+          });
+          return;
+        }
+
+        if (target.kind === "obstacle") {
+          setSelectedPlanObject({ kind: "obstacle", id: target.obsId });
+          setCadContextMenu({
+            x: e.clientX,
+            y: e.clientY,
+            headerTitle: target.obsName || "Mimari Engel",
+            headerSubtitle: `${Math.round(target.rotationY)}°`,
+            sections: [
+              {
+                title: "Engel İşlemleri",
+                items: [
+                  {
+                    id: "plan-obs-rotate",
+                    label: "90° Döndür",
+                    onClick: () =>
+                      updateSpaceObstacle(target.obsId, {
+                        rotationY: (target.rotationY + 90) % 360,
+                      }),
+                  },
+                ],
+              },
+              {
+                items: [
+                  {
+                    id: "plan-obs-delete",
+                    label: "Engeli Sil",
+                    shortcut: "Del",
+                    danger: true,
+                    onClick: () => removeSpaceObstacle(target.obsId),
+                  },
+                ],
+              },
+            ],
+          });
+          return;
+        }
+
+        if (target.kind === "sceneObject") {
+          setSelectedSceneObjectId(target.soId);
+          setCadContextMenu({
+            x: e.clientX,
+            y: e.clientY,
+            headerTitle: target.soName || "Sahne Objesi",
+            headerSubtitle: `${Math.round(target.rotationY)}°`,
+            sections: [
+              {
+                title: "Obje İşlemleri",
+                items: [
+                  {
+                    id: "plan-so-rotate",
+                    label: "90° Döndür",
+                    onClick: () => {
+                      const soObj = (project.sceneObjects || []).find((o) => o.id === target.soId);
+                      updateSceneObject(target.soId, {
+                        rotation: {
+                          x: soObj?.rotation?.x ?? 0,
+                          y: (target.rotationY + 90) % 360,
+                          z: soObj?.rotation?.z ?? 0,
+                        },
+                      });
+                    },
+                  },
+                  {
+                    id: "plan-so-dup",
+                    label: "Objeyi Çoğalt",
+                    onClick: () => duplicateSceneObject(target.soId),
+                  },
+                ],
+              },
+              {
+                items: [
+                  {
+                    id: "plan-so-delete",
+                    label: "Objeyi Sil",
+                    shortcut: "Del",
+                    danger: true,
+                    onClick: () => removeSceneObject(target.soId),
+                  },
+                ],
+              },
+            ],
+          });
+          return;
+        }
+
+        setCadContextMenu({
+          x: e.clientX,
+          y: e.clientY,
+          headerTitle: "Mekan Planı",
+          headerSubtitle: `${project.modules.length} Modül • ${spaceWalls.length} Duvar`,
+          sections: [
+            {
+              title: "Çizim & Yerleşim",
+              items: [
+                {
+                  id: "plan-canvas-wall",
+                  label: "Duvar Çizmeye Başla",
+                  onClick: () => setIsDrawingWall(true),
+                },
+                {
+                  id: "plan-canvas-obs",
+                  label: "Kolon / Engel Yerleştir",
+                  onClick: () => setIsPlacingObstacle(true),
+                },
+              ],
+            },
+            {
+              title: "Seçim & Görünüm",
+              items: [
+                {
+                  id: "plan-canvas-sel-all",
+                  label: "Tüm Modülleri Seç",
+                  disabled: project.modules.length === 0,
+                  onClick: () => selectAllModules(),
+                },
+                {
+                  id: "plan-canvas-sel-clear",
+                  label: "Seçimi Temizle",
+                  onClick: () => {
+                    clearModuleSelection();
+                    setSelectedPlanObject(null);
+                    setSelectedSceneObjectId(null);
+                  },
+                },
+                {
+                  id: "plan-canvas-dims",
+                  label: showPlanDimensions ? "Plan Ölçülerini Gizle" : "Plan Ölçülerini Göster",
+                  onClick: () => setShowPlanDimensions((v) => !v),
+                },
+                {
+                  id: "plan-canvas-unit",
+                  label: `Ölçü Birimi: ${elevDisplayUnit === "mm" ? "cm'ye Geç" : "mm'ye Geç"}`,
+                  onClick: () => handleChangeElevDisplayUnit(elevDisplayUnit === "mm" ? "cm" : "mm"),
+                },
+                {
+                  id: "plan-canvas-reset",
+                  label: "Yakınlaştırmayı ve Konumu Sıfırla",
+                  onClick: () => {
+                    setZoom(1);
+                    setPanPx({ x: 0, y: 0 });
+                  },
+                },
+              ],
+            },
+          ],
+        });
+      };
+
       const handleSvgContextMenu = (e: React.MouseEvent<SVGSVGElement>) => {
         e.preventDefault();
         if (isDrawingWall || isPlacingObstacle) {
@@ -1818,7 +2133,9 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
           setChainOriginPoint(null);
           setActiveSnapTarget(null);
           setIsPlacingObstacle(false);
+          return;
         }
+        openPlanContextMenu(e, { kind: "canvas" });
       };
 
       const handleSvgPointerMove = (e: React.MouseEvent<SVGSVGElement>) => {
@@ -4045,6 +4362,15 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     key={wall.id}
                     data-testid={`plan-wall-${wall.id}`}
                     onMouseDown={(e) => handleWallPointerDown(e, wall)}
+                    onContextMenu={(e) =>
+                      openPlanContextMenu(e, {
+                        kind: "wall",
+                        wallId: wall.id,
+                        wallName: wall.name,
+                        rotationY: wall.rotationY,
+                        length: wall.length,
+                      })
+                    }
                     onClick={(e) => handleWallClick(e, wall.id)}
                     className="cursor-move"
                     transform={`rotate(${wall.rotationY} ${wall.position.x} ${wall.position.z})`}
@@ -4139,6 +4465,15 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     key={wall.id}
                     data-testid={`plan-wall-${wall.id}`}
                     onMouseDown={(e) => handleWallPointerDown(e, wall)}
+                    onContextMenu={(e) =>
+                      openPlanContextMenu(e, {
+                        kind: "wall",
+                        wallId: wall.id,
+                        wallName: wall.name,
+                        rotationY: wall.rotationY,
+                        length: wall.length,
+                      })
+                    }
                     onClick={(e) => handleWallClick(e, wall.id)}
                     className="cursor-move"
                   >
@@ -4278,6 +4613,15 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   key={wall.id}
                   data-testid={`plan-wall-${wall.id}`}
                   onMouseDown={(e) => handleWallPointerDown(e, wall)}
+                  onContextMenu={(e) =>
+                    openPlanContextMenu(e, {
+                      kind: "wall",
+                      wallId: wall.id,
+                      wallName: wall.name,
+                      rotationY: wall.rotationY,
+                      length: wall.length,
+                    })
+                  }
                   onClick={(e) => handleWallClick(e, wall.id)}
                   className="cursor-move"
                 >
@@ -4572,6 +4916,14 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       key={obs.id}
                       data-testid={`plan-obstacle-${obs.id}`}
                       onMouseDown={(e) => handleObstaclePointerDown(e, obs)}
+                      onContextMenu={(e) =>
+                        openPlanContextMenu(e, {
+                          kind: "obstacle",
+                          obsId: obs.id,
+                          obsName: obs.name || "Mimari Engel",
+                          rotationY: obs.rotationY || 0,
+                        })
+                      }
                       onDoubleClick={() => {
                         const nextRot = isSideWallObs ? 0 : 90;
                         updateSpaceObstacle(obs.id, {
@@ -4778,6 +5130,14 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     key={obs.id}
                     data-testid={`plan-obstacle-${obs.id}`}
                     onMouseDown={(e) => handleObstaclePointerDown(e, obs)}
+                    onContextMenu={(e) =>
+                      openPlanContextMenu(e, {
+                        kind: "obstacle",
+                        obsId: obs.id,
+                        obsName: obs.name || "Mimari Engel",
+                        rotationY: obs.rotationY || 0,
+                      })
+                    }
                     onDoubleClick={() =>
                       updateSpaceObstacle(obs.id, {
                         rotationY: 90,
@@ -5008,6 +5368,14 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     key={obs.id}
                     data-testid={`plan-obstacle-${obs.id}`}
                     onMouseDown={(e) => handleObstaclePointerDown(e, obs)}
+                    onContextMenu={(e) =>
+                      openPlanContextMenu(e, {
+                        kind: "obstacle",
+                        obsId: obs.id,
+                        obsName: obs.name || "Kolon / Kiriş",
+                        rotationY: obs.rotationY || 0,
+                      })
+                    }
                     onDoubleClick={() => removeSpaceObstacle(obs.id)}
                     className="cursor-move"
                   >
@@ -5072,6 +5440,14 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     key={obs.id}
                     data-testid={`plan-obstacle-${obs.id}`}
                     onMouseDown={(e) => handleObstaclePointerDown(e, obs)}
+                    onContextMenu={(e) =>
+                      openPlanContextMenu(e, {
+                        kind: "obstacle",
+                        obsId: obs.id,
+                        obsName: obs.name || "Tesisat Noktası",
+                        rotationY: obs.rotationY || 0,
+                      })
+                    }
                     onDoubleClick={() => removeSpaceObstacle(obs.id)}
                     className="cursor-move"
                   >
@@ -5107,6 +5483,14 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     key={obs.id}
                     data-testid={`plan-obstacle-${obs.id}`}
                     onMouseDown={(e) => handleObstaclePointerDown(e, obs)}
+                    onContextMenu={(e) =>
+                      openPlanContextMenu(e, {
+                        kind: "obstacle",
+                        obsId: obs.id,
+                        obsName: obs.name || labelTag,
+                        rotationY: obs.rotationY || 0,
+                      })
+                    }
                     onDoubleClick={() => removeSpaceObstacle(obs.id)}
                     className="cursor-move"
                   >
@@ -5191,6 +5575,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   key={fp.moduleId}
                   data-testid={`plan-module-${idx}`}
                   onMouseDown={(e) => handleModPointerDown(e, idx)}
+                  onContextMenu={(e) => openPlanContextMenu(e, { kind: "module", modIdx: idx })}
                   className="cursor-move"
                 >
                   {/* Module Oriented Footprint (True L-Corner, 45° Diagonal Corner, Blind Corner LeMans, or Standard Rectangular) */}
@@ -7456,6 +7841,14 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     data-testid={`plan-scene-object-${so.id}`}
                     transform={`rotate(${-rotY}, ${cx}, ${cz})`}
                     onMouseDown={(ev) => handleSceneObjectPointerDown(ev, so)}
+                    onContextMenu={(ev) =>
+                      openPlanContextMenu(ev, {
+                        kind: "sceneObject",
+                        soId: so.id,
+                        soName: so.name,
+                        rotationY: rotY,
+                      })
+                    }
                     onClick={(ev) => {
                       ev.stopPropagation();
                       setSelectedSceneObjectId(so.id);
@@ -7502,6 +7895,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
               })}
 
           </svg>
+          <CadContextMenu2D menu={cadContextMenu} onClose={() => setCadContextMenu(null)} />
         </div>
       );
     }
@@ -7591,12 +7985,23 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
     elevVbZoomRef.current = { vbWidth: vb.width, vbHeight: vb.height, zoom };
 
     const handleElevationPointerMove = (e: React.MouseEvent<SVGSVGElement>) => {
-      if (elevDraggingObs || elevResizingMod || elevDraggingMod || interiorDrag) {
+      if (elevDraggingObs || elevDraggingSceneObj || elevResizingMod || elevDraggingMod || interiorDrag) {
         const nowTs = performance.now();
         if (nowTs - lastPointerMoveTsRef.current < 16) return;
         lastPointerMoveTsRef.current = nowTs;
       }
       const svgEl = e.currentTarget;
+      if (elevDraggingSceneObj) {
+        const dxMm = (e.clientX - elevDraggingSceneObj.startClientX) * elevDraggingSceneObj.mmPerPxX;
+        const dyMm = -(e.clientY - elevDraggingSceneObj.startClientY) * elevDraggingSceneObj.mmPerPxY;
+        const step = magnetEnabled && !e.altKey ? 10 : 1;
+        const nextX = Math.max(0, Math.round((elevDraggingSceneObj.startX + dxMm) / step) * step);
+        const nextY = Math.max(0, Math.round((elevDraggingSceneObj.startY + dyMm) / step) * step);
+        updateSceneObject(elevDraggingSceneObj.id, {
+          position: { x: nextX, y: nextY, z: elevDraggingSceneObj.startZ },
+        });
+        return;
+      }
       if (elevDraggingObs) {
         const dxMm = (e.clientX - elevDraggingObs.startClientX) * elevDraggingObs.mmPerPxX;
         const dyMm = -(e.clientY - elevDraggingObs.startClientY) * elevDraggingObs.mmPerPxY;
@@ -8006,6 +8411,10 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         setElevDraggingObs(null);
         commitHistoryTransaction();
       }
+      if (elevDraggingSceneObj) {
+        setElevDraggingSceneObj(null);
+        commitHistoryTransaction();
+      }
       if (elevDraggingMod) {
         const preview = elevDragPreviewRef.current;
         const draggedMod = project.modules[elevDraggingMod.modIdx];
@@ -8081,6 +8490,371 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
     // Map component IDs to interior draggable items
     const findInteriorDragTarget = (compId: string) =>
       findDraggableInteriorComponent(activeModule, compId, breakdown.bayWidths);
+
+    type ElevationContextTarget =
+      | { kind: "canvas" }
+      | { kind: "module" }
+      | {
+          kind: "interior";
+          meta: NonNullable<ReturnType<typeof findDraggableInteriorComponent>>;
+          compId: string;
+        }
+      | { kind: "rail"; bayIdx: number; railId: string };
+
+    const openElevationContextMenu = (e: React.MouseEvent, target: ElevationContextTarget) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const sectionControlsSection =
+        mode === "section"
+          ? {
+              title: "Kesit Düzlemi",
+              items: [
+                {
+                  id: "sec-toggle-dir",
+                  label:
+                    sectionDirection2D === "Z"
+                      ? "Kesit Yönü: B-B Boyuna Geç"
+                      : "Kesit Yönü: A-A Yan Geç",
+                  onClick: () => setSectionDirection2D(sectionDirection2D === "Z" ? "X" : "Z"),
+                },
+                {
+                  id: "sec-center-plane",
+                  label: "Kesit Düzlemini Ortala (0.5)",
+                  onClick: () => setSectionCutRatio2D(0.5),
+                },
+              ],
+            }
+          : null;
+
+      if (target.kind === "interior") {
+        const { meta, compId } = target;
+        const bay = activeModule.bays?.[meta.bayIdx];
+        setActiveBayIndex(meta.bayIdx);
+        setSelectedComponentId(compId);
+
+        if (meta.kind === "shelf") {
+          const shelf = bay?.shelves?.find((s) => s.id === meta.targetId);
+          const isAdj = shelf?.isAdjustable ?? true;
+          const thick = shelf?.thickness ?? activeModule.carcass?.panelThickness ?? 18;
+          const sections: CadContextMenuState["sections"] = [
+            {
+              title: "Raf İşlemleri",
+              items: [
+                {
+                  id: "elev-shelf-mount",
+                  label: isAdj ? "Sabit Rafa Çevir (Minifiks)" : "Ayarlı Rafa Çevir (Pim)",
+                  onClick: () => setShelfMountType(meta.bayIdx, meta.targetId, !isAdj),
+                },
+                {
+                  id: "elev-shelf-thick",
+                  label: thick >= 25 ? "Raf Kalınlığını 18mm Yap" : "Raf Kalınlığını 25mm Yap",
+                  onClick: () => setShelfThickness(meta.bayIdx, meta.targetId, thick >= 25 ? 18 : 25),
+                },
+                {
+                  id: "elev-shelf-add",
+                  label: "Bu Bölmeye Ayarlı Raf Ekle",
+                  onClick: () => addShelf(meta.bayIdx),
+                },
+              ],
+            },
+            ...(sectionControlsSection ? [sectionControlsSection] : []),
+            {
+              items: [
+                {
+                  id: "elev-shelf-del",
+                  label: "Rafı Sil",
+                  shortcut: "Del",
+                  danger: true,
+                  onClick: () => {
+                    setSelectedComponentId(compId);
+                    removeSelectedInteriorComponent();
+                  },
+                },
+              ],
+            },
+          ];
+          setCadContextMenu({
+            x: e.clientX,
+            y: e.clientY,
+            headerTitle: isAdj ? "Ayarlı Raf" : "Sabit Raf",
+            headerSubtitle: `Bölme ${meta.bayIdx + 1} • ${Math.round(meta.startVal)} mm • ${thick}mm`,
+            sections,
+          });
+          return;
+        }
+
+        if (meta.kind === "drawer") {
+          const sections: CadContextMenuState["sections"] = [
+            {
+              title: "Çekmece İşlemleri",
+              items: [
+                {
+                  id: "elev-drawer-add",
+                  label: "Üstüne Çekmece Ekle",
+                  onClick: () => addDrawer(meta.bayIdx),
+                },
+                {
+                  id: "elev-drawer-internal",
+                  label: "İç Çekmece Ekle",
+                  onClick: () => addInternalDrawer(meta.bayIdx),
+                },
+              ],
+            },
+            ...(sectionControlsSection ? [sectionControlsSection] : []),
+            {
+              items: [
+                {
+                  id: "elev-drawer-del",
+                  label: "Çekmeceyi Sil",
+                  shortcut: "Del",
+                  danger: true,
+                  onClick: () => {
+                    setSelectedComponentId(compId);
+                    removeSelectedInteriorComponent();
+                  },
+                },
+              ],
+            },
+          ];
+          setCadContextMenu({
+            x: e.clientX,
+            y: e.clientY,
+            headerTitle: "Çekmece",
+            headerSubtitle: `Bölme ${meta.bayIdx + 1} • ${Math.round(meta.startVal)} mm`,
+            sections,
+          });
+          return;
+        }
+
+        if (meta.kind === "divider" || meta.kind === "sub_divider") {
+          const sections: CadContextMenuState["sections"] = [
+            {
+              title: "Dikme & Bölme Düzeni",
+              items: [
+                {
+                  id: "elev-div-eq",
+                  label: "Bölmeleri ve Rafları Eşitle",
+                  onClick: () => equalizeBaysAndShelves(),
+                },
+                {
+                  id: "elev-div-split",
+                  label: "Bölmeyi İkiye Böl",
+                  onClick: () => splitBayIntoTwo(meta.bayIdx),
+                },
+              ],
+            },
+            ...(sectionControlsSection ? [sectionControlsSection] : []),
+          ];
+          if (meta.kind === "sub_divider") {
+            sections.push({
+              items: [
+                {
+                  id: "elev-subdiv-del",
+                  label: "Ara Dikmeyi Sil",
+                  shortcut: "Del",
+                  danger: true,
+                  onClick: () => {
+                    setSelectedComponentId(compId);
+                    removeSelectedInteriorComponent();
+                  },
+                },
+              ],
+            });
+          }
+          setCadContextMenu({
+            x: e.clientX,
+            y: e.clientY,
+            headerTitle: meta.kind === "divider" ? "Orta Dikme" : "İç Ara Dikme",
+            headerSubtitle: `Bölme ${meta.bayIdx + 1}`,
+            sections,
+          });
+          return;
+        }
+
+        // special_fitting or other interior item
+        setCadContextMenu({
+          x: e.clientX,
+          y: e.clientY,
+          headerTitle: "İç Aksesuar / Donanım",
+          headerSubtitle: `Bölme ${meta.bayIdx + 1}`,
+          sections: [
+            ...(sectionControlsSection ? [sectionControlsSection] : []),
+            {
+              items: [
+                {
+                  id: "elev-fitting-del",
+                  label: "Parçayı Sil",
+                  shortcut: "Del",
+                  danger: true,
+                  onClick: () => {
+                    setSelectedComponentId(compId);
+                    removeSelectedInteriorComponent();
+                  },
+                },
+              ],
+            },
+          ],
+        });
+        return;
+      }
+
+      if (target.kind === "rail") {
+        setActiveBayIndex(target.bayIdx);
+        setSelectedComponentId(target.railId);
+        setCadContextMenu({
+          x: e.clientX,
+          y: e.clientY,
+          headerTitle: "Askı Borusu",
+          headerSubtitle: `Bölme ${target.bayIdx + 1}`,
+          sections: [
+            {
+              title: "Bölme Hızlı Ekleme",
+              items: [
+                {
+                  id: "elev-rail-shelf",
+                  label: "Üstüne Ayarlı Raf Ekle",
+                  onClick: () => addShelf(target.bayIdx),
+                },
+              ],
+            },
+            ...(sectionControlsSection ? [sectionControlsSection] : []),
+            {
+              items: [
+                {
+                  id: "elev-rail-del",
+                  label: "Askı Borusunu Sil",
+                  shortcut: "Del",
+                  danger: true,
+                  onClick: () => {
+                    setSelectedComponentId(target.railId);
+                    removeSelectedInteriorComponent();
+                  },
+                },
+              ],
+            },
+          ],
+        });
+        return;
+      }
+
+      if (target.kind === "module" && hasSceneModules) {
+        const bayIdx = Math.max(0, Math.min(activeBayIndex, (activeModule.bays?.length || 1) - 1));
+        const sections: CadContextMenuState["sections"] = [
+          {
+            title: `Bölme ${bayIdx + 1} Hızlı Ekle`,
+            items: [
+              { id: "elev-add-shelf", label: "Ayarlı Raf Ekle", onClick: () => addShelf(bayIdx) },
+              { id: "elev-add-fixed", label: "Sabit Raf Ekle", onClick: () => addFixedShelf(bayIdx) },
+              { id: "elev-add-drawer", label: "Dış Çekmece Ekle", onClick: () => addDrawer(bayIdx) },
+              { id: "elev-add-idrawer", label: "İç Çekmece Ekle", onClick: () => addInternalDrawer(bayIdx) },
+              { id: "elev-add-rail", label: "Askı Borusu Ekle", onClick: () => addHangingRail(bayIdx) },
+              { id: "elev-split-bay", label: "Bölmeyi İkiye Böl", onClick: () => splitBayIntoTwo(bayIdx) },
+              { id: "elev-eq-bays", label: "Bölmeleri & Rafları Eşitle", onClick: () => equalizeBaysAndShelves() },
+            ],
+          },
+          {
+            title: "Modül İşlemleri",
+            items: [
+              { id: "elev-mod-dup", label: "Modülü Çoğalt", onClick: () => duplicateActiveModule() },
+              { id: "elev-mod-top", label: "Üstüne Modül Ekle", onClick: () => addStackedTopModule() },
+              {
+                id: "elev-mod-floor",
+                label: "Zemine İndir (Kot Y=0)",
+                disabled: Math.round(activeModule.position.y) === 0,
+                onClick: () =>
+                  setModulePosition(
+                    activeModuleIndex,
+                    activeModule.position.x,
+                    activeModule.position.z,
+                    1,
+                    0
+                  ),
+              },
+            ],
+          },
+          ...(sectionControlsSection ? [sectionControlsSection] : []),
+          {
+            title: "Görünüm",
+            items: [
+              {
+                id: "elev-toggle-doors",
+                label: showDoorsIn2D ? "Kapakları Gizle" : "Kapakları Göster",
+                onClick: () => setShowDoorsIn2D((v) => !v),
+              },
+              {
+                id: "elev-toggle-room",
+                label: showRoomContextInElev ? "Oda Bağlamını Gizle" : "Oda Bağlamını Göster",
+                onClick: () => setShowRoomContextInElev((v) => !v),
+              },
+              {
+                id: "elev-toggle-unit",
+                label: `Ölçü Birimi: ${elevDisplayUnit === "mm" ? "cm'ye Geç" : "mm'ye Geç"}`,
+                onClick: () => handleChangeElevDisplayUnit(elevDisplayUnit === "mm" ? "cm" : "mm"),
+              },
+            ],
+          },
+          {
+            items: [
+              {
+                id: "elev-mod-del",
+                label: "Modülü Sil",
+                shortcut: "Del",
+                danger: true,
+                onClick: () => removeActiveModule(),
+              },
+            ],
+          },
+        ];
+        setCadContextMenu({
+          x: e.clientX,
+          y: e.clientY,
+          headerTitle: activeModule.name || `Modül ${activeModuleIndex + 1}`,
+          headerSubtitle: `${Math.round(activeModule.dimensions.width)}×${Math.round(activeModule.dimensions.height)}×${Math.round(activeModule.dimensions.depth)} mm`,
+          sections,
+        });
+        return;
+      }
+
+      // Empty canvas
+      setCadContextMenu({
+        x: e.clientX,
+        y: e.clientY,
+        headerTitle: mode === "section" ? "Kesit Görünümü" : "Ön Cephe Görünümü",
+        sections: [
+          ...(sectionControlsSection ? [sectionControlsSection] : []),
+          {
+            title: "Görünüm & Ölçü",
+            items: [
+              {
+                id: "elev-canvas-reset",
+                label: "Yakınlaştırmayı ve Konumu Sıfırla",
+                onClick: () => {
+                  setZoom(1);
+                  setPanPx({ x: 0, y: 0 });
+                  setElevPanMode(false);
+                },
+              },
+              {
+                id: "elev-canvas-doors",
+                label: showDoorsIn2D ? "Kapakları Gizle" : "Kapakları Göster",
+                onClick: () => setShowDoorsIn2D((v) => !v),
+              },
+              {
+                id: "elev-canvas-room",
+                label: showRoomContextInElev ? "Oda Bağlamını Gizle" : "Oda Bağlamını Göster",
+                onClick: () => setShowRoomContextInElev((v) => !v),
+              },
+              {
+                id: "elev-canvas-unit",
+                label: `Ölçü Birimi: ${elevDisplayUnit === "mm" ? "cm'ye Geç" : "mm'ye Geç"}`,
+                onClick: () => handleChangeElevDisplayUnit(elevDisplayUnit === "mm" ? "cm" : "mm"),
+              },
+            ],
+          },
+        ],
+      });
+    };
 
     // Collect hanging rails for 2D elevation (only when scene actually has modules!)
     const railComponents =
@@ -8492,7 +9266,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         <svg
           viewBox={`${vb.x} ${vb.y} ${vb.width} ${vb.height}`}
           className={`w-full h-full ${panning2D ? "cursor-grabbing" : "cursor-grab"}`}
-          onContextMenu={(e) => e.preventDefault()}
+          onContextMenu={(e) => openElevationContextMenu(e, { kind: "canvas" })}
           onMouseDownCapture={(e) => {
             if (elevPanMode && e.button === 0) {
               e.preventDefault();
@@ -9473,6 +10247,18 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 key={el.id}
                 data-testid={`cad-el-${el.id}`}
                 data-interior-owner={dragMeta?.targetId}
+                onContextMenu={(e) => {
+                  const ctxMeta = dragMeta ?? findInteriorDragTarget(el.id);
+                  if (ctxMeta) {
+                    openElevationContextMenu(e, {
+                      kind: "interior",
+                      meta: ctxMeta,
+                      compId: el.id,
+                    });
+                  } else {
+                    openElevationContextMenu(e, { kind: "module" });
+                  }
+                }}
                 onMouseDown={(e) => {
                   if (dragMeta && !elevPanMode && e.button === 0 && !e.altKey) {
                     e.stopPropagation();
@@ -10028,6 +10814,13 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 key={rail.id}
                 data-testid={`cad-el-${rail.id}`}
                 data-interior-owner={rail.id}
+                onContextMenu={(e) =>
+                  openElevationContextMenu(e, {
+                    kind: "rail",
+                    bayIdx: bIdx,
+                    railId: rail.id,
+                  })
+                }
                 onMouseDown={(e) => {
                   e.stopPropagation();
                   const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
@@ -10493,25 +11286,85 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
           )}
           </g>
           {/* V5 2D CAD SceneObjects (Appliances, Sinks, Freestanding Birim Furniture) */}
-          {(project.sceneObjects || []).filter((so) => !so.isHidden).map((so) => {
-            const sx = so.position.x;
-            const sy = mode === "plan" ? so.position.z : Math.max(0, (project.space.ceilingHeight || 2600) - so.position.y - so.dimensions.height);
+          {mode === "elevation" && (project.sceneObjects || []).filter((so) => !so.isHidden).map((so) => {
+            const floorSvgY = roomModH + roomOffY;
+            const sx = so.position.x - roomOffX;
+            const sy = floorSvgY - so.position.y - so.dimensions.height;
             const sw = so.dimensions.width;
-            const sh = mode === "plan" ? so.dimensions.depth : so.dimensions.height;
+            const sh = so.dimensions.height;
             const isSelObj = selectedSceneObjectId === so.id;
             return (
               <g
                 key={so.id}
-                transform={
-                  mode === "plan" && so.rotation?.y
-                    ? `rotate(${-so.rotation.y}, ${sx + sw / 2}, ${sy + sh / 2})`
-                    : undefined
-                }
+                data-testid={`elev-scene-object-${so.id}`}
+                onMouseDown={(ev) => {
+                  if (ev.button !== 0 || elevPanMode) return;
+                  ev.stopPropagation();
+                  setSelectedSceneObjectId(so.id);
+                  if (so.isLocked) return;
+                  const svgEl = (ev.currentTarget as Element).closest("svg") as SVGSVGElement | null;
+                  const scale = svgEl ? getElevScaleMmPerPx(svgEl) : { x: 4, y: 4 };
+                  document.body.dataset.birimUiDragging = "1";
+                  beginHistoryTransaction();
+                  setElevDraggingSceneObj({
+                    id: so.id,
+                    startClientX: ev.clientX,
+                    startClientY: ev.clientY,
+                    startX: so.position.x,
+                    startY: so.position.y,
+                    startZ: so.position.z,
+                    mmPerPxX: scale.x,
+                    mmPerPxY: scale.y,
+                  });
+                }}
+                onContextMenu={(ev) => {
+                  ev.preventDefault();
+                  ev.stopPropagation();
+                  setSelectedSceneObjectId(so.id);
+                  setCadContextMenu({
+                    x: ev.clientX,
+                    y: ev.clientY,
+                    headerTitle: so.name || so.sku,
+                    headerSubtitle: `${Math.round(sw)}×${Math.round(sh)} mm • Kot Y:${Math.round(so.position.y)} mm`,
+                    sections: [
+                      {
+                        title: "Sahne Objesi",
+                        items: [
+                          {
+                            id: "elev-so-floor",
+                            label: "Zemine İndir (Kot Y=0)",
+                            disabled: Math.round(so.position.y) === 0 || Boolean(so.isLocked),
+                            onClick: () =>
+                              updateSceneObject(so.id, {
+                                position: { x: so.position.x, y: 0, z: so.position.z },
+                              }),
+                          },
+                          {
+                            id: "elev-so-dup",
+                            label: "Objeyi Çoğalt",
+                            onClick: () => duplicateSceneObject(so.id),
+                          },
+                        ],
+                      },
+                      {
+                        items: [
+                          {
+                            id: "elev-so-del",
+                            label: "Objeyi Sil",
+                            shortcut: "Del",
+                            danger: true,
+                            onClick: () => removeSceneObject(so.id),
+                          },
+                        ],
+                      },
+                    ],
+                  });
+                }}
                 onClick={(ev) => {
                   ev.stopPropagation();
                   setSelectedSceneObjectId(so.id);
                 }}
-                className="cursor-pointer"
+                className={so.isLocked ? "cursor-pointer" : "cursor-move"}
               >
                 <rect
                   x={sx}
@@ -10823,6 +11676,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             </label>
           </div>
         )}
+        <CadContextMenu2D menu={cadContextMenu} onClose={() => setCadContextMenu(null)} />
       </div>
     );
   }

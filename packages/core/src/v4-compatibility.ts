@@ -640,7 +640,7 @@ function evaluateModuleCompatibilityUncached(module: ModuleInstance): Validation
         compatibilityStatus: "UNVERIFIED",
         categoryIndex: 10,
         suggestions: [
-          "Üretim onayı için Paralel Kalkar (lift_parallel) veya Pocket Kapak (pocket_retractable) sistemine geçin.",
+          "Üretim onayı için Paralel Kalkar veya Cep (Pocket) Kapak sistemine geçin.",
         ],
         sourceId: "SRC_BIRIM_FACTORY_V3",
       });
