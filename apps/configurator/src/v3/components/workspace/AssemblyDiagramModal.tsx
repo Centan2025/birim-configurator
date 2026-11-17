@@ -133,7 +133,7 @@ function isTambourDoor(door: ModuleInstance["bays"][number]["door"]): boolean {
   return (
     String(door.type) === "tambour" ||
     door.doorSystemId === "tambour_roller" ||
-    door.doorSystemId === "tambour"
+    String(door.doorSystemId) === "tambour"
   );
 }
 
@@ -171,7 +171,7 @@ function buildExplodedIsoBoxes(
   // 1. CAPSULE DINING / CONFERENCE TABLE (`capsule_table`)
   // =========================================================================
   if (hull === "capsule_table") {
-    const topThick = Math.max(25, Math.min(42, mod.carcass.countertopThicknessMm || 30));
+    const topThick = Math.max(25, Math.min(42, mod.carcass.panelThickness || 30));
     const colH = Math.max(420, H - topThick);
     const colD = Math.min(Math.round(D * 0.46), 420);
     const colR = colD / 2;

@@ -5,6 +5,7 @@ export interface BlenderEngineStatus {
   available: boolean;
   path: string | null;
   version: string | null;
+  hint?: string | null;
 }
 
 export interface BlenderRenderParams {

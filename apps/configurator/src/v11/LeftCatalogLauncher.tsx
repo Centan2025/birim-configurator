@@ -21,7 +21,7 @@ import {
 import {
   resolveSpaceCeilingConfig,
   type ArchitecturalElement,
-  type CeilingSystemType,
+  type CeilingType,
   type ModuleInstance,
   type SceneObjectInstance,
   type SpaceCeilingConfig,
@@ -788,7 +788,7 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                     elements: [],
                     ceilingConfig,
                   });
-                  const ceilTypes: { id: CeilingSystemType; label: string }[] = [
+                  const ceilTypes: { id: CeilingType; label: string }[] = [
                     { id: "flat_plaster", label: "Düz Alçıpan" },
                     { id: "dropped_perimeter_cove", label: "LED Havuz Tavan" },
                     { id: "gypsum_soffit_bulkhead", label: "Dolap Üstü Alın" },
