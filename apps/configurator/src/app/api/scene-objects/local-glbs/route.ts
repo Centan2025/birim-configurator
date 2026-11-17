@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { NextResponse } from "next/server";
-import type { SceneObjectCatalogItem } from "@birim/core";
+import type { SceneObjectCatalogItem } from "@birim/catalog";
 
 export const dynamic = "force-dynamic";
 
