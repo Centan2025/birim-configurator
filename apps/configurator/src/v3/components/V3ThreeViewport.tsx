@@ -286,14 +286,14 @@ function computeHeroStudioFraming(
   const tanV = Math.max(0.18, Math.tan(halfVertRad));
   const safeAspect = Math.max(0.85, aspect || 1.5);
   const tanH = tanV * safeAspect;
-  // Tight showroom vertical & horizontal fill (~84% vertical height, matching reference studio photograph)
-  const distForHeight = (size.y * 0.595) / tanV;
-  const distForWidth = (size.x * 0.64) / tanH;
-  const dist = Math.max(2100, distForHeight, distForWidth);
+  // Balanced architectural framing (~70% vertical fill, front-biased hero angle)
+  const distForHeight = (size.y * 0.74) / tanV;
+  const distForWidth = (size.x * 0.78) / tanH;
+  const dist = Math.max(2600, distForHeight, distForWidth);
   const dir =
     angle === "front"
       ? new THREE.Vector3(0, 0.02, 1).normalize()
-      : new THREE.Vector3(0.28, 0.048, 1.0).normalize();
+      : new THREE.Vector3(0.16, 0.065, 1.0).normalize();
   const position = target.clone().addScaledVector(dir, dist);
   return { target, position, dist };
 }
@@ -1179,15 +1179,25 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         if (bounds.isEmpty()) return;
         if (preset === "front" || preset === "side" || preset === "top") {
           const center = bounds.getCenter(new THREE.Vector3());
-          const radius = bounds.getSize(new THREE.Vector3()).length() / 2;
-          const dist = Math.max(1250, radius * 2.28);
+          const size = bounds.getSize(new THREE.Vector3());
+          const tanHalfV = Math.tan(THREE.MathUtils.degToRad(perspective.fov) / 2);
+          const tanHalfH = tanHalfV * Math.max(0.5, perspective.aspect || 1.5);
           controls.target.copy(center);
           if (preset === "front") {
+            const distV = (size.y / 2) / (tanHalfV * 0.68);
+            const distH = (size.x / 2) / (tanHalfH * 0.70);
+            const dist = Math.max(1800, distV, distH) + size.z / 2;
             perspective.position.set(center.x, center.y + 60, center.z + dist);
           } else if (preset === "side") {
-            perspective.position.set(center.x + dist, center.y + 80, center.z + 180);
+            const distV = (size.y / 2) / (tanHalfV * 0.68);
+            const distH = (size.z / 2) / (tanHalfH * 0.70);
+            const dist = Math.max(2000, distV, distH) + size.x / 2;
+            perspective.position.set(center.x + dist, center.y + 80, center.z + 220);
           } else {
-            perspective.position.set(center.x, center.y + dist * 1.05, center.z + 120);
+            const distV = (size.z / 2) / (tanHalfV * 0.68);
+            const distH = (size.x / 2) / (tanHalfH * 0.70);
+            const dist = Math.max(2000, distV, distH) + size.y / 2;
+            perspective.position.set(center.x, center.y + dist, center.z + 180);
           }
           perspective.lookAt(center);
         } else {
@@ -2121,11 +2131,11 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
 
       // 30° Architectural Telephoto Lens at Human Eye-Level (eliminates security-camera downward distortion)
       const perspCamera = new THREE.PerspectiveCamera(30, width / height, 15, 28000);
-      perspCamera.position.set(2150, 1260, 4680);
+      perspCamera.position.set(2050, 1820, 7650);
       perspCamRef.current = perspCamera;
 
       const aspect = width / height;
-      const orthoD = 1550;
+      const orthoD = 1950;
       const orthoCamera = new THREE.OrthographicCamera(
         -orthoD * aspect,
         orthoD * aspect,
@@ -2134,7 +2144,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         -50000,
         50000
       );
-      orthoCamera.position.set(2150, 1260, 4680);
+      orthoCamera.position.set(2050, 1820, 7650);
       orthoCamRef.current = orthoCamera;
 
       const safeGl = createSafeWebGL2Renderer({
@@ -2183,7 +2193,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       controls.minDistance = 250;
       controls.minPolarAngle = 0.04;
       controls.maxPolarAngle = Math.PI * 0.495;
-      controls.target.set(900, 1080, 300);
+      controls.target.set(850, 1340, 300);
       controls.addEventListener("start", () => {
         isOrbitingRef.current = true;
       });
@@ -4369,9 +4379,11 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         minZ = Math.min(minZ, mFp.z);
         maxZ = Math.max(maxZ, mFp.z + mFp.planDepth);
       });
+      const roomCeilH = curProj.space?.ceilingHeight || 2800;
+      const mainWallLen = curProj.space?.walls?.[0]?.length || 3600;
       const sceneBox = new THREE.Box3(
-        new THREE.Vector3(minX, minY, minZ),
-        new THREE.Vector3(maxX, maxY, maxZ)
+        new THREE.Vector3(Math.min(minX, 0), Math.min(minY, 0), minZ),
+        new THREE.Vector3(Math.max(maxX, Math.min(mainWallLen, maxX + 450)), Math.max(maxY, roomCeilH), maxZ)
       );
       const framed = computeHeroStudioFraming(
         sceneBox,

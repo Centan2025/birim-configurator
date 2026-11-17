@@ -23,6 +23,7 @@ import type { CommandPaletteAction } from "../v3/components/workspace/CommandSea
 import { StudioHeaderBar } from "./StudioHeaderBar";
 import { LeftCatalogLauncher } from "./LeftCatalogLauncher";
 import { RightParametricInspector } from "./RightParametricInspector";
+import { ShowroomPresentationOverlay } from "./ShowroomPresentationOverlay";
 import { BottomSceneDock } from "./BottomSceneDock";
 import type {
   V11CadSubMode,
@@ -811,7 +812,6 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
     []
   );
   const handleToggleDockDimensions = useCallback(() => {
-    if (latestRef.current.isShowroom) setWorkspaceMode("3d");
     setShowDimensions3D((v) => !v);
   }, []);
 
@@ -877,6 +877,7 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
         onOpenMepModal={handleOpenMepModal}
         onOpenCutoutModal={handleOpenCutoutModal}
         onOpenSceneHubModal={handleOpenSceneHubCapsule}
+        isReadOnlyCustomer={initialMode === "showroom"}
       />
 
       {/* 2. ANA ÇALIŞMA SAHNESİ — WebGL kanvası sekme geçişlerinde ASLA sökülmez (paused={!show3DCanvas} ile 0ms anlık geçiş) */}
@@ -901,7 +902,7 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
             showGrid={!isShowroom}
             showInCanvasHud={!isShowroom}
             minimalChrome={true}
-            showDimensions={isShowroom ? false : showDimensions3D}
+            showDimensions={showDimensions3D}
             isRightInspectorOpen={!isShowroom && isInspectorOpen}
             stageSafeInsets={stageSafeInsets}
             onToggleDimensions={handleToggleDimensions3D}
@@ -1122,7 +1123,7 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
           onChangeDoorAngle={handleChangeDoorAngle}
           doorsHidden={doorsHidden3D}
           onToggleDoorsHidden={handleToggleDoorsHidden}
-          showDimensions={isShowroom ? false : showDimensions3D}
+          showDimensions={showDimensions3D}
           onToggleDimensions={handleToggleDockDimensions}
           showInteriorProps={showInteriorProps3D}
           onToggleInteriorProps={handleToggleInteriorProps}
@@ -1134,6 +1135,24 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
           onChangeExplodedFactor={setExplodedFactor}
           isSimpleTier={experienceTier === "simple"}
           projectId={project.id}
+          isShowroom={isShowroom}
+        />
+      )}
+
+      {isShowroom && (
+        <ShowroomPresentationOverlay
+          project={project}
+          modules={project.modules}
+          activeModuleIndex={activeModuleIndex}
+          materials={allMaterials}
+          totalPriceWithVatEur={pricing?.totalWithVatEur || 0}
+          doorOpenAngleDeg={doorOpenAngleDeg}
+          onSelectModuleIndex={setActiveModuleIndex}
+          onChangeDoorAngle={handleChangeDoorAngle}
+          onOpenQuoteModal={handleOpenQuoteModal}
+          onOpenStudioRenderModal={handleOpenStudioRenderModal}
+          onOpenArModal={handleOpenArModal}
+          onApplyMaterialScope={handleApplyMaterialScope}
         />
       )}
 

@@ -59,6 +59,7 @@ export interface StudioHeaderBarProps {
   onOpenMepModal: () => void;
   onOpenCutoutModal: () => void;
   onOpenSceneHubModal: () => void;
+  isReadOnlyCustomer?: boolean;
 }
 
 export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
@@ -95,7 +96,9 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
     onOpenMepModal,
     onOpenCutoutModal,
     onOpenSceneHubModal,
+    isReadOnlyCustomer = false,
   }) => {
+    const isShowroom = workspaceMode === "showroom";
     const [outputsOpen, setOutputsOpen] = useState(false);
     const [issuesOpen, setIssuesOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
@@ -145,62 +148,97 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
 
             <span className="h-4 w-px bg-[#DFD9CE] shrink-0" />
 
-            <button
-              type="button"
-              data-testid="v11-open-project-btn"
-              onClick={onOpenProjectModal}
-              className="h-9 px-3 rounded-full bg-white/80 hover:bg-white border border-[#E5DFD3] text-[#141413] text-xs font-semibold flex items-center gap-2 max-w-[220px] transition cursor-pointer"
-              title="Proje Kaydet, Aç veya Bulut Bağlantısı Paylaş"
-            >
-              <FolderOpen className="w-3.5 h-3.5 text-[#78716C] shrink-0" />
-              <span className="truncate">{projectTitle || "Yeni Dolap Projesi"}</span>
-              <ChevronDown className="w-3.5 h-3.5 text-[#78716C] shrink-0" />
-            </button>
+            {!isReadOnlyCustomer ? (
+              <button
+                type="button"
+                data-testid="v11-open-project-btn"
+                onClick={onOpenProjectModal}
+                className="h-9 px-3 rounded-full bg-white/80 hover:bg-white border border-[#E5DFD3] text-[#141413] text-xs font-semibold flex items-center gap-2 max-w-[220px] transition cursor-pointer"
+                title="Proje Kaydet, Aç veya Bulut Bağlantısı Paylaş"
+              >
+                <FolderOpen className="w-3.5 h-3.5 text-[#78716C] shrink-0" />
+                <span className="truncate">{projectTitle || "Yeni Dolap Projesi"}</span>
+                <ChevronDown className="w-3.5 h-3.5 text-[#78716C] shrink-0" />
+              </button>
+            ) : (
+              <div className="h-9 px-3 rounded-full bg-white/80 border border-[#E5DFD3] text-[#141413] text-xs font-semibold flex items-center gap-2 max-w-[240px]">
+                <span className="truncate">{projectTitle || "Özel Dolap Tasarımı"}</span>
+              </div>
+            )}
 
-            <button
-              type="button"
-              data-testid="v11-open-wizard-btn"
-              onClick={onOpenWizardModal}
-              className="hidden md:inline-flex h-9 px-3.5 rounded-full bg-[#F1EDE4] hover:bg-[#E7E1D5] border border-[#DED7C8] text-[#141413] text-xs font-semibold items-center gap-1.5 transition cursor-pointer shrink-0"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-[#8C7A6B]" />
-              <span>Hızlı Kurulum</span>
-            </button>
+            {!isShowroom && (
+              <button
+                type="button"
+                data-testid="v11-open-wizard-btn"
+                onClick={onOpenWizardModal}
+                className="hidden md:inline-flex h-9 px-3.5 rounded-full bg-[#F1EDE4] hover:bg-[#E7E1D5] border border-[#DED7C8] text-[#141413] text-xs font-semibold items-center gap-1.5 transition cursor-pointer shrink-0"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-[#8C7A6B]" />
+                <span>Hızlı Kurulum</span>
+              </button>
+            )}
           </div>
 
           {/* ORTA BÖLGE */}
-          <nav
-            aria-label="Çalışma Modu"
-            className="p-1 rounded-full bg-[#ECE7DD]/90 border border-[#DFD9CE] flex items-center gap-0.5 shrink-0"
-          >
-            {(
-              [
-                { id: "3d", label: "3B Tasarım" },
-                { id: "2d", label: "2B Teknik" },
-                { id: "plan", label: "Mekân Planı" },
-                { id: "showroom", label: "Sunum" },
-              ] as const
-            ).map((item) => {
-              const active = workspaceMode === item.id;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  data-testid={`v11-mode-${item.id}`}
-                  onClick={() => onChangeWorkspaceMode(item.id)}
-                  className={`h-8 px-3.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
-                    active
-                      ? "bg-[#141413] text-white shadow-xs"
-                      : "text-[#57534E] hover:text-[#141413] hover:bg-white/60"
-                  }`}
-                >
-                  {item.label}
-                </button>
-              );
-            })}
-          </nav>
+          {!isReadOnlyCustomer ? (
+            <nav
+              aria-label="Çalışma Modu"
+              className="p-1 rounded-full bg-[#ECE7DD]/90 border border-[#DFD9CE] flex items-center gap-0.5 shrink-0"
+            >
+              {(
+                [
+                  { id: "3d", label: "3B Tasarım" },
+                  { id: "2d", label: "2B Teknik" },
+                  { id: "plan", label: "Mekân Planı" },
+                  { id: "showroom", label: "Sunum" },
+                ] as const
+              ).map((item) => {
+                const active = workspaceMode === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    data-testid={`v11-mode-${item.id}`}
+                    onClick={() => onChangeWorkspaceMode(item.id)}
+                    className={`h-8 px-3.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+                      active
+                        ? "bg-[#141413] text-white shadow-xs"
+                        : "text-[#57534E] hover:text-[#141413] hover:bg-white/60"
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                );
+              })}
+            </nav>
+          ) : (
+            <div className="px-4 h-8 rounded-full bg-[#141413] text-white text-xs font-semibold flex items-center">
+              Müşteri Sunumu
+            </div>
+          )}
 
           {/* SAĞ BÖLGE */}
+          {isShowroom ? (
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={onOpenQuoteModal}
+                className="h-9 px-3.5 rounded-full bg-[#141413] hover:bg-[#292524] text-white text-xs font-semibold flex items-center gap-2 transition cursor-pointer"
+              >
+                <span>Teklif Özeti</span>
+                <span className="font-mono text-[#E7E5E4]">{formattedPrice}</span>
+              </button>
+              {!isReadOnlyCustomer && (
+                <button
+                  type="button"
+                  onClick={() => onChangeWorkspaceMode("3d")}
+                  className="h-9 px-3.5 rounded-full bg-white/85 hover:bg-white border border-[#DFD9CE] text-[#141413] text-xs font-semibold transition cursor-pointer"
+                >
+                  Düzenlemeye Dön
+                </button>
+              )}
+            </div>
+          ) : (
           <div className="flex items-center gap-2 shrink-0">
             <div className="hidden sm:flex items-center p-0.5 rounded-full bg-[#ECE7DD]/75 border border-[#DFD9CE]">
               <button
@@ -553,6 +591,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
               <span>Teklif</span>
             </button>
           </div>
+          )}
         </div>
 
         {workspaceMode === "2d" && (
