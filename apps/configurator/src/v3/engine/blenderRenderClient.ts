@@ -59,12 +59,18 @@ export async function renderSceneWithBlenderCycles(
 
   onProgress?.(6);
 
-  // Temporarily hide non-mesh CAD overlays (LineSegments, Line, Points) during GLB export
+  // Temporarily hide non-mesh CAD overlays (LineSegments, Line, Points) and invisible hitboxes during GLB export
   const hiddenLines: Array<{ obj: THREE.Object3D; prevVis: boolean }> = [];
   for (const root of roots) {
     root.traverse((obj) => {
       const maybeLine = obj as THREE.Object3D & { isLine?: boolean; isLineSegments?: boolean; isPoints?: boolean };
-      if ((maybeLine.isLine || maybeLine.isLineSegments || maybeLine.isPoints) && obj.visible) {
+      const isInvisibleMesh =
+        obj instanceof THREE.Mesh &&
+        (obj.userData?.isSceneObjectHitbox === true ||
+          (Array.isArray(obj.material)
+            ? obj.material.length > 0 && obj.material.every((m) => m && m.visible === false)
+            : Boolean(obj.material && (obj.material as THREE.Material).visible === false)));
+      if ((maybeLine.isLine || maybeLine.isLineSegments || maybeLine.isPoints || isInvisibleMesh) && obj.visible) {
         hiddenLines.push({ obj, prevVis: obj.visible });
         obj.visible = false;
       }

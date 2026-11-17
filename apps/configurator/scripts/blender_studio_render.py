@@ -119,9 +119,9 @@ def setup_studio_world(scene, is_dark=False):
         ramp.color_ramp.elements[1].color = (0.10, 0.11, 0.13, 1.0)
         bg.inputs["Strength"].default_value = 0.18
     else:
-        ramp.color_ramp.elements[0].color = (0.70, 0.69, 0.67, 1.0)
-        ramp.color_ramp.elements[1].color = (0.90, 0.92, 0.96, 1.0)
-        bg.inputs["Strength"].default_value = 0.24
+        ramp.color_ramp.elements[0].color = (0.74, 0.72, 0.69, 1.0)
+        ramp.color_ramp.elements[1].color = (0.88, 0.91, 0.96, 1.0)
+        bg.inputs["Strength"].default_value = 0.11
 
     nt.links.new(tex_coord.outputs["Generated"], sep_xyz.inputs["Vector"])
     nt.links.new(sep_xyz.outputs["Z"], ramp.inputs["Fac"])
@@ -225,46 +225,46 @@ def setup_studio_lights_and_floor(center, size, meshes, cam_pos, cam_target, is_
     # Normalize energy at 3.0m reference distance to prevent overexposure under AgX
     dist_scale = (rig_dist / 3.0) ** 2
 
-    # 1. Large Window-Style Key Softbox (wide area = silky feathered shadows, no hard rectangular wall halo)
-    key_loc = cam_target + forward * (rig_dist * 0.65) - right * (rig_dist * 0.85) + Vector((0.0, 0.0, rig_height * 1.1))
+    # 1. Architectural Window-Style Key Softbox (crisp-yet-feathered directional shadows & 3D depth)
+    key_loc = cam_target + forward * (rig_dist * 0.55) - right * (rig_dist * 0.95) + Vector((0.0, 0.0, rig_height * 1.15))
     add_area_light(
         "StudioKeySoftbox",
         key_loc,
         cam_target,
-        energy=115.0 * dist_scale,
-        size_x=max(2.2, rig_dist * 1.15),
-        size_y=max(1.8, rig_dist * 0.95),
-        color=(1.0, 0.96, 0.91),
+        energy=165.0 * dist_scale,
+        size_x=max(1.5, rig_dist * 0.72),
+        size_y=max(1.3, rig_dist * 0.62),
+        color=(1.0, 0.96, 0.90),
         cast_shadow=True,
-        spread_deg=105.0,
+        spread_deg=78.0,
     )
 
-    # 2. Broad Cool Fill Softbox (gentle bounce light for natural interior gradient)
+    # 2. Subtle Cool Fill Softbox (preserves shadow contrast while lifting deep blacks)
     fill_loc = cam_target + forward * (rig_dist * 0.9) + right * (rig_dist * 0.85) + Vector((0.0, 0.0, rig_height * 0.55))
     add_area_light(
         "StudioFillSoftbox",
         fill_loc,
         cam_target,
-        energy=32.0 * dist_scale,
+        energy=18.0 * dist_scale,
         size_x=max(2.0, rig_dist * 1.1),
         size_y=max(1.5, rig_dist * 0.85),
-        color=(0.90, 0.95, 1.0),
+        color=(0.88, 0.94, 1.0),
         cast_shadow=False,
-        spread_deg=125.0,
+        spread_deg=115.0,
     )
 
-    # 3. Overhead Soft Accent (defines wardrobe top & wood grain sheen without harsh wall shadows)
-    rim_loc = cam_target + forward * (rig_dist * 0.3) + right * (rig_dist * 0.25) + Vector((0.0, 0.0, rig_height * 1.25))
+    # 3. Overhead Soft Rim Accent (defines top edges, foliage & wood sheen with natural shadows)
+    rim_loc = cam_target + forward * (rig_dist * 0.25) + right * (rig_dist * 0.35) + Vector((0.0, 0.0, rig_height * 1.3))
     add_area_light(
         "StudioRimSoftbox",
         rim_loc,
         cam_target,
-        energy=38.0 * dist_scale,
-        size_x=max(1.8, rig_dist * 0.9),
-        size_y=max(1.2, rig_dist * 0.65),
-        color=(1.0, 0.98, 0.96),
-        cast_shadow=False,
-        spread_deg=100.0,
+        energy=28.0 * dist_scale,
+        size_x=max(1.6, rig_dist * 0.8),
+        size_y=max(1.1, rig_dist * 0.6),
+        color=(1.0, 0.98, 0.95),
+        cast_shadow=True,
+        spread_deg=88.0,
     )
 
 
@@ -286,16 +286,16 @@ def enhance_imported_materials():
             bsdf.inputs["IOR"].default_value = 1.51
             continue
 
-        # Tight crevice-only Ambient Occlusion (4.5cm) so door/drawer gaps pop without creating a wall halo
+        # Crevice & contact Ambient Occlusion (8cm) so door/drawer gaps, plinths & pots ground naturally
         base_in = bsdf.inputs.get("Base Color")
         if base_in:
             ao = nt.nodes.new("ShaderNodeAmbientOcclusion")
             ao.samples = 8
-            ao.inputs["Distance"].default_value = 0.045
+            ao.inputs["Distance"].default_value = 0.08
             mix = nt.nodes.new("ShaderNodeMix")
             mix.data_type = "RGBA"
             mix.blend_type = "MULTIPLY"
-            mix.inputs["Factor"].default_value = 0.22
+            mix.inputs["Factor"].default_value = 0.35
             if base_in.is_linked:
                 orig_link = base_in.links[0]
                 orig_socket = orig_link.from_socket

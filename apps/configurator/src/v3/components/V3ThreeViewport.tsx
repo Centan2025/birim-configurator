@@ -2150,7 +2150,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
 
       const renderer = safeGl.bundle.renderer;
       const isLegacyGpu = safeGl.bundle.capability.isLegacyOrLowSpecGpu;
-      const targetSharpDpr = isLegacyGpu ? 1 : Math.min(window.devicePixelRatio || 1, 2);
+      const targetSharpDpr = isLegacyGpu ? 1 : Math.min(window.devicePixelRatio || 1, 1.5);
       renderer.setSize(width, height);
       renderer.setPixelRatio(targetSharpDpr);
       renderer.shadowMap.enabled = !isLegacyGpu;
@@ -2198,18 +2198,10 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       });
       controlsRef.current = controls;
 
-      // Instant <0.2ms equirectangular studio reflection on frame 0 so initial focus & orbit NEVER freeze;
-      // upgrades asynchronously to full PMREM cubemap once idle!
-      scene.environment = getStudioEnvironmentTexture();
-      let idlePmremTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
-        idlePmremTimer = null;
-        if (!pausedRef.current && rendererRef.current === renderer && sceneRef.current === scene) {
-          if (!isOrbitingRef.current) {
-            scene.environment = getStudioPmremEnvironment(renderer);
-            needsRenderRef.current = true;
-          }
-        }
-      }, 260);
+      // Initialize studio environment once at mount so mid-session envMap switching never triggers D3D11 shader recompilation stalls.
+      scene.environment = isLegacyGpu
+        ? getStudioEnvironmentTexture()
+        : getStudioPmremEnvironment(renderer);
 
       const detachContextRecovery = attachWebGLContextRecovery(renderer.domElement, {
         onContextLost: () => {
@@ -4174,29 +4166,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       winHooks.__birimRenderPathTracedPhoto = renderPathTracedPhoto;
       winHooks.__birimGetLiveSceneStats = getLiveSceneStats;
 
-      // Two-Stage Render Loop: Fast 60 FPS DPR during interaction -> Crisp HiDPI settled studio frame 240ms after stop!
       let animId: number;
-      let idleHiDpiTimer: ReturnType<typeof setTimeout> | null = null;
-      let isHiDpiSettled = false;
-
-      const scheduleIdleHiDpiPass = () => {
-        if (isLegacyGpu) return;
-        if (idleHiDpiTimer) clearTimeout(idleHiDpiTimer);
-        idleHiDpiTimer = setTimeout(() => {
-          idleHiDpiTimer = null;
-          const r = rendererRef.current;
-          const sc = sceneRef.current;
-          const ctrl = controlsRef.current;
-          if (!r || !sc || !ctrl || pausedRef.current || isOrbitingRef.current) return;
-          const sharpDpr = Math.min(window.devicePixelRatio || 1, 1.75);
-          if (r.getPixelRatio() < sharpDpr) {
-            r.setPixelRatio(sharpDpr);
-            const cam = (ctrl.object as THREE.Camera) || perspCamRef.current;
-            if (cam) r.render(sc, cam);
-          }
-          isHiDpiSettled = true;
-        }, 95);
-      };
 
       const animate = () => {
         animId = requestAnimationFrame(animate);
@@ -4208,12 +4178,6 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
 
         const updated = curControls.update();
         if (needsRenderRef.current || updated) {
-          const fastDpr = isLegacyGpu ? 1 : Math.min(window.devicePixelRatio || 1, 1.25);
-          if ((updated || isOrbitingRef.current) && curRenderer.getPixelRatio() > fastDpr) {
-            curRenderer.setPixelRatio(fastDpr);
-            isHiDpiSettled = false;
-          }
-
           const t0 = performance.now();
           const cam = (curControls.object as THREE.Camera) || perspCamRef.current;
           if (cam) {
@@ -4231,7 +4195,6 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             });
           if (onPerformanceSample) onPerformanceSample({ lastRenderMs: dt });
           needsRenderRef.current = false;
-          scheduleIdleHiDpiPass();
         }
       };
       animate();
@@ -4268,8 +4231,6 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       resizeObserver.observe(container);
 
       return () => {
-        if (idleHiDpiTimer) clearTimeout(idleHiDpiTimer);
-        if (idlePmremTimer) clearTimeout(idlePmremTimer);
         delete (window as unknown as { __birimRenderUltraStudioPhoto?: unknown }).__birimRenderUltraStudioPhoto;
         cancelAnimationFrame(animId);
         resizeObserver.disconnect();

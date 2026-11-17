@@ -18,16 +18,14 @@ import {
   Armchair,
   Box,
 } from "lucide-react";
-import {
-  resolveSpaceCeilingConfig,
-  type ArchitecturalElement,
-  type CeilingType,
-  type ModuleInstance,
-  type SceneObjectInstance,
-  type SpaceCeilingConfig,
+import type {
+  ArchitecturalElement,
+  ModuleInstance,
+  SceneObjectInstance,
 } from "@birim/core";
 import {
   V5_SCENE_OBJECT_CATALOG,
+  registerDiscoveredSceneObjectCatalogItems,
   type V4ModuleTemplateDefinition,
 } from "@birim/catalog";
 import { V3IsometricModuleIcon } from "../v3/components/V3IsometricModuleIcon";
@@ -48,9 +46,7 @@ export interface LeftCatalogLauncherProps {
   activeModuleIndex: number;
   wallWidthMm: number;
   ceilingHeightMm: number;
-  ceilingConfig?: SpaceCeilingConfig;
   obstacles: ArchitecturalElement[];
-  onUpdateCeilingConfig?: (patch: Partial<SpaceCeilingConfig>) => void;
   onApplyTemplateToActive: (templateId: string) => void;
   onAppendTemplateAdjacent: (templateId: string) => void;
   onAddCompositeAssembly: (presetId: string) => void;
@@ -81,9 +77,7 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
     activeModuleIndex,
     wallWidthMm,
     ceilingHeightMm,
-    ceilingConfig,
     obstacles,
-    onUpdateCeilingConfig,
     onApplyTemplateToActive,
     onAppendTemplateAdjacent,
     onAddCompositeAssembly,
@@ -105,9 +99,27 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
   }) => {
     const [activeGroup, setActiveGroup] = useState<V11CatalogGroup["id"]>("wardrobe");
     const [objectFilter, setObjectFilter] = useState<
-      "all" | "appliance" | "furniture" | "decor"
+      "all" | "appliance" | "furniture" | "plants" | "decor"
     >("all");
     const [searchQuery, setSearchQuery] = useState("");
+    const [discoveredTick, setDiscoveredTick] = useState(0);
+
+    useEffect(() => {
+      if (activeDrawer !== "catalog") return;
+      let cancelled = false;
+      fetch("/api/scene-objects/local-glbs", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (!cancelled && Array.isArray(data?.items)) {
+            const added = registerDiscoveredSceneObjectCatalogItems(data.items);
+            if (added > 0) setDiscoveredTick((t) => t + 1);
+          }
+        })
+        .catch(() => {});
+      return () => {
+        cancelled = true;
+      };
+    }, [activeDrawer]);
 
     useEffect(() => {
       if (!activeDrawer) return;
@@ -169,13 +181,20 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
         if (objectFilter === "furniture") {
           return item.category === "freestanding_furniture";
         }
+        if (objectFilter === "plants") {
+          return (
+            item.visualKind === "plant_olive_tree" ||
+            item.catalogId.includes("plant") ||
+            item.catalogId.includes("olive")
+          );
+        }
         return (
           item.category === "lighting_electronics" ||
           item.category === "custom_glb" ||
           item.category === "architectural_prop"
         );
       });
-    }, [searchQuery, objectFilter]);
+    }, [searchQuery, objectFilter, discoveredTick]);
 
     const toggleDrawer = (tab: Exclude<V11LeftDrawerTab, null>) => {
       onChangeDrawer(activeDrawer === tab ? null : tab);
@@ -466,6 +485,7 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                                 { id: "all", label: "Tümü" },
                                 { id: "appliance", label: "Mutfak Cihazları" },
                                 { id: "furniture", label: "Masa, Koltuk & Yatak" },
+                                { id: "plants", label: "İç Mekân Bitkileri" },
                                 { id: "decor", label: "TV, Işık & Dekor" },
                               ] as const
                             ).map((flt) => (
@@ -777,199 +797,6 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                   </div>
                 </div>
 
-                {/* MİMARİ TAVAN SİSTEMİ KONTROL KARTI */}
-                {onUpdateCeilingConfig && (() => {
-                  const effCeil = resolveSpaceCeilingConfig({
-                    id: "sp",
-                    name: "Oda",
-                    type: "room",
-                    walls: [],
-                    ceilingHeight: ceilingHeightMm,
-                    elements: [],
-                    ceilingConfig,
-                  });
-                  const ceilTypes: { id: CeilingType; label: string }[] = [
-                    { id: "flat_plaster", label: "Düz Alçıpan" },
-                    { id: "dropped_perimeter_cove", label: "LED Havuz Tavan" },
-                    { id: "gypsum_soffit_bulkhead", label: "Dolap Üstü Alın" },
-                    { id: "exposed_wood_beams", label: "Ahşap Kirişli" },
-                    { id: "coffered_baffle", label: "Akustik Baffle" },
-                    { id: "sloped_attic", label: "Eğimli Çatı Katı" },
-                  ];
-                  return (
-                    <div
-                      data-testid="v11-space-ceiling-card"
-                      className="p-3.5 rounded-2xl bg-white border border-[#E5DFD3] space-y-3"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div>
-                          <div className="font-bold text-[#141413]">Mimari Tavan Sistemi</div>
-                          <div className="text-[10.5px] text-[#78716C]">
-                            3D sahne, 2D cephe/kesit ve tavan çarpışma kontrolü
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          data-testid="v11-toggle-ceiling-btn"
-                          onClick={() =>
-                            onUpdateCeilingConfig({
-                              enabled: !effCeil.enabled,
-                              showIn3D: true,
-                              showInElevation2D: true,
-                            })
-                          }
-                          className={`px-3 py-1.5 rounded-full text-[11px] font-bold transition cursor-pointer ${
-                            effCeil.enabled
-                              ? "bg-[#141413] text-white"
-                              : "bg-[#F5F2EA] hover:bg-[#EAE4D7] text-[#44403C]"
-                          }`}
-                        >
-                          {effCeil.enabled ? "Aktif ✓" : "Kapalı"}
-                        </button>
-                      </div>
-
-                      {effCeil.enabled && (
-                        <div className="space-y-2.5 pt-2 border-t border-[#F0ECE3]">
-                          <div className="grid grid-cols-2 gap-1.5">
-                            {ceilTypes.map((ct) => {
-                              const isAct = effCeil.ceilingType === ct.id;
-                              return (
-                                <button
-                                  key={ct.id}
-                                  type="button"
-                                  onClick={() => onUpdateCeilingConfig({ ceilingType: ct.id })}
-                                  className={`py-2 px-2.5 rounded-xl text-[11px] font-semibold text-left transition cursor-pointer ${
-                                    isAct
-                                      ? "bg-[#141413] text-white"
-                                      : "bg-[#F5F2EA] hover:bg-[#EAE4D7] text-[#44403C]"
-                                  }`}
-                                >
-                                  {ct.label}
-                                </button>
-                              );
-                            })}
-                          </div>
-
-                          {(effCeil.ceilingType === "dropped_perimeter_cove" ||
-                            effCeil.ceilingType === "gypsum_soffit_bulkhead" ||
-                            effCeil.ceilingType === "coffered_baffle") && (
-                            <div className="space-y-1">
-                              <div className="flex items-center justify-between text-[11px]">
-                                <span className="text-[#57534E]">Alın / Havuz İniş Yüksekliği</span>
-                                <span className="font-mono font-bold">{effCeil.dropHeightMm} mm</span>
-                              </div>
-                              <input
-                                type="range"
-                                min={80}
-                                max={500}
-                                step={10}
-                                value={effCeil.dropHeightMm}
-                                onChange={(e) =>
-                                  onUpdateCeilingConfig({ dropHeightMm: Number(e.target.value) })
-                                }
-                                className="w-full accent-[#141413] cursor-pointer"
-                              />
-                            </div>
-                          )}
-
-                          {(effCeil.ceilingType === "dropped_perimeter_cove" ||
-                            effCeil.ceilingType === "gypsum_soffit_bulkhead") && (
-                            <div className="space-y-1">
-                              <div className="flex items-center justify-between text-[11px]">
-                                <span className="text-[#57534E]">Alın Derinliği (Duvar Önü)</span>
-                                <span className="font-mono font-bold">{effCeil.soffitDepthMm} mm</span>
-                              </div>
-                              <input
-                                type="range"
-                                min={320}
-                                max={900}
-                                step={20}
-                                value={effCeil.soffitDepthMm}
-                                onChange={(e) =>
-                                  onUpdateCeilingConfig({ soffitDepthMm: Number(e.target.value) })
-                                }
-                                className="w-full accent-[#141413] cursor-pointer"
-                              />
-                            </div>
-                          )}
-
-                          {effCeil.ceilingType === "sloped_attic" && (
-                            <div className="space-y-2">
-                              <div className="space-y-1">
-                                <div className="flex items-center justify-between text-[11px]">
-                                  <span className="text-[#57534E]">Çatı Diz Yüksekliği</span>
-                                  <span className="font-mono font-bold">{effCeil.slopeKneeHeightMm} mm</span>
-                                </div>
-                                <input
-                                  type="range"
-                                  min={1100}
-                                  max={Math.max(1400, ceilingHeightMm - 200)}
-                                  step={20}
-                                  value={effCeil.slopeKneeHeightMm}
-                                  onChange={(e) =>
-                                    onUpdateCeilingConfig({ slopeKneeHeightMm: Number(e.target.value) })
-                                  }
-                                  className="w-full accent-[#141413] cursor-pointer"
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <div className="flex items-center justify-between text-[11px]">
-                                  <span className="text-[#57534E]">Çatı Eğim Açısı</span>
-                                  <span className="font-mono font-bold">{effCeil.slopeAngleDeg}°</span>
-                                </div>
-                                <input
-                                  type="range"
-                                  min={15}
-                                  max={55}
-                                  step={1}
-                                  value={effCeil.slopeAngleDeg}
-                                  onChange={(e) =>
-                                    onUpdateCeilingConfig({ slopeAngleDeg: Number(e.target.value) })
-                                  }
-                                  className="w-full accent-[#141413] cursor-pointer"
-                                />
-                              </div>
-                            </div>
-                          )}
-
-                          <div className="grid grid-cols-2 gap-1.5 pt-1">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                onUpdateCeilingConfig({
-                                  hasRecessedSpots: !effCeil.hasRecessedSpots,
-                                })
-                              }
-                              className={`py-1.5 px-2.5 rounded-xl text-[11px] font-semibold cursor-pointer ${
-                                effCeil.hasRecessedSpots
-                                  ? "bg-[#141413] text-white"
-                                  : "bg-[#F5F2EA] text-[#44403C]"
-                              }`}
-                            >
-                              Gömme Spot {effCeil.hasRecessedSpots ? "✓" : ""}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                onUpdateCeilingConfig({
-                                  translucentCutawayIn3D: !effCeil.translucentCutawayIn3D,
-                                })
-                              }
-                              className={`py-1.5 px-2.5 rounded-xl text-[11px] font-semibold cursor-pointer ${
-                                effCeil.translucentCutawayIn3D
-                                  ? "bg-[#141413] text-white"
-                                  : "bg-[#F5F2EA] text-[#44403C]"
-                              }`}
-                            >
-                              Yarı Saydam Kesit {effCeil.translucentCutawayIn3D ? "✓" : ""}
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
-
                 {/* Hazır Mutfak Planları */}
                 <div className="p-3.5 rounded-2xl bg-white border border-[#E5DFD3] space-y-2.5">
                   <div className="font-bold text-[#141413]">Hazır Mutfak Yerleşimleri</div>
@@ -1006,17 +833,12 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                       onClick={() =>
                         onAddSpaceObstacle({
                           type: "window",
-                          name: "Pencere",
-                          position: {
-                            x: Math.max(200, Math.round(wallWidthMm * 0.65)),
-                            y: 900,
-                            z: 0,
-                          },
-                          dimensions: {
-                            width: 900,
-                            height: 1200,
-                            depth: 180,
-                          },
+                          label: "Pencere",
+                          x: Math.max(200, Math.round(wallWidthMm * 0.65)),
+                          y: 900,
+                          width: 900,
+                          height: 1200,
+                          depth: 180,
                         })
                       }
                       className="py-2 px-2 rounded-xl bg-[#F5F2EA] hover:bg-[#EAE4D7] font-semibold transition cursor-pointer"
@@ -1025,22 +847,17 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        const safeColX =
-                          occupiedSpanMm > 0 && occupiedSpanMm + 300 <= wallWidthMm
-                            ? occupiedSpanMm
-                            : Math.max(0, wallWidthMm - 300);
+                      onClick={() =>
                         onAddSpaceObstacle({
                           type: "column",
-                          name: "Taşıyıcı Kolon",
-                          position: { x: safeColX, y: 0, z: 0 },
-                          dimensions: {
-                            width: 300,
-                            height: ceilingHeightMm,
-                            depth: 300,
-                          },
-                        });
-                      }}
+                          label: "Kolon",
+                          x: 0,
+                          y: 0,
+                          width: 300,
+                          height: ceilingHeightMm,
+                          depth: 300,
+                        })
+                      }
                       className="py-2 px-2 rounded-xl bg-[#F5F2EA] hover:bg-[#EAE4D7] font-semibold transition cursor-pointer"
                     >
                       + Kolon
@@ -1050,17 +867,12 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                       onClick={() =>
                         onAddSpaceObstacle({
                           type: "door",
-                          name: "Oda Kapısı",
-                          position: {
-                            x: Math.max(400, wallWidthMm - 950),
-                            y: 0,
-                            z: 0,
-                          },
-                          dimensions: {
-                            width: 900,
-                            height: 2100,
-                            depth: 120,
-                          },
+                          label: "Oda Kapısı",
+                          x: Math.max(400, wallWidthMm - 950),
+                          y: 0,
+                          width: 900,
+                          height: 2100,
+                          depth: 120,
                         })
                       }
                       className="py-2 px-2 rounded-xl bg-[#F5F2EA] hover:bg-[#EAE4D7] font-semibold transition cursor-pointer"
@@ -1077,8 +889,8 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                           className="flex items-center justify-between px-2.5 py-1.5 rounded-xl bg-[#FAF8F4]"
                         >
                           <span className="font-medium">
-                            {obs.name || obs.type} ({Math.round(obs.dimensions.width / 10)}×
-                            {Math.round(obs.dimensions.height / 10)} cm)
+                            {obs.label || obs.type} ({Math.round(obs.width / 10)}×
+                            {Math.round(obs.height / 10)} cm)
                           </span>
                           <button
                             type="button"

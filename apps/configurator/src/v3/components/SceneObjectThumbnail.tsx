@@ -2,12 +2,15 @@
 
 import React, { useEffect, useState } from "react";
 import * as THREE from "three";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import {
   createSceneObjectInstanceFromCatalog,
   type SceneObjectCatalogItem,
 } from "@birim/catalog";
 import {
   buildSceneObject3DGroup,
+  isSceneObjectGlbCached,
+  resolveEffectiveSceneObjectGlbUrl,
   subscribeSceneObjectGlbLoaded,
 } from "../materials/sceneObject3DBuilder";
 
@@ -19,6 +22,7 @@ interface SceneObjectThumbnailProps {
 const THUMB_W = 240;
 const THUMB_H = 192;
 const thumbnailCache = new Map<string, string>();
+const glbThumbnailRendered = new Set<string>();
 
 let sharedThumbRenderer: THREE.WebGLRenderer | null = null;
 let sharedThumbScene: THREE.Scene | null = null;
@@ -49,23 +53,24 @@ function getThumbRig(): {
     renderer.setPixelRatio(1);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.15;
+    renderer.toneMappingExposure = 1.1;
 
     const scene = new THREE.Scene();
-    const hemi = new THREE.HemisphereLight("#ffffff", "#d6d3d1", 1.35);
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const envTarget = pmrem.fromScene(new RoomEnvironment(), 0.04);
+    scene.environment = envTarget.texture;
+    pmrem.dispose();
+
+    const hemi = new THREE.HemisphereLight("#ffffff", "#d6d3d1", 1.0);
     scene.add(hemi);
 
-    const keyLight = new THREE.DirectionalLight("#fffaf0", 1.85);
+    const keyLight = new THREE.DirectionalLight("#fffaf0", 1.45);
     keyLight.position.set(1800, 2600, 2200);
     scene.add(keyLight);
 
-    const fillLight = new THREE.DirectionalLight("#e0f2fe", 0.75);
+    const fillLight = new THREE.DirectionalLight("#e0f2fe", 0.6);
     fillLight.position.set(-1800, 900, 1200);
     scene.add(fillLight);
-
-    const rimLight = new THREE.DirectionalLight("#ffffff", 0.55);
-    rimLight.position.set(400, 1400, -1800);
-    scene.add(rimLight);
 
     const camera = new THREE.PerspectiveCamera(30, THUMB_W / THUMB_H, 1, 50000);
 
@@ -102,15 +107,22 @@ function computeVisibleBounds(root: THREE.Object3D): THREE.Box3 {
   return box;
 }
 
-function renderCatalogThumbnail(catalogId: string): string | null {
+function renderCatalogThumbnail(catalogId: string): {
+  url: string | null;
+  glbKey?: string;
+  usedGlb: boolean;
+} {
   const rig = getThumbRig();
-  if (!rig) return null;
+  if (!rig) return { url: null, usedGlb: false };
 
   const instance = createSceneObjectInstanceFromCatalog(catalogId, {
     position: { x: 0, y: 0, z: 0 },
     rotation: { x: 0, y: 0, z: 0 },
   });
-  if (!instance) return null;
+  if (!instance) return { url: null, usedGlb: false };
+
+  const glbKey = resolveEffectiveSceneObjectGlbUrl(instance);
+  const usedGlb = !glbKey || isSceneObjectGlbCached(glbKey);
 
   const { renderer, scene, camera } = rig;
   const group = buildSceneObject3DGroup(instance, { renderer });
@@ -189,11 +201,14 @@ function renderCatalogThumbnail(catalogId: string): string | null {
     renderer.render(scene, camera);
     dataUrl = renderer.domElement.toDataURL("image/png");
     thumbnailCache.set(catalogId, dataUrl);
+    if (usedGlb) {
+      glbThumbnailRendered.add(catalogId);
+    }
   } finally {
     scene.remove(group);
   }
 
-  return dataUrl;
+  return { url: dataUrl, glbKey, usedGlb };
 }
 
 export const SceneObjectThumbnail: React.FC<SceneObjectThumbnailProps> = React.memo(
@@ -204,17 +219,27 @@ export const SceneObjectThumbnail: React.FC<SceneObjectThumbnailProps> = React.m
 
     useEffect(() => {
       let cancelled = false;
+      let expectedGlbKey: string | undefined;
+
       const renderNow = () => {
-        const url =
-          thumbnailCache.get(item.catalogId) ??
-          renderCatalogThumbnail(item.catalogId);
-        if (!cancelled && url) {
-          setSrc((prev) => (prev === url ? prev : url));
+        if (glbThumbnailRendered.has(item.catalogId)) {
+          const cached = thumbnailCache.get(item.catalogId);
+          if (cached && !cancelled) {
+            setSrc((prev) => (prev === cached ? prev : cached));
+          }
+          return;
+        }
+        const res = renderCatalogThumbnail(item.catalogId);
+        expectedGlbKey = res.glbKey;
+        if (!cancelled && res.url) {
+          setSrc((prev) => (prev === res.url ? prev : res.url));
         }
       };
 
       const raf = requestAnimationFrame(renderNow);
-      const unsub = subscribeSceneObjectGlbLoaded(() => {
+      const unsub = subscribeSceneObjectGlbLoaded((loadedKey) => {
+        if (glbThumbnailRendered.has(item.catalogId)) return;
+        if (loadedKey && expectedGlbKey && loadedKey !== expectedGlbKey) return;
         thumbnailCache.delete(item.catalogId);
         requestAnimationFrame(renderNow);
       });
