@@ -100,7 +100,7 @@ export const CommandSearchModal: React.FC<CommandSearchModalProps> = React.memo(
       <div
         data-testid="command-search-modal"
         onClick={onClose}
-        className="fixed inset-0 z-50 flex items-start justify-center pt-[12vh] bg-black/35 backdrop-blur-xs p-4"
+        className="fixed inset-0 z-[190] flex items-start justify-center pt-[11vh] bg-[#141413]/45 backdrop-blur-xs p-4"
       >
         <div
           onClick={(e) => e.stopPropagation()}

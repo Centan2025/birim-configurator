@@ -1172,11 +1172,11 @@ export const V5_SPECIALIZED_MODULE_TEMPLATES: V4ModuleTemplateDefinition[] = [
     familyId: "fam_wardrobe",
     category: "wardrobe",
     name: "Kapsül Tamburlu Bar & Büfe Dolabı (120cm • R=225mm)",
-    description: "180° yarı-silindirik CNC kerf-büküm yan gövdeli, tambur sürgü kapaklı ve LED aydınlatmalı kapsül bar dolabı.",
+    description: "180° yarı-silindirik CNC kerf-büküm iç cep gövdeli, 8.5×7.5mm kanal raylı çift yönlü tambur kapaklı ve mermer üst tablalı bar dolabı.",
     defaultDimensions: { width: 1200, height: 1050, depth: 450 },
-    dimensionLimits: { minW: 800, maxW: 2400, minH: 650, maxH: 2200, minD: 360, maxD: 650 },
-    defaultDoorSystemId: "sliding_top_hung",
-    compatibleDoorSystems: ["sliding_top_hung", "open"],
+    dimensionLimits: { minW: 800, maxW: 2400, minH: 500, maxH: 2200, minD: 360, maxD: 650 },
+    defaultDoorSystemId: "tambour_roller",
+    compatibleDoorSystems: ["tambour_roller", "sliding_top_hung", "open"],
     createInstance: (id, customName = "Birim Kapsül Tamburlu Bar Dolabı") => ({
       id,
       name: customName,
@@ -1191,7 +1191,9 @@ export const V5_SPECIALIZED_MODULE_TEMPLATES: V4ModuleTemplateDefinition[] = [
         backPanelType: "grooved",
         hullShape: "capsule_stadium",
         cornerRadiusMm: 225,
-        tambourSlatPitchMm: 24,
+        tambourSlatPitchMm: 22,
+        tambourDirection: "horizontal",
+        hasCountertopTray: true,
         plinthHeight: 180,
         doorPerimeterGap: 2,
         edgeBandThickness: 1,
@@ -1211,14 +1213,194 @@ export const V5_SPECIALIZED_MODULE_TEMPLATES: V4ModuleTemplateDefinition[] = [
           door: {
             id: `door_${id}_0`,
             bayIndex: 0,
-            type: "sliding",
-            doorSystemId: "sliding_top_hung",
+            type: "tambour",
+            doorSystemId: "tambour_roller",
             softClose: true,
             handleCategory: "milled_wood_grip",
           },
           shelves: [
-            { id: `sh_${id}_0`, bayIndex: 0, elevationY: 380, isAdjustable: true, isGlass: true, thickness: 10 },
+            { id: `sh_${id}_0`, bayIndex: 0, elevationY: 360, isAdjustable: true, isGlass: true, thickness: 10 },
           ],
+          hangingRails: [],
+          drawers: [],
+          specialFittings: [],
+        },
+      ],
+    }),
+  },
+  {
+    templateId: "v5_capsule_tambour_tv_unit_220",
+    familyId: "fam_wardrobe",
+    category: "wardrobe",
+    name: "Kapsül Tambur TV & Medya Ünitesi (220×54×45cm)",
+    description: "Sağ/sol 180° kavisli cep koridoruna kayan masif tambur kapaklar, ortada Blum frenli çekmece + açık soundbar nişi ve kablo geçişli üretim modeli.",
+    defaultDimensions: { width: 2200, height: 540, depth: 450 },
+    dimensionLimits: { minW: 1400, maxW: 3200, minH: 380, maxH: 850, minD: 360, maxD: 600 },
+    defaultDoorSystemId: "tambour_roller",
+    compatibleDoorSystems: ["tambour_roller", "open"],
+    createInstance: (id, customName = "Birim Kapsül Tambur TV Ünitesi") => ({
+      id,
+      name: customName,
+      category: "wardrobe",
+      moduleFamilyId: "fam_wardrobe",
+      templateId: "v5_capsule_tambour_tv_unit_220",
+      position: { x: 0, y: 0, z: 0 },
+      dimensions: { width: 2200, height: 540, depth: 450 },
+      utilityCutouts: [
+        {
+          id: `cutout_tv_cable_${id}`,
+          targetPanel: "back",
+          kind: "cable_grommet",
+          shape: "rect",
+          centerXMm: 875,
+          centerYMm: 210,
+          widthMm: 180,
+          heightMm: 65,
+          label: "Orta Medya & HDMI Kablo Geçiş Menfezi",
+        },
+      ],
+      carcass: {
+        panelThickness: 18,
+        backPanelThickness: 8,
+        backPanelType: "grooved",
+        hullShape: "capsule_stadium",
+        cornerRadiusMm: 225,
+        tambourSlatPitchMm: 20,
+        tambourDirection: "horizontal",
+        hasCountertopTray: true,
+        plinthHeight: 160,
+        doorPerimeterGap: 2,
+        edgeBandThickness: 1,
+        bodyMaterialId: "mat_veneer_walnut",
+        doorMaterialId: "mat_veneer_walnut",
+        countertopMaterialId: "mat_quartz_calacatta",
+        plinthMaterialId: "mat_metal_brass",
+        crossSectionProfile: "fluted_ribbed",
+        jointType: "minifix_dowel",
+        ledLightingEnabled: true,
+        ledColorTempK: 2700,
+        ledPlacementMode: "shelf_underside",
+      },
+      bays: [
+        {
+          index: 0,
+          door: {
+            id: `door_${id}_0`,
+            bayIndex: 0,
+            type: "tambour",
+            doorSystemId: "tambour_roller",
+            softClose: true,
+            handleCategory: "milled_wood_grip",
+          },
+          shelves: [{ id: `sh_${id}_0`, bayIndex: 0, elevationY: 160, isAdjustable: true, thickness: 18 }],
+          hangingRails: [],
+          drawers: [],
+          specialFittings: [],
+        },
+        {
+          index: 1,
+          door: {
+            id: `door_${id}_1`,
+            bayIndex: 1,
+            type: "open",
+            doorSystemId: "open",
+            softClose: true,
+          },
+          shelves: [{ id: `sh_${id}_1`, bayIndex: 1, elevationY: 168, isAdjustable: false, isFixed: true, thickness: 18 }],
+          hangingRails: [],
+          drawers: [
+            {
+              id: `drw_${id}_1_0`,
+              bayIndex: 1,
+              elevationY: 0,
+              height: 160,
+              slideType: "push_to_open_soft_close",
+              hardwareProductId: "hw_blum_legrabox_m40",
+            },
+          ],
+          specialFittings: [],
+        },
+        {
+          index: 2,
+          door: {
+            id: `door_${id}_2`,
+            bayIndex: 2,
+            type: "tambour",
+            doorSystemId: "tambour_roller",
+            softClose: true,
+            handleCategory: "milled_wood_grip",
+          },
+          shelves: [{ id: `sh_${id}_2`, bayIndex: 2, elevationY: 160, isAdjustable: true, thickness: 18 }],
+          hangingRails: [],
+          drawers: [],
+          specialFittings: [],
+        },
+      ],
+    }),
+  },
+  {
+    templateId: "v5_rounded_tambour_tv_console_200",
+    familyId: "fam_wardrobe",
+    category: "wardrobe",
+    name: "R-Köşeli Tambur TV Konsolu (200×50×44cm • R=110mm)",
+    description: "4 köşesi 90° CNC kerf-büküm (R=110mm) yumuşatılmış, çift yöne kayar akustik keçeli meşe tambur kapaklı TV konsolu.",
+    defaultDimensions: { width: 2000, height: 500, depth: 440 },
+    dimensionLimits: { minW: 1200, maxW: 3000, minH: 360, maxH: 850, minD: 360, maxD: 600 },
+    defaultDoorSystemId: "tambour_roller",
+    compatibleDoorSystems: ["tambour_roller", "open"],
+    createInstance: (id, customName = "Birim R-Köşeli Tambur TV Konsolu") => ({
+      id,
+      name: customName,
+      category: "wardrobe",
+      moduleFamilyId: "fam_wardrobe",
+      templateId: "v5_rounded_tambour_tv_console_200",
+      position: { x: 0, y: 0, z: 0 },
+      dimensions: { width: 2000, height: 500, depth: 440 },
+      carcass: {
+        panelThickness: 18,
+        backPanelThickness: 8,
+        backPanelType: "grooved",
+        hullShape: "rounded_corners",
+        cornerRadiusMm: 110,
+        tambourSlatPitchMm: 20,
+        tambourDirection: "horizontal",
+        hasCountertopTray: false,
+        plinthHeight: 150,
+        doorPerimeterGap: 2,
+        edgeBandThickness: 1,
+        bodyMaterialId: "mat_veneer_oak",
+        doorMaterialId: "mat_veneer_oak",
+        plinthMaterialId: "mat_handle_matte_black",
+        crossSectionProfile: "fluted_ribbed",
+        jointType: "minifix_dowel",
+      },
+      bays: [
+        {
+          index: 0,
+          door: {
+            id: `door_${id}_0`,
+            bayIndex: 0,
+            type: "tambour",
+            doorSystemId: "tambour_roller",
+            softClose: true,
+            handleCategory: "milled_wood_grip",
+          },
+          shelves: [{ id: `sh_${id}_0`, bayIndex: 0, elevationY: 145, isAdjustable: true, thickness: 18 }],
+          hangingRails: [],
+          drawers: [],
+          specialFittings: [],
+        },
+        {
+          index: 1,
+          door: {
+            id: `door_${id}_1`,
+            bayIndex: 1,
+            type: "tambour",
+            doorSystemId: "tambour_roller",
+            softClose: true,
+            handleCategory: "milled_wood_grip",
+          },
+          shelves: [{ id: `sh_${id}_1`, bayIndex: 1, elevationY: 145, isAdjustable: true, thickness: 18 }],
           hangingRails: [],
           drawers: [],
           specialFittings: [],
@@ -1470,6 +1652,39 @@ export const V5_COMPOSITE_ASSEMBLIES: MultiModuleCompositePreset[] = [
       })!;
       const sofaObj = createSceneObjectInstanceFromCatalog("obj_birim_modular_sofa_2400", {
         position: { x: startX, y: 0, z: 2350 },
+        rotation: { x: 0, y: 180, z: 0 },
+      })!;
+
+      return {
+        modules: [tvMod],
+        sceneObjects: [tvObj, rugObj, tableObj, sofaObj],
+      };
+    },
+  },
+  {
+    presetId: "comp_capsule_tambour_tv_set",
+    name: "Kapsül Tambur TV Ünitesi + 65\" OLED TV + Koltuk & Sehpa",
+    description: "220cm kavisli tambur kapaklı & mermer tablalı TV ünitesi, 65 inç OLED TV, Birim modüler kanepe, orta sehpa ve dokuma halı.",
+    badge: "Tambur Salon Seti",
+    buildItems: (startX: number) => {
+      const ts = Date.now();
+      const tambourTvTpl = V5_SPECIALIZED_MODULE_TEMPLATES.find(
+        (t) => t.templateId === "v5_capsule_tambour_tv_unit_220"
+      ) || V5_SPECIALIZED_MODULE_TEMPLATES[0];
+      const tvMod = tambourTvTpl.createInstance(`mod_tambour_tv_${ts}`, "Birim Kapsül Tambur TV Ünitesi 220cm");
+      tvMod.position = { x: startX, y: 0, z: 0 };
+
+      const tvObj = createSceneObjectInstanceFromCatalog("obj_wall_tv_65", {
+        position: { x: startX + 375, y: 880, z: 20 },
+      })!;
+      const rugObj = createSceneObjectInstanceFromCatalog("obj_area_rug_300x200", {
+        position: { x: Math.max(0, startX - 400), y: 0, z: 850 },
+      })!;
+      const tableObj = createSceneObjectInstanceFromCatalog("obj_birim_coffee_table", {
+        position: { x: startX + 500, y: 0, z: 1400 },
+      })!;
+      const sofaObj = createSceneObjectInstanceFromCatalog("obj_birim_modular_sofa_2400", {
+        position: { x: Math.max(0, startX - 100), y: 0, z: 2300 },
         rotation: { x: 0, y: 180, z: 0 },
       })!;
 

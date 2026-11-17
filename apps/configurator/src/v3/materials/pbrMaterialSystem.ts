@@ -28,6 +28,9 @@ function getOrLoadCustomImageTexture(
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 8;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
   tex.repeat.set(1.2, 1.2);
   if (rotRad !== 0) {
     tex.center.set(0.5, 0.5);
@@ -182,9 +185,18 @@ function buildNormalMapFromHeightField(
   normalTex.wrapS = THREE.RepeatWrapping;
   normalTex.wrapT = THREE.RepeatWrapping;
   normalTex.repeat.set(repeatX, repeatY);
-  normalTex.anisotropy = 4;
+  normalTex.anisotropy = 8;
+  normalTex.minFilter = THREE.LinearMipmapLinearFilter;
+  normalTex.magFilter = THREE.LinearFilter;
   normalTex.needsUpdate = true;
   return normalTex;
+}
+
+function isRealInteractiveBrowser(): boolean {
+  if (typeof window === "undefined" || typeof document === "undefined") return false;
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent || "" : "";
+  if (ua.includes("jsdom") || ua.includes("HappyDOM") || ua.includes("Node.js")) return false;
+  return true;
 }
 
 /**
@@ -199,9 +211,11 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     return {};
   }
 
+  const hdBrowser = isRealInteractiveBrowser();
+
   // 0. WOVEN ARCHITECTURAL LINEN / TEXTILE PANEL (Cross-Slub Yarn Albedo + Weave Normal + Roughness)
   if (matDef.id.includes("linen") || matDef.id.includes("fabric") || matDef.id.includes("keten")) {
-    const S = 96;
+    const S = hdBrowser ? 256 : 96;
     const colorCanvas = document.createElement("canvas");
     colorCanvas.width = S;
     colorCanvas.height = S;
@@ -263,10 +277,10 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     return set;
   }
 
-  // 1. HIGH-DEFINITION RIFT-CUT / CATHEDRAL ARCHITECTURAL WOOD VENEERS (768x768 3-Map PBR)
+  // 1. HIGH-DEFINITION RIFT-CUT / CATHEDRAL ARCHITECTURAL WOOD VENEERS (HD 3-Map PBR)
   if (matDef.category === "wood" || (matDef.category === "laminate" && matDef.hasGrain)) {
-    const W = 128;
-    const H = 128;
+    const W = hdBrowser ? 384 : 128;
+    const H = hdBrowser ? 384 : 128;
     const colorCanvas = document.createElement("canvas");
     colorCanvas.width = W;
     colorCanvas.height = H;
@@ -382,13 +396,17 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     colorMap.wrapS = THREE.RepeatWrapping;
     colorMap.wrapT = THREE.RepeatWrapping;
     colorMap.colorSpace = THREE.SRGBColorSpace;
-    colorMap.anisotropy = 4;
+    colorMap.anisotropy = 8;
+    colorMap.minFilter = THREE.LinearMipmapLinearFilter;
+    colorMap.magFilter = THREE.LinearFilter;
     colorMap.needsUpdate = true;
 
     const roughnessMap = markSharedTexture(new THREE.CanvasTexture(roughCanvas));
     roughnessMap.wrapS = THREE.RepeatWrapping;
     roughnessMap.wrapT = THREE.RepeatWrapping;
-    roughnessMap.anisotropy = 4;
+    roughnessMap.anisotropy = 8;
+    roughnessMap.minFilter = THREE.LinearMipmapLinearFilter;
+    roughnessMap.magFilter = THREE.LinearFilter;
     roughnessMap.needsUpdate = true;
 
     const normalMap = buildNormalMapFromHeightField(heightField, W, H, 1.85, 1, 1);
@@ -405,7 +423,7 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
 
   // 2. BRUSHED ARCHITECTURAL METALS (Anodized Black, Brushed Brass, Inox, Anthracite)
   if (String(matDef.category) === "metal") {
-    const S = 64;
+    const S = hdBrowser ? 192 : 64;
     const roughCanvas = document.createElement("canvas");
     roughCanvas.width = S;
     roughCanvas.height = S;
@@ -445,7 +463,7 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
 
   // 3. SILK MATTE ITALIAN LACQUER & SUPRAMAT MELAMINE (Micro-velvet roughness + subtle sprayed lacquer skin normal)
   if (matDef.category === "lacquer" || matDef.category === "laminate") {
-    const S = 64;
+    const S = hdBrowser ? 160 : 64;
     const roughCanvas = document.createElement("canvas");
     roughCanvas.width = S;
     roughCanvas.height = S;
@@ -484,10 +502,10 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     return set;
   }
 
-  // 4. NEOLITH SINTERED STONE, DEKTON, BELENCO & HONED MARBLE VEINING (768x768 3-Map PBR)
+  // 4. NEOLITH SINTERED STONE, DEKTON, BELENCO & HONED MARBLE VEINING (HD 3-Map PBR)
   if (matDef.category === "stone") {
-    const W = 128;
-    const H = 128;
+    const W = hdBrowser ? 384 : 128;
+    const H = hdBrowser ? 384 : 128;
     const colorCanvas = document.createElement("canvas");
     colorCanvas.width = W;
     colorCanvas.height = H;
@@ -555,13 +573,17 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     colorMap.wrapS = THREE.RepeatWrapping;
     colorMap.wrapT = THREE.RepeatWrapping;
     colorMap.colorSpace = THREE.SRGBColorSpace;
-    colorMap.anisotropy = 4;
+    colorMap.anisotropy = 8;
+    colorMap.minFilter = THREE.LinearMipmapLinearFilter;
+    colorMap.magFilter = THREE.LinearFilter;
     colorMap.needsUpdate = true;
 
     const roughnessMap = markSharedTexture(new THREE.CanvasTexture(roughCanvas));
     roughnessMap.wrapS = THREE.RepeatWrapping;
     roughnessMap.wrapT = THREE.RepeatWrapping;
-    roughnessMap.anisotropy = 4;
+    roughnessMap.anisotropy = 8;
+    roughnessMap.minFilter = THREE.LinearMipmapLinearFilter;
+    roughnessMap.magFilter = THREE.LinearFilter;
     roughnessMap.needsUpdate = true;
 
     const normalMap = buildNormalMapFromHeightField(heightField, W, H, 0.75, 1, 1);
@@ -571,9 +593,9 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     return set;
   }
 
-  // 2. ARCHITECTURAL CALACATTA / SINTERED STONE COUNTERTOP VEINING (512x512)
+  // 2. ARCHITECTURAL CALACATTA / SINTERED STONE COUNTERTOP VEINING
   if (String(matDef.category) === "stone" || matDef.id.includes("stone") || matDef.id.includes("calacatta")) {
-    const S = 128;
+    const S = hdBrowser ? 384 : 128;
     const colorCanvas = document.createElement("canvas");
     colorCanvas.width = S;
     colorCanvas.height = S;
@@ -632,13 +654,17 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     colorMap.wrapS = THREE.RepeatWrapping;
     colorMap.wrapT = THREE.RepeatWrapping;
     colorMap.colorSpace = THREE.SRGBColorSpace;
-    colorMap.anisotropy = 4;
+    colorMap.anisotropy = 8;
+    colorMap.minFilter = THREE.LinearMipmapLinearFilter;
+    colorMap.magFilter = THREE.LinearFilter;
     colorMap.needsUpdate = true;
 
     const roughnessMap = markSharedTexture(new THREE.CanvasTexture(roughCanvas));
     roughnessMap.wrapS = THREE.RepeatWrapping;
     roughnessMap.wrapT = THREE.RepeatWrapping;
-    roughnessMap.anisotropy = 4;
+    roughnessMap.anisotropy = 8;
+    roughnessMap.minFilter = THREE.LinearMipmapLinearFilter;
+    roughnessMap.magFilter = THREE.LinearFilter;
     roughnessMap.needsUpdate = true;
 
     const normalMap = buildNormalMapFromHeightField(heightField, S, S, 0.45, 1, 1);
@@ -708,7 +734,7 @@ export function getArchitecturalWallTexture(
   const cached = wallTextureCache.get(tone);
   if (cached) return cached;
 
-  const S = 96;
+  const S = isRealInteractiveBrowser() ? 256 : 96;
   const canvas = document.createElement("canvas");
   canvas.width = S;
   canvas.height = S;

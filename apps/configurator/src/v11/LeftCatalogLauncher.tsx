@@ -18,16 +18,20 @@ import {
   Armchair,
   Box,
 } from "lucide-react";
-import type {
-  ArchitecturalElement,
-  ModuleInstance,
-  SceneObjectInstance,
+import {
+  resolveSpaceCeilingConfig,
+  type ArchitecturalElement,
+  type CeilingSystemType,
+  type ModuleInstance,
+  type SceneObjectInstance,
+  type SpaceCeilingConfig,
 } from "@birim/core";
 import {
   V5_SCENE_OBJECT_CATALOG,
   type V4ModuleTemplateDefinition,
 } from "@birim/catalog";
 import { V3IsometricModuleIcon } from "../v3/components/V3IsometricModuleIcon";
+import { SceneObjectThumbnail } from "../v3/components/SceneObjectThumbnail";
 import {
   V11_CATALOG_GROUPS,
   classifyTemplateGroup,
@@ -44,7 +48,9 @@ export interface LeftCatalogLauncherProps {
   activeModuleIndex: number;
   wallWidthMm: number;
   ceilingHeightMm: number;
+  ceilingConfig?: SpaceCeilingConfig;
   obstacles: ArchitecturalElement[];
+  onUpdateCeilingConfig?: (patch: Partial<SpaceCeilingConfig>) => void;
   onApplyTemplateToActive: (templateId: string) => void;
   onAppendTemplateAdjacent: (templateId: string) => void;
   onAddCompositeAssembly: (presetId: string) => void;
@@ -75,7 +81,9 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
     activeModuleIndex,
     wallWidthMm,
     ceilingHeightMm,
+    ceilingConfig,
     obstacles,
+    onUpdateCeilingConfig,
     onApplyTemplateToActive,
     onAppendTemplateAdjacent,
     onAddCompositeAssembly,
@@ -483,27 +491,28 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                           </div>
                         )}
 
-                        <div className="grid grid-cols-2 gap-2">
+                        <div className="grid grid-cols-2 gap-2.5">
                           {filteredSceneObjects.map((obj) => (
                             <div
                               key={obj.catalogId}
-                              className="p-3 rounded-2xl bg-white border border-[#E5DFD3] flex flex-col justify-between gap-2"
+                              className="group p-3 rounded-2xl bg-white/90 hover:bg-white border border-[#E5DFD3] hover:border-[#141413]/40 flex flex-col justify-between gap-2 transition shadow-2xs"
                             >
-                              <div>
-                                <div className="flex items-center justify-between gap-1.5 mb-1">
-                                  <span
-                                    className="w-5 h-5 rounded-full border border-black/10 shrink-0"
-                                    style={{ backgroundColor: obj.primaryColorHex }}
-                                  />
-                                  <span className="text-[10px] font-mono text-[#78716C]">
-                                    {Math.round(obj.defaultDimensions.width / 10)}×
-                                    {Math.round(obj.defaultDimensions.depth / 10)} cm
-                                  </span>
+                              <button
+                                type="button"
+                                onClick={() => onAddSceneObject(obj.catalogId)}
+                                className="w-full text-left flex flex-col cursor-pointer"
+                              >
+                                <div className="w-full h-24 rounded-xl bg-[#F6F3EC] flex items-center justify-center mb-2 overflow-hidden p-1.5">
+                                  <SceneObjectThumbnail item={obj} />
                                 </div>
                                 <div className="text-xs font-semibold text-[#141413] leading-snug line-clamp-2">
                                   {obj.name}
                                 </div>
-                              </div>
+                                <div className="text-[10px] font-mono text-[#78716C] mt-0.5">
+                                  {Math.round(obj.defaultDimensions.width / 10)}×
+                                  {Math.round(obj.defaultDimensions.depth / 10)} cm
+                                </div>
+                              </button>
                               <button
                                 type="button"
                                 onClick={() => onAddSceneObject(obj.catalogId)}
@@ -768,6 +777,199 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                   </div>
                 </div>
 
+                {/* MİMARİ TAVAN SİSTEMİ KONTROL KARTI */}
+                {onUpdateCeilingConfig && (() => {
+                  const effCeil = resolveSpaceCeilingConfig({
+                    id: "sp",
+                    name: "Oda",
+                    type: "room",
+                    walls: [],
+                    ceilingHeight: ceilingHeightMm,
+                    elements: [],
+                    ceilingConfig,
+                  });
+                  const ceilTypes: { id: CeilingSystemType; label: string }[] = [
+                    { id: "flat_plaster", label: "Düz Alçıpan" },
+                    { id: "dropped_perimeter_cove", label: "LED Havuz Tavan" },
+                    { id: "gypsum_soffit_bulkhead", label: "Dolap Üstü Alın" },
+                    { id: "exposed_wood_beams", label: "Ahşap Kirişli" },
+                    { id: "coffered_baffle", label: "Akustik Baffle" },
+                    { id: "sloped_attic", label: "Eğimli Çatı Katı" },
+                  ];
+                  return (
+                    <div
+                      data-testid="v11-space-ceiling-card"
+                      className="p-3.5 rounded-2xl bg-white border border-[#E5DFD3] space-y-3"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <div className="font-bold text-[#141413]">Mimari Tavan Sistemi</div>
+                          <div className="text-[10.5px] text-[#78716C]">
+                            3D sahne, 2D cephe/kesit ve tavan çarpışma kontrolü
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          data-testid="v11-toggle-ceiling-btn"
+                          onClick={() =>
+                            onUpdateCeilingConfig({
+                              enabled: !effCeil.enabled,
+                              showIn3D: true,
+                              showInElevation2D: true,
+                            })
+                          }
+                          className={`px-3 py-1.5 rounded-full text-[11px] font-bold transition cursor-pointer ${
+                            effCeil.enabled
+                              ? "bg-[#141413] text-white"
+                              : "bg-[#F5F2EA] hover:bg-[#EAE4D7] text-[#44403C]"
+                          }`}
+                        >
+                          {effCeil.enabled ? "Aktif ✓" : "Kapalı"}
+                        </button>
+                      </div>
+
+                      {effCeil.enabled && (
+                        <div className="space-y-2.5 pt-2 border-t border-[#F0ECE3]">
+                          <div className="grid grid-cols-2 gap-1.5">
+                            {ceilTypes.map((ct) => {
+                              const isAct = effCeil.ceilingType === ct.id;
+                              return (
+                                <button
+                                  key={ct.id}
+                                  type="button"
+                                  onClick={() => onUpdateCeilingConfig({ ceilingType: ct.id })}
+                                  className={`py-2 px-2.5 rounded-xl text-[11px] font-semibold text-left transition cursor-pointer ${
+                                    isAct
+                                      ? "bg-[#141413] text-white"
+                                      : "bg-[#F5F2EA] hover:bg-[#EAE4D7] text-[#44403C]"
+                                  }`}
+                                >
+                                  {ct.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          {(effCeil.ceilingType === "dropped_perimeter_cove" ||
+                            effCeil.ceilingType === "gypsum_soffit_bulkhead" ||
+                            effCeil.ceilingType === "coffered_baffle") && (
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between text-[11px]">
+                                <span className="text-[#57534E]">Alın / Havuz İniş Yüksekliği</span>
+                                <span className="font-mono font-bold">{effCeil.dropHeightMm} mm</span>
+                              </div>
+                              <input
+                                type="range"
+                                min={80}
+                                max={500}
+                                step={10}
+                                value={effCeil.dropHeightMm}
+                                onChange={(e) =>
+                                  onUpdateCeilingConfig({ dropHeightMm: Number(e.target.value) })
+                                }
+                                className="w-full accent-[#141413] cursor-pointer"
+                              />
+                            </div>
+                          )}
+
+                          {(effCeil.ceilingType === "dropped_perimeter_cove" ||
+                            effCeil.ceilingType === "gypsum_soffit_bulkhead") && (
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between text-[11px]">
+                                <span className="text-[#57534E]">Alın Derinliği (Duvar Önü)</span>
+                                <span className="font-mono font-bold">{effCeil.soffitDepthMm} mm</span>
+                              </div>
+                              <input
+                                type="range"
+                                min={320}
+                                max={900}
+                                step={20}
+                                value={effCeil.soffitDepthMm}
+                                onChange={(e) =>
+                                  onUpdateCeilingConfig({ soffitDepthMm: Number(e.target.value) })
+                                }
+                                className="w-full accent-[#141413] cursor-pointer"
+                              />
+                            </div>
+                          )}
+
+                          {effCeil.ceilingType === "sloped_attic" && (
+                            <div className="space-y-2">
+                              <div className="space-y-1">
+                                <div className="flex items-center justify-between text-[11px]">
+                                  <span className="text-[#57534E]">Çatı Diz Yüksekliği</span>
+                                  <span className="font-mono font-bold">{effCeil.slopeKneeHeightMm} mm</span>
+                                </div>
+                                <input
+                                  type="range"
+                                  min={1100}
+                                  max={Math.max(1400, ceilingHeightMm - 200)}
+                                  step={20}
+                                  value={effCeil.slopeKneeHeightMm}
+                                  onChange={(e) =>
+                                    onUpdateCeilingConfig({ slopeKneeHeightMm: Number(e.target.value) })
+                                  }
+                                  className="w-full accent-[#141413] cursor-pointer"
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <div className="flex items-center justify-between text-[11px]">
+                                  <span className="text-[#57534E]">Çatı Eğim Açısı</span>
+                                  <span className="font-mono font-bold">{effCeil.slopeAngleDeg}°</span>
+                                </div>
+                                <input
+                                  type="range"
+                                  min={15}
+                                  max={55}
+                                  step={1}
+                                  value={effCeil.slopeAngleDeg}
+                                  onChange={(e) =>
+                                    onUpdateCeilingConfig({ slopeAngleDeg: Number(e.target.value) })
+                                  }
+                                  className="w-full accent-[#141413] cursor-pointer"
+                                />
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="grid grid-cols-2 gap-1.5 pt-1">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onUpdateCeilingConfig({
+                                  hasRecessedSpots: !effCeil.hasRecessedSpots,
+                                })
+                              }
+                              className={`py-1.5 px-2.5 rounded-xl text-[11px] font-semibold cursor-pointer ${
+                                effCeil.hasRecessedSpots
+                                  ? "bg-[#141413] text-white"
+                                  : "bg-[#F5F2EA] text-[#44403C]"
+                              }`}
+                            >
+                              Gömme Spot {effCeil.hasRecessedSpots ? "✓" : ""}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onUpdateCeilingConfig({
+                                  translucentCutawayIn3D: !effCeil.translucentCutawayIn3D,
+                                })
+                              }
+                              className={`py-1.5 px-2.5 rounded-xl text-[11px] font-semibold cursor-pointer ${
+                                effCeil.translucentCutawayIn3D
+                                  ? "bg-[#141413] text-white"
+                                  : "bg-[#F5F2EA] text-[#44403C]"
+                              }`}
+                            >
+                              Yarı Saydam Kesit {effCeil.translucentCutawayIn3D ? "✓" : ""}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 {/* Hazır Mutfak Planları */}
                 <div className="p-3.5 rounded-2xl bg-white border border-[#E5DFD3] space-y-2.5">
                   <div className="font-bold text-[#141413]">Hazır Mutfak Yerleşimleri</div>
@@ -823,18 +1025,22 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                     </button>
                     <button
                       type="button"
-                      onClick={() =>
+                      onClick={() => {
+                        const safeColX =
+                          occupiedSpanMm > 0 && occupiedSpanMm + 300 <= wallWidthMm
+                            ? occupiedSpanMm
+                            : Math.max(0, wallWidthMm - 300);
                         onAddSpaceObstacle({
                           type: "column",
-                          name: "Kolon",
-                          position: { x: 0, y: 0, z: 0 },
+                          name: "Taşıyıcı Kolon",
+                          position: { x: safeColX, y: 0, z: 0 },
                           dimensions: {
                             width: 300,
                             height: ceilingHeightMm,
                             depth: 300,
                           },
-                        })
-                      }
+                        });
+                      }}
                       className="py-2 px-2 rounded-xl bg-[#F5F2EA] hover:bg-[#EAE4D7] font-semibold transition cursor-pointer"
                     >
                       + Kolon

@@ -160,7 +160,7 @@ export const GrainDirectionSchema = z.enum(["lengthwise", "crosswise", "none"]);
 export const Dimensions3DSchema = z.object({
   width: z.number().min(15, "Min width 15mm").max(5000, "Max width 5000mm"),
   height: z.number().min(15, "Min height 15mm").max(3200, "Max height 3200mm"),
-  depth: z.number().min(15, "Min depth 15mm").max(1200, "Max depth 1200mm"),
+  depth: z.number().min(15, "Min depth 15mm").max(1500, "Max depth 1500mm"),
 });
 
 export const Position3DSchema = z.object({
@@ -459,6 +459,8 @@ export const CarcassConfigSchema = z.object({
   hullShape: z.enum(["rectangular", "capsule_stadium", "capsule_table", "rounded_corners"]).optional(),
   cornerRadiusMm: z.number().min(10).max(2000).optional(),
   tambourSlatPitchMm: z.number().min(12).max(80).optional(),
+  tambourDirection: z.enum(["horizontal", "vertical"]).optional(),
+  hasCountertopTray: z.boolean().optional(),
   jointType: JointTypeSchema.default("minifix_dowel"),
   doorThickness: z.number().min(10).max(36).optional(),
   overlayDistance: z.number().optional(),

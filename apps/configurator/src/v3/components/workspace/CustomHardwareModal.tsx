@@ -12,7 +12,7 @@ import {
   removeCustomHardwareProduct,
   getCustomHardwareProducts,
 } from "@birim/catalog";
-import { BirimLogo } from "../../design-system";
+import { BirimLogo, V3PremiumDropdown } from "../../design-system";
 import { startZeroLagModalDrag } from "../../design-system/zeroLagDrag";
 import { Wrench, Plus, Trash2, Check, X } from "lucide-react";
 
@@ -340,21 +340,23 @@ export const CustomHardwareModal: React.FC<CustomHardwareModalProps> = ({
                         className="w-full px-3 py-1.5 rounded-xl bg-white/80 border border-slate-300 font-mono font-bold text-[#141413]"
                       />
                     </label>
-                    <label className="space-y-1 block">
-                      <span className="font-bold text-slate-700">Kulp Tipi</span>
-                      <select
+                    <div className="space-y-1 block">
+                      <span className="font-bold text-slate-700 block">Kulp Tipi</span>
+                      <V3PremiumDropdown
+                        variant="popover"
+                        size="sm"
                         value={hCategory}
-                        onChange={(e) => setHCategory(e.target.value as HandleCategory)}
-                        className="w-full px-3 py-1.5 rounded-xl bg-white/80 border border-slate-300 font-semibold text-[#141413]"
-                      >
-                        <option value="bar_handle">Çubuk / Köprü Kulp</option>
-                        <option value="long_profile_handle">Uzun Dikey Gardırop Kulpu</option>
-                        <option value="knob">Düğme / Topuz Kulp (Tek Vida)</option>
-                        <option value="edge_profile">Kenar Geçme Alüminyum Kulp</option>
-                        <option value="recessed_grip">Gömme Sürgü / Kapak Kulpu</option>
-                        <option value="decorative_bespoke">Dekoratif Özel Mimari Kulp</option>
-                      </select>
-                    </label>
+                        onChange={(val) => setHCategory(val as HandleCategory)}
+                        options={[
+                          { value: "bar_handle", label: "Çubuk / Köprü Kulp" },
+                          { value: "long_profile_handle", label: "Uzun Dikey Gardırop Kulpu" },
+                          { value: "knob", label: "Düğme / Topuz Kulp (Tek Vida)" },
+                          { value: "edge_profile", label: "Kenar Geçme Alüminyum Kulp" },
+                          { value: "recessed_grip", label: "Gömme Sürgü / Kapak Kulpu" },
+                          { value: "decorative_bespoke", label: "Dekoratif Özel Mimari Kulp" },
+                        ]}
+                      />
+                    </div>
                   </div>
 
                   <label className="space-y-1 block">
@@ -556,21 +558,23 @@ export const CustomHardwareModal: React.FC<CustomHardwareModalProps> = ({
           ) : (
             <div className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <label className="space-y-1 block">
-                  <span className="font-bold text-slate-700">Donanım Grubu</span>
-                  <select
+                <div className="space-y-1 block">
+                  <span className="font-bold text-slate-700 block">Donanım Grubu</span>
+                  <V3PremiumDropdown
+                    variant="popover"
+                    size="sm"
                     value={hwFamily}
-                    onChange={(e) => setHwFamily(e.target.value as HardwareProductRecord["familyId"])}
-                    className="w-full px-3 py-1.5 rounded-xl bg-white/80 border border-slate-300 font-semibold text-[#141413]"
-                  >
-                    <option value="fam_hinge_concealed">Tas Menteşe Sistemi (Ø35mm)</option>
-                    <option value="fam_runner_concealed">Gizli Çekmece Rayı / Tandem</option>
-                    <option value="fam_drawer_box">Metal Yanlı Çekmece Sistemi</option>
-                    <option value="fam_lift_system">Yukarı Kalkar Kapak Mekanizması</option>
-                    <option value="fam_sliding_system">Sürgülü Kapak Mekanizması</option>
-                    <option value="fam_wardrobe_acc">Gardırop İç Aksesuarı (Pantolonluk vb.)</option>
-                  </select>
-                </label>
+                    onChange={(val) => setHwFamily(val as HardwareProductRecord["familyId"])}
+                    options={[
+                      { value: "fam_hinge_concealed", label: "Tas Menteşe Sistemi (Ø35mm)" },
+                      { value: "fam_runner_concealed", label: "Gizli Çekmece Rayı / Tandem" },
+                      { value: "fam_drawer_box", label: "Metal Yanlı Çekmece Sistemi" },
+                      { value: "fam_lift_system", label: "Yukarı Kalkar Kapak Mekanizması" },
+                      { value: "fam_sliding_system", label: "Sürgülü Kapak Mekanizması" },
+                      { value: "fam_wardrobe_acc", label: "Gardırop İç Aksesuarı (Pantolonluk vb.)" },
+                    ]}
+                  />
+                </div>
                 <label className="space-y-1 block">
                   <span className="font-bold text-slate-700">Üretici / Marka</span>
                   <input

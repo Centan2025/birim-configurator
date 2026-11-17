@@ -159,7 +159,7 @@ export function computeModuleStructuralSignature(mod: ModuleInstance): string {
     `${c.scribeAllowanceLeftMm || 0}:${c.scribeAllowanceRightMm || 0}:` +
     `${c.plinthHeight}:${c.plinthConstruction || ""}:${c.plinthSetbackMm ?? ""}:${c.doorPerimeterGap}:${c.centerRevealGapMm ?? ""}:` +
     `${c.edgeBandThickness}:${c.bodyMaterialId}:${c.doorMaterialId}:${c.countertopMaterialId || ""}:${c.plinthMaterialId || ""}:` +
-    `${c.hasAdjustableLegs ? 1 : 0}:${c.crossSectionProfile || ""}:${c.hullShape || ""}:${c.cornerRadiusMm || 0}:${c.tambourSlatPitchMm || 0}:` +
+    `${c.hasAdjustableLegs ? 1 : 0}:${c.crossSectionProfile || ""}:${c.hullShape || ""}:${c.cornerRadiusMm || 0}:${c.tambourSlatPitchMm || 0}:${c.tambourDirection || ""}:${c.hasCountertopTray === false ? 0 : 1}:` +
     `${c.jointType}:${c.doorThickness || 0}:${c.overlayDistance ?? ""}:${c.system32FrontSetback ?? ""}:` +
     `${c.multiHoleMode || ""}:${c.multiHoleRowCount || 0}:${c.multiHoleFrontSetbackMm ?? ""}:${c.multiHoleEdgeMarginMm ?? ""}:${c.multiHoleDividerThroughBore ? 1 : 0}:` +
     `${c.grainContinuityMode || ""}:${c.constructionProfileId || ""}:${c.hingeDrillingTemplateId || ""}:${c.drawerDrillingSetId || ""}:` +
@@ -200,7 +200,7 @@ export function computeProjectStructuralSignature(project: DesignProject): strin
     for (let i = 0; i < space.elements.length; i++) {
       const e = space.elements[i];
       if (i > 0) elSig += "|";
-      elSig += `${e.id}:${e.type}:${e.position.x},${e.position.y},${e.position.z}:${e.dimensions.width}x${e.dimensions.height}x${e.dimensions.depth}`;
+      elSig += `${e.id}:${e.type}:${e.position.x},${e.position.y},${e.position.z}:${e.dimensions.width}x${e.dimensions.height}x${e.dimensions.depth}:${e.rotationY || 0}`;
     }
   }
   const ceilSig = (space as { ceilingConfig?: unknown })?.ceilingConfig ? JSON.stringify((space as { ceilingConfig?: unknown }).ceilingConfig) : "";
@@ -224,5 +224,5 @@ export function computeProjectStructuralSignature(project: DesignProject): strin
     }
   }
 
-  return `T:${project.tenantId || "birim"}|E:${project.ergonomicProfileId || ""}|ST:${space?.type || ""}|WS:${space?.wallSubstrateType || ""}|SS:${spaceSlopeSig}|C:${space?.ceilingHeight || 0}|W:${wallsSig}|EL:${elSig}|CL:${ceilSig}|CM:${customMatSig}|SO:${sceneObjSig}|M:${modsSig}`;
+  return `T:${project.tenantId || "birim"}|E:${project.ergonomicProfileId || ""}|FG:${project.facadeGrainContinuity ? 1 : 0}|ST:${space?.type || ""}|WS:${space?.wallSubstrateType || ""}|SS:${spaceSlopeSig}|C:${space?.ceilingHeight || 0}|W:${wallsSig}|EL:${elSig}|CL:${ceilSig}|CM:${customMatSig}|SO:${sceneObjSig}|M:${modsSig}`;
 }

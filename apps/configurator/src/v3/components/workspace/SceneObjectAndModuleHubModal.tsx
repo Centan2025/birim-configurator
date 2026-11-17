@@ -27,7 +27,8 @@ import {
   saveGlbAssetPersistent,
   SupabaseCloudPersistenceAdapter,
 } from "@birim/integrations";
-import { BirimLogo } from "../../design-system";
+import { BirimLogo, V3PremiumDropdown } from "../../design-system";
+import { SceneObjectThumbnail } from "../SceneObjectThumbnail";
 import { startZeroLagModalDrag } from "../../design-system/zeroLagDrag";
 import { startSceneObjectSilhouetteDrag } from "../../engine/multiWallSnapAndBvhEngine";
 import { startModuleSilhouetteDrag } from "../../adapter/useV3Adapter";
@@ -73,7 +74,7 @@ interface SceneObjectAndModuleHubModalProps {
   onAutoNotchObstacles: () => { count: number; notes: string[] };
   onImportRoomPlanJson: (jsonText: string) => { ok: boolean; summary: string };
   onCreateCapsuleModule?: (spec: {
-    kind: "capsule_bar" | "capsule_table";
+    kind: "capsule_bar" | "capsule_tv_unit" | "rounded_tambour" | "capsule_table";
     name?: string;
     widthMm: number;
     heightMm: number;
@@ -112,7 +113,7 @@ export const SceneObjectAndModuleHubModal: React.FC<SceneObjectAndModuleHubModal
   const [tab, setTab] = useState<"modules" | "capsule_curved" | "appliances" | "furniture" | "custom_glb" | "automation">(
     initialTab
   );
-  const [capKind, setCapKind] = useState<"capsule_bar" | "capsule_table">("capsule_bar");
+  const [capKind, setCapKind] = useState<"capsule_bar" | "capsule_tv_unit" | "rounded_tambour" | "capsule_table">("capsule_tv_unit");
   const [capName, setCapName] = useState<string>("Birim Kapsül Tamburlu Bar Dolabı");
   const [capW, setCapW] = useState<number>(1200);
   const [capH, setCapH] = useState<number>(1150);
@@ -240,7 +241,10 @@ export const SceneObjectAndModuleHubModal: React.FC<SceneObjectAndModuleHubModal
       onDragStart={(e) => startSceneObjectSilhouetteDrag(e, item.catalogId)}
       className="p-3 rounded-2xl bg-white/80 hover:bg-white border border-slate-200/90 flex flex-col justify-between gap-2 shadow-2xs transition"
     >
-      <div className="space-y-1">
+      <div className="space-y-1.5">
+        <div className="w-full h-24 rounded-xl bg-[#F6F3EC] flex items-center justify-center overflow-hidden p-1.5">
+          <SceneObjectThumbnail item={item} />
+        </div>
         <div className="flex items-center justify-between gap-1.5">
           <span className="px-2 py-0.5 rounded-md bg-slate-100 text-[10px] font-mono font-bold text-slate-700">
             {item.sku}
@@ -294,12 +298,11 @@ export const SceneObjectAndModuleHubModal: React.FC<SceneObjectAndModuleHubModal
             <BirimLogo className="h-5 w-auto text-[#141413] shrink-0" />
             <div className="h-4 w-px bg-slate-900/15 shrink-0" />
             <div className="min-w-0">
-              <h2 className="text-sm font-extrabold text-[#141413] truncate">
-                Birim V5 — Çoklu Modül, Cihaz, Mobilya &amp; Özel 3D Obje (.GLB) Merkezi
+              <h2 className="text-sm font-bold text-[#141413] truncate">
+                3B Nesne &amp; Özel Modül
               </h2>
               <p className="text-[11px] text-slate-600 truncate">
-                Sahnedeki Modül: {project.modules.length} adet • Sahne Objesi / Cihaz:{" "}
-                {sceneObjects.length} adet • Kartları sahneye sürükleyebilir veya tek tıkla ekleyebilirsiniz
+                {project.modules.length} modül • {sceneObjects.length} sahne nesnesi
               </p>
             </div>
           </div>
@@ -317,7 +320,7 @@ export const SceneObjectAndModuleHubModal: React.FC<SceneObjectAndModuleHubModal
         <div className="px-5 py-2.5 bg-white/55 border-b border-slate-200/80 flex flex-wrap items-center gap-1.5">
           {[
             { id: "modules" as const, label: "1. Modül & Boşluk Doldur", icon: Layers },
-            { id: "capsule_curved" as const, label: "✨ Kapsül Bar Dolabı & Masa", icon: Sparkles },
+            { id: "capsule_curved" as const, label: "✨ Kapsül Tambur, TV & Masa", icon: Sparkles },
             { id: "appliances" as const, label: "2. Cihazlar & Eviye", icon: Sparkles },
             { id: "furniture" as const, label: "3. Birim Mobilya, Işık & Yapı", icon: Compass },
             {
@@ -382,16 +385,60 @@ export const SceneObjectAndModuleHubModal: React.FC<SceneObjectAndModuleHubModal
                         Gerçek 3D kapsül ekstrüzyon, açılır/kapanır kavisli çıtalı tambur kapak ve otomatik CNC Kerf-Bending açınım &amp; BOM hesabı
                       </p>
                     </div>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCapKind("capsule_tv_unit");
+                          setCapName("Birim Kapsül Tambur TV Ünitesi");
+                          setCapW(2200);
+                          setCapH(540);
+                          setCapD(450);
+                          setCapR(225);
+                          setCapSlatPitch(20);
+                          setCapBodyMat("mat_veneer_walnut");
+                          setCapTopMat("mat_quartz_calacatta");
+                        }}
+                        className={`px-3 py-1.5 rounded-xl font-bold cursor-pointer ${
+                          capKind === "capsule_tv_unit"
+                            ? "bg-[#141413] text-white"
+                            : "bg-slate-100 text-slate-700"
+                        }`}
+                      >
+                        📺 Kapsül Tambur TV Ünitesi
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCapKind("rounded_tambour");
+                          setCapName("Birim R-Köşeli Tambur TV Konsolu");
+                          setCapW(2000);
+                          setCapH(500);
+                          setCapD(440);
+                          setCapR(110);
+                          setCapSlatPitch(20);
+                          setCapBodyMat("mat_veneer_oak");
+                          setCapTopMat("mat_veneer_oak");
+                        }}
+                        className={`px-3 py-1.5 rounded-xl font-bold cursor-pointer ${
+                          capKind === "rounded_tambour"
+                            ? "bg-[#141413] text-white"
+                            : "bg-slate-100 text-slate-700"
+                        }`}
+                      >
+                        🪵 R-Köşeli Tambur Konsol
+                      </button>
                       <button
                         type="button"
                         onClick={() => {
                           setCapKind("capsule_bar");
                           setCapName("Birim Kapsül Tamburlu Bar Dolabı");
                           setCapW(1200);
-                          setCapH(1150);
-                          setCapD(480);
-                          setCapR(240);
+                          setCapH(1050);
+                          setCapD(450);
+                          setCapR(225);
+                          setCapSlatPitch(22);
+                          setCapBodyMat("mat_veneer_walnut");
                           setCapTopMat("mat_quartz_calacatta");
                         }}
                         className={`px-3 py-1.5 rounded-xl font-bold cursor-pointer ${
@@ -400,7 +447,7 @@ export const SceneObjectAndModuleHubModal: React.FC<SceneObjectAndModuleHubModal
                             : "bg-slate-100 text-slate-700"
                         }`}
                       >
-                        🍸 Kapsül Tamburlu Bar Dolabı
+                        🍸 Kapsül Bar Dolabı
                       </button>
                       <button
                         type="button"
@@ -411,6 +458,7 @@ export const SceneObjectAndModuleHubModal: React.FC<SceneObjectAndModuleHubModal
                           setCapH(750);
                           setCapD(1000);
                           setCapR(500);
+                          setCapBodyMat("mat_veneer_walnut");
                           setCapTopMat("mat_veneer_walnut");
                         }}
                         className={`px-3 py-1.5 rounded-xl font-bold cursor-pointer ${
@@ -684,16 +732,19 @@ export const SceneObjectAndModuleHubModal: React.FC<SceneObjectAndModuleHubModal
                     placeholder="Örn: Birim Özel Kahve & Bar Ünitesi 140cm"
                     className="flex-1 min-w-[200px] px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-300 font-semibold"
                   />
-                  <select
+                  <V3PremiumDropdown
+                    variant="popover"
+                    size="sm"
+                    className="w-48"
                     value={customTplFamily}
-                    onChange={(e) => setCustomTplFamily(e.target.value as ModuleFamilyId)}
-                    className="px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-300 font-semibold"
-                  >
-                    <option value="fam_wardrobe">Gardırop / TV / Kitaplık</option>
-                    <option value="fam_kitchen_base">Mutfak / Banyo Alt</option>
-                    <option value="fam_kitchen_wall">Mutfak Üst</option>
-                    <option value="fam_kitchen_tall">Boy &amp; Cihaz Kulesi</option>
-                  </select>
+                    onChange={(val) => setCustomTplFamily(val as ModuleFamilyId)}
+                    options={[
+                      { value: "fam_wardrobe", label: "Gardırop / TV / Kitaplık" },
+                      { value: "fam_kitchen_base", label: "Mutfak / Banyo Alt" },
+                      { value: "fam_kitchen_wall", label: "Mutfak Üst" },
+                      { value: "fam_kitchen_tall", label: "Boy & Cihaz Kulesi" },
+                    ]}
+                  />
                   <button
                     type="button"
                     data-testid="v5-save-custom-module-template-btn"
@@ -842,20 +893,22 @@ export const SceneObjectAndModuleHubModal: React.FC<SceneObjectAndModuleHubModal
                       className="w-full px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-300 font-mono font-bold"
                     />
                   </label>
-                  <label className="space-y-1 block">
-                    <span className="font-bold text-slate-700">Yüzey Mıknatıslanma Tipi</span>
-                    <select
+                  <div className="space-y-1 block">
+                    <span className="font-bold text-slate-700 block">Yerleşim Tipi</span>
+                    <V3PremiumDropdown
+                      variant="popover"
+                      size="sm"
                       value={glbAnchor}
-                      onChange={(e) => setGlbAnchor(e.target.value as SceneObjectAnchorMode)}
-                      className="w-full px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-300 font-semibold"
-                    >
-                      <option value="free_floor">Zemin Üstü Serbest (Masa/Koltuk/Bitki)</option>
-                      <option value="wall_base">Duvara Yaslı Taban (Cihaz/Ayna)</option>
-                      <option value="wall_elevated">Duvara Askılı (Tablo/TV/Aplik)</option>
-                      <option value="countertop_cutout">Tezgâh / Konsol Üstü</option>
-                      <option value="ceiling">Tavana Askılı (Sarkıt Avize)</option>
-                    </select>
-                  </label>
+                      onChange={(val) => setGlbAnchor(val as SceneObjectAnchorMode)}
+                      options={[
+                        { value: "free_floor", label: "Zemin Üstü Serbest" },
+                        { value: "wall_base", label: "Duvara Yaslı Taban" },
+                        { value: "wall_elevated", label: "Duvara Askılı" },
+                        { value: "countertop_cutout", label: "Tezgâh / Konsol Üstü" },
+                        { value: "ceiling", label: "Tavana Askılı" },
+                      ]}
+                    />
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">

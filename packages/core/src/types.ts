@@ -649,6 +649,8 @@ export interface CarcassConfig {
   hullShape?: "rectangular" | "capsule_stadium" | "capsule_table" | "rounded_corners";
   cornerRadiusMm?: UnitLength;
   tambourSlatPitchMm?: UnitLength;
+  tambourDirection?: "horizontal" | "vertical";
+  hasCountertopTray?: boolean;
   jointType: JointType;
   doorThickness?: UnitLength; // default 18
   overlayDistance?: UnitLength;

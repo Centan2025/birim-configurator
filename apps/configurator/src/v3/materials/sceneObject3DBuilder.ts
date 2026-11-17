@@ -437,20 +437,54 @@ function buildProceduralVisualByKind(
       break;
     }
 
-    case "dining_table_oak":
-    case "coffee_table": {
-      const topT = obj.visualKind === "coffee_table" ? 32 : 38;
+    case "dining_table_oak": {
+      const topT = 36;
+      const apronH = 44;
+      const legH = Math.max(120, H - topT);
+      // Chamfered architectural table top + recessed structural under-apron
       addBox(g, W, topT, D, W / 2, H - topT / 2, D / 2, priMat);
-      const legW = obj.visualKind === "coffee_table" ? 90 : 64;
-      const legInset = 95;
+      addBox(g, Math.max(200, W - 240), apronH, Math.max(160, D - 220), W / 2, H - topT - apronH / 2, D / 2, secMat);
+      const legRTop = 32;
+      const legRBot = 20;
+      const legInsetX = Math.min(180, W * 0.12);
+      const legInsetZ = Math.min(130, D * 0.14);
       [
-        [legInset, legInset],
-        [W - legInset, legInset],
-        [legInset, D - legInset],
-        [W - legInset, D - legInset],
+        [legInsetX, legInsetZ],
+        [W - legInsetX, legInsetZ],
+        [legInsetX, D - legInsetZ],
+        [W - legInsetX, D - legInsetZ],
       ].forEach(([lx, lz]) => {
-        addBox(g, legW, H - topT, legW, lx, (H - topT) / 2, lz, secMat);
+        const leg = new THREE.Mesh(
+          markSharedGeometry(new THREE.CylinderGeometry(legRTop, legRBot, legH, 20)),
+          secMat
+        );
+        leg.position.set(lx, legH / 2, lz);
+        leg.castShadow = true;
+        leg.receiveShadow = true;
+        g.add(leg);
       });
+      break;
+    }
+
+    case "coffee_table": {
+      const topT = 28;
+      const legH = Math.max(80, H - topT);
+      // Sculpted rounded-slab coffee table with twin cylindrical fluted/drum pedestals & lower magazine shelf
+      addBox(g, W, topT, D, W / 2, H - topT / 2, D / 2, priMat);
+      const pedR = Math.min(130, Math.max(70, D * 0.2));
+      [W * 0.28, W * 0.72].forEach((px) => {
+        const ped = new THREE.Mesh(
+          markSharedGeometry(new THREE.CylinderGeometry(pedR, pedR * 1.06, legH, 24)),
+          secMat
+        );
+        ped.position.set(px, legH / 2, D / 2);
+        ped.castShadow = true;
+        ped.receiveShadow = true;
+        g.add(ped);
+      });
+      if (W >= 850 && legH >= 200) {
+        addBox(g, W * 0.56, 16, D * 0.54, W / 2, legH * 0.38, D / 2, secMat);
+      }
       break;
     }
 
@@ -543,9 +577,114 @@ function buildProceduralVisualByKind(
       break;
     }
 
+    case "structural_column": {
+      const skirtH = Math.min(90, H * 0.05);
+      addBox(g, W, H, D, W / 2, H / 2, D / 2, priMat);
+      addBox(g, W + 16, skirtH, D + 16, W / 2, skirtH / 2, D / 2, secMat);
+      break;
+    }
+
+    case "area_rug": {
+      const rugH = Math.max(8, Math.min(18, H));
+      addBox(g, W, rugH * 0.65, D, W / 2, rugH * 0.325, D / 2, secMat);
+      addBox(g, Math.max(120, W - 90), rugH, Math.max(120, D - 90), W / 2, rugH * 0.5, D / 2, priMat);
+      break;
+    }
+
+    case "ottoman_pouf": {
+      const r = Math.min(W, D) * 0.48;
+      const baseRing = new THREE.Mesh(
+        markSharedGeometry(new THREE.CylinderGeometry(r * 0.92, r * 0.95, 28, 28)),
+        secMat
+      );
+      baseRing.position.set(W / 2, 14, D / 2);
+      g.add(baseRing);
+      const cushion = new THREE.Mesh(
+        markSharedGeometry(new THREE.CylinderGeometry(r, r * 0.98, Math.max(120, H - 28), 28)),
+        priMat
+      );
+      cushion.position.set(W / 2, 28 + Math.max(120, H - 28) / 2, D / 2);
+      cushion.castShadow = true;
+      g.add(cushion);
+      break;
+    }
+
+    case "espresso_machine": {
+      addBox(g, W, H * 0.88, D * 0.78, W / 2, (H * 0.88) / 2, D * 0.39, priMat);
+      addBox(g, W - 20, 26, D * 0.26, W / 2, 13, D * 0.86, chromeMat);
+      addBox(g, W * 0.86, H * 0.14, D * 0.88, W / 2, H * 0.93, D * 0.46, chromeMat);
+      const groupHead = new THREE.Mesh(
+        markSharedGeometry(new THREE.CylinderGeometry(34, 30, 48, 18)),
+        chromeMat
+      );
+      groupHead.position.set(W / 2, H * 0.56, D * 0.82);
+      g.add(groupHead);
+      break;
+    }
+
+    case "door_interior_swing": {
+      const frameW = 55;
+      addBox(g, frameW, H, D, frameW / 2, H / 2, D / 2, secMat);
+      addBox(g, frameW, H, D, W - frameW / 2, H / 2, D / 2, secMat);
+      addBox(g, Math.max(100, W - 2 * frameW), frameW, D, W / 2, H - frameW / 2, D / 2, secMat);
+      addBox(g, Math.max(100, W - 2 * frameW - 8), H - frameW - 6, Math.min(44, D * 0.45), W / 2, (H - frameW - 6) / 2, D / 2, priMat);
+      addBox(g, 130, 18, 52, W - frameW - 85, Math.min(H - 120, 1020), D / 2 + 24, chromeMat);
+      break;
+    }
+
+    case "window_double_sash": {
+      const fW = 52;
+      addBox(g, W, fW, D, W / 2, fW / 2, D / 2, priMat);
+      addBox(g, W, fW, D, W / 2, H - fW / 2, D / 2, priMat);
+      addBox(g, fW, H - 2 * fW, D, fW / 2, H / 2, D / 2, priMat);
+      addBox(g, fW, H - 2 * fW, D, W - fW / 2, H / 2, D / 2, priMat);
+      addBox(g, fW * 0.85, H - 2 * fW, D * 0.9, W / 2, H / 2, D / 2, priMat);
+      const glassMat = makeMat("#D8EEF8", 0.08, 0.1);
+      glassMat.transparent = true;
+      glassMat.opacity = 0.42;
+      addBox(g, Math.max(80, W - 2 * fW), Math.max(80, H - 2 * fW), 10, W / 2, H / 2, D / 2, glassMat);
+      break;
+    }
+
+    case "radiator_panel": {
+      addBox(g, W, H, D * 0.75, W / 2, H / 2, D * 0.55, priMat);
+      const finCnt = Math.max(6, Math.min(28, Math.floor(W / 45)));
+      const finStep = (W - 40) / finCnt;
+      for (let i = 0; i < finCnt; i++) {
+        addBox(g, 8, H - 36, 8, 24 + i * finStep, H / 2, D * 0.94, secMat);
+      }
+      break;
+    }
+
+    case "boiler_combi": {
+      addBox(g, W, H, D, W / 2, H / 2, D / 2, priMat);
+      addBox(g, W * 0.46, 56, 8, W / 2, H * 0.22, D + 3, glassDarkMat);
+      const flue = new THREE.Mesh(
+        markSharedGeometry(new THREE.CylinderGeometry(50, 50, 140, 18)),
+        priMat
+      );
+      flue.position.set(W / 2, H + 65, D * 0.45);
+      g.add(flue);
+      break;
+    }
+
+    case "wall_mirror_full": {
+      const rim = 16;
+      addBox(g, W, H, Math.max(12, D * 0.6), W / 2, H / 2, Math.max(6, D * 0.3), secMat);
+      const mirrorSurf = makeMat("#E4E9EC", 0.04, 0.92);
+      addBox(g, Math.max(80, W - 2 * rim), Math.max(80, H - 2 * rim), 6, W / 2, H / 2, Math.max(12, D * 0.6) + 2, mirrorSurf);
+      break;
+    }
+
+    case "framed_art": {
+      const fRim = 24;
+      addBox(g, W, H, D, W / 2, H / 2, D / 2, priMat);
+      addBox(g, Math.max(60, W - 2 * fRim), Math.max(60, H - 2 * fRim), 6, W / 2, H / 2, D + 1, secMat);
+      break;
+    }
+
     default: {
       addBox(g, W, H, D, W / 2, H / 2, D / 2, priMat);
-      addBox(g, W - 36, H - 36, 12, W / 2, H / 2, D + 2, secMat);
       break;
     }
   }

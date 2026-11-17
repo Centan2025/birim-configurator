@@ -18,6 +18,7 @@ import {
   type CncPieceInput,
 } from "@birim/manufacturing";
 import { Cpu, Scissors, ShieldAlert, Sparkles, Trash2, Download } from "lucide-react";
+import { V3PremiumDropdown } from "../../design-system";
 
 interface PanelCutoutInspectorProps {
   activeModule: SweepModuleInput & {
@@ -240,26 +241,28 @@ export const PanelCutoutInspector: React.FC<PanelCutoutInspectorProps> = ({
                 </div>
 
                 <div className="grid grid-cols-3 gap-1.5">
-                  <label className="block">
-                    <span className="text-[9px] text-[#78716C] block">Hedef Panel</span>
-                    <select
+                  <div className="block">
+                    <span className="text-[9px] text-[#78716C] block mb-0.5">Hedef Panel</span>
+                    <V3PremiumDropdown
+                      variant="popover"
+                      size="sm"
                       value={co.targetPanel}
-                      onChange={(e) => {
+                      onChange={(val) => {
                         const updated = [...cutouts];
                         updated[idx] = {
                           ...co,
-                          targetPanel: e.target.value as CutoutTargetPanel,
+                          targetPanel: val as CutoutTargetPanel,
                         };
                         onChangeCutouts(updated);
                       }}
-                      className="w-full mt-0.5 px-1.5 py-1 rounded-lg bg-white border border-[#DED8CC] text-[11px] font-semibold"
-                    >
-                      <option value="back">Arkalık</option>
-                      <option value="left_side">Sol Yan</option>
-                      <option value="right_side">Sağ Yan</option>
-                      <option value="bottom">Alt Tabla</option>
-                    </select>
-                  </label>
+                      options={[
+                        { value: "back", label: "Arkalık" },
+                        { value: "left_side", label: "Sol Yan" },
+                        { value: "right_side", label: "Sağ Yan" },
+                        { value: "bottom", label: "Alt Tabla" },
+                      ]}
+                    />
+                  </div>
 
                   <label className="block">
                     <span className="text-[9px] text-[#78716C] block">Merkez X (mm)</span>

@@ -451,6 +451,7 @@ export function generateBOMForProject(
     const doorMat = materialsMap.get(module.carcass.doorMaterialId) || DEFAULT_MATERIALS[2];
     const isCapsuleModule =
       module.carcass.hullShape === "capsule_stadium" ||
+      module.carcass.hullShape === "rounded_corners" ||
       module.carcass.hullShape === "capsule_table";
     const hasGroovedBack =
       module.category !== "complementary" &&
@@ -458,73 +459,25 @@ export function generateBOMForProject(
       !isCapsuleModule &&
       module.carcass.backPanelType === "grooved";
 
-    // V5.2 / V6 Canonical Capsule & Rounded-Corner Kerf-Bending BOM:
-    // For `capsule_stadium`, `generateModuleGeometry(module)` already emits canonical `kerf_curve`
-    // shells (with zero duplicate flat side panels!) which flow through the unified `CutPiece` loop below.
+    // Canonical Capsule Stadium, Rounded-Corner Tambour & Capsule Table Engineering BOM:
+    // Both `capsule_stadium` (2×180° kerf shells) and `rounded_corners` (4×90° kerf shells)
+    // emit their exact `kerf_curve` panels via `generateModuleGeometry(module)` with zero duplicate flat outer side panels!
     if (
       module.carcass.hullShape === "capsule_stadium" ||
       module.carcass.hullShape === "rounded_corners"
     ) {
-      const capR = Math.min(
-        module.dimensions.depth / 2,
-        module.carcass.cornerRadiusMm || module.dimensions.depth / 2
-      );
+      const capR =
+        module.carcass.hullShape === "rounded_corners"
+          ? Math.max(65, Math.min(module.dimensions.depth / 2 - 20, module.carcass.cornerRadiusMm || 110))
+          : Math.min(module.dimensions.depth / 2, module.carcass.cornerRadiusMm || module.dimensions.depth / 2);
+      const pocketR = Math.max(52, capR - 32);
       const bendDeg = module.carcass.hullShape === "capsule_stadium" ? 180 : 90;
       const curveCount = module.carcass.hullShape === "capsule_stadium" ? 2 : 4;
       const kerf = computeCurvedKerfBendingSpec(
-        capR,
+        pocketR,
         bendDeg,
         module.carcass.panelThickness || 18
       );
-      if (module.carcass.hullShape === "rounded_corners") {
-        const bodyH = Math.max(
-          200,
-          module.dimensions.height - (module.carcass.plinthHeight || 0) - 22
-        );
-        for (let ci = 1; ci <= curveCount; ci++) {
-          const areaM2 = roundMm((kerf.unfoldedArcLengthMm * bodyH) / 1_000_000, 4);
-          const ebT = 1;
-          const preMill = Math.max(0, module.carcass.preMillingMm ?? 0);
-          const netL = Math.max(10, roundMm(bodyH - 2 * (ebT - preMill), 1));
-          cutList.push({
-            id: `${module.id}_kerf_corner_${ci}`,
-            pieceName: `Yuvarlatılmış Köşe Kerf Açınımı #${ci} (R=${kerf.outerRadiusMm}mm • ${kerf.kerfCount} Kerf)`,
-            moduleName: module.name,
-            moduleId: module.id,
-            componentRole: "kerf_curve",
-            materialId: doorMat.id,
-            materialName: doorMat.name,
-            lengthMm: bodyH,
-            widthMm: kerf.unfoldedArcLengthMm,
-            nominalLengthMm: bodyH,
-            nominalWidthMm: kerf.unfoldedArcLengthMm,
-            netCutLengthMm: netL,
-            netCutWidthMm: kerf.unfoldedArcLengthMm,
-            preMillingMm: preMill,
-            rawOriginOffsetXMm: 0,
-            rawOriginOffsetYMm: roundMm(ebT - preMill, 2),
-            edgeBandCode: "2K 1mm",
-            thicknessMm: kerf.panelThicknessMm,
-            quantity: 1,
-            edgeBanding: { top: true, bottom: true, left: false, right: false, thickness: ebT },
-            grain: "lengthwise",
-            areaM2,
-            edgeBandMeters: roundMm((kerf.unfoldedArcLengthMm * 2) / 1000, 3),
-            holes: [],
-            kerfBendingMeta: {
-              outerRadiusMm: kerf.outerRadiusMm,
-              bendAngleDeg: bendDeg,
-              unfoldedArcLengthMm: kerf.unfoldedArcLengthMm,
-              kerfCount: kerf.kerfCount,
-              kerfSpacingMm: kerf.kerfSpacingMm,
-              residualWebMm:
-                (kerf as { residualSkinThicknessMm?: number; skinRemainingMm?: number }).residualSkinThicknessMm ??
-                (kerf as { skinRemainingMm?: number }).skinRemainingMm ??
-                2,
-            },
-          });
-        }
-      }
       addHardware(
         "HW_CNC_KERF_BENDING",
         `CNC Kerf-Bending Kavis Çentikleme & Kalıp Pres (${kerf.kerfCount * curveCount} kanal)`,
@@ -533,20 +486,53 @@ export function generateBOMForProject(
         "adet",
         34.0
       );
-      addHardware(
-        "HW_TAMBOUR_FLEX_TRACK",
-        "Kavisli Tambur Sürgü Kapak Rayı & Akustik Keçe Sırt",
-        "slide",
-        1,
-        "takım",
-        68.0
-      );
+      if (!module.isOpenFront && module.bays.some((b) => b.door?.type !== "open")) {
+        const perimMeters = roundMm(
+          (2 * Math.max(0, module.dimensions.width - 2 * capR) + 2 * Math.PI * Math.max(30, capR - 18)) * 2 / 1000,
+          2
+        );
+        addHardware(
+          "HW_TAMBOUR_FLEX_TRACK",
+          "Kavisli Tambur Sürgü Kapak Rayı & Akustik Keçe Sırt Seti",
+          "slide",
+          1,
+          "takım",
+          68.0
+        );
+        addHardware(
+          "HW_TAMBOUR_GLIDE_PROFILE",
+          "8.5×7.5mm CNC Kanal İçi Polipropilen Sessiz Kayar Fitil (Üst + Alt)",
+          "slide",
+          Math.max(2, perimMeters),
+          "metre",
+          6.8
+        );
+        addHardware(
+          "HW_TAMBOUR_MAGNET_STOP",
+          "Tambur Kapak Mıknatıslı Merkez Karşılık & Çekme Çıtası Seti",
+          "handle",
+          2,
+          "adet",
+          12.5
+        );
+      }
+      if (module.carcass.plinthHeight >= 110) {
+        addHardware(
+          "HW_CAPSULE_METAL_LEG",
+          `Torna Pirinç / Mat Siyah Silindirik Ayak + M8 Flanş (${module.carcass.plinthHeight}mm)`,
+          "leg",
+          module.dimensions.width >= 1800 ? 6 : 4,
+          "adet",
+          16.5
+        );
+      }
     } else if (module.carcass.hullShape === "capsule_table") {
       const pedR = Math.round(Math.min(185, Math.max(95, module.dimensions.depth * 0.21)));
       const kerfPed = computeCurvedKerfBendingSpec(pedR, 360, 18);
+      const pedCount = module.dimensions.width >= 1450 ? 2 : 1;
       addHardware(
         "HW_CNC_SWISS_CAPSULE_TOP",
-        `5 Eksen CNC Kapsül Masa Kontur & 45° Swiss-Edge Pah İşleme (R=${Math.round(module.dimensions.depth / 2)}mm)`,
+        `5 Eksen CNC Kapsül Masa Kontur & 45° Swiss-Edge Pah İşleme (R=${Math.round(module.carcass.cornerRadiusMm || module.dimensions.depth / 2)}mm)`,
         "special",
         1,
         "adet",
@@ -556,10 +542,36 @@ export function generateBOMForProject(
         "HW_CNC_FLUTED_PEDESTAL",
         `Silindirik Yivli Kapsül Sütun Ayak Seti (Açınım ${kerfPed.unfoldedArcLengthMm}mm)`,
         "leg",
-        module.dimensions.width >= 1450 ? 2 : 1,
+        pedCount,
         "adet",
         95.0
       );
+      addHardware(
+        "HW_TABLE_MOUNT_FLANGE_M8",
+        "Çelik Masa Sütun Bağlantı Flanşı + M8 Gövde Cıvata Takımı",
+        "connector",
+        pedCount,
+        "takım",
+        18.5
+      );
+      addHardware(
+        "HW_TABLE_LEVELING_GLIDE",
+        "Gizli Masa Terazi Pabucu M10 (Keçe Tabanlı)",
+        "leg",
+        pedCount * 4,
+        "adet",
+        1.8
+      );
+      if (module.dimensions.width >= 1500) {
+        addHardware(
+          "HW_TABLE_ANTI_SAG_BEAM",
+          "Masa Tablası Altı 40×30mm Çelik Sarkma Önleyici Travers Profil",
+          "special",
+          1,
+          "adet",
+          32.0
+        );
+      }
     }
 
     if (module.category !== "complementary") {
@@ -703,7 +715,7 @@ export function generateBOMForProject(
         14.5
       );
     }
-    if (module.category !== "complementary" && !isDishwasherSlot) {
+    if (module.category !== "complementary" && !isDishwasherSlot && module.carcass.hullShape !== "capsule_table") {
       const modJoinery =
         module.carcass.carcassJoineryTopology ||
         (module.category === "kitchen_base" || module.category === "kitchen_island"
@@ -952,6 +964,52 @@ export function generateBOMForProject(
           "adet",
           2.5
         );
+      } else if (module.complementaryRole === "attached_table") {
+        const legSt = module.attachedTableConfig?.legStyle || "metal_u_frame";
+        addHardware(
+          "HW_WORKTOP_CANTILEVER_PLATE",
+          "Ada / Masa Çelik Konsol Ankraj Plakası + M8 Cıvata Seti",
+          "connector",
+          1,
+          "takım",
+          24.0
+        );
+        if (legSt === "waterfall_slab") {
+          addHardware(
+            "HW_MITER_BOLT_WORKTOP",
+            "Şelale Masa 45° Gönye Çektirme & Lamello Clamex Bağlantı Seti",
+            "connector",
+            4,
+            "adet",
+            3.8
+          );
+          addHardware(
+            "HW_WATERFALL_FLOOR_GLIDE",
+            "Şelale Yan İniş Nem Yalıtımlı Zemin Terazi Pabucu",
+            "leg",
+            2,
+            "adet",
+            1.9
+          );
+        } else if (legSt === "pedestal_column") {
+          addHardware(
+            "HW_PEDESTAL_STEEL_COLUMN",
+            "Elektrostatik Boyalı Çelik Silindirik Masa Sütun Ayağı + Flanş",
+            "leg",
+            1,
+            "takım",
+            68.0
+          );
+        } else {
+          addHardware(
+            "HW_UFRAME_STEEL_LEG",
+            "50×24mm Elektrostatik Boyalı Mimari U-Profil Masa Ayağı + Terazi Pabucu",
+            "leg",
+            1,
+            "takım",
+            54.0
+          );
+        }
       }
     }
 
@@ -1435,6 +1493,36 @@ export function generateBOMForProject(
               selectedHw?.name || "Blum REVEGO Pocket Gizlenen Kapak Sistemi";
             const pocketPrice = selectedHw?.unitPriceEur || 420.0;
             addHardware(pocketSku, pocketName, "special", 1, "takım", pocketPrice);
+          } else if (
+            (dSys === "tambour_roller" || bay?.door?.type === "tambour") &&
+            module.carcass.hullShape !== "capsule_stadium" &&
+            module.carcass.hullShape !== "rounded_corners"
+          ) {
+            const guideMeters = roundMm((comp.dimensions.height * 2.2) / 1000, 2);
+            addHardware(
+              selectedHw?.sku || "HW_TAMBOUR_CASSETTE_SET",
+              selectedHw?.name || "Yaylı Dengelemeli Dikey Tambur Panjur Sarım Tamburu & Kaset Mekanizması",
+              "slide",
+              1,
+              "takım",
+              selectedHw?.unitPriceEur || 92.0
+            );
+            addHardware(
+              "HW_TAMBOUR_GUIDE_ALU",
+              "Eloksallı Alüminyum Gömme Tambur Yan Kılavuz Rayı + Sessiz Fırça Fitil",
+              "slide",
+              Math.max(1.2, guideMeters),
+              "metre",
+              16.5
+            );
+            addHardware(
+              "HW_TAMBOUR_PULL_PROFILE",
+              "Tambur Kapak Entegre Alüminyum Alt Tutamak & Stoper Profili",
+              "handle",
+              1,
+              "adet",
+              14.0
+            );
           }
         }
 
@@ -1472,6 +1560,9 @@ export function generateBOMForProject(
         const doorProfForHandle =
           bay?.door?.crossSectionProfile || module.carcass.crossSectionProfile || "flat_slab";
         const isIntegratedMilledHandleless =
+          dSys === "tambour_roller" ||
+          bay?.door?.type === "tambour" ||
+          comp.id.includes("_tambour_") ||
           handleCat === "handleless_plain" ||
           handleCat === "j_pull" ||
           handleCat === "gola_profile" ||
@@ -1835,6 +1926,13 @@ export function generateBOMForProject(
         ) {
           return undefined;
         }
+        if (
+          comp.id.includes("_tambour_") ||
+          dSys === "tambour_roller" ||
+          bay?.door?.type === "tambour"
+        ) {
+          return undefined;
+        }
         if (comp.role === "drawer_front") {
           const drObj = bay?.drawers.find((d) => `${d.id}_front` === comp.id);
           if (drObj?.isInternal) return undefined;
@@ -2135,6 +2233,7 @@ export function generateBOMForProject(
         wallHangerCornerNotches,
         polygonContourMm: comp.polygonContourMm,
         kerfBendingMeta: comp.kerfBendingMeta,
+        tambourTrackGrooveSpec: comp.tambourTrackGrooveSpec,
       });
     });
 

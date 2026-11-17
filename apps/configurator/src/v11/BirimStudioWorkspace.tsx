@@ -224,6 +224,7 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
   const viewportRenderStyle = useConfiguratorStore((s) => s.viewportRenderStyle);
   const setViewportRenderStyle = useConfiguratorStore((s) => s.setViewportRenderStyle);
   const activeTenantId = useConfiguratorStore((s) => s.activeTenantId);
+  const updateCeilingConfig = useConfiguratorStore((s) => s.updateCeilingConfig);
 
   const [workspaceMode, setWorkspaceMode] = useState<V11WorkspaceMode>(() =>
     initialMode === "plan" ? "plan" : initialMode === "showroom" ? "showroom" : "3d"
@@ -1024,7 +1025,9 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
           activeModuleIndex={activeModuleIndex}
           wallWidthMm={wallWidthMm}
           ceilingHeightMm={ceilingHeightMm}
+          ceilingConfig={project.space.ceilingConfig}
           obstacles={spaceObstacles}
+          onUpdateCeilingConfig={updateCeilingConfig}
           onApplyTemplateToActive={handleApplyTemplateToActive}
           onAppendTemplateAdjacent={handleAppendTemplateAdjacent}
           onAddCompositeAssembly={handleAddCompositeAssembly}
@@ -1063,7 +1066,8 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
           handleProfiles={handleProfiles}
           engineeringFindings={allFindings}
           facadeGrainContinuity={
-            String(activeModule.carcass.grainContinuityMode) === "continuous_facade"
+            Boolean(project.facadeGrainContinuity) ||
+            activeModule.carcass.grainContinuityMode === "facade_continuous"
           }
           onToggleFacadeGrainContinuity={handleToggleFacadeGrainContinuity}
           onRunAutoFillersAndCrown={handleRunAutoFillersAndCrown}

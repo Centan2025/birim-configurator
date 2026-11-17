@@ -65,11 +65,9 @@ export const MepCoordinationModal: React.FC<MepCoordinationModalProps> = ({
           <div className="flex items-center gap-2.5">
             <Zap className="w-4 h-4 text-amber-600" />
             <div>
-              <h2 className="text-sm font-extrabold tracking-tight">
-                Şantiye Elektrik &amp; Sıhhi Tesisat Aks Paftası (MEP + AIA Katmanlı .DXF)
-              </h2>
+              <h2 className="text-sm font-bold tracking-tight">Tesisat Planı</h2>
               <p className="text-[11px] text-stone-500">
-                Sol Bitmiş Duvar (X=0) ve Bitmiş Döşeme (FFL ±0.00) referanslı priz, su, gider ve davlumbaz baca kotları
+                Elektrik, su, gider ve baca noktaları
               </p>
             </div>
           </div>

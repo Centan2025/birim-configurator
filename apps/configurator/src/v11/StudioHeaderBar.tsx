@@ -353,10 +353,10 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
               {outputsOpen && (
                 <div
                   data-testid="v11-outputs-dropdown"
-                  className="absolute right-0 top-full mt-2 w-80 max-h-[82vh] overflow-y-auto rounded-3xl bg-[#FAF8F4]/98 backdrop-blur-xl border border-[#DFD9CE] shadow-[0_20px_48px_rgba(20,20,19,0.14)] p-2 z-50 text-xs text-[#141413]"
+                  className="absolute right-0 top-full mt-2 w-76 max-h-[82vh] overflow-y-auto rounded-3xl bg-[#FAF8F4]/98 backdrop-blur-xl border border-[#DFD9CE] shadow-[0_20px_48px_rgba(20,20,19,0.14)] p-2 z-50 text-xs text-[#141413]"
                 >
-                  <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[#8C7A6B]">
-                    Özel Ürün, Tesisat & CNC Kertme
+                  <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[#8C7A6B]">
+                    Tasarım &amp; Sahne
                   </div>
                   <button
                     type="button"
@@ -364,12 +364,14 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                       setOutputsOpen(false);
                       onOpenSceneHubModal();
                     }}
-                    className="w-full px-3 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
+                    className="group w-full px-2.5 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
                   >
-                    <Box className="w-4 h-4 text-[#57534E] shrink-0" />
-                    <div>
-                      <div className="font-semibold">Kapsül Masa/Konsol & .GLB 3B Merkezi</div>
-                      <div className="text-[11px] text-[#78716C]">Özel kapsül üniteler, 3B eşyalar ve LiDAR</div>
+                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-white flex items-center justify-center shrink-0 transition">
+                      <Box className="w-4 h-4 text-[#44403C]" />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="font-semibold">3B Nesne &amp; Masa</div>
+                      <div className="text-[11px] text-[#78716C] truncate">Hazır eşyalar ve özel üniteler</div>
                     </div>
                   </button>
                   <button
@@ -378,12 +380,14 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                       setOutputsOpen(false);
                       onOpenMepModal();
                     }}
-                    className="w-full px-3 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
+                    className="group w-full px-2.5 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
                   >
-                    <Zap className="w-4 h-4 text-[#57534E] shrink-0" />
-                    <div>
-                      <div className="font-semibold">Elektrik & Su Tesisat Planı (MEP)</div>
-                      <div className="text-[11px] text-[#78716C]">Priz, temiz/atık su kot şeması ve DXF</div>
+                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-white flex items-center justify-center shrink-0 transition">
+                      <Zap className="w-4 h-4 text-[#44403C]" />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="font-semibold">Tesisat Planı</div>
+                      <div className="text-[11px] text-[#78716C] truncate">Elektrik ve su noktaları</div>
                     </div>
                   </button>
                   <button
@@ -392,19 +396,21 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                       setOutputsOpen(false);
                       onOpenCutoutModal();
                     }}
-                    className="w-full px-3 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
+                    className="group w-full px-2.5 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
                   >
-                    <Scissors className="w-4 h-4 text-[#57534E] shrink-0" />
-                    <div>
-                      <div className="font-semibold">Panel Kertme & Priz/Boru Kesimi</div>
-                      <div className="text-[11px] text-[#78716C]">Arkalık/yan panel CNC boşaltma işlemleri</div>
+                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-white flex items-center justify-center shrink-0 transition">
+                      <Scissors className="w-4 h-4 text-[#44403C]" />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="font-semibold">Panel Kesimi</div>
+                      <div className="text-[11px] text-[#78716C] truncate">Priz ve boru boşaltmaları</div>
                     </div>
                   </button>
 
                   <div className="my-1.5 h-px bg-[#E6E1D6]" />
 
-                  <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[#8C7A6B]">
-                    Sunum & Görselleştirme
+                  <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[#8C7A6B]">
+                    Görselleştirme
                   </div>
                   <button
                     type="button"
@@ -412,12 +418,14 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                       setOutputsOpen(false);
                       onOpenStudioRenderModal();
                     }}
-                    className="w-full px-3 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
+                    className="group w-full px-2.5 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
                   >
-                    <Camera className="w-4 h-4 text-[#57534E] shrink-0" />
-                    <div>
-                      <div className="font-semibold">2K Fotoğraf & Render Stüdyosu</div>
-                      <div className="text-[11px] text-[#78716C]">Yüksek çözünürlüklü sahne çıktısı</div>
+                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-white flex items-center justify-center shrink-0 transition">
+                      <Camera className="w-4 h-4 text-[#44403C]" />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="font-semibold">Stüdyo Render</div>
+                      <div className="text-[11px] text-[#78716C] truncate">Yüksek kaliteli fotoğraf çıktısı</div>
                     </div>
                   </button>
                   <button
@@ -426,12 +434,14 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                       setOutputsOpen(false);
                       onOpenArModal();
                     }}
-                    className="w-full px-3 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
+                    className="group w-full px-2.5 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
                   >
-                    <Smartphone className="w-4 h-4 text-[#57534E] shrink-0" />
-                    <div>
-                      <div className="font-semibold">AR Oda Önizleme (QR / GLB / USDZ)</div>
-                      <div className="text-[11px] text-[#78716C]">Telefonda gerçek mekânda incele</div>
+                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-white flex items-center justify-center shrink-0 transition">
+                      <Smartphone className="w-4 h-4 text-[#44403C]" />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="font-semibold">AR Önizleme</div>
+                      <div className="text-[11px] text-[#78716C] truncate">Telefonda mekânda gör</div>
                     </div>
                   </button>
                   <button
@@ -440,19 +450,21 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                       setOutputsOpen(false);
                       onOpenAssemblyModal();
                     }}
-                    className="w-full px-3 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
+                    className="group w-full px-2.5 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
                   >
-                    <Layers className="w-4 h-4 text-[#57534E] shrink-0" />
-                    <div>
-                      <div className="font-semibold">Patlatılmış Montaj Şeması</div>
-                      <div className="text-[11px] text-[#78716C]">Adım adım numaralı kurulum kılavuzu</div>
+                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-white flex items-center justify-center shrink-0 transition">
+                      <Layers className="w-4 h-4 text-[#44403C]" />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="font-semibold">Montaj Şeması</div>
+                      <div className="text-[11px] text-[#78716C] truncate">Adım adım kurulum planı</div>
                     </div>
                   </button>
 
                   <div className="my-1.5 h-px bg-[#E6E1D6]" />
 
-                  <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[#8C7A6B]">
-                    Üretim, CNC, Blum BXF & Mağaza ERP
+                  <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[#8C7A6B]">
+                    Üretim &amp; Yönetim
                   </div>
                   <button
                     type="button"
@@ -460,12 +472,14 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                       setOutputsOpen(false);
                       onOpenBomModal("cutlist");
                     }}
-                    className="w-full px-3 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
+                    className="group w-full px-2.5 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
                   >
-                    <FileSpreadsheet className="w-4 h-4 text-[#57534E] shrink-0" />
-                    <div>
-                      <div className="font-semibold">Kesim Listesi, Nesting, CNC & Blum BXF</div>
-                      <div className="text-[11px] text-[#78716C]">Plaka optimizasyonu, DXF, MPR/CIX ve BXF</div>
+                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-white flex items-center justify-center shrink-0 transition">
+                      <FileSpreadsheet className="w-4 h-4 text-[#44403C]" />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="font-semibold">Kesim &amp; CNC</div>
+                      <div className="text-[11px] text-[#78716C] truncate">Parça listesi ve makine çıktısı</div>
                     </div>
                   </button>
                   <button
@@ -474,12 +488,14 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                       setOutputsOpen(false);
                       onOpenStoreErpModal();
                     }}
-                    className="w-full px-3 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
+                    className="group w-full px-2.5 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
                   >
-                    <Store className="w-4 h-4 text-[#57534E] shrink-0" />
-                    <div>
-                      <div className="font-semibold">Birim Store & Portal ERP Aktarımı</div>
-                      <div className="text-[11px] text-[#78716C]">Tekliften üretime doğrudan senkronizasyon</div>
+                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-white flex items-center justify-center shrink-0 transition">
+                      <Store className="w-4 h-4 text-[#44403C]" />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="font-semibold">Mağaza &amp; ERP</div>
+                      <div className="text-[11px] text-[#78716C] truncate">Sipariş ve üretim aktarımı</div>
                     </div>
                   </button>
                   <button
@@ -488,19 +504,21 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                       setOutputsOpen(false);
                       onOpenStandardsModal();
                     }}
-                    className="w-full px-3 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
+                    className="group w-full px-2.5 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
                   >
-                    <ShieldCheck className="w-4 h-4 text-[#57534E] shrink-0" />
-                    <div className="flex-1">
-                      <div className="font-semibold flex items-center justify-between">
-                        <span>Mühendislik & Standart Kontrolü</span>
+                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-white flex items-center justify-center shrink-0 transition">
+                      <ShieldCheck className="w-4 h-4 text-[#44403C]" />
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold flex items-center justify-between gap-2">
+                        <span>Kalite Kontrol</span>
                         {blockingIssueCount > 0 && (
                           <span className="px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold">
                             {blockingIssueCount}
                           </span>
                         )}
                       </div>
-                      <div className="text-[11px] text-[#78716C]">Uyumluluk denetimi ve otomatik çözüm</div>
+                      <div className="text-[11px] text-[#78716C] truncate">Ölçü ve uyumluluk denetimi</div>
                     </div>
                   </button>
                   <button
@@ -509,12 +527,14 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                       setOutputsOpen(false);
                       onOpenSaasModal();
                     }}
-                    className="w-full px-3 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
+                    className="group w-full px-2.5 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
                   >
-                    <Building2 className="w-4 h-4 text-[#57534E] shrink-0" />
-                    <div>
-                      <div className="font-semibold">Firma & Katalog Yönetimi</div>
-                      <div className="text-[11px] text-[#78716C]">Kurumsal fiyat çarpanları ve şube ayarları</div>
+                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-white flex items-center justify-center shrink-0 transition">
+                      <Building2 className="w-4 h-4 text-[#44403C]" />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="font-semibold">Firma Ayarları</div>
+                      <div className="text-[11px] text-[#78716C] truncate">Fiyat, şube ve katalog yönetimi</div>
                     </div>
                   </button>
                 </div>

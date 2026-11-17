@@ -62,6 +62,56 @@ export function generateAssemblyInstructions(
         : "Zemin eğimi 5mm'den fazlaysa terazi ayaklarını yük aktarım dikmelerinin tam altında sabitleyiniz.",
   });
 
+  const hasCapsuleOrTambour = project.modules.some(
+    (m) =>
+      m.carcass.hullShape === "capsule_stadium" ||
+      m.carcass.hullShape === "rounded_corners" ||
+      m.bays.some((b) => b.door?.type === "tambour" || b.door?.doorSystemId === "tambour_roller")
+  );
+  const hasCapsuleTable = project.modules.some((m) => m.carcass.hullShape === "capsule_table");
+
+  if (hasCapsuleTable) {
+    const tableParts = bom.cutList
+      .filter((p) => p.id.includes("capsule_table") || p.id.includes("pedestal"))
+      .map((p) => p.pieceName);
+    steps.push({
+      stepNumber: stepNo++,
+      title: "Kapsül Sütun Ayak Kerf Büküm ve Çelik Travers Kurulumu",
+      description:
+        "360° CNC kerf çentikli silindirik sütun gövdeleri üst/alt dairesel kalıp diskleri etrafına PVA-D3 tutkal ile sarıp terazi pabuçlarını sabitleyiniz. İki sütun arasına sarkma önleyici çelik traversi bağlayıp 5-eksen Swiss-Edge masa tablasını M8 flanş cıvatalarıyla kilitleyiniz.",
+      requiredParts: tableParts.slice(0, 6),
+      requiredHardware: bom.hardwareList
+        .filter((h) => h.sku.includes("FLUTED_PEDESTAL") || h.sku.includes("TABLE") || h.sku.includes("CAPSULE_TOP"))
+        .map((h) => h.sku),
+      safetyNotes: "Sütun kerf birleşim derzini masa uzun ekseninin iç/görünmeyen yönüne hizalayınız.",
+    });
+  }
+
+  if (hasCapsuleOrTambour) {
+    const kerfAndTambourParts = bom.cutList
+      .filter(
+        (p) =>
+          p.componentRole === "kerf_curve" ||
+          p.id.includes("_capsule_") ||
+          p.id.includes("_rounded_") ||
+          p.id.includes("_tambour_")
+      )
+      .slice(0, 6)
+      .map((p) => p.pieceName);
+    steps.push({
+      stepNumber: stepNo++,
+      title: "Kavisli Kerf İç Cep Karkası ve CNC Tambur Kılavuz Kanal Montajı",
+      description:
+        "Alt tabladaki 8.5×7.5mm CNC tambur oluğuna düşük sürtünmeli polipropilen kılavuz ray fitilini oturtunuz. İç taşıyıcı dikmeleri ve kavisli kerf cep duvarlarını alt tablaya sabitledikten sonra akustik keçe sırtlı tambur lamel perdelerini kanala sürüp üst tablayı kapatınız.",
+      requiredParts: kerfAndTambourParts,
+      requiredHardware: bom.hardwareList
+        .filter((h) => h.sku.includes("TAMBOUR") || h.sku.includes("KERF"))
+        .map((h) => h.sku),
+      safetyNotes:
+        "Üst tablayı kilitlemeden önce tambur kapakların sağ/sol kavis cep koridorunda sürtünmesiz tam tur kaydığını mutlaka elle test ediniz!",
+    });
+  }
+
   const carcassParts = bom.cutList
     .filter((p) => p.componentRole.startsWith("carcass_") && p.componentRole !== "carcass_back")
     .slice(0, 6)
@@ -448,6 +498,35 @@ function renderSinglePieceEntities(
     ]);
     writer.addPolyline("PANEL_CONTOUR", shiftedPoly, true);
     writer.addPolyline(outlineLayer, shiftedPoly, true);
+
+    if (piece.tambourTrackGrooveSpec) {
+      const gSpec = piece.tambourTrackGrooveSpec;
+      const ins = gSpec.insetFromOuterMm;
+      const rOuter = Math.min(w / 2, h / 2, gSpec.cornerRadiusMm);
+      const rTrack = Math.max(20, rOuter - ins);
+      const xMin = ins;
+      const xMax = Math.max(ins + 20, w - ins);
+      const yMin = ins;
+      const yMax = Math.max(ins + 20, h - ins);
+      const trackPts: [number, number][] = [];
+      const cornerArcs: [number, number, number, number][] = [
+        [xMin + rTrack, yMin + rTrack, Math.PI, 1.5 * Math.PI],
+        [xMax - rTrack, yMin + rTrack, 1.5 * Math.PI, 2.0 * Math.PI],
+        [xMax - rTrack, yMax - rTrack, 0, 0.5 * Math.PI],
+        [xMin + rTrack, yMax - rTrack, 0.5 * Math.PI, Math.PI],
+      ];
+      for (const [cx, cy, a0, a1] of cornerArcs) {
+        for (let s = 0; s <= 6; s++) {
+          const ang = a0 + ((a1 - a0) * s) / 6;
+          trackPts.push([
+            roundMm(offsetX + cx + rTrack * Math.cos(ang), 2),
+            roundMm(offsetY + cy + rTrack * Math.sin(ang), 2),
+          ]);
+        }
+      }
+      const grooveLayer = `TAMBOUR_TRACK_W${String(gSpec.widthMm).replace(".", "_")}_Z${String(gSpec.depthMm).replace(".", "_")}`;
+      writer.addPolyline(grooveLayer, trackPts, true);
+    }
   } else {
     writer.addRect("PANEL_CONTOUR", offsetX, offsetY, w, h);
     writer.addRect(

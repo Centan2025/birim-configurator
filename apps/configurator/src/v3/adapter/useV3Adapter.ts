@@ -1648,7 +1648,8 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
       newDepthMm?: number,
       newHeightMm?: number,
       newPositionZ?: number,
-      newPositionY?: number
+      newPositionY?: number,
+      preserveExactMm?: boolean
     ): { bayCount: number; totalLeafCount: number; shelfCount: number } | null => {
       const curState = useConfiguratorStore.getState();
       const curProj = curState.project;
@@ -1656,14 +1657,32 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
       if (!target) return null;
 
       const oldH = target.dimensions.height;
-      const clampedW = Math.max(300, Math.min(3600, Math.round(newWidthMm / 10) * 10));
+      const oldD = target.dimensions.depth;
+      const hull = target.carcass.hullShape || "rectangular";
+      const isTableOrIsland =
+        hull === "capsule_table" ||
+        target.category === "kitchen_island" ||
+        target.complementaryRole === "attached_table";
+      const isCapsuleOrTambour =
+        hull === "capsule_stadium" ||
+        hull === "rounded_corners" ||
+        target.bays.some((b) => b.door?.type === "tambour" || b.door?.doorSystemId === "tambour_roller");
+      const snapFn = (v: number) => (preserveExactMm ? Math.round(v) : Math.round(v / 10) * 10);
+      const minW = hull === "capsule_table" ? 900 : isCapsuleOrTambour ? 600 : 250;
+      const maxW = 3600;
+      const minD = hull === "capsule_table" ? 650 : isCapsuleOrTambour ? 320 : 200;
+      const maxD = isTableOrIsland ? 1450 : 1000;
+      const minH = 260;
+      const maxH = 2900;
+
+      const clampedW = Math.max(minW, Math.min(maxW, snapFn(newWidthMm)));
       const clampedD =
         typeof newDepthMm === "number"
-          ? Math.max(250, Math.min(900, Math.round(newDepthMm / 10) * 10))
+          ? Math.max(minD, Math.min(maxD, snapFn(newDepthMm)))
           : target.dimensions.depth;
       const clampedH =
         typeof newHeightMm === "number"
-          ? Math.max(350, Math.min(2800, Math.round(newHeightMm / 10) * 10))
+          ? Math.max(minH, Math.min(maxH, snapFn(newHeightMm)))
           : target.dimensions.height;
       const leftAttW = curProj.modules
         .filter(
@@ -1788,7 +1807,77 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
         });
       }
 
-      if (nextMod.category !== "complementary") {
+      // Synchronize cornerRadiusMm cleanly when depth or width changes on capsule / rounded / table modules
+      if (nextMod.carcass.hullShape === "capsule_stadium") {
+        nextMod.carcass.cornerRadiusMm = Math.min(Math.floor(clampedW / 2) - 40, Math.round(clampedD / 2));
+      } else if (nextMod.carcass.hullShape === "rounded_corners") {
+        const curR = nextMod.carcass.cornerRadiusMm || 110;
+        nextMod.carcass.cornerRadiusMm = Math.max(
+          65,
+          Math.min(Math.max(65, Math.floor(clampedD / 2) - 20), Math.floor(clampedW / 2) - 40, curR)
+        );
+      } else if (nextMod.carcass.hullShape === "capsule_table") {
+        const wasFullStadium = Math.abs((nextMod.carcass.cornerRadiusMm || oldD / 2) - oldD / 2) <= 15;
+        nextMod.carcass.cornerRadiusMm = wasFullStadium
+          ? Math.round(clampedD / 2)
+          : Math.max(80, Math.min(Math.round(clampedD / 2), nextMod.carcass.cornerRadiusMm || Math.round(clampedD / 2)));
+      }
+
+      const isSpecializedCapsuleOrTv =
+        nextMod.carcass.hullShape === "capsule_stadium" ||
+        nextMod.carcass.hullShape === "rounded_corners" ||
+        nextMod.carcass.hullShape === "capsule_table" ||
+        Boolean(nextMod.templateId?.includes("tv_")) ||
+        nextMod.bays.some((b) => b.door?.type === "tambour" || b.door?.doorSystemId === "tambour_roller");
+
+      if (nextMod.carcass.hullShape === "capsule_table") {
+        nextMod.bays = nextMod.bays.slice(0, 1);
+        if (nextMod.bays[0]) {
+          nextMod.bays[0].index = 0;
+          nextMod.bays[0].customWidth = undefined;
+          nextMod.bays[0].door.type = "open";
+          nextMod.bays[0].door.doorSystemId = "open";
+        }
+      } else if (
+        nextMod.carcass.hullShape === "capsule_stadium" ||
+        nextMod.carcass.hullShape === "rounded_corners"
+      ) {
+        // Preserve Tambour & Open Media Bay topology! Scale bay count smoothly only for uniform tambour cabinets
+        const hasOpenCenterMediaBay =
+          nextMod.bays.length >= 3 &&
+          nextMod.bays[0]?.door?.type !== "open" &&
+          nextMod.bays[1]?.door?.type === "open" &&
+          nextMod.bays[nextMod.bays.length - 1]?.door?.type !== "open";
+        if (!hasOpenCenterMediaBay && !nextMod.isOpenFront) {
+          const rEff = nextMod.carcass.cornerRadiusMm || Math.round(clampedD / 2);
+          const straightW = Math.max(160, clampedW - 2 * rEff);
+          const desiredBays = straightW > 1850 ? 3 : straightW > 980 ? 2 : 1;
+          while (nextMod.bays.length < desiredBays) {
+            const newIdx = nextMod.bays.length;
+            const cloned = JSON.parse(JSON.stringify(nextMod.bays[0]));
+            cloned.index = newIdx;
+            cloned.customWidth = undefined;
+            cloned.door.id = `${nextMod.id}_door_${newIdx}`;
+            cloned.door.bayIndex = newIdx;
+            cloned.door.type = "tambour";
+            cloned.door.doorSystemId = "tambour_roller";
+            cloned.shelves = (cloned.shelves || []).map((s: any, si: number) => ({
+              ...s,
+              id: `${nextMod.id}_cap_sh_${newIdx}_${si}`,
+              bayIndex: newIdx,
+            }));
+            cloned.drawers = [];
+            nextMod.bays.push(cloned);
+          }
+          if (nextMod.bays.length > desiredBays) {
+            nextMod.bays = nextMod.bays.slice(0, desiredBays);
+          }
+        }
+        nextMod.bays.forEach((b, idx) => {
+          b.index = idx;
+          if (!hasOpenCenterMediaBay) b.customWidth = undefined;
+        });
+      } else if (nextMod.category !== "complementary" && !isSpecializedCapsuleOrTv) {
         const T = nextMod.carcass.panelThickness || 18;
         const firstBay = nextMod.bays[0];
         const isPureDrawerStack =
@@ -6530,7 +6619,7 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
 
   const addCustomCapsuleModule = useCallback(
     (spec: {
-      kind: "capsule_bar" | "capsule_table";
+      kind: "capsule_bar" | "capsule_tv_unit" | "rounded_tambour" | "capsule_table";
       name?: string;
       widthMm: number;
       heightMm: number;
@@ -6544,73 +6633,197 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
       const curProj = state.project;
       const id = `mod_cap_${Date.now()}`;
       const w = Math.max(700, Math.min(3600, Math.round(spec.widthMm)));
-      const d = Math.max(360, Math.min(1200, Math.round(spec.depthMm)));
-      const h = Math.max(450, Math.min(2400, Math.round(spec.heightMm)));
-      const r = Math.max(40, Math.min(Math.floor(d / 2), Math.round(spec.cornerRadiusMm ?? d / 2)));
+      const d = Math.max(340, Math.min(1300, Math.round(spec.depthMm)));
+      const h = Math.max(360, Math.min(2400, Math.round(spec.heightMm)));
       const isTable = spec.kind === "capsule_table";
+      const isRounded = spec.kind === "rounded_tambour";
+      const isTvUnit = spec.kind === "capsule_tv_unit";
+      const r = isRounded
+        ? Math.max(65, Math.min(Math.floor(d / 2) - 20, Math.round(spec.cornerRadiusMm ?? 110)))
+        : Math.max(65, Math.min(Math.floor(d / 2), Math.round(spec.cornerRadiusMm ?? d / 2)));
 
-      // Place cleanly in front of wall or beside existing modules
       const maxRightX = curProj.modules.reduce(
         (acc, m) => Math.max(acc, m.position.x + m.dimensions.width),
         0
       );
 
+      const legH = isTable ? 0 : isTvUnit ? 160 : isRounded ? 150 : 180;
+      const innerEstH = Math.max(160, h - legH - 56);
+      const bodyMat = spec.bodyMaterialId || (isRounded ? "mat_veneer_oak" : "mat_veneer_walnut");
+
+      const bays: import("@birim/core").BayConfig[] = isTable
+        ? [
+            {
+              index: 0,
+              door: {
+                id: `door_${id}_0`,
+                bayIndex: 0,
+                type: "open",
+                doorSystemId: "open",
+                crossSectionProfile: "bevel_45",
+                softClose: false,
+              },
+              shelves: [],
+              hangingRails: [],
+              drawers: [],
+              specialFittings: [],
+            },
+          ]
+        : isTvUnit
+        ? [
+            {
+              index: 0,
+              door: {
+                id: `door_${id}_0`,
+                bayIndex: 0,
+                type: "tambour",
+                doorSystemId: "tambour_roller",
+                crossSectionProfile: "fluted_ribbed",
+                softClose: true,
+                handleCategory: "milled_wood_grip",
+              },
+              shelves: [{ id: `sh_${id}_0_0`, bayIndex: 0, elevationY: Math.round(innerEstH * 0.48), isAdjustable: true }],
+              hangingRails: [],
+              drawers: [],
+              specialFittings: [],
+            },
+            {
+              index: 1,
+              door: {
+                id: `door_${id}_1`,
+                bayIndex: 1,
+                type: "open",
+                doorSystemId: "open",
+                softClose: true,
+              },
+              shelves: [
+                {
+                  id: `sh_${id}_1_0`,
+                  bayIndex: 1,
+                  elevationY: Math.min(innerEstH - 60, Math.max(120, Math.round(innerEstH * 0.52))),
+                  isAdjustable: false,
+                  isFixed: true,
+                },
+              ],
+              hangingRails: [],
+              drawers: [
+                {
+                  id: `drw_${id}_1_0`,
+                  bayIndex: 1,
+                  elevationY: 0,
+                  height: Math.min(200, Math.max(110, Math.round(innerEstH * 0.48))),
+                  slideType: "push_to_open_soft_close",
+                  hardwareProductId: "hw_blum_legrabox_m40",
+                },
+              ],
+              specialFittings: [],
+            },
+            {
+              index: 2,
+              door: {
+                id: `door_${id}_2`,
+                bayIndex: 2,
+                type: "tambour",
+                doorSystemId: "tambour_roller",
+                crossSectionProfile: "fluted_ribbed",
+                softClose: true,
+                handleCategory: "milled_wood_grip",
+              },
+              shelves: [{ id: `sh_${id}_2_0`, bayIndex: 2, elevationY: Math.round(innerEstH * 0.48), isAdjustable: true }],
+              hangingRails: [],
+              drawers: [],
+              specialFittings: [],
+            },
+          ]
+        : [
+            {
+              index: 0,
+              door: {
+                id: `door_${id}_0`,
+                bayIndex: 0,
+                type: "tambour",
+                doorSystemId: "tambour_roller",
+                crossSectionProfile: "fluted_ribbed",
+                softClose: true,
+                handleCategory: "milled_wood_grip",
+              },
+              shelves:
+                innerEstH >= 480
+                  ? [
+                      { id: `sh_${id}_0_0`, bayIndex: 0, elevationY: Math.round(innerEstH * 0.36), isAdjustable: true },
+                      { id: `sh_${id}_0_1`, bayIndex: 0, elevationY: Math.round(innerEstH * 0.68), isAdjustable: true, isGlass: !isRounded },
+                    ]
+                  : [{ id: `sh_${id}_0_0`, bayIndex: 0, elevationY: Math.round(innerEstH * 0.48), isAdjustable: true }],
+              hangingRails: [],
+              drawers: [],
+              specialFittings: [],
+            },
+          ];
+
       const newMod: import("@birim/core").ModuleInstance = {
         id,
         name:
           spec.name?.trim() ||
-          (isTable ? "Birim Kapsül Tasarım Masa" : "Birim Kapsül Tamburlu Bar Dolabı"),
+          (isTable
+            ? "Birim Kapsül Tasarım Masa"
+            : isTvUnit
+            ? "Birim Kapsül Tambur TV Ünitesi"
+            : isRounded
+            ? "Birim R-Köşeli Tambur Konsol"
+            : "Birim Kapsül Tamburlu Bar Dolabı"),
         category: isTable ? "kitchen_island" : "wardrobe",
         moduleFamilyId: isTable ? "fam_kitchen_base" : "fam_wardrobe",
-        templateId: isTable ? "v5_capsule_dining_table_220" : "v5_capsule_bar_cabinet_120",
+        templateId: isTable
+          ? "v5_capsule_dining_table_220"
+          : isTvUnit
+          ? "v5_capsule_tambour_tv_unit_220"
+          : isRounded
+          ? "v5_rounded_tambour_tv_console_200"
+          : "v5_capsule_bar_cabinet_120",
         position: isTable
           ? { x: Math.max(200, Math.round(maxRightX * 0.25)), y: 0, z: 1250 }
-          : { x: maxRightX + 80, y: 0, z: 40 },
+          : { x: maxRightX > 0 ? maxRightX + 60 : 0, y: 0, z: 20 },
         dimensions: { width: w, height: h, depth: d },
         isOpenFront: isTable,
+        utilityCutouts: isTvUnit
+          ? [
+              {
+                id: `cutout_tv_cable_${id}`,
+                targetPanel: "back",
+                kind: "cable_grommet",
+                shape: "rect",
+                centerXMm: Math.round((w - 2 * r) / 2),
+                centerYMm: Math.round(innerEstH * 0.65),
+                widthMm: 180,
+                heightMm: 65,
+                label: "Orta Medya & HDMI Kablo Geçiş Menfezi",
+              },
+            ]
+          : undefined,
         carcass: {
           panelThickness: 18,
           backPanelThickness: 8,
           backPanelType: isTable ? "none" : "grooved",
-          hullShape: isTable ? "capsule_table" : "capsule_stadium",
+          hullShape: isTable ? "capsule_table" : isRounded ? "rounded_corners" : "capsule_stadium",
           cornerRadiusMm: r,
-          tambourSlatPitchMm: spec.tambourSlatPitchMm || 24,
-          plinthHeight: isTable ? 0 : 210,
+          tambourSlatPitchMm: spec.tambourSlatPitchMm || 22,
+          tambourDirection: "horizontal",
+          hasCountertopTray: !isTable && Boolean(spec.topMaterialId),
+          plinthHeight: legH,
           doorPerimeterGap: 2,
           edgeBandThickness: isTable ? 2 : 1,
-          bodyMaterialId: spec.bodyMaterialId || "mat_veneer_walnut",
-          doorMaterialId: spec.bodyMaterialId || "mat_veneer_walnut",
+          bodyMaterialId: bodyMat,
+          doorMaterialId: bodyMat,
           countertopMaterialId:
-            spec.topMaterialId || (isTable ? "mat_veneer_walnut" : "mat_quartz_calacatta"),
-          plinthMaterialId: "mat_metal_brass",
+            spec.topMaterialId || (isTable ? bodyMat : isRounded ? undefined : "mat_quartz_calacatta"),
+          plinthMaterialId: isRounded ? "mat_handle_matte_black" : "mat_metal_brass",
           crossSectionProfile: isTable ? "bevel_45" : "fluted_ribbed",
           jointType: isTable ? "miter_45" : "minifix_dowel",
-          ledLightingEnabled: !isTable,
+          ledLightingEnabled: !isTable && !isRounded,
           ledColorTempK: 2700,
           ledPlacementMode: "shelf_underside",
         },
-        bays: [
-          {
-            index: 0,
-            door: {
-              id: `door_${id}_0`,
-              bayIndex: 0,
-              type: isTable ? "open" : "tambour",
-              doorSystemId: isTable ? "open" : "tambour_roller",
-              crossSectionProfile: isTable ? "bevel_45" : "fluted_ribbed",
-              softClose: !isTable,
-            },
-            shelves: isTable
-              ? []
-              : [
-                  { id: `sh_${id}_0_0`, bayIndex: 0, elevationY: Math.round((h - 240) * 0.36), isAdjustable: true },
-                  { id: `sh_${id}_0_1`, bayIndex: 0, elevationY: Math.round((h - 240) * 0.68), isAdjustable: true, isGlass: true },
-                ],
-            hangingRails: [],
-            drawers: [],
-            specialFittings: [],
-          },
-        ],
+        bays,
       };
 
       const nextModules = [...curProj.modules, newMod];
@@ -6713,7 +6926,7 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
     updateProjectTitle,
     setDimensions: (w: number, h: number, d: number) => {
       const st = useConfiguratorStore.getState();
-      resizeModuleParametric(st.activeModuleIndex, w, undefined, d, h);
+      resizeModuleParametric(st.activeModuleIndex, w, undefined, d, h, undefined, undefined, true);
     },
     setPlinthHeight,
     setMaterials,

@@ -18,6 +18,7 @@ import {
   resolveSpaceCeilingConfig,
   sampleCeilingClearHeightAtX,
 } from "@birim/core";
+import { V3PremiumDropdown } from "../../design-system";
 
 /**
  * 2D Ön Görünüş (Elevation) sahnesinde mimari tavan kesitini, 6 tavan tipini,
@@ -680,16 +681,19 @@ export const CeilingAndEngineeringQuickPopover: React.FC<{
               <span className="font-extrabold text-[11.5px] text-slate-900">
                 2. Çoklu Delik Sistemi (System 32)
               </span>
-              <select
-                value={mhSpec.rowCount}
-                onChange={(e) =>
-                  onUpdateCarcass({ multiHoleRowCount: Number(e.target.value) === 3 ? 3 : 2 })
+              <V3PremiumDropdown
+                variant="popover"
+                size="sm"
+                className="w-40"
+                value={String(mhSpec.rowCount)}
+                onChange={(val) =>
+                  onUpdateCarcass({ multiHoleRowCount: Number(val) === 3 ? 3 : 2 })
                 }
-                className="px-1.5 py-0.5 rounded-md border border-slate-300 text-[10.5px] font-bold bg-white"
-              >
-                <option value={2}>2 Sıra (Ön+Arka)</option>
-                <option value={3}>3 Sıra (Ön+Orta+Arka)</option>
-              </select>
+                options={[
+                  { value: "2", label: "2 Sıra (Ön+Arka)" },
+                  { value: "3", label: "3 Sıra (Ön+Orta+Arka)" },
+                ]}
+              />
             </div>
             <div className="grid grid-cols-3 gap-1">
               {MULTI_HOLE_MODE_CATALOG.map((mh) => {

@@ -79,6 +79,8 @@ export const StudioRenderModal: React.FC<StudioRenderModalProps> = ({
   });
 
   const cancelFlagRef = React.useRef<boolean>(false);
+  const autoStartedSessionRef = React.useRef<boolean>(false);
+  const isRunningGuardRef = React.useRef<boolean>(false);
 
   const targetW = resolution === "2k" ? 2048 : 1920;
   const targetH = resolution === "2k" ? 1280 : 1080;
@@ -94,74 +96,143 @@ export const StudioRenderModal: React.FC<StudioRenderModalProps> = ({
 
   const runComparisonRender = useCallback(
     async (mode: "both" | "raster" | "pathtrace") => {
-      if (typeof window === "undefined") return;
+      if (typeof window === "undefined" || isRunningGuardRef.current) return;
       const win = window as unknown as StudioRenderWindow;
+      isRunningGuardRef.current = true;
       cancelFlagRef.current = false;
       setRenderError(null);
       setActiveEngineRunning(mode);
       setProgressPct(2);
       refreshLiveMetrics();
 
-      if (mode === "raster" || mode === "both") {
-        if (typeof win.__birimRenderUltraStudioPhoto === "function") {
-          const t0 = performance.now();
-          const rUrl = await win.__birimRenderUltraStudioPhoto({
-            angle: cameraAngle,
-            width: targetW,
-            height: targetH,
-            onProgress: (p) => setProgressPct(mode === "both" ? Math.round(p * 0.3) : p),
-          });
-          const dt = Math.round(performance.now() - t0);
-          if (rUrl) {
-            setRasterUrl(rUrl);
-            setRasterMs(dt);
-          }
-          if (mode === "raster") setViewTab("raster");
-        }
-      }
+      const setMonotonicPct = (nextVal: number) => {
+        setProgressPct((prev) => Math.min(99, Math.max(prev, Math.round(nextVal))));
+      };
 
-      if ((mode === "pathtrace" || mode === "both") && !cancelFlagRef.current) {
-        if (typeof win.__birimRenderPathTracedPhoto === "function") {
-          const res = await win.__birimRenderPathTracedPhoto({
-            angle: cameraAngle,
-            width: targetW,
-            height: targetH,
-            samples: ptSamples,
-            bounces: 5,
-            shouldCancel: () => cancelFlagRef.current,
-            onProgress: (pct, preview) => {
-              setProgressPct(mode === "both" ? 30 + Math.round(pct * 0.7) : pct);
-              setCompletedSpp(Math.max(1, Math.round((pct / 100) * ptSamples)));
-              if (preview) setPathTraceUrl(preview);
-            },
-          });
-          if (res?.dataUrl) {
-            setPathTraceUrl(res.dataUrl);
-            setPathTraceMs(Math.round(res.elapsedMs));
-            setCompletedSpp(res.samplesCompleted);
-            setSceneMetrics(res.metrics);
-            if (res.engine) setRenderEngineLabel(res.engine);
-          } else if (res?.error) {
-            setRenderError(res.error);
+      try {
+        let localRasterUrl = rasterUrl;
+        if (mode === "raster" || mode === "both") {
+          if (typeof win.__birimRenderUltraStudioPhoto === "function") {
+            const t0 = performance.now();
+            const rUrl = await win.__birimRenderUltraStudioPhoto({
+              angle: cameraAngle,
+              width: targetW,
+              height: targetH,
+              onProgress: (p) => setMonotonicPct(mode === "both" ? Math.round(p * 0.3) : p),
+            });
+            const dt = Math.round(performance.now() - t0);
+            if (rUrl) {
+              localRasterUrl = rUrl;
+              setRasterUrl(rUrl);
+              setRasterMs(dt);
+            }
+            if (mode === "raster") setViewTab("raster");
           }
-          setViewTab(mode === "both" && rasterUrl ? "compare" : "pathtrace");
         }
-      }
 
-      setActiveEngineRunning(null);
-      setProgressPct(100);
+        if ((mode === "pathtrace" || mode === "both") && !cancelFlagRef.current) {
+          const status = blenderStatus ?? (await checkBlenderRenderStatus());
+          setBlenderStatus(status);
+
+          if (!status.available) {
+            if (mode === "pathtrace" && typeof win.__birimRenderUltraStudioPhoto === "function") {
+              setRenderEngineLabel("2K Softbox Stüdyo Motoru (16x SSAA)");
+              const t0 = performance.now();
+              const fallbackUrl = await win.__birimRenderUltraStudioPhoto({
+                angle: cameraAngle,
+                width: targetW,
+                height: targetH,
+                onProgress: (p) => setMonotonicPct(8 + Math.round(p * 0.9)),
+              });
+              const dt = Math.round(performance.now() - t0);
+              if (fallbackUrl) {
+                setRasterUrl(fallbackUrl);
+                setRasterMs(dt);
+                setPathTraceUrl(fallbackUrl);
+                setPathTraceMs(dt);
+                setCompletedSpp(16);
+                setViewTab("pathtrace");
+              } else {
+                setRenderError(
+                  status.hint ||
+                    "Blender 4.2+ bulunamadı. Gerçek Cycles Ray-Tracing için Blender kurup BLENDER_PATH tanımlayabilirsiniz."
+                );
+              }
+            } else {
+              setRenderError(
+                status.hint ||
+                  "Blender 4.2+ bulunamadı. 2K Softbox Stüdyo Render sekmesini kullanabilirsiniz."
+              );
+              if (localRasterUrl) setViewTab("raster");
+            }
+          } else if (typeof win.__birimRenderPathTracedPhoto === "function") {
+            const res = await win.__birimRenderPathTracedPhoto({
+              angle: cameraAngle,
+              width: targetW,
+              height: targetH,
+              samples: ptSamples,
+              bounces: 5,
+              shouldCancel: () => cancelFlagRef.current,
+              onProgress: (pct, preview) => {
+                const mappedPct = mode === "both" ? 30 + Math.round(pct * 0.7) : pct;
+                setMonotonicPct(mappedPct);
+                setCompletedSpp((prev) =>
+                  Math.max(prev, Math.max(1, Math.round((pct / 100) * ptSamples)))
+                );
+                if (preview) setPathTraceUrl(preview);
+              },
+            });
+            if (res?.dataUrl) {
+              setPathTraceUrl(res.dataUrl);
+              setPathTraceMs(Math.round(res.elapsedMs));
+              setCompletedSpp(res.samplesCompleted);
+              setSceneMetrics(res.metrics);
+              if (res.engine) setRenderEngineLabel(res.engine);
+              setViewTab(mode === "both" && localRasterUrl ? "compare" : "pathtrace");
+            } else if (res?.error) {
+              setRenderError(res.error);
+              if (!localRasterUrl && typeof win.__birimRenderUltraStudioPhoto === "function") {
+                const t0 = performance.now();
+                const fbUrl = await win.__birimRenderUltraStudioPhoto({
+                  angle: cameraAngle,
+                  width: targetW,
+                  height: targetH,
+                });
+                if (fbUrl) {
+                  setRasterUrl(fbUrl);
+                  setRasterMs(Math.round(performance.now() - t0));
+                  setViewTab("raster");
+                }
+              }
+            }
+          }
+        }
+      } finally {
+        isRunningGuardRef.current = false;
+        setActiveEngineRunning(null);
+        setProgressPct(100);
+      }
     },
-    [cameraAngle, targetW, targetH, ptSamples, refreshLiveMetrics]
+    [cameraAngle, targetW, targetH, ptSamples, refreshLiveMetrics, blenderStatus, rasterUrl]
   );
 
+  // Auto-start ONCE per modal open session — NEVER re-triggers in an infinite loop on error or setting change!
   useEffect(() => {
-    if (!isOpen) return;
-    void checkBlenderRenderStatus().then(setBlenderStatus);
-    refreshLiveMetrics();
-    if (!pathTraceUrl && activeEngineRunning === null) {
-      void runComparisonRender("pathtrace");
+    if (!isOpen) {
+      autoStartedSessionRef.current = false;
+      return;
     }
-  }, [isOpen, pathTraceUrl, activeEngineRunning, refreshLiveMetrics, runComparisonRender]);
+    refreshLiveMetrics();
+    if (!autoStartedSessionRef.current) {
+      autoStartedSessionRef.current = true;
+      void checkBlenderRenderStatus().then((st) => {
+        setBlenderStatus(st);
+        if (!pathTraceUrl && !isRunningGuardRef.current) {
+          void runComparisonRender("pathtrace");
+        }
+      });
+    }
+  }, [isOpen, pathTraceUrl, refreshLiveMetrics, runComparisonRender]);
 
   if (!isOpen) return null;
 
@@ -199,7 +270,7 @@ export const StudioRenderModal: React.FC<StudioRenderModalProps> = ({
             <div className="h-4 w-px bg-slate-900/15 shrink-0" />
             <div className="min-w-0">
               <h2 className="text-sm font-bold text-[#141413] truncate flex items-center gap-2">
-                <span>Bağımsız Stüdyo Render &amp; {renderEngineLabel}</span>
+                <span>Stüdyo Render</span>
                 {blenderStatus && (
                   <span
                     className={`px-2 py-0.5 rounded-full text-[10px] font-mono ${
@@ -209,13 +280,13 @@ export const StudioRenderModal: React.FC<StudioRenderModalProps> = ({
                     }`}
                   >
                     {blenderStatus.available
-                      ? `Blender ${blenderStatus.version ?? "Ready"}`
-                      : "Blender Bulunamadı"}
+                      ? `Blender ${blenderStatus.version ?? "Hazır"}`
+                      : "Blender Yok"}
                   </span>
                 )}
               </h2>
               <p className="text-[11px] text-[#475569] truncate">
-                {projectTitle} • Yerel Blender Cycles (AgX + OpenImageDenoise) ile gerçek ışın izlemeli (Ray-Traced) stüdyo render
+                {projectTitle} • {renderEngineLabel}
               </p>
             </div>
           </div>
@@ -328,7 +399,7 @@ export const StudioRenderModal: React.FC<StudioRenderModalProps> = ({
                   className="px-3 py-1.5 rounded-xl birim-ice-charcoal-pill font-bold text-[11px] flex items-center gap-1.5 cursor-pointer"
                 >
                   <RefreshCw className="w-3.5 h-3.5 text-amber-300" />
-                  <span>Aynı Sahnede Karşılaştırmalı Render Al</span>
+                  <span>Karşılaştırmalı Render</span>
                 </button>
                 <button
                   type="button"
@@ -336,7 +407,7 @@ export const StudioRenderModal: React.FC<StudioRenderModalProps> = ({
                   className="px-2.5 py-1.5 rounded-xl birim-ice-btn font-bold text-[11px] flex items-center gap-1 cursor-pointer"
                 >
                   <Sparkles className="w-3.5 h-3.5 text-amber-700" />
-                  <span>Yalnız Cycles Render</span>
+                  <span>Cycles Render</span>
                 </button>
               </>
             )}

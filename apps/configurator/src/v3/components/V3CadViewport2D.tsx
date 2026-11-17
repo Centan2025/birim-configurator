@@ -32,6 +32,7 @@ import {
   resolveElevationLabelVisibility,
   resolveSelectedElevationContext,
 } from "./workspace/elevation2dHelpers";
+import { V3PremiumDropdown } from "../design-system";
 import {
   ElevationTopBar,
   ElevationContextualPanel,
@@ -1406,12 +1407,14 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         0,
         ...spaceWalls.map((w) => w.position.x),
         ...footprints.map((fp) => fp.x),
+        ...spaceObstacles.map((o) => o.position.x),
         ...(project.sceneObjects || []).map((s) => s.position.x)
       );
       const minPlanZ = Math.min(
         0,
         ...spaceWalls.map((w) => w.position.z),
         ...footprints.map((fp) => fp.z),
+        ...spaceObstacles.map((o) => o.position.z),
         ...(project.sceneObjects || []).map((s) => s.position.z)
       );
       const totalModExtentX = Math.max(
@@ -1419,6 +1422,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         underlay?.widthMm || 0,
         ...spaceWalls.map((w) => w.position.x + w.length + 300),
         ...footprints.map((fp) => fp.x + fp.planWidth + 300),
+        ...spaceObstacles.map((o) => o.position.x + Math.max(o.dimensions.width || 300, o.dimensions.depth || 300) + 300),
         ...(project.sceneObjects || []).map((s) => s.position.x + s.dimensions.width + 300)
       );
       const maxDepthZ = Math.max(
@@ -1426,6 +1430,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         underlay?.depthMm || 0,
         ...spaceWalls.map((w) => w.position.z + w.length * 0.6 + 450),
         ...footprints.map((fp) => fp.z + fp.planDepth + 520),
+        ...spaceObstacles.map((o) => o.position.z + Math.max(o.dimensions.depth || 300, o.dimensions.width || 300) + 520),
         ...(project.sceneObjects || []).map((s) => s.position.z + s.dimensions.depth + 520)
       );
 
@@ -3896,19 +3901,18 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   <option value="electrical">Elektrik Prizi (Y:1150mm)</option>
                 </select>
 
-                <select
-                  data-testid="plan-obstacle-wall-select"
+                <V3PremiumDropdown
+                  variant="popover"
+                  size="sm"
+                  className="w-36"
+                  testId="plan-obstacle-wall-select"
                   value={obstacleTargetWallId}
-                  onChange={(e) => setObstacleTargetWallId(e.target.value)}
-                  className="px-2 py-1 rounded-xl border border-slate-300 bg-white text-[11px] font-bold text-[#0F172A]"
-                >
-                  {spaceWalls.map((w) => (
-                    <option key={w.id} value={w.id}>
-                      📍 {w.name}
-                    </option>
-                  ))}
-                  <option value="custom_xz">📍 Serbest (X, Z)</option>
-                </select>
+                  onChange={setObstacleTargetWallId}
+                  options={[
+                    ...spaceWalls.map((w) => ({ value: w.id, label: w.name })),
+                    { value: "custom_xz", label: "Serbest (X, Z)" },
+                  ]}
+                />
 
                 <input
                   data-testid="plan-obstacle-x-input"
@@ -4084,24 +4088,23 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 N▲
               </div>
 
-              <div className="inline-flex items-center gap-1 bg-[#F8FAFC] px-2 py-1 rounded-xl border border-[#CBD5E1] shrink-0 whitespace-nowrap">
-                <span className="text-[10px] text-[#64748B] font-bold">1:</span>
-                <select
-                  data-testid="plan-scale-select"
-                  value={planScaleRatio}
-                  onChange={(e) => {
-                    const sc = Number(e.target.value) as 20 | 25 | 50;
-                    setPlanScaleRatio(sc);
-                    setZoom(sc === 20 ? 1.25 : sc === 25 ? 1.0 : 0.65);
-                  }}
-                  title="Plan Ölçeği"
-                  className="bg-transparent font-mono font-bold text-[11px] text-[#0F172A] focus:outline-none cursor-pointer"
-                >
-                  <option value={20}>1:20</option>
-                  <option value={25}>1:25</option>
-                  <option value={50}>1:50</option>
-                </select>
-              </div>
+              <V3PremiumDropdown
+                variant="popover"
+                size="sm"
+                className="w-24 shrink-0"
+                testId="plan-scale-select"
+                value={String(planScaleRatio)}
+                onChange={(val) => {
+                  const sc = Number(val) as 20 | 25 | 50;
+                  setPlanScaleRatio(sc);
+                  setZoom(sc === 20 ? 1.25 : sc === 25 ? 1.0 : 0.65);
+                }}
+                options={[
+                  { value: "20", label: "1:20" },
+                  { value: "25", label: "1:25" },
+                  { value: "50", label: "1:50" },
+                ]}
+              />
 
               <div className="inline-flex items-center birim-ice-btn rounded-xl p-0.5 shrink-0 whitespace-nowrap">
                 <button
@@ -4212,19 +4215,21 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 <span className="sr-only">Ölçüler</span>
               </label>
 
-              <select
-                data-testid="plan-wall-dim-mode-select"
+              <V3PremiumDropdown
+                variant="popover"
+                size="sm"
+                className="w-32 shrink-0"
+                testId="plan-wall-dim-mode-select"
                 value={wallDimDisplayMode}
-                onChange={(e) =>
-                  setWallDimDisplayMode(e.target.value as "net_inner" | "outer" | "plinth")
+                onChange={(val) =>
+                  setWallDimDisplayMode(val as "net_inner" | "outer" | "plinth")
                 }
-                title="Duvar Ölçülendirme Modu"
-                className="px-2 h-7 rounded-xl birim-ice-btn text-[11px] font-bold text-[#0F172A] shrink-0 whitespace-nowrap cursor-pointer"
-              >
-                <option value="net_inner">📏 Net İç Ölçü</option>
-                <option value="outer">📏 Dış Duvar</option>
-                <option value="plinth">📏 Baza / Soket</option>
-              </select>
+                options={[
+                  { value: "net_inner", label: "Net İç Ölçü" },
+                  { value: "outer", label: "Dış Duvar" },
+                  { value: "plinth", label: "Baza / Soket" },
+                ]}
+              />
 
               <button
                 type="button"
@@ -4353,10 +4358,97 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 selectedPlanObject?.kind === "wall" && selectedPlanObject.id === wall.id;
               const isSideWall = wall.rotationY === 90;
               const isCustomAngle = wall.rotationY !== 0 && wall.rotationY !== 90;
+              const computeMeasuredSpan = (): { start: number; end: number; length: number } => {
+                if (isCustomAngle) {
+                  const s = wall.position.x;
+                  const e = wall.position.x + wall.length;
+                  if (wallDimDisplayMode === "outer") {
+                    return { start: s - wall.thickness, end: e + wall.thickness, length: wall.length + wall.thickness * 2 };
+                  }
+                  if (wallDimDisplayMode === "plinth") {
+                    return { start: s + 20, end: e - 20, length: Math.max(200, wall.length - 40) };
+                  }
+                  return { start: s, end: e, length: wall.length };
+                }
+                if (isSideWall) {
+                  let zStart = wall.position.z;
+                  let zEnd = wall.position.z + wall.length;
+                  if (wallDimDisplayMode === "outer") {
+                    return { start: zStart - wall.thickness, end: zEnd + wall.thickness, length: wall.length + wall.thickness * 2 };
+                  }
+                  if (wallDimDisplayMode === "plinth") {
+                    return { start: zStart + 20, end: zEnd - 20, length: Math.max(200, wall.length - 40) };
+                  }
+                  const zMid = (zStart + zEnd) / 2;
+                  const isRight = wall.position.x > 0;
+                  const wXMin = isRight ? wall.position.x : wall.position.x - wall.thickness;
+                  const wXMax = isRight ? wall.position.x + wall.thickness : wall.position.x;
+                  for (const other of spaceWalls) {
+                    if (other.id === wall.id || other.rotationY !== 0) continue;
+                    const oXMin = other.position.x;
+                    const oXMax = other.position.x + other.length;
+                    if (oXMin <= wXMax + 2 && oXMax >= wXMin - 2) {
+                      const oZMin = other.position.z - other.thickness;
+                      const oZMax = other.position.z;
+                      const oZMid = (oZMin + oZMax) / 2;
+                      if (oZMax >= zStart && oZMin <= zEnd) {
+                        if (oZMid <= zMid) zStart = Math.max(zStart, oZMax);
+                        else zEnd = Math.min(zEnd, oZMin);
+                      }
+                    }
+                  }
+                  return { start: zStart, end: zEnd, length: Math.max(100, Math.round(zEnd - zStart)) };
+                }
+                let xStart = wall.position.x;
+                let xEnd = wall.position.x + wall.length;
+                if (wallDimDisplayMode === "outer") {
+                  return { start: xStart - wall.thickness, end: xEnd + wall.thickness, length: wall.length + wall.thickness * 2 };
+                }
+                if (wallDimDisplayMode === "plinth") {
+                  return { start: xStart + 20, end: xEnd - 20, length: Math.max(200, wall.length - 40) };
+                }
+                const xMid = (xStart + xEnd) / 2;
+                const wZMin = wall.position.z - wall.thickness;
+                const wZMax = wall.position.z;
+                for (const other of spaceWalls) {
+                  if (other.id === wall.id || other.rotationY !== 90) continue;
+                  const oZMin = other.position.z;
+                  const oZMax = other.position.z + other.length;
+                  if (oZMin <= wZMax + 2 && oZMax >= wZMin - 2) {
+                    const oIsRight = other.position.x > 0;
+                    const oXMin = oIsRight ? other.position.x : other.position.x - other.thickness;
+                    const oXMax = oIsRight ? other.position.x + other.thickness : other.position.x;
+                    const oXMid = (oXMin + oXMax) / 2;
+                    if (oXMax >= xStart && oXMin <= xEnd) {
+                      if (oXMid <= xMid) xStart = Math.max(xStart, oXMax);
+                      else xEnd = Math.min(xEnd, oXMin);
+                    }
+                  }
+                }
+                return { start: xStart, end: xEnd, length: Math.max(100, Math.round(xEnd - xStart)) };
+              };
+              const dimSpan = computeMeasuredSpan();
+              const displayedWallLen = dimSpan.length;
+              const modeSuffix =
+                wallDimDisplayMode === "outer"
+                  ? " (Dış)"
+                  : wallDimDisplayMode === "plinth"
+                  ? " (Soket)"
+                  : "";
+              const angleSuffix = isCustomAngle ? ` (${wall.rotationY}°)` : "";
+              const wallText = `${wall.name}${modeSuffix}: ${displayedWallLen} mm${angleSuffix}`;
+              const wallFont = Math.round(32 * ts);
+              const pillH = Math.round(54 * ts);
+              const pillW = Math.max(
+                Math.round(280 * ts),
+                Math.round(wallText.length * wallFont * 0.62 + 44 * ts)
+              );
+              const pillRx = Math.round(12 * ts);
+              const pillStrokeW = Math.round(3.5 * ts);
               if (isCustomAngle) {
-                const wallMidX = wall.position.x + wall.length / 2;
-                const wallText = `${wall.name} (${wall.length}mm, ${wall.rotationY}°)`;
-                const pillW = Math.max(260, wallText.length * 20 + 36);
+                const spanMidX = (dimSpan.start + dimSpan.end) / 2;
+                const dimY = wall.position.z - wall.thickness - Math.round(70 * ts);
+                const faceY = wall.position.z - wall.thickness;
                 return (
                   <g
                     key={wall.id}
@@ -4384,27 +4476,46 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       stroke={isSelectedWall ? "#DC2626" : "#44403C"}
                       strokeWidth={isSelectedWall ? "6" : "3"}
                     />
-                    <rect
-                      x={wallMidX - pillW / 2}
-                      y={wall.position.z - wall.thickness - 58}
-                      width={pillW}
-                      height={48}
-                      rx={10}
-                      fill="#FFFFFF"
-                      stroke="#44403C"
-                      strokeWidth="2.5"
-                    />
-                    <text
-                      x={wallMidX}
-                      y={wall.position.z - wall.thickness - 22}
-                      textAnchor="middle"
-                      fill="#1C1917"
-                      fontSize="32"
-                      fontWeight="800"
-                      fontFamily="monospace"
-                    >
-                      {wallText}
-                    </text>
+                    {showPlanDimensions && (
+                      <>
+                        <line x1={dimSpan.start} y1={faceY} x2={dimSpan.start} y2={dimY - 18} stroke="#64748B" strokeWidth="2.5" strokeDasharray="6 4" />
+                        <line x1={dimSpan.end} y1={faceY} x2={dimSpan.end} y2={dimY - 18} stroke="#64748B" strokeWidth="2.5" strokeDasharray="6 4" />
+                        <line x1={dimSpan.start} y1={dimY - 18} x2={dimSpan.start} y2={dimY + 18} stroke="#44403C" strokeWidth="3.5" />
+                        <line x1={dimSpan.end} y1={dimY - 18} x2={dimSpan.end} y2={dimY + 18} stroke="#44403C" strokeWidth="3.5" />
+                        <line x1={dimSpan.start} y1={dimY} x2={dimSpan.end} y2={dimY} stroke="#44403C" strokeWidth="3.5" />
+                        <g
+                          data-testid={`plan-wall-dim-badge-${wall.id}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setInlineEditWallId(wall.id);
+                            setInlineEditWallLength(wall.length);
+                          }}
+                          className="cursor-pointer"
+                        >
+                          <rect
+                            x={spanMidX - pillW / 2}
+                            y={dimY - pillH / 2}
+                            width={pillW}
+                            height={pillH}
+                            rx={pillRx}
+                            fill="#FFFFFF"
+                            stroke="#2563EB"
+                            strokeWidth={pillStrokeW}
+                          />
+                          <text
+                            x={spanMidX}
+                            y={dimY + Math.round(wallFont * 0.35)}
+                            textAnchor="middle"
+                            fill="#0F172A"
+                            fontSize={wallFont}
+                            fontWeight="900"
+                            fontFamily="monospace"
+                          >
+                            {wallText}
+                          </text>
+                        </g>
+                      </>
+                    )}
                     {isSelectedWall && (
                       <g
                         data-testid={`plan-wall-resize-end-${wall.id}`}
@@ -4452,14 +4563,15 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 );
               }
               if (isSideWall) {
-                const wallMidZ = wall.position.z + wall.length / 2;
-                const wallText = `${wall.name} (${wall.length}mm)`;
-                const pillW = Math.max(260, wallText.length * 22 + 40);
+                const spanMidZ = (dimSpan.start + dimSpan.end) / 2;
                 const isRightReturn = wall.position.x > 0;
                 const rectX = isRightReturn ? wall.position.x : wall.position.x - wall.thickness;
+                const faceX = isRightReturn ? wall.position.x + wall.thickness : wall.position.x - wall.thickness;
+                const rotOffset = Math.round(70 * ts);
                 const rotX = isRightReturn
-                  ? wall.position.x + wall.thickness + 42
-                  : wall.position.x - wall.thickness - 42;
+                  ? wall.position.x + wall.thickness + rotOffset
+                  : wall.position.x - wall.thickness - rotOffset;
+                const tickExt = isRightReturn ? rotX + 18 : rotX - 18;
                 return (
                   <g
                     key={wall.id}
@@ -4486,29 +4598,47 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       stroke={isSelectedWall ? "#DC2626" : "#44403C"}
                       strokeWidth={isSelectedWall ? "6" : "3"}
                     />
-                    <g transform={`rotate(-90 ${rotX} ${wallMidZ})`}>
-                      <rect
-                        x={rotX - pillW / 2}
-                        y={wallMidZ - 26}
-                        width={pillW}
-                        height={52}
-                        rx={10}
-                        fill="#FFFFFF"
-                        stroke="#44403C"
-                        strokeWidth="2.5"
-                      />
-                      <text
-                        x={rotX}
-                        y={wallMidZ + 11}
-                        textAnchor="middle"
-                        fill="#1C1917"
-                        fontSize="34"
-                        fontWeight="800"
-                        fontFamily="monospace"
-                      >
-                        {wallText}
-                      </text>
-                    </g>
+                    {showPlanDimensions && (
+                      <>
+                        <line x1={faceX} y1={dimSpan.start} x2={tickExt} y2={dimSpan.start} stroke="#64748B" strokeWidth="2.5" strokeDasharray="6 4" />
+                        <line x1={faceX} y1={dimSpan.end} x2={tickExt} y2={dimSpan.end} stroke="#64748B" strokeWidth="2.5" strokeDasharray="6 4" />
+                        <line x1={rotX - 18} y1={dimSpan.start} x2={rotX + 18} y2={dimSpan.start} stroke="#44403C" strokeWidth="3.5" />
+                        <line x1={rotX - 18} y1={dimSpan.end} x2={rotX + 18} y2={dimSpan.end} stroke="#44403C" strokeWidth="3.5" />
+                        <line x1={rotX} y1={dimSpan.start} x2={rotX} y2={dimSpan.end} stroke="#44403C" strokeWidth="3.5" />
+                        <g
+                          transform={`rotate(-90 ${rotX} ${spanMidZ})`}
+                          data-testid={`plan-wall-dim-badge-${wall.id}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setInlineEditWallId(wall.id);
+                            setInlineEditWallLength(wall.length);
+                          }}
+                          className="cursor-pointer"
+                        >
+                          <rect
+                            x={rotX - pillW / 2}
+                            y={spanMidZ - pillH / 2}
+                            width={pillW}
+                            height={pillH}
+                            rx={pillRx}
+                            fill="#FFFFFF"
+                            stroke="#2563EB"
+                            strokeWidth={pillStrokeW}
+                          />
+                          <text
+                            x={rotX}
+                            y={spanMidZ + Math.round(wallFont * 0.35)}
+                            textAnchor="middle"
+                            fill="#0F172A"
+                            fontSize={wallFont}
+                            fontWeight="900"
+                            fontFamily="monospace"
+                          >
+                            {wallText}
+                          </text>
+                        </g>
+                      </>
+                    )}
                     
                     {isSelectedWall && (
                       <g>
@@ -4590,24 +4720,9 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   </g>
                 );
               }
-              const wallMidX = wall.position.x + wall.length / 2;
+              const wallMidX = (dimSpan.start + dimSpan.end) / 2;
               const dimY = wall.position.z - wall.thickness - Math.round(70 * ts);
-              const displayedWallLen =
-                wallDimDisplayMode === "outer"
-                  ? wall.length + wall.thickness * 2
-                  : wallDimDisplayMode === "plinth"
-                  ? Math.max(200, wall.length - 40)
-                  : wall.length;
-              const modeSuffix =
-                wallDimDisplayMode === "outer"
-                  ? " (Dış)"
-                  : wallDimDisplayMode === "plinth"
-                  ? " (Soket)"
-                  : "";
-              const wallText = `${wall.name}${modeSuffix}: ${displayedWallLen} mm`;
-              const wallFont = Math.round(32 * ts);
-              const pillH = Math.round(54 * ts);
-              const pillW = Math.max(Math.round(280 * ts), Math.round(wallText.length * wallFont * 0.62 + 44 * ts));
+              const faceY = wall.position.z - wall.thickness;
               return (
                 <g
                   key={wall.id}
@@ -4634,32 +4749,53 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     stroke={isSelectedWall ? "#DC2626" : "#44403C"}
                     strokeWidth={isSelectedWall ? "6" : "3"}
                   />
-                  {/* End Ticks */}
-                  <line
-                    x1={wall.position.x}
-                    y1={dimY - 20}
-                    x2={wall.position.x}
-                    y2={dimY + 20}
-                    stroke="#44403C"
-                    strokeWidth="3.5"
-                  />
-                  <line
-                    x1={wall.position.x + wall.length}
-                    y1={dimY - 20}
-                    x2={wall.position.x + wall.length}
-                    y2={dimY + 20}
-                    stroke="#44403C"
-                    strokeWidth="3.5"
-                  />
-                  {/* Main Dimension Line */}
-                  <line
-                    x1={wall.position.x}
-                    y1={dimY}
-                    x2={wall.position.x + wall.length}
-                    y2={dimY}
-                    stroke="#44403C"
-                    strokeWidth="3.5"
-                  />
+                  {/* Witness Extension Lines + End Ticks + Main Dimension Line */}
+                  {showPlanDimensions && (
+                    <>
+                      <line
+                        x1={dimSpan.start}
+                        y1={faceY}
+                        x2={dimSpan.start}
+                        y2={dimY - 20}
+                        stroke="#64748B"
+                        strokeWidth="2.5"
+                        strokeDasharray="6 4"
+                      />
+                      <line
+                        x1={dimSpan.end}
+                        y1={faceY}
+                        x2={dimSpan.end}
+                        y2={dimY - 20}
+                        stroke="#64748B"
+                        strokeWidth="2.5"
+                        strokeDasharray="6 4"
+                      />
+                      <line
+                        x1={dimSpan.start}
+                        y1={dimY - 20}
+                        x2={dimSpan.start}
+                        y2={dimY + 20}
+                        stroke="#44403C"
+                        strokeWidth="3.5"
+                      />
+                      <line
+                        x1={dimSpan.end}
+                        y1={dimY - 20}
+                        x2={dimSpan.end}
+                        y2={dimY + 20}
+                        stroke="#44403C"
+                        strokeWidth="3.5"
+                      />
+                      <line
+                        x1={dimSpan.start}
+                        y1={dimY}
+                        x2={dimSpan.end}
+                        y2={dimY}
+                        stroke="#44403C"
+                        strokeWidth="3.5"
+                      />
+                    </>
+                  )}
                   {/* High-Contrast Click-to-Edit Wall Dimension Pill */}
                   {showPlanDimensions && (
                     <g
@@ -7860,12 +7996,32 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       y={sz}
                       width={sw}
                       height={sd}
-                      rx={isTableObj ? 18 : 10}
-                      fill={isSelObj ? "#DBEAFE" : isTableObj ? "#EFE6D8" : "#F8FAFC"}
-                      fillOpacity={0.92}
-                      stroke={isSelObj ? "#2563EB" : isTableObj ? "#78350F" : "#475569"}
-                      strokeWidth={isSelObj ? 6 : 3.5}
-                      strokeDasharray={so.category === "architectural_prop" ? "16 8" : undefined}
+                      rx={so.visualKind === "structural_column" ? 2 : isTableObj ? 18 : 10}
+                      fill={
+                        so.visualKind === "structural_column"
+                          ? "url(#column_hatch)"
+                          : isSelObj
+                          ? "#DBEAFE"
+                          : isTableObj
+                          ? "#EFE6D8"
+                          : "#F8FAFC"
+                      }
+                      fillOpacity={so.visualKind === "structural_column" ? 0.96 : 0.92}
+                      stroke={
+                        isSelObj
+                          ? "#2563EB"
+                          : so.visualKind === "structural_column"
+                          ? "#1C1917"
+                          : isTableObj
+                          ? "#78350F"
+                          : "#475569"
+                      }
+                      strokeWidth={isSelObj ? 6 : so.visualKind === "structural_column" ? 5 : 3.5}
+                      strokeDasharray={
+                        so.category === "architectural_prop" && so.visualKind !== "structural_column"
+                          ? "16 8"
+                          : undefined
+                      }
                     />
                     <g transform={`translate(${cx}, ${cz}) rotate(${textRot})`}>
                       <text
@@ -7888,6 +8044,194 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         fontFamily="monospace"
                       >
                         {`${Math.round(sw)}×${Math.round(sd)} mm${rotY ? ` • ${Math.round(rotY)}°` : ""}`}
+                      </text>
+                    </g>
+                  </g>
+                );
+              })}
+
+            {/* Reflected Ceiling Plan (RCP — Mimari Tavan İzdüşümü) Overlay */}
+            {project.space.ceilingConfig?.enabled && (() => {
+              const cc = project.space.ceilingConfig!;
+              const cType = cc.ceilingType || "flat_plaster";
+              const rcpDepth = Math.max(2200, maxDepthZ - 420);
+              const soffitD = cc.soffitDepthMm || 620;
+              return (
+                <g data-testid="plan-rcp-ceiling-overlay" className="pointer-events-none" opacity={0.78}>
+                  <rect
+                    x={0}
+                    y={0}
+                    width={mainWall.length}
+                    height={rcpDepth}
+                    fill="none"
+                    stroke="#A8A29E"
+                    strokeWidth="2.5"
+                    strokeDasharray="18 10"
+                  />
+                  {(cType === "dropped_perimeter_cove" || cType === "gypsum_soffit_bulkhead") && (
+                    <rect
+                      x={0}
+                      y={0}
+                      width={mainWall.length}
+                      height={soffitD}
+                      fill="rgba(245, 158, 11, 0.06)"
+                      stroke="#D97706"
+                      strokeWidth="3"
+                      strokeDasharray="14 8"
+                    />
+                  )}
+                  {(cType === "exposed_wood_beams" || cType === "coffered_baffle") && (() => {
+                    const pitch = cType === "exposed_wood_beams" ? cc.beamSpacingMm || 600 : Math.max(180, (cc.bafflePitchMm || 120) * 2);
+                    const cnt = Math.min(28, Math.max(2, Math.floor(mainWall.length / pitch)));
+                    return Array.from({ length: cnt }).map((_, bi) => {
+                      const bx = Math.round(((bi + 0.5) * mainWall.length) / cnt);
+                      return (
+                        <line
+                          key={`rcp_bm_${bi}`}
+                          x1={bx}
+                          y1={0}
+                          x2={bx}
+                          y2={rcpDepth}
+                          stroke="#92400E"
+                          strokeWidth="2"
+                          strokeDasharray="10 10"
+                        />
+                      );
+                    });
+                  })()}
+                  {cc.hasRecessedSpots !== false &&
+                    Array.from({ length: Math.max(2, Math.round(mainWall.length / 950)) }).map((_, si, arr) => {
+                      const sx = Math.round(((si + 1) * mainWall.length) / (arr.length + 1));
+                      const sz = cType === "dropped_perimeter_cove" ? Math.round(soffitD * 0.52) : 680;
+                      return (
+                        <g key={`rcp_spot_${si}`}>
+                          <circle cx={sx} cy={sz} r={22} fill="#FEF3C7" stroke="#D97706" strokeWidth="2.5" />
+                          <line x1={sx - 14} y1={sz} x2={sx + 14} y2={sz} stroke="#B45309" strokeWidth="2" />
+                          <line x1={sx} y1={sz - 14} x2={sx} y2={sz + 14} stroke="#B45309" strokeWidth="2" />
+                        </g>
+                      );
+                    })}
+                </g>
+              );
+            })()}
+
+            {/* FOREGROUND STRUCTURAL COLUMN & BEAM LAYER: Always rendered ABOVE cabinet footprints & rugs so a 3D column NEVER disappears behind opaque modules in 2D Plan! */}
+            {spaceObstacles
+              .filter(
+                (obs) =>
+                  obs.type === "column" ||
+                  obs.type === "beam" ||
+                  obs.type === "protrusion" ||
+                  obs.type === "partition"
+              )
+              .map((obs) => {
+                const isSelectedObs =
+                  selectedPlanObject?.kind === "obstacle" && selectedPlanObject.id === obs.id;
+                const isBeam = obs.type === "beam";
+                const rotNorm = (((obs.rotationY || 0) % 360) + 360) % 360;
+                const isRot90 = rotNorm === 90 || rotNorm === 270;
+                const rawW = Math.max(80, obs.dimensions.width || 300);
+                const rawD = Math.max(80, obs.dimensions.depth || rawW);
+                const effW = isRot90 ? rawD : rawW;
+                const effD = isRot90 ? rawW : rawD;
+                const ox = obs.position.x;
+                const oz = obs.position.z;
+
+                const collidesWithModule =
+                  !isBeam &&
+                  footprints.some(
+                    (fp) =>
+                      ox < fp.x + fp.planWidth - 2 &&
+                      ox + effW > fp.x + 2 &&
+                      oz < fp.z + fp.planDepth - 2 &&
+                      oz + effD > fp.z + 2
+                  );
+
+                const colTxt = `${
+                  isBeam ? "KİRİŞ" : obs.type === "partition" ? "BÖLME DUVAR" : "KOLON"
+                } (${Math.round(effW)}×${Math.round(effD)})`;
+                const colFont = Math.round(22 * ts);
+                const colPillW = Math.max(
+                  Math.round(175 * ts),
+                  Math.round(colTxt.length * colFont * 0.62 + 24 * ts)
+                );
+                const colPillH = Math.round(36 * ts);
+
+                return (
+                  <g
+                    key={`fg_col_${obs.id}`}
+                    data-testid={`plan-column-foreground-${obs.id}`}
+                    onMouseDown={(e) => handleObstaclePointerDown(e, obs)}
+                    onContextMenu={(e) =>
+                      openPlanContextMenu(e, {
+                        kind: "obstacle",
+                        obsId: obs.id,
+                        obsName: obs.name || "Taşıyıcı Kolon",
+                        rotationY: obs.rotationY || 0,
+                      })
+                    }
+                    onDoubleClick={() => removeSpaceObstacle(obs.id)}
+                    className="cursor-move"
+                  >
+                    {collidesWithModule && (
+                      <rect
+                        x={ox - 10}
+                        y={oz - 10}
+                        width={effW + 20}
+                        height={effD + 20}
+                        rx={8}
+                        fill="rgba(220, 38, 38, 0.14)"
+                        stroke="#DC2626"
+                        strokeWidth="4.5"
+                        strokeDasharray="12 6"
+                      />
+                    )}
+                    <rect
+                      x={ox}
+                      y={oz}
+                      width={effW}
+                      height={effD}
+                      fill="#EAE5DC"
+                      fillOpacity={0.94}
+                    />
+                    <rect
+                      x={ox}
+                      y={oz}
+                      width={effW}
+                      height={effD}
+                      fill="url(#column_hatch)"
+                      stroke={isSelectedObs || collidesWithModule ? "#DC2626" : "#1C1917"}
+                      strokeWidth={isSelectedObs ? "6.5" : "4.5"}
+                      strokeDasharray={isBeam ? "12 6" : undefined}
+                    />
+                    {/* Structural cross diagonals inside reinforced concrete column */}
+                    {!isBeam && (
+                      <g stroke="#44403C" strokeWidth="1.8" opacity={0.55} className="pointer-events-none">
+                        <line x1={ox} y1={oz} x2={ox + effW} y2={oz + effD} />
+                        <line x1={ox + effW} y1={oz} x2={ox} y2={oz + effD} />
+                      </g>
+                    )}
+                    <g className="pointer-events-none">
+                      <rect
+                        x={ox + effW / 2 - colPillW / 2}
+                        y={oz + effD + Math.round(8 * ts)}
+                        width={colPillW}
+                        height={colPillH}
+                        rx={Math.round(8 * ts)}
+                        fill="rgba(255, 255, 255, 0.96)"
+                        stroke={isSelectedObs || collidesWithModule ? "#DC2626" : "#292524"}
+                        strokeWidth="2.5"
+                      />
+                      <text
+                        x={ox + effW / 2}
+                        y={oz + effD + Math.round(8 * ts) + Math.round(colPillH * 0.72)}
+                        textAnchor="middle"
+                        fill={isSelectedObs || collidesWithModule ? "#B91C1C" : "#141413"}
+                        fontSize={colFont}
+                        fontWeight="900"
+                        fontFamily="monospace"
+                      >
+                        {colTxt}
                       </text>
                     </g>
                   </g>

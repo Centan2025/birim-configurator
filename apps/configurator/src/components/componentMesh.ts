@@ -808,6 +808,8 @@ export function createComponentMesh(
     linkGroup.add(pivotPin);
 
     group.add(linkGroup);
+    group.userData.hingeCarcassFixed = carcassFixedGroup;
+    group.userData.hingeLinkGroup = linkGroup;
     return group;
   }
 
@@ -1890,7 +1892,35 @@ export function createComponentMesh(
     const h = comp.dimensions.height;
     const d = comp.dimensions.depth;
 
-    if (activeProfile === "glass_frame" && w > 140 && h > 140) {
+    if (comp.id.includes("_tambour_curtain") && w > 80 && h > 40) {
+      // 0. Dikey / Yatay Esnek Tambur Panjur Kapak (`_tambour_curtain`): Akustik keçe sırt + gerçek yatay lamel dizisi!
+      mesh.visible = false;
+      const backing = new THREE.Mesh(box, darkCavityMat);
+      backing.scale.set(Math.max(40, w - 4), Math.max(30, h - 2), 3);
+      backing.position.set(cx, cy, cz - d * 0.35);
+      backing.userData = { preserveCustomMaterial: true };
+      group.add(backing);
+
+      const slatPitch = 22;
+      const slatCount = Math.max(2, Math.floor(h / slatPitch));
+      const actualPitch = h / slatCount;
+      const slatH = Math.max(12, actualPitch - 2.2);
+      const slatD = Math.max(10, d - 2);
+      const slatGeo = getCachedWorldUvBoxGeometry(w, slatH, slatD, true);
+      const instSlats = new THREE.InstancedMesh(slatGeo, material, slatCount);
+      const mtx = new THREE.Matrix4();
+      const yBottom = cy - h / 2;
+      for (let si = 0; si < slatCount; si++) {
+        mtx.identity();
+        mtx.setPosition(cx, yBottom + (si + 0.5) * actualPitch, cz + 1);
+        instSlats.setMatrixAt(si, mtx);
+      }
+      instSlats.instanceMatrix.needsUpdate = true;
+      instSlats.castShadow = true;
+      instSlats.receiveShadow = true;
+      tagSubMesh(instSlats, userData, comp);
+      group.add(instSlats);
+    } else if (activeProfile === "glass_frame" && w > 140 && h > 140) {
       // 1. Füme Cam Vitrin Kapak (`glass_frame`): 4 world-UV perimeter frame bars + true translucent smoked glass center pane!
       mesh.visible = false;
       const frameW = Math.min(54, Math.max(34, Math.round(w * 0.11)));

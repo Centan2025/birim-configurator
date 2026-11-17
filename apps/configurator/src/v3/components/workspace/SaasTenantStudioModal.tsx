@@ -28,6 +28,7 @@ import {
   type SaasRoleId,
 } from "@birim/core";
 import { useConfiguratorStore } from "../../../store/useConfiguratorStore";
+import { V3PremiumDropdown } from "../../design-system";
 import { BirimLogo } from "../../design-system";
 
 interface SaasTenantStudioModalProps {
@@ -83,12 +84,12 @@ export const SaasTenantStudioModal: React.FC<SaasTenantStudioModalProps> = ({
   return (
     <div
       data-testid="saas-tenant-studio-modal"
-      className="fixed inset-0 z-[120] bg-black/45 backdrop-blur-xs flex items-center justify-center p-4 select-none"
+      className="fixed inset-0 z-[155] bg-[#141413]/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 select-none"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full max-w-4xl max-h-[88vh] bg-[#FAF9F6] border border-[#DED8CC] rounded-3xl shadow-2xl flex flex-col overflow-hidden text-[#141413]">
+      <div className="w-full max-w-4xl max-h-[90vh] birim-ice-modal rounded-[28px] flex flex-col overflow-hidden text-[#141413]">
         {/* Header */}
         <div className="px-6 py-4 bg-white border-b border-[#EFECE5] flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
@@ -97,15 +98,13 @@ export const SaasTenantStudioModal: React.FC<SaasTenantStudioModalProps> = ({
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h2 className="text-sm font-bold tracking-tight truncate">
-                  Modül SaaS Platform &amp; Organizasyon Stüdyosu
-                </h2>
+                <h2 className="text-sm font-bold tracking-tight truncate">Firma Ayarları</h2>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-600/12 text-emerald-800">
                   {entitlements.planNameTr}
                 </span>
               </div>
               <p className="text-[11px] text-[#57534E] truncate">
-                Aktif Kiracı: <strong>{activeTenantProfile.brand.legalName}</strong> ({activeTenantProfile.slug}) • Rol: <strong>{activeTenantRole}</strong>
+                {activeTenantProfile.brand.legalName} • {activeTenantRole}
               </p>
             </div>
           </div>
@@ -290,36 +289,37 @@ export const SaasTenantStudioModal: React.FC<SaasTenantStudioModalProps> = ({
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-xs">
-                <label className="space-y-1">
-                  <span className="font-semibold text-[#44403C]">Varsayılan Gövde Kalınlığı (mm)</span>
-                  <select
+                <div className="space-y-1">
+                  <span className="font-semibold text-[#44403C] block">Gövde Kalınlığı</span>
+                  <V3PremiumDropdown
+                    variant="popover"
+                    size="sm"
                     disabled={!canManageSettings}
-                    value={activeTenantProfile.construction.defaultCarcassThicknessMm}
-                    onChange={(e) =>
+                    value={String(activeTenantProfile.construction.defaultCarcassThicknessMm)}
+                    onChange={(val) =>
                       updateActiveTenantProfile({
                         construction: {
                           ...activeTenantProfile.construction,
-                          defaultCarcassThicknessMm: Number(e.target.value),
+                          defaultCarcassThicknessMm: Number(val),
                         },
                       })
                     }
-                    className="w-full h-9 px-3 rounded-xl border border-[#DED8CC] bg-[#FAF9F6] font-semibold"
-                  >
-                    {[16, 18, 19, 22, 25].map((mm) => (
-                      <option key={mm} value={mm}>
-                        {mm} mm
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                    options={[16, 18, 19, 22, 25].map((mm) => ({
+                      value: String(mm),
+                      label: `${mm} mm`,
+                    }))}
+                  />
+                </div>
 
-                <label className="space-y-1">
-                  <span className="font-semibold text-[#44403C]">Arkalık Montaj Tipi</span>
-                  <select
+                <div className="space-y-1">
+                  <span className="font-semibold text-[#44403C] block">Arkalık Montajı</span>
+                  <V3PremiumDropdown
+                    variant="popover"
+                    size="sm"
                     disabled={!canManageSettings}
                     value={activeTenantProfile.construction.backPanelMounting}
-                    onChange={(e) => {
-                      const mode = e.target.value as BackPanelMountingMode;
+                    onChange={(val) => {
+                      const mode = val as BackPanelMountingMode;
                       updateActiveTenantProfile({
                         construction: {
                           ...activeTenantProfile.construction,
@@ -328,56 +328,60 @@ export const SaasTenantStudioModal: React.FC<SaasTenantStudioModalProps> = ({
                         },
                       });
                     }}
-                    className="w-full h-9 px-3 rounded-xl border border-[#DED8CC] bg-[#FAF9F6] font-semibold"
-                  >
-                    <option value="grooved_8mm">8mm Kanal Geçmeli (Birim Standart)</option>
-                    <option value="rabbeted_8mm">8mm Lambalı Arkalık</option>
-                    <option value="surface_nailed_4mm">4mm HDF Arkadan Çivili (Anka)</option>
-                  </select>
-                </label>
+                    options={[
+                      { value: "grooved_8mm", label: "8mm Kanal Geçmeli" },
+                      { value: "rabbeted_8mm", label: "8mm Lambalı" },
+                      { value: "surface_nailed_4mm", label: "4mm HDF Çivili" },
+                    ]}
+                  />
+                </div>
 
-                <label className="space-y-1">
-                  <span className="font-semibold text-[#44403C]">Gövde Bağlantı Sistemi</span>
-                  <select
+                <div className="space-y-1">
+                  <span className="font-semibold text-[#44403C] block">Bağlantı Sistemi</span>
+                  <V3PremiumDropdown
+                    variant="popover"
+                    size="sm"
                     disabled={!canManageSettings}
                     value={activeTenantProfile.construction.connectorSystem}
-                    onChange={(e) =>
+                    onChange={(val) =>
                       updateActiveTenantProfile({
                         construction: {
                           ...activeTenantProfile.construction,
-                          connectorSystem: e.target.value as ConnectorSystemType,
+                          connectorSystem: val as ConnectorSystemType,
                         },
                       })
                     }
-                    className="w-full h-9 px-3 rounded-xl border border-[#DED8CC] bg-[#FAF9F6] font-semibold"
-                  >
-                    <option value="minifix_dowel">Minifiks Ø15 + Kavela Ø8</option>
-                    <option value="lamello_cabineo">Lamello Cabineo (CNC Ø15 Cep)</option>
-                    <option value="confirmat">Konfirmat Vida Ø7x50</option>
-                  </select>
-                </label>
+                    options={[
+                      { value: "minifix_dowel", label: "Minifiks Ø15 + Kavela" },
+                      { value: "lamello_cabineo", label: "Lamello Cabineo" },
+                      { value: "confirmat", label: "Konfirmat Ø7x50" },
+                    ]}
+                  />
+                </div>
 
-                <label className="space-y-1">
-                  <span className="font-semibold text-[#44403C]">Birincil CNC Post-Processor</span>
-                  <select
+                <div className="space-y-1">
+                  <span className="font-semibold text-[#44403C] block">CNC Post-Processor</span>
+                  <V3PremiumDropdown
+                    variant="popover"
+                    size="sm"
                     disabled={!canManageSettings}
                     value={activeTenantProfile.machine.primaryCncFormat}
-                    onChange={(e) =>
+                    onChange={(val) =>
                       updateActiveTenantProfile({
                         machine: {
                           ...activeTenantProfile.machine,
-                          primaryCncFormat: e.target.value as CncMachineFormatId,
+                          primaryCncFormat: val as CncMachineFormatId,
                         },
                       })
                     }
-                    className="w-full h-9 px-3 rounded-xl border border-[#DED8CC] bg-[#FAF9F6] font-semibold"
-                  >
-                    <option value="homag_mpr">Homag WoodWOP (.MPR)</option>
-                    <option value="biesse_cix">Biesse bSolid (.CIX)</option>
-                    <option value="scm_xcs">SCM Maestro (.XCS)</option>
-                    <option value="iso_gcode">Fanuc / ISO G-Code (.NC)</option>
-                  </select>
-                </label>
+                    options={[
+                      { value: "homag_mpr", label: "Homag (.MPR)" },
+                      { value: "biesse_cix", label: "Biesse (.CIX)" },
+                      { value: "scm_xcs", label: "SCM (.XCS)" },
+                      { value: "iso_gcode", label: "ISO G-Code (.NC)" },
+                    ]}
+                  />
+                </div>
 
                 <label className="space-y-1">
                   <span className="font-semibold text-[#44403C]">Testere Ağız Payı / Kerf (mm)</span>

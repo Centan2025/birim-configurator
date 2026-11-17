@@ -189,7 +189,7 @@ export interface ConfiguratorState {
   setPlinthHeight: (plinth: number) => void;
   setMaterials: (bodyMatId?: string, doorMatId?: string) => void;
   setBayCount: (count: number) => void;
-  setBayDoorType: (bayIdx: number, type: "single_left" | "single_right" | "double" | "sliding" | "open") => void;
+  setBayDoorType: (bayIdx: number, type: "single_left" | "single_right" | "double" | "sliding" | "tambour" | "open") => void;
   setBayHandleCategory: (bayIdx: number, category: HandleCategory, handleProfileId?: string) => void;
 
   // Interior fittings
@@ -1179,9 +1179,19 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
     const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
     const next = {
       width: roundIntMm(mod.isFixedWidth ? mod.dimensions.width : clamp(width, limits?.minW ?? 200, limits?.maxW ?? 3600)),
-      height: roundIntMm(clamp(height, limits?.minH ?? 300, limits?.maxH ?? 2800)),
-      depth: roundIntMm(clamp(depth, limits?.minD ?? 200, limits?.maxD ?? 950)),
+      height: roundIntMm(clamp(height, limits?.minH ?? 260, limits?.maxH ?? 2900)),
+      depth: roundIntMm(clamp(depth, limits?.minD ?? 200, limits?.maxD ?? 1450)),
     };
+    if (mod.carcass.hullShape === "capsule_stadium") {
+      mod.carcass.cornerRadiusMm = Math.min(Math.floor(next.width / 2) - 40, Math.round(next.depth / 2));
+    } else if (mod.carcass.hullShape === "rounded_corners") {
+      mod.carcass.cornerRadiusMm = Math.max(
+        65,
+        Math.min(Math.max(65, Math.floor(next.depth / 2) - 20), mod.carcass.cornerRadiusMm || 110)
+      );
+    } else if (mod.carcass.hullShape === "capsule_table") {
+      mod.carcass.cornerRadiusMm = Math.round(next.depth / 2);
+    }
     const maxSafeBays = getMaxSafeBayCount(next.width, mod.carcass.panelThickness);
     if (mod.bays.length > maxSafeBays) {
       mod.bays = mod.bays.slice(0, maxSafeBays).map((b, idx) => ({ ...b, index: idx }));
@@ -1332,7 +1342,18 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
 
-    if (type === "sliding") {
+    if (type === "tambour") {
+      if (mod.dimensions.depth < 320) {
+        mod.dimensions.depth = 360;
+      }
+      const targetBay = mod.bays[bayIdx];
+      targetBay.door.type = "tambour";
+      targetBay.door.doorSystemId = "tambour_roller";
+      targetBay.door.overlayType = "inset";
+      targetBay.door.handleCategory = "milled_wood_grip";
+      targetBay.drawers = (targetBay.drawers || []).map((dr) => ({ ...dr, isInternal: true }));
+      mod.isOpenFront = false;
+    } else if (type === "sliding") {
       // Industrial sliding wardrobe rule: minimum 1200mm width, >=600mm depth, >=2 bays, recessed grips, internal drawers only
       if (mod.dimensions.width < 1200) {
         mod.dimensions.width = 1400;
@@ -3133,11 +3154,9 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
     const { project, history, batchStartProject } = get();
     const updated = cloneProject(project);
     updated.facadeGrainContinuity = Boolean(enabled);
-    if (enabled) {
-      updated.modules.forEach((m) => {
-        m.carcass.grainContinuityMode = "facade_continuous";
-      });
-    }
+    updated.modules.forEach((m) => {
+      m.carcass.grainContinuityMode = enabled ? "facade_continuous" : "none";
+    });
     const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),

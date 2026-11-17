@@ -630,20 +630,62 @@ function evaluateModuleCompatibilityUncached(module: ModuleInstance): Validation
       }
     }
 
-    if (dSys === "tambour_roller") {
-      issues.push({
-        severity: "warning",
-        code: "CHK_10_TAMBOUR_UNVERIFIED_PREVIEW_ONLY",
-        message: `Tambur / panjur kapak sistemi şu an yalnızca 3D mimari önizleme düzeyindedir; fabrika sarım kutusu ve kanal freze doğrulaması tamamlanmadan CNC üretim onayı verilemez.`,
-        targetId: bay.door.id,
-        blockingProduction: true,
-        compatibilityStatus: "UNVERIFIED",
-        categoryIndex: 10,
-        suggestions: [
-          "Üretim onayı için Paralel Kalkar veya Cep (Pocket) Kapak sistemine geçin.",
-        ],
-        sourceId: "SRC_BIRIM_FACTORY_V3",
-      });
+    if (dSys === "tambour_roller" || bay.door?.type === "tambour") {
+      const minTambourDepth =
+        module.carcass.hullShape === "capsule_stadium" || module.carcass.hullShape === "rounded_corners"
+          ? 340
+          : 300;
+      if (depth < minTambourDepth) {
+        issues.push({
+          severity: "error",
+          code: "CHK_10_TAMBOUR_MIN_DEPTH",
+          message: `Tambur kapak kılavuz kanalı (8.5×7.5mm) ve sarım/cep boşluğu için en az ${minTambourDepth}mm gövde derinliği gerekir (Mevcut: D=${depth}mm).`,
+          targetId: bay.door.id,
+          blockingProduction: true,
+          compatibilityStatus: "INCOMPATIBLE",
+          categoryIndex: 10,
+          suggestions: [
+            `Modül derinliğini en az ${minTambourDepth}mm değerine çıkarın.`,
+          ],
+          sourceId: "SRC_BIRIM_FACTORY_V3",
+        });
+      }
+      const effCurveR =
+        module.carcass.hullShape === "capsule_stadium"
+          ? depth / 2
+          : module.carcass.hullShape === "rounded_corners"
+          ? module.carcass.cornerRadiusMm || 110
+          : 999;
+      if (effCurveR < 65) {
+        issues.push({
+          severity: "error",
+          code: "CHK_10_TAMBOUR_MIN_CURVE_RADIUS",
+          message: `Kavisli tambur kılavuz dönüş yarıçapı (R=${Math.round(effCurveR)}mm) akustik keçeli ahşap lamellerin minimum bükülme sınırının (R≥65mm) altındadır.`,
+          targetId: bay.door.id,
+          blockingProduction: true,
+          compatibilityStatus: "INCOMPATIBLE",
+          categoryIndex: 10,
+          suggestions: [
+            "Köşe dönüş yarıçapını en az R=75mm değerine yükseltin veya lamel adımını 18mm seçin.",
+          ],
+          sourceId: "SRC_BIRIM_FACTORY_V3",
+        });
+      }
+      if (bayW > 1350 && module.carcass.hullShape !== "capsule_stadium" && module.carcass.hullShape !== "rounded_corners") {
+        issues.push({
+          severity: "warning",
+          code: "CHK_10_TAMBOUR_MAX_SPAN",
+          message: `Bölme ${bayIdx + 1} tambur lamel açıklığı (${Math.round(bayW)}mm) tek parça dikey sarım için sehime duyarlıdır (önerilen ≤1200mm).`,
+          targetId: bay.door.id,
+          blockingProduction: false,
+          compatibilityStatus: "COMPATIBLE_WITH_CONDITIONS",
+          categoryIndex: 10,
+          suggestions: [
+            "Bölmeyi ara dikme ile ikiye ayırın veya yatay kavisli tambur gövde formuna geçin.",
+          ],
+          sourceId: "SRC_BIRIM_FACTORY_V3",
+        });
+      }
     }
 
     // Category 11: Manufacturing & System 32 Drilling Rules

@@ -923,6 +923,16 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
     (part.role === "shelf" && (part.label.includes("Sabit") || part.label.includes("Taşıyıcı Tabla")))
   ) {
     const isFixedOrCarrierShelf = part.role === "shelf";
+    if (
+      part.id.includes("_capsule_bottom") ||
+      part.id.includes("_capsule_top") ||
+      part.id.includes("_rounded_bottom") ||
+      part.id.includes("_rounded_top") ||
+      part.id.includes("_pedestal_disc_")
+    ) {
+      return holes;
+    }
+
     const jointSpecs =
       width <= 110
         ? [{ boltFromFront: 32, dowelFromFront: width >= 80 ? 64 : (null as number | null) }]

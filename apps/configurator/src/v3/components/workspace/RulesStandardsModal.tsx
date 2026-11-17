@@ -13,6 +13,7 @@ import {
   type CustomStandardRule,
   type RemediationProposal,
 } from "@birim/core";
+import { V3PremiumDropdown } from "../../design-system";
 import { startZeroLagModalDrag } from "../../design-system/zeroLagDrag";
 
 interface KitchenRuleItem {
@@ -98,7 +99,7 @@ export const RulesStandardsModal: React.FC<RulesStandardsModalProps> = ({
     <div
       data-testid="v3-engineering-modal"
       onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/40 backdrop-blur-xs p-4"
+      className="fixed inset-0 z-[153] flex items-center justify-center bg-[#141413]/50 backdrop-blur-xs p-3 sm:p-5"
     >
       <div
         data-draggable-shell="rules"
@@ -114,10 +115,10 @@ export const RulesStandardsModal: React.FC<RulesStandardsModalProps> = ({
             <ShieldCheck className="w-4 h-4 text-[#141413]" />
             <div>
               <h2 className="text-sm font-bold text-[#111827]">
-                Standartlar, Kurallar &amp; Mühendislik Merkezi ({humanCompatStatusLabel})
+                Kalite Kontrol ({humanCompatStatusLabel})
               </h2>
               <p className="text-[11px] text-[#475569]">
-                EN / DIN / Blum / Üretim standartlarını inceleyin, aktif projeyi denetleyin veya yeni özel standart kuralı ekleyin
+                Ölçü, standart ve uyumluluk kuralları
               </p>
             </div>
           </div>
@@ -404,26 +405,25 @@ export const RulesStandardsModal: React.FC<RulesStandardsModalProps> = ({
                     className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-stone-300 font-mono text-xs"
                   />
                 </label>
-                <label className="space-y-1 block">
-                  <span className="font-bold text-[11px] text-stone-700">Denetlenecek Parametre</span>
-                  <select
-                    data-testid="custom-std-metric-select"
+                <div className="space-y-1 block">
+                  <span className="font-bold text-[11px] text-stone-700 block">Denetlenecek Parametre</span>
+                  <V3PremiumDropdown
+                    variant="popover"
+                    size="sm"
+                    testId="custom-std-metric-select"
                     value={newStdMetric}
-                    onChange={(e) => {
-                      const m = e.target.value as CustomStandardMetric;
+                    onChange={(val) => {
+                      const m = val as CustomStandardMetric;
                       setNewStdMetric(m);
                       const meta = CUSTOM_STANDARD_METRIC_OPTIONS.find((x) => x.metric === m);
                       if (meta) setNewStdThreshold(meta.defaultThresholdMm);
                     }}
-                    className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-stone-300 font-semibold text-xs"
-                  >
-                    {CUSTOM_STANDARD_METRIC_OPTIONS.map((opt) => (
-                      <option key={opt.metric} value={opt.metric}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                    options={CUSTOM_STANDARD_METRIC_OPTIONS.map((opt) => ({
+                      value: opt.metric,
+                      label: opt.label,
+                    }))}
+                  />
+                </div>
                 <label className="space-y-1 block">
                   <span className="font-bold text-[11px] text-stone-700">Sınır Değer (mm)</span>
                   <input
@@ -437,33 +437,37 @@ export const RulesStandardsModal: React.FC<RulesStandardsModalProps> = ({
                     className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-stone-300 font-mono font-bold text-xs"
                   />
                 </label>
-                <label className="space-y-1 block">
-                  <span className="font-bold text-[11px] text-stone-700">Uygulanacak Modül Grubu</span>
-                  <select
+                <div className="space-y-1 block">
+                  <span className="font-bold text-[11px] text-stone-700 block">Modül Grubu</span>
+                  <V3PremiumDropdown
+                    variant="popover"
+                    size="sm"
                     value={newStdCategory}
-                    onChange={(e) =>
-                      setNewStdCategory(e.target.value as CustomStandardRule["appliesToCategory"])
+                    onChange={(val) =>
+                      setNewStdCategory(val as CustomStandardRule["appliesToCategory"])
                     }
-                    className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-stone-300 font-semibold text-xs"
-                  >
-                    <option value="all">Tüm Modüller</option>
-                    <option value="wardrobe">Gardırop &amp; Giyinme Odası</option>
-                    <option value="kitchen_base">Mutfak Alt Dolapları</option>
-                    <option value="kitchen_wall">Mutfak Üst Dolapları</option>
-                    <option value="kitchen_tall">Boy ve Cihaz Dolapları</option>
-                  </select>
-                </label>
-                <label className="space-y-1 block">
-                  <span className="font-bold text-[11px] text-stone-700">Kural Seviyesi</span>
-                  <select
+                    options={[
+                      { value: "all", label: "Tüm Modüller" },
+                      { value: "wardrobe", label: "Gardırop & Giyinme Odası" },
+                      { value: "kitchen_base", label: "Mutfak Alt Dolapları" },
+                      { value: "kitchen_wall", label: "Mutfak Üst Dolapları" },
+                      { value: "kitchen_tall", label: "Boy ve Cihaz Dolapları" },
+                    ]}
+                  />
+                </div>
+                <div className="space-y-1 block">
+                  <span className="font-bold text-[11px] text-stone-700 block">Kural Seviyesi</span>
+                  <V3PremiumDropdown
+                    variant="popover"
+                    size="sm"
                     value={newStdSeverity}
-                    onChange={(e) => setNewStdSeverity(e.target.value as "warning" | "error")}
-                    className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-stone-300 font-semibold text-xs"
-                  >
-                    <option value="warning">Tasarım Uyarısı (Esnek)</option>
-                    <option value="error">Zorunlu Üretim Engeli (Bloklayıcı)</option>
-                  </select>
-                </label>
+                    onChange={(val) => setNewStdSeverity(val as "warning" | "error")}
+                    options={[
+                      { value: "warning", label: "Tasarım Uyarısı (Esnek)" },
+                      { value: "error", label: "Zorunlu Üretim Engeli" },
+                    ]}
+                  />
+                </div>
               </div>
 
               <div className="pt-1 flex items-center justify-end gap-2">

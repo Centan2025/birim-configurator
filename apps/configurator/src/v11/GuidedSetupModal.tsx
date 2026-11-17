@@ -53,23 +53,21 @@ export const GuidedSetupModal: React.FC<GuidedSetupModalProps> = React.memo(
     return (
       <div
         data-testid="v11-guided-setup-modal"
-        className="fixed inset-0 z-50 bg-[#141413]/45 backdrop-blur-sm flex items-center justify-center p-4"
+        className="fixed inset-0 z-[152] bg-[#141413]/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5"
         onClick={onClose}
       >
         <div
           onClick={(e) => e.stopPropagation()}
-          className="w-full max-w-xl rounded-3xl bg-[#FAF8F4] border border-[#DFD9CE] shadow-[0_28px_80px_rgba(20,20,19,0.25)] overflow-hidden text-[#141413]"
+          className="w-full max-w-xl max-h-[90vh] flex flex-col birim-ice-modal rounded-[28px] overflow-hidden text-[#141413]"
         >
-          <div className="px-6 py-4 border-b border-[#E6E1D6] flex items-center justify-between">
+          <div className="px-6 py-4 birim-ice-shell-header flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2.5">
               <span className="w-9 h-9 rounded-2xl bg-[#141413] text-[#D6C7B2] flex items-center justify-center">
                 <Sparkles className="w-4 h-4" />
               </span>
               <div>
-                <h2 className="text-base font-bold">Hızlı Dolap ve Mekân Kurulumu</h2>
-                <p className="text-xs text-[#78716C]">
-                  Endüstriyel standartlara uygun, çakışmasız otomatik modül yerleşimi
-                </p>
+                <h2 className="text-base font-bold">Hızlı Kurulum</h2>
+                <p className="text-xs text-[#78716C]">Mekân ve modül ölçülerini seçin</p>
               </div>
             </div>
             <button

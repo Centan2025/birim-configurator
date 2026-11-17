@@ -181,10 +181,29 @@ export function build3DArchitecturalCeilingGroup(
 
   const ceilH = space.ceilingHeight || 2600;
   const spanW = Math.max(1600, mainWallLengthMm);
-  const roomDepthZ = 2500;
-  const slabThickness = 90;
+  const sideWallMaxZ = (space.walls || []).reduce((maxZ, w) => {
+    const rot = (((w.rotationY || 0) % 360) + 360) % 360;
+    const extZ = rot === 90 || rot === 270 ? w.position.z + w.length : w.position.z + 2600;
+    return Math.max(maxZ, extZ);
+  }, 2600);
+  const roomDepthZ = Math.max(2500, Math.min(4800, sideWallMaxZ));
+  const slabThickness = 75;
   const isTranslucent = Boolean(cfg.translucentCutawayIn3D);
-  const baseOpacity = isTranslucent ? 0.38 : 1.0;
+  const baseOpacity = isTranslucent ? 0.36 : 1.0;
+
+  // Smart ArchViz One-Way Ceiling Deck Material:
+  // Visible from inside/below the room (FrontSide rotated +PI/2 around X -> normal -Y),
+  // automatically invisible when orbiting from ABOVE ceiling height so it never blocks camera or studio key light!
+  const deckOneWayMat = new THREE.MeshPhysicalMaterial({
+    color: new THREE.Color(cfg.colorHex || "#F6F4EF"),
+    roughness: 0.85,
+    metalness: 0.01,
+    clearcoat: 0.04,
+    transparent: isTranslucent,
+    opacity: baseOpacity,
+    depthWrite: !isTranslucent,
+    side: THREE.FrontSide,
+  });
 
   const plasterMat = new THREE.MeshPhysicalMaterial({
     color: new THREE.Color(cfg.colorHex || "#F5F3EE"),
@@ -296,16 +315,27 @@ export function build3DArchitecturalCeilingGroup(
     return group;
   }
 
-  // Ana üst tavan plağı (tüm düz tabanlı tavan tipleri için)
+  // Ana üst tavan yüzeyi: Alttan bakıldığında tam dolu mimari tavan, üstten bakıldığında sahneyi ve stüdyo ışığını kapatmayan akıllı ArchViz yüzey!
   const mainSlab = new THREE.Mesh(
-    new THREE.BoxGeometry(spanW, slabThickness, roomDepthZ),
-    plasterMat
+    new THREE.PlaneGeometry(spanW, roomDepthZ),
+    deckOneWayMat
   );
-  mainSlab.position.set(spanW / 2, ceilH + slabThickness / 2, roomDepthZ / 2);
+  mainSlab.rotation.x = Math.PI / 2;
+  mainSlab.position.set(spanW / 2, ceilH, roomDepthZ / 2);
   mainSlab.raycast = () => {};
-  mainSlab.castShadow = !isTranslucent;
+  mainSlab.castShadow = false;
   mainSlab.receiveShadow = true;
   group.add(mainSlab);
+
+  // Tavan kenar kontur çerçevesi (üstten bakışta tavan sınırını zarifçe belli eder)
+  const rimEdges = new THREE.EdgesGeometry(new THREE.BoxGeometry(spanW, 24, roomDepthZ));
+  const rimLines = new THREE.LineSegments(
+    rimEdges,
+    new THREE.LineBasicMaterial({ color: 0xd6d0c4, transparent: true, opacity: 0.55 })
+  );
+  rimLines.position.set(spanW / 2, ceilH + 12, roomDepthZ / 2);
+  rimLines.raycast = () => {};
+  group.add(rimLines);
 
   if (cfg.ceilingType === "flat_plaster") {
     addRecessedSpots(ceilH, 680, Math.max(2, Math.round(spanW / 950)));
@@ -318,7 +348,7 @@ export function build3DArchitecturalCeilingGroup(
     const rearBand = new THREE.Mesh(new THREE.BoxGeometry(spanW, drop, bandD), soffitMat);
     rearBand.position.set(spanW / 2, ceilH - drop / 2, bandD / 2);
     rearBand.raycast = () => {};
-    rearBand.castShadow = !isTranslucent;
+    rearBand.castShadow = false;
     rearBand.receiveShadow = true;
     group.add(rearBand);
 
@@ -357,7 +387,7 @@ export function build3DArchitecturalCeilingGroup(
     const bulkhead = new THREE.Mesh(new THREE.BoxGeometry(spanW, drop, soffitD), soffitMat);
     bulkhead.position.set(spanW / 2, ceilH - drop / 2, soffitD / 2);
     bulkhead.raycast = () => {};
-    bulkhead.castShadow = !isTranslucent;
+    bulkhead.castShadow = false;
     bulkhead.receiveShadow = true;
     group.add(bulkhead);
 

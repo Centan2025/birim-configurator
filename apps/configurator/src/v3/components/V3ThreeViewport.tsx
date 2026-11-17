@@ -2223,47 +2223,56 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         },
       });
 
-      const hemiLight = new THREE.HemisphereLight(0xfffdf9, 0xb8afa0, 0.42);
+      const hemiLight = new THREE.HemisphereLight(0xfffef9, 0xc6bba8, 0.52);
       scene.add(hemiLight);
       hemiLightRef.current = hemiLight;
 
-      // Architectural 3/4 Left-Front Key Softbox with 2048px PCFSoftShadowMap
-      const keyLight = new THREE.DirectionalLight(0xfffaf3, 1.32);
-      keyLight.position.set(-2150, 3450, 3350);
-      keyLight.target.position.set(1400, 900, 200);
+      // Architectural 3/4 Left-Front Key Softbox with True 2048×2048 Hi-Res PCFSoftShadowMap
+      const keyLight = new THREE.DirectionalLight(0xfffaf2, 1.44);
+      keyLight.position.set(-2150, 3550, 3450);
+      keyLight.target.position.set(1250, 880, 320);
       scene.add(keyLight.target);
       keyLight.castShadow = !isLegacyGpu;
-      keyLight.shadow.mapSize.width = 1024;
-      keyLight.shadow.mapSize.height = 1024;
-      keyLight.shadow.camera.left = -2500;
-      keyLight.shadow.camera.right = 2800;
-      keyLight.shadow.camera.top = 2700;
-      keyLight.shadow.camera.bottom = -450;
+      keyLight.shadow.mapSize.width = isLegacyGpu ? 1024 : 2048;
+      keyLight.shadow.mapSize.height = isLegacyGpu ? 1024 : 2048;
+      keyLight.shadow.camera.left = -2600;
+      keyLight.shadow.camera.right = 3000;
+      keyLight.shadow.camera.top = 2800;
+      keyLight.shadow.camera.bottom = -550;
       keyLight.shadow.camera.near = 250;
-      keyLight.shadow.camera.far = 9500;
-      keyLight.shadow.bias = -0.00018;
-      keyLight.shadow.normalBias = 0.85;
-      keyLight.shadow.radius = 2.4;
+      keyLight.shadow.camera.far = 10500;
+      keyLight.shadow.bias = -0.00012;
+      keyLight.shadow.normalBias = 0.42;
+      keyLight.shadow.radius = 2.65;
       scene.add(keyLight);
       keyLightRef.current = keyLight;
 
-      const rimLight = new THREE.DirectionalLight(0xebeef2, 0.22);
-      rimLight.position.set(2900, 2300, 1650);
+      const rimLight = new THREE.DirectionalLight(0xeef2f7, 0.34);
+      rimLight.position.set(3100, 2450, 1750);
       scene.add(rimLight);
       rimLightRef.current = rimLight;
 
-      const frontFillLight = new THREE.DirectionalLight(0xfaf7f2, 0.22);
-      frontFillLight.position.set(1600, 1400, 3400);
+      const frontFillLight = new THREE.DirectionalLight(0xfff9f2, 0.28);
+      frontFillLight.position.set(1650, 1480, 3600);
       scene.add(frontFillLight);
 
-      const floorBounceLight = new THREE.DirectionalLight(0xf0e6d8, 0.1);
-      floorBounceLight.position.set(900, -1400, 2000);
+      const floorBounceLight = new THREE.DirectionalLight(0xf3eadc, 0.14);
+      floorBounceLight.position.set(950, -1400, 2100);
       scene.add(floorBounceLight);
 
-      // Subtle architectural floor grid with clear contrast
-      const gridColor1 = theme === "dark" ? 0x334155 : 0x8c857b;
-      const gridColor2 = theme === "dark" ? 0x1e293b : 0xb5afa4;
+      // Refined architectural floor grid with non-distracting gallery opacity
+      const gridColor1 = theme === "dark" ? 0x334155 : 0xa39c90;
+      const gridColor2 = theme === "dark" ? 0x1e293b : 0xcbc5ba;
       const grid = new THREE.GridHelper(8000, 80, gridColor1, gridColor2);
+      if (Array.isArray(grid.material)) {
+        grid.material.forEach((gm) => {
+          gm.transparent = true;
+          gm.opacity = theme === "dark" ? 0.38 : 0.32;
+        });
+      } else {
+        grid.material.transparent = true;
+        grid.material.opacity = theme === "dark" ? 0.38 : 0.32;
+      }
       grid.position.y = -2;
       grid.visible = showGrid;
       scene.add(grid);
@@ -4089,6 +4098,9 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         }
 
         const roots: THREE.Object3D[] = [curGroup];
+        if (sceneObjectsGroupRef.current && sceneObjectsGroupRef.current.children.length > 0) {
+          roots.push(sceneObjectsGroupRef.current);
+        }
         if (roomArchGroupRef.current && roomArchGroupRef.current.children.length > 0) {
           roots.push(roomArchGroupRef.current);
         }
@@ -4810,7 +4822,9 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           (m, idx) =>
             meshGroup.children[idx]?.userData?.baseRenderSig === baseSigs[idx] &&
             m.carcass.hullShape !== "capsule_stadium" &&
-            m.carcass.hullShape !== "capsule_table"
+            m.carcass.hullShape !== "rounded_corners" &&
+            m.carcass.hullShape !== "capsule_table" &&
+            !m.bays.some((b) => b.door?.type === "tambour" || b.door?.doorSystemId === "tambour_roller")
         )
       ) {
         project.modules.forEach((m, idx) => {
@@ -4839,6 +4853,17 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               sub.rotation.set(comp.rotation[0], comp.rotation[1], comp.rotation[2]);
             } else {
               sub.rotation.set(0, 0, 0);
+            }
+            if (comp.role === "door_hinge") {
+              const doorYaw = comp.rotation?.[1] || 0;
+              const carcassFixed = sub.userData?.hingeCarcassFixed;
+              if (carcassFixed instanceof THREE.Object3D) {
+                carcassFixed.rotation.y = -doorYaw;
+              }
+              const linkGroup = sub.userData?.hingeLinkGroup;
+              if (linkGroup instanceof THREE.Object3D) {
+                linkGroup.rotation.y = -doorYaw * 0.48;
+              }
             }
           }
         });
@@ -4928,6 +4953,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
 
         if (
           mod.carcass.hullShape === "capsule_stadium" ||
+          mod.carcass.hullShape === "rounded_corners" ||
           mod.carcass.hullShape === "capsule_table"
         ) {
           const capEdgeMat = getCachedEdgeMaterial(
@@ -4952,7 +4978,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             },
             capEdgeMat,
             modIdx,
-            effectiveDoorsHiddenIn3D ? 85 : doorOpenAngleDeg
+            effectiveDoorsHiddenIn3D ? 85 : doorOpenAngleDeg,
+            drawerOpenMm
           );
           modContainer.add(capGroup);
         } else {

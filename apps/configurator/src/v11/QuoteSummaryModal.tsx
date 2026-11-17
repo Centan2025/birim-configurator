@@ -142,14 +142,14 @@ export const QuoteSummaryModal: React.FC<QuoteSummaryModalProps> = React.memo(
     return (
       <div
         data-testid="v11-quote-summary-modal"
-        className="fixed inset-0 z-50 bg-[#141413]/45 backdrop-blur-sm flex items-center justify-center p-4"
+        className="fixed inset-0 z-[154] bg-[#141413]/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5"
         onClick={onClose}
       >
         <div
           onClick={(e) => e.stopPropagation()}
-          className="w-full max-w-2xl rounded-3xl bg-[#FAF8F4] border border-[#DFD9CE] shadow-[0_28px_80px_rgba(20,20,19,0.25)] overflow-hidden text-[#141413]"
+          className="w-full max-w-2xl max-h-[90vh] flex flex-col birim-ice-modal rounded-[28px] overflow-hidden text-[#141413]"
         >
-          <div className="px-6 py-4 border-b border-[#E6E1D6] flex items-center justify-between">
+          <div className="px-6 py-4 birim-ice-shell-header flex items-center justify-between shrink-0">
             <div className="flex items-center gap-3">
               <BirimLogo className="h-[18px] w-auto" />
               <span className="h-4 w-px bg-[#DFD9CE]" />

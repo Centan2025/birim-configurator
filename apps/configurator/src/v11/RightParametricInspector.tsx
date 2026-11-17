@@ -106,7 +106,7 @@ export interface RightParametricInspectorProps {
   onRemoveSubDivider: (bayIdx: number, subId: string) => void;
   onSetBayDoorType: (
     bayIdx: number,
-    type: "single_left" | "single_right" | "double" | "sliding" | "open"
+    type: "single_left" | "single_right" | "double" | "sliding" | "tambour" | "open"
   ) => void;
   onSetSlidingMountingType: (
     mode: "inset_inside" | "top_hung_exposed" | "top_hung_pelmet" | "coplanar_flush"
@@ -305,7 +305,15 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
       unitMode === "cm" ? `${Math.round(mm / 10)}` : `${Math.round(mm)}`;
 
     const curDoorType = activeBay?.door?.type || "double";
-    const isSlidingBay = curDoorType === "sliding" || curDoorType === "sliding_bottom";
+    const activeHullShape = activeModule.carcass.hullShape || "rectangular";
+    const isCapsuleOrRounded =
+      activeHullShape === "capsule_stadium" || activeHullShape === "rounded_corners";
+    const isTableOrIslandMod =
+      activeHullShape === "capsule_table" ||
+      activeModule.category === "kitchen_island" ||
+      activeModule.complementaryRole === "attached_table";
+    const isSlidingBay =
+      !isCapsuleOrRounded && (curDoorType === "sliding" || curDoorType === "sliding_bottom");
     const curDoorProfile =
       activeBay?.door?.crossSectionProfile ||
       activeModule.carcass.crossSectionProfile ||
@@ -586,11 +594,15 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                     key: "width",
                     label: "Genişlik",
                     valMm: wMm,
-                    minMm: isSlidingBay ? 1200 : 350,
+                    minMm: isSlidingBay ? 1200 : activeHullShape === "capsule_table" ? 900 : isCapsuleOrRounded ? 650 : 280,
                     maxMm: 3600,
                     stepMm: unitMode === "cm" ? 50 : 10,
                     presetsMm: isSlidingBay
                       ? [1500, 1800, 2200, 2600, 3000]
+                      : isCapsuleOrRounded
+                      ? [1200, 1600, 2000, 2200, 2600]
+                      : isTableOrIslandMod
+                      ? [1600, 2000, 2200, 2600]
                       : [600, 900, 1200, 1800, 2400],
                     apply: (next: number) => onSetDimensions(next, hMm, dMm),
                   },
@@ -598,121 +610,315 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                     key: "height",
                     label: "Yükseklik",
                     valMm: hMm,
-                    minMm: 400,
+                    minMm: 260,
                     maxMm: 2900,
-                    stepMm: unitMode === "cm" ? 50 : 10,
-                    presetsMm: [520, 870, 2200, 2400, 2600],
+                    stepMm: unitMode === "cm" ? 20 : 10,
+                    presetsMm: isCapsuleOrRounded
+                      ? [480, 540, 850, 1050, 1400]
+                      : isTableOrIslandMod
+                      ? [740, 750, 870, 900]
+                      : [520, 870, 2200, 2400, 2600],
                     apply: (next: number) => onSetDimensions(wMm, next, dMm),
                   },
                   {
                     key: "depth",
                     label: "Derinlik",
                     valMm: dMm,
-                    minMm: isSlidingBay ? 600 : 300,
-                    maxMm: 950,
+                    minMm: isSlidingBay ? 600 : activeHullShape === "capsule_table" ? 650 : isCapsuleOrRounded ? 340 : 240,
+                    maxMm: isTableOrIslandMod ? 1400 : 950,
                     stepMm: unitMode === "cm" ? 20 : 10,
-                    presetsMm: isSlidingBay ? [600, 650, 700] : [400, 500, 600, 650],
+                    presetsMm: isSlidingBay
+                      ? [600, 650, 700]
+                      : isTableOrIslandMod
+                      ? [850, 950, 1000, 1150]
+                      : isCapsuleOrRounded
+                      ? [380, 440, 450, 500, 580]
+                      : [400, 500, 600, 650],
                     apply: (next: number) => onSetDimensions(wMm, hMm, next),
                   },
                 ] as const
-              ).map((dim) => (
-                <div
-                  key={dim.key}
-                  className="p-3.5 rounded-2xl bg-white border border-[#E5DFD3] space-y-3"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-[#141413] text-[13px]">{dim.label}</span>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          dim.apply(Math.max(dim.minMm, dim.valMm - dim.stepMm))
-                        }
-                        className="w-7 h-7 rounded-full bg-[#F5F2EA] hover:bg-[#E7E1D4] flex items-center justify-center cursor-pointer"
-                      >
-                        <Minus className="w-3.5 h-3.5" />
-                      </button>
-                      <div className="px-2.5 py-1 rounded-xl bg-[#FAF8F4] border border-[#DED8CC] font-mono font-bold text-[13px] min-w-[68px] text-center">
-                        {formatVal(dim.valMm)}{" "}
-                        <span className="text-[10px] font-normal text-[#78716C]">{unitMode}</span>
+              ).map((dim) => {
+                const displayNum =
+                  unitMode === "cm" ? Number((dim.valMm / 10).toFixed(1)) : Math.round(dim.valMm);
+                return (
+                  <div
+                    key={dim.key}
+                    className="p-3.5 rounded-2xl bg-white border border-[#E5DFD3] space-y-3"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold text-[#141413] text-[13px]">{dim.label}</span>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            dim.apply(Math.max(dim.minMm, dim.valMm - dim.stepMm))
+                          }
+                          className="w-7 h-7 rounded-full bg-[#F5F2EA] hover:bg-[#E7E1D4] flex items-center justify-center cursor-pointer"
+                        >
+                          <Minus className="w-3.5 h-3.5" />
+                        </button>
+                        <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-xl bg-[#FAF8F4] border border-[#DED8CC] focus-within:border-[#141413]">
+                          <input
+                            type="number"
+                            key={`${dim.key}-${unitMode}-${dim.valMm}`}
+                            defaultValue={displayNum}
+                            step={unitMode === "cm" ? 0.5 : 1}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                (e.currentTarget as HTMLInputElement).blur();
+                              }
+                            }}
+                            onBlur={(e) => {
+                              const raw = Number(e.currentTarget.value);
+                              if (!Number.isFinite(raw) || raw <= 0) return;
+                              const nextMm = unitMode === "cm" ? Math.round(raw * 10) : Math.round(raw);
+                              const clamped = Math.max(dim.minMm, Math.min(dim.maxMm, nextMm));
+                              if (clamped !== dim.valMm) {
+                                dim.apply(clamped);
+                              }
+                            }}
+                            className="w-14 bg-transparent font-mono font-bold text-[13px] text-center text-[#141413] outline-none"
+                            title={`${dim.label} değerini klavyeden girip Enter'a basın`}
+                          />
+                          <span className="text-[10px] font-normal text-[#78716C] pr-0.5">{unitMode}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            dim.apply(Math.min(dim.maxMm, dim.valMm + dim.stepMm))
+                          }
+                          className="w-7 h-7 rounded-full bg-[#F5F2EA] hover:bg-[#E7E1D4] flex items-center justify-center cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          dim.apply(Math.min(dim.maxMm, dim.valMm + dim.stepMm))
-                        }
-                        className="w-7 h-7 rounded-full bg-[#F5F2EA] hover:bg-[#E7E1D4] flex items-center justify-center cursor-pointer"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                      </button>
+                    </div>
+
+                    <input
+                      type="range"
+                      min={dim.minMm}
+                      max={dim.maxMm}
+                      step={unitMode === "cm" ? 10 : 5}
+                      value={Math.min(dim.maxMm, Math.max(dim.minMm, dim.valMm))}
+                      onPointerDown={() => onBeginSliderDrag?.()}
+                      onPointerUp={() => onCommitSliderDrag?.()}
+                      onPointerCancel={() => onCommitSliderDrag?.()}
+                      onBlur={() => onCommitSliderDrag?.()}
+                      onChange={(e) => dim.apply(Number(e.target.value))}
+                      className="w-full accent-[#141413] cursor-pointer"
+                    />
+
+                    <div className="flex flex-wrap gap-1.5">
+                      {dim.presetsMm.map((pMm) => {
+                        const active = Math.abs(dim.valMm - pMm) < 5;
+                        return (
+                          <button
+                            key={pMm}
+                            type="button"
+                            onClick={() => dim.apply(pMm)}
+                            className={`px-2.5 py-1 rounded-full text-[11px] font-mono font-semibold transition cursor-pointer ${
+                              active
+                                ? "bg-[#141413] text-white"
+                                : "bg-[#F5F2EA] hover:bg-[#EAE3D5] text-[#44403C]"
+                            }`}
+                          >
+                            {unitMode === "cm" ? `${pMm / 10} cm` : `${pMm}`}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
+                );
+              })}
 
-                  <input
-                    type="range"
-                    min={dim.minMm}
-                    max={dim.maxMm}
-                    step={10}
-                    value={dim.valMm}
-                    onPointerDown={() => onBeginSliderDrag?.()}
-                    onPointerUp={() => onCommitSliderDrag?.()}
-                    onPointerCancel={() => onCommitSliderDrag?.()}
-                    onBlur={() => onCommitSliderDrag?.()}
-                    onChange={(e) => dim.apply(Number(e.target.value))}
-                    className="w-full accent-[#141413] cursor-pointer"
-                  />
-
-                  <div className="flex flex-wrap gap-1.5">
-                    {dim.presetsMm.map((pMm) => {
-                      const active = Math.abs(dim.valMm - pMm) < 5;
-                      return (
-                        <button
-                          key={pMm}
-                          type="button"
-                          onClick={() => dim.apply(pMm)}
-                          className={`px-2.5 py-1 rounded-full text-[11px] font-mono font-semibold transition cursor-pointer ${
-                            active
-                              ? "bg-[#141413] text-white"
-                              : "bg-[#F5F2EA] hover:bg-[#EAE3D5] text-[#44403C]"
-                          }`}
-                        >
-                          {unitMode === "cm" ? `${pMm / 10} cm` : `${pMm}`}
-                        </button>
-                      );
-                    })}
+              {/* Baza & Torna Ayak Yüksekliği */}
+              {activeHullShape !== "capsule_table" && (
+                <div className="p-3.5 rounded-2xl bg-white border border-[#E5DFD3] space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-[#141413]">
+                      {isCapsuleOrRounded ? "Alt Ayak / Baza Yüksekliği" : "Alt Baza Yüksekliği"}
+                    </span>
+                    <span className="font-mono text-[#78716C]">
+                      {plinthMm === 0 ? "Bazasız" : `${Math.round(plinthMm / 10)} cm (${plinthMm}mm)`}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-6 gap-1">
+                    {[
+                      { mm: 0, label: "Yok" },
+                      { mm: 80, label: "8cm" },
+                      { mm: 100, label: "10cm" },
+                      { mm: 150, label: "15cm" },
+                      { mm: 160, label: "16cm" },
+                      { mm: 180, label: "18cm" },
+                    ].map((pl) => (
+                      <button
+                        key={pl.mm}
+                        type="button"
+                        onClick={() => onSetPlinthHeight(pl.mm)}
+                        className={`py-2 rounded-xl text-[11px] font-semibold transition cursor-pointer ${
+                          Math.abs(plinthMm - pl.mm) < 5
+                            ? "bg-[#141413] text-white"
+                            : "bg-[#F5F2EA] hover:bg-[#EAE3D5] text-[#44403C]"
+                        }`}
+                      >
+                        {pl.label}
+                      </button>
+                    ))}
                   </div>
                 </div>
-              ))}
+              )}
 
-              {/* Baza Yüksekliği */}
+              {/* TAMBUR & KAVİSLİ KAPSÜL GÖVDE MÜHENDİSLİK KARTI */}
               <div className="p-3.5 rounded-2xl bg-white border border-[#E5DFD3] space-y-2.5">
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-[#141413]">Alt Baza Yüksekliği</span>
-                  <span className="font-mono text-[#78716C]">
-                    {plinthMm === 0 ? "Bazasız" : `${Math.round(plinthMm / 10)} cm`}
+                  <span className="font-bold text-[#141413]">Gövde Formu &amp; Tambur Sistemi</span>
+                  <span className="text-[10.5px] font-mono text-[#8C7A6B]">
+                    {activeHullShape === "capsule_stadium"
+                      ? "180° Kapsül"
+                      : activeHullShape === "rounded_corners"
+                      ? "4×90° R-Köşe"
+                      : activeHullShape === "capsule_table"
+                      ? "Stadyum Masa"
+                      : "Standart Düz"}
                   </span>
                 </div>
-                <div className="grid grid-cols-4 gap-1.5">
-                  {[
-                    { mm: 0, label: "Yok" },
-                    { mm: 60, label: "6 cm" },
-                    { mm: 80, label: "8 cm" },
-                    { mm: 100, label: "10 cm" },
-                  ].map((pl) => (
-                    <button
-                      key={pl.mm}
-                      type="button"
-                      onClick={() => onSetPlinthHeight(pl.mm)}
-                      className={`py-2 rounded-xl font-semibold transition cursor-pointer ${
-                        Math.abs(plinthMm - pl.mm) < 5
-                          ? "bg-[#141413] text-white"
-                          : "bg-[#F5F2EA] hover:bg-[#EAE3D5] text-[#44403C]"
-                      }`}
-                    >
-                      {pl.label}
-                    </button>
-                  ))}
+                <div className="grid grid-cols-2 gap-1.5">
+                  {(
+                    [
+                      { id: "rectangular", label: "Standart Düz Karkas" },
+                      { id: "capsule_stadium", label: "Kapsül Tambur (180°)" },
+                      { id: "rounded_corners", label: "R-Köşeli Tambur (90°)" },
+                      { id: "capsule_table", label: "Kapsül Stadyum Masa" },
+                    ] as const
+                  ).map((hs) => {
+                    const active = activeHullShape === hs.id;
+                    return (
+                      <button
+                        key={hs.id}
+                        type="button"
+                        onClick={() => {
+                          if (hs.id === "capsule_stadium") {
+                            onUpdateCarcassConfig({
+                              hullShape: "capsule_stadium",
+                              cornerRadiusMm: Math.round(dMm / 2),
+                              tambourSlatPitchMm: activeModule.carcass.tambourSlatPitchMm || 22,
+                            });
+                          } else if (hs.id === "rounded_corners") {
+                            onUpdateCarcassConfig({
+                              hullShape: "rounded_corners",
+                              cornerRadiusMm: Math.min(Math.max(70, Math.floor(dMm / 2) - 30), 110),
+                              tambourSlatPitchMm: activeModule.carcass.tambourSlatPitchMm || 20,
+                            });
+                          } else if (hs.id === "capsule_table") {
+                            onUpdateCarcassConfig({
+                              hullShape: "capsule_table",
+                              cornerRadiusMm: Math.round(dMm / 2),
+                              plinthHeight: 0,
+                            });
+                          } else {
+                            onUpdateCarcassConfig({ hullShape: "rectangular" });
+                          }
+                        }}
+                        className={`py-2 px-2.5 rounded-xl text-[11px] font-semibold text-left transition cursor-pointer ${
+                          active
+                            ? "bg-[#141413] text-white"
+                            : "bg-[#F5F2EA] hover:bg-[#EAE3D5] text-[#44403C]"
+                        }`}
+                      >
+                        {hs.label}
+                      </button>
+                    );
+                  })}
                 </div>
+
+                {(isCapsuleOrRounded || curDoorType === "tambour") && (
+                  <div className="pt-2 border-t border-[#F0ECE3] space-y-2.5">
+                    {activeHullShape === "rounded_corners" && (
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="text-[#57534E] font-medium">Köşe Dönüş Yarıçapı (R)</span>
+                          <span className="font-mono font-bold">
+                            {activeModule.carcass.cornerRadiusMm || 110} mm
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min={65}
+                          max={Math.max(75, Math.floor(dMm / 2) - 20)}
+                          step={5}
+                          value={Math.min(
+                            Math.max(75, Math.floor(dMm / 2) - 20),
+                            activeModule.carcass.cornerRadiusMm || 110
+                          )}
+                          onChange={(e) =>
+                            onUpdateCarcassConfig({ cornerRadiusMm: Number(e.target.value) })
+                          }
+                          className="w-full accent-[#141413] cursor-pointer"
+                        />
+                      </div>
+                    )}
+
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-[#57534E] font-medium">Tambur Lamel Adımı</span>
+                        <span className="font-mono font-bold">
+                          {activeModule.carcass.tambourSlatPitchMm || 22} mm
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-4 gap-1">
+                        {[18, 20, 24, 30].map((pitch) => {
+                          const curP = activeModule.carcass.tambourSlatPitchMm || 22;
+                          return (
+                            <button
+                              key={pitch}
+                              type="button"
+                              onClick={() => onUpdateCarcassConfig({ tambourSlatPitchMm: pitch })}
+                              className={`py-1.5 rounded-lg font-mono text-[11px] font-semibold cursor-pointer ${
+                                Math.abs(curP - pitch) <= 1
+                                  ? "bg-[#141413] text-white"
+                                  : "bg-[#F5F2EA] text-[#44403C]"
+                              }`}
+                            >
+                              {pitch}mm
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {isCapsuleOrRounded && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const currentlyOn = Boolean(
+                            activeModule.carcass.countertopMaterialId &&
+                              activeModule.carcass.hasCountertopTray !== false
+                          );
+                          onUpdateCarcassConfig({
+                            hasCountertopTray: !currentlyOn,
+                            countertopMaterialId: !currentlyOn
+                              ? activeModule.carcass.countertopMaterialId || "mat_quartz_calacatta"
+                              : activeModule.carcass.countertopMaterialId,
+                          });
+                        }}
+                        className={`w-full py-2 px-3 rounded-xl border flex items-center justify-between text-[11px] font-semibold cursor-pointer ${
+                          activeModule.carcass.countertopMaterialId &&
+                          activeModule.carcass.hasCountertopTray !== false
+                            ? "bg-[#141413] text-white border-[#141413]"
+                            : "bg-[#FAF8F4] text-[#44403C] border-[#DED8CC]"
+                        }`}
+                      >
+                        <span>20mm Gömme Mermer / Kuvars Üst Tabla</span>
+                        <span>
+                          {activeModule.carcass.countertopMaterialId &&
+                          activeModule.carcass.hasCountertopTray !== false
+                            ? "Açık ✓"
+                            : "Kapalı"}
+                        </span>
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Mimari Bitişler, Desen Takibi ve Kertme */}
@@ -1251,14 +1457,15 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                   )}
                 </div>
 
-                <div className="grid grid-cols-5 gap-1.5">
+                <div className="grid grid-cols-3 gap-1.5">
                   {(
                     [
-                      { id: "double", label: "Çift" },
-                      { id: "single_left", label: "Sol" },
-                      { id: "single_right", label: "Sağ" },
+                      { id: "double", label: "Çift Kapak" },
+                      { id: "single_left", label: "Sol Kapak" },
+                      { id: "single_right", label: "Sağ Kapak" },
                       { id: "sliding", label: "Sürgü" },
-                      { id: "open", label: "Açık" },
+                      { id: "tambour", label: "Tambur" },
+                      { id: "open", label: "Açık Raf" },
                     ] as const
                   ).map((dt) => {
                     const active = curDoorType === dt.id;
