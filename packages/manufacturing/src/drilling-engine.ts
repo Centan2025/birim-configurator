@@ -469,6 +469,7 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
       blockedYsMm: [...(part.fixedShelfJointYs || []), ...(part.rafixShelfJointYs || [])].map((fsy) => ({ y: fsy, clearanceMm: 18 })),
     });
 
+    // Column-grouped System 32 boring: front column first, then optional mid column, then rear column
     for (const y of sideMultiHoleYs) {
       const collidesWithHingeMount = hingeMountYCoords.some((hmy) => Math.abs(hmy - y) < 14);
       if (!collidesWithHingeMount) {
@@ -483,7 +484,9 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
           purpose: "shelf_pin",
         });
       }
-      if (midPinX !== null && Math.abs(midPinX - frontPinX) >= 64 && Math.abs(backPinX - midPinX) >= 64) {
+    }
+    if (midPinX !== null && Math.abs(midPinX - frontPinX) >= 64 && Math.abs(backPinX - midPinX) >= 64) {
+      for (const y of sideMultiHoleYs) {
         holes.push({
           id: `H_${part.id}_shelf_pin_mid_${y}`,
           diameter: 5,
@@ -495,7 +498,9 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
           purpose: "shelf_pin",
         });
       }
-      if (Math.abs(backPinX - frontPinX) >= 64) {
+    }
+    if (Math.abs(backPinX - frontPinX) >= 64) {
+      for (const y of sideMultiHoleYs) {
         holes.push({
           id: `H_${part.id}_shelf_pin_back_${y}`,
           diameter: 5,
@@ -923,6 +928,16 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
     (part.role === "shelf" && (part.label.includes("Sabit") || part.label.includes("Taşıyıcı Tabla")))
   ) {
     const isFixedOrCarrierShelf = part.role === "shelf";
+    if (
+      part.id.includes("_capsule_bottom") ||
+      part.id.includes("_capsule_top") ||
+      part.id.includes("_rounded_bottom") ||
+      part.id.includes("_rounded_top") ||
+      part.id.includes("_pedestal_disc_")
+    ) {
+      return holes;
+    }
+
     const jointSpecs =
       width <= 110
         ? [{ boltFromFront: 32, dowelFromFront: width >= 80 ? 64 : (null as number | null) }]

@@ -1,4 +1,4 @@
-import { BoundedLruCache, computeModuleStructuralSignature, computeProjectStructuralSignature } from "./lru-cache";
+import { BoundedLruCache, computeModuleStructuralSignature, computeModuleIntrinsicSignature, computeProjectStructuralSignature } from "./lru-cache";
 import { calculateFourSpaceDimensions } from "./v4-profiles";
 import {
   ModuleInstance,
@@ -471,7 +471,7 @@ export function validateModule(
   rules: SystemRulesConfig = DEFAULT_RULES
 ): ValidationIssue[] {
   if (rules === DEFAULT_RULES) {
-    const sig = computeModuleStructuralSignature(module);
+    const sig = computeModuleIntrinsicSignature(module);
     const hit = moduleValidationLruCache.get(sig);
     if (hit) return hit;
     const computed = validateModuleUncached(module, rules);
@@ -1156,22 +1156,29 @@ export function calculateShelfDeflection(
   spanMm: number,
   depthMm: number,
   thicknessMm = 18,
-  materialCategory: "melamine" | "lacquer" | "wood" | "glass" | "metal" = "melamine",
-  loadKgPerMeter = 35
+  materialCategory: "melamine" | "laminate" | "lacquer" | "wood" | "glass" | "metal" | "stone" | "compact" | "mirror" = "melamine",
+  loadKgPerMeter = 35,
+  customElasticModulusMpa?: number
 ): ShelfDeflectionResult {
   const L = Math.max(100, spanMm);
   const b = Math.max(100, depthMm);
   const t = Math.max(8, thicknessMm);
 
   const elasticModulusMpa =
-    materialCategory === "metal"
+    typeof customElasticModulusMpa === "number" && customElasticModulusMpa > 100
+      ? customElasticModulusMpa
+      : materialCategory === "metal"
       ? 69000
-      : materialCategory === "glass"
+      : materialCategory === "glass" || materialCategory === "mirror"
       ? 70000
+      : materialCategory === "stone"
+      ? 45000
+      : materialCategory === "compact"
+      ? 9000
       : materialCategory === "wood"
-      ? 8500
+      ? 3400
       : materialCategory === "lacquer"
-      ? 3800
+      ? 3500
       : 3200;
 
   const creepFactor =

@@ -77,7 +77,7 @@ describe("V11.4 Studio UI, Fixed Shelf, System-32 Multi-Hole Shelf Snap, Perform
     expect(hdr).toContain('data-testid="v11-header-issues-popover"');
   });
 
-  it("snaps dragged movable shelves strictly to physical System-32 multi-hole coordinates while allowing fixed shelves free placement", () => {
+  it("snaps dragged movable shelves strictly to physical System-32 multi-hole coordinates while allowing fixed shelves free placement", async () => {
     const proj = createInitialProject();
     const mod = proj.modules[0];
     mod.carcass.multiHoleMode = "full_system_32";
@@ -96,18 +96,20 @@ describe("V11.4 Studio UI, Fixed Shelf, System-32 Multi-Hole Shelf Snap, Perform
     // Verify 0.00mm match against physical side-panel System-32 boring coordinates
     const plinthH = mod.carcass.plinthHeight ?? 80;
     const panelT = mod.carcass.panelThickness || 18;
+    const sideToFloor = plinthH > 0 && String(mod.carcass.plinthConstruction) === "gable_rails";
+    const bottomOffsetY = sideToFloor ? plinthH : 0;
+    const sidePanelH = sideToFloor ? mod.dimensions.height : mod.dimensions.height - plinthH;
     const sideHoleYs = computeSystem32MultiHoleYs({
       mode: "full_system_32",
-      panelHeightMm: mod.dimensions.height,
-      bottomOffsetY: plinthH,
+      panelHeightMm: sidePanelH,
+      bottomOffsetY,
       panelThicknessMm: panelT,
       edgeMarginMm: 96,
       adjustableShelfYsMm: [],
-      blockedYsMm: [{ y: plinthH + panelT + fixedShelf.elevationY, clearanceMm: 22 }],
+      blockedYsMm: [{ y: bottomOffsetY + panelT + fixedShelf.elevationY, clearanceMm: 22 }],
     });
-    const shelfHalfT = Math.round((movableShelf.thickness || panelT) / 2);
     for (const hy of holeYs!) {
-      expect(sideHoleYs.includes(plinthH + panelT + hy + shelfHalfT)).toBe(true);
+      expect(sideHoleYs.includes(bottomOffsetY + panelT + hy)).toBe(true);
     }
 
     // Arbitrary drag input (e.g., 463mm) must snap onto an exact System-32 hole (not 465mm!)
@@ -123,6 +125,31 @@ describe("V11.4 Studio UI, Fixed Shelf, System-32 Multi-Hole Shelf Snap, Perform
     expect(holeYs!.includes(snapped.elevationY)).toBe(true);
     expect(snapped.snappedTarget?.kind).toBe("system32_hole");
     expect(snapped.snappedTarget?.label).toContain("Sistem 32 Delik");
+
+    // Even halfway between holes (>7mm away, e.g. 479mm), adjustable shelf must snap strictly to a System-32 hole
+    const snappedMid = snapShelfToMultiHoleOrElevationTargets({
+      project: proj,
+      moduleIndex: 0,
+      bayIndex: 0,
+      shelfId: movableShelf.id,
+      rawElevationY: 479,
+      snapTargets: targets,
+    });
+    expect(holeYs!.includes(snappedMid.elevationY)).toBe(true);
+    expect(snappedMid.snappedTarget?.kind).toBe("system32_hole");
+
+    // Preset template tpl_wd_09_hanging_heavy: wardrobe_lift must be at the TOP (not bottom 320mm) & adjustable shelves on System-32 holes
+    const { getV4TemplateById } = await import("@birim/catalog");
+    const hangTpl = getV4TemplateById("tpl_wd_09_hanging_heavy")!;
+    const hangMod = hangTpl.createInstance("wd_hang_test");
+    const liftFit = hangMod.bays[0].specialFittings.find((f) => f.type === "wardrobe_lift");
+    expect(liftFit).toBeDefined();
+    expect(liftFit!.elevationY).toBeGreaterThanOrEqual(1200);
+    const shelfHeavyMod = getV4TemplateById("tpl_wd_10_shelf_heavy")!.createInstance("wd_shelf_test");
+    const shHoleYs = computeBaySystem32ShelfHoleElevations(shelfHeavyMod, 0);
+    for (const sh of shelfHeavyMod.bays[0].shelves.filter((s) => s.isAdjustable !== false && !s.isFixed)) {
+      expect(shHoleYs!.includes(sh.elevationY)).toBe(true);
+    }
 
     // Fixed shelf returns null from multi-hole restriction (not pinned to Ø5mm holes)
     expect(computeBaySystem32ShelfHoleElevations(mod, 0, fixedShelf.id)).toBeNull();

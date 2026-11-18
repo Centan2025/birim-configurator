@@ -59,6 +59,13 @@ export interface StudioHeaderBarProps {
   onOpenMepModal: () => void;
   onOpenCutoutModal: () => void;
   onOpenSceneHubModal: () => void;
+  isReadOnlyCustomer?: boolean;
+  displayUnit?: "cm" | "mm";
+  onChangeDisplayUnit?: (unit: "cm" | "mm") => void;
+  uiFontScale?: number;
+  onChangeUiFontScale?: (scale: number) => void;
+  activeInspectorTab?: "dimensions" | "interior" | "doors" | "materials";
+  onQuickNavigateStep?: (step: "dimensions" | "interior" | "showroom") => void;
 }
 
 export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
@@ -95,7 +102,15 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
     onOpenMepModal,
     onOpenCutoutModal,
     onOpenSceneHubModal,
+    isReadOnlyCustomer = false,
+    displayUnit = "cm",
+    onChangeDisplayUnit,
+    uiFontScale = 1,
+    onChangeUiFontScale,
+    activeInspectorTab = "interior",
+    onQuickNavigateStep,
   }) => {
+    const isShowroom = workspaceMode === "showroom";
     const [outputsOpen, setOutputsOpen] = useState(false);
     const [issuesOpen, setIssuesOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
@@ -145,63 +160,155 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
 
             <span className="h-4 w-px bg-[#DFD9CE] shrink-0" />
 
-            <button
-              type="button"
-              data-testid="v11-open-project-btn"
-              onClick={onOpenProjectModal}
-              className="h-9 px-3 rounded-full bg-white/80 hover:bg-white border border-[#E5DFD3] text-[#141413] text-xs font-semibold flex items-center gap-2 max-w-[220px] transition cursor-pointer"
-              title="Proje Kaydet, Aç veya Bulut Bağlantısı Paylaş"
-            >
-              <FolderOpen className="w-3.5 h-3.5 text-[#78716C] shrink-0" />
-              <span className="truncate">{projectTitle || "Yeni Dolap Projesi"}</span>
-              <ChevronDown className="w-3.5 h-3.5 text-[#78716C] shrink-0" />
-            </button>
+            {!isReadOnlyCustomer ? (
+              <button
+                type="button"
+                data-testid="v11-open-project-btn"
+                onClick={onOpenProjectModal}
+                className="h-9 px-3 rounded-full bg-white/80 hover:bg-white border border-[#E5DFD3] text-[#141413] text-xs font-semibold flex items-center gap-2 max-w-[220px] transition cursor-pointer"
+                title="Proje Kaydet, Aç veya Bulut Bağlantısı Paylaş"
+              >
+                <FolderOpen className="w-3.5 h-3.5 text-[#78716C] shrink-0" />
+                <span className="truncate">{projectTitle || "Yeni Dolap Projesi"}</span>
+                <ChevronDown className="w-3.5 h-3.5 text-[#78716C] shrink-0" />
+              </button>
+            ) : (
+              <div className="h-9 px-3 rounded-full bg-white/80 border border-[#E5DFD3] text-[#141413] text-xs font-semibold flex items-center gap-2 max-w-[240px]">
+                <span className="truncate">{projectTitle || "Özel Dolap Tasarımı"}</span>
+              </div>
+            )}
 
-            <button
-              type="button"
-              data-testid="v11-open-wizard-btn"
-              onClick={onOpenWizardModal}
-              className="hidden md:inline-flex h-9 px-3.5 rounded-full bg-[#F1EDE4] hover:bg-[#E7E1D5] border border-[#DED7C8] text-[#141413] text-xs font-semibold items-center gap-1.5 transition cursor-pointer shrink-0"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-[#8C7A6B]" />
-              <span>Hızlı Kurulum</span>
-            </button>
+            {!isShowroom && (
+              <button
+                type="button"
+                data-testid="v11-open-wizard-btn"
+                onClick={onOpenWizardModal}
+                className="inline-flex h-9 px-2.5 sm:px-3.5 rounded-full bg-[#F1EDE4] hover:bg-[#E7E1D5] border border-[#DED7C8] text-[#141413] text-xs font-semibold items-center gap-1.5 transition cursor-pointer shrink-0"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-[#8C7A6B]" />
+                <span className="hidden sm:inline">Hızlı Kurulum</span><span className="sm:hidden">Sihirbaz</span>
+              </button>
+            )}
           </div>
 
           {/* ORTA BÖLGE */}
-          <nav
-            aria-label="Çalışma Modu"
-            className="p-1 rounded-full bg-[#ECE7DD]/90 border border-[#DFD9CE] flex items-center gap-0.5 shrink-0"
-          >
-            {(
-              [
-                { id: "3d", label: "3B Tasarım" },
-                { id: "2d", label: "2B Teknik" },
-                { id: "plan", label: "Mekân Planı" },
-                { id: "showroom", label: "Sunum" },
-              ] as const
-            ).map((item) => {
-              const active = workspaceMode === item.id;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  data-testid={`v11-mode-${item.id}`}
-                  onClick={() => onChangeWorkspaceMode(item.id)}
-                  className={`h-8 px-3.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
-                    active
-                      ? "bg-[#141413] text-white shadow-xs"
-                      : "text-[#57534E] hover:text-[#141413] hover:bg-white/60"
-                  }`}
-                >
-                  {item.label}
-                </button>
-              );
-            })}
-          </nav>
+          {!isReadOnlyCustomer ? (
+            <nav
+              aria-label="Çalışma Modu"
+              className="p-1 rounded-full bg-[#ECE7DD]/90 border border-[#DFD9CE] flex items-center gap-0.5 shrink-0"
+            >
+              {(
+                [
+                  { id: "3d", label: "3B Tasarım" },
+                  { id: "2d", label: "2B Teknik" },
+                  { id: "plan", label: "Mekân Planı" },
+                  { id: "showroom", label: "Sunum" },
+                ] as const
+              ).map((item) => {
+                const active = workspaceMode === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    data-testid={`v11-mode-${item.id}`}
+                    onClick={() => onChangeWorkspaceMode(item.id)}
+                    className={`h-8 px-3.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+                      active
+                        ? "bg-[#141413] text-white shadow-xs"
+                        : "text-[#57534E] hover:text-[#141413] hover:bg-white/60"
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                );
+              })}
+            </nav>
+          ) : (
+            <div className="px-4 h-8 rounded-full bg-[#141413] text-white text-xs font-semibold flex items-center">
+              Müşteri Sunumu
+            </div>
+          )}
 
           {/* SAĞ BÖLGE */}
+          {isShowroom ? (
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={onOpenQuoteModal}
+                className="h-9 px-3.5 rounded-full bg-[#141413] hover:bg-[#292524] text-white text-xs font-semibold flex items-center gap-2 transition cursor-pointer"
+              >
+                <span>Teklif Özeti</span>
+                <span className="font-mono text-[#E7E5E4]">{formattedPrice}</span>
+              </button>
+              {!isReadOnlyCustomer && (
+                <button
+                  type="button"
+                  onClick={() => onChangeWorkspaceMode("3d")}
+                  className="h-9 px-3.5 rounded-full bg-white/85 hover:bg-white border border-[#DFD9CE] text-[#141413] text-xs font-semibold transition cursor-pointer"
+                >
+                  Düzenlemeye Dön
+                </button>
+              )}
+            </div>
+          ) : (
           <div className="flex items-center gap-2 shrink-0">
+            {/* Küresel cm / mm Ölçü Birimi Seçici */}
+            {onChangeDisplayUnit && (
+              <div
+                data-testid="v11-global-unit-switcher"
+                title="Ölçü Birimi: Tüm 3B, 2B ve Panel ölçülerini cm / mm arasında değiştirir"
+                className="inline-flex items-center p-0.5 rounded-full bg-[#ECE7DD]/85 border border-[#DFD9CE]"
+              >
+                {(["cm", "mm"] as const).map((u) => (
+                  <button
+                    key={u}
+                    type="button"
+                    onClick={() => onChangeDisplayUnit(u)}
+                    className={`h-7 px-2.5 rounded-full text-[11px] font-mono font-bold transition cursor-pointer ${
+                      displayUnit === u
+                        ? "bg-[#141413] text-white shadow-2xs"
+                        : "text-[#57534E] hover:text-[#141413]"
+                    }`}
+                  >
+                    {u}
+                  </button>
+                ))}
+              </div>
+            )}
+            {onChangeUiFontScale && (
+              <div
+                data-testid="v11-font-scale-switcher"
+                title="Arayüz Yazı Boyutu"
+                className="hidden md:inline-flex items-center p-0.5 rounded-full bg-[#ECE7DD]/85 border border-[#DFD9CE]"
+              >
+                <button
+                  type="button"
+                  onClick={() => onChangeUiFontScale(Math.max(0.9, Number((uiFontScale - 0.1).toFixed(2))))}
+                  disabled={uiFontScale <= 0.9}
+                  className="h-7 px-2 rounded-full text-[11px] font-bold text-[#44403C] hover:bg-white hover:text-[#141413] disabled:opacity-35 transition cursor-pointer"
+                  title="Yazıları Küçült"
+                >
+                  A-
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onChangeUiFontScale(1)}
+                  className="h-7 px-1.5 rounded-full text-[10px] font-mono font-semibold text-[#57534E] hover:text-[#141413] cursor-pointer"
+                  title="Varsayılan Boyut (%100)"
+                >
+                  %{Math.round(uiFontScale * 100)}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onChangeUiFontScale(Math.min(1.25, Number((uiFontScale + 0.1).toFixed(2))))}
+                  disabled={uiFontScale >= 1.25}
+                  className="h-7 px-2 rounded-full text-[11px] font-bold text-[#44403C] hover:bg-white hover:text-[#141413] disabled:opacity-35 transition cursor-pointer"
+                  title="Yazıları Büyüt"
+                >
+                  A+
+                </button>
+              </div>
+            )}
             <div className="hidden sm:flex items-center p-0.5 rounded-full bg-[#ECE7DD]/75 border border-[#DFD9CE]">
               <button
                 type="button"
@@ -353,10 +460,10 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
               {outputsOpen && (
                 <div
                   data-testid="v11-outputs-dropdown"
-                  className="absolute right-0 top-full mt-2 w-80 max-h-[82vh] overflow-y-auto rounded-3xl bg-[#FAF8F4]/98 backdrop-blur-xl border border-[#DFD9CE] shadow-[0_20px_48px_rgba(20,20,19,0.14)] p-2 z-50 text-xs text-[#141413]"
+                  className="absolute right-0 top-full mt-2 w-76 max-h-[82vh] overflow-y-auto rounded-3xl bg-[#FAF8F4]/98 backdrop-blur-xl border border-[#DFD9CE] shadow-[0_20px_48px_rgba(20,20,19,0.14)] p-2 z-50 text-xs text-[#141413]"
                 >
-                  <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[#8C7A6B]">
-                    Özel Ürün, Tesisat & CNC Kertme
+                  <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[#8C7A6B]">
+                    Tasarım &amp; Sahne
                   </div>
                   <button
                     type="button"
@@ -364,26 +471,31 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                       setOutputsOpen(false);
                       onOpenSceneHubModal();
                     }}
-                    className="w-full px-3 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
+                    className="group w-full px-2.5 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
                   >
-                    <Box className="w-4 h-4 text-[#57534E] shrink-0" />
-                    <div>
-                      <div className="font-semibold">Kapsül Masa/Konsol & .GLB 3B Merkezi</div>
-                      <div className="text-[11px] text-[#78716C]">Özel kapsül üniteler, 3B eşyalar ve LiDAR</div>
+                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-white flex items-center justify-center shrink-0 transition">
+                      <Box className="w-4 h-4 text-[#44403C]" />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="font-semibold">3B Nesne &amp; Masa</div>
+                      <div className="text-[11px] text-[#78716C] truncate">Hazır eşyalar ve özel üniteler</div>
                     </div>
                   </button>
+                  {experienceTier !== "simple" && (<>
                   <button
                     type="button"
                     onClick={() => {
                       setOutputsOpen(false);
                       onOpenMepModal();
                     }}
-                    className="w-full px-3 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
+                    className="group w-full px-2.5 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
                   >
-                    <Zap className="w-4 h-4 text-[#57534E] shrink-0" />
-                    <div>
-                      <div className="font-semibold">Elektrik & Su Tesisat Planı (MEP)</div>
-                      <div className="text-[11px] text-[#78716C]">Priz, temiz/atık su kot şeması ve DXF</div>
+                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-white flex items-center justify-center shrink-0 transition">
+                      <Zap className="w-4 h-4 text-[#44403C]" />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="font-semibold">Tesisat Planı</div>
+                      <div className="text-[11px] text-[#78716C] truncate">Elektrik ve su noktaları</div>
                     </div>
                   </button>
                   <button
@@ -392,19 +504,22 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                       setOutputsOpen(false);
                       onOpenCutoutModal();
                     }}
-                    className="w-full px-3 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
+                    className="group w-full px-2.5 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
                   >
-                    <Scissors className="w-4 h-4 text-[#57534E] shrink-0" />
-                    <div>
-                      <div className="font-semibold">Panel Kertme & Priz/Boru Kesimi</div>
-                      <div className="text-[11px] text-[#78716C]">Arkalık/yan panel CNC boşaltma işlemleri</div>
+                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-white flex items-center justify-center shrink-0 transition">
+                      <Scissors className="w-4 h-4 text-[#44403C]" />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="font-semibold">Panel Kesimi</div>
+                      <div className="text-[11px] text-[#78716C] truncate">Priz ve boru boşaltmaları</div>
                     </div>
                   </button>
+                  </>)}
 
                   <div className="my-1.5 h-px bg-[#E6E1D6]" />
 
-                  <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[#8C7A6B]">
-                    Sunum & Görselleştirme
+                  <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[#8C7A6B]">
+                    Görselleştirme
                   </div>
                   <button
                     type="button"
@@ -412,12 +527,14 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                       setOutputsOpen(false);
                       onOpenStudioRenderModal();
                     }}
-                    className="w-full px-3 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
+                    className="group w-full px-2.5 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
                   >
-                    <Camera className="w-4 h-4 text-[#57534E] shrink-0" />
-                    <div>
-                      <div className="font-semibold">2K Fotoğraf & Render Stüdyosu</div>
-                      <div className="text-[11px] text-[#78716C]">Yüksek çözünürlüklü sahne çıktısı</div>
+                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-white flex items-center justify-center shrink-0 transition">
+                      <Camera className="w-4 h-4 text-[#44403C]" />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="font-semibold">Stüdyo Render</div>
+                      <div className="text-[11px] text-[#78716C] truncate">Yüksek kaliteli fotoğraf çıktısı</div>
                     </div>
                   </button>
                   <button
@@ -426,12 +543,14 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                       setOutputsOpen(false);
                       onOpenArModal();
                     }}
-                    className="w-full px-3 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
+                    className="group w-full px-2.5 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
                   >
-                    <Smartphone className="w-4 h-4 text-[#57534E] shrink-0" />
-                    <div>
-                      <div className="font-semibold">AR Oda Önizleme (QR / GLB / USDZ)</div>
-                      <div className="text-[11px] text-[#78716C]">Telefonda gerçek mekânda incele</div>
+                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-white flex items-center justify-center shrink-0 transition">
+                      <Smartphone className="w-4 h-4 text-[#44403C]" />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="font-semibold">AR Önizleme</div>
+                      <div className="text-[11px] text-[#78716C] truncate">Telefonda mekânda gör</div>
                     </div>
                   </button>
                   <button
@@ -440,19 +559,21 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                       setOutputsOpen(false);
                       onOpenAssemblyModal();
                     }}
-                    className="w-full px-3 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
+                    className="group w-full px-2.5 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
                   >
-                    <Layers className="w-4 h-4 text-[#57534E] shrink-0" />
-                    <div>
-                      <div className="font-semibold">Patlatılmış Montaj Şeması</div>
-                      <div className="text-[11px] text-[#78716C]">Adım adım numaralı kurulum kılavuzu</div>
+                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-white flex items-center justify-center shrink-0 transition">
+                      <Layers className="w-4 h-4 text-[#44403C]" />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="font-semibold">Montaj Şeması</div>
+                      <div className="text-[11px] text-[#78716C] truncate">Adım adım kurulum planı</div>
                     </div>
                   </button>
 
                   <div className="my-1.5 h-px bg-[#E6E1D6]" />
 
-                  <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[#8C7A6B]">
-                    Üretim, CNC, Blum BXF & Mağaza ERP
+                  <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[#8C7A6B]">
+                    Üretim &amp; Yönetim
                   </div>
                   <button
                     type="button"
@@ -460,12 +581,14 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                       setOutputsOpen(false);
                       onOpenBomModal("cutlist");
                     }}
-                    className="w-full px-3 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
+                    className="group w-full px-2.5 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
                   >
-                    <FileSpreadsheet className="w-4 h-4 text-[#57534E] shrink-0" />
-                    <div>
-                      <div className="font-semibold">Kesim Listesi, Nesting, CNC & Blum BXF</div>
-                      <div className="text-[11px] text-[#78716C]">Plaka optimizasyonu, DXF, MPR/CIX ve BXF</div>
+                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-white flex items-center justify-center shrink-0 transition">
+                      <FileSpreadsheet className="w-4 h-4 text-[#44403C]" />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="font-semibold">Kesim &amp; CNC</div>
+                      <div className="text-[11px] text-[#78716C] truncate">Parça listesi ve makine çıktısı</div>
                     </div>
                   </button>
                   <button
@@ -474,12 +597,14 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                       setOutputsOpen(false);
                       onOpenStoreErpModal();
                     }}
-                    className="w-full px-3 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
+                    className="group w-full px-2.5 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
                   >
-                    <Store className="w-4 h-4 text-[#57534E] shrink-0" />
-                    <div>
-                      <div className="font-semibold">Birim Store & Portal ERP Aktarımı</div>
-                      <div className="text-[11px] text-[#78716C]">Tekliften üretime doğrudan senkronizasyon</div>
+                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-white flex items-center justify-center shrink-0 transition">
+                      <Store className="w-4 h-4 text-[#44403C]" />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="font-semibold">Mağaza &amp; ERP</div>
+                      <div className="text-[11px] text-[#78716C] truncate">Sipariş ve üretim aktarımı</div>
                     </div>
                   </button>
                   <button
@@ -488,35 +613,51 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                       setOutputsOpen(false);
                       onOpenStandardsModal();
                     }}
-                    className="w-full px-3 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
+                    className="group w-full px-2.5 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
                   >
-                    <ShieldCheck className="w-4 h-4 text-[#57534E] shrink-0" />
-                    <div className="flex-1">
-                      <div className="font-semibold flex items-center justify-between">
-                        <span>Mühendislik & Standart Kontrolü</span>
+                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-white flex items-center justify-center shrink-0 transition">
+                      <ShieldCheck className="w-4 h-4 text-[#44403C]" />
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold flex items-center justify-between gap-2">
+                        <span>Kalite Kontrol</span>
                         {blockingIssueCount > 0 && (
                           <span className="px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold">
                             {blockingIssueCount}
                           </span>
                         )}
                       </div>
-                      <div className="text-[11px] text-[#78716C]">Uyumluluk denetimi ve otomatik çözüm</div>
+                      <div className="text-[11px] text-[#78716C] truncate">Ölçü ve uyumluluk denetimi</div>
                     </div>
                   </button>
+                  {experienceTier !== "simple" ? (<>
                   <button
                     type="button"
                     onClick={() => {
                       setOutputsOpen(false);
                       onOpenSaasModal();
                     }}
-                    className="w-full px-3 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
+                    className="group w-full px-2.5 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
                   >
-                    <Building2 className="w-4 h-4 text-[#57534E] shrink-0" />
-                    <div>
-                      <div className="font-semibold">Firma & Katalog Yönetimi</div>
-                      <div className="text-[11px] text-[#78716C]">Kurumsal fiyat çarpanları ve şube ayarları</div>
+                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-white flex items-center justify-center shrink-0 transition">
+                      <Building2 className="w-4 h-4 text-[#44403C]" />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="font-semibold">Firma Ayarları</div>
+                      <div className="text-[11px] text-[#78716C] truncate">Fiyat, şube ve katalog yönetimi</div>
                     </div>
                   </button>
+                  </>) : onChangeExperienceTier ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onChangeExperienceTier("architect");
+                      }}
+                      className="w-full mt-1 px-3 py-2 rounded-2xl bg-[#F3EFE6] hover:bg-[#E8E1D3] text-[11px] font-bold text-[#6B4F28] text-center transition cursor-pointer"
+                    >
+                      Profesyonel &amp; Üretim Araçlarını Göster →
+                    </button>
+                  ) : null}
                 </div>
               )}
             </div>
@@ -533,7 +674,49 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
               <span>Teklif</span>
             </button>
           </div>
+          )}
         </div>
+
+
+        {workspaceMode === "3d" && experienceTier === "simple" && !isReadOnlyCustomer && onQuickNavigateStep && (
+          <div
+            data-testid="v12-guided-step-strip"
+            className="pointer-events-auto px-2 py-1 rounded-full bg-[#FAF8F4]/95 backdrop-blur-xl border border-[#DFD9CE] shadow-sm flex items-center gap-1 text-[11px]"
+          >
+            <button
+              type="button"
+              onClick={() => onQuickNavigateStep("dimensions")}
+              className={`h-6 px-2.5 rounded-full font-semibold transition cursor-pointer ${
+                activeInspectorTab === "dimensions"
+                  ? "bg-[#141413] text-white"
+                  : "text-[#57534E] hover:bg-[#EFECE4]"
+              }`}
+            >
+              1. Ölçü &amp; Şablon
+            </button>
+            <span className="text-[#A8A29E]">→</span>
+            <button
+              type="button"
+              onClick={() => onQuickNavigateStep("interior")}
+              className={`h-6 px-2.5 rounded-full font-semibold transition cursor-pointer ${
+                activeInspectorTab === "interior" || activeInspectorTab === "doors" || activeInspectorTab === "materials"
+                  ? "bg-[#141413] text-white"
+                  : "text-[#57534E] hover:bg-[#EFECE4]"
+              }`}
+            >
+              2. İç Düzen &amp; Yüzey
+            </button>
+            <span className="text-[#A8A29E]">→</span>
+            <button
+              type="button"
+              data-testid="v12-one-click-presentation-btn"
+              onClick={() => onQuickNavigateStep("showroom")}
+              className="h-6 px-3 rounded-full bg-[#D6C7B2]/45 hover:bg-[#141413] hover:text-white text-[#141413] font-bold transition cursor-pointer"
+            >
+              3. Tek Tık Sunum ✨
+            </button>
+          </div>
+        )}
 
         {workspaceMode === "2d" && (
           <div className="pointer-events-auto px-1.5 py-1 rounded-full bg-[#FAF8F4]/95 backdrop-blur-xl border border-[#DFD9CE] shadow-md flex items-center gap-1 text-xs">

@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { DesignProject, ModuleInstance } from "@birim/core";
+import { DEFAULT_MATERIALS, type DesignProject, type ModuleInstance } from "@birim/core";
+import { useConfiguratorStore } from "../../store/useConfiguratorStore";
 
 type BayDoorKind = ModuleInstance["bays"][number]["door"]["type"];
 
@@ -120,7 +121,7 @@ const MenuItem: React.FC<MenuItemProps> = ({
         : "text-[#1C1917] hover:bg-black/6"
     }`}
   >
-    <span className="truncate">{label}</span>
+    <span className="leading-snug">{label}</span>
     {shortcut && (
       <span
         className={`text-[10px] font-mono shrink-0 ${
@@ -194,6 +195,11 @@ export const Viewport3DContextMenu: React.FC<Viewport3DContextMenuProps> = ({
 }) => {
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [pos, setPos] = useState<{ left: number; top: number }>({ left: -9999, top: -9999 });
+  const [showAllMaterials, setShowAllMaterials] = useState(false);
+
+  useEffect(() => {
+    setShowAllMaterials(false);
+  }, [target]);
 
   useLayoutEffect(() => {
     if (!target || !menuRef.current) return;
@@ -208,7 +214,7 @@ export const Viewport3DContextMenu: React.FC<Viewport3DContextMenuProps> = ({
       Math.min(window.innerHeight - rect.height - pad, target.clientY)
     );
     setPos({ left, top });
-  }, [target]);
+  }, [target, showAllMaterials]);
 
   useEffect(() => {
     if (!target) return;
@@ -236,18 +242,52 @@ export const Viewport3DContextMenu: React.FC<Viewport3DContextMenuProps> = ({
   };
 
   if (target.kind === "obstacle") {
+    const obs3d = (project.space.elements || []).find((o) => o.id === target.obstacleId);
     return (
       <div
         ref={menuRef}
         data-testid="viewport-3d-context-menu"
         style={{ left: pos.left, top: pos.top }}
         onContextMenu={(e) => e.preventDefault()}
-        className="fixed z-50 w-60 birim-ice-popover rounded-2xl p-1.5 shadow-2xl border border-white/60"
+        className="fixed z-50 w-64 birim-ice-popover rounded-2xl p-1.5 shadow-2xl border border-white/60"
       >
         <div className="px-2.5 py-1.5 border-b border-black/8 mb-1">
           <div className="text-[11px] font-bold text-[#141413] truncate">{target.label}</div>
-          <div className="text-[9.5px] text-[#78716C]">Mimari Engel</div>
+          <div className="text-[9.5px] text-[#78716C]">Mimari Yapı Elemanı</div>
         </div>
+        <MenuItem
+          label={`⇄ Yönü Aynala (${obs3d?.doorSwing === "right" ? "Sağ → Sol" : "Sol → Sağ"})`}
+          onClick={() =>
+            run(() =>
+              useConfiguratorStore.getState().updateSpaceObstacle(target.obstacleId, {
+                doorSwing: obs3d?.doorSwing === "right" ? "left" : "right",
+              })
+            )
+          }
+        />
+        {obs3d?.type === "door" && (
+          <MenuItem
+            label={`⇅ Açılımı Çevir (${obs3d.doorOpenSide === "outward" ? "Dışa → İçe" : "İçe → Dışa"})`}
+            onClick={() =>
+              run(() =>
+                useConfiguratorStore.getState().updateSpaceObstacle(target.obstacleId, {
+                  doorOpenSide: obs3d.doorOpenSide === "outward" ? "inward" : "outward",
+                })
+              )
+            }
+          />
+        )}
+        <MenuItem
+          label="🔄 90° Döndür"
+          onClick={() =>
+            run(() =>
+              useConfiguratorStore.getState().updateSpaceObstacle(target.obstacleId, {
+                rotationY: ((obs3d?.rotationY || 0) + 90) % 360,
+              })
+            )
+          }
+        />
+        <MenuDivider />
         <MenuItem
           label="Engeli Sahneden Sil"
           shortcut="Del"
@@ -334,47 +374,104 @@ export const Viewport3DContextMenu: React.FC<Viewport3DContextMenuProps> = ({
         </div>
       </div>
 
-      {isDoor && bay && (
-        <>
-          <MenuSectionTitle title="Kapak Kontrolleri" />
-          <MenuItem
-            label={doorOpenAngleDeg > 5 ? "Kapağı Kapat" : "Kapağı Aç (85°)"}
-            shortcut="Space"
-            active={doorOpenAngleDeg > 5}
-            onClick={() => run(onToggleDoorOpen)}
-          />
-          <MenuItem
-            label={doorsHiddenIn3D ? "Kapakları Göster" : "Kapakları Gizle (İç Düzenle)"}
-            active={doorsHiddenIn3D}
-            onClick={() => run(onToggleDoorsHidden)}
-          />
-          <MenuItem
-            label="Açılış Yönünü Çevir (Sol ⇄ Sağ)"
-            onClick={() => run(onFlipDoorDirection)}
-          />
-          <div className="grid grid-cols-4 gap-1 px-1.5 py-1">
-            {(
-              [
-                { id: "single_left", label: "Sol" },
-                { id: "double", label: "Çift" },
-                { id: "sliding", label: "Sürme" },
-                { id: "open", label: "Açık" },
-              ] as const
-            ).map((dt) => (
-              <button
-                key={dt.id}
-                type="button"
-                onClick={() => run(() => onSetBayDoorType(bayIdx, dt.id))}
-                className={`py-1 rounded-md text-[10px] font-bold cursor-pointer transition ${
-                  bay.door.type === dt.id
-                    ? "bg-[#141413] text-white"
-                    : "bg-black/5 text-[#44403C] hover:bg-black/10"
-                }`}
-              >
-                {dt.label}
-              </button>
-            ))}
-          </div>
+      {isDoor && bay && (() => {
+        const isTambourDoor =
+          bay.door.type === "tambour" ||
+          bay.door.doorSystemId === "tambour_roller" ||
+          mod?.carcass?.hullShape === "capsule_stadium" ||
+          mod?.carcass?.hullShape === "capsule_table";
+        const isSingleSwingDoor =
+          bay.door.type === "single_left" ||
+          bay.door.type === "single_right" ||
+          bay.door.type === "inset_left" ||
+          bay.door.type === "inset_right";
+        return (
+          <>
+            <MenuSectionTitle title={isTambourDoor ? "Tambur Kapak Kontrolleri" : "Kapak Kontrolleri"} />
+            <MenuItem
+              label={
+                isTambourDoor
+                  ? doorOpenAngleDeg > 5
+                    ? "Tamburu Kapat"
+                    : "Tamburu Kaydırarak Aç"
+                  : doorOpenAngleDeg > 5
+                  ? "Kapağı Kapat"
+                  : "Kapağı Aç (85°)"
+              }
+              shortcut="Space"
+              active={doorOpenAngleDeg > 5}
+              onClick={() => run(onToggleDoorOpen)}
+            />
+            <MenuItem
+              label={
+                isTambourDoor
+                  ? doorsHiddenIn3D
+                    ? "Tamburu Göster"
+                    : "Tamburu Gizle (İç Düzenle)"
+                  : doorsHiddenIn3D
+                  ? "Kapakları Göster"
+                  : "Kapakları Gizle (İç Düzenle)"
+              }
+              active={doorsHiddenIn3D}
+              onClick={() => run(onToggleDoorsHidden)}
+            />
+            {isSingleSwingDoor && !isTambourDoor && (
+              <MenuItem
+                label="Açılış Yönünü Çevir (Sol ⇄ Sağ)"
+                onClick={() => run(onFlipDoorDirection)}
+              />
+            )}
+            {!isTambourDoor && (
+              <>
+                <MenuItem
+                  label="Bu Kulbu & Modeli Tüm Kapaklara Eşitle"
+                  onClick={() =>
+                    run(() => {
+                      const st = useConfiguratorStore.getState();
+                      const srcDoor = bay.door;
+                      const updated = JSON.parse(JSON.stringify(st.project)) as DesignProject;
+                      updated.modules.forEach((m) => {
+                        if (m.category === "complementary") return;
+                        m.bays.forEach((b) => {
+                          if (b.door && b.door.type !== "open") {
+                            b.door.handleProfileId = srcDoor.handleProfileId;
+                            b.door.handleCategory = srcDoor.handleCategory;
+                            b.door.handleMaterialId = srcDoor.handleMaterialId;
+                            b.door.handleLengthMm = srcDoor.handleLengthMm;
+                            b.door.crossSectionProfile = srcDoor.crossSectionProfile;
+                            b.door.isGlassFramed = srcDoor.isGlassFramed;
+                          }
+                        });
+                      });
+                      st.importProjectJSON(JSON.stringify(updated));
+                    })
+                  }
+                />
+                <div className="grid grid-cols-4 gap-1 px-1.5 py-1">
+                  {(
+                    [
+                      { id: "single_left", label: "Sol" },
+                      { id: "double", label: "Çift" },
+                      { id: "sliding", label: "Sürme" },
+                      { id: "open", label: "Açık" },
+                    ] as const
+                  ).map((dt) => (
+                    <button
+                      key={dt.id}
+                      type="button"
+                      onClick={() => run(() => onSetBayDoorType(bayIdx, dt.id))}
+                      className={`py-1 rounded-md text-[10px] font-bold cursor-pointer transition ${
+                        bay.door.type === dt.id
+                          ? "bg-[#141413] text-white"
+                          : "bg-black/5 text-[#44403C] hover:bg-black/10"
+                      }`}
+                    >
+                      {dt.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           <MenuItem
             label="Malzemeyi Modülün Kapaklarına Yay"
             onClick={() =>
@@ -401,7 +498,8 @@ export const Viewport3DContextMenu: React.FC<Viewport3DContextMenuProps> = ({
           />
           <MenuDivider />
         </>
-      )}
+        );
+      })()}
 
       {isShelf && shelf && (
         <>
@@ -678,6 +776,72 @@ export const Viewport3DContextMenu: React.FC<Viewport3DContextMenuProps> = ({
           <MenuDivider />
         </>
       )}
+
+      <MenuSectionTitle title="Parçaya Malzeme Ata" />
+      <div
+        className={`grid grid-cols-6 gap-1 px-2 py-1 ${
+          showAllMaterials ? "max-h-44 overflow-y-auto" : ""
+        }`}
+      >
+        {(showAllMaterials ? DEFAULT_MATERIALS : DEFAULT_MATERIALS.slice(0, 12)).map((mat) => {
+          const curOverride = mod?.componentMaterialOverrides?.[target.componentId];
+          const isCur = curOverride === mat.id;
+          return (
+            <button
+              key={mat.id}
+              type="button"
+              title={mat.name}
+              onClick={() =>
+                run(() => onApplyMaterialToSimilar(mat.id, target.componentId, "single"))
+              }
+              className={`w-7 h-7 rounded-lg border transition cursor-pointer ${
+                isCur
+                  ? "border-[#2563EB] ring-2 ring-[#2563EB]/30 scale-105"
+                  : "border-black/15 hover:scale-105"
+              }`}
+              style={{ backgroundColor: mat.colorHex }}
+            />
+          );
+        })}
+      </div>
+      {DEFAULT_MATERIALS.length > 12 && (
+        <div className="px-2 pb-1">
+          <button
+            type="button"
+            onClick={() => setShowAllMaterials((v) => !v)}
+            className="w-full py-1 rounded-md text-[10.5px] font-semibold bg-black/5 hover:bg-black/10 text-[#44403C] transition cursor-pointer"
+          >
+            {showAllMaterials
+              ? "Daha Az Göster"
+              : `Tüm Malzemeler (+${DEFAULT_MATERIALS.length - 12})`}
+          </button>
+        </div>
+      )}
+      <MenuItem
+        label="Modüldeki Benzerlere Uygula"
+        onClick={() =>
+          run(() => {
+            const curMat =
+              mod?.componentMaterialOverrides?.[target.componentId] ||
+              (isDoor ? mod?.carcass.doorMaterialId : mod?.carcass.bodyMaterialId) ||
+              null;
+            onApplyMaterialToSimilar(curMat, target.componentId, "module_similar");
+          })
+        }
+      />
+      <MenuItem
+        label="Projedeki Benzerlere Uygula"
+        onClick={() =>
+          run(() => {
+            const curMat =
+              mod?.componentMaterialOverrides?.[target.componentId] ||
+              (isDoor ? mod?.carcass.doorMaterialId : mod?.carcass.bodyMaterialId) ||
+              null;
+            onApplyMaterialToSimilar(curMat, target.componentId, "project_similar");
+          })
+        }
+      />
+      <MenuDivider />
 
       <MenuSectionTitle title="Modül İşlemleri" />
       <MenuItem

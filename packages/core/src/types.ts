@@ -215,6 +215,8 @@ export interface MaterialDefinition {
   costPerM2: number; // EUR per m²
   edgeBandCostPerM: number;
   hasGrain: boolean;
+  requiresEdgeBanding?: boolean;
+  requiresPaintshop?: boolean;
 }
 
 export interface EdgeBandingSpec {
@@ -388,7 +390,13 @@ export interface HangingRailConfig {
   id: string;
   bayIndex: number;
   elevationY: UnitLength;
-  profileType?: "oval_30x15" | "round_25";
+  profileType?:
+    | "oval_30x15"
+    | "round_25"
+    | "led_black_30x15"
+    | "brass_25"
+    | "lift_pantograph"
+    | "pullout_front";
   hasIntegratedLed?: boolean;
   isLiftMechanism?: boolean; // Pull-down wardrobe lift (Pantograf)
   isHidden?: boolean;
@@ -414,6 +422,7 @@ export interface DrawerConfig {
   hasCooktopHeatShield?: boolean; // Ocak altı sığ çekmece + ısı koruma sacı
   grainGroupId?: string; // Damar takibi grubu
   frontMaterialId?: string;
+  frontProfile?: DoorCrossSectionProfile;
   hardwareProductId?: string;
   nominalLengthMm?: UnitLength;
   isHidden?: boolean;
@@ -458,10 +467,14 @@ export type DoorCrossSectionProfile =
   | "shaker_frame"
   | "fluted_ribbed"
   | "glass_frame"
+  | "full_smoked_glass"
   | "mirror_door"
+  | "mirror_frameless"
   | "bevel_45"
   | "j_pull_bevel"
   | "cove_arch"
+  | "center_glass_frame"
+  | "u_glass_open_top"
   | "custom_cad_profile";
 
 export interface DoorConfig {
@@ -505,6 +518,7 @@ export interface DoorConfig {
   hingeTopOffsetMm?: UnitLength;
   isGlassFramed?: boolean;
   crossSectionProfile?: DoorCrossSectionProfile;
+  drawerFrontProfile?: DoorCrossSectionProfile;
   customCadProfileName?: string;
   customCadPolygon?: { x: number; y: number }[];
   handleOrientation?: "auto" | "vertical" | "horizontal";
@@ -644,11 +658,14 @@ export interface CarcassConfig {
   plinthMaterialId?: string;
   hasAdjustableLegs?: boolean;
   crossSectionProfile?: DoorCrossSectionProfile;
+  drawerFrontProfile?: DoorCrossSectionProfile;
   customCadProfileName?: string;
   customCadPolygon?: { x: number; y: number }[];
   hullShape?: "rectangular" | "capsule_stadium" | "capsule_table" | "rounded_corners";
   cornerRadiusMm?: UnitLength;
   tambourSlatPitchMm?: UnitLength;
+  tambourDirection?: "horizontal" | "vertical";
+  hasCountertopTray?: boolean;
   jointType: JointType;
   doorThickness?: UnitLength; // default 18
   overlayDistance?: UnitLength;
@@ -761,6 +778,7 @@ export interface ArchitecturalElement {
   dimensions: Dimensions3D;
   rotationY?: number; // 0, 90, 180, 270 degrees
   doorSwing?: "left" | "right";
+  doorOpenSide?: "inward" | "outward";
   sillProtrusionMm?: UnitLength;
   metadata?: Record<string, string | number>;
 }

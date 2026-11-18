@@ -202,17 +202,15 @@ export const ArRoomPreviewModal: React.FC<ArRoomPreviewModalProps> = ({
   return (
     <div
       data-testid="ar-and-3d-export-modal"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[#141413]/70 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-[154] flex items-center justify-center bg-[#141413]/55 backdrop-blur-xs p-3 sm:p-5"
     >
       <div data-draggable-shell="ar" className="max-w-2xl w-full birim-ice-modal rounded-[28px] overflow-hidden text-[#141413]">
         <div onPointerDown={(e) => startZeroLagModalDrag(e)} title="Taşımak için sürükleyin" className="px-6 py-4 birim-ice-shell-header flex items-center justify-between cursor-grab active:cursor-grabbing select-none">
           <div>
-            <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#8C7A6B]">
-              AR • Mimar 3D CAD • Doğrulanmış Paylaşım
+            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#8C7A6B]">
+              AR Önizleme
             </div>
-            <h2 className="text-base font-bold mt-0.5">
-              Odamda Gör (1:1 AR) & 3D Mimari Model Dışa Aktarımı
-            </h2>
+            <h2 className="text-base font-bold mt-0.5">Odamda Gör</h2>
           </div>
           <button
             type="button"

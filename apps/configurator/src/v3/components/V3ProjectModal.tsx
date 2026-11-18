@@ -224,7 +224,7 @@ export const V3ProjectModal: React.FC<{
   return (
     <div
       data-testid="v3-project-modal"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/40 backdrop-blur-xs p-4 select-none"
+      className="fixed inset-0 z-[152] flex items-center justify-center bg-[#141413]/50 backdrop-blur-xs p-3 sm:p-5 select-none"
       onClick={onClose}
     >
       <div

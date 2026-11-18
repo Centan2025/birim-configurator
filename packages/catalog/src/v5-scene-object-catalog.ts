@@ -40,6 +40,7 @@ export const V5_SCENE_OBJECT_CATALOG: SceneObjectCatalogItem[] = [
   // ================= 1. ANKASTRE & SOLO CİHAZLAR =================
   {
     catalogId: "obj_fridge_french_910",
+    glbUrl: "/models/scene-objects/obj_fridge_french_910.glb",
     sku: "APP-FRG-FD910",
     name: "Solo Gardırop Tipi Buzdolabı (French Door 91cm)",
     brand: "Siemens / Bosch Serisi",
@@ -68,6 +69,7 @@ export const V5_SCENE_OBJECT_CATALOG: SceneObjectCatalogItem[] = [
   },
   {
     catalogId: "obj_fridge_solo_700",
+    glbUrl: "/models/scene-objects/obj_fridge_solo_700.glb",
     sku: "APP-FRG-SL700",
     name: "Solo Inox Kombi Buzdolabı (70cm)",
     brand: "Bosch Serie 6",
@@ -96,6 +98,7 @@ export const V5_SCENE_OBJECT_CATALOG: SceneObjectCatalogItem[] = [
   },
   {
     catalogId: "obj_cooktop_ind_600",
+    glbUrl: "/models/scene-objects/obj_cooktop_ind_600.glb",
     sku: "APP-HOB-IND60",
     name: "Ankastre İndüksiyon Ocak (60cm • 4 Gözlü)",
     brand: "Miele / Gaggenau",
@@ -131,6 +134,7 @@ export const V5_SCENE_OBJECT_CATALOG: SceneObjectCatalogItem[] = [
   },
   {
     catalogId: "obj_cooktop_ind_800",
+    glbUrl: "/models/scene-objects/obj_cooktop_ind_800.glb",
     sku: "APP-HOB-IND80",
     name: "Geniş Flex-Zone İndüksiyon Ocak (80cm)",
     brand: "Gaggenau Serie 400",
@@ -166,6 +170,7 @@ export const V5_SCENE_OBJECT_CATALOG: SceneObjectCatalogItem[] = [
   },
   {
     catalogId: "obj_oven_builtin_600",
+    glbUrl: "/models/scene-objects/obj_oven_builtin_600.glb",
     sku: "APP-OVN-60",
     name: "Ankastre Pirolitik Buharlı Fırın (60cm)",
     brand: "Siemens iQ700",
@@ -195,6 +200,7 @@ export const V5_SCENE_OBJECT_CATALOG: SceneObjectCatalogItem[] = [
   },
   {
     catalogId: "obj_microwave_builtin_600",
+    glbUrl: "/models/scene-objects/obj_microwave_builtin_600.glb",
     sku: "APP-MWO-38",
     name: "Ankastre Kompakt Mikrodalga & Izgara (H:38cm)",
     brand: "Siemens iQ700",
@@ -214,6 +220,7 @@ export const V5_SCENE_OBJECT_CATALOG: SceneObjectCatalogItem[] = [
   },
   {
     catalogId: "obj_hood_wall_900",
+    glbUrl: "/models/scene-objects/obj_hood_wall_900.glb",
     sku: "APP-HOD-WL90",
     name: "Duvar Tipi Eğimli Cam/Inox Davlumbaz (90cm)",
     brand: "Franke / Faber",
@@ -242,6 +249,7 @@ export const V5_SCENE_OBJECT_CATALOG: SceneObjectCatalogItem[] = [
   },
   {
     catalogId: "obj_hood_island_900",
+    glbUrl: "/models/scene-objects/obj_hood_island_900.glb",
     sku: "APP-HOD-IS90",
     name: "Ada Tipi Tavan Askılı Silindirik/Küp Davlumbaz",
     brand: "Elica / Franke",
@@ -261,6 +269,7 @@ export const V5_SCENE_OBJECT_CATALOG: SceneObjectCatalogItem[] = [
   },
   {
     catalogId: "obj_dishwasher_600",
+    glbUrl: "/models/scene-objects/obj_dishwasher_600.glb",
     sku: "APP-DW-60",
     name: "Tam Ankastre / Solo Bulaşık Makinesi (60cm)",
     brand: "Bosch Serie 8",
@@ -289,6 +298,7 @@ export const V5_SCENE_OBJECT_CATALOG: SceneObjectCatalogItem[] = [
   },
   {
     catalogId: "obj_washer_dryer_600",
+    glbUrl: "/models/scene-objects/obj_washer_dryer_600.glb",
     sku: "APP-WD-60",
     name: "Çamaşır / Kurutma Makinesi (60×85cm)",
     brand: "Miele W1/T1",
@@ -317,6 +327,7 @@ export const V5_SCENE_OBJECT_CATALOG: SceneObjectCatalogItem[] = [
   },
   {
     catalogId: "obj_wine_cooler_600",
+    glbUrl: "/models/scene-objects/obj_wine_cooler_600.glb",
     sku: "APP-WIN-60",
     name: "Tezgâh Altı Çift Bölgeli Şarap Soğutucu (60cm)",
     brand: "Liebherr Vinidor",
@@ -337,6 +348,7 @@ export const V5_SCENE_OBJECT_CATALOG: SceneObjectCatalogItem[] = [
   // ================= 2. EVİYE & ISLAK HACİM ARMATÜRLERİ =================
   {
     catalogId: "obj_sink_undermount_550",
+    glbUrl: "/models/scene-objects/obj_sink_undermount_550.glb",
     sku: "SNK-GRN-55",
     name: "Alttan Montaj Granit/Çelik Eviye + Kuğu Batarya (55cm)",
     brand: "Franke Kubus + Grohe",
@@ -389,6 +401,7 @@ export const V5_SCENE_OBJECT_CATALOG: SceneObjectCatalogItem[] = [
   },
   {
     catalogId: "obj_bath_vessel_sink",
+    glbUrl: "/models/scene-objects/obj_bath_vessel_sink.glb",
     sku: "SNK-BTH-48",
     name: "Tezgâh Üstü Seramik Çanak Lavabo + Yüksek Batarya",
     brand: "VitrA / Artema",
@@ -416,6 +429,7 @@ export const V5_SCENE_OBJECT_CATALOG: SceneObjectCatalogItem[] = [
   // ================= 3. BİRİM MOBİLYA KOLEKSİYONU & SERBEST MOBİLYALAR =================
   {
     catalogId: "obj_birim_dining_table_1800",
+    glbUrl: "/models/scene-objects/obj_birim_dining_table_1800.glb",
     sku: "BRM-TBL-180",
     name: "Birim Masif Meşe Yemek Masası (180×90cm)",
     brand: "BİRİM DESIGN STUDIO",
@@ -434,6 +448,7 @@ export const V5_SCENE_OBJECT_CATALOG: SceneObjectCatalogItem[] = [
   },
   {
     catalogId: "obj_birim_dining_chair",
+    glbUrl: "/models/scene-objects/obj_birim_dining_chair.glb",
     sku: "BRM-CHR-01",
     name: "Birim Bukle Kumaş & Meşe Yemek Sandalyesi",
     brand: "BİRİM DESIGN STUDIO",
@@ -451,6 +466,7 @@ export const V5_SCENE_OBJECT_CATALOG: SceneObjectCatalogItem[] = [
   },
   {
     catalogId: "obj_birim_bar_stool",
+    glbUrl: "/models/scene-objects/obj_birim_bar_stool.glb",
     sku: "BRM-STL-65",
     name: "Birim Ada Mutfak Bar Taburesi (Oturum H:65cm)",
     brand: "BİRİM DESIGN STUDIO",
@@ -468,6 +484,7 @@ export const V5_SCENE_OBJECT_CATALOG: SceneObjectCatalogItem[] = [
   },
   {
     catalogId: "obj_birim_modular_sofa_2400",
+    glbUrl: "/models/scene-objects/obj_birim_modular_sofa_2400.glb",
     sku: "BRM-SOF-240",
     name: "Birim Mimari Modüler Üçlü Kanepe (240cm)",
     brand: "BİRİM DESIGN STUDIO",
@@ -486,6 +503,7 @@ export const V5_SCENE_OBJECT_CATALOG: SceneObjectCatalogItem[] = [
   },
   {
     catalogId: "obj_birim_armchair",
+    glbUrl: "/models/scene-objects/obj_birim_armchair.glb",
     sku: "BRM-ARM-82",
     name: "Birim Dinlenme Berjeri (Ceviz Kolçaklı)",
     brand: "BİRİM DESIGN STUDIO",
@@ -503,6 +521,7 @@ export const V5_SCENE_OBJECT_CATALOG: SceneObjectCatalogItem[] = [
   },
   {
     catalogId: "obj_birim_double_bed_160",
+    glbUrl: "/models/scene-objects/obj_birim_double_bed_160.glb",
     sku: "BRM-BED-160",
     name: "Birim Döşemeli Çift Kişilik Yatak & Başlık (160×200cm)",
     brand: "BİRİM DESIGN STUDIO",
@@ -521,6 +540,7 @@ export const V5_SCENE_OBJECT_CATALOG: SceneObjectCatalogItem[] = [
   },
   {
     catalogId: "obj_birim_ottoman_bench",
+    glbUrl: "/models/scene-objects/obj_birim_ottoman_bench.glb",
     sku: "BRM-PUF-95",
     name: "Birim Giyinme Odası Orta Ada Pufu (95×55cm)",
     brand: "BİRİM DESIGN STUDIO",
@@ -538,6 +558,7 @@ export const V5_SCENE_OBJECT_CATALOG: SceneObjectCatalogItem[] = [
   },
   {
     catalogId: "obj_birim_coffee_table",
+    glbUrl: "/models/scene-objects/obj_birim_coffee_table.glb",
     sku: "BRM-CTB-110",
     name: "Birim Traverten / Ceviz Orta Sehpa (110×70cm)",
     brand: "BİRİM DESIGN STUDIO",
@@ -555,6 +576,7 @@ export const V5_SCENE_OBJECT_CATALOG: SceneObjectCatalogItem[] = [
   },
   {
     catalogId: "obj_area_rug_300x200",
+    glbUrl: "/models/scene-objects/obj_area_rug_300x200.glb",
     sku: "DEC-RUG-300",
     name: "El Dokuma Doğal Yün Halı (300×200cm)",
     brand: "Birim Atelier",
@@ -574,6 +596,7 @@ export const V5_SCENE_OBJECT_CATALOG: SceneObjectCatalogItem[] = [
   // ================= 4. AYDINLATMA & ELEKTRONİK =================
   {
     catalogId: "obj_pendant_linear_1200",
+    glbUrl: "/models/scene-objects/obj_pendant_linear_1200.glb",
     sku: "LGT-PND-120",
     name: "Ada / Masa Üstü Mimari Lineer Sarkıt (120cm • 3000K)",
     brand: "Birim Architectural Light",
@@ -593,6 +616,7 @@ export const V5_SCENE_OBJECT_CATALOG: SceneObjectCatalogItem[] = [
   },
   {
     catalogId: "obj_wall_tv_65",
+    glbUrl: "/models/scene-objects/obj_wall_tv_65.glb",
     sku: "ELC-TV-65",
     name: "Duvara Askılı 65\" Çerçevesiz OLED TV (145×83cm)",
     brand: "Samsung / LG Gallery",
@@ -621,6 +645,7 @@ export const V5_SCENE_OBJECT_CATALOG: SceneObjectCatalogItem[] = [
   },
   {
     catalogId: "obj_espresso_station",
+    glbUrl: "/models/scene-objects/obj_espresso_station.glb",
     sku: "ELC-ESP-42",
     name: "Barista Espresso Kahve Makinesi & Öğütücü",
     brand: "La Marzocco / Sage",
@@ -641,6 +666,7 @@ export const V5_SCENE_OBJECT_CATALOG: SceneObjectCatalogItem[] = [
   // ================= 5. MİMARİ YAPI ELEMANLARI & SAHA ENGELLERİ =================
   {
     catalogId: "obj_arch_door_900",
+    glbUrl: "/models/scene-objects/obj_arch_door_900.glb",
     sku: "ARC-DOR-90",
     name: "İç Oda Kapısı + 90° Kanat Açılma Yayı (90×210cm)",
     brand: "Mimari Rölöve",
@@ -659,6 +685,7 @@ export const V5_SCENE_OBJECT_CATALOG: SceneObjectCatalogItem[] = [
   },
   {
     catalogId: "obj_arch_window_1400",
+    glbUrl: "/models/scene-objects/obj_arch_window_1400.glb",
     sku: "ARC-WIN-140",
     name: "Denizlikli Çift Kanat Pencere (140×120cm • Parapet 95cm)",
     brand: "Mimari Rölöve",
@@ -677,6 +704,7 @@ export const V5_SCENE_OBJECT_CATALOG: SceneObjectCatalogItem[] = [
   },
   {
     catalogId: "obj_arch_radiator_1000",
+    glbUrl: "/models/scene-objects/obj_arch_radiator_1000.glb",
     sku: "ARC-RAD-100",
     name: "Panel Radyatör / Kalorifer Peteği (100×60cm)",
     brand: "Mimari Rölöve",
@@ -696,6 +724,7 @@ export const V5_SCENE_OBJECT_CATALOG: SceneObjectCatalogItem[] = [
   },
   {
     catalogId: "obj_arch_combi_boiler",
+    glbUrl: "/models/scene-objects/obj_arch_combi_boiler.glb",
     sku: "ARC-CMB-44",
     name: "Yoğuşmalı Kombi + Üst Baca Dirseği (44×72×35cm)",
     brand: "Vaillant / Viessmann",
@@ -715,6 +744,7 @@ export const V5_SCENE_OBJECT_CATALOG: SceneObjectCatalogItem[] = [
   },
   {
     catalogId: "obj_arch_column_400",
+    glbUrl: "/models/scene-objects/obj_arch_column_400.glb",
     sku: "ARC-COL-40",
     name: "Taşıyıcı Betonarme Kolon (40×260×30cm)",
     brand: "Mimari Rölöve",
@@ -734,6 +764,7 @@ export const V5_SCENE_OBJECT_CATALOG: SceneObjectCatalogItem[] = [
   // ================= 6. DEKORATİF PROP & ÖZEL .GLB =================
   {
     catalogId: "obj_decor_olive_tree",
+    glbUrl: "/models/scene-objects/obj_decor_olive_tree.glb",
     sku: "DEC-PLT-180",
     name: "Seramik Saksıda İç Mekân Zeytin Ağacı (H:175cm)",
     brand: "Birim Styling",
@@ -750,7 +781,137 @@ export const V5_SCENE_OBJECT_CATALOG: SceneObjectCatalogItem[] = [
     description: "Müşteri sunumu ve stüdyo render kalitesini zenginleştiren mimari saksı bitkisi.",
   },
   {
+    catalogId: "obj_plant_monstera_deliciosa",
+    glbUrl: "/models/scene-objects/obj_plant_monstera_deliciosa.glb",
+    sku: "DEC-PLT-115",
+    name: "Ceviz Stantlı Saksıda Deve Tabanı — Monstera (H:115cm)",
+    brand: "Birim Styling",
+    category: "custom_glb",
+    anchorMode: "free_floor",
+    visualKind: "plant_olive_tree",
+    defaultDimensions: { width: 720, height: 1150, depth: 720 },
+    primaryColorHex: "#2E6936",
+    secondaryColorHex: "#E6E0D4",
+    metalness: 0.04,
+    roughness: 0.65,
+    commercialRole: "decor_only",
+    unitPriceEur: 0,
+    description: "Ceviz ayaklı seramik saksıda parçalı yapraklı iç mekân Monstera Deliciosa bitkisi.",
+  },
+  {
+    catalogId: "obj_plant_fiddle_leaf_fig",
+    glbUrl: "/models/scene-objects/obj_plant_fiddle_leaf_fig.glb",
+    sku: "DEC-PLT-165",
+    name: "Seramik Saksıda Kemano Ağacı — Ficus Lyrata (H:165cm)",
+    brand: "Birim Styling",
+    category: "custom_glb",
+    anchorMode: "free_floor",
+    visualKind: "plant_olive_tree",
+    defaultDimensions: { width: 650, height: 1650, depth: 650 },
+    primaryColorHex: "#2D5A34",
+    secondaryColorHex: "#EAE5DB",
+    metalness: 0.03,
+    roughness: 0.68,
+    commercialRole: "decor_only",
+    unitPriceEur: 0,
+    description: "Geniş keman yapraklı salon ve açık mutfak köşe bitkisi.",
+  },
+  {
+    catalogId: "obj_plant_strelitzia_nicolai",
+    glbUrl: "/models/scene-objects/obj_plant_strelitzia_nicolai.glb",
+    sku: "DEC-PLT-180S",
+    name: "Antrasit Saksıda Starliçe — Cennet Kuşu (H:180cm)",
+    brand: "Birim Styling",
+    category: "custom_glb",
+    anchorMode: "free_floor",
+    visualKind: "plant_olive_tree",
+    defaultDimensions: { width: 780, height: 1800, depth: 750 },
+    primaryColorHex: "#356B3E",
+    secondaryColorHex: "#2B2E33",
+    metalness: 0.05,
+    roughness: 0.62,
+    commercialRole: "decor_only",
+    unitPriceEur: 0,
+    description: "Yüksek tavanlı mutfak ve yaşam alanları için yelpaze formlu Starliçe saksı bitkisi.",
+  },
+  {
+    catalogId: "obj_plant_sansevieria_snake",
+    glbUrl: "/models/scene-objects/obj_plant_sansevieria_snake.glb",
+    sku: "DEC-PLT-88",
+    name: "Yivli Seramik Saksıda Paşa Kılıcı — Sansevieria (H:88cm)",
+    brand: "Birim Styling",
+    category: "custom_glb",
+    anchorMode: "free_floor",
+    visualKind: "plant_olive_tree",
+    defaultDimensions: { width: 380, height: 880, depth: 380 },
+    primaryColorHex: "#4A7848",
+    secondaryColorHex: "#DDD6C8",
+    metalness: 0.04,
+    roughness: 0.66,
+    commercialRole: "decor_only",
+    unitPriceEur: 0,
+    description: "Dar geçişler, antre ve mutfak adası yanları için dikey formlu alacalı Paşa Kılıcı.",
+  },
+  {
+    catalogId: "obj_plant_zz_countertop",
+    glbUrl: "/models/scene-objects/obj_plant_zz_countertop.glb",
+    sku: "DEC-PLT-52",
+    name: "Tezgâh & Ada Üstü Seramik Saksıda ZZ Bitkisi (H:52cm)",
+    brand: "Birim Styling",
+    category: "custom_glb",
+    anchorMode: "surface_raycast",
+    visualKind: "plant_olive_tree",
+    defaultDimensions: { width: 320, height: 520, depth: 320 },
+    primaryColorHex: "#23532A",
+    secondaryColorHex: "#D8D0C3",
+    metalness: 0.06,
+    roughness: 0.54,
+    commercialRole: "decor_only",
+    unitPriceEur: 0,
+    defaultElevationY: 900,
+    description: "Mutfak adası, tezgâh köşesi ve konsol üstü için parlak yapraklı Zamioculcas saksı bitkisi.",
+  },
+  {
+    catalogId: "obj_plant_trailing_pothos_shelf",
+    glbUrl: "/models/scene-objects/obj_plant_trailing_pothos_shelf.glb",
+    sku: "DEC-PLT-48",
+    name: "Açık Raf & Üst Dolap Sarkıcı Sarmaşık — Pothos (H:48cm)",
+    brand: "Birim Styling",
+    category: "custom_glb",
+    anchorMode: "surface_raycast",
+    visualKind: "plant_olive_tree",
+    defaultDimensions: { width: 340, height: 480, depth: 340 },
+    primaryColorHex: "#498A42",
+    secondaryColorHex: "#BC7656",
+    metalness: 0.04,
+    roughness: 0.64,
+    commercialRole: "decor_only",
+    unitPriceEur: 0,
+    defaultElevationY: 900,
+    description: "Terracotta çanak saksıdan aşağı sarkan yapraklarıyla açık mutfak rafları ve kitaplıklar için sarmaşık.",
+  },
+  {
+    catalogId: "obj_plant_kitchen_herb_trio",
+    glbUrl: "/models/scene-objects/obj_plant_kitchen_herb_trio.glb",
+    sku: "DEC-PLT-HRB",
+    name: "Mutfak Tezgâhı Meşe Tepsili 3'lü Taze Baharatlık (44×18cm)",
+    brand: "Birim Styling",
+    category: "custom_glb",
+    anchorMode: "surface_raycast",
+    visualKind: "plant_olive_tree",
+    defaultDimensions: { width: 440, height: 280, depth: 180 },
+    primaryColorHex: "#3E8E3A",
+    secondaryColorHex: "#B68D5C",
+    metalness: 0.04,
+    roughness: 0.66,
+    commercialRole: "decor_only",
+    unitPriceEur: 0,
+    defaultElevationY: 900,
+    description: "Masif meşe tepsi içinde biberiye, tatlı fesleğen ve kekik üçlü seramik saksı seti.",
+  },
+  {
     catalogId: "obj_decor_full_mirror",
+    glbUrl: "/models/scene-objects/obj_decor_full_mirror.glb",
     sku: "BRM-MIR-80",
     name: "Birim Bronz Çerçeveli Boy Aynası (80×200cm)",
     brand: "BİRİM DESIGN STUDIO",
@@ -768,6 +929,7 @@ export const V5_SCENE_OBJECT_CATALOG: SceneObjectCatalogItem[] = [
   },
   {
     catalogId: "obj_decor_framed_art",
+    glbUrl: "/models/scene-objects/obj_decor_framed_art.glb",
     sku: "DEC-ART-90",
     name: "Meşe Çerçeveli Minimalist Mimari Tablo (90×120cm)",
     brand: "Birim Styling",
@@ -785,6 +947,24 @@ export const V5_SCENE_OBJECT_CATALOG: SceneObjectCatalogItem[] = [
     description: "Duvar kompozisyonu için meşe çerçeveli rölyef tablo.",
   },
 ];
+
+
+export function registerDiscoveredSceneObjectCatalogItems(
+  discovered: SceneObjectCatalogItem[]
+): number {
+  let added = 0;
+  for (const item of discovered) {
+    if (!item?.catalogId) continue;
+    const existing = V5_SCENE_OBJECT_CATALOG.find((x) => x.catalogId === item.catalogId);
+    if (!existing) {
+      V5_SCENE_OBJECT_CATALOG.push(item);
+      added++;
+    } else if (!existing.glbUrl && item.glbUrl) {
+      existing.glbUrl = item.glbUrl;
+    }
+  }
+  return added;
+}
 
 export function getSceneObjectCatalogItem(
   catalogId: string
@@ -1053,8 +1233,8 @@ export const V5_SPECIALIZED_MODULE_TEMPLATES: V4ModuleTemplateDefinition[] = [
           index: 1,
           door: { id: `door_${id}_1`, bayIndex: 1, type: "open", softClose: false },
           shelves: [
-            { id: `sh_${id}_1_bench`, bayIndex: 1, elevationY: 420, isAdjustable: false },
-            { id: `sh_${id}_1_top`, bayIndex: 1, elevationY: 1820, isAdjustable: false },
+            { id: `sh_${id}_1_bench`, bayIndex: 1, elevationY: 420, isAdjustable: false, thickness: 25 },
+            { id: `sh_${id}_1_top`, bayIndex: 1, elevationY: 1820, isAdjustable: false, thickness: 25 },
           ],
           hangingRails: [{ id: `rail_${id}_1`, bayIndex: 1, elevationY: 1750 }],
           drawers: [{ id: `drw_${id}_1_0`, bayIndex: 1, elevationY: 0, height: 380, slideType: "soft_close" }],
@@ -1481,50 +1661,8 @@ export const V5_COMPOSITE_ASSEMBLIES: MultiModuleCompositePreset[] = [
   },
 ];
 
-import { buildTenantScopedStorageKey } from "@birim/core";
-
-const CUSTOM_TPL_STORAGE_KEY = "birim_v5_custom_module_templates";
-const BIRIM_DEFAULT_TENANT = "00000000-0000-0000-0000-000000000001";
-const inMemoryCustomTemplatesByTenant = new Map<string, CustomModuleTemplateRecord[]>();
-
-export function resolveCustomTemplatesStorageKey(tenantId?: string | null): string {
-  const clean = (tenantId || BIRIM_DEFAULT_TENANT).trim();
-  if (!clean || clean === BIRIM_DEFAULT_TENANT || clean.toLowerCase() === "birim") {
-    return CUSTOM_TPL_STORAGE_KEY;
-  }
-  return buildTenantScopedStorageKey(clean, "v5_custom_module_templates");
-}
-
-export function loadSavedCustomModuleTemplates(tenantId?: string | null): CustomModuleTemplateRecord[] {
-  const key = resolveCustomTemplatesStorageKey(tenantId);
-  if (typeof window === "undefined") {
-    return [...(inMemoryCustomTemplatesByTenant.get(key) || [])];
-  }
-  try {
-    const raw = window.localStorage.getItem(key);
-    if (!raw) return [...(inMemoryCustomTemplatesByTenant.get(key) || [])];
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      inMemoryCustomTemplatesByTenant.set(key, parsed as CustomModuleTemplateRecord[]);
-      return [...(parsed as CustomModuleTemplateRecord[])];
-    }
-    return [];
-  } catch {
-    return [...(inMemoryCustomTemplatesByTenant.get(key) || [])];
-  }
-}
-
-export function persistCustomModuleTemplates(
-  list: CustomModuleTemplateRecord[],
-  tenantId?: string | null
-): void {
-  const key = resolveCustomTemplatesStorageKey(tenantId);
-  const sliced = list.slice(0, 60);
-  inMemoryCustomTemplatesByTenant.set(key, [...sliced]);
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(key, JSON.stringify(sliced));
-  } catch {
-    // Ignore storage quota errors
-  }
-}
+export {
+  resolveCustomTemplatesStorageKey,
+  loadSavedCustomModuleTemplates,
+  persistCustomModuleTemplates,
+} from "@birim/core";

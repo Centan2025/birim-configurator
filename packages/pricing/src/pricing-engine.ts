@@ -48,12 +48,19 @@ function isExteriorVisibleRole(role: string | undefined): boolean {
   );
 }
 
+function isPaintshopLacquerMaterial(m: MaterialDefinition | undefined): boolean {
+  if (!m) return false;
+  if (m.requiresPaintshop === true) return true;
+  if (m.requiresPaintshop === false) return false;
+  return m.category === "lacquer" || m.name.toLowerCase().includes("lake");
+}
+
 function estimateLeadTimeForMaterials(
   usedMaterials: MaterialDefinition[],
   hasMiter45OrSpecial: boolean
 ): LeadTimeEstimate {
   const hasLacquer = usedMaterials.some(
-    (m) => m.category === "lacquer" || m.name.toLowerCase().includes("lake")
+    (m) => isPaintshopLacquerMaterial(m)
   );
   if (hasLacquer) {
     return {
@@ -159,7 +166,7 @@ export function calculateProjectPrice(
     totalEdgeBandCostEur += piece.edgeBandMeters * (mat.edgeBandCostPerM || 1.5);
 
     // 2a. Paintshop polyurethane primer + sanding + double-face lacquer booth cost
-    if (mat.category === "lacquer" || mat.name.toLowerCase().includes("lake")) {
+    if (isPaintshopLacquerMaterial(mat)) {
       const matFinish = (mat as { finish?: string }).finish;
       const isGloss = matFinish === "gloss" || mat.name.toLowerCase().includes("parlak");
       const faceFactor = isExteriorVisibleRole(piece.componentRole) ? 1.35 : 1.0;
@@ -328,7 +335,7 @@ export function calculateProjectPrice(
     const altExteriorEbCost = exteriorEdgeBandMeters * (altMat.edgeBandCostPerM || 1.5);
     const altMatFinish = (altMat as { finish?: string }).finish;
     const altPaintshop =
-      altMat.category === "lacquer" || altMat.name.toLowerCase().includes("lake")
+      isPaintshopLacquerMaterial(altMat)
         ? rawExtArea * (altMatFinish === "gloss" ? glossRate : matteRate) * 1.25
         : 0;
 
@@ -341,8 +348,8 @@ export function calculateProjectPrice(
     const altOverhead = (altRaw + altLabor) * (params.operationalOverheadPercent / 100);
     const altNetProd = altRaw + altLabor + altOverhead;
     const altMargin = (altNetProd + logisticsTotal) * (params.targetMarginPercent / 100);
-    const altSubtotalEur = altNetProd + logisticsTotal + altMargin;
-    const altTotalVatEur = altSubtotalEur * 1.2;
+    const altSubtotalEur = altNetProd + logisticsTotal + altMargin + commercialObjectsCostEur;
+    const altTotalVatEur = altSubtotalEur * (1 + vatRatePercent / 100);
 
     const diffEur = altTotalVatEur - totalWithVatEur;
     const diffPercent = totalWithVatEur > 0 ? (diffEur / totalWithVatEur) * 100 : 0;
@@ -408,7 +415,7 @@ export function calculateProjectPrice(
       const lacquerGrossM2 = bom.cutList
         .filter((cp) => {
           const m = materialsMap.get(cp.materialId);
-          return m?.category === "lacquer" || (m?.name || "").toLowerCase().includes("lake");
+          return isPaintshopLacquerMaterial(m);
         })
         .reduce((acc, cp) => acc + cp.areaM2 * 2, 0);
       const totalFasteners = bom.hardwareList

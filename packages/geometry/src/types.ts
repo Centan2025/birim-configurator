@@ -94,6 +94,13 @@ export interface ComponentGeometry {
     kerfSpacingMm: number;
     residualWebMm: number;
   };
+  /** Parametric CNC guide groove routed on inner face of capsule/rounded top & bottom slabs for sliding tambour slats */
+  tambourTrackGrooveSpec?: {
+    insetFromOuterMm: number;
+    widthMm: number;
+    depthMm: number;
+    cornerRadiusMm: number;
+  };
 }
 
 export interface ModuleGeometryBreakdown {

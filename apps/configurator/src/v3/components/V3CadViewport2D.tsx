@@ -28,10 +28,13 @@ import {
   loadElevationDisplayUnit,
   saveElevationDisplayUnit,
   formatElevationValue,
+  toDisplayUnitNumber,
+  toCanonicalMm,
   truncateCadLabel,
   resolveElevationLabelVisibility,
   resolveSelectedElevationContext,
 } from "./workspace/elevation2dHelpers";
+import { V3PremiumDropdown } from "../design-system";
 import {
   ElevationTopBar,
   ElevationContextualPanel,
@@ -160,6 +163,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       duplicateActiveModule,
       addAdjacentModule,
       addStackedTopModule,
+      applyMaterialToSimilarComponents,
       undo,
       redo,
     } = useV3Adapter({ lightweightViewport: true });
@@ -213,7 +217,16 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
     }, [project, mode, isStoreBatchDragging]);
     const [showRoomContextInElev, setShowRoomContextInElev] = useState(true);
     const [elevDetailLevel, setElevDetailLevel] = useState<ElevationDetailLevel>(loadElevationDetailLevel);
-    const [elevDisplayUnit, setElevDisplayUnit] = useState<ElevationDisplayUnit>(loadElevationDisplayUnit);
+    const storeDisplayUnit = useConfiguratorStore((st) => st.displayUnit);
+    const setStoreDisplayUnit = useConfiguratorStore((st) => st.setDisplayUnit);
+    const storeActiveWallId = useConfiguratorStore((st) => st.activeWallId);
+    const setStoreActiveWallId = useConfiguratorStore((st) => st.setActiveWallId);
+    const [elevDisplayUnit, setElevDisplayUnit] = useState<ElevationDisplayUnit>(storeDisplayUnit || loadElevationDisplayUnit());
+    useEffect(() => {
+      if (storeDisplayUnit && storeDisplayUnit !== elevDisplayUnit) {
+        setElevDisplayUnit(storeDisplayUnit);
+      }
+    }, [storeDisplayUnit, elevDisplayUnit]);
     const [elevInteriorMoveMode, setElevInteriorMoveMode] = useState<boolean>(false);
     const [isCtrlHeldElev, setIsCtrlHeldElev] = useState<boolean>(false);
     const interiorSnapTargetsRef = useRef<ElevationSnapTarget[]>([]);
@@ -226,7 +239,105 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
     const handleChangeElevDisplayUnit = useCallback((u: ElevationDisplayUnit) => {
       setElevDisplayUnit(u);
       saveElevationDisplayUnit(u);
-    }, []);
+      setStoreDisplayUnit(u);
+    }, [setStoreDisplayUnit]);
+    const fmtPlanDim = useCallback(
+      (mmVal: number, withUnit = true) => {
+        if (elevDisplayUnit === "cm") {
+          const v = Number((mmVal / 10).toFixed(1));
+          return withUnit ? `${v} cm` : `${v}`;
+        }
+        const v = Math.round(mmVal);
+        return withUnit ? `${v} mm` : `${v}`;
+      },
+      [elevDisplayUnit]
+    );
+
+    useEffect(() => {
+      if (mode !== "elevation" || typeof window === "undefined") return;
+      const resolveElevPoint = (clientX: number, clientY: number) => {
+        const svgEl = document.querySelector("svg[data-birim-elev-svg=\"true\"]") as SVGSVGElement | null;
+        const mod = activeModule || project.modules[0];
+        if (!svgEl || !mod) return null;
+        const rect = svgEl.getBoundingClientRect();
+        if (
+          rect.width <= 0 ||
+          rect.height <= 0 ||
+          clientX < rect.left ||
+          clientX > rect.right ||
+          clientY < rect.top ||
+          clientY > rect.bottom
+        ) {
+          return null;
+        }
+        const pt = svgEl.createSVGPoint();
+        pt.x = clientX;
+        pt.y = clientY;
+        const ctm = svgEl.getScreenCTM();
+        if (!ctm) return null;
+        const svgPt = pt.matrixTransform(ctm.inverse());
+        const activeModShiftX = showRoomContextInElev
+          ? mod.position.x - (lockedElevOriginRef.current?.x ?? mod.position.x)
+          : 0;
+        const localX = svgPt.x - activeModShiftX;
+        const svgY = svgPt.y;
+        const carcassT = mod.carcass?.panelThickness || 18;
+        const plinthH = mod.carcass?.plinthHeight ?? 80;
+        const netH = calculateNetInnerHeight(mod);
+        const bayWidths = calculateBayWidths(mod);
+        let targetBayIdx = 0;
+        let accX = carcassT;
+        let bayStartX = carcassT;
+        let curBayWidth = bayWidths[0] || 500;
+        for (let i = 0; i < bayWidths.length; i++) {
+          const bw = bayWidths[i];
+          if (localX >= accX - carcassT && localX <= accX + bw + carcassT) {
+            targetBayIdx = i;
+            bayStartX = accX;
+            curBayWidth = bw;
+            break;
+          }
+          accX += bw + carcassT;
+        }
+        targetBayIdx = Math.max(0, Math.min(mod.bays.length - 1, targetBayIdx));
+        const localBayX = Math.max(40, Math.min(Math.max(72, curBayWidth - carcassT - 40), Math.round((localX - bayStartX) / 5) * 5));
+        const rawY = mod.dimensions.height - svgY - plinthH - carcassT;
+        const snappedElevY = Math.max(32, Math.min(Math.max(64, netH - 32), Math.round(rawY / 2) * 2));
+        return { mod, targetBayIdx, localBayX, snappedElevY };
+      };
+
+      const onLiveMove2D = (ev: Event) => {
+        const detail = (ev as CustomEvent<{ id: string; title: string; visual: string; clientX: number; clientY: number }>).detail;
+        if (!detail) return;
+        const hit = resolveElevPoint(detail.clientX, detail.clientY);
+        if (!hit) return;
+        setPlanRowSnapBanner(`📐 ${detail.title} • Bölme ${hit.targetBayIdx + 1} • Y: ${fmtPlanDim(hit.snappedElevY)}`);
+      };
+
+      const onLiveDrop2D = (ev: Event) => {
+        const detail = (ev as CustomEvent<{ id: string; title: string; visual: string; clientX: number; clientY: number }>).detail;
+        if (!detail) return;
+        const hit = resolveElevPoint(detail.clientX, detail.clientY);
+        if (!hit) return;
+        addInteriorItemAtElevation(hit.targetBayIdx, detail.id, hit.snappedElevY, {
+          offsetX: hit.localBayX,
+          exactElevation: true,
+        });
+        setPlanRowSnapBanner(`✓ ${detail.title} yerleştirildi • Bölme ${hit.targetBayIdx + 1}`);
+        setTimeout(() => setPlanRowSnapBanner(null), 2400);
+      };
+
+      const onLiveCancel2D = () => setPlanRowSnapBanner(null);
+
+      window.addEventListener("birim:live-3d-part-move", onLiveMove2D);
+      window.addEventListener("birim:live-3d-part-drop", onLiveDrop2D);
+      window.addEventListener("birim:live-3d-part-cancel", onLiveCancel2D);
+      return () => {
+        window.removeEventListener("birim:live-3d-part-move", onLiveMove2D);
+        window.removeEventListener("birim:live-3d-part-drop", onLiveDrop2D);
+        window.removeEventListener("birim:live-3d-part-cancel", onLiveCancel2D);
+      };
+    }, [mode, activeModule, project.modules, showRoomContextInElev, addInteriorItemAtElevation, fmtPlanDim]);
     const [isDrawingWall, setIsDrawingWall] = useState(false);
     const [chainOriginPoint, setChainOriginPoint] = useState<{ x: number; z: number } | null>(null);
     const [drawWallStart, setDrawWallStart] = useState<{ x: number; z: number } | null>(null);
@@ -245,6 +356,14 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
     const [newObstacleH, setNewObstacleH] = useState<number>(1100);
     const [newObstacleY, setNewObstacleY] = useState<number>(1000);
     const [newObstacleRotY, setNewObstacleRotY] = useState<number>(0);
+    useEffect(() => {
+      if (!storeActiveWallId) return;
+      const matchedWall = spaceWalls.find((w) => w.id === storeActiveWallId);
+      if (matchedWall) {
+        setObstacleTargetWallId(matchedWall.id);
+        setNewObstacleRotY((((matchedWall.rotationY || 0) % 360) + 360) % 360);
+      }
+    }, [storeActiveWallId, spaceWalls]);
     const [magnetEnabled, setMagnetEnabled] = useState<boolean>(true);
     const [showPlanGrid, setShowPlanGrid] = useState<boolean>(true);
     const [showPlanDimensions, setShowPlanDimensions] = useState<boolean>(true);
@@ -341,9 +460,13 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
     const lockedElevOriginRef = useRef<{ x: number; y: number; modH: number } | null>(null);
     const lockedElevModIdRef = useRef<string | null>(null);
     const [isPlacingObstacle, setIsPlacingObstacle] = useState<boolean>(false);
-    const [obstaclePreviewPos, setObstaclePreviewPos] = useState<{ x: number; z: number } | null>(
-      null
-    );
+    const [obstaclePreviewPos, setObstaclePreviewPos] = useState<{
+      x: number;
+      z: number;
+      rotY?: number;
+      wallName?: string;
+    } | null>(null);
+    const liveObsSnappedRotRef = useRef<number | null>(null);
 
     const [selectedPlanObject, setSelectedPlanObject] = useState<{
       kind: "wall" | "obstacle" | "module";
@@ -1161,6 +1284,22 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             handleDeleteSelectedObject();
           }
         }
+        if ((ev.key === "m" || ev.key === "M") && mode === "plan" && interactivePlan && selectedPlanObject?.kind === "obstacle") {
+          const curObs = spaceObstacles.find((o) => o.id === selectedPlanObject.id);
+          if (curObs) {
+            ev.preventDefault();
+            if (ev.shiftKey && curObs.type === "door") {
+              const nextSide = curObs.doorOpenSide === "outward" ? "inward" : "outward";
+              updateSpaceObstacle(curObs.id, { doorOpenSide: nextSide });
+              setPlanRowSnapBanner(`⇅ ${curObs.name} Açılım Tarafı Aynalandı: ${nextSide === "outward" ? "Dışa Açılır" : "İçe Açılır"}`);
+            } else {
+              const nextSwing = curObs.doorSwing === "right" ? "left" : "right";
+              updateSpaceObstacle(curObs.id, { doorSwing: nextSwing });
+              setPlanRowSnapBanner(`⇄ ${curObs.name} Yönü Aynalandı: ${nextSwing === "right" ? "Sağ Menteşe / Kanat" : "Sol Menteşe / Kanat"}`);
+            }
+            setTimeout(() => setPlanRowSnapBanner(null), 2400);
+          }
+        }
       };
       const onModifierKeyDown = (ev: KeyboardEvent) => {
         if (ev.key === "Control" || ev.key === "Meta") {
@@ -1324,13 +1463,57 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
               protrusion: "Duvar Çıkıntısı",
               partition: "Bölme Duvar",
             };
-            const posX = typeof detail.x === "number" ? detail.x : Math.min(2400, 400 + spaceObstacles.length * 450);
-            const posZ = typeof detail.z === "number" ? detail.z : obsType === "partition" ? 600 : 0;
+            const activeTargetWall =
+              spaceWalls.find((w) => w.id === (storeActiveWallId || obstacleTargetWallId)) ||
+              spaceWalls[0];
+            const wallRot = activeTargetWall
+              ? (((activeTargetWall.rotationY || 0) % 360) + 360) % 360
+              : 0;
+            const wallRad = (wallRot * Math.PI) / 180;
+            const dirX = Math.cos(wallRad);
+            const dirZ = Math.sin(wallRad);
+            let alongWall = 300;
+            if (activeTargetWall) {
+              const maxStart = Math.max(0, activeTargetWall.length - defW);
+              const existingAlong: Array<[number, number]> = [];
+              for (const ex of spaceObstacles) {
+                const exRot = (((ex.rotationY || 0) % 360) + 360) % 360;
+                const rDiff = Math.min(Math.abs(exRot - wallRot), 360 - Math.abs(exRot - wallRot));
+                if (rDiff > 12) continue;
+                const rx = ex.position.x - activeTargetWall.position.x;
+                const rz = ex.position.z - activeTargetWall.position.z;
+                const al = rx * dirX + rz * dirZ;
+                const pp = Math.abs(-rx * dirZ + rz * dirX);
+                if (pp <= 220) existingAlong.push([al, al + (ex.dimensions.width || 300)]);
+              }
+              existingAlong.sort((a, b) => a[0] - b[0]);
+              let cursor = 200;
+              for (const [s, e] of existingAlong) {
+                if (cursor + defW + 80 <= s) break;
+                cursor = Math.max(cursor, e + 120);
+              }
+              alongWall = Math.max(0, Math.min(maxStart, Math.round(cursor / 50) * 50));
+            }
+            const posX =
+              typeof detail.x === "number"
+                ? detail.x
+                : activeTargetWall
+                ? Math.round(activeTargetWall.position.x + dirX * alongWall)
+                : Math.min(2400, 400 + spaceObstacles.length * 450);
+            const posZ =
+              typeof detail.z === "number"
+                ? detail.z
+                : obsType === "partition" && !activeTargetWall
+                ? 600
+                : activeTargetWall
+                ? Math.round(activeTargetWall.position.z + dirZ * alongWall)
+                : 0;
             const createdId = addSpaceObstacle({
               type: obsType,
-              name: `${typeLabelsMap[obsType]} (${defW}×${defH}mm)`,
-              rotationY: 0,
+              name: `${typeLabelsMap[obsType]}`,
+              rotationY: wallRot,
               doorSwing: "left",
+              doorOpenSide: "inward",
               position: { x: posX, y: defY, z: posZ },
               dimensions: {
                 width: defW,
@@ -1385,7 +1568,10 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       project.space.ceilingHeight,
       spaceObstacles.length,
       addSpaceObstacle,
+      spaceObstacles,
       spaceWalls,
+      storeActiveWallId,
+      obstacleTargetWallId,
       updateWallSegment,
     ]);
 
@@ -1406,12 +1592,14 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         0,
         ...spaceWalls.map((w) => w.position.x),
         ...footprints.map((fp) => fp.x),
+        ...spaceObstacles.map((o) => o.position.x),
         ...(project.sceneObjects || []).map((s) => s.position.x)
       );
       const minPlanZ = Math.min(
         0,
         ...spaceWalls.map((w) => w.position.z),
         ...footprints.map((fp) => fp.z),
+        ...spaceObstacles.map((o) => o.position.z),
         ...(project.sceneObjects || []).map((s) => s.position.z)
       );
       const totalModExtentX = Math.max(
@@ -1419,6 +1607,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         underlay?.widthMm || 0,
         ...spaceWalls.map((w) => w.position.x + w.length + 300),
         ...footprints.map((fp) => fp.x + fp.planWidth + 300),
+        ...spaceObstacles.map((o) => o.position.x + Math.max(o.dimensions.width || 300, o.dimensions.depth || 300) + 300),
         ...(project.sceneObjects || []).map((s) => s.position.x + s.dimensions.width + 300)
       );
       const maxDepthZ = Math.max(
@@ -1426,6 +1615,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         underlay?.depthMm || 0,
         ...spaceWalls.map((w) => w.position.z + w.length * 0.6 + 450),
         ...footprints.map((fp) => fp.z + fp.planDepth + 520),
+        ...spaceObstacles.map((o) => o.position.z + Math.max(o.dimensions.depth || 300, o.dimensions.width || 300) + 520),
         ...(project.sceneObjects || []).map((s) => s.position.z + s.dimensions.depth + 520)
       );
 
@@ -1545,7 +1735,116 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         return { x: gx, z: gz, snapInfo: null };
       };
 
-      const buildObstaclePayloadAt = (posX: number, posZ: number) => {
+      const selectWallAndSyncObstacleTarget = (wallId: string) => {
+        setSelectedPlanObject({ kind: "wall", id: wallId });
+        setObstacleTargetWallId(wallId);
+        setStoreActiveWallId(wallId);
+        const wObj = spaceWalls.find((w) => w.id === wallId);
+        if (wObj) {
+          const wRot = (((wObj.rotationY || 0) % 360) + 360) % 360;
+          setNewObstacleRotY(wRot);
+          const maxOff = Math.max(0, wObj.length - newObstacleW);
+          setNewObstacleX((prev) => Math.max(0, Math.min(maxOff, prev)));
+        }
+      };
+
+      const resolveWallPlacementAlongTarget = (
+        targetWall: (typeof spaceWalls)[number],
+        obsW: number,
+        preferredOffsetMm?: number
+      ) => {
+        const wallRot = (((targetWall.rotationY || 0) % 360) + 360) % 360;
+        const rad = (wallRot * Math.PI) / 180;
+        const dirX = Math.cos(rad);
+        const dirZ = Math.sin(rad);
+        const maxStart = Math.max(0, targetWall.length - obsW);
+
+        const sameWallIntervals: Array<[number, number]> = [];
+        for (const ex of spaceObstacles) {
+          const exRot = (((ex.rotationY || 0) % 360) + 360) % 360;
+          const rotDiff = Math.min(Math.abs(exRot - wallRot), 360 - Math.abs(exRot - wallRot));
+          if (rotDiff > 12) continue;
+          const relX = ex.position.x - targetWall.position.x;
+          const relZ = ex.position.z - targetWall.position.z;
+          const along = relX * dirX + relZ * dirZ;
+          const perp = Math.abs(-relX * dirZ + relZ * dirX);
+          if (perp <= 220 && along >= -120 && along <= targetWall.length + 120) {
+            sameWallIntervals.push([along, along + (ex.dimensions.width || 300)]);
+          }
+        }
+        sameWallIntervals.sort((a, b) => a[0] - b[0]);
+
+        const overlaps = (cand: number) =>
+          sameWallIntervals.some(([s, e]) => cand < e + 40 && cand + obsW > s - 40);
+
+        let chosenOffset =
+          typeof preferredOffsetMm === "number"
+            ? Math.max(0, Math.min(maxStart, preferredOffsetMm))
+            : Math.min(maxStart, Math.max(150, Math.round((targetWall.length - obsW) * 0.35)));
+
+        if (overlaps(chosenOffset)) {
+          let cursor = 120;
+          for (const [s, e] of sameWallIntervals) {
+            if (cursor + obsW + 40 <= s) break;
+            cursor = Math.max(cursor, e + 100);
+          }
+          chosenOffset = Math.max(0, Math.min(maxStart, Math.round(cursor / 50) * 50));
+        }
+
+        const nextSuggestedOffset = Math.max(
+          0,
+          Math.min(maxStart, Math.round((chosenOffset + obsW + 120) / 50) * 50)
+        );
+
+        return {
+          x: Math.round(targetWall.position.x + dirX * chosenOffset),
+          z: Math.round(targetWall.position.z + dirZ * chosenOffset),
+          rotationY: wallRot,
+          chosenOffset,
+          nextSuggestedOffset,
+        };
+      };
+
+      const snapObstaclePointToClosestWall = (
+        rawX: number,
+        rawZ: number,
+        obsW: number,
+        maxPerpDistMm = 320
+      ): { x: number; z: number; rotY: number; wallName: string; wallId: string; alongMm: number } | null => {
+        let bestScore = maxPerpDistMm;
+        let bestHit: { x: number; z: number; rotY: number; wallName: string; wallId: string; alongMm: number } | null = null;
+        const preferredWallId =
+          selectedPlanObject?.kind === "wall" ? selectedPlanObject.id : obstacleTargetWallId;
+
+        for (const w of spaceWalls) {
+          const wRot = (((w.rotationY || 0) % 360) + 360) % 360;
+          const rad = (wRot * Math.PI) / 180;
+          const dirX = Math.cos(rad);
+          const dirZ = Math.sin(rad);
+          const relX = rawX - w.position.x;
+          const relZ = rawZ - w.position.z;
+          const rawAlong = relX * dirX + relZ * dirZ;
+          if (rawAlong < -160 || rawAlong > w.length + 160) continue;
+          const perp = Math.abs(-relX * dirZ + relZ * dirX);
+          const effectiveDist = w.id === preferredWallId ? perp * 0.75 : perp;
+          if (effectiveDist <= bestScore) {
+            bestScore = effectiveDist;
+            const maxStart = Math.max(0, w.length - obsW);
+            const snappedAlong = Math.max(0, Math.min(maxStart, Math.round((rawAlong - obsW * 0.5) / 50) * 50));
+            bestHit = {
+              x: Math.round(w.position.x + dirX * snappedAlong),
+              z: Math.round(w.position.z + dirZ * snappedAlong),
+              rotY: wRot,
+              wallName: w.name,
+              wallId: w.id,
+              alongMm: snappedAlong,
+            };
+          }
+        }
+        return bestHit;
+      };
+
+      const buildObstaclePayloadAt = (posX: number, posZ: number, overrideRotY?: number) => {
         const typeLabels: Record<ArchitecturalElement["type"], string> = {
           column: "Taşıyıcı Kolon",
           window: "Pencere",
@@ -1563,20 +1862,19 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
           partition: "Bölme Duvar",
         };
         const isHighBeam = newObstacleType === "beam";
-        const isWin = newObstacleType === "window";
-        const isElec = newObstacleType === "electrical";
-        const isPlumb = newObstacleType === "plumbing";
+        const effRotY = typeof overrideRotY === "number" ? overrideRotY : newObstacleRotY;
         return {
           type: newObstacleType,
-          name: `${typeLabels[newObstacleType]} (${newObstacleW}×${newObstacleH}mm)`,
-          rotationY: newObstacleRotY,
+          name: typeLabels[newObstacleType],
+          rotationY: effRotY,
           doorSwing: "left" as const,
+          doorOpenSide: "inward" as const,
           position: {
-            x: Math.max(0, Math.round(posX)),
+            x: Math.round(posX),
             y: isHighBeam
               ? (project.space.ceilingHeight || 2600) - 300
               : Math.max(0, Math.round(newObstacleY)),
-            z: Math.max(0, Math.round(posZ)),
+            z: Math.round(posZ),
           },
           dimensions: {
             width: Math.max(100, Math.round(newObstacleW)),
@@ -1712,7 +2010,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         if (e.button !== 0 || isDrawingWall || isPlacingObstacle) return;
         e.stopPropagation();
         const gEl = e.currentTarget as SVGGElement;
-        setSelectedPlanObject({ kind: "wall", id: wall.id });
+        selectWallAndSyncObstacleTarget(wall.id);
         document.body.dataset.birimUiDragging = "1";
         beginHistoryTransaction();
         planLiveSvgDragRef.current = {
@@ -1774,20 +2072,29 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       const handleWallClick = (e: React.MouseEvent, wallId: string) => {
         if (isDrawingWall || isPlacingObstacle) return;
         e.stopPropagation();
-        setSelectedPlanObject({ kind: "wall", id: wallId });
+        selectWallAndSyncObstacleTarget(wallId);
       };
 
       const handleSvgClick = (e: React.MouseEvent<SVGSVGElement>) => {
         const rawPt = clientToSvgRawMm(e.currentTarget, e.clientX, e.clientY);
 
-        // Mode A: Click-to-place Obstacle on the 2D Plan
+        // Mode A: Click-to-place Obstacle on the 2D Plan (Auto-aligns & rotates onto hovered/selected wall!)
         if (isPlacingObstacle) {
-          const snappedX = Math.max(0, Math.round(rawPt.x / 50) * 50);
-          const snappedZ = Math.max(0, Math.round(rawPt.z / 50) * 50);
-          const createdId = addSpaceObstacle(buildObstaclePayloadAt(snappedX, snappedZ));
+          const wallSnap = magnetEnabled
+            ? snapObstaclePointToClosestWall(rawPt.x, rawPt.z, newObstacleW, 380)
+            : null;
+          const finalX = wallSnap ? wallSnap.x : Math.round(rawPt.x / 50) * 50;
+          const finalZ = wallSnap ? wallSnap.z : Math.round(rawPt.z / 50) * 50;
+          const finalRotY = wallSnap ? wallSnap.rotY : newObstacleRotY;
+          if (wallSnap) {
+            setObstacleTargetWallId(wallSnap.wallId);
+            setStoreActiveWallId(wallSnap.wallId);
+            setNewObstacleRotY(wallSnap.rotY);
+          }
+          const createdId = addSpaceObstacle(buildObstaclePayloadAt(finalX, finalZ, finalRotY));
           setSelectedPlanObject({ kind: "obstacle", id: createdId });
-          setNewObstacleX(snappedX);
-          setNewObstacleZ(snappedZ);
+          setNewObstacleX(wallSnap ? wallSnap.alongMm : finalX);
+          setNewObstacleZ(finalZ);
           setIsPlacingObstacle(false);
           setObstaclePreviewPos(null);
           return;
@@ -1819,6 +2126,9 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             rotationY: (angleDeg + 360) % 360,
           });
           setSelectedPlanObject({ kind: "wall", id: createdWallId });
+          setObstacleTargetWallId(createdWallId);
+          setStoreActiveWallId(createdWallId);
+          setNewObstacleRotY((angleDeg + 360) % 360);
 
           // If snapped back to chainOriginPoint, close loop and end chain; otherwise continue chain from pt!
           const closedLoop =
@@ -1925,20 +2235,66 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             x: e.clientX,
             y: e.clientY,
             headerTitle: mod.name || `Modül ${target.modIdx + 1}`,
-            headerSubtitle: `${Math.round(mod.dimensions.width)}×${Math.round(mod.dimensions.depth)}×${Math.round(mod.dimensions.height)} mm`,
+            headerSubtitle: `${fmtPlanDim(mod.dimensions.width, false)}×${fmtPlanDim(mod.dimensions.depth, false)}×${fmtPlanDim(mod.dimensions.height)}`,
             sections,
           });
           return;
         }
 
         if (target.kind === "wall") {
-          setSelectedPlanObject({ kind: "wall", id: target.wallId });
+          selectWallAndSyncObstacleTarget(target.wallId);
+          const wallObjForMenu = spaceWalls.find((w) => w.id === target.wallId);
+          const addQuickToThisWall = (
+            t: ArchitecturalElement["type"],
+            label: string,
+            wMm: number,
+            hMm: number,
+            yMm: number
+          ) => {
+            if (!wallObjForMenu) return;
+            const placed = resolveWallPlacementAlongTarget(wallObjForMenu, wMm);
+            const cid = addSpaceObstacle({
+              type: t,
+              name: label,
+              rotationY: placed.rotationY,
+              doorSwing: "left",
+              doorOpenSide: "inward",
+              position: { x: placed.x, y: yMm, z: placed.z },
+              dimensions: { width: wMm, height: hMm, depth: t === "column" ? 280 : 150 },
+            });
+            setSelectedPlanObject({ kind: "obstacle", id: cid });
+          };
           setCadContextMenu({
             x: e.clientX,
             y: e.clientY,
             headerTitle: target.wallName || "Duvar",
-            headerSubtitle: `${Math.round(target.length)} mm • ${Math.round(target.rotationY)}°`,
+            headerSubtitle: `${fmtPlanDim(target.length)} • ${Math.round(target.rotationY)}°`,
             sections: [
+              {
+                title: "Bu Duvara Yapı Elemanı Ekle",
+                items: [
+                  {
+                    id: "plan-wall-add-win",
+                    label: "🪟 Bu Duvara Pencere Ekle",
+                    onClick: () => addQuickToThisWall("window", "Pencere", 950, 1100, 1000),
+                  },
+                  {
+                    id: "plan-wall-add-door",
+                    label: "🚪 Bu Duvara Kapı Ekle",
+                    onClick: () => addQuickToThisWall("door", "Oda Kapısı", 900, 2100, 0),
+                  },
+                  {
+                    id: "plan-wall-add-elec",
+                    label: "⚡ Bu Duvara Priz Ekle",
+                    onClick: () => addQuickToThisWall("electrical", "Elektrik Prizi", 160, 160, 1150),
+                  },
+                  {
+                    id: "plan-wall-add-plumb",
+                    label: "🚰 Bu Duvara Tesisat Ekle",
+                    onClick: () => addQuickToThisWall("plumbing", "Tesisat Noktası", 200, 250, 450),
+                  },
+                ],
+              },
               {
                 title: "Duvar İşlemleri",
                 items: [
@@ -1979,18 +2335,43 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
 
         if (target.kind === "obstacle") {
           setSelectedPlanObject({ kind: "obstacle", id: target.obsId });
+          const obsItem = spaceObstacles.find((o) => o.id === target.obsId);
           setCadContextMenu({
             x: e.clientX,
             y: e.clientY,
             headerTitle: target.obsName || "Mimari Engel",
-            headerSubtitle: `${Math.round(target.rotationY)}°`,
+            headerSubtitle: obsItem
+              ? `${fmtPlanDim(obsItem.dimensions.width, false)}×${fmtPlanDim(obsItem.dimensions.height)} • ${Math.round(target.rotationY)}°`
+              : `${Math.round(target.rotationY)}°`,
             sections: [
               {
-                title: "Engel İşlemleri",
+                title: "Aynalama & Yön İşlemleri",
                 items: [
                   {
+                    id: "plan-obs-mirror-swing",
+                    label: `⇄ Yönü Aynala (${obsItem?.doorSwing === "right" ? "Sağ → Sol" : "Sol → Sağ"})`,
+                    shortcut: "M",
+                    onClick: () =>
+                      updateSpaceObstacle(target.obsId, {
+                        doorSwing: obsItem?.doorSwing === "right" ? "left" : "right",
+                      }),
+                  },
+                  ...(obsItem?.type === "door"
+                    ? [
+                        {
+                          id: "plan-obs-mirror-side",
+                          label: `⇅ Açılımı Çevir (${obsItem.doorOpenSide === "outward" ? "Dışa → İçe" : "İçe → Dışa"})`,
+                          shortcut: "Shift+M",
+                          onClick: () =>
+                            updateSpaceObstacle(target.obsId, {
+                              doorOpenSide: obsItem.doorOpenSide === "outward" ? "inward" : "outward",
+                            }),
+                        },
+                      ]
+                    : []),
+                  {
                     id: "plan-obs-rotate",
-                    label: "90° Döndür",
+                    label: "🔄 90° Döndür",
                     onClick: () =>
                       updateSpaceObstacle(target.obsId, {
                         rotationY: (target.rotationY + 90) % 360,
@@ -2145,10 +2526,23 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         const svgEl = e.currentTarget;
         if (isPlacingObstacle) {
           const raw = clientToSvgRawMm(svgEl, e.clientX, e.clientY);
-          setObstaclePreviewPos({
-            x: Math.max(0, Math.round(raw.x / 50) * 50),
-            z: Math.max(0, Math.round(raw.z / 50) * 50),
-          });
+          const wallSnap = magnetEnabled
+            ? snapObstaclePointToClosestWall(raw.x, raw.z, newObstacleW, 380)
+            : null;
+          if (wallSnap) {
+            setObstaclePreviewPos({
+              x: wallSnap.x,
+              z: wallSnap.z,
+              rotY: wallSnap.rotY,
+              wallName: wallSnap.wallName,
+            });
+          } else {
+            setObstaclePreviewPos({
+              x: Math.round(raw.x / 50) * 50,
+              z: Math.round(raw.z / 50) * 50,
+              rotY: newObstacleRotY,
+            });
+          }
           return;
         }
         if (isDrawingWall) {
@@ -2470,16 +2864,42 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
           const mmPerPx = getSvgMmPerPx(svgEl);
           const dxMm = (e.clientX - obsDragStart.clientX) * mmPerPx;
           const dzMm = (e.clientY - obsDragStart.clientY) * mmPerPx;
-          let nextX = Math.max(0, Math.round((obsDragStart.startX + dxMm) / 10) * 10);
-          let nextZ = Math.max(0, Math.round((obsDragStart.startZ + dzMm) / 10) * 10);
           const draggedObs = spaceObstacles.find((o) => o.id === draggingObsId);
-          const rot = (((draggedObs?.rotationY || 0) % 360) + 360) % 360;
-          if ((rot === 90 || rot === 270) && nextX <= 90) {
-            nextX = 0;
-          } else if ((rot === 0 || rot === 180) && nextZ <= 90) {
-            nextZ = 0;
+          const obsW = draggedObs?.dimensions.width || 600;
+          const rawNextX = obsDragStart.startX + dxMm;
+          const rawNextZ = obsDragStart.startZ + dzMm;
+          let nextX = Math.round(rawNextX / 10) * 10;
+          let nextZ = Math.round(rawNextZ / 10) * 10;
+          const isWallMounted =
+            draggedObs &&
+            (draggedObs.type === "window" ||
+              draggedObs.type === "door" ||
+              draggedObs.type === "plumbing" ||
+              draggedObs.type === "electrical" ||
+              draggedObs.type === "niche");
+          const snappedWallHit =
+            isWallMounted && magnetEnabled && !e.altKey
+              ? snapObstaclePointToClosestWall(rawNextX + obsW * 0.5, rawNextZ, obsW, 180)
+              : null;
+          if (snappedWallHit) {
+            nextX = snappedWallHit.x;
+            nextZ = snappedWallHit.z;
+            liveObsSnappedRotRef.current = snappedWallHit.rotY;
+            setPlanSnapBannerFast(
+              `🧲 ${snappedWallHit.wallName} Üzerinde: ${fmtPlanDim(snappedWallHit.alongMm)} (${snappedWallHit.rotY}°)`
+            );
+          } else {
+            liveObsSnappedRotRef.current = null;
+            const rot = (((draggedObs?.rotationY || 0) % 360) + 360) % 360;
+            if ((rot === 90 || rot === 270) && Math.abs(nextX) <= 90) {
+              nextX = 0;
+            } else if ((rot === 0 || rot === 180) && Math.abs(nextZ) <= 90) {
+              nextZ = 0;
+            }
+            setPlanSnapBannerFast(
+              `🎯 Engel Taşınıyor: X:${fmtPlanDim(nextX)} • Z:${fmtPlanDim(nextZ)}`
+            );
           }
-          setPlanSnapBannerFast(`🎯 Engel Taşınıyor: X:${nextX}mm • Z:${nextZ}mm`);
           const liveObs = planLiveSvgDragRef.current;
           if (liveObs && liveObs.kind === "obstacle" && liveObs.el) {
             liveObs.nextX = nextX;
@@ -2753,7 +3173,11 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         if (draggingObsId !== null) {
           if (liveDrag && liveDrag.kind === "obstacle" && liveDrag.hasMoved && liveDrag.targetId) {
             updateObstaclePosition(liveDrag.targetId, liveDrag.nextX, liveDrag.nextZ);
+            if (liveObsSnappedRotRef.current !== null) {
+              updateSpaceObstacle(liveDrag.targetId, { rotationY: liveObsSnappedRotRef.current });
+            }
           }
+          liveObsSnappedRotRef.current = null;
           setDraggingObsId(null);
           setPlanRowSnapBanner(null);
           commitHistoryTransaction();
@@ -2816,20 +3240,28 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       const handleAddObstacleClick = () => {
         let targetX = newObstacleX;
         let targetZ = newObstacleZ;
+        let targetRotY = newObstacleRotY;
         if (obstacleTargetWallId !== "custom_xz") {
+          const effectiveWallId =
+            selectedPlanObject?.kind === "wall"
+              ? selectedPlanObject.id
+              : obstacleTargetWallId || storeActiveWallId || spaceWalls[0]?.id;
           const targetWall =
-            spaceWalls.find((w) => w.id === obstacleTargetWallId) || spaceWalls[0];
+            spaceWalls.find((w) => w.id === effectiveWallId) || spaceWalls[0];
           if (targetWall) {
-            const rad = ((targetWall.rotationY || 0) * Math.PI) / 180;
-            const clampedOffset = Math.max(
-              0,
-              Math.min(Math.max(0, targetWall.length - newObstacleW), newObstacleX)
+            const placed = resolveWallPlacementAlongTarget(
+              targetWall,
+              newObstacleW,
+              newObstacleX
             );
-            targetX = Math.round(targetWall.position.x + Math.cos(rad) * clampedOffset);
-            targetZ = Math.round(targetWall.position.z + Math.sin(rad) * clampedOffset);
+            targetX = placed.x;
+            targetZ = placed.z;
+            targetRotY = placed.rotationY;
+            setNewObstacleRotY(placed.rotationY);
+            setNewObstacleX(placed.nextSuggestedOffset);
           }
         }
-        const createdId = addSpaceObstacle(buildObstaclePayloadAt(targetX, targetZ));
+        const createdId = addSpaceObstacle(buildObstaclePayloadAt(targetX, targetZ, targetRotY));
         setSelectedPlanObject({ kind: "obstacle", id: createdId });
       };
 
@@ -3198,15 +3630,19 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
               data-testid="plan-inline-wall-dim-editor"
               className="absolute top-14 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 bg-white/95 backdrop-blur-xl px-3.5 py-2 rounded-2xl border-2 border-[#2563EB] shadow-xl text-xs"
             >
-              <span className="font-bold text-[#111827]">Duvar Ölçüsü (mm):</span>
+              <span className="font-bold text-[#111827]">Duvar Ölçüsü ({elevDisplayUnit}):</span>
               <input
                 type="number"
                 data-testid="plan-inline-wall-dim-input"
-                min={500}
-                max={15000}
-                step={50}
-                value={inlineEditWallLength}
-                onChange={(e) => setInlineEditWallLength(Number(e.target.value) || 3600)}
+                min={elevDisplayUnit === "cm" ? 50 : 500}
+                max={elevDisplayUnit === "cm" ? 1500 : 15000}
+                step={elevDisplayUnit === "cm" ? 5 : 50}
+                value={toDisplayUnitNumber(inlineEditWallLength, elevDisplayUnit)}
+                onChange={(e) =>
+                  setInlineEditWallLength(
+                    toCanonicalMm(Number(e.target.value) || (elevDisplayUnit === "cm" ? 360 : 3600), elevDisplayUnit)
+                  )
+                }
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     if (inlineEditWallId === (spaceWalls[0]?.id || "wall_main")) {
@@ -3275,7 +3711,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       <span className="font-extrabold">#{activeModuleIndex + 1}</span>
                       <span className="font-bold max-w-[120px] truncate">{selectedModuleObj.name}</span>
                       <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-600 text-white">
-                        {selectedModuleObj.dimensions.width}mm
+                        {fmtPlanDim(selectedModuleObj.dimensions.width, false)}×{fmtPlanDim(selectedModuleObj.dimensions.depth)}
                       </span>
                     </div>
 
@@ -3397,14 +3833,14 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                           ? "bg-blue-600 text-white border-blue-600"
                           : "bg-white text-slate-600 border-slate-200"
                       }`}
-                      title="Duvar X/Z Başlangıç Koordinatlarını Göster"
+                      title="Duvar Başlangıç Konumunu Göster"
                     >
-                      📍 X/Z
+                      📍 Konum
                     </button>
 
                     {showWallCoordsInPill && (
                       <div className="inline-flex items-center gap-1 bg-slate-50 px-2 py-1 rounded-xl border border-slate-200/90 text-[11px] shrink-0 whitespace-nowrap">
-                        <span className="font-bold text-slate-500">X:</span>
+                        <span className="font-semibold text-slate-600">Yatay:</span>
                         <input
                           type="number"
                           step={50}
@@ -3416,7 +3852,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                           }
                           className="w-13 px-1 py-0.5 rounded border border-slate-300 bg-white font-mono font-bold"
                         />
-                        <span className="font-bold text-slate-500">Z:</span>
+                        <span className="font-semibold text-slate-600">Derinlik:</span>
                         <input
                           type="number"
                           step={50}
@@ -3430,6 +3866,51 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         />
                       </div>
                     )}
+
+                    <div className="inline-flex items-center gap-1 bg-blue-50/90 px-1.5 py-0.5 rounded-xl border border-blue-200/80 shrink-0 whitespace-nowrap">
+                      <button
+                        type="button"
+                        data-testid="plan-selected-wall-add-window-btn"
+                        onClick={() => {
+                          const placed = resolveWallPlacementAlongTarget(selectedWallObj, 950);
+                          const cid = addSpaceObstacle({
+                            type: "window",
+                            name: "Pencere",
+                            rotationY: placed.rotationY,
+                            doorSwing: "left",
+                            doorOpenSide: "inward",
+                            position: { x: placed.x, y: 1000, z: placed.z },
+                            dimensions: { width: 950, height: 1100, depth: 150 },
+                          });
+                          setSelectedPlanObject({ kind: "obstacle", id: cid });
+                        }}
+                        className="px-1.5 py-0.5 rounded-lg hover:bg-white text-[#0F172A] font-bold text-[10.5px] cursor-pointer"
+                        title="Bu duvara paralel pencere ekle"
+                      >
+                        +🪟 Pencere
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="plan-selected-wall-add-door-btn"
+                        onClick={() => {
+                          const placed = resolveWallPlacementAlongTarget(selectedWallObj, 900);
+                          const cid = addSpaceObstacle({
+                            type: "door",
+                            name: "Oda Kapısı",
+                            rotationY: placed.rotationY,
+                            doorSwing: "left",
+                            doorOpenSide: "inward",
+                            position: { x: placed.x, y: 0, z: placed.z },
+                            dimensions: { width: 900, height: 2100, depth: 150 },
+                          });
+                          setSelectedPlanObject({ kind: "obstacle", id: cid });
+                        }}
+                        className="px-1.5 py-0.5 rounded-lg hover:bg-white text-[#0F172A] font-bold text-[10.5px] cursor-pointer"
+                        title="Bu duvara paralel kapı ekle"
+                      >
+                        +🚪 Kapı
+                      </button>
+                    </div>
 
                     {project.modules[activeModuleIndex] && (
                       <button
@@ -3487,9 +3968,13 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       <span>{selectedObstacleObj.rotationY || 0}°</span>
                     </button>
 
-                    {selectedObstacleObj.type === "door" && (
+                    {(selectedObstacleObj.type === "door" ||
+                      selectedObstacleObj.type === "window" ||
+                      selectedObstacleObj.type === "partition" ||
+                      selectedObstacleObj.type === "niche") && (
                       <button
                         type="button"
+                        data-testid="plan-pill-mirror-swing-btn"
                         onClick={() =>
                           updateSpaceObstacle(selectedObstacleObj.id, {
                             doorSwing:
@@ -3497,10 +3982,30 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                           })
                         }
                         className="px-2 py-1 rounded-xl bg-white hover:bg-blue-50 border border-slate-200/90 text-[#0F172A] font-bold text-[11px] inline-flex items-center gap-1 shadow-2xs cursor-pointer shrink-0 whitespace-nowrap"
-                        title="Kapı kanadı açılış yönünü değiştir"
+                        title="Kanat / Menteşe Yönünü Aynala (Kısayol: M)"
                       >
-                        <span>↔️</span>
-                        <span>{selectedObstacleObj.doorSwing === "right" ? "Sağ" : "Sol"}</span>
+                        <span>⇄</span>
+                        <span>Aynala ({selectedObstacleObj.doorSwing === "right" ? "Sağ" : "Sol"})</span>
+                      </button>
+                    )}
+
+                    {selectedObstacleObj.type === "door" && (
+                      <button
+                        type="button"
+                        data-testid="plan-pill-mirror-openside-btn"
+                        onClick={() =>
+                          updateSpaceObstacle(selectedObstacleObj.id, {
+                            doorOpenSide:
+                              selectedObstacleObj.doorOpenSide === "outward"
+                                ? "inward"
+                                : "outward",
+                          })
+                        }
+                        className="px-2 py-1 rounded-xl bg-white hover:bg-amber-50 border border-slate-200/90 text-[#0F172A] font-bold text-[11px] inline-flex items-center gap-1 shadow-2xs cursor-pointer shrink-0 whitespace-nowrap"
+                        title="Kapı İçe / Dışa Açılım Tarafını Aynala (Kısayol: Shift+M)"
+                      >
+                        <span>⇅</span>
+                        <span>{selectedObstacleObj.doorOpenSide === "outward" ? "Dışa Açılır" : "İçe Açılır"}</span>
                       </button>
                     )}
 
@@ -3896,19 +4401,31 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   <option value="electrical">Elektrik Prizi (Y:1150mm)</option>
                 </select>
 
-                <select
-                  data-testid="plan-obstacle-wall-select"
-                  value={obstacleTargetWallId}
-                  onChange={(e) => setObstacleTargetWallId(e.target.value)}
-                  className="px-2 py-1 rounded-xl border border-slate-300 bg-white text-[11px] font-bold text-[#0F172A]"
-                >
-                  {spaceWalls.map((w) => (
-                    <option key={w.id} value={w.id}>
-                      📍 {w.name}
-                    </option>
-                  ))}
-                  <option value="custom_xz">📍 Serbest (X, Z)</option>
-                </select>
+                <V3PremiumDropdown
+                  variant="popover"
+                  size="sm"
+                  className="w-40"
+                  testId="plan-obstacle-wall-select"
+                  value={
+                    selectedPlanObject?.kind === "wall" &&
+                    spaceWalls.some((w) => w.id === selectedPlanObject.id)
+                      ? selectedPlanObject.id
+                      : obstacleTargetWallId
+                  }
+                  onChange={(val) => {
+                    setObstacleTargetWallId(val);
+                    if (val !== "custom_xz") {
+                      selectWallAndSyncObstacleTarget(val);
+                    }
+                  }}
+                  options={[
+                    ...spaceWalls.map((w) => ({
+                      value: w.id,
+                      label: `${w.name} (${Math.round(w.rotationY || 0)}°)`,
+                    })),
+                    { value: "custom_xz", label: "Serbest (X, Z)" },
+                  ]}
+                />
 
                 <input
                   data-testid="plan-obstacle-x-input"
@@ -4084,24 +4601,23 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 N▲
               </div>
 
-              <div className="inline-flex items-center gap-1 bg-[#F8FAFC] px-2 py-1 rounded-xl border border-[#CBD5E1] shrink-0 whitespace-nowrap">
-                <span className="text-[10px] text-[#64748B] font-bold">1:</span>
-                <select
-                  data-testid="plan-scale-select"
-                  value={planScaleRatio}
-                  onChange={(e) => {
-                    const sc = Number(e.target.value) as 20 | 25 | 50;
-                    setPlanScaleRatio(sc);
-                    setZoom(sc === 20 ? 1.25 : sc === 25 ? 1.0 : 0.65);
-                  }}
-                  title="Plan Ölçeği"
-                  className="bg-transparent font-mono font-bold text-[11px] text-[#0F172A] focus:outline-none cursor-pointer"
-                >
-                  <option value={20}>1:20</option>
-                  <option value={25}>1:25</option>
-                  <option value={50}>1:50</option>
-                </select>
-              </div>
+              <V3PremiumDropdown
+                variant="popover"
+                size="sm"
+                className="w-24 shrink-0"
+                testId="plan-scale-select"
+                value={String(planScaleRatio)}
+                onChange={(val) => {
+                  const sc = Number(val) as 20 | 25 | 50;
+                  setPlanScaleRatio(sc);
+                  setZoom(sc === 20 ? 1.25 : sc === 25 ? 1.0 : 0.65);
+                }}
+                options={[
+                  { value: "20", label: "1:20" },
+                  { value: "25", label: "1:25" },
+                  { value: "50", label: "1:50" },
+                ]}
+              />
 
               <div className="inline-flex items-center birim-ice-btn rounded-xl p-0.5 shrink-0 whitespace-nowrap">
                 <button
@@ -4212,19 +4728,21 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 <span className="sr-only">Ölçüler</span>
               </label>
 
-              <select
-                data-testid="plan-wall-dim-mode-select"
+              <V3PremiumDropdown
+                variant="popover"
+                size="sm"
+                className="w-32 shrink-0"
+                testId="plan-wall-dim-mode-select"
                 value={wallDimDisplayMode}
-                onChange={(e) =>
-                  setWallDimDisplayMode(e.target.value as "net_inner" | "outer" | "plinth")
+                onChange={(val) =>
+                  setWallDimDisplayMode(val as "net_inner" | "outer" | "plinth")
                 }
-                title="Duvar Ölçülendirme Modu"
-                className="px-2 h-7 rounded-xl birim-ice-btn text-[11px] font-bold text-[#0F172A] shrink-0 whitespace-nowrap cursor-pointer"
-              >
-                <option value="net_inner">📏 Net İç Ölçü</option>
-                <option value="outer">📏 Dış Duvar</option>
-                <option value="plinth">📏 Baza / Soket</option>
-              </select>
+                options={[
+                  { value: "net_inner", label: "Net İç Ölçü" },
+                  { value: "outer", label: "Dış Duvar" },
+                  { value: "plinth", label: "Baza / Soket" },
+                ]}
+              />
 
               <button
                 type="button"
@@ -4353,10 +4871,97 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 selectedPlanObject?.kind === "wall" && selectedPlanObject.id === wall.id;
               const isSideWall = wall.rotationY === 90;
               const isCustomAngle = wall.rotationY !== 0 && wall.rotationY !== 90;
+              const computeMeasuredSpan = (): { start: number; end: number; length: number } => {
+                if (isCustomAngle) {
+                  const s = wall.position.x;
+                  const e = wall.position.x + wall.length;
+                  if (wallDimDisplayMode === "outer") {
+                    return { start: s - wall.thickness, end: e + wall.thickness, length: wall.length + wall.thickness * 2 };
+                  }
+                  if (wallDimDisplayMode === "plinth") {
+                    return { start: s + 20, end: e - 20, length: Math.max(200, wall.length - 40) };
+                  }
+                  return { start: s, end: e, length: wall.length };
+                }
+                if (isSideWall) {
+                  let zStart = wall.position.z;
+                  let zEnd = wall.position.z + wall.length;
+                  if (wallDimDisplayMode === "outer") {
+                    return { start: zStart - wall.thickness, end: zEnd + wall.thickness, length: wall.length + wall.thickness * 2 };
+                  }
+                  if (wallDimDisplayMode === "plinth") {
+                    return { start: zStart + 20, end: zEnd - 20, length: Math.max(200, wall.length - 40) };
+                  }
+                  const zMid = (zStart + zEnd) / 2;
+                  const isRight = wall.position.x > 0;
+                  const wXMin = isRight ? wall.position.x : wall.position.x - wall.thickness;
+                  const wXMax = isRight ? wall.position.x + wall.thickness : wall.position.x;
+                  for (const other of spaceWalls) {
+                    if (other.id === wall.id || other.rotationY !== 0) continue;
+                    const oXMin = other.position.x;
+                    const oXMax = other.position.x + other.length;
+                    if (oXMin <= wXMax + 2 && oXMax >= wXMin - 2) {
+                      const oZMin = other.position.z - other.thickness;
+                      const oZMax = other.position.z;
+                      const oZMid = (oZMin + oZMax) / 2;
+                      if (oZMax >= zStart && oZMin <= zEnd) {
+                        if (oZMid <= zMid) zStart = Math.max(zStart, oZMax);
+                        else zEnd = Math.min(zEnd, oZMin);
+                      }
+                    }
+                  }
+                  return { start: zStart, end: zEnd, length: Math.max(100, Math.round(zEnd - zStart)) };
+                }
+                let xStart = wall.position.x;
+                let xEnd = wall.position.x + wall.length;
+                if (wallDimDisplayMode === "outer") {
+                  return { start: xStart - wall.thickness, end: xEnd + wall.thickness, length: wall.length + wall.thickness * 2 };
+                }
+                if (wallDimDisplayMode === "plinth") {
+                  return { start: xStart + 20, end: xEnd - 20, length: Math.max(200, wall.length - 40) };
+                }
+                const xMid = (xStart + xEnd) / 2;
+                const wZMin = wall.position.z - wall.thickness;
+                const wZMax = wall.position.z;
+                for (const other of spaceWalls) {
+                  if (other.id === wall.id || other.rotationY !== 90) continue;
+                  const oZMin = other.position.z;
+                  const oZMax = other.position.z + other.length;
+                  if (oZMin <= wZMax + 2 && oZMax >= wZMin - 2) {
+                    const oIsRight = other.position.x > 0;
+                    const oXMin = oIsRight ? other.position.x : other.position.x - other.thickness;
+                    const oXMax = oIsRight ? other.position.x + other.thickness : other.position.x;
+                    const oXMid = (oXMin + oXMax) / 2;
+                    if (oXMax >= xStart && oXMin <= xEnd) {
+                      if (oXMid <= xMid) xStart = Math.max(xStart, oXMax);
+                      else xEnd = Math.min(xEnd, oXMin);
+                    }
+                  }
+                }
+                return { start: xStart, end: xEnd, length: Math.max(100, Math.round(xEnd - xStart)) };
+              };
+              const dimSpan = computeMeasuredSpan();
+              const displayedWallLen = dimSpan.length;
+              const modeSuffix =
+                wallDimDisplayMode === "outer"
+                  ? " (Dış)"
+                  : wallDimDisplayMode === "plinth"
+                  ? " (Soket)"
+                  : "";
+              const angleSuffix = isCustomAngle ? ` (${wall.rotationY}°)` : "";
+              const wallText = `${wall.name}${modeSuffix}: ${fmtPlanDim(displayedWallLen)}${angleSuffix}`;
+              const wallFont = Math.round(32 * ts);
+              const pillH = Math.round(54 * ts);
+              const pillW = Math.max(
+                Math.round(280 * ts),
+                Math.round(wallText.length * wallFont * 0.62 + 44 * ts)
+              );
+              const pillRx = Math.round(12 * ts);
+              const pillStrokeW = Math.round(3.5 * ts);
               if (isCustomAngle) {
-                const wallMidX = wall.position.x + wall.length / 2;
-                const wallText = `${wall.name} (${wall.length}mm, ${wall.rotationY}°)`;
-                const pillW = Math.max(260, wallText.length * 20 + 36);
+                const spanMidX = (dimSpan.start + dimSpan.end) / 2;
+                const dimY = wall.position.z - wall.thickness - Math.round(70 * ts);
+                const faceY = wall.position.z - wall.thickness;
                 return (
                   <g
                     key={wall.id}
@@ -4384,27 +4989,46 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       stroke={isSelectedWall ? "#DC2626" : "#44403C"}
                       strokeWidth={isSelectedWall ? "6" : "3"}
                     />
-                    <rect
-                      x={wallMidX - pillW / 2}
-                      y={wall.position.z - wall.thickness - 58}
-                      width={pillW}
-                      height={48}
-                      rx={10}
-                      fill="#FFFFFF"
-                      stroke="#44403C"
-                      strokeWidth="2.5"
-                    />
-                    <text
-                      x={wallMidX}
-                      y={wall.position.z - wall.thickness - 22}
-                      textAnchor="middle"
-                      fill="#1C1917"
-                      fontSize="32"
-                      fontWeight="800"
-                      fontFamily="monospace"
-                    >
-                      {wallText}
-                    </text>
+                    {showPlanDimensions && (
+                      <>
+                        <line x1={dimSpan.start} y1={faceY} x2={dimSpan.start} y2={dimY - 18} stroke="#64748B" strokeWidth="2.5" strokeDasharray="6 4" />
+                        <line x1={dimSpan.end} y1={faceY} x2={dimSpan.end} y2={dimY - 18} stroke="#64748B" strokeWidth="2.5" strokeDasharray="6 4" />
+                        <line x1={dimSpan.start} y1={dimY - 18} x2={dimSpan.start} y2={dimY + 18} stroke="#44403C" strokeWidth="3.5" />
+                        <line x1={dimSpan.end} y1={dimY - 18} x2={dimSpan.end} y2={dimY + 18} stroke="#44403C" strokeWidth="3.5" />
+                        <line x1={dimSpan.start} y1={dimY} x2={dimSpan.end} y2={dimY} stroke="#44403C" strokeWidth="3.5" />
+                        <g
+                          data-testid={`plan-wall-dim-badge-${wall.id}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setInlineEditWallId(wall.id);
+                            setInlineEditWallLength(wall.length);
+                          }}
+                          className="cursor-pointer"
+                        >
+                          <rect
+                            x={spanMidX - pillW / 2}
+                            y={dimY - pillH / 2}
+                            width={pillW}
+                            height={pillH}
+                            rx={pillRx}
+                            fill="#FFFFFF"
+                            stroke="#2563EB"
+                            strokeWidth={pillStrokeW}
+                          />
+                          <text
+                            x={spanMidX}
+                            y={dimY + Math.round(wallFont * 0.35)}
+                            textAnchor="middle"
+                            fill="#0F172A"
+                            fontSize={wallFont}
+                            fontWeight="900"
+                            fontFamily="monospace"
+                          >
+                            {wallText}
+                          </text>
+                        </g>
+                      </>
+                    )}
                     {isSelectedWall && (
                       <g
                         data-testid={`plan-wall-resize-end-${wall.id}`}
@@ -4452,14 +5076,15 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 );
               }
               if (isSideWall) {
-                const wallMidZ = wall.position.z + wall.length / 2;
-                const wallText = `${wall.name} (${wall.length}mm)`;
-                const pillW = Math.max(260, wallText.length * 22 + 40);
+                const spanMidZ = (dimSpan.start + dimSpan.end) / 2;
                 const isRightReturn = wall.position.x > 0;
                 const rectX = isRightReturn ? wall.position.x : wall.position.x - wall.thickness;
+                const faceX = isRightReturn ? wall.position.x + wall.thickness : wall.position.x - wall.thickness;
+                const rotOffset = Math.round(70 * ts);
                 const rotX = isRightReturn
-                  ? wall.position.x + wall.thickness + 42
-                  : wall.position.x - wall.thickness - 42;
+                  ? wall.position.x + wall.thickness + rotOffset
+                  : wall.position.x - wall.thickness - rotOffset;
+                const tickExt = isRightReturn ? rotX + 18 : rotX - 18;
                 return (
                   <g
                     key={wall.id}
@@ -4486,29 +5111,47 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       stroke={isSelectedWall ? "#DC2626" : "#44403C"}
                       strokeWidth={isSelectedWall ? "6" : "3"}
                     />
-                    <g transform={`rotate(-90 ${rotX} ${wallMidZ})`}>
-                      <rect
-                        x={rotX - pillW / 2}
-                        y={wallMidZ - 26}
-                        width={pillW}
-                        height={52}
-                        rx={10}
-                        fill="#FFFFFF"
-                        stroke="#44403C"
-                        strokeWidth="2.5"
-                      />
-                      <text
-                        x={rotX}
-                        y={wallMidZ + 11}
-                        textAnchor="middle"
-                        fill="#1C1917"
-                        fontSize="34"
-                        fontWeight="800"
-                        fontFamily="monospace"
-                      >
-                        {wallText}
-                      </text>
-                    </g>
+                    {showPlanDimensions && (
+                      <>
+                        <line x1={faceX} y1={dimSpan.start} x2={tickExt} y2={dimSpan.start} stroke="#64748B" strokeWidth="2.5" strokeDasharray="6 4" />
+                        <line x1={faceX} y1={dimSpan.end} x2={tickExt} y2={dimSpan.end} stroke="#64748B" strokeWidth="2.5" strokeDasharray="6 4" />
+                        <line x1={rotX - 18} y1={dimSpan.start} x2={rotX + 18} y2={dimSpan.start} stroke="#44403C" strokeWidth="3.5" />
+                        <line x1={rotX - 18} y1={dimSpan.end} x2={rotX + 18} y2={dimSpan.end} stroke="#44403C" strokeWidth="3.5" />
+                        <line x1={rotX} y1={dimSpan.start} x2={rotX} y2={dimSpan.end} stroke="#44403C" strokeWidth="3.5" />
+                        <g
+                          transform={`rotate(-90 ${rotX} ${spanMidZ})`}
+                          data-testid={`plan-wall-dim-badge-${wall.id}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setInlineEditWallId(wall.id);
+                            setInlineEditWallLength(wall.length);
+                          }}
+                          className="cursor-pointer"
+                        >
+                          <rect
+                            x={rotX - pillW / 2}
+                            y={spanMidZ - pillH / 2}
+                            width={pillW}
+                            height={pillH}
+                            rx={pillRx}
+                            fill="#FFFFFF"
+                            stroke="#2563EB"
+                            strokeWidth={pillStrokeW}
+                          />
+                          <text
+                            x={rotX}
+                            y={spanMidZ + Math.round(wallFont * 0.35)}
+                            textAnchor="middle"
+                            fill="#0F172A"
+                            fontSize={wallFont}
+                            fontWeight="900"
+                            fontFamily="monospace"
+                          >
+                            {wallText}
+                          </text>
+                        </g>
+                      </>
+                    )}
                     
                     {isSelectedWall && (
                       <g>
@@ -4590,24 +5233,9 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   </g>
                 );
               }
-              const wallMidX = wall.position.x + wall.length / 2;
+              const wallMidX = (dimSpan.start + dimSpan.end) / 2;
               const dimY = wall.position.z - wall.thickness - Math.round(70 * ts);
-              const displayedWallLen =
-                wallDimDisplayMode === "outer"
-                  ? wall.length + wall.thickness * 2
-                  : wallDimDisplayMode === "plinth"
-                  ? Math.max(200, wall.length - 40)
-                  : wall.length;
-              const modeSuffix =
-                wallDimDisplayMode === "outer"
-                  ? " (Dış)"
-                  : wallDimDisplayMode === "plinth"
-                  ? " (Soket)"
-                  : "";
-              const wallText = `${wall.name}${modeSuffix}: ${displayedWallLen} mm`;
-              const wallFont = Math.round(32 * ts);
-              const pillH = Math.round(54 * ts);
-              const pillW = Math.max(Math.round(280 * ts), Math.round(wallText.length * wallFont * 0.62 + 44 * ts));
+              const faceY = wall.position.z - wall.thickness;
               return (
                 <g
                   key={wall.id}
@@ -4634,32 +5262,53 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     stroke={isSelectedWall ? "#DC2626" : "#44403C"}
                     strokeWidth={isSelectedWall ? "6" : "3"}
                   />
-                  {/* End Ticks */}
-                  <line
-                    x1={wall.position.x}
-                    y1={dimY - 20}
-                    x2={wall.position.x}
-                    y2={dimY + 20}
-                    stroke="#44403C"
-                    strokeWidth="3.5"
-                  />
-                  <line
-                    x1={wall.position.x + wall.length}
-                    y1={dimY - 20}
-                    x2={wall.position.x + wall.length}
-                    y2={dimY + 20}
-                    stroke="#44403C"
-                    strokeWidth="3.5"
-                  />
-                  {/* Main Dimension Line */}
-                  <line
-                    x1={wall.position.x}
-                    y1={dimY}
-                    x2={wall.position.x + wall.length}
-                    y2={dimY}
-                    stroke="#44403C"
-                    strokeWidth="3.5"
-                  />
+                  {/* Witness Extension Lines + End Ticks + Main Dimension Line */}
+                  {showPlanDimensions && (
+                    <>
+                      <line
+                        x1={dimSpan.start}
+                        y1={faceY}
+                        x2={dimSpan.start}
+                        y2={dimY - 20}
+                        stroke="#64748B"
+                        strokeWidth="2.5"
+                        strokeDasharray="6 4"
+                      />
+                      <line
+                        x1={dimSpan.end}
+                        y1={faceY}
+                        x2={dimSpan.end}
+                        y2={dimY - 20}
+                        stroke="#64748B"
+                        strokeWidth="2.5"
+                        strokeDasharray="6 4"
+                      />
+                      <line
+                        x1={dimSpan.start}
+                        y1={dimY - 20}
+                        x2={dimSpan.start}
+                        y2={dimY + 20}
+                        stroke="#44403C"
+                        strokeWidth="3.5"
+                      />
+                      <line
+                        x1={dimSpan.end}
+                        y1={dimY - 20}
+                        x2={dimSpan.end}
+                        y2={dimY + 20}
+                        stroke="#44403C"
+                        strokeWidth="3.5"
+                      />
+                      <line
+                        x1={dimSpan.start}
+                        y1={dimY}
+                        x2={dimSpan.end}
+                        y2={dimY}
+                        stroke="#44403C"
+                        strokeWidth="3.5"
+                      />
+                    </>
+                  )}
                   {/* High-Contrast Click-to-Edit Wall Dimension Pill */}
                   {showPlanDimensions && (
                     <g
@@ -4830,7 +5479,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         fontWeight="700"
                         fontFamily="monospace"
                       >
-                        {previewLen} mm ({previewAngle}°)
+                        {fmtPlanDim(previewLen)} ({previewAngle}°)
                       </text>
                     </>
                   );
@@ -4869,32 +5518,40 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
               </g>
             )}
 
-            {/* Live Click-to-Place Obstacle Ghost Preview */}
-            {isPlacingObstacle && obstaclePreviewPos && (
-              <g data-testid="plan-obstacle-ghost-preview" opacity={0.75}>
-                <rect
-                  x={obstaclePreviewPos.x}
-                  y={obstaclePreviewPos.z}
-                  width={newObstacleW}
-                  height={newObstacleType === "column" || newObstacleType === "beam" ? 300 : 150}
-                  fill="#38BDF8"
-                  stroke="#0284C7"
-                  strokeWidth="5"
-                  strokeDasharray="12 6"
-                />
-                <text
-                  x={obstaclePreviewPos.x + newObstacleW / 2}
-                  y={obstaclePreviewPos.z - 16}
-                  textAnchor="middle"
-                  fill="#0369A1"
-                  fontSize="20"
-                  fontWeight="700"
-                  fontFamily="monospace"
+            {/* Live Click-to-Place Obstacle Ghost Preview (Aligned Parallel to Target/Hovered Wall!) */}
+            {isPlacingObstacle && obstaclePreviewPos && (() => {
+              const prevRot = obstaclePreviewPos.rotY ?? newObstacleRotY;
+              const ghostH = newObstacleType === "column" || newObstacleType === "beam" ? 280 : 140;
+              return (
+                <g
+                  data-testid="plan-obstacle-ghost-preview"
+                  opacity={0.82}
+                  transform={`rotate(${prevRot} ${obstaclePreviewPos.x} ${obstaclePreviewPos.z})`}
                 >
-                  🎯 Tıkla Konumlandır ({obstaclePreviewPos.x}, {obstaclePreviewPos.z} mm)
-                </text>
-              </g>
-            )}
+                  <rect
+                    x={obstaclePreviewPos.x}
+                    y={obstaclePreviewPos.z - ghostH * 0.5}
+                    width={newObstacleW}
+                    height={ghostH}
+                    fill="#38BDF8"
+                    stroke="#0284C7"
+                    strokeWidth="5"
+                    strokeDasharray="12 6"
+                  />
+                  <text
+                    x={obstaclePreviewPos.x + newObstacleW / 2}
+                    y={obstaclePreviewPos.z - ghostH * 0.5 - 16}
+                    textAnchor="middle"
+                    fill="#0369A1"
+                    fontSize="20"
+                    fontWeight="800"
+                    fontFamily="monospace"
+                  >
+                    🎯 {obstaclePreviewPos.wallName ? `${obstaclePreviewPos.wallName} (${prevRot}°)` : `Konumlandır (${fmtPlanDim(obstaclePreviewPos.x, false)}, ${fmtPlanDim(obstaclePreviewPos.z)})`}
+                  </text>
+                </g>
+              );
+            })()}
 
             {/* 2. Architectural Obstacles (Window, Door, Column, Beam, Plumbing) */}
             {spaceObstacles.map((obs) => {
@@ -4903,14 +5560,52 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
               if (obs.type === "window" || obs.type === "door") {
                 const isDoor = obs.type === "door";
                 const rotY = (((obs.rotationY || 0) % 360) + 360) % 360;
-                const isSideWallObs = rotY === 90 || rotY === 270;
+                const isSideWallObs = Math.abs(rotY - 90) < 0.5 || Math.abs(rotY - 270) < 0.5;
+                const isCustomAngleObs = !isSideWallObs && Math.abs(rotY) > 0.5;
                 const ow = obs.dimensions.width;
                 const wallT = mainWall.thickness - 40;
                 const isRightSwing = obs.doorSwing === "right";
+                const isOutward = obs.doorOpenSide === "outward";
+                const arcR = Math.round(ow * 0.85);
+
+                const handleMirrorSwingClick = (e: React.MouseEvent) => {
+                  e.stopPropagation();
+                  const nextSwing = isRightSwing ? "left" : "right";
+                  updateSpaceObstacle(obs.id, { doorSwing: nextSwing });
+                  setPlanRowSnapBanner(
+                    `⇄ ${obs.name} Aynalandı: ${nextSwing === "right" ? "Sağ Menteşe / Kanat" : "Sol Menteşe / Kanat"}`
+                  );
+                  setTimeout(() => setPlanRowSnapBanner(null), 2200);
+                };
+
+                const handleMirrorOpenSideClick = (e: React.MouseEvent) => {
+                  e.stopPropagation();
+                  const nextSide = isOutward ? "inward" : "outward";
+                  updateSpaceObstacle(obs.id, { doorOpenSide: nextSide });
+                  setPlanRowSnapBanner(
+                    `⇅ ${obs.name} Açılım Tarafı Aynalandı: ${nextSide === "outward" ? "Dışa Açılır" : "İçe Açılır"}`
+                  );
+                  setTimeout(() => setPlanRowSnapBanner(null), 2200);
+                };
 
                 if (isSideWallObs) {
-                  const sideX = obs.position.x <= 40 ? -mainWall.thickness + 20 : obs.position.x;
+                  const isRightRoomWall = obs.position.x > (mainWall.length || 3600) * 0.45;
+                  const sideX =
+                    obs.position.x <= 40
+                      ? -mainWall.thickness + 20
+                      : isRightRoomWall
+                      ? obs.position.x + 20
+                      : obs.position.x;
                   const sideZ = obs.position.z;
+                  const inwardDirX = isRightRoomWall ? -1 : 1;
+                  const swingDirX = isOutward ? -inwardDirX : inwardDirX;
+                  const doorFaceX = swingDirX > 0 ? sideX + wallT : sideX;
+                  const hingeZ = isRightSwing ? sideZ + ow : sideZ;
+                  const latchZ = isRightSwing ? sideZ + ow - arcR : sideZ + arcR;
+                  const sweepFlag = swingDirX > 0 ? (isRightSwing ? 1 : 0) : isRightSwing ? 0 : 1;
+                  const labelX = isRightRoomWall ? sideX + wallT + 28 : sideX - 24;
+                  const btnColX = swingDirX > 0 ? sideX + wallT + 46 : sideX - 46;
+
                   return (
                     <g
                       key={obs.id}
@@ -4924,17 +5619,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                           rotationY: obs.rotationY || 0,
                         })
                       }
-                      onDoubleClick={() => {
-                        const nextRot = isSideWallObs ? 0 : 90;
-                        updateSpaceObstacle(obs.id, {
-                          rotationY: nextRot,
-                          position: {
-                            ...obs.position,
-                            x: obs.position.x <= 60 ? Math.max(200, obs.position.z) : obs.position.x,
-                            z: obs.position.x <= 60 ? 0 : obs.position.z,
-                          },
-                        });
-                      }}
+                      onDoubleClick={handleMirrorSwingClick}
                       className="cursor-move"
                     >
                       <rect
@@ -4958,52 +5643,69 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       )}
                       {isDoor && (
                         <g className="pointer-events-none">
-                          <line
-                            x1={sideX + wallT}
-                            y1={isRightSwing ? sideZ + ow : sideZ}
-                            x2={sideX + wallT + ow * 0.85}
-                            y2={isRightSwing ? sideZ + ow : sideZ}
-                            stroke="#B45309"
-                            strokeWidth="6"
-                          />
                           <path
-                            d={
-                              isRightSwing
-                                ? `M ${sideX + wallT} ${sideZ} A ${ow * 0.85} ${ow * 0.85} 0 0 1 ${sideX + wallT + ow * 0.85} ${sideZ + ow}`
-                                : `M ${sideX + wallT} ${sideZ + ow} A ${ow * 0.85} ${ow * 0.85} 0 0 0 ${sideX + wallT + ow * 0.85} ${sideZ}`
-                            }
-                            fill="rgba(253, 230, 138, 0.22)"
+                            d={`M ${doorFaceX} ${hingeZ} L ${doorFaceX} ${latchZ} A ${arcR} ${arcR} 0 0 ${sweepFlag} ${doorFaceX + swingDirX * arcR} ${hingeZ} Z`}
+                            fill="rgba(253, 230, 138, 0.24)"
                             stroke="#D97706"
                             strokeWidth="3.5"
                             strokeDasharray="12 6"
                           />
+                          <line
+                            x1={doorFaceX}
+                            y1={hingeZ}
+                            x2={doorFaceX + swingDirX * arcR}
+                            y2={hingeZ}
+                            stroke="#B45309"
+                            strokeWidth="6"
+                          />
                         </g>
                       )}
-                      <g transform={`rotate(-90 ${sideX - 24} ${sideZ + ow / 2})`}>
+                      <g transform={`rotate(-90 ${labelX} ${sideZ + ow / 2})`} className="pointer-events-none">
                         <text
-                          x={sideX - 24}
+                          x={labelX}
                           y={sideZ + ow / 2}
                           textAnchor="middle"
                           fill={isDoor ? "#92400E" : "#0369A1"}
-                          fontSize="24"
+                          fontSize="22"
                           fontWeight="800"
                           fontFamily="monospace"
                         >
-                          {isDoor ? "🚪 YAN KAPI" : "🪟 YAN PENCERE"} ({ow}×{obs.dimensions.height} • Z:{obs.position.z} • Y:{obs.position.y})
+                          {isDoor ? "🚪 YAN KAPI" : "🪟 YAN PENCERE"} ({fmtPlanDim(ow, false)}×{fmtPlanDim(obs.dimensions.height)} • Z:{fmtPlanDim(obs.position.z)})
                         </text>
                       </g>
-                      
+
                       {isSelectedObs && (
                         <g>
-                          {/* On-Canvas In-Place 0° <-> 90° Rotate Button on Side-Wall Window/Door */}
+                          {/* 1. On-Canvas Mirror Hinge/Leaf Button (⇄) */}
+                          <g
+                            data-testid={`plan-oncanvas-mirror-swing-obs-${obs.id}`}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={handleMirrorSwingClick}
+                            className="cursor-pointer"
+                          >
+                            <circle cx={btnColX} cy={sideZ + ow / 2 - (isDoor ? 64 : 34)} r={26} fill="#2563EB" stroke="#FFFFFF" strokeWidth="3.5" />
+                            <text x={btnColX} y={sideZ + ow / 2 - (isDoor ? 56 : 26)} textAnchor="middle" fill="#FFFFFF" fontSize="22" fontWeight="900">⇄</text>
+                          </g>
+                          {/* 2. On-Canvas Mirror Inward/Outward Button (⇅) */}
+                          {isDoor && (
+                            <g
+                              data-testid={`plan-oncanvas-mirror-side-obs-${obs.id}`}
+                              onMouseDown={(e) => e.stopPropagation()}
+                              onClick={handleMirrorOpenSideClick}
+                              className="cursor-pointer"
+                            >
+                              <circle cx={btnColX} cy={sideZ + ow / 2} r={26} fill="#059669" stroke="#FFFFFF" strokeWidth="3.5" />
+                              <text x={btnColX} y={sideZ + ow / 2 + 8} textAnchor="middle" fill="#FFFFFF" fontSize="22" fontWeight="900">⇅</text>
+                            </g>
+                          )}
+                          {/* 3. On-Canvas 90° Rotate Button (🔄) */}
                           <g
                             data-testid={`plan-oncanvas-rotate-obs-${obs.id}`}
                             onMouseDown={(e) => e.stopPropagation()}
                             onClick={(e) => {
                               e.stopPropagation();
-                              const nextRot = 0;
                               updateSpaceObstacle(obs.id, {
-                                rotationY: nextRot,
+                                rotationY: 0,
                                 position: {
                                   ...obs.position,
                                   x: obs.position.x <= 60 ? Math.max(200, obs.position.z) : obs.position.x,
@@ -5015,24 +5717,8 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                             }}
                             className="cursor-pointer"
                           >
-                            <circle
-                              cx={sideX + wallT + 46}
-                              cy={sideZ + ow / 2}
-                              r={28}
-                              fill="#D97706"
-                              stroke="#FFFFFF"
-                              strokeWidth="3.5"
-                            />
-                            <text
-                              x={sideX + wallT + 46}
-                              y={sideZ + ow / 2 + 8}
-                              textAnchor="middle"
-                              fill="#FFFFFF"
-                              fontSize="22"
-                              fontWeight="900"
-                            >
-                              🔄
-                            </text>
+                            <circle cx={btnColX} cy={sideZ + ow / 2 + (isDoor ? 64 : 34)} r={26} fill="#D97706" stroke="#FFFFFF" strokeWidth="3.5" />
+                            <text x={btnColX} y={sideZ + ow / 2 + (isDoor ? 72 : 42)} textAnchor="middle" fill="#FFFFFF" fontSize="20" fontWeight="900">🔄</text>
                           </g>
                           {/* Top/Start Edge Resize Handle (▲) */}
                           <g
@@ -5055,26 +5741,8 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                             }}
                             className="cursor-ns-resize"
                           >
-                            <rect
-                              x={sideX - 8}
-                              y={sideZ - 18}
-                              width={wallT + 16}
-                              height={36}
-                              rx={8}
-                              fill="#0284C7"
-                              stroke="#FFFFFF"
-                              strokeWidth="3"
-                            />
-                            <text
-                              x={sideX + wallT / 2}
-                              y={sideZ + 7}
-                              textAnchor="middle"
-                              fill="#FFFFFF"
-                              fontSize="20"
-                              fontWeight="900"
-                            >
-                              ▲
-                            </text>
+                            <rect x={sideX - 8} y={sideZ - 18} width={wallT + 16} height={36} rx={8} fill="#0284C7" stroke="#FFFFFF" strokeWidth="3" />
+                            <text x={sideX + wallT / 2} y={sideZ + 7} textAnchor="middle" fill="#FFFFFF" fontSize="20" fontWeight="900">▲</text>
                           </g>
                           {/* Bottom/End Edge Resize Handle (▼) */}
                           <g
@@ -5097,26 +5765,109 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                             }}
                             className="cursor-ns-resize"
                           >
-                            <rect
-                              x={sideX - 8}
-                              y={sideZ + ow - 18}
-                              width={wallT + 16}
-                              height={36}
-                              rx={8}
-                              fill="#0284C7"
-                              stroke="#FFFFFF"
-                              strokeWidth="3"
-                            />
-                            <text
-                              x={sideX + wallT / 2}
-                              y={sideZ + ow + 7}
-                              textAnchor="middle"
-                              fill="#FFFFFF"
-                              fontSize="20"
-                              fontWeight="900"
-                            >
-                              ▼
-                            </text>
+                            <rect x={sideX - 8} y={sideZ + ow - 18} width={wallT + 16} height={36} rx={8} fill="#0284C7" stroke="#FFFFFF" strokeWidth="3" />
+                            <text x={sideX + wallT / 2} y={sideZ + ow + 7} textAnchor="middle" fill="#FFFFFF" fontSize="20" fontWeight="900">▼</text>
+                          </g>
+                        </g>
+                      )}
+                    </g>
+                  );
+                }
+
+                if (isCustomAngleObs) {
+                  // Angled or 180° Wall Window / Door: aligned 1:1 with wall's `rotate(rotY obs.position.x obs.position.z)` frame!
+                  const locY = obs.position.z - mainWall.thickness + 20;
+                  const rad = (rotY * Math.PI) / 180;
+                  const midWorldX = obs.position.x + Math.cos(rad) * (ow * 0.5);
+                  const midWorldZ = obs.position.z + Math.sin(rad) * (ow * 0.5);
+                  // Local +Y in SVG `rotate(rotY)` corresponds to world `(-sin rad, cos rad)`
+                  const nLocalPlusY = { x: -Math.sin(rad), z: Math.cos(rad) };
+                  const toRoomCenter = { x: (mainWall.length || 3600) * 0.5 - midWorldX, z: 1100 - midWorldZ };
+                  const inwardSignY = nLocalPlusY.x * toRoomCenter.x + nLocalPlusY.z * toRoomCenter.z >= 0 ? 1 : -1;
+                  const swingSignY = isOutward ? -inwardSignY : inwardSignY;
+                  const doorFaceY = swingSignY > 0 ? locY + wallT : locY;
+                  const hingeX = isRightSwing ? obs.position.x + ow : obs.position.x;
+                  const latchX = isRightSwing ? obs.position.x + ow - arcR : obs.position.x + arcR;
+                  const sweepFlag = swingSignY > 0 ? (isRightSwing ? 0 : 1) : isRightSwing ? 1 : 0;
+                  const flipLabel = rotY > 90 && rotY < 270;
+                  const obsText = `${isDoor ? "🚪 KAPI" : "🪟 PENCERE"} (${fmtPlanDim(ow, false)}×${fmtPlanDim(obs.dimensions.height)} • ${Math.round(rotY)}°)`;
+                  const obsFont = Math.round(22 * ts);
+                  const obsPillW = Math.max(Math.round(230 * ts), Math.round(obsText.length * obsFont * 0.6 + 26 * ts));
+                  const obsPillH = Math.round(38 * ts);
+
+                  return (
+                    <g
+                      key={obs.id}
+                      data-testid={`plan-obstacle-${obs.id}`}
+                      onMouseDown={(e) => handleObstaclePointerDown(e, obs)}
+                      onContextMenu={(e) =>
+                        openPlanContextMenu(e, {
+                          kind: "obstacle",
+                          obsId: obs.id,
+                          obsName: obs.name || "Mimari Engel",
+                          rotationY: obs.rotationY || 0,
+                        })
+                      }
+                      onDoubleClick={handleMirrorSwingClick}
+                      transform={`rotate(${rotY} ${obs.position.x} ${obs.position.z})`}
+                      className="cursor-move"
+                    >
+                      <rect
+                        x={obs.position.x}
+                        y={locY}
+                        width={ow}
+                        height={wallT}
+                        fill={isDoor ? "#FDE68A" : "#BAE6FD"}
+                        stroke={isSelectedObs ? "#DC2626" : isDoor ? "#D97706" : "#0284C7"}
+                        strokeWidth={isSelectedObs ? "6" : "3"}
+                      />
+                      {!isDoor && (
+                        <line x1={obs.position.x + 8} y1={locY + wallT / 2} x2={obs.position.x + ow - 8} y2={locY + wallT / 2} stroke="#0284C7" strokeWidth="3" />
+                      )}
+                      {isDoor && (
+                        <g className="pointer-events-none">
+                          <path
+                            d={`M ${hingeX} ${doorFaceY} L ${latchX} ${doorFaceY} A ${arcR} ${arcR} 0 0 ${sweepFlag} ${hingeX} ${doorFaceY + swingSignY * arcR} Z`}
+                            fill="rgba(253, 230, 138, 0.24)"
+                            stroke="#D97706"
+                            strokeWidth="3.5"
+                            strokeDasharray="12 6"
+                          />
+                          <line x1={hingeX} y1={doorFaceY} x2={hingeX} y2={doorFaceY + swingSignY * arcR} stroke="#B45309" strokeWidth="6" />
+                        </g>
+                      )}
+                      <g
+                        transform={`translate(${obs.position.x + ow / 2}, ${locY + wallT / 2}) rotate(${flipLabel ? 180 : 0})`}
+                        className="pointer-events-none"
+                      >
+                        <rect x={-obsPillW / 2} y={-obsPillH / 2} width={obsPillW} height={obsPillH} rx={8} fill="rgba(255,255,255,0.94)" stroke={isDoor ? "#D97706" : "#0284C7"} strokeWidth="2.5" />
+                        <text x={0} y={Math.round(obsFont * 0.35)} textAnchor="middle" fill={isDoor ? "#92400E" : "#0369A1"} fontSize={obsFont} fontWeight="900" fontFamily="monospace">
+                          {obsText}
+                        </text>
+                      </g>
+                      {isSelectedObs && (
+                        <g>
+                          <g data-testid={`plan-oncanvas-mirror-swing-obs-${obs.id}`} onMouseDown={(e) => e.stopPropagation()} onClick={handleMirrorSwingClick} className="cursor-pointer">
+                            <circle cx={obs.position.x + ow / 2 - (isDoor ? 64 : 32)} cy={locY - 46} r={26} fill="#2563EB" stroke="#FFFFFF" strokeWidth="3.5" />
+                            <text x={obs.position.x + ow / 2 - (isDoor ? 64 : 32)} y={locY - 38} textAnchor="middle" fill="#FFFFFF" fontSize="22" fontWeight="900">⇄</text>
+                          </g>
+                          {isDoor && (
+                            <g data-testid={`plan-oncanvas-mirror-side-obs-${obs.id}`} onMouseDown={(e) => e.stopPropagation()} onClick={handleMirrorOpenSideClick} className="cursor-pointer">
+                              <circle cx={obs.position.x + ow / 2} cy={locY - 46} r={26} fill="#059669" stroke="#FFFFFF" strokeWidth="3.5" />
+                              <text x={obs.position.x + ow / 2} y={locY - 38} textAnchor="middle" fill="#FFFFFF" fontSize="22" fontWeight="900">⇅</text>
+                            </g>
+                          )}
+                          <g
+                            data-testid={`plan-oncanvas-rotate-obs-${obs.id}`}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              updateSpaceObstacle(obs.id, { rotationY: (rotY + 45) % 360 });
+                            }}
+                            className="cursor-pointer"
+                          >
+                            <circle cx={obs.position.x + ow / 2 + (isDoor ? 64 : 32)} cy={locY - 46} r={26} fill="#D97706" stroke="#FFFFFF" strokeWidth="3.5" />
+                            <text x={obs.position.x + ow / 2 + (isDoor ? 64 : 32)} y={locY - 38} textAnchor="middle" fill="#FFFFFF" fontSize="20" fontWeight="900">🔄</text>
                           </g>
                         </g>
                       )}
@@ -5125,6 +5876,12 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 }
 
                 const obsY = obs.position.z > 0 ? obs.position.z : -mainWall.thickness + 20;
+                const swingSignY0 = isOutward ? -1 : 1;
+                const doorFaceY0 = swingSignY0 > 0 ? obsY + wallT : obsY;
+                const hingeX0 = isRightSwing ? obs.position.x + ow : obs.position.x;
+                const latchX0 = isRightSwing ? obs.position.x + ow - arcR : obs.position.x + arcR;
+                const sweepFlag0 = swingSignY0 > 0 ? (isRightSwing ? 0 : 1) : isRightSwing ? 1 : 0;
+
                 return (
                   <g
                     key={obs.id}
@@ -5138,16 +5895,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         rotationY: obs.rotationY || 0,
                       })
                     }
-                    onDoubleClick={() =>
-                      updateSpaceObstacle(obs.id, {
-                        rotationY: 90,
-                        position: {
-                          ...obs.position,
-                          x: obs.position.x <= 250 ? 0 : obs.position.x,
-                          z: obs.position.z <= 60 ? Math.max(200, Math.min(1200, obs.position.x)) : obs.position.z,
-                        },
-                      })
-                    }
+                    onDoubleClick={handleMirrorSwingClick}
                     className="cursor-move"
                   >
                     <rect
@@ -5170,32 +5918,28 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         strokeWidth="3"
                       />
                     )}
-                    {/* Architectural 90° Door Leaf & Swing Arc */}
+                    {/* Architectural 90° Door Leaf & Swing Arc (Supports Left/Right Hinge Mirror AND Inward/Outward Mirror!) */}
                     {isDoor && (
                       <g className="pointer-events-none">
-                        <line
-                          x1={isRightSwing ? obs.position.x + ow : obs.position.x}
-                          y1={obsY + wallT}
-                          x2={isRightSwing ? obs.position.x + ow : obs.position.x}
-                          y2={obsY + wallT + ow * 0.85}
-                          stroke="#B45309"
-                          strokeWidth="6"
-                        />
                         <path
-                          d={
-                            isRightSwing
-                              ? `M ${obs.position.x} ${obsY + wallT} A ${ow * 0.85} ${ow * 0.85} 0 0 0 ${obs.position.x + ow} ${obsY + wallT + ow * 0.85}`
-                              : `M ${obs.position.x + ow} ${obsY + wallT} A ${ow * 0.85} ${ow * 0.85} 0 0 1 ${obs.position.x} ${obsY + wallT + ow * 0.85}`
-                          }
-                          fill="rgba(253, 230, 138, 0.22)"
+                          d={`M ${hingeX0} ${doorFaceY0} L ${latchX0} ${doorFaceY0} A ${arcR} ${arcR} 0 0 ${sweepFlag0} ${hingeX0} ${doorFaceY0 + swingSignY0 * arcR} Z`}
+                          fill="rgba(253, 230, 138, 0.24)"
                           stroke="#D97706"
                           strokeWidth="3.5"
                           strokeDasharray="12 6"
                         />
+                        <line
+                          x1={hingeX0}
+                          y1={doorFaceY0}
+                          x2={hingeX0}
+                          y2={doorFaceY0 + swingSignY0 * arcR}
+                          stroke="#B45309"
+                          strokeWidth="6"
+                        />
                       </g>
                     )}
                     {(() => {
-                      const obsText = `${isDoor ? "🚪 KAPI" : "🪟 PENCERE"} (${ow}×${obs.dimensions.height} • Y:${obs.position.y})`;
+                      const obsText = `${isDoor ? "🚪 KAPI" : "🪟 PENCERE"} (${fmtPlanDim(ow, false)}×${fmtPlanDim(obs.dimensions.height)} • Y:${fmtPlanDim(obs.position.y)})`;
                       const obsFont = Math.round(24 * ts);
                       const obsPillW = Math.max(Math.round(240 * ts), Math.round(obsText.length * obsFont * 0.6 + 28 * ts));
                       const obsPillH = Math.round(40 * ts);
@@ -5228,7 +5972,61 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     
                     {isSelectedObs && (
                       <g>
-                        {/* On-Canvas In-Place 0° <-> 90° Rotate Button on Back-Wall Window/Door */}
+                        {/* 1. On-Canvas Mirror Hinge/Leaf Button (⇄) */}
+                        <g
+                          data-testid={`plan-oncanvas-mirror-swing-obs-${obs.id}`}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onClick={handleMirrorSwingClick}
+                          className="cursor-pointer"
+                        >
+                          <circle
+                            cx={obs.position.x + ow / 2 - (isDoor ? 64 : 32)}
+                            cy={obsY - 46}
+                            r={28}
+                            fill="#2563EB"
+                            stroke="#FFFFFF"
+                            strokeWidth="3.5"
+                          />
+                          <text
+                            x={obs.position.x + ow / 2 - (isDoor ? 64 : 32)}
+                            y={obsY - 38}
+                            textAnchor="middle"
+                            fill="#FFFFFF"
+                            fontSize="22"
+                            fontWeight="900"
+                          >
+                            ⇄
+                          </text>
+                        </g>
+                        {/* 2. On-Canvas Mirror Inward/Outward Button (⇅) */}
+                        {isDoor && (
+                          <g
+                            data-testid={`plan-oncanvas-mirror-side-obs-${obs.id}`}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={handleMirrorOpenSideClick}
+                            className="cursor-pointer"
+                          >
+                            <circle
+                              cx={obs.position.x + ow / 2}
+                              cy={obsY - 46}
+                              r={28}
+                              fill="#059669"
+                              stroke="#FFFFFF"
+                              strokeWidth="3.5"
+                            />
+                            <text
+                              x={obs.position.x + ow / 2}
+                              y={obsY - 38}
+                              textAnchor="middle"
+                              fill="#FFFFFF"
+                              fontSize="22"
+                              fontWeight="900"
+                            >
+                              ⇅
+                            </text>
+                          </g>
+                        )}
+                        {/* 3. On-Canvas In-Place 0° <-> 90° Rotate Button on Back-Wall Window/Door */}
                         <g
                           data-testid={`plan-oncanvas-rotate-obs-${obs.id}`}
                           onMouseDown={(e) => e.stopPropagation()}
@@ -5254,7 +6052,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                           className="cursor-pointer"
                         >
                           <circle
-                            cx={obs.position.x + ow / 2}
+                            cx={obs.position.x + ow / 2 + (isDoor ? 64 : 32)}
                             cy={obsY - 46}
                             r={28}
                             fill="#D97706"
@@ -5262,7 +6060,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                             strokeWidth="3.5"
                           />
                           <text
-                            x={obs.position.x + ow / 2}
+                            x={obs.position.x + ow / 2 + (isDoor ? 64 : 32)}
                             y={obsY - 38}
                             textAnchor="middle"
                             fill="#FFFFFF"
@@ -5363,6 +6161,9 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
               }
               if (obs.type === "column" || obs.type === "beam") {
                 const isBeam = obs.type === "beam";
+                const rotNorm = (((obs.rotationY || 0) % 360) + 360) % 360;
+                const ox = obs.position.x + obs.dimensions.width / 2;
+                const oz = obs.position.z + obs.dimensions.depth / 2;
                 return (
                   <g
                     key={obs.id}
@@ -5375,6 +6176,11 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         obsName: obs.name || "Kolon / Kiriş",
                         rotationY: obs.rotationY || 0,
                       })
+                    }
+                    transform={
+                      Math.abs(rotNorm % 90) > 0.5
+                        ? `rotate(${rotNorm} ${ox} ${oz})`
+                        : undefined
                     }
                     onDoubleClick={() => removeSpaceObstacle(obs.id)}
                     className="cursor-move"
@@ -5398,7 +6204,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       opacity={0.35}
                     />
                     {(() => {
-                      const colTxt = `${isBeam ? "KİRİŞ" : "KOLON"} (${obs.dimensions.width}×${obs.dimensions.depth})`;
+                      const colTxt = `${isBeam ? "KİRİŞ" : "KOLON"} (${fmtPlanDim(obs.dimensions.width, false)}×${fmtPlanDim(obs.dimensions.depth)})`;
                       const colFont = Math.round(23 * ts);
                       const colPillW = Math.max(Math.round(180 * ts), Math.round(colTxt.length * colFont * 0.62 + 24 * ts));
                       const colPillH = Math.round(38 * ts);
@@ -5492,6 +6298,11 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       })
                     }
                     onDoubleClick={() => removeSpaceObstacle(obs.id)}
+                    transform={
+                      Math.abs((obs.rotationY || 0) % 180) > 0.5
+                        ? `rotate(${obs.rotationY || 0} ${obs.position.x} ${obs.position.z})`
+                        : undefined
+                    }
                     className="cursor-move"
                   >
                     <rect
@@ -5505,7 +6316,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       strokeDasharray={isNiche ? "10 6" : undefined}
                     />
                     {(() => {
-                      const nTxt = `${labelTag} (${obs.dimensions.width}×${obs.dimensions.depth}mm)`;
+                      const nTxt = `${labelTag} (${fmtPlanDim(obs.dimensions.width, false)}×${fmtPlanDim(obs.dimensions.depth)})`;
                       const nFont = Math.round(23 * ts);
                       const nPillW = Math.max(Math.round(190 * ts), Math.round(nTxt.length * nFont * 0.62 + 24 * ts));
                       const nPillH = Math.round(38 * ts);
@@ -5671,7 +6482,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                               )}
                               {/* Return Arm Z Dimension Badge */}
                               {(() => {
-                                const zTxt = `Z:${md} (D:${wd})`;
+                                const zTxt = `Z:${fmtPlanDim(md)} (D:${fmtPlanDim(wd)})`;
                                 const zFont = Math.round(22 * ts);
                                 const zPillW = Math.min(wd - 20, Math.max(Math.round(160 * ts), Math.round(zTxt.length * zFont * 0.62 + 20 * ts)));
                                 const zPillH = Math.round(38 * ts);
@@ -6115,7 +6926,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
 
                                 {/* Bay Width Sub-Label at Top Edge of Bay (e.g. B1: 575mm | B2: 1171mm) */}
                                 {mod.bays.length > 1 && (() => {
-                                  const bTxt = `B${bIdx + 1}: ${bo.clearWidthMm}mm`;
+                                  const bTxt = `B${bIdx + 1}: ${fmtPlanDim(bo.clearWidthMm)}`;
                                   const bFont = Math.round(20 * ts);
                                   const bPillW = Math.min(bSpan - 10, Math.max(Math.round(125 * ts), Math.round(bTxt.length * bFont * 0.62 + 18 * ts)));
                                   const bPillH = Math.round(32 * ts);
@@ -7023,7 +7834,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       20,
                       Math.min(Math.round(22 * ts), Math.floor((Math.max(420, effSpanW) - 36) / 9.8))
                     );
-                    const dimLabel = `${fp.rawWidth}×${fp.rawDepth} (H:${fp.rawHeight})`;
+                    const dimLabel = `${fmtPlanDim(fp.rawWidth, false)}×${fmtPlanDim(fp.rawDepth)} (Boy:${fmtPlanDim(fp.rawHeight)})`;
                     const innerPillH = Math.round(dimFont * 1.72);
                     const innerPillW = Math.min(
                       Math.max(360, effSpanW - 24),
@@ -7147,7 +7958,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       const locW = mod.dimensions.width;
                       const locD = mod.dimensions.depth;
                       const offZ = locD + Math.round(56 * ts);
-                      const calloutText = `${locW} × ${locD} mm`;
+                      const calloutText = elevDisplayUnit === "cm" ? `${fmtPlanDim(locW, false)} × ${fmtPlanDim(locD, false)} cm` : `${locW} × ${locD} mm`;
                       const calloutFont = Math.round(21 * ts);
                       const pillH = Math.round(36 * ts);
                       const pillW = Math.max(
@@ -7196,7 +8007,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     }
 
                     const calloutY = mz + md + Math.round(52 * ts);
-                    const calloutText = `${mw} mm`;
+                    const calloutText = fmtPlanDim(mw);
                     const calloutFont = Math.round(23 * ts);
                     const pillH = Math.round(38 * ts);
                     const pillW = Math.max(Math.round(125 * ts), Math.round(calloutText.length * calloutFont * 0.64 + 26 * ts));
@@ -7257,10 +8068,10 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       activeSpatialMetrics.alignmentMode === "center"
                         ? "↔ Merkez Hizala ↔"
                         : activeSpatialMetrics.alignmentMode === "left"
-                        ? "⬅ Sola Yaslı (0 mm)"
+                        ? `⬅ Sola Yaslı (0 ${elevDisplayUnit})`
                         : activeSpatialMetrics.alignmentMode === "right"
-                        ? "Sağa Yaslı (0 mm) ➡"
-                        : `↔ Sol: ${activeSpatialMetrics.leftClearanceMm} • Sağ: ${activeSpatialMetrics.rightClearanceMm}mm`;
+                        ? `Sağa Yaslı (0 ${elevDisplayUnit}) ➡`
+                        : `↔ Sol: ${fmtPlanDim(activeSpatialMetrics.leftClearanceMm, false)} • Sağ: ${fmtPlanDim(activeSpatialMetrics.rightClearanceMm)}`;
                     const alignFont = Math.round(18 * ts);
                     const alignH = Math.round(32 * ts);
                     const alignW = Math.max(Math.round(200 * ts), Math.round(alignTxt.length * alignFont * 0.58 + 24 * ts));
@@ -7295,7 +8106,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   {/* Axis-Aligned Remaining Clearance Callout (Positioned at 22% depth near wall so it never hits the middle ▶ resize handle or column label!) */}
                   {showPlanDimensions && gapRight > 80 && (fp.rotationY === 0 || fp.rotationY === 180) && (() => {
                     const gapY = mz + Math.min(140, md * 0.24);
-                    const gapText = `Boşluk: ${Math.round(gapRight)} mm`;
+                    const gapText = `Boşluk: ${fmtPlanDim(gapRight)}`;
                     const gapFont = Math.round(19 * ts);
                     const gapPillH = Math.round(34 * ts);
                     const gapPillW = Math.max(Math.round(155 * ts), Math.round(gapText.length * gapFont * 0.6 + 22 * ts));
@@ -7401,7 +8212,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   {isAct && showPlanDimensions && (fp.rotationY === 90 || fp.rotationY === 270) && activeSpatialMetrics.rightClearanceMm > 15 && (() => {
                     const gapZ = activeSpatialMetrics.rightClearanceMm;
                     const lineX = mx + mw - 60;
-                    const gapText = `Boşluk: ${gapZ} mm`;
+                    const gapText = `Boşluk: ${fmtPlanDim(gapZ)}`;
                     const gapFont = Math.round(18 * ts);
                     const gapPillH = Math.round(32 * ts);
                     const gapPillW = Math.max(Math.round(150 * ts), Math.round(gapText.length * gapFont * 0.6 + 22 * ts));
@@ -7460,7 +8271,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 maximumFractionDigits: 2,
               });
               const bottomDimZ = Math.max(roomDepth - 60, maxDepthZ - 80, 1850);
-              const combinedBottomText = `📐 ${roomTitle} (${areaStr} m²) • Oda Genişliği: ${mainWall.length} mm`;
+              const combinedBottomText = `📐 ${roomTitle} (${areaStr} m²) • Oda Genişliği: ${fmtPlanDim(mainWall.length)}`;
               const botFont = Math.round(22 * ts);
               const botH = Math.round(42 * ts);
               const botW = Math.max(Math.round(480 * ts), Math.round(combinedBottomText.length * botFont * 0.58 + 36 * ts));
@@ -7567,7 +8378,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                               fontWeight="800"
                               fontFamily="monospace"
                             >
-                              {`🧲 SNAP X:${sx}mm`}
+                              {`🧲 SNAP X:${fmtPlanDim(sx)}`}
                             </text>
                           </g>
                         )}
@@ -7695,7 +8506,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       fontWeight="800"
                       fontFamily="monospace"
                     >
-                      {`🧲 X:${slot.x}mm`}
+                      {`🧲 X:${fmtPlanDim(slot.x)}`}
                     </text>
                   </g>
                 ))}
@@ -7860,12 +8671,32 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       y={sz}
                       width={sw}
                       height={sd}
-                      rx={isTableObj ? 18 : 10}
-                      fill={isSelObj ? "#DBEAFE" : isTableObj ? "#EFE6D8" : "#F8FAFC"}
-                      fillOpacity={0.92}
-                      stroke={isSelObj ? "#2563EB" : isTableObj ? "#78350F" : "#475569"}
-                      strokeWidth={isSelObj ? 6 : 3.5}
-                      strokeDasharray={so.category === "architectural_prop" ? "16 8" : undefined}
+                      rx={so.visualKind === "structural_column" ? 2 : isTableObj ? 18 : 10}
+                      fill={
+                        so.visualKind === "structural_column"
+                          ? "url(#column_hatch)"
+                          : isSelObj
+                          ? "#DBEAFE"
+                          : isTableObj
+                          ? "#EFE6D8"
+                          : "#F8FAFC"
+                      }
+                      fillOpacity={so.visualKind === "structural_column" ? 0.96 : 0.92}
+                      stroke={
+                        isSelObj
+                          ? "#2563EB"
+                          : so.visualKind === "structural_column"
+                          ? "#1C1917"
+                          : isTableObj
+                          ? "#78350F"
+                          : "#475569"
+                      }
+                      strokeWidth={isSelObj ? 6 : so.visualKind === "structural_column" ? 5 : 3.5}
+                      strokeDasharray={
+                        so.category === "architectural_prop" && so.visualKind !== "structural_column"
+                          ? "16 8"
+                          : undefined
+                      }
                     />
                     <g transform={`translate(${cx}, ${cz}) rotate(${textRot})`}>
                       <text
@@ -7887,7 +8718,195 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         fontWeight="700"
                         fontFamily="monospace"
                       >
-                        {`${Math.round(sw)}×${Math.round(sd)} mm${rotY ? ` • ${Math.round(rotY)}°` : ""}`}
+                        {`${fmtPlanDim(sw, false)}×${fmtPlanDim(sd)}${rotY ? ` • ${Math.round(rotY)}°` : ""}`}
+                      </text>
+                    </g>
+                  </g>
+                );
+              })}
+
+            {/* Reflected Ceiling Plan (RCP — Mimari Tavan İzdüşümü) Overlay */}
+            {project.space.ceilingConfig?.enabled && (() => {
+              const cc = project.space.ceilingConfig!;
+              const cType = cc.ceilingType || "flat_plaster";
+              const rcpDepth = Math.max(2200, maxDepthZ - 420);
+              const soffitD = cc.soffitDepthMm || 620;
+              return (
+                <g data-testid="plan-rcp-ceiling-overlay" className="pointer-events-none" opacity={0.78}>
+                  <rect
+                    x={0}
+                    y={0}
+                    width={mainWall.length}
+                    height={rcpDepth}
+                    fill="none"
+                    stroke="#A8A29E"
+                    strokeWidth="2.5"
+                    strokeDasharray="18 10"
+                  />
+                  {(cType === "dropped_perimeter_cove" || cType === "gypsum_soffit_bulkhead") && (
+                    <rect
+                      x={0}
+                      y={0}
+                      width={mainWall.length}
+                      height={soffitD}
+                      fill="rgba(245, 158, 11, 0.06)"
+                      stroke="#D97706"
+                      strokeWidth="3"
+                      strokeDasharray="14 8"
+                    />
+                  )}
+                  {(cType === "exposed_wood_beams" || cType === "coffered_baffle") && (() => {
+                    const pitch = cType === "exposed_wood_beams" ? cc.beamSpacingMm || 600 : Math.max(180, (cc.bafflePitchMm || 120) * 2);
+                    const cnt = Math.min(28, Math.max(2, Math.floor(mainWall.length / pitch)));
+                    return Array.from({ length: cnt }).map((_, bi) => {
+                      const bx = Math.round(((bi + 0.5) * mainWall.length) / cnt);
+                      return (
+                        <line
+                          key={`rcp_bm_${bi}`}
+                          x1={bx}
+                          y1={0}
+                          x2={bx}
+                          y2={rcpDepth}
+                          stroke="#92400E"
+                          strokeWidth="2"
+                          strokeDasharray="10 10"
+                        />
+                      );
+                    });
+                  })()}
+                  {cc.hasRecessedSpots !== false &&
+                    Array.from({ length: Math.max(2, Math.round(mainWall.length / 950)) }).map((_, si, arr) => {
+                      const sx = Math.round(((si + 1) * mainWall.length) / (arr.length + 1));
+                      const sz = cType === "dropped_perimeter_cove" ? Math.round(soffitD * 0.52) : 680;
+                      return (
+                        <g key={`rcp_spot_${si}`}>
+                          <circle cx={sx} cy={sz} r={22} fill="#FEF3C7" stroke="#D97706" strokeWidth="2.5" />
+                          <line x1={sx - 14} y1={sz} x2={sx + 14} y2={sz} stroke="#B45309" strokeWidth="2" />
+                          <line x1={sx} y1={sz - 14} x2={sx} y2={sz + 14} stroke="#B45309" strokeWidth="2" />
+                        </g>
+                      );
+                    })}
+                </g>
+              );
+            })()}
+
+            {/* FOREGROUND STRUCTURAL COLUMN & BEAM LAYER: Always rendered ABOVE cabinet footprints & rugs so a 3D column NEVER disappears behind opaque modules in 2D Plan! */}
+            {spaceObstacles
+              .filter(
+                (obs) =>
+                  obs.type === "column" ||
+                  obs.type === "beam" ||
+                  obs.type === "protrusion" ||
+                  obs.type === "partition"
+              )
+              .map((obs) => {
+                const isSelectedObs =
+                  selectedPlanObject?.kind === "obstacle" && selectedPlanObject.id === obs.id;
+                const isBeam = obs.type === "beam";
+                const rotNorm = (((obs.rotationY || 0) % 360) + 360) % 360;
+                const isRot90 = rotNorm === 90 || rotNorm === 270;
+                const rawW = Math.max(80, obs.dimensions.width || 300);
+                const rawD = Math.max(80, obs.dimensions.depth || rawW);
+                const effW = isRot90 ? rawD : rawW;
+                const effD = isRot90 ? rawW : rawD;
+                const ox = obs.position.x;
+                const oz = obs.position.z;
+
+                const collidesWithModule =
+                  !isBeam &&
+                  footprints.some(
+                    (fp) =>
+                      ox < fp.x + fp.planWidth - 2 &&
+                      ox + effW > fp.x + 2 &&
+                      oz < fp.z + fp.planDepth - 2 &&
+                      oz + effD > fp.z + 2
+                  );
+
+                const colTxt = `${
+                  isBeam ? "KİRİŞ" : obs.type === "partition" ? "BÖLME DUVAR" : "KOLON"
+                } (${fmtPlanDim(effW, false)}×${fmtPlanDim(effD)})`;
+                const colFont = Math.round(22 * ts);
+                const colPillW = Math.max(
+                  Math.round(175 * ts),
+                  Math.round(colTxt.length * colFont * 0.62 + 24 * ts)
+                );
+                const colPillH = Math.round(36 * ts);
+
+                return (
+                  <g
+                    key={`fg_col_${obs.id}`}
+                    data-testid={`plan-column-foreground-${obs.id}`}
+                    onMouseDown={(e) => handleObstaclePointerDown(e, obs)}
+                    onContextMenu={(e) =>
+                      openPlanContextMenu(e, {
+                        kind: "obstacle",
+                        obsId: obs.id,
+                        obsName: obs.name || "Taşıyıcı Kolon",
+                        rotationY: obs.rotationY || 0,
+                      })
+                    }
+                    onDoubleClick={() => removeSpaceObstacle(obs.id)}
+                    className="cursor-move"
+                  >
+                    {collidesWithModule && (
+                      <rect
+                        x={ox - 10}
+                        y={oz - 10}
+                        width={effW + 20}
+                        height={effD + 20}
+                        rx={8}
+                        fill="rgba(220, 38, 38, 0.14)"
+                        stroke="#DC2626"
+                        strokeWidth="4.5"
+                        strokeDasharray="12 6"
+                      />
+                    )}
+                    <rect
+                      x={ox}
+                      y={oz}
+                      width={effW}
+                      height={effD}
+                      fill="#EAE5DC"
+                      fillOpacity={0.94}
+                    />
+                    <rect
+                      x={ox}
+                      y={oz}
+                      width={effW}
+                      height={effD}
+                      fill="url(#column_hatch)"
+                      stroke={isSelectedObs || collidesWithModule ? "#DC2626" : "#1C1917"}
+                      strokeWidth={isSelectedObs ? "6.5" : "4.5"}
+                      strokeDasharray={isBeam ? "12 6" : undefined}
+                    />
+                    {/* Structural cross diagonals inside reinforced concrete column */}
+                    {!isBeam && (
+                      <g stroke="#44403C" strokeWidth="1.8" opacity={0.55} className="pointer-events-none">
+                        <line x1={ox} y1={oz} x2={ox + effW} y2={oz + effD} />
+                        <line x1={ox + effW} y1={oz} x2={ox} y2={oz + effD} />
+                      </g>
+                    )}
+                    <g className="pointer-events-none">
+                      <rect
+                        x={ox + effW / 2 - colPillW / 2}
+                        y={oz + effD + Math.round(8 * ts)}
+                        width={colPillW}
+                        height={colPillH}
+                        rx={Math.round(8 * ts)}
+                        fill="rgba(255, 255, 255, 0.96)"
+                        stroke={isSelectedObs || collidesWithModule ? "#DC2626" : "#292524"}
+                        strokeWidth="2.5"
+                      />
+                      <text
+                        x={ox + effW / 2}
+                        y={oz + effD + Math.round(8 * ts) + Math.round(colPillH * 0.72)}
+                        textAnchor="middle"
+                        fill={isSelectedObs || collidesWithModule ? "#B91C1C" : "#141413"}
+                        fontSize={colFont}
+                        fontWeight="900"
+                        fontFamily="monospace"
+                      >
+                        {colTxt}
                       </text>
                     </g>
                   </g>
@@ -8558,6 +9577,31 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 },
               ],
             },
+            {
+              title: "Malzeme İşlemleri",
+              items: [
+                {
+                  id: "elev-shelf-mat-oak",
+                  label: "Bu Rafa Meşe Kaplama Ata",
+                  onClick: () => applyMaterialToSimilarComponents("mat_veneer_oak", compId, "single"),
+                },
+                {
+                  id: "elev-shelf-mat-white",
+                  label: "Bu Rafa Beyaz Gövde Ata",
+                  onClick: () => applyMaterialToSimilarComponents("mat_melamine_white", compId, "single"),
+                },
+                {
+                  id: "elev-shelf-mat-spread",
+                  label: "Malzemesini Modüldeki Tüm Raflara Yay",
+                  onClick: () => {
+                    const curMat =
+                      activeModule.componentMaterialOverrides?.[compId] ||
+                      activeModule.carcass.bodyMaterialId;
+                    applyMaterialToSimilarComponents(curMat, compId, "module_similar");
+                  },
+                },
+              ],
+            },
             ...(sectionControlsSection ? [sectionControlsSection] : []),
             {
               items: [
@@ -8578,7 +9622,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             x: e.clientX,
             y: e.clientY,
             headerTitle: isAdj ? "Ayarlı Raf" : "Sabit Raf",
-            headerSubtitle: `Bölme ${meta.bayIdx + 1} • ${Math.round(meta.startVal)} mm • ${thick}mm`,
+            headerSubtitle: `Bölme ${meta.bayIdx + 1} • ${formatElevationValue(meta.startVal, elevDisplayUnit)} • ${formatElevationValue(thick, elevDisplayUnit)}`,
             sections,
           });
           return;
@@ -8621,7 +9665,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             x: e.clientX,
             y: e.clientY,
             headerTitle: "Çekmece",
-            headerSubtitle: `Bölme ${meta.bayIdx + 1} • ${Math.round(meta.startVal)} mm`,
+            headerSubtitle: `Bölme ${meta.bayIdx + 1} • ${formatElevationValue(meta.startVal, elevDisplayUnit)}`,
             sections,
           });
           return;
@@ -8810,7 +9854,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
           x: e.clientX,
           y: e.clientY,
           headerTitle: activeModule.name || `Modül ${activeModuleIndex + 1}`,
-          headerSubtitle: `${Math.round(activeModule.dimensions.width)}×${Math.round(activeModule.dimensions.height)}×${Math.round(activeModule.dimensions.depth)} mm`,
+          headerSubtitle: `${formatElevationValue(activeModule.dimensions.width, elevDisplayUnit, false)}×${formatElevationValue(activeModule.dimensions.height, elevDisplayUnit, false)}×${formatElevationValue(activeModule.dimensions.depth, elevDisplayUnit)}`,
           sections,
         });
         return;
@@ -8880,6 +9924,343 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       return true;
     });
 
+
+    const [liveAccessoryGhost2D, setLiveAccessoryGhost2D] = useState<{
+      visual: string;
+      id: string;
+      title: string;
+      bayIndex: number;
+      baySvgX: number;
+      bayWidth: number;
+      carcassT: number;
+      plinthH: number;
+      modY: number;
+      elevationY: number;
+      offsetX: number;
+      subBotY?: number;
+      subSpanH?: number;
+    } | null>(null);
+    const elevContainerRef = useRef<HTMLDivElement | null>(null);
+    const elevDropRuntimeRef = useRef<{
+      vb: { x: number; y: number; width: number; height: number };
+      roomOffX: number;
+      roomOffY: number;
+      roomModH: number;
+      mod: typeof activeModule | undefined;
+      addInteriorItemAtElevation: typeof addInteriorItemAtElevation;
+    } | null>(null);
+    elevDropRuntimeRef.current =
+      mode === "elevation"
+        ? {
+            vb,
+            roomOffX,
+            roomOffY,
+            roomModH,
+            mod: activeModule || project.modules[0],
+            addInteriorItemAtElevation,
+          }
+        : null;
+
+    const resolveAccessoryDropTarget2D = useCallback(
+      (
+        clientX: number,
+        clientY: number,
+        accObj: { id: string; title?: string; visual?: string }
+      ) => {
+        const ctx = elevDropRuntimeRef.current;
+        const container = elevContainerRef.current;
+        if (!ctx || !ctx.mod || !container) return null;
+        const svgEl = container.querySelector("svg");
+        const rect = (svgEl || container).getBoundingClientRect();
+        if (
+          clientX < rect.left ||
+          clientX > rect.right ||
+          clientY < rect.top ||
+          clientY > rect.bottom
+        ) {
+          return null;
+        }
+        const relX = Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(1, rect.width)));
+        const relY = Math.max(0, Math.min(1, (clientY - rect.top) / Math.max(1, rect.height)));
+        const svgX = ctx.vb.x + relX * ctx.vb.width;
+        const svgY = ctx.vb.y + relY * ctx.vb.height;
+
+        const mod = ctx.mod;
+        const carcassT = mod.carcass?.panelThickness || 18;
+        const plinthH = mod.carcass?.plinthHeight ?? 100;
+        const netH = calculateNetInnerHeight(mod);
+        const bayWidths = calculateBayWidths(mod);
+
+        const modSvgX = (mod.position?.x || 0) - ctx.roomOffX;
+        const localX = svgX - modSvgX;
+        let targetBayIdx = 0;
+        let accX = carcassT;
+        let bayStartX = carcassT;
+        let curBayWidth = bayWidths[0] || 500;
+        for (let i = 0; i < bayWidths.length; i++) {
+          const bw = bayWidths[i];
+          if (localX >= accX && localX <= accX + bw + carcassT) {
+            targetBayIdx = i;
+            bayStartX = accX;
+            curBayWidth = bw;
+            break;
+          }
+          accX += bw + carcassT;
+        }
+        targetBayIdx = Math.max(0, Math.min(mod.bays.length - 1, targetBayIdx));
+        const localBayX = Math.max(
+          48,
+          Math.min(curBayWidth - 48, Math.round((localX - bayStartX) / 10) * 10)
+        );
+
+        const floorSvgY = ctx.roomModH + ctx.roomOffY;
+        const rawY = floorSvgY - (mod.position?.y || 0) - plinthH - carcassT - svgY;
+        const snappedElevY = Math.max(64, Math.min(netH - 64, Math.round(rawY / 32) * 32));
+        return {
+          bayIndex: targetBayIdx,
+          elevationY: snappedElevY,
+          offsetX: localBayX,
+          baySvgX: modSvgX + bayStartX,
+          bayWidth: curBayWidth,
+          plinthH,
+          accessory: accObj,
+          mod,
+          netH,
+          carcassT,
+        };
+      },
+      []
+    );
+
+    const commitAccessoryDrop2D = useCallback(
+      (
+        dropInfo: {
+          bayIndex: number;
+          elevationY: number;
+          offsetX?: number;
+          accessory: { id: string; title?: string; visual?: string };
+        },
+        modBefore?: typeof activeModule
+      ) => {
+        const ctx = elevDropRuntimeRef.current;
+        if (!ctx) return;
+        const acc = dropInfo.accessory;
+        const bayIdx = dropInfo.bayIndex;
+        const elevY = dropInfo.elevationY;
+        const targetMod = modBefore || ctx.mod;
+        const bayBefore = targetMod?.bays[bayIdx];
+        const isSubDivDrop =
+          acc.id === "lib_sub_divider" ||
+          acc.id === "sub_divider" ||
+          acc.visual === "sub_divider";
+        if (isSubDivDrop && targetMod && bayBefore) {
+          const ivs = getBayShelfIntervalsForSubDivider(
+            bayBefore,
+            calculateNetInnerHeight(targetMod),
+            targetMod.carcass.panelThickness || 18
+          );
+          const freeIvs = ivs.filter((iv) => !iv.hasConflict);
+          if (freeIvs.length === 0) {
+            setPlanRowSnapBanner(
+              `⛔ Bölme ${bayIdx + 1} içinde Askılık/Çekmece var ve boş raf aralığı yok! Önce raf ekleyin veya askılığı kaldırın.`
+            );
+            setTimeout(() => setPlanRowSnapBanner(null), 4200);
+            lastAccessoryDropTarget2DRef.current = null;
+            return;
+          }
+        }
+        ctx.addInteriorItemAtElevation(bayIdx, acc.id, elevY, { offsetX: dropInfo.offsetX });
+        setPlanRowSnapBanner(`✓ ${acc.title || "Parça"} yerleştirildi: Bölme ${bayIdx + 1}`);
+        setTimeout(() => setPlanRowSnapBanner(null), 3500);
+        lastAccessoryDropTarget2DRef.current = null;
+      },
+      []
+    );
+
+    useEffect(() => {
+      if (mode !== "elevation") return;
+      const onLiveMove = (ev: Event) => {
+        const detail = (ev as CustomEvent<{
+          id: string;
+          title: string;
+          visual: string;
+          clientX: number;
+          clientY: number;
+        }>).detail;
+        if (!detail) return;
+        const res = resolveAccessoryDropTarget2D(detail.clientX, detail.clientY, {
+          id: detail.id,
+          title: detail.title,
+          visual: detail.visual,
+        });
+        if (!res) {
+          lastAccessoryDropTarget2DRef.current = null;
+          setLiveAccessoryGhost2D(null);
+          window.dispatchEvent(new CustomEvent("birim:live-part-snapped-in-bay", { detail: { active: false } }));
+          setPlanRowSnapBanner(null);
+          return;
+        }
+        window.dispatchEvent(new CustomEvent("birim:live-part-snapped-in-bay", { detail: { active: true } }));
+        const isSubDivAcc =
+          detail.id === "lib_sub_divider" ||
+          detail.id === "sub_divider" ||
+          detail.visual === "sub_divider";
+        if (isSubDivAcc && res.mod.bays[res.bayIndex]) {
+          const ivs = getBayShelfIntervalsForSubDivider(
+            res.mod.bays[res.bayIndex],
+            res.netH,
+            res.carcassT
+          );
+          const hoveredIv = ivs.find(
+            (iv) => res.elevationY >= iv.botY && res.elevationY <= iv.topY
+          );
+          const freeIvs = ivs.filter((iv) => !iv.hasConflict);
+          const chosenIv =
+            (hoveredIv && !hoveredIv.hasConflict ? hoveredIv : null) ||
+            (freeIvs.length > 0
+              ? freeIvs.reduce((best, iv) =>
+                  Math.abs((iv.botY + iv.topY) / 2 - res.elevationY) <
+                  Math.abs((best.botY + best.topY) / 2 - res.elevationY)
+                    ? iv
+                    : best
+                )
+              : hoveredIv);
+          if (chosenIv) {
+            const subMidY = Math.round((chosenIv.botY + chosenIv.topY) / 2);
+            lastAccessoryDropTarget2DRef.current = {
+              bayIndex: res.bayIndex,
+              elevationY: subMidY,
+              offsetX: res.offsetX,
+              accessory: res.accessory,
+            };
+            setLiveAccessoryGhost2D({
+              visual: detail.visual || "sub_divider",
+              id: detail.id,
+              title: detail.title || "Raf Arası Dikme",
+              bayIndex: res.bayIndex,
+              baySvgX: res.baySvgX,
+              bayWidth: res.bayWidth,
+              carcassT: res.carcassT,
+              plinthH: res.plinthH,
+              modY: res.mod.position?.y || 0,
+              elevationY: subMidY,
+              offsetX: res.offsetX,
+              subBotY: chosenIv.botY,
+              subSpanH: Math.max(80, chosenIv.height),
+            });
+            setPlanRowSnapBanner(
+              hoveredIv?.hasConflict
+                ? `⚠️ Bu aralıkta ${hoveredIv.conflictReason}! Boş raf aralığına (${chosenIv.label}) hizalandı • X: ${res.offsetX}mm`
+                : `📐 Raf Arası Dikme • Bölme ${res.bayIndex + 1} (${chosenIv.label}) • X: ${res.offsetX}mm`
+            );
+            return;
+          }
+        }
+        lastAccessoryDropTarget2DRef.current = {
+          bayIndex: res.bayIndex,
+          elevationY: res.elevationY,
+          offsetX: res.offsetX,
+          accessory: res.accessory,
+        };
+        setLiveAccessoryGhost2D({
+          visual: detail.visual || "shelf",
+          id: detail.id,
+          title: detail.title || "Parça",
+          bayIndex: res.bayIndex,
+          baySvgX: res.baySvgX,
+          bayWidth: res.bayWidth,
+          carcassT: res.carcassT,
+          plinthH: res.plinthH,
+          modY: res.mod.position?.y || 0,
+          elevationY: res.elevationY,
+          offsetX: res.offsetX,
+        });
+        setPlanRowSnapBanner(
+          `📐 ${detail.title || "Parça"} • Bölme ${res.bayIndex + 1} • Y: ${res.elevationY} mm`
+        );
+      };
+
+      const onLiveDrop = (ev: Event) => {
+        const detail = (ev as CustomEvent<{
+          id: string;
+          title: string;
+          visual: string;
+          clientX: number;
+          clientY: number;
+        }>).detail;
+        setLiveAccessoryGhost2D(null);
+        if (!detail) return;
+        const res = resolveAccessoryDropTarget2D(detail.clientX, detail.clientY, {
+          id: detail.id,
+          title: detail.title,
+          visual: detail.visual,
+        });
+        if (!res) return;
+        const target = lastAccessoryDropTarget2DRef.current || {
+          bayIndex: res.bayIndex,
+          elevationY: res.elevationY,
+          offsetX: res.offsetX,
+          accessory: res.accessory,
+        };
+        commitAccessoryDrop2D(target, res.mod);
+      };
+
+      const onLiveCancel = () => {
+        lastAccessoryDropTarget2DRef.current = null;
+        setLiveAccessoryGhost2D(null);
+        setPlanRowSnapBanner(null);
+      };
+
+      window.addEventListener("birim:live-3d-part-move", onLiveMove);
+      window.addEventListener("birim:live-3d-part-drop", onLiveDrop);
+      window.addEventListener("birim:live-3d-part-cancel", onLiveCancel);
+      return () => {
+        window.removeEventListener("birim:live-3d-part-move", onLiveMove);
+        window.removeEventListener("birim:live-3d-part-drop", onLiveDrop);
+        window.removeEventListener("birim:live-3d-part-cancel", onLiveCancel);
+      };
+    }, [mode, resolveAccessoryDropTarget2D, commitAccessoryDrop2D]);
+
+    useEffect(() => {
+      const onMaterialDrop2D = (ev: Event) => {
+        const detail = (
+          ev as CustomEvent<{ materialId: string; materialName?: string; clientX: number; clientY: number }>
+        ).detail;
+        if (!detail?.materialId || typeof document === "undefined") return;
+        const container = elevContainerRef.current;
+        if (container) {
+          const r = container.getBoundingClientRect();
+          if (
+            detail.clientX < r.left ||
+            detail.clientX > r.right ||
+            detail.clientY < r.top ||
+            detail.clientY > r.bottom
+          ) {
+            return;
+          }
+        }
+        const els = document.elementsFromPoint(detail.clientX, detail.clientY);
+        for (const el of els) {
+          const tid = el.closest("[data-testid]")?.getAttribute("data-testid") || "";
+          if (tid.startsWith("cad-el-")) {
+            const compId = tid.slice("cad-el-".length);
+            applyMaterialToSimilarComponents(detail.materialId, compId, "single");
+            setPlanRowSnapBanner(`✓ Malzeme atandı: ${detail.materialName || detail.materialId}`);
+            setTimeout(() => setPlanRowSnapBanner(null), 2400);
+            return;
+          }
+          if (tid.startsWith("elev-scene-object-") || tid.startsWith("plan-scene-object-")) {
+            const soId = tid.replace(/^elev-scene-object-|^plan-scene-object-/, "");
+            updateSceneObject(soId, { materialId: detail.materialId });
+            setPlanRowSnapBanner(`✓ Malzeme atandı: ${detail.materialName || detail.materialId}`);
+            setTimeout(() => setPlanRowSnapBanner(null), 2400);
+            return;
+          }
+        }
+      };
+      window.addEventListener("birim:live-material-drop", onMaterialDrop2D);
+      return () => window.removeEventListener("birim:live-material-drop", onMaterialDrop2D);
+    }, [applyMaterialToSimilarComponents, updateSceneObject]);
 
     const handleElevDragOver = (e: React.DragEvent<HTMLDivElement>) => {
       if (mode !== "elevation") return;
@@ -9078,6 +10459,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
 
     return (
       <div
+        ref={elevContainerRef}
         data-testid={`v3-cad-${mode}`}
         onWheel={handleWheelZoom}
         onDragOver={handleElevDragOver}
@@ -9127,8 +10509,8 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 {mode === "plan"
                   ? "2D Üst Plan Kesiti"
                   : sectionDirection2D === "Z"
-                  ? `2D A-A Yan Kesit (X: ${sectionCutCoordMm} mm)`
-                  : `2D B-B Boyuna Kesit (Z: ${sectionCutCoordMm} mm)`}
+                  ? `2D A-A Yan Kesit (X: ${formatElevationValue(sectionCutCoordMm, elevDisplayUnit)})`
+                  : `2D B-B Boyuna Kesit (Z: ${formatElevationValue(sectionCutCoordMm, elevDisplayUnit)})`}
               </span>
               {mode === "section" && !hideLegacySectionBar && (
                 <div className="flex items-center gap-2 flex-wrap bg-white/80 backdrop-blur-md px-2.5 py-1 rounded-xl border border-stone-300 shadow-2xs text-xs">
@@ -9175,7 +10557,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       className="w-28 accent-blue-600 h-1.5 bg-slate-200 rounded-lg cursor-pointer"
                     />
                     <span className="font-mono font-extrabold text-blue-700 text-[11px] min-w-[54px]">
-                      {sectionCutCoordMm} mm
+                      {formatElevationValue(sectionCutCoordMm, elevDisplayUnit)}
                     </span>
                   </div>
                   {sectionDirection2D === "Z" && activeModule.bays.length > 1 && (
@@ -9264,6 +10646,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         )}
 
         <svg
+          data-birim-elev-svg="true"
           viewBox={`${vb.x} ${vb.y} ${vb.width} ${vb.height}`}
           className={`w-full h-full ${panning2D ? "cursor-grabbing" : "cursor-grab"}`}
           onContextMenu={(e) => openElevationContextMenu(e, { kind: "canvas" })}
@@ -9366,8 +10749,8 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   y={ceilingSvgY}
                   width={mainWallLen}
                   height={ceilingH}
-                  fill="#E5E0D8"
-                  stroke="#64748B"
+                  fill="#CCD3DC"
+                  stroke="#475569"
                   strokeWidth="4"
                   strokeDasharray="16 8"
                 />
@@ -9388,7 +10771,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   fontWeight="800"
                   fontFamily="monospace"
                 >
-                  {`🏠 DUVAR CEPHESİ: ${mainWallLen}mm × Tavan ${ceilingH}mm (Zemin Y: 0mm)`}
+                  {`🏠 DUVAR CEPHESİ: ${formatElevationValue(mainWallLen, elevDisplayUnit)} × Tavan ${formatElevationValue(ceilingH, elevDisplayUnit)} (Zemin Y: 0)`}
                 </text>
                 {activeModule && (
                   <ElevationCeilingSectionSvg
@@ -9543,7 +10926,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                           fontWeight="800"
                           fontFamily="monospace"
                         >
-                          {`🪟 ${obs.name} (Denizlik Y:${oyBottom}mm)`}
+                          {`🪟 ${obs.name} (Denizlik Y:${formatElevationValue(oyBottom, elevDisplayUnit)})`}
                         </text>
                       </g>
                     );
@@ -9596,7 +10979,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                           fontWeight="800"
                           fontFamily="monospace"
                         >
-                          {`🚰 TESİSAT AKSI X:${Math.round(obs.position.x + ow / 2)}mm • Y:${oyBottom}mm`}
+                          {`🚰 TESİSAT AKSI X:${formatElevationValue(obs.position.x + ow / 2, elevDisplayUnit)} • Y:${formatElevationValue(oyBottom, elevDisplayUnit)}`}
                         </text>
                       </g>
                     );
@@ -9636,7 +11019,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                           fontWeight="800"
                           fontFamily="monospace"
                         >
-                          {`⚡ ${obs.name} (X:${obs.position.x} • Kot Y:${oyBottom}mm)`}
+                          {`⚡ ${obs.name} (X:${formatElevationValue(obs.position.x, elevDisplayUnit)} • Kot Y:${formatElevationValue(oyBottom, elevDisplayUnit)})`}
                         </text>
                       </g>
                     );
@@ -9649,7 +11032,59 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     const handleX = isRightSwing ? ox + jambW + 58 : ox + ow - jambW - 58;
                     const handleY = oySvg + oh - Math.min(oh - 200, 1020);
                     return (
-                      <g key={obs.id} data-testid={`elev-obs-${obs.id}`} onMouseDown={onElevObsMouseDown} className="cursor-move">
+                      <g
+                        key={obs.id}
+                        data-testid={`elev-obs-${obs.id}`}
+                        onMouseDown={onElevObsMouseDown}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          updateSpaceObstacle(obs.id, { doorSwing: isRightSwing ? "left" : "right" });
+                        }}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setCadContextMenu({
+                            x: e.clientX,
+                            y: e.clientY,
+                            headerTitle: obs.name || "Oda Kapısı",
+                            headerSubtitle: `${formatElevationValue(ow, elevDisplayUnit, false)}×${formatElevationValue(oh, elevDisplayUnit)}`,
+                            sections: [
+                              {
+                                title: "Kapı Aynalama İşlemleri",
+                                items: [
+                                  {
+                                    id: "elev-door-mirror-swing",
+                                    label: `⇄ Menteşe Yönünü Aynala (${isRightSwing ? "Sağ → Sol" : "Sol → Sağ"})`,
+                                    onClick: () =>
+                                      updateSpaceObstacle(obs.id, {
+                                        doorSwing: isRightSwing ? "left" : "right",
+                                      }),
+                                  },
+                                  {
+                                    id: "elev-door-mirror-side",
+                                    label: `⇅ Açılım Tarafını Aynala (${obs.doorOpenSide === "outward" ? "Dışa → İçe" : "İçe → Dışa"})`,
+                                    onClick: () =>
+                                      updateSpaceObstacle(obs.id, {
+                                        doorOpenSide: obs.doorOpenSide === "outward" ? "inward" : "outward",
+                                      }),
+                                  },
+                                ],
+                              },
+                              {
+                                items: [
+                                  {
+                                    id: "elev-door-del",
+                                    label: "Kapıyı Sil",
+                                    danger: true,
+                                    onClick: () => removeSpaceObstacle(obs.id),
+                                  },
+                                ],
+                              },
+                            ],
+                          });
+                        }}
+                        className="cursor-move"
+                      >
                         {/* 3-Sided Dark Architrave Door Casing Frame (Kapı Kasası & Pervaz Çerçevesi) */}
                         <rect
                           x={ox - 12}
@@ -9753,7 +11188,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                           fontWeight="800"
                           fontFamily="monospace"
                         >
-                          {`🚪 ${obs.name} (${isRightSwing ? "SAĞ MENTEŞE" : "SOL MENTEŞE"} • ${ow}×${oh})`}
+                          {`🚪 ${obs.name} (${isRightSwing ? "SAĞ" : "SOL"} • ${obs.doorOpenSide === "outward" ? "DIŞA" : "İÇE"} • ${formatElevationValue(ow, elevDisplayUnit, false)}×${formatElevationValue(oh, elevDisplayUnit)})`}
                         </text>
                       </g>
                     );
@@ -10087,6 +11522,65 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     })()}
                   </g>
                 )}
+                {liveAccessoryGhost2D && (() => {
+                  const g = liveAccessoryGhost2D;
+                  const floorSvgY = roomModH + roomOffY;
+                  const innerFloorSvgY = floorSvgY - g.modY - g.plinthH - g.carcassT;
+                  const isSubDiv = g.visual === "sub_divider";
+                  const isDrawer = g.visual === "drawer" || g.visual === "internal_drawer";
+                  const isRail = g.visual === "rail";
+                  const isTray = g.visual === "trouser_rack" || g.visual === "shoe_rack" || g.visual === "jewelry_tray";
+                  const itemH = isSubDiv
+                    ? (g.subSpanH || 300)
+                    : isDrawer
+                    ? 180
+                    : isRail
+                    ? 22
+                    : isTray
+                    ? 64
+                    : g.id === "lib_fixed_shelf"
+                    ? 25
+                    : g.carcassT;
+                  const itemW = isSubDiv ? g.carcassT : Math.max(40, g.bayWidth - 6);
+                  const gx = isSubDiv ? g.baySvgX + g.offsetX : g.baySvgX + 3;
+                  const gy = isSubDiv
+                    ? innerFloorSvgY - ((g.subBotY ?? 0) + itemH)
+                    : innerFloorSvgY - (g.elevationY + itemH);
+                  return (
+                    <g data-testid="elev-live-accessory-ghost" className="pointer-events-none">
+                      <rect
+                        x={gx}
+                        y={gy}
+                        width={itemW}
+                        height={itemH}
+                        rx={isRail ? 11 : 4}
+                        fill="rgba(37, 99, 235, 0.24)"
+                        stroke="#2563EB"
+                        strokeWidth="4"
+                        strokeDasharray="10 5"
+                      />
+                      <rect
+                        x={gx + itemW / 2 - 120}
+                        y={gy - 42}
+                        width={240}
+                        height={32}
+                        rx={8}
+                        fill="#1E3A8A"
+                      />
+                      <text
+                        x={gx + itemW / 2}
+                        y={gy - 21}
+                        textAnchor="middle"
+                        fill="#FFFFFF"
+                        fontSize="20"
+                        fontWeight="800"
+                        fontFamily="monospace"
+                      >
+                        {isSubDiv ? `${g.title} X:${g.offsetX}mm` : `${g.title} Y:${g.elevationY}mm`}
+                      </text>
+                    </g>
+                  );
+                })()}
 
               </g>
             );
@@ -10165,6 +11659,16 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             const isDoor = el.role.startsWith("door") && !isHinge && el.role !== "door_handle";
             const isDrawer = el.role.startsWith("drawer");
             const isShelf = el.role === "shelf";
+            const shelfLookupMeta = isShelf ? findInteriorDragTarget(el.id) : null;
+            const shelfModelObj =
+              shelfLookupMeta?.kind === "shelf"
+                ? activeModule.bays[shelfLookupMeta.bayIdx]?.shelves.find(
+                    (s) => s.id === shelfLookupMeta.targetId
+                  )
+                : undefined;
+            const isFixedShelf = Boolean(
+              shelfModelObj && (shelfModelObj.isAdjustable === false || shelfModelObj.isFixed === true)
+            );
             const isDivider = el.role === "carcass_divider";
             const isSubDivider = el.role === "carcass_sub_divider";
             const isDrawerHandle = el.role === "drawer_handle" || el.role === "door_handle" || el.role === "gola_profile";
@@ -10214,8 +11718,8 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
               fill = "#FEF3C7";
               stroke = "#9A3412";
             } else if (isShelf) {
-              fill = "#FDE68A";
-              stroke = "#B45309";
+              fill = isFixedShelf ? "#FDBA74" : "#FEF3C7";
+              stroke = isFixedShelf ? "#9A3412" : "#B45309";
             } else if (isDivider) {
               fill = "#E7E5E4";
               stroke = "#1C1917";
@@ -10341,6 +11845,8 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   strokeWidth={
                     isSelected || isActiveDrag
                       ? 6
+                      : isFixedShelf
+                      ? 4.5
                       : mode === "section" && el.role === "drawer_back"
                       ? 4
                       : isHiddenLeg || (mode === "section" && sectionDirection2D === "Z" && el.role === "drawer_side_left")
@@ -10364,6 +11870,31 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       : 0.98
                   }
                 />
+                {isFixedShelf && el.width >= 80 && (
+                  <g className="pointer-events-none">
+                    <circle cx={el.x + 12} cy={el.y + el.height / 2} r={5} fill="#7C2D12" stroke="#FFFBEB" strokeWidth="1.5" />
+                    <circle cx={el.x + el.width - 12} cy={el.y + el.height / 2} r={5} fill="#7C2D12" stroke="#FFFBEB" strokeWidth="1.5" />
+                    <rect
+                      x={el.x + el.width / 2 - 32}
+                      y={el.y - 18}
+                      width={64}
+                      height={16}
+                      rx={4}
+                      fill="#9A3412"
+                    />
+                    <text
+                      x={el.x + el.width / 2}
+                      y={el.y - 6}
+                      textAnchor="middle"
+                      fill="#FFFBEB"
+                      fontSize="11"
+                      fontWeight="800"
+                      fontFamily="monospace"
+                    >
+                      SABİT
+                    </text>
+                  </g>
+                )}
                 {mode === "elevation" && activeModule && elevDetailLevel !== "clean" &&
                   el.role !== "carcass_side_left" &&
                   el.role !== "carcass_side_right" &&
@@ -10921,17 +12452,10 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
           {mode === "elevation" &&
             activeElevSnap &&
             (() => {
-              const draggedShelfT =
-                interiorDrag?.kind === "shelf"
-                  ? interiorDrag.itemHeightMm || activeModule.carcass.panelThickness || 18
-                  : 0;
-              const snapCenterOffset =
-                activeElevSnap.kind === "system32_hole" ? Math.round(draggedShelfT / 2) : 0;
               const snapWorldFromModuleBottom =
                 activeModule.carcass.plinthHeight +
                 activeModule.carcass.panelThickness +
-                activeElevSnap.elevationY +
-                snapCenterOffset;
+                activeElevSnap.elevationY;
               const snapSvgY = breakdown.overall.height - snapWorldFromModuleBottom;
               const hasElevInLabel = activeElevSnap.label.includes(`${activeElevSnap.elevationY}`);
               const badgeText = hasElevInLabel
@@ -10981,7 +12505,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             const midX = (dim.x1 + dim.x2) / 2;
             const midY = (dim.y1 + dim.y2) / 2;
             const dimText =
-              mode === "elevation" || mode === "plan"
+              typeof dim.value === "number" && dim.value > 0
                 ? formatElevationValue(dim.value, elevDisplayUnit)
                 : dim.label;
             const pillW = Math.max(200, dimText.length * 24 + 40);
@@ -11506,6 +13030,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
           return (
             <>
               <ElevationContextualPanel
+                activeModule={activeModule}
                 context={selectedElevContext}
                 displayUnit={elevDisplayUnit}
                 topOffsetPx={(studioSafeInsets?.topPx ?? 0) + 56}
@@ -11516,7 +13041,8 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 onSetDrawerPlacement={(bIdx, id, elevY, h) => setDrawerPlacement(bIdx, id, elevY, h, true)}
                 onSetHangingRailElevation={(bIdx, id, elevY) => setHangingRailElevation(bIdx, id, elevY, true)}
                 onSetSpecialFittingPlacement={(bIdx, id, patch) => setSpecialFittingPlacement(bIdx, id, patch, true)}
-                onResizeModule={(modIdx, w, h, d) => resizeModuleParametric(modIdx, w, h, d)}
+                onSetSubDividerPlacement={(bIdx, id, upd) => setSubDividerPlacement(bIdx, id, upd, true)}
+                onResizeModule={(modIdx, w, h, d) => resizeModuleParametric(modIdx, w, undefined, d, h)}
                 onSetModulePosition={(modIdx, x, z, wallId, y) => setModulePosition(modIdx, x, z, wallId, y)}
               />
               {/* Unified Bottom Floating 2D Elevation Pill Toolbar (Controls + Zoom/Pan in one clean bar) */}
@@ -11627,8 +13153,9 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   resizeModuleParametric(
                     activeModuleIndex,
                     wMm,
-                    activeModule.dimensions.height,
-                    activeModule.dimensions.depth
+                    undefined,
+                    activeModule.dimensions.depth,
+                    activeModule.dimensions.height
                   )
                 }
               />
@@ -11643,36 +13170,42 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 px-3 py-1.5 rounded-2xl bg-white/92 backdrop-blur-md border border-slate-300 shadow-md flex items-center gap-2.5 text-[11px] text-[#141413]"
           >
             <span className="font-bold truncate max-w-[150px]">{activeModule.name}</span>
-            <label className="inline-flex items-center gap-1 font-mono">
-              <span className="text-slate-500">Sol Duvar X:</span>
+            <label className="inline-flex items-center gap-1.5">
+              <span className="text-slate-600 font-semibold">Sol Duvara Mesafe:</span>
               <input
                 type="number"
-                step={10}
-                value={Math.round(activeModule.position.x)}
-                onChange={(e) => setModuleOffsetFromLeftWall(activeModule.id, Number(e.target.value) || 0)}
-                className="w-18 px-1.5 py-0.5 rounded-lg bg-slate-100 border border-slate-300 font-bold text-[#141413]"
+                step={elevDisplayUnit === "cm" ? 1 : 10}
+                value={toDisplayUnitNumber(activeModule.position.x, elevDisplayUnit)}
+                onChange={(e) =>
+                  setModuleOffsetFromLeftWall(
+                    activeModule.id,
+                    toCanonicalMm(Number(e.target.value) || 0, elevDisplayUnit)
+                  )
+                }
+                className="w-18 px-1.5 py-0.5 rounded-lg bg-slate-100 border border-slate-300 font-mono font-bold text-[#141413]"
               />
-              <span>mm</span>
+              <span className="font-mono text-slate-500">{elevDisplayUnit}</span>
             </label>
-            <label className="inline-flex items-center gap-1 font-mono">
-              <span className="text-slate-500">Genişlik W:</span>
+            <label className="inline-flex items-center gap-1.5">
+              <span className="text-slate-600 font-semibold">Modül Genişliği:</span>
               <input
                 type="number"
-                step={10}
-                min={150}
-                max={3600}
-                value={Math.round(activeModule.dimensions.width)}
+                step={elevDisplayUnit === "cm" ? 1 : 10}
+                min={elevDisplayUnit === "cm" ? 15 : 150}
+                max={elevDisplayUnit === "cm" ? 360 : 3600}
+                value={toDisplayUnitNumber(activeModule.dimensions.width, elevDisplayUnit)}
                 onChange={(e) =>
                   resizeModuleParametric(
                     activeModuleIndex,
-                    Number(e.target.value) || activeModule.dimensions.width,
-                    activeModule.dimensions.height,
-                    activeModule.dimensions.depth
+                    toCanonicalMm(Number(e.target.value) || 0, elevDisplayUnit) || activeModule.dimensions.width,
+                    undefined,
+                    activeModule.dimensions.depth,
+                    activeModule.dimensions.height
                   )
                 }
-                className="w-18 px-1.5 py-0.5 rounded-lg bg-slate-100 border border-slate-300 font-bold text-[#141413]"
+                className="w-18 px-1.5 py-0.5 rounded-lg bg-slate-100 border border-slate-300 font-mono font-bold text-[#141413]"
               />
-              <span>mm</span>
+              <span className="font-mono text-slate-500">{elevDisplayUnit}</span>
             </label>
           </div>
         )}

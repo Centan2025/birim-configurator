@@ -38,6 +38,7 @@ export interface BottomSceneDockProps {
   onChangeExplodedFactor: (val: number) => void;
   isSimpleTier: boolean;
   projectId: string;
+  isShowroom?: boolean;
 }
 
 export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
@@ -58,6 +59,7 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
     explodedFactor,
     onChangeExplodedFactor,
     projectId,
+    isShowroom = false,
   }) => {
     const [scenePopoverOpen, setScenePopoverOpen] = useState(false);
     const [sectionPopoverOpen, setSectionPopoverOpen] = useState(false);
@@ -270,6 +272,56 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
               </div>
             </div>
 
+            <div className="pt-2 border-t border-[#E6E1D6] space-y-2">
+              {[
+                {
+                  id: "sw_dims",
+                  label: "3B Ölçü Etiketleri",
+                  checked: showDimensions,
+                  onToggle: onToggleDimensions,
+                },
+                {
+                  id: "sw_props",
+                  label: "Dolap İçi Eşya & Askılar",
+                  checked: showInteriorProps,
+                  onToggle: onToggleInteriorProps,
+                },
+                {
+                  id: "sw_doors",
+                  label: "Kapakları Gizle (İçini Gör)",
+                  checked: doorsHidden,
+                  onToggle: onToggleDoorsHidden,
+                },
+                {
+                  id: "sw_xray",
+                  label: "CNC X-Ray Delik Görünümü",
+                  checked: cncXrayMode,
+                  onToggle: onToggleCncXray,
+                },
+              ].map((sw) => (
+                <div key={sw.id} className="flex items-center justify-between gap-2 text-[11px]">
+                  <span className="font-semibold text-[#44403C]">{sw.label}</span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={sw.checked}
+                    onClick={sw.onToggle}
+                    className={`relative inline-flex items-center w-9 h-5 p-[2px] rounded-full border transition-colors duration-200 cursor-pointer ${
+                      sw.checked
+                        ? "bg-[#141413] border-[#141413]"
+                        : "bg-[#E2DDD2] border-[#D3CCC0]"
+                    }`}
+                  >
+                    <span
+                      className={`w-3.5 h-3.5 rounded-full bg-white shadow-xs transition-transform duration-200 ${
+                        sw.checked ? "translate-x-4" : "translate-x-0"
+                      }`}
+                    />
+                  </button>
+                </div>
+              ))}
+            </div>
+
             <div className="pt-2 border-t border-[#E6E1D6] space-y-1">
               <div className="flex items-center justify-between text-[11px]">
                 <span className="font-semibold text-[#57534E] flex items-center gap-1.5">
@@ -361,32 +413,36 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
             </button>
           </div>
 
-          <button
-            type="button"
-            data-testid="v11-bottom-move-mode-btn"
-            onClick={() => {
-              const next = !moveMode3D;
-              setMoveMode3D(next);
-              if (typeof window !== "undefined") {
-                window.dispatchEvent(new CustomEvent("birim:set-move-mode-3d", { detail: next }));
-              }
-            }}
-            title={
-              moveMode3D
-                ? "Modül Taşıma Açık — Ekranı sol tuşla döndürmek için kapatın"
-                : "Sol Tuş: Ekranı Döndür • Dolabı duvarda kaydırmak için tıklayın (veya Shift basılı tutun)"
-            }
-            className={`h-8 px-2.5 rounded-full flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer ${
-              moveMode3D
-                ? "bg-[#C2410C] text-white"
-                : "hover:bg-[#EFECE4] text-[#44403C]"
-            }`}
-          >
-            <Move className="w-3.5 h-3.5" />
-            <span className="hidden lg:inline">{moveMode3D ? "Taşıma Açık" : "Taşı"}</span>
-          </button>
+          {!isShowroom && (
+            <>
+              <button
+                type="button"
+                data-testid="v11-bottom-move-mode-btn"
+                onClick={() => {
+                  const next = !moveMode3D;
+                  setMoveMode3D(next);
+                  if (typeof window !== "undefined") {
+                    window.dispatchEvent(new CustomEvent("birim:set-move-mode-3d", { detail: next }));
+                  }
+                }}
+                title={
+                  moveMode3D
+                    ? "Modül Taşıma Açık — Ekranı sol tuşla döndürmek için kapatın"
+                    : "Sol Tuş: Ekranı Döndür • Dolabı duvarda kaydırmak için tıklayın (veya Shift basılı tutun)"
+                }
+                className={`h-8 px-2.5 rounded-full flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer ${
+                  moveMode3D
+                    ? "bg-[#C2410C] text-white"
+                    : "hover:bg-[#EFECE4] text-[#44403C]"
+                }`}
+              >
+                <Move className="w-3.5 h-3.5" />
+                <span className="hidden lg:inline">{moveMode3D ? "Taşıma Açık" : "Taşı"}</span>
+              </button>
 
-          <span className="h-5 w-px bg-[#DFD9CE]" />
+              <span className="h-5 w-px bg-[#DFD9CE]" />
+            </>
+          )}
 
           <div className="flex items-center gap-2 px-1.5">
             <button
@@ -433,29 +489,31 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
           <span className="h-5 w-px bg-[#DFD9CE]" />
 
           {/* Canlı Görsel Kesit Planı Düğmesi */}
-          <button
-            type="button"
-            data-testid="v11-bottom-section-btn"
-            onClick={() => {
-              const nextOpen = !sectionPopoverOpen;
-              setSectionPopoverOpen(nextOpen);
-              setScenePopoverOpen(false);
-              if (nextOpen && !sectionAxis) {
-                syncSection3D("X", sectionRatio);
-              } else if (!nextOpen && sectionAxis) {
-                syncSection3D(null, sectionRatio);
-              }
-            }}
-            title="Görsel Plan Üzerinden Canlı 3B Kesit Al"
-            className={`h-8 px-3 rounded-full flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer ${
-              sectionAxis
-                ? "bg-[#C2410C] text-white"
-                : "hover:bg-[#EFECE4] text-[#44403C]"
-            }`}
-          >
-            <Scissors className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">{sectionAxis ? `Kesit (${sectionAxis})` : "Kesit"}</span>
-          </button>
+          {!isShowroom && (
+            <button
+              type="button"
+              data-testid="v11-bottom-section-btn"
+              onClick={() => {
+                const nextOpen = !sectionPopoverOpen;
+                setSectionPopoverOpen(nextOpen);
+                setScenePopoverOpen(false);
+                if (nextOpen && !sectionAxis) {
+                  syncSection3D("X", sectionRatio);
+                } else if (!nextOpen && sectionAxis) {
+                  syncSection3D(null, sectionRatio);
+                }
+              }}
+              title="Görsel Plan Üzerinden Canlı 3B Kesit Al"
+              className={`h-8 px-3 rounded-full flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer ${
+                sectionAxis
+                  ? "bg-[#C2410C] text-white"
+                  : "hover:bg-[#EFECE4] text-[#44403C]"
+              }`}
+            >
+              <Scissors className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">{sectionAxis ? `Kesit (${sectionAxis})` : "Kesit"}</span>
+            </button>
+          )}
 
           <button
             type="button"
@@ -483,23 +541,25 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
             <span className="hidden xl:inline">Eşyalar</span>
           </button>
 
-          <button
-            type="button"
-            data-testid="v11-open-scene-settings-btn"
-            onClick={() => {
-              setScenePopoverOpen((v) => !v);
-              setSectionPopoverOpen(false);
-            }}
-            title="Sahne Işığı, Zemin Dokusu ve Render Ayarları"
-            className={`h-8 px-3 rounded-full flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer ${
-              scenePopoverOpen || cncXrayMode || renderStyle !== "solid"
-                ? "bg-[#141413] text-white"
-                : "hover:bg-[#EFECE4] text-[#44403C]"
-            }`}
-          >
-            <SlidersHorizontal className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Sahne</span>
-          </button>
+          {!isShowroom && (
+            <button
+              type="button"
+              data-testid="v11-open-scene-settings-btn"
+              onClick={() => {
+                setScenePopoverOpen((v) => !v);
+                setSectionPopoverOpen(false);
+              }}
+              title="Sahne Işığı, Zemin Dokusu ve Render Ayarları"
+              className={`h-8 px-3 rounded-full flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer ${
+                scenePopoverOpen || cncXrayMode || renderStyle !== "solid"
+                  ? "bg-[#141413] text-white"
+                  : "hover:bg-[#EFECE4] text-[#44403C]"
+              }`}
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Sahne</span>
+            </button>
+          )}
         </div>
       </div>
     );

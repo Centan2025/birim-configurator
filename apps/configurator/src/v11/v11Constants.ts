@@ -135,41 +135,67 @@ export const V11_DOOR_PROFILES: readonly V11DoorProfileOption[] = [
   { id: "shaker_frame", label: "Çerçeveli", subtitle: "Klasik Shaker çerçeve profili" },
   { id: "fluted_ribbed", label: "Çıtalı / Fitilli", subtitle: "Dikey derzli mimari doku" },
   { id: "bevel_45", label: "45° Pahlı", subtitle: "Üst kenarı 45° kulpsuz kesim" },
-  { id: "glass_frame", label: "Füme Cam", subtitle: "Alüminyum çerçeveli vitrin", isGlass: true },
-  { id: "mirror_door", label: "Aynalı", subtitle: "Tam boy bronz/gümüş ayna" },
+  { id: "j_pull_bevel", label: "J-Kulplu", subtitle: "Entegre J-profil kulplu kapak" },
+  { id: "cove_arch", label: "Kemerli", subtitle: "Yumuşak kavisli oyma profil" },
+  { id: "glass_frame", label: "Füme Cam (Çerçeveli)", subtitle: "Alüminyum çerçeveli vitrin", isGlass: true },
+  { id: "full_smoked_glass", label: "Tam Füme Cam", subtitle: "Kenardan kenara çerçevesiz füme cam", isGlass: true },
+  { id: "center_glass_frame", label: "Ortası Camlı", subtitle: "4 kenar çerçeve + orta cam", isGlass: true },
+  { id: "u_glass_open_top", label: "Ortası Camlı (Üstü Açık)", subtitle: "Üstü açık U çerçeve + orta cam", isGlass: true },
+  { id: "mirror_door", label: "Aynalı (Çerçeveli)", subtitle: "İnce çerçeveli bronz/gümüş ayna" },
+  { id: "mirror_frameless", label: "Aynalı (Çerçevesiz)", subtitle: "Kenardan kenara sıfır çerçeve ayna" },
 ] as const;
 
 export interface V11MaterialGroup {
-  id: "all" | "wood" | "lacquer" | "glass_stone";
+  id: "all" | "mdflam_uni" | "wood" | "lacquer" | "agt_suntalam" | "glass_stone";
   label: string;
 }
 
 export const V11_MATERIAL_GROUPS: readonly V11MaterialGroup[] = [
   { id: "all", label: "Tümü" },
-  { id: "wood", label: "Doğal Ahşap" },
-  { id: "lacquer", label: "Mat Lake & Düz" },
-  { id: "glass_stone", label: "Cam, Taş & Metal" },
+  { id: "agt_suntalam", label: "AGT & Suntalam" },
+  { id: "mdflam_uni", label: "Düz MDFLam" },
+  { id: "wood", label: "Ahşap & MDFLam" },
+  { id: "lacquer", label: "Supramat & Lake" },
+  { id: "glass_stone", label: "Cam & Taş" },
 ] as const;
 
 export function filterMaterialsByGroup(
   materials: MaterialDefinition[],
   group: V11MaterialGroup["id"]
 ): MaterialDefinition[] {
-  if (group === "all") return materials;
-  if (group === "wood") {
-    return materials.filter((m) => m.category === "wood" || m.hasGrain);
-  }
-  if (group === "lacquer") {
-    return materials.filter(
-      (m) => (m.category === "lacquer" || m.category === "laminate") && !m.hasGrain
+  // Exclude hardware-only materials (handles, LED strips, 4mm HDF back) from cabinet surface swatches
+  const surfaceMaterials = materials.filter(
+    (m) =>
+      !m.id.startsWith("mat_led_") &&
+      !m.id.startsWith("mat_handle_") &&
+      m.id !== "mat_egger_4mm_hdf_back"
+  );
+  if (group === "all") return surfaceMaterials;
+  if (group === "agt_suntalam") {
+    return surfaceMaterials.filter(
+      (m) =>
+        m.brand === "AGT" ||
+        m.name.toLowerCase().includes("suntalam") ||
+        m.id.includes("suntalam") ||
+        m.id.includes("_agt_")
     );
   }
-  return materials.filter(
+  if (group === "mdflam_uni") {
+    return surfaceMaterials.filter((m) => m.category === "laminate" && !m.hasGrain);
+  }
+  if (group === "wood") {
+    return surfaceMaterials.filter(
+      (m) => m.category === "wood" || (m.category === "laminate" && Boolean(m.hasGrain))
+    );
+  }
+  if (group === "lacquer") {
+    return surfaceMaterials.filter((m) => m.category === "lacquer" && !m.hasGrain);
+  }
+  return surfaceMaterials.filter(
     (m) =>
       m.category === "glass" ||
       m.category === "mirror" ||
       m.category === "stone" ||
-      m.category === "metal" ||
       m.category === "compact"
   );
 }

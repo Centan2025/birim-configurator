@@ -17,3 +17,4 @@ export * from "./standards-registry";
 export * from "./saas-tenant-core";
 export * from "./lru-cache";
 export * from "./hardware-compatibility-advisor";
+export * from "./custom-template-storage";

@@ -41,13 +41,19 @@ const DEFAULT_HARDWARE_SOURCE_MAP: Record<string, { sourceId: string; revision: 
   hw_blum_71b7550: { sourceId: "SRC_BLUM_CAT_HINGE", revision: "2024.1" },
   hw_blum_71b9550: { sourceId: "SRC_BLUM_CAT_HINGE", revision: "2024.1" },
   hw_blum_79b9458: { sourceId: "SRC_BLUM_CAT_HINGE", revision: "2024.1" },
+  hw_blum_clip_top_110: { sourceId: "SRC_BLUM_CAT_HINGE", revision: "2024.1" },
+  hw_blum_clip_top_blind_95: { sourceId: "SRC_BLUM_CAT_HINGE", revision: "2024.1" },
   hw_hettich_9071205: { sourceId: "SRC_HETTICH_SENSYS", revision: "2024.1" },
   hw_hettich_9099540: { sourceId: "SRC_HETTICH_SENSYS", revision: "2024.1" },
   hw_salice_c7p6ae9: { sourceId: "SRC_SALICE_SILENTIA", revision: "2024.1" },
+  hw_blum_legrabox_m: { sourceId: "SRC_BLUM_LEGRABOX", revision: "2024.1" },
+  hw_blum_legrabox_c40: { sourceId: "SRC_BLUM_LEGRABOX", revision: "2024.1" },
   hw_blum_legrabox_m40: { sourceId: "SRC_BLUM_LEGRABOX", revision: "2024.1" },
   hw_blum_legrabox_c70: { sourceId: "SRC_BLUM_LEGRABOX", revision: "2024.1" },
+  hw_blum_tandembox_m: { sourceId: "SRC_BLUM_TANDEMBOX", revision: "2024.1" },
   hw_blum_tandembox_m30: { sourceId: "SRC_BLUM_TANDEMBOX", revision: "2024.1" },
   hw_blum_movento_760h: { sourceId: "SRC_BLUM_MOVENTO", revision: "2024.1" },
+  hw_blum_tandem_560h: { sourceId: "SRC_BLUM_MOVENTO", revision: "2024.1" },
   hw_hettich_avantech_m: { sourceId: "SRC_HETTICH_AVANTECH", revision: "2024.1" },
   hw_blum_aventos_hk_27: { sourceId: "SRC_BLUM_AVENTOS", revision: "2024.1" },
   hw_blum_aventos_hf_25: { sourceId: "SRC_BLUM_AVENTOS", revision: "2024.1" },
@@ -68,7 +74,7 @@ const moduleCompatLruCache = new BoundedLruCache<string, ValidationIssue[]>(512)
 
 export function evaluateModuleCompatibility(module: ModuleInstance): ValidationIssue[] {
   if (loadCustomStandardRulesCount() === 0) {
-    const sig = `${computeModuleStructuralSignature(module)}|DM:${DEFAULT_MATERIALS.length}`;
+    const sig = `${computeModuleIntrinsicSignature(module)}|DM:${DEFAULT_MATERIALS.length}`;
     const hit = moduleCompatLruCache.get(sig);
     if (hit) return hit;
     const computed = evaluateModuleCompatibilityUncached(module);
@@ -630,20 +636,62 @@ function evaluateModuleCompatibilityUncached(module: ModuleInstance): Validation
       }
     }
 
-    if (dSys === "tambour_roller") {
-      issues.push({
-        severity: "warning",
-        code: "CHK_10_TAMBOUR_UNVERIFIED_PREVIEW_ONLY",
-        message: `Tambur / panjur kapak sistemi şu an yalnızca 3D mimari önizleme düzeyindedir; fabrika sarım kutusu ve kanal freze doğrulaması tamamlanmadan CNC üretim onayı verilemez.`,
-        targetId: bay.door.id,
-        blockingProduction: true,
-        compatibilityStatus: "UNVERIFIED",
-        categoryIndex: 10,
-        suggestions: [
-          "Üretim onayı için Paralel Kalkar veya Cep (Pocket) Kapak sistemine geçin.",
-        ],
-        sourceId: "SRC_BIRIM_FACTORY_V3",
-      });
+    if (dSys === "tambour_roller" || bay.door?.type === "tambour") {
+      const minTambourDepth =
+        module.carcass.hullShape === "capsule_stadium" || module.carcass.hullShape === "rounded_corners"
+          ? 340
+          : 300;
+      if (depth < minTambourDepth) {
+        issues.push({
+          severity: "error",
+          code: "CHK_10_TAMBOUR_MIN_DEPTH",
+          message: `Tambur kapak kılavuz kanalı (8.5×7.5mm) ve sarım/cep boşluğu için en az ${minTambourDepth}mm gövde derinliği gerekir (Mevcut: D=${depth}mm).`,
+          targetId: bay.door.id,
+          blockingProduction: true,
+          compatibilityStatus: "INCOMPATIBLE",
+          categoryIndex: 10,
+          suggestions: [
+            `Modül derinliğini en az ${minTambourDepth}mm değerine çıkarın.`,
+          ],
+          sourceId: "SRC_BIRIM_FACTORY_V3",
+        });
+      }
+      const effCurveR =
+        module.carcass.hullShape === "capsule_stadium"
+          ? depth / 2
+          : module.carcass.hullShape === "rounded_corners"
+          ? module.carcass.cornerRadiusMm || 110
+          : 999;
+      if (effCurveR < 65) {
+        issues.push({
+          severity: "error",
+          code: "CHK_10_TAMBOUR_MIN_CURVE_RADIUS",
+          message: `Kavisli tambur kılavuz dönüş yarıçapı (R=${Math.round(effCurveR)}mm) akustik keçeli ahşap lamellerin minimum bükülme sınırının (R≥65mm) altındadır.`,
+          targetId: bay.door.id,
+          blockingProduction: true,
+          compatibilityStatus: "INCOMPATIBLE",
+          categoryIndex: 10,
+          suggestions: [
+            "Köşe dönüş yarıçapını en az R=75mm değerine yükseltin veya lamel adımını 18mm seçin.",
+          ],
+          sourceId: "SRC_BIRIM_FACTORY_V3",
+        });
+      }
+      if (bayW > 1350 && module.carcass.hullShape !== "capsule_stadium" && module.carcass.hullShape !== "rounded_corners") {
+        issues.push({
+          severity: "warning",
+          code: "CHK_10_TAMBOUR_MAX_SPAN",
+          message: `Bölme ${bayIdx + 1} tambur lamel açıklığı (${Math.round(bayW)}mm) tek parça dikey sarım için sehime duyarlıdır (önerilen ≤1200mm).`,
+          targetId: bay.door.id,
+          blockingProduction: false,
+          compatibilityStatus: "COMPATIBLE_WITH_CONDITIONS",
+          categoryIndex: 10,
+          suggestions: [
+            "Bölmeyi ara dikme ile ikiye ayırın veya yatay kavisli tambur gövde formuna geçin.",
+          ],
+          sourceId: "SRC_BIRIM_FACTORY_V3",
+        });
+      }
     }
 
     // Category 11: Manufacturing & System 32 Drilling Rules
@@ -669,7 +717,7 @@ function evaluateModuleCompatibilityUncached(module: ModuleInstance): Validation
  * Evaluates full project compatibility combining base V3.1 geometric validations
  * with the 15-category V4 Universal Compatibility Engine.
  */
-import { BoundedLruCache, computeModuleStructuralSignature, computeProjectStructuralSignature } from "./lru-cache";
+import { BoundedLruCache, computeModuleStructuralSignature, computeModuleIntrinsicSignature, computeProjectStructuralSignature } from "./lru-cache";
 const compatLruCache = new BoundedLruCache<string, CompatibilityReport>(64);
 
 export function evaluateProjectCompatibility(

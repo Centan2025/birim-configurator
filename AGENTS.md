@@ -1,24 +1,22 @@
-# AGENTS.md — Modül Multi-Tenant 3D CAD-to-CAM SaaS Platformu
+# AGENTS.md — Modül Multi-Tenant 3D CAD-to-CAM SaaS Platformu (V12.0)
 
-Bu dosya, **Modül** monorepo projesi üzerinde çalışan tüm geliştiriciler ve yapay zekâ kodlama ajanları için tekil mimari doğruluk kaynağıdır (SSOT).
+Bu dosya, **Modül / Birim Configurator** monorepo projesi üzerinde çalışan tüm geliştiriciler ve yapay zekâ kodlama ajanları için tekil mimari doğruluk kaynağıdır (SSOT).
 
 ## 1. Temel Mimari İlke (Altın Kural)
-- **Modül**, firma bağımsız, çok kiracılı (multi-tenant) bir 3B/2B mobilya tasarım, mühendislik, fiyatlandırma ve CNC/CAM üretime hazırlık platformudur.
+- **Modül**, firma bağımsız, çok kiracılı (multi-tenant) bir 3B/2B mobilya tasarım, mühendislik doğrulama, fiyatlandırma ve CNC/CAM üretime hazırlık platformudur.
 - **Birim Mobilya Sanayi ve Ticaret A.Ş.** (`tenantId: "00000000-0000-0000-0000-000000000001"`, `slug: "birim"`), bu platformun **ilk kurumsal müşterisidir (`Tenant #1`)**.
-- Ortak çekirdek paketlere (`packages/core`, `packages/geometry`, `packages/manufacturing`, `packages/pricing`) hiçbir zaman tek bir müşteriye özgü sabit iş kuralı, sabit ERP adresi veya yerel dosya yolu gömülemez. Tüm firma farklılıkları `TenantWorkspaceProfile` (`ConstructionRuleProfile`, `TenantMachineProfile`, `PricingParameters`, `TenantBrandTheme`) üzerinden enjekte edilir.
-- Birim markası aktif kiracı olduğunda orijinal `BirimLogo` (`B1R1M®` geometrik wordmark) ve gerçek ürün tasarımları değiştirilmeden korunur.
+- Ortak çekirdek paketlere (`packages/core`, `packages/geometry`, `packages/manufacturing`, `packages/pricing`) tek bir müşteriye özgü sabit ERP adresi veya yerel dosya yolu gömülmez. Tüm firma farklılıkları `TenantWorkspaceProfile` üzerinden enjekte edilir.
+- **Tekil Tasarım Modeli (Single Parametric Source of Truth)**: 3B görünüm (`V3ThreeViewport`), 2B cephe/kesit/plan (`V3CadViewport2D`), müşteri sunum ekranı (`ShowroomPresentationOverlay`), kesim/delik listesi (`generateProjectBOM`), CNC çıktıları (`.DXF`, `.MPR`, `.CIX`, `.XCS`, `.BXF`) ve fiyatlandırma (`calculateProjectPricing`) aynı `DesignProject` (`schemaVersion: 4`) verisinden türetilir (`0.00 mm` sapma).
 
-## 2. Katman Sınırları ve Bağımlılık Yönü
-1. **`packages/core` (`@modul/core` / `@birim/core`)**: Şemalar, 4-uzay matematiği, EN/DIN fiziksel kuralları, standartlar sicili ve çok kiracılı SaaS sözleşmeleri (`saas-tenant-core.ts`). Hiçbir üst katmanı import etmez.
-2. **`packages/geometry` (`@modul/geometry`)**: Deterministik 3B parça geometrisi (`mesh-generator.ts`), 2B cephe/kesit/plan projeksiyonu (`projection2d.ts`) ve `.GLB/.OBJ/.USDA` dışa aktarıcılar.
-3. **`packages/catalog` (`@modul/catalog`)**: Evrensel modül arketipleri, 108 hazır modül şablonu, donanım SKU tanımları ve kütüphane yaşam döngüsü yöneticisi.
-4. **`packages/manufacturing` (`@modul/manufacturing`)**: BOM kesim listesi, Sistem 32 + Minifiks / Lamello Cabineo / Confirmat delik motoru (`drilling-engine.ts`), Homag `.MPR` / Biesse `.CIX` / SCM `.XCS` post-processor ve giyotin nesting.
-5. **`packages/pricing` (`@modul/pricing`)**: Firma bazlı `PricingParameters` ve bayi/şube iskonto katmanlarıyla çalışan deterministik maliyet/teklif motoru.
-6. **`packages/integrations` (`@modul/integrations`)**: Kiracı bazlı dış sistem konnektörleri (`SupabaseStoreRpcAdapter`, `SupabaseErpNestingRpcAdapter`, genel Webhook/ERP adaptörleri ve R2 depolama köprüsü).
-7. **`apps/configurator`**: Next.js 15 çalışma alanı, `middleware.ts` ve `tenant-auth-guard.ts` sıfır-güven API katmanı, `SaasTenantStudioModal` firma yönetim stüdyosu.
+## 2. Aktif Çalışma Alanı ve Paket Sınırları
+1. **`packages/core` (`@birim/core` / `@modul/core`)**: `DesignProject` şemaları, 4-uzay matematiği, CEN EN 14749 / ISO 7170 mühendislik kuralları, `computeModuleIntrinsicSignature` / `BoundedLruCache` önbellek katmanı, özel modül şablonu depolama ve SaaS kiracı sözleşmeleri.
+2. **`packages/geometry` (`@birim/geometry`)**: Deterministik 3B parça geometrisi (`mesh-generator.ts`), 2B cephe/kesit/plan projeksiyonu (`projection2d.ts`) ve `.GLB/.OBJ/.USDA` dışa aktarıcılar.
+3. **`packages/catalog` (`@birim/catalog`)**: Evrensel modül arketipleri, hazır V4/V5 modül şablonları, Blum / Hettich / Häfele donanım SKU tanımları.
+4. **`packages/manufacturing` (`@birim/manufacturing`)**: Net kesim BOM üreteci, 90° suyolu (`crosswise`) delik/kenar bandı transpozisyonu ve CNC sınır bekçisi, Sistem 32 + Minifix / Rafix / Cabineo delik motoru, Homag `.MPR` / Biesse `.CIX` (4 kenar 8 mm arkalık kanalı dahil) / SCM `.XCS` / Blum `.BXF` ve Birim Portal ERP giyotin/MaxRects nesting köprüsü.
+5. **`packages/pricing` (`@birim/pricing`)**: Hazır UV/PET lak levha ile boyahane ipek mat lake ayrımını (`requiresPaintshop`, `requiresEdgeBanding`) ve ticari cihazları (`sceneObjects`) dikkate alan deterministik EUR/TRY + KDV fiyat motoru.
+6. **`packages/integrations` (`@birim/integrations`)**: `SupabaseStoreRpcAdapter`, `SupabaseErpNestingRpcAdapter` (atomik SQL migrasyonu `20261118160000_fix_store_erp_rpc_contracts.sql` ile uyumlu), webhook ve R2 depolama adaptörleri.
+7. **`apps/configurator`**: Next.js 15 App Router çalışma alanı. Aktif kabuk `src/v11/BirimStudioWorkspace.tsx` olup `StudioHeaderBar`, `OnObjectQuickToolbar` (3B nesne üstü bağlamsal düzenleme), `GuidedSetupModal` (ölçüye uygun 4 hazır akıllı şablon), `LeftCatalogLauncher`, `RightParametricInspector` (`Kolay / Pro / Üretim` 3 kademeli mod) ve `BottomSceneDock` bileşenlerinden oluşur.
 
-## 3. Güvenlik ve Kiracı İzolasyon Kuralları
-- Hiçbir API rotası doğrulanmış oturum bağlamı varken istemci gövdesinden gelen `organizationId` veya `sessionRole` değerine güvenerek başka bir kiracıya yazma yapamaz (`403 TENANT_SPOOFING_BLOCKED`).
-- Veritabanı tabloları (`supabase/migrations/`) bileşik yabancı anahtar (`tenant_id, id`) ve `FORCE ROW LEVEL SECURITY` kullanır.
-- Tarayıcı `localStorage` anahtarları `buildTenantScopedStorageKey(tenantId, key)` üzerinden izole edilir; kiracı değişiminde Zustand belleği sıfırlanır.
-- Kopya metinlerinde, arayüz etiketlerinde ve kod yorumlarında yasaklı kelimeler kesinlikle kullanılmaz; net mühendislik ve üretim dili kullanılır.
+## 3. Güvenlik, Kiracı İzolasyonu ve Üretim Kapısı Kuralları
+- `tenant-auth-guard.ts` içinde `middleware.ts` tarafından eklenen pasif `x-modul-resolved-tenant-slug` başlığı yalnızca varsayılan ipucu olarak okunur; doğrulanmış oturum bağlamı varken istemci gövdesindeki farklı `organizationId`/`tenantId` istekleri `403 TENANT_SPOOFING_BLOCKED` ile reddedilir. Production ortamında `BIRIM_SESSION_HMAC_SECRET` eksikse `503 SERVER_SECRET_MISSING` ile fail-closed çalışır.
+- `UNVERIFIED` veya `INCOMPATIBLE` durumundaki tasarımlar üretim kapısından (`productionGate.isReadyForErp`) sessizce geçirilemez.

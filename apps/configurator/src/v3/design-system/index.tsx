@@ -572,14 +572,156 @@ export const V3PremiumDropdown: React.FC<{
   options: V3PremiumDropdownOption[];
   onChange: (value: string) => void;
   testId?: string;
-}> = ({ label, placeholder, value, options, onChange, testId }) => {
+  variant?: "inline" | "popover";
+  placement?: "auto" | "top" | "bottom";
+  size?: "sm" | "md";
+  dark?: boolean;
+  disabled?: boolean;
+  className?: string;
+}> = ({
+  label,
+  placeholder,
+  value,
+  options,
+  onChange,
+  testId,
+  variant = "inline",
+  placement = "auto",
+  size = "md",
+  dark = false,
+  disabled = false,
+  className = "",
+}) => {
   const [open, setOpen] = React.useState(false);
+  const [openUpward, setOpenUpward] = React.useState(placement === "top");
+  const rootRef = React.useRef<HTMLDivElement>(null);
   const selectedOpt = options.find((o) => o.value === value) || options[0];
+
+  React.useEffect(() => {
+    if (!open || variant !== "popover") return;
+    const onDocDown = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDocDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open, variant]);
+
+  const handleToggle = () => {
+    setOpen((prev) => {
+      const next = !prev;
+      if (next && variant === "popover") {
+        if (placement === "top") {
+          setOpenUpward(true);
+        } else if (placement === "bottom") {
+          setOpenUpward(false);
+        } else if (rootRef.current) {
+          const rect = rootRef.current.getBoundingClientRect();
+          const spaceBelow = window.innerHeight - rect.bottom;
+          const spaceAbove = rect.top;
+          setOpenUpward(spaceBelow < 220 && spaceAbove > spaceBelow);
+        }
+      }
+      return next;
+    });
+  };
+
+  const isSm = size === "sm";
+  const isPopover = variant === "popover";
+  const showVisual = (opt?: V3PremiumDropdownOption) =>
+    !isSm || Boolean(opt?.icon || opt?.colorHex || opt?.value?.startsWith("mat_"));
+
+  const optionList = (
+    <div
+      className={`p-1.5 space-y-0.5 max-h-64 overflow-y-auto ${
+        dark ? "bg-neutral-900/95" : "bg-white/95 backdrop-blur-xl"
+      }`}
+    >
+      {options.map((opt, optIdx) => {
+        const isSel = opt.value === value;
+        const subTxt = opt.sub || opt.subLabel;
+        return (
+          <button
+            key={`${opt.value}_${optIdx}`}
+            type="button"
+            onClick={() => {
+              onChange(opt.value);
+              setOpen(false);
+            }}
+            className={`w-full px-2.5 ${isSm ? "py-1.5" : "py-2"} rounded-xl text-left flex items-center justify-between gap-2 transition-all duration-150 cursor-pointer ${
+              isSel
+                ? dark
+                  ? "bg-white/15 text-white border border-white/25"
+                  : "bg-blue-50/90 text-blue-950 border border-blue-400 shadow-2xs"
+                : dark
+                ? "hover:bg-white/10 text-neutral-200 border border-transparent"
+                : "hover:bg-slate-100/80 text-[#111827] border border-transparent"
+            }`}
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              {showVisual(opt) && renderAutoOptionVisual(opt)}
+              <div className="min-w-0">
+                <div className="text-xs font-bold truncate">{opt.label}</div>
+                {subTxt && (
+                  <div
+                    className={`text-[10px] truncate ${
+                      isSel
+                        ? dark
+                          ? "text-neutral-300"
+                          : "text-blue-700"
+                        : dark
+                        ? "text-neutral-400"
+                        : "text-[#64748B]"
+                    }`}
+                  >
+                    {subTxt}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              {opt.badge && (
+                <span
+                  className={`text-[10px] font-mono px-1.5 py-0.5 rounded-md ${
+                    isSel
+                      ? "bg-blue-600 text-white font-bold"
+                      : dark
+                      ? "bg-white/10 text-neutral-300"
+                      : "bg-[#F1F5F9] text-[#475569]"
+                  }`}
+                >
+                  {opt.badge}
+                </span>
+              )}
+              {isSel && (
+                <Check className={`w-3.5 h-3.5 shrink-0 ${dark ? "text-white" : "text-blue-600"}`} />
+              )}
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
 
   return (
     <div
+      ref={rootRef}
       data-testid={testId ? `${testId}-wrapper` : undefined}
-      className="rounded-2xl border border-slate-300/90 bg-white/85 backdrop-blur-xl overflow-hidden shadow-xs hover:border-blue-400 transition-all duration-200"
+      className={`relative ${
+        isPopover ? "overflow-visible" : "overflow-hidden"
+      } ${isSm ? "rounded-xl" : "rounded-2xl"} border transition-all duration-200 ${
+        dark
+          ? "border-white/15 bg-neutral-900/90 hover:border-white/30"
+          : "border-slate-300/90 bg-white/85 backdrop-blur-xl shadow-xs hover:border-blue-400"
+      } ${disabled ? "opacity-50 pointer-events-none" : ""} ${className}`}
     >
       {/* Hidden native select for automated test compatibility */}
       {testId && (
@@ -599,100 +741,86 @@ export const V3PremiumDropdown: React.FC<{
       )}
       <button
         type="button"
-        onClick={() => setOpen((prev) => !prev)}
-        className="w-full min-h-[40px] px-3 py-2 flex items-center justify-between gap-2 bg-gradient-to-b from-white to-slate-50/70 hover:from-blue-50/40 hover:to-blue-50/20 text-left transition-all duration-150 cursor-pointer active:scale-[0.99]"
+        disabled={disabled}
+        onClick={handleToggle}
+        className={`w-full ${isSm ? "min-h-[34px] px-2.5 py-1.5" : "min-h-[40px] px-3 py-2"} flex items-center justify-between gap-2 text-left transition-all duration-150 cursor-pointer active:scale-[0.99] ${
+          isPopover ? (isSm ? "rounded-xl" : "rounded-2xl") : ""
+        } ${
+          dark
+            ? "bg-transparent hover:bg-white/5 text-neutral-100"
+            : "bg-gradient-to-b from-white to-slate-50/70 hover:from-blue-50/40 hover:to-blue-50/20"
+        }`}
       >
-        <div className="flex items-center gap-2.5 min-w-0">
-          {renderAutoOptionVisual(selectedOpt)}
+        <div className="flex items-center gap-2 min-w-0">
+          {showVisual(selectedOpt) && renderAutoOptionVisual(selectedOpt)}
           <div className="min-w-0">
             {label && (
-              <span className="text-[11px] font-semibold text-[#475569] block leading-tight mb-0.5">
+              <span
+                className={`text-[10px] font-semibold block leading-tight mb-0.5 ${
+                  dark ? "text-neutral-400" : "text-[#475569]"
+                }`}
+              >
                 {label}
               </span>
             )}
-            <span className="text-xs font-extrabold text-[#111827] truncate block">
+            <span
+              className={`text-xs font-bold truncate block ${
+                dark ? "text-white" : "text-[#111827]"
+              }`}
+            >
               {selectedOpt?.label || placeholder || value}
             </span>
           </div>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
           {selectedOpt?.badge && (
-            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200/80">
+            <span
+              className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-lg border ${
+                dark
+                  ? "bg-white/10 text-neutral-200 border-white/15"
+                  : "bg-blue-50 text-blue-700 border-blue-200/80"
+              }`}
+            >
               {selectedOpt.badge}
             </span>
           )}
-          <span className="w-6 h-6 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center">
+          <span
+            className={`${isSm ? "w-5 h-5" : "w-6 h-6"} rounded-lg border flex items-center justify-center ${
+              dark ? "bg-white/10 border-white/15" : "bg-slate-100 border-slate-200"
+            }`}
+          >
             <ChevronDown
-              className={`w-3.5 h-3.5 text-[#334155] transition-transform duration-300 ease-out ${
-                open ? "rotate-180 text-blue-600" : ""
-              }`}
+              className={`w-3.5 h-3.5 transition-transform duration-300 ease-out ${
+                dark ? "text-neutral-300" : "text-[#334155]"
+              } ${open ? (dark ? "rotate-180 text-white" : "rotate-180 text-blue-600") : ""}`}
             />
           </span>
         </div>
       </button>
 
-      {/* Smooth Stretch-Down Options Drawer */}
-      <div
-        className={`grid transition-[grid-template-rows,opacity,transform] duration-250 ease-out origin-top ${
-          open
-            ? "grid-rows-[1fr] opacity-100 scale-y-100"
-            : "grid-rows-[0fr] opacity-0 scale-y-95 pointer-events-none"
-        }`}
-      >
-        <div className="overflow-hidden">
-          <div className="p-1.5 space-y-1 border-t border-slate-200/80 bg-white/95 backdrop-blur-xl max-h-64 overflow-y-auto">
-            {options.map((opt, optIdx) => {
-              const isSel = opt.value === value;
-              const subTxt = opt.sub || opt.subLabel;
-              return (
-                <button
-                  key={`${opt.value}_${optIdx}`}
-                  type="button"
-                  onClick={() => {
-                    onChange(opt.value);
-                    setOpen(false);
-                  }}
-                  className={`w-full px-2.5 py-2 rounded-xl text-left flex items-center justify-between gap-2 transition-all duration-150 cursor-pointer ${
-                    isSel
-                      ? "bg-blue-50/90 text-blue-950 border border-blue-400 shadow-2xs"
-                      : "hover:bg-slate-100/80 text-[#111827] border border-transparent"
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    {renderAutoOptionVisual(opt)}
-                    <div className="min-w-0">
-                      <div className="text-xs font-bold truncate">{opt.label}</div>
-                      {subTxt && (
-                        <div
-                          className={`text-[10px] truncate ${
-                            isSel ? "text-blue-700" : "text-[#64748B]"
-                          }`}
-                        >
-                          {subTxt}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    {opt.badge && (
-                      <span
-                        className={`text-[10px] font-mono px-1.5 py-0.5 rounded-md ${
-                          isSel
-                            ? "bg-blue-600 text-white font-bold"
-                            : "bg-[#F1F5F9] text-[#475569]"
-                        }`}
-                      >
-                        {opt.badge}
-                      </span>
-                    )}
-                    {isSel && <Check className="w-4 h-4 text-blue-600 shrink-0" />}
-                  </div>
-                </button>
-              );
-            })}
+      {isPopover ? (
+        open && (
+          <div
+            className={`absolute left-0 min-w-full ${
+              openUpward ? "bottom-full mb-1.5" : "top-full mt-1.5"
+            } z-[140] rounded-xl border shadow-2xl overflow-hidden ${
+              dark ? "border-white/15 bg-neutral-900" : "border-slate-200/90 bg-white"
+            }`}
+          >
+            {optionList}
           </div>
+        )
+      ) : (
+        <div
+          className={`grid transition-[grid-template-rows,opacity,transform] duration-250 ease-out origin-top ${
+            open
+              ? "grid-rows-[1fr] opacity-100 scale-y-100"
+              : "grid-rows-[0fr] opacity-0 scale-y-95 pointer-events-none"
+          }`}
+        >
+          <div className="overflow-hidden border-t border-slate-200/80">{optionList}</div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

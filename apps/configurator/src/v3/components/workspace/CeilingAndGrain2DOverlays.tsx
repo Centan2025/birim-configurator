@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   CEILING_TYPE_CATALOG,
   GRAIN_CONTINUITY_CATALOG,
@@ -18,6 +19,7 @@ import {
   resolveSpaceCeilingConfig,
   sampleCeilingClearHeightAtX,
 } from "@birim/core";
+import { V3PremiumDropdown } from "../../design-system";
 
 /**
  * 2D Ön Görünüş (Elevation) sahnesinde mimari tavan kesitini, 6 tavan tipini,
@@ -388,23 +390,46 @@ export const ElevationMultiHoleAndGrainSvg: React.FC<{
     });
 
     const dotX = isLeft
-      ? el.x + el.width + 8
+      ? el.x + el.width + 10
       : isRight
-      ? el.x - 8
+      ? el.x - 10
       : el.x + el.width / 2;
+
+    const isClusterMode =
+      mhSpec.mode === "cluster_5" ||
+      mhSpec.mode === "cluster_3" ||
+      mhSpec.mode === "single_pin";
+    const dotFill = isClusterMode ? "#0284C7" : "#0F172A";
 
     return (
       <g data-testid={`elev-multihole-${el.id}`} className="pointer-events-none">
-        {ys.map((hy) => (
-          <circle
-            key={`mh_${el.id}_${hy}`}
-            cx={dotX}
-            cy={el.y + el.height - hy}
-            r={3.2}
-            fill="#0F172A"
-            opacity={0.72}
-          />
-        ))}
+        {ys.map((hy) => {
+          const cy = el.y + el.height - hy;
+          return (
+            <g key={`mh_${el.id}_${hy}`}>
+              {isClusterMode && (
+                <line
+                  x1={dotX - 7}
+                  y1={cy}
+                  x2={dotX + 7}
+                  y2={cy}
+                  stroke="#0284C7"
+                  strokeWidth={2}
+                  opacity={0.75}
+                />
+              )}
+              <circle
+                cx={dotX}
+                cy={cy}
+                r={isClusterMode ? 5.5 : 4.2}
+                fill={dotFill}
+                stroke="#FFFFFF"
+                strokeWidth={1.8}
+                opacity={0.92}
+              />
+            </g>
+          );
+        })}
       </g>
     );
   }
@@ -479,6 +504,57 @@ export const ElevationMultiHoleAndGrainSvg: React.FC<{
 });
 ElevationMultiHoleAndGrainSvg.displayName = "ElevationMultiHoleAndGrainSvg";
 
+const BufferedNumericInput: React.FC<{
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  onCommit: (val: number) => void;
+  className?: string;
+  title?: string;
+}> = ({ value, min, max, step, onCommit, className, title }) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const [draft, setDraft] = useState(String(value));
+
+  const commit = () => {
+    const parsed = Number(draft.replace(",", "."));
+    if (draft.trim() !== "" && Number.isFinite(parsed)) {
+      const clamped = Math.max(min, Math.min(max, Math.round(parsed)));
+      onCommit(clamped);
+    }
+    setIsEditing(false);
+  };
+
+  return (
+    <input
+      type="number"
+      min={min}
+      max={max}
+      step={step}
+      title={title}
+      value={isEditing ? draft : String(value)}
+      onFocus={(e) => {
+        setIsEditing(true);
+        setDraft(String(value));
+        e.currentTarget.select();
+      }}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") {
+          commit();
+          e.currentTarget.blur();
+        } else if (e.key === "Escape") {
+          setIsEditing(false);
+          e.currentTarget.blur();
+        }
+      }}
+      className={className}
+    />
+  );
+};
+
 /**
  * Hem 3D Sahne hem 2D Ön Görünüş üst çubuğunda çalışan kompakt Tavan + Çoklu Delik + Desen Takibi hızlı kontrol açılır menüsü.
  */
@@ -500,6 +576,78 @@ export const CeilingAndEngineeringQuickPopover: React.FC<{
   onSetFacadeGrainContinuity,
 }) => {
   const [open, setOpen] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [popoverPos, setPopoverPos] = useState<{
+    left: number;
+    top?: number;
+    bottom?: number;
+    maxHeight: number;
+  }>({ left: 12, bottom: 64, maxHeight: 480 });
+
+  const updatePopoverPos = useCallback(() => {
+    const btn = btnRef.current;
+    if (!btn || typeof window === "undefined") return;
+    const rect = btn.getBoundingClientRect();
+    const width = 332;
+    const margin = 12;
+    const left = Math.max(
+      margin,
+      Math.min(rect.right - width, window.innerWidth - width - margin)
+    );
+    const spaceBelow = window.innerHeight - rect.bottom - margin;
+    const spaceAbove = rect.top - margin;
+    const openUpward =
+      surface === "2d_elevation" || (spaceBelow < 380 && spaceAbove > spaceBelow);
+
+    if (openUpward) {
+      setPopoverPos({
+        left,
+        bottom: window.innerHeight - rect.top + 8,
+        maxHeight: Math.max(220, spaceAbove - 8),
+      });
+    } else {
+      setPopoverPos({
+        left,
+        top: rect.bottom + 8,
+        maxHeight: Math.max(220, spaceBelow - 8),
+      });
+    }
+  }, [surface]);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    updatePopoverPos();
+  }, [open, updatePopoverPos]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDocMouseDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (
+        btnRef.current?.contains(target) ||
+        popoverRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    const onReposition = () => updatePopoverPos();
+    document.addEventListener("mousedown", onDocMouseDown);
+    document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("resize", onReposition);
+    window.addEventListener("scroll", onReposition, true);
+    return () => {
+      document.removeEventListener("mousedown", onDocMouseDown);
+      document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("resize", onReposition);
+      window.removeEventListener("scroll", onReposition, true);
+    };
+  }, [open, updatePopoverPos]);
+
   const ceilCfg = resolveSpaceCeilingConfig(project.space);
   const mhSpec = resolveMultiHoleSpec(activeModule);
   const grainMode: GrainContinuityMode = project.facadeGrainContinuity
@@ -509,6 +657,7 @@ export const CeilingAndEngineeringQuickPopover: React.FC<{
   return (
     <div className="relative pointer-events-auto">
       <button
+        ref={btnRef}
         type="button"
         data-testid={`quick-ceiling-grain-holes-btn-${surface}`}
         onClick={() => setOpen((v) => !v)}
@@ -527,12 +676,22 @@ export const CeilingAndEngineeringQuickPopover: React.FC<{
         </span>
       </button>
 
-      {open && (
-        <div
-          data-testid={`quick-ceiling-grain-holes-popover-${surface}`}
-          className="absolute right-0 top-10 z-50 w-[332px] p-3.5 rounded-2xl bg-white/95 backdrop-blur-xl border border-slate-200 shadow-2xl text-[#1C1917] space-y-3 text-xs"
-          onMouseDown={(e) => e.stopPropagation()}
-        >
+      {open &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            data-testid={`quick-ceiling-grain-holes-popover-${surface}`}
+            style={{
+              position: "fixed",
+              left: `${popoverPos.left}px`,
+              top: popoverPos.top !== undefined ? `${popoverPos.top}px` : undefined,
+              bottom: popoverPos.bottom !== undefined ? `${popoverPos.bottom}px` : undefined,
+              maxHeight: `${popoverPos.maxHeight}px`,
+            }}
+            className="z-[9999] w-[332px] overflow-y-auto p-3.5 rounded-2xl bg-white/95 backdrop-blur-xl border border-slate-200 shadow-2xl text-[#1C1917] space-y-3 text-xs"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
           {/* 1. MİMARİ TAVAN VE TAVAN TİPLERİ */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -589,15 +748,12 @@ export const CeilingAndEngineeringQuickPopover: React.FC<{
                   <label className="block text-[10px] font-semibold text-slate-500">
                     Tavan Kotu (mm)
                   </label>
-                  <input
-                    type="number"
-                    min={2000}
-                    max={4500}
+                  <BufferedNumericInput
+                    min={1800}
+                    max={6000}
                     step={20}
                     value={project.space.ceilingHeight || 2600}
-                    onChange={(e) =>
-                      onUpdateCeilingHeightMm(Number(e.target.value) || 2600)
-                    }
+                    onCommit={(val) => onUpdateCeilingHeightMm(val)}
                     className="w-full mt-0.5 px-2 py-1 rounded-lg border border-slate-300 font-mono text-[11px]"
                   />
                 </div>
@@ -607,25 +763,20 @@ export const CeilingAndEngineeringQuickPopover: React.FC<{
                       Diz Kotu / Açı (°)
                     </label>
                     <div className="flex gap-1 mt-0.5">
-                      <input
-                        type="number"
-                        min={800}
-                        max={2600}
+                      <BufferedNumericInput
+                        min={600}
+                        max={4000}
                         step={50}
                         value={ceilCfg.slopeKneeHeightMm}
-                        onChange={(e) =>
-                          onUpdateCeiling({ slopeKneeHeightMm: Number(e.target.value) || 1850 })
-                        }
+                        onCommit={(val) => onUpdateCeiling({ slopeKneeHeightMm: val })}
                         className="w-3/5 px-1.5 py-1 rounded-lg border border-slate-300 font-mono text-[11px]"
                       />
-                      <input
-                        type="number"
+                      <BufferedNumericInput
                         min={5}
                         max={60}
+                        step={1}
                         value={ceilCfg.slopeAngleDeg}
-                        onChange={(e) =>
-                          onUpdateCeiling({ slopeAngleDeg: Number(e.target.value) || 22 })
-                        }
+                        onCommit={(val) => onUpdateCeiling({ slopeAngleDeg: val })}
                         className="w-2/5 px-1.5 py-1 rounded-lg border border-slate-300 font-mono text-[11px]"
                       />
                     </div>
@@ -635,8 +786,7 @@ export const CeilingAndEngineeringQuickPopover: React.FC<{
                     <label className="block text-[10px] font-semibold text-slate-500">
                       Düşüm / Kiriş (mm)
                     </label>
-                    <input
-                      type="number"
+                    <BufferedNumericInput
                       min={0}
                       max={900}
                       step={10}
@@ -645,8 +795,7 @@ export const CeilingAndEngineeringQuickPopover: React.FC<{
                           ? ceilCfg.beamHeightMm
                           : ceilCfg.dropHeightMm
                       }
-                      onChange={(e) => {
-                        const val = Math.max(0, Number(e.target.value) || 0);
+                      onCommit={(val) => {
                         if (ceilCfg.ceilingType === "exposed_wood_beams") {
                           onUpdateCeiling({ beamHeightMm: val });
                         } else {
@@ -680,16 +829,19 @@ export const CeilingAndEngineeringQuickPopover: React.FC<{
               <span className="font-extrabold text-[11.5px] text-slate-900">
                 2. Çoklu Delik Sistemi (System 32)
               </span>
-              <select
-                value={mhSpec.rowCount}
-                onChange={(e) =>
-                  onUpdateCarcass({ multiHoleRowCount: Number(e.target.value) === 3 ? 3 : 2 })
+              <V3PremiumDropdown
+                variant="popover"
+                size="sm"
+                className="w-40"
+                value={String(mhSpec.rowCount)}
+                onChange={(val) =>
+                  onUpdateCarcass({ multiHoleRowCount: Number(val) === 3 ? 3 : 2 })
                 }
-                className="px-1.5 py-0.5 rounded-md border border-slate-300 text-[10.5px] font-bold bg-white"
-              >
-                <option value={2}>2 Sıra (Ön+Arka)</option>
-                <option value={3}>3 Sıra (Ön+Orta+Arka)</option>
-              </select>
+                options={[
+                  { value: "2", label: "2 Sıra (Ön+Arka)" },
+                  { value: "3", label: "3 Sıra (Ön+Orta+Arka)" },
+                ]}
+              />
             </div>
             <div className="grid grid-cols-3 gap-1">
               {MULTI_HOLE_MODE_CATALOG.map((mh) => {
@@ -699,7 +851,12 @@ export const CeilingAndEngineeringQuickPopover: React.FC<{
                     key={mh.id}
                     type="button"
                     title={mh.description}
-                    onClick={() => onUpdateCarcass({ multiHoleMode: mh.id as MultiHoleBoringMode })}
+                    onClick={() =>
+                      onUpdateCarcass({
+                        multiHoleMode: mh.id as MultiHoleBoringMode,
+                        showMultiHolesIn3D: mh.id !== "none",
+                      })
+                    }
                     className={`px-1.5 py-1.5 rounded-lg border text-center text-[10px] font-bold transition cursor-pointer ${
                       active
                         ? "bg-slate-900 text-white border-slate-900"
@@ -746,8 +903,9 @@ export const CeilingAndEngineeringQuickPopover: React.FC<{
               })}
             </div>
           </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </div>
   );
 };

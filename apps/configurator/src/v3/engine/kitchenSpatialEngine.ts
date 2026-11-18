@@ -18,11 +18,11 @@ function getInvisibleDragImageCanvas(): HTMLCanvasElement | null {
     emptyDragPixelCanvas.width = 2;
     emptyDragPixelCanvas.height = 2;
     emptyDragPixelCanvas.style.position = "fixed";
-    emptyDragPixelCanvas.style.top = "-100px";
-    emptyDragPixelCanvas.style.left = "-100px";
+    emptyDragPixelCanvas.style.top = "0px";
+    emptyDragPixelCanvas.style.left = "0px";
     emptyDragPixelCanvas.style.width = "2px";
     emptyDragPixelCanvas.style.height = "2px";
-    emptyDragPixelCanvas.style.opacity = "0";
+    emptyDragPixelCanvas.style.opacity = "0.01";
     emptyDragPixelCanvas.style.pointerEvents = "none";
     emptyDragPixelCanvas.style.zIndex = "-9999";
     document.body.appendChild(emptyDragPixelCanvas);

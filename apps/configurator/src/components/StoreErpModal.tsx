@@ -18,6 +18,8 @@ import {
   generateThermalPartLabelsHtml,
   generateThermalPartLabelsZpl,
 } from "@birim/manufacturing";
+import { BirimLogo } from "../v3/design-system";
+import { startZeroLagModalDrag } from "../v3/design-system/zeroLagDrag";
 import {
   X,
   CheckCircle,
@@ -76,7 +78,7 @@ function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
   const [allowSimWhenEnvMissing, setAllowSimWhenEnvMissing] = useState<boolean>(false);
 
   const [lastQuotationId, setLastQuotationId] = useState<string | null>(null);
-  const [lastQuotationNo, setLastQuotationNo] = useState<string | null>(null);
+  const [, setLastQuotationNo] = useState<string | null>(null);
   const [lastSalesCardId, setLastSalesCardId] = useState<string | null>(null);
   const [lastSalesNo, setLastSalesNo] = useState<string | null>(null);
   const [orderRefInput, setOrderRefInput] = useState<string>("");
@@ -103,6 +105,15 @@ function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
   const [r2UploadMessage, setR2UploadMessage] = useState<string | null>(null);
   const [r2UploadError, setR2UploadError] = useState<string | null>(null);
   const [loading, setLoading] = useState<"store" | "erp" | "r2" | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isOpen, onClose]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -239,9 +250,7 @@ function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
 
       const json = await res.json();
       if (!res.ok || !json?.ok) {
-        throw new Error(
-          json?.error || `Birim-Store RPC hatası (HTTP ${res.status})`
-        );
+        throw new Error(json?.error || `Birim-Store RPC hatası (HTTP ${res.status})`);
       }
 
       const d = json.data;
@@ -386,47 +395,64 @@ function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
   const isLiveRpcConfigured = Boolean(bridgeStatus?.configured);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 backdrop-blur-md p-4">
-      <div className="flex flex-col w-full max-w-4xl birim-ice-dark-bar border birim-ice-modal rounded-[28px] overflow-hidden">
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-[156] flex items-center justify-center bg-[#141413]/52 backdrop-blur-xs p-3 sm:p-5"
+    >
+      <div
+        data-draggable-shell="store-erp"
+        onClick={(e) => e.stopPropagation()}
+        className="flex flex-col w-full max-w-4xl max-h-[90vh] birim-ice-modal rounded-[28px] overflow-hidden text-[#141413]"
+      >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 bg-slate-950 border-b border-slate-800">
-          <div className="flex items-center gap-2.5">
-            <Database className="w-5 h-5 text-emerald-400" />
-            <div>
-              <h2 className="text-base font-bold text-slate-100">
-                Birim Store & Birim Portal ERP — Canlı Supabase RPC Köprüsü (V7.3)
-              </h2>
-              <div className="text-[11px] text-slate-400">
-                <code>upsert_configurator_store_quotation_atomic</code> &bull;{" "}
-                <code>publish_configurator_erp_nesting_atomic</code>
+        <div
+          onPointerDown={(e) => startZeroLagModalDrag(e)}
+          title="Pencereyi taşımak için basılı tutup sürükleyin"
+          className="flex items-center justify-between gap-3 px-6 py-4 birim-ice-shell-header cursor-grab active:cursor-grabbing select-none"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <BirimLogo className="h-5 w-auto text-[#141413] shrink-0" />
+            <div className="h-4 w-px bg-[#141413]/15 shrink-0" />
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <Database className="w-4 h-4 text-emerald-700 shrink-0" />
+                <h2 className="text-sm sm:text-base font-bold text-[#141413] truncate">
+                  Mağaza &amp; ERP Aktarımı
+                </h2>
+              </div>
+              <div className="text-[11px] text-[#57534E] truncate">
+                Teklif ve üretim senkronizasyonu
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+
+          <div className="flex items-center gap-2 shrink-0">
             <span
-              className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border ${
+              className={`px-2.5 py-1 rounded-full text-[10.5px] font-bold border ${
                 isLiveRpcConfigured
-                  ? "bg-emerald-950/60 border-emerald-700 text-emerald-300"
-                  : "bg-amber-950/60 border-amber-700 text-amber-300"
+                  ? "bg-emerald-50 border-emerald-300 text-emerald-900"
+                  : "bg-amber-50 border-amber-300 text-amber-950"
               }`}
             >
               {isLiveRpcConfigured
-                ? "Canlı Supabase RPC Aktif (service_role)"
-                : "SUPABASE_SERVICE_ROLE_KEY Bekleniyor"}
+                ? "Canlı Supabase RPC Aktif"
+                : "Yerel / Ortam Anahtarı Bekleniyor"}
             </span>
             <button
+              type="button"
               onClick={onClose}
-              className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white cursor-pointer"
+              aria-label="Kapat"
+              className="w-8 h-8 rounded-full birim-ice-btn flex items-center justify-center text-[#57534E] hover:text-[#141413] cursor-pointer"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        {/* Prod Lock / Env Banner */}
+        {/* Prod Lock Banner */}
         {bridgeStatus?.prodSafetyLockActive && (
-          <div className="px-5 py-2.5 bg-rose-950/50 border-b border-rose-800/60 text-xs text-rose-200 flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+          <div className="px-6 py-2.5 bg-rose-50 border-b border-rose-200 text-xs text-rose-950 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
             <span>
               <strong>Canlı Üretim Koruması Aktif:</strong> Hedef URL canlı veritabanı (
               <code>qchmdyiakmrfyvphbbok</code>) olduğu için yazma kilitlidir. Önce staging (
@@ -435,20 +461,20 @@ function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
           </div>
         )}
 
-        <div className="p-6 space-y-5 max-h-[78vh] overflow-y-auto">
+        <div className="p-5 sm:p-6 space-y-4 flex-1 overflow-y-auto bg-[#FAF8F4] text-xs">
           {/* Ortak Kiracı & Şube Bağlamı */}
-          <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-300">
-                Ortak Supabase Kiracı & Mağaza Oturum Bağlamı
+          <div className="p-4 rounded-2xl bg-white border border-[#E5DFD3] shadow-2xs space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs font-extrabold text-[#141413]">
+                Ortak Supabase Kiracı &amp; Mağaza Oturum Bağlamı
               </span>
               {!isLiveRpcConfigured && (
-                <label className="flex items-center gap-1.5 text-[11px] text-amber-300 cursor-pointer">
+                <label className="flex items-center gap-1.5 text-[11px] text-amber-900 font-semibold cursor-pointer">
                   <input
                     type="checkbox"
                     checked={allowSimWhenEnvMissing}
                     onChange={(e) => setAllowSimWhenEnvMissing(e.target.checked)}
-                    className="rounded border-slate-700 bg-slate-900"
+                    className="rounded border-[#C7BCAE]"
                   />
                   Ortam değişkeni yoksa yerel simülasyon yedeğine izin ver
                 </label>
@@ -456,29 +482,29 @@ function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
               <div>
-                <label className="block text-[11px] text-slate-400 mb-1">
+                <label className="block text-[11px] font-semibold text-[#57534E] mb-1">
                   Organizasyon UUID (<code>organization_id</code>)
                 </label>
                 <input
                   type="text"
                   value={organizationId}
                   onChange={(e) => setOrganizationId(e.target.value)}
-                  className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 font-mono text-[11px]"
+                  className="w-full px-3 py-1.5 rounded-xl bg-[#FAF8F4] border border-[#D8D1C4] text-[#141413] font-mono text-[11px]"
                 />
               </div>
               <div>
-                <label className="block text-[11px] text-slate-400 mb-1">
+                <label className="block text-[11px] font-semibold text-[#57534E] mb-1">
                   Mağaza / Şube UUID veya Kodu (<code>branch_id</code>)
                 </label>
                 <input
                   type="text"
                   value={branchIdOrCode}
                   onChange={(e) => setBranchIdOrCode(e.target.value)}
-                  className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 font-mono text-[11px]"
+                  className="w-full px-3 py-1.5 rounded-xl bg-[#FAF8F4] border border-[#D8D1C4] text-[#141413] font-mono text-[11px]"
                 />
               </div>
               <div>
-                <label className="block text-[11px] text-slate-400 mb-1">
+                <label className="block text-[11px] font-semibold text-[#57534E] mb-1">
                   Müşteri Adı / Cari Başlığı
                 </label>
                 <input
@@ -486,34 +512,34 @@ function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
                   value={customerName}
                   onChange={(e) => setCustomerName(e.target.value)}
                   placeholder="Örn: Mimarlık Atölyesi A.Ş."
-                  className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 text-xs"
+                  className="w-full px-3 py-1.5 rounded-xl bg-[#FAF8F4] border border-[#D8D1C4] text-[#141413] text-xs"
                 />
               </div>
             </div>
           </div>
 
           {/* 1. Birim Store CPQ Teklif Akışı */}
-          <div className="p-5 rounded-xl bg-slate-950 border border-slate-800 space-y-3.5">
-            <div className="flex items-center justify-between gap-3">
+          <div className="p-5 rounded-2xl bg-white border border-[#E5DFD3] shadow-2xs space-y-3.5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-blue-600/20 text-blue-400">
+                <div className="p-2.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-700">
                   <Store className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-slate-200">
-                    1. Birim Store — Atomik Teklif & Sipariş Akışı (<code>saved_quotations</code>)
+                  <h3 className="font-extrabold text-[#141413] text-xs sm:text-sm">
+                    1. Birim Store — Atomik Teklif &amp; Sipariş Akışı (<code>saved_quotations</code>)
                   </h3>
-                  <p className="text-xs text-slate-400">
+                  <p className="text-[11px] text-[#57534E]">
                     Sunucu tarafında yetkili fiyat yeniden hesaplanır,{" "}
-                    <code>convert_store_quotation_to_order_atomic</code> ile sıfır kuruş farkı
-                    garantili kalemler yazılır
+                    <code>convert_store_quotation_to_order_atomic</code> ile sıfır kuruş farkı garantili kalemler yazılır
                   </p>
                 </div>
               </div>
               <button
+                type="button"
                 onClick={handleExportStore}
                 disabled={loading === "store"}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold shadow transition-all disabled:opacity-50 cursor-pointer shrink-0"
+                className="flex items-center gap-2 px-4 py-2 bg-[#141413] hover:bg-stone-800 text-white rounded-xl text-xs font-bold shadow-xs transition disabled:opacity-50 cursor-pointer shrink-0"
               >
                 {loading === "store"
                   ? "RPC Çalışıyor..."
@@ -522,13 +548,13 @@ function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
                   : existingQuotationId.trim()
                   ? "Mevcut Teklifi Güncelle"
                   : "Yeni Teklif (TKL) Oluştur"}
-                <ArrowRight className="w-4 h-4" />
+                <ArrowRight className="w-4 h-4 text-amber-300" />
               </button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs pt-1">
               <div>
-                <label className="block text-[11px] text-slate-400 mb-1">
+                <label className="block text-[11px] font-semibold text-[#57534E] mb-1">
                   Mevcut Teklif UUID (Boşsa yeni <code>TKL-YYYY-XXXX</code> üretir)
                 </label>
                 <input
@@ -536,11 +562,11 @@ function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
                   value={existingQuotationId}
                   onChange={(e) => setExistingQuotationId(e.target.value)}
                   placeholder="Yeni teklif için boş bırakın"
-                  className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 font-mono text-[11px]"
+                  className="w-full px-3 py-1.5 rounded-xl bg-[#FAF8F4] border border-[#D8D1C4] text-[#141413] font-mono text-[11px]"
                 />
               </div>
               <div>
-                <label className="block text-[11px] text-slate-400 mb-1">
+                <label className="block text-[11px] font-semibold text-[#57534E] mb-1">
                   Satır İskonto Oranı (%)
                 </label>
                 <input
@@ -552,16 +578,16 @@ function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
                   onChange={(e) =>
                     setDiscountRatePercent(Math.max(0, Math.min(40, Number(e.target.value) || 0)))
                   }
-                  className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 font-mono text-xs"
+                  className="w-full px-3 py-1.5 rounded-xl bg-[#FAF8F4] border border-[#D8D1C4] text-[#141413] font-mono text-xs font-bold"
                 />
               </div>
-              <div className="flex items-end pb-1">
-                <label className="flex items-center gap-2 text-xs text-slate-200 cursor-pointer">
+              <div className="flex items-end pb-1.5">
+                <label className="flex items-center gap-2 text-xs text-[#141413] font-semibold cursor-pointer">
                   <input
                     type="checkbox"
                     checked={autoConvertToOrder}
                     onChange={(e) => setAutoConvertToOrder(e.target.checked)}
-                    className="rounded border-slate-700 bg-slate-900"
+                    className="rounded border-[#C7BCAE]"
                   />
                   <span>
                     Aynı işlemde siparişe dönüştür (<code>SPR-</code>)
@@ -571,38 +597,38 @@ function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
             </div>
 
             {storeStatus && (
-              <div className="p-3 bg-emerald-950/40 border border-emerald-800/60 rounded-lg text-emerald-300 text-xs flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+              <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-emerald-950 text-xs font-medium flex items-center gap-2">
+                <CheckCircle className="w-4 h-4 text-emerald-700 shrink-0" />
                 <span>{storeStatus}</span>
               </div>
             )}
             {storeError && (
-              <div className="p-3 bg-rose-950/40 border border-rose-800/60 rounded-lg text-rose-300 text-xs">
+              <div className="p-3 bg-rose-50 border border-rose-300 rounded-xl text-rose-950 text-xs font-medium">
                 {storeError}
               </div>
             )}
           </div>
 
           {/* 2. Birim Portal ERP Production Blueprint & Nesting Bridge */}
-          <div className="p-5 rounded-xl bg-slate-950 border border-slate-800 space-y-4">
-            <div className="flex items-center justify-between gap-3">
+          <div className="p-5 rounded-2xl bg-white border border-[#E5DFD3] shadow-2xs space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-amber-600/20 text-amber-400">
+                <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800">
                   <Factory className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-slate-200">
-                    2. Birim Portal ERP — Atomik CNC Panel Nesting (
-                    <code>nesting_projects</code>)
+                  <h3 className="font-extrabold text-[#141413] text-xs sm:text-sm">
+                    2. Birim Portal ERP — Atomik CNC Panel Nesting (<code>nesting_projects</code>)
                   </h3>
-                  <p className="text-xs text-slate-400">
+                  <p className="text-[11px] text-[#57534E]">
                     <code>nesting_sheets</code> + <code>nesting_projects</code> (
                     <code>NST-YYYY-XXXX</code>) + <code>nesting_parts</code> +{" "}
-                    <code>nesting_placements</code> (UUID FK) tek işlemde yazılır
+                    <code>nesting_placements</code> tek işlemde yazılır
                   </p>
                 </div>
               </div>
               <button
+                type="button"
                 onClick={handleExportERP}
                 disabled={loading === "erp" || !canExportProduction}
                 title={
@@ -610,7 +636,7 @@ function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
                     ? "P0 veya doğrulanmamış mühendislik bulguları çözülmeden ERP Nesting'e aktarılamaz"
                     : undefined
                 }
-                className="flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold shadow transition-all disabled:opacity-45 cursor-pointer shrink-0"
+                className="flex items-center gap-2 px-4 py-2 bg-amber-700 hover:bg-amber-800 text-white rounded-xl text-xs font-bold shadow-xs transition disabled:opacity-45 cursor-pointer shrink-0"
               >
                 {loading === "erp" ? "RPC Çalışıyor..." : "ERP Nesting Tablolarına Yaz"}
                 <ArrowRight className="w-4 h-4" />
@@ -619,7 +645,7 @@ function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
               <div>
-                <label className="block text-[11px] text-slate-400 mb-1">
+                <label className="block text-[11px] font-semibold text-[#57534E] mb-1">
                   Üretim / Sipariş Referansı (<code>source_ref</code>)
                 </label>
                 <input
@@ -627,21 +653,20 @@ function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
                   value={orderRefInput}
                   onChange={(e) => setOrderRefInput(e.target.value)}
                   placeholder={lastSalesNo || `SIP_${project.id}_v${project.version}`}
-                  className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-100 font-mono text-[11px]"
+                  className="w-full px-3 py-1.5 rounded-xl bg-[#FAF8F4] border border-[#D8D1C4] text-[#141413] font-mono text-[11px]"
                 />
               </div>
               <div className="flex items-end">
                 <div
-                  className={`w-full px-3 py-1.5 rounded-lg border text-[11px] flex items-center gap-2 ${
+                  className={`w-full px-3 py-1.5 rounded-xl border text-[11px] flex items-center gap-2 ${
                     canExportProduction
-                      ? "bg-emerald-950/30 border-emerald-800/50 text-emerald-300"
-                      : "bg-rose-950/40 border-rose-800/60 text-rose-300"
+                      ? "bg-emerald-50 border-emerald-300 text-emerald-950"
+                      : "bg-rose-50 border-rose-300 text-rose-950"
                   }`}
                 >
                   <ShieldCheck className="w-4 h-4 shrink-0" />
                   <span>
-                    Mühendislik Kapısı:{" "}
-                    <strong>{compatibility.overallStatus}</strong> (
+                    Mühendislik Kapısı: <strong>{compatibility.overallStatus}</strong> (
                     {canExportProduction
                       ? "ERP & CNC Aktarımına Uygun"
                       : `${unifiedGate.blockingSafetyAndEngineeringErrors.length} P0 Engel, ${unifiedGate.verificationRequiredFindings.length} Doğrulama Bekleyen`}
@@ -652,29 +677,37 @@ function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
             </div>
 
             {liveErpNesting && (
-              <div className="p-3.5 rounded-lg bg-slate-900/90 border border-slate-800 space-y-3">
-                <div className="grid grid-cols-4 gap-2 text-center font-mono text-xs">
-                  <div className="p-2 rounded bg-slate-950 border border-slate-800">
-                    <div className="text-[10px] text-slate-400 font-sans">Levha Grubu</div>
-                    <div className="font-bold text-slate-100">
+              <div className="p-3.5 rounded-2xl bg-[#FAF8F4] border border-[#E5DFD3] space-y-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center font-mono text-xs">
+                  <div className="p-2.5 rounded-xl bg-white border border-[#E5DFD3]">
+                    <div className="text-[10px] text-[#78716C] font-sans font-semibold">
+                      Levha Grubu
+                    </div>
+                    <div className="font-extrabold text-[#141413]">
                       {liveErpNesting.summary.board_groups_count} İş Emri
                     </div>
                   </div>
-                  <div className="p-2 rounded bg-slate-950 border border-slate-800">
-                    <div className="text-[10px] text-slate-400 font-sans">Toplam Plaka</div>
-                    <div className="font-bold text-amber-400">
+                  <div className="p-2.5 rounded-xl bg-white border border-[#E5DFD3]">
+                    <div className="text-[10px] text-[#78716C] font-sans font-semibold">
+                      Toplam Plaka
+                    </div>
+                    <div className="font-extrabold text-amber-800">
                       {liveErpNesting.summary.total_sheets_used} Adet
                     </div>
                   </div>
-                  <div className="p-2 rounded bg-slate-950 border border-slate-800">
-                    <div className="text-[10px] text-slate-400 font-sans">Doluluk / Verim</div>
-                    <div className="font-bold text-emerald-400">
+                  <div className="p-2.5 rounded-xl bg-white border border-[#E5DFD3]">
+                    <div className="text-[10px] text-[#78716C] font-sans font-semibold">
+                      Doluluk / Verim
+                    </div>
+                    <div className="font-extrabold text-emerald-800">
                       %{liveErpNesting.summary.overall_utilization_percent}
                     </div>
                   </div>
-                  <div className="p-2 rounded bg-slate-950 border border-slate-800">
-                    <div className="text-[10px] text-slate-400 font-sans">Artık Plaka (≥400)</div>
-                    <div className="font-bold text-cyan-400">
+                  <div className="p-2.5 rounded-xl bg-white border border-[#E5DFD3]">
+                    <div className="text-[10px] text-[#78716C] font-sans font-semibold">
+                      Artık Plaka (≥400)
+                    </div>
+                    <div className="font-extrabold text-cyan-800">
                       {liveErpNesting.summary.reclaimable_remnants_count} (
                       {liveErpNesting.summary.reclaimable_remnants_area_m2} m²)
                     </div>
@@ -682,29 +715,29 @@ function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
                 </div>
 
                 {erpJobsResult.length > 0 && (
-                  <div className="rounded-lg border border-slate-800 overflow-hidden text-[11px]">
-                    <table className="w-full text-left">
-                      <thead className="bg-slate-950 text-slate-400">
+                  <div className="rounded-xl border border-[#E5DFD3] bg-white overflow-hidden text-[11px]">
+                    <table className="w-full text-left border-collapse">
+                      <thead className="bg-[#F4F0E8] text-[#57534E]">
                         <tr>
-                          <th className="px-2.5 py-1.5">Proje No</th>
-                          <th className="px-2.5 py-1.5">Malzeme</th>
-                          <th className="px-2.5 py-1.5">Parça / Yerleşim</th>
-                          <th className="px-2.5 py-1.5">Plaka & Verim</th>
+                          <th className="px-2.5 py-1.5 font-bold">Proje No</th>
+                          <th className="px-2.5 py-1.5 font-bold">Malzeme</th>
+                          <th className="px-2.5 py-1.5 font-bold">Parça / Yerleşim</th>
+                          <th className="px-2.5 py-1.5 font-bold">Plaka &amp; Verim</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-800 text-slate-200 font-mono">
+                      <tbody className="divide-y divide-[#ECE7DC] text-[#141413] font-mono">
                         {erpJobsResult.map((j) => (
                           <tr key={j.projectNo}>
-                            <td className="px-2.5 py-1.5 font-bold text-amber-300">
+                            <td className="px-2.5 py-1.5 font-bold text-amber-900">
                               {j.projectNo}
                             </td>
-                            <td className="px-2.5 py-1.5 font-sans">
+                            <td className="px-2.5 py-1.5 font-sans font-medium">
                               {j.materialName} ({j.thicknessMm}mm)
                             </td>
                             <td className="px-2.5 py-1.5">
                               {j.partsInserted} parça / {j.placementsInserted} yerleşim
                             </td>
-                            <td className="px-2.5 py-1.5 text-emerald-300">
+                            <td className="px-2.5 py-1.5 text-emerald-800 font-bold">
                               {j.sheetsUsed} plaka (%{j.utilizationPercent})
                             </td>
                           </tr>
@@ -724,9 +757,9 @@ function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
                         "application/json;charset=utf-8"
                       )
                     }
-                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold cursor-pointer"
+                    className="flex-1 min-w-[180px] flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-[#141413] hover:bg-stone-800 text-white text-xs font-bold cursor-pointer"
                   >
-                    <Download className="w-3.5 h-3.5" />
+                    <Download className="w-3.5 h-3.5 text-amber-300" />
                     ERP Nesting JSON Paketi (.json)
                   </button>
                   <button
@@ -738,9 +771,9 @@ function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
                         "text/csv;charset=utf-8"
                       )
                     }
-                    className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold cursor-pointer"
+                    className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl birim-ice-btn text-[#141413] text-xs font-bold cursor-pointer"
                   >
-                    <Scissors className="w-3.5 h-3.5" />
+                    <Scissors className="w-3.5 h-3.5 text-emerald-700" />
                     ERP Selco CSV (.csv)
                   </button>
                   <button
@@ -752,9 +785,9 @@ function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
                         "text/plain;charset=utf-8"
                       )
                     }
-                    className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-100 text-xs font-bold cursor-pointer"
+                    className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl birim-ice-btn text-[#141413] text-xs font-bold cursor-pointer"
                   >
-                    <Download className="w-3.5 h-3.5" />
+                    <Download className="w-3.5 h-3.5 text-indigo-700" />
                     ERP G-Code (.nc)
                   </button>
                   <button
@@ -766,9 +799,9 @@ function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
                         "text/html;charset=utf-8"
                       )
                     }
-                    className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-amber-700 hover:bg-amber-600 text-white text-xs font-bold cursor-pointer"
+                    className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl birim-ice-btn text-[#141413] text-xs font-bold cursor-pointer"
                   >
-                    <Tag className="w-3.5 h-3.5" />
+                    <Tag className="w-3.5 h-3.5 text-amber-700" />
                     100×50 Termal Etiket (.html)
                   </button>
                   <button
@@ -780,9 +813,9 @@ function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
                         "text/plain;charset=utf-8"
                       )
                     }
-                    className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-amber-600/60 text-amber-200 text-xs font-bold cursor-pointer"
+                    className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl birim-ice-btn text-[#141413] text-xs font-bold cursor-pointer"
                   >
-                    <Tag className="w-3.5 h-3.5" />
+                    <Tag className="w-3.5 h-3.5 text-stone-700" />
                     Zebra Barkod (.zpl)
                   </button>
                 </div>
@@ -790,35 +823,35 @@ function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
             )}
 
             {erpStatus && (
-              <div className="p-3 bg-emerald-950/40 border border-emerald-800/60 rounded-lg text-emerald-300 text-xs flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+              <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-emerald-950 text-xs font-medium flex items-center gap-2">
+                <CheckCircle className="w-4 h-4 text-emerald-700 shrink-0" />
                 <span>{erpStatus}</span>
               </div>
             )}
             {erpError && (
-              <div className="p-3 bg-rose-950/40 border border-rose-800/60 rounded-lg text-rose-300 text-xs">
+              <div className="p-3 bg-rose-50 border border-rose-300 rounded-xl text-rose-950 text-xs font-medium">
                 {erpError}
               </div>
             )}
           </div>
 
           {/* 3. Ortak Birim-Portal Cloudflare R2 Depolama Köprüsü */}
-          <div className="p-5 rounded-xl bg-slate-950 border border-slate-800 space-y-3.5">
-            <div className="flex items-center justify-between gap-3">
+          <div className="p-5 rounded-2xl bg-white border border-[#E5DFD3] shadow-2xs space-y-3.5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-cyan-600/20 text-cyan-400">
+                <div className="p-2.5 rounded-xl bg-cyan-50 border border-cyan-200 text-cyan-800">
                   <CloudUpload className="w-5 h-5" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="font-semibold text-slate-200">
+                    <h3 className="font-extrabold text-[#141413] text-xs sm:text-sm">
                       3. Ortak Birim-Portal Cloudflare R2 Arşivi (<code>configurator/</code> İzole Önek)
                     </h3>
                     <span
-                      className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
                         r2Status?.configured
-                          ? "bg-emerald-950/60 border-emerald-700 text-emerald-300"
-                          : "bg-slate-900 border-slate-700 text-slate-400"
+                          ? "bg-emerald-50 border-emerald-300 text-emerald-900"
+                          : "bg-[#F4F0E8] border-[#D8D1C4] text-[#57534E]"
                       }`}
                     >
                       {r2Status?.configured
@@ -830,7 +863,7 @@ function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
                         : "R2 Ortam Değişkeni Bekleniyor"}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-400">
+                  <p className="text-[11px] text-[#57534E]">
                     <code>birim-portal/lib/r2.ts</code> ile aynı R2 kimlik bilgilerini kullanır; tüm 3D{" "}
                     <code>.glb</code> varlıklarını ve CNC + Zebra etiket <code>.zip</code> paketlerini{" "}
                     <code>{"${orgId}/configurator/..."}</code> altında izole saklar
@@ -841,7 +874,7 @@ function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
                 type="button"
                 onClick={handleUploadCamZipToSharedR2}
                 disabled={loading === "r2" || !canExportProduction}
-                className="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold shadow transition-all disabled:opacity-45 cursor-pointer shrink-0"
+                className="flex items-center gap-2 px-4 py-2 bg-cyan-700 hover:bg-cyan-800 text-white rounded-xl text-xs font-bold shadow-xs transition disabled:opacity-45 cursor-pointer shrink-0"
               >
                 <CloudUpload className="w-4 h-4" />
                 <span>
@@ -853,12 +886,12 @@ function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
             </div>
 
             <div className="flex items-center justify-between flex-wrap gap-2 text-xs pt-0.5">
-              <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
+              <label className="flex items-center gap-2 text-[#44403C] font-medium cursor-pointer">
                 <input
                   type="checkbox"
                   checked={sharePortalR2Bucket}
                   onChange={(e) => setSharePortalR2Bucket(e.target.checked)}
-                  className="rounded border-slate-700 bg-slate-900"
+                  className="rounded border-[#C7BCAE]"
                 />
                 <span>
                   Ortak <code>birim-portal</code> R2 bucket paylaşımını kullan (yalnızca{" "}
@@ -870,7 +903,7 @@ function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
                   href={lastR2ArchiveUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="font-mono text-[11px] text-cyan-300 underline hover:text-cyan-200 truncate max-w-md"
+                  className="font-mono text-[11px] text-cyan-800 font-semibold underline hover:text-cyan-950 truncate max-w-md"
                 >
                   {lastR2ArchiveUrl}
                 </a>
@@ -878,13 +911,13 @@ function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
             </div>
 
             {r2UploadMessage && (
-              <div className="p-3 bg-emerald-950/40 border border-emerald-800/60 rounded-lg text-emerald-300 text-xs flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+              <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-emerald-950 text-xs font-medium flex items-center gap-2">
+                <CheckCircle className="w-4 h-4 text-emerald-700 shrink-0" />
                 <span>{r2UploadMessage}</span>
               </div>
             )}
             {r2UploadError && (
-              <div className="p-3 bg-rose-950/40 border border-rose-800/60 rounded-lg text-rose-300 text-xs">
+              <div className="p-3 bg-rose-50 border border-rose-300 rounded-xl text-rose-950 text-xs font-medium">
                 {r2UploadError}
               </div>
             )}

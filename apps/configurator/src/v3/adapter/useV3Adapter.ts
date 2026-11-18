@@ -7,6 +7,7 @@ import { useMemo, useCallback, useRef } from "react";
 import { useConfiguratorStore, selectModuleBayComponentSafe } from "../../store/useConfiguratorStore";
 import {
   DEFAULT_MATERIALS,
+  alignModuleShelvesToSystem32,
   registerRuntimeMaterial,
   syncProjectCustomMaterials,
   createDefaultWardrobeModule,
@@ -361,22 +362,40 @@ export function getBayShelfIntervalsForSubDivider(
   panelThickness = 18
 ): SubDividerShelfInterval[] {
   const T = panelThickness || 18;
-  const sortedShelves = [...(bay.shelves || [])].sort((a, b) => a.elevationY - b.elevationY);
-  const rawIntervals: { label: string; botY: number; topY: number }[] = [];
+  const sortedShelves = [...(bay.shelves || [])]
+    .filter((s) => !s.isHidden)
+    .sort((a, b) => a.elevationY - b.elevationY);
 
-  if (sortedShelves.length === 0) {
-    rawIntervals.push({ label: "Alt Taban ↔ Üst Tavan", botY: 0, topY: netInnerH });
+  // Compute top of any bottom drawer stack so space above drawers is ALWAYS a valid shelf interval!
+  const bottomDrawers = (bay.drawers || []).filter((d) => (d.elevationY || 0) < netInnerH * 0.65);
+  const drawerStackTopY =
+    bottomDrawers.length > 0
+      ? Math.max(...bottomDrawers.map((d) => (d.elevationY || 0) + d.height))
+      : 0;
+
+  const rawIntervals: { label: string; botY: number; topY: number }[] = [];
+  const floorStartY = drawerStackTopY > 10 ? drawerStackTopY : 0;
+  const floorLabel = drawerStackTopY > 10 ? "Çekmece Üstü" : "Alt Taban";
+
+  const shelvesAboveFloor = sortedShelves.filter((s) => s.elevationY > floorStartY + 30);
+
+  if (shelvesAboveFloor.length === 0) {
+    if (netInnerH - floorStartY >= 60) {
+      rawIntervals.push({ label: `${floorLabel} ↔ Üst Tavan`, botY: floorStartY, topY: netInnerH });
+    } else {
+      rawIntervals.push({ label: "Alt Taban ↔ Üst Tavan", botY: 0, topY: netInnerH });
+    }
   } else {
-    if (sortedShelves[0].elevationY >= 60) {
+    if (shelvesAboveFloor[0].elevationY - floorStartY >= 60) {
       rawIntervals.push({
-        label: "Alt Taban ↔ Raf 1",
-        botY: 0,
-        topY: sortedShelves[0].elevationY,
+        label: `${floorLabel} ↔ Raf 1`,
+        botY: floorStartY,
+        topY: shelvesAboveFloor[0].elevationY,
       });
     }
-    for (let k = 0; k < sortedShelves.length - 1; k++) {
-      const bY = sortedShelves[k].elevationY + (sortedShelves[k].thickness || T);
-      const tY = sortedShelves[k + 1].elevationY;
+    for (let k = 0; k < shelvesAboveFloor.length - 1; k++) {
+      const bY = shelvesAboveFloor[k].elevationY + (shelvesAboveFloor[k].thickness || T);
+      const tY = shelvesAboveFloor[k + 1].elevationY;
       if (tY - bY >= 60) {
         rawIntervals.push({
           label: `Raf ${k + 1} ↔ Raf ${k + 2}`,
@@ -385,11 +404,12 @@ export function getBayShelfIntervalsForSubDivider(
         });
       }
     }
-    const lastIdx = sortedShelves.length - 1;
-    const lastBotY = sortedShelves[lastIdx].elevationY + (sortedShelves[lastIdx].thickness || T);
+    const lastIdx = shelvesAboveFloor.length - 1;
+    const lastBotY =
+      shelvesAboveFloor[lastIdx].elevationY + (shelvesAboveFloor[lastIdx].thickness || T);
     if (netInnerH - lastBotY >= 60) {
       rawIntervals.push({
-        label: `Raf ${sortedShelves.length} ↔ Üst Tavan`,
+        label: `Raf ${shelvesAboveFloor.length} ↔ Üst Tavan`,
         botY: lastBotY,
         topY: netInnerH,
       });
@@ -398,40 +418,19 @@ export function getBayShelfIntervalsForSubDivider(
 
   return rawIntervals.map((iv) => {
     const height = Math.max(60, iv.topY - iv.botY);
-    const hasRail = (bay.hangingRails || []).some(
-      (r) => r.elevationY >= iv.botY - 12 && r.elevationY <= iv.topY + 12
+    // Only block if an elevated drawer physically fills this exact span
+    const blockedByElevatedDrawer = (bay.drawers || []).some(
+      (d) =>
+        d.elevationY >= floorStartY &&
+        d.elevationY < iv.topY - 12 &&
+        d.elevationY + d.height > iv.botY + 12
     );
-    if (hasRail) {
-      return {
-        ...iv,
-        height,
-        hasConflict: true,
-        conflictReason: "Askılık (Elbise Borusu) var",
-      };
-    }
-    const hasDrawer = (bay.drawers || []).some(
-      (d) => d.elevationY < iv.topY - 8 && d.elevationY + d.height > iv.botY + 8
-    );
-    if (hasDrawer) {
+    if (blockedByElevatedDrawer) {
       return {
         ...iv,
         height,
         hasConflict: true,
         conflictReason: "Çekmece var",
-      };
-    }
-    const hasFitting = (bay.specialFittings || []).some(
-      (f) =>
-        f.type !== "led_profile" &&
-        f.elevationY < iv.topY - 8 &&
-        f.elevationY + (f.height || 80) > iv.botY + 8
-    );
-    if (hasFitting) {
-      return {
-        ...iv,
-        height,
-        hasConflict: true,
-        conflictReason: "Çekmeli Aksesuar var",
       };
     }
     return {
@@ -1648,7 +1647,8 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
       newDepthMm?: number,
       newHeightMm?: number,
       newPositionZ?: number,
-      newPositionY?: number
+      newPositionY?: number,
+      preserveExactMm?: boolean
     ): { bayCount: number; totalLeafCount: number; shelfCount: number } | null => {
       const curState = useConfiguratorStore.getState();
       const curProj = curState.project;
@@ -1656,14 +1656,32 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
       if (!target) return null;
 
       const oldH = target.dimensions.height;
-      const clampedW = Math.max(300, Math.min(3600, Math.round(newWidthMm / 10) * 10));
+      const oldD = target.dimensions.depth;
+      const hull = target.carcass.hullShape || "rectangular";
+      const isTableOrIsland =
+        hull === "capsule_table" ||
+        target.category === "kitchen_island" ||
+        target.complementaryRole === "attached_table";
+      const isCapsuleOrTambour =
+        hull === "capsule_stadium" ||
+        hull === "rounded_corners" ||
+        target.bays.some((b) => b.door?.type === "tambour" || b.door?.doorSystemId === "tambour_roller");
+      const snapFn = (v: number) => (preserveExactMm ? Math.round(v) : Math.round(v / 10) * 10);
+      const minW = hull === "capsule_table" ? 900 : isCapsuleOrTambour ? 600 : 250;
+      const maxW = 3600;
+      const minD = hull === "capsule_table" ? 650 : isCapsuleOrTambour ? 320 : 200;
+      const maxD = isTableOrIsland ? 1450 : 1000;
+      const minH = 260;
+      const maxH = 2900;
+
+      const clampedW = Math.max(minW, Math.min(maxW, snapFn(newWidthMm)));
       const clampedD =
         typeof newDepthMm === "number"
-          ? Math.max(250, Math.min(900, Math.round(newDepthMm / 10) * 10))
+          ? Math.max(minD, Math.min(maxD, snapFn(newDepthMm)))
           : target.dimensions.depth;
       const clampedH =
         typeof newHeightMm === "number"
-          ? Math.max(350, Math.min(2800, Math.round(newHeightMm / 10) * 10))
+          ? Math.max(minH, Math.min(maxH, snapFn(newHeightMm)))
           : target.dimensions.height;
       const leftAttW = curProj.modules
         .filter(
@@ -1786,9 +1804,80 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
             });
           }
         });
+        alignModuleShelvesToSystem32(nextMod);
       }
 
-      if (nextMod.category !== "complementary") {
+      // Synchronize cornerRadiusMm cleanly when depth or width changes on capsule / rounded / table modules
+      if (nextMod.carcass.hullShape === "capsule_stadium") {
+        nextMod.carcass.cornerRadiusMm = Math.min(Math.floor(clampedW / 2) - 40, Math.round(clampedD / 2));
+      } else if (nextMod.carcass.hullShape === "rounded_corners") {
+        const curR = nextMod.carcass.cornerRadiusMm || 110;
+        nextMod.carcass.cornerRadiusMm = Math.max(
+          65,
+          Math.min(Math.max(65, Math.floor(clampedD / 2) - 20), Math.floor(clampedW / 2) - 40, curR)
+        );
+      } else if (nextMod.carcass.hullShape === "capsule_table") {
+        const wasFullStadium = Math.abs((nextMod.carcass.cornerRadiusMm || oldD / 2) - oldD / 2) <= 15;
+        nextMod.carcass.cornerRadiusMm = wasFullStadium
+          ? Math.round(clampedD / 2)
+          : Math.max(80, Math.min(Math.round(clampedD / 2), nextMod.carcass.cornerRadiusMm || Math.round(clampedD / 2)));
+      }
+
+      const isSpecializedCapsuleOrTv =
+        nextMod.carcass.hullShape === "capsule_stadium" ||
+        nextMod.carcass.hullShape === "rounded_corners" ||
+        nextMod.carcass.hullShape === "capsule_table" ||
+        Boolean(nextMod.templateId?.includes("tv_")) ||
+        nextMod.bays.some((b) => b.door?.type === "tambour" || b.door?.doorSystemId === "tambour_roller");
+
+      if (nextMod.carcass.hullShape === "capsule_table") {
+        nextMod.bays = nextMod.bays.slice(0, 1);
+        if (nextMod.bays[0]) {
+          nextMod.bays[0].index = 0;
+          nextMod.bays[0].customWidth = undefined;
+          nextMod.bays[0].door.type = "open";
+          nextMod.bays[0].door.doorSystemId = "open";
+        }
+      } else if (
+        nextMod.carcass.hullShape === "capsule_stadium" ||
+        nextMod.carcass.hullShape === "rounded_corners"
+      ) {
+        // Preserve Tambour & Open Media Bay topology! Scale bay count smoothly only for uniform tambour cabinets
+        const hasOpenCenterMediaBay =
+          nextMod.bays.length >= 3 &&
+          nextMod.bays[0]?.door?.type !== "open" &&
+          nextMod.bays[1]?.door?.type === "open" &&
+          nextMod.bays[nextMod.bays.length - 1]?.door?.type !== "open";
+        if (!hasOpenCenterMediaBay && !nextMod.isOpenFront) {
+          const rEff = nextMod.carcass.cornerRadiusMm || Math.round(clampedD / 2);
+          const straightW = Math.max(160, clampedW - 2 * rEff);
+          const desiredBays = straightW > 1850 ? 3 : straightW > 980 ? 2 : 1;
+          while (nextMod.bays.length < desiredBays) {
+            const newIdx = nextMod.bays.length;
+            const cloned = JSON.parse(JSON.stringify(nextMod.bays[0]));
+            cloned.index = newIdx;
+            cloned.customWidth = undefined;
+            cloned.door.id = `${nextMod.id}_door_${newIdx}`;
+            cloned.door.bayIndex = newIdx;
+            cloned.door.type = "tambour";
+            cloned.door.doorSystemId = "tambour_roller";
+            cloned.shelves = (cloned.shelves || []).map((s: any, si: number) => ({
+              ...s,
+              id: `${nextMod.id}_cap_sh_${newIdx}_${si}`,
+              bayIndex: newIdx,
+            }));
+            cloned.drawers = [];
+            nextMod.bays.push(cloned);
+          }
+          if (nextMod.bays.length > desiredBays) {
+            nextMod.bays = nextMod.bays.slice(0, desiredBays);
+          }
+        }
+        nextMod.bays.forEach((b, idx) => {
+          b.index = idx;
+          if (!hasOpenCenterMediaBay) b.customWidth = undefined;
+        });
+      } else if (nextMod.category !== "complementary" && !isSpecializedCapsuleOrTv) {
         const T = nextMod.carcass.panelThickness || 18;
         const firstBay = nextMod.bays[0];
         const isPureDrawerStack =
@@ -1914,6 +2003,7 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
             b.customWidth = undefined;
           }
         });
+        alignModuleShelvesToSystem32(nextMod);
       }
 
       const attachedPrefix = `comp_att_${target.id}__`;
@@ -2397,6 +2487,81 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
     },
     [commitActiveModuleUpdate]
   );
+
+  const copyBayInteriorToAllBays = useCallback(
+    (sourceBayIdx?: number) => {
+      commitActiveModuleUpdate((mod) => {
+        const srcIdx =
+          typeof sourceBayIdx === "number"
+            ? sourceBayIdx
+            : Math.min(useConfiguratorStore.getState().activeBayIndex, mod.bays.length - 1);
+        const srcBay = mod.bays[srcIdx];
+        if (!srcBay) return mod;
+        const isSlidingModule = mod.bays.some((b) => b.door?.type === "sliding");
+        const stamp = Date.now();
+        mod.bays = mod.bays.map((b, idx) => {
+          if (idx === srcIdx) return b;
+          return {
+            ...b,
+            shelves: (srcBay.shelves || []).map((sh, sIdx) => ({
+              ...sh,
+              id: `sh_${mod.id}_${idx}_${stamp}_${sIdx}`,
+              bayIndex: idx,
+            })),
+            drawers: (srcBay.drawers || []).map((dr, dIdx) => ({
+              ...dr,
+              id: `drw_${mod.id}_${idx}_${stamp}_${dIdx}`,
+              bayIndex: idx,
+              isInternal: isSlidingModule ? true : dr.isInternal,
+            })),
+            hangingRails: (srcBay.hangingRails || []).map((hr, rIdx) => ({
+              ...hr,
+              id: `rail_${mod.id}_${idx}_${stamp}_${rIdx}`,
+              bayIndex: idx,
+            })),
+            specialFittings: (srcBay.specialFittings || []).map((sf, fIdx) => ({
+              ...sf,
+              id: `fit_${mod.id}_${idx}_${stamp}_${fIdx}`,
+              bayIndex: idx,
+            })),
+            subDividers: (srcBay.subDividers || []).map((sd, sdIdx) => ({
+              ...sd,
+              id: `subdiv_${mod.id}_${idx}_${stamp}_${sdIdx}`,
+              bayIndex: idx,
+            })),
+          };
+        });
+        return mod;
+      }, true);
+    },
+    [commitActiveModuleUpdate]
+  );
+
+  const mirrorModuleBaysLeftRight = useCallback(() => {
+    commitActiveModuleUpdate((mod) => {
+      if (mod.bays.length <= 1) return mod;
+      const reversed = [...mod.bays].reverse().map((b, newIdx) => {
+        const flippedDoorType =
+          b.door?.type === "single_left"
+            ? ("single_right" as const)
+            : b.door?.type === "single_right"
+            ? ("single_left" as const)
+            : b.door?.type;
+        return {
+          ...b,
+          index: newIdx,
+          door: b.door ? { ...b.door, bayIndex: newIdx, type: flippedDoorType || b.door.type } : b.door,
+          shelves: b.shelves.map((s) => ({ ...s, bayIndex: newIdx })),
+          drawers: b.drawers.map((d) => ({ ...d, bayIndex: newIdx })),
+          hangingRails: b.hangingRails.map((r) => ({ ...r, bayIndex: newIdx })),
+          specialFittings: b.specialFittings.map((f) => ({ ...f, bayIndex: newIdx })),
+          subDividers: (b.subDividers || []).map((sd) => ({ ...sd, bayIndex: newIdx })),
+        };
+      });
+      mod.bays = reversed;
+      return mod;
+    }, true);
+  }, [commitActiveModuleUpdate]);
 
   const copyDoorConfigToAllBays = useCallback(
     (sourceBayIdx?: number) => {
@@ -3280,7 +3445,7 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
       bayIdx: number,
       itemKind: string,
       elevationY: number,
-      options?: { drawerHeight?: number; isInternal?: boolean; offsetX?: number }
+      options?: { drawerHeight?: number; isInternal?: boolean; offsetX?: number; exactElevation?: boolean }
     ) => {
       commitActiveModuleUpdate((mod) => {
         const netH = calculateNetInnerHeight(mod);
@@ -3288,22 +3453,24 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
         const bay = mod.bays[safeBayIdx];
         if (!bay) return mod;
 
-        // Logical System 32 grid snap (multiples of 32mm)
-        const snappedY = Math.round(elevationY / 32) * 32;
+        const isExact = Boolean(options?.exactElevation);
+        const snappedY = isExact ? Math.round(elevationY) : Math.round(elevationY / 32) * 32;
 
-        // Helper to avoid exact vertical collision with existing shelves/rails/fittings
-        const resolveCollisionFreeY = (targetY: number, minGap = 96, minY = 64, maxY = netH - 64): number => {
+        // Helper to avoid physical overlap while preserving exact user drop elevation
+        const resolveCollisionFreeY = (targetY: number, minGap = 96, minY = 32, maxY = netH - 32): number => {
+          const effGap = isExact ? 24 : minGap;
+          const stepUnit = isExact ? 16 : 32;
           const occupied = [
             ...(bay.shelves || []).map((s) => s.elevationY),
             ...(bay.hangingRails || []).map((r) => r.elevationY),
             ...(bay.specialFittings || []).map((f) => f.elevationY),
           ];
           let candidate = Math.max(minY, Math.min(maxY, targetY));
-          for (let step = 0; step <= 12; step++) {
-            const offset = step * 32;
+          for (let step = 0; step <= 16; step++) {
+            const offset = step * stepUnit;
             for (const dir of [1, -1]) {
               const testY = Math.max(minY, Math.min(maxY, candidate + dir * offset));
-              if (!occupied.some((oy) => Math.abs(oy - testY) < minGap)) {
+              if (!occupied.some((oy) => Math.abs(oy - testY) < effGap)) {
                 return testY;
               }
             }
@@ -3376,7 +3543,7 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
           return mod;
         }
 
-        // Case 0B: Raf Arası Dikme (Sub-Divider spanning automatically between shelves — NEVER inside an interval with a Hanging Rail / Drawer!)
+        // Case 0B: Raf Arası Dikme — Places into the EXACT shelf interval under cursor!
         if (
           itemKind === "lib_sub_divider" ||
           itemKind === "sub_divider" ||
@@ -3386,9 +3553,12 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
           const bayWidths = calculateBayWidths(mod);
           const bayW = bayWidths[safeBayIdx] || 600;
           const intervals = getBayShelfIntervalsForSubDivider(bay, netH, T);
-          const hoveredIv =
-            intervals.find((iv) => elevationY >= iv.botY - 24 && elevationY <= iv.topY + 24) ||
-            intervals.reduce(
+          const usableIntervals = intervals.filter((iv) => !iv.hasConflict);
+          const pool = usableIntervals.length > 0 ? usableIntervals : intervals;
+
+          const chosenIv =
+            pool.find((iv) => elevationY >= iv.botY - 24 && elevationY <= iv.topY + 24) ||
+            pool.reduce(
               (best, iv) =>
                 !best ||
                 Math.abs((iv.botY + iv.topY) / 2 - elevationY) <
@@ -3398,24 +3568,10 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
               null as SubDividerShelfInterval | null
             );
 
-          // If the target interval has a hanging rail, drawer, or pull-out fitting, find the nearest conflict-free shelf interval;
-          // if NO conflict-free shelf interval exists in this bay, refuse to place the sub-divider on top of the hanging rail!
-          let chosenIv: SubDividerShelfInterval | null = hoveredIv;
-          if (!chosenIv || chosenIv.hasConflict) {
-            const freeIntervals = intervals.filter((iv) => !iv.hasConflict);
-            if (freeIntervals.length === 0) {
-              return mod;
-            }
-            chosenIv = freeIntervals.reduce((best, iv) =>
-              Math.abs((iv.botY + iv.topY) / 2 - elevationY) <
-              Math.abs((best.botY + best.topY) / 2 - elevationY)
-                ? iv
-                : best
-            );
-          }
+          if (!chosenIv) return mod;
 
           const botY = chosenIv.botY;
-          const spanH = Math.max(80, chosenIv.height);
+          const spanH = Math.max(60, chosenIv.height);
           const existingInSpan = (bay.subDividers || []).filter(
             (sd) => Math.abs(sd.elevationY - botY) <= 15
           ).length;
@@ -3427,7 +3583,7 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
                     T / 2 +
                     (existingInSpan % 2 === 1 ? 90 : existingInSpan > 0 ? -90 : 0)
                 );
-          const clampedX = Math.max(48, Math.min(Math.max(80, bayW - T - 48), Math.round(rawX / 10) * 10));
+          const clampedX = Math.max(40, Math.min(Math.max(72, bayW - T - 40), Math.round(rawX / 5) * 5));
 
           bay.subDividers = bay.subDividers || [];
           bay.subDividers.push({
@@ -3441,14 +3597,23 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
           return mod;
         }
 
-        if (itemKind === "lib_shelf" || itemKind === "shelf") {
-          const clampedY = resolveCollisionFreeY(snappedY, 96, 64, netH - 64);
+        if (
+          itemKind === "lib_shelf" ||
+          itemKind === "shelf" ||
+          itemKind === "lib_fixed_shelf" ||
+          itemKind === "fixed_shelf"
+        ) {
+          const isFixedShelf = itemKind === "lib_fixed_shelf" || itemKind === "fixed_shelf";
+          const clampedY = resolveCollisionFreeY(snappedY, 96, 32, netH - 32);
           bay.shelves = bay.shelves || [];
           bay.shelves.push({
             id: `shelf_${safeBayIdx}_${Date.now()}`,
             bayIndex: safeBayIdx,
             elevationY: clampedY,
-            isAdjustable: true,
+            thickness: isFixedShelf ? 25 : mod.carcass.panelThickness || 18,
+            isAdjustable: !isFixedShelf,
+            isFixed: isFixedShelf,
+            fixedConnectorType: isFixedShelf ? "minifix_dowel" : undefined,
           });
         } else if (
           itemKind === "lib_drawer" ||
@@ -3464,7 +3629,7 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
           const hasOverlap = bay.drawers.some(
             (d) => clampedY < d.elevationY + d.height && clampedY + h > d.elevationY
           );
-          if (hasOverlap || clampedY < 96) {
+          if (hasOverlap || (!isExact && clampedY < 96)) {
             const topOfStack = bay.drawers.reduce(
               (maxTop, d) => Math.max(maxTop, d.elevationY + d.height),
               0
@@ -3495,7 +3660,7 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
           itemKind === "hanging_rail"
         ) {
           // Logical wardrobe hanging zone: at least 350mm, and if dropped near top, place 80mm below top shelf/panel
-          const clampedY = resolveCollisionFreeY(snappedY, 128, 320, netH - 64);
+          const clampedY = resolveCollisionFreeY(snappedY, 128, isExact ? 140 : 320, netH - 36);
           bay.hangingRails = bay.hangingRails || [];
           bay.hangingRails.push({
             id: `rail_${safeBayIdx}_${Date.now()}`,
@@ -3514,7 +3679,7 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
           else if (itemKind.includes("lift")) fittingType = "wardrobe_lift";
           else if (itemKind.includes("led")) fittingType = "led_profile";
 
-          const clampedY = resolveCollisionFreeY(snappedY, 96, 64, netH - 64);
+          const clampedY = resolveCollisionFreeY(snappedY, 96, 32, netH - 32);
           bay.specialFittings = bay.specialFittings || [];
           bay.specialFittings.push({
             id: `fit_${fittingType}_${safeBayIdx}_${Date.now()}`,
@@ -3535,11 +3700,11 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
       commitActiveModuleUpdate((mod) => {
         const netH = calculateNetInnerHeight(mod);
         const T = mod.carcass.panelThickness || 18;
-        let clampedY = Math.max(60, Math.min(Math.max(100, netH - 60), Math.round(elevationY)));
+        let clampedY = Math.max(32, Math.min(Math.max(64, netH - 32), Math.round(elevationY)));
         const bay = mod.bays[bayIdx];
         if (!bay) return mod;
         const holeYs = computeBaySystem32ShelfHoleElevations(mod, bayIdx, shelfId, {
-          includeFixedShelves: true,
+          includeFixedShelves: false,
         });
         if (holeYs && holeYs.length > 0) {
           let bestHole = holeYs[0];
@@ -3724,6 +3889,31 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
     [commitActiveModuleUpdate]
   );
 
+  const setHangingRailProfile = useCallback(
+    (
+      bayIdx: number,
+      railId: string,
+      profileType: import("@birim/core").HangingRailConfig["profileType"]
+    ) => {
+      commitActiveModuleUpdate((mod) => {
+        const bay = mod.bays[bayIdx];
+        if (!bay) return mod;
+        bay.hangingRails = bay.hangingRails.map((r) =>
+          r.id === railId
+            ? {
+                ...r,
+                profileType,
+                hasIntegratedLed: profileType === "led_black_30x15",
+                isLiftMechanism: profileType === "lift_pantograph",
+              }
+            : r
+        );
+        return mod;
+      }, true);
+    },
+    [commitActiveModuleUpdate]
+  );
+
   /**
    * Update Bay Custom Width (in mm) or reset all bays to equal widths, or drag intermediate divider
    */
@@ -3871,85 +4061,93 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
     (
       bayIdx: number,
       subDividerId: string,
-      updates: { offsetX?: number; elevationY?: number; height?: number; targetMidY?: number },
+      updates: {
+        offsetX?: number;
+        elevationY?: number;
+        height?: number;
+        targetMidY?: number;
+        targetBayIndex?: number;
+      },
       pushHistory = true
     ) => {
       commitActiveModuleUpdate((mod) => {
-        const bay = mod.bays[bayIdx];
-        if (!bay || !bay.subDividers) return mod;
+        const srcBay = mod.bays[bayIdx];
+        if (!srcBay || !srcBay.subDividers) return mod;
+        const foundSd = srcBay.subDividers.find((s) => s.id === subDividerId);
+        if (!foundSd) return mod;
+
+        const destBayIdx =
+          typeof updates.targetBayIndex === "number"
+            ? Math.max(0, Math.min(mod.bays.length - 1, updates.targetBayIndex))
+            : bayIdx;
+        const destBay = mod.bays[destBayIdx];
+        if (!destBay) return mod;
+
         const bayWidths = calculateBayWidths(mod);
-        const bayW = bayWidths[bayIdx] || 600;
+        const bayW = bayWidths[destBayIdx] || 600;
         const netH = calculateNetInnerHeight(mod);
         const T = mod.carcass.panelThickness || 18;
-        const intervals = getBayShelfIntervalsForSubDivider(bay, netH, T);
-        const freeIntervals = intervals.filter((iv) => !iv.hasConflict);
+        const intervals = getBayShelfIntervalsForSubDivider(destBay, netH, T);
+        const usableIntervals = intervals.filter((iv) => !iv.hasConflict);
+        const candidateIntervals = usableIntervals.length > 0 ? usableIntervals : intervals;
 
-        bay.subDividers = bay.subDividers.map((sd) => {
-          if (sd.id !== subDividerId) return sd;
-          const nextX =
-            typeof updates.offsetX === "number"
-              ? Math.max(40, Math.min(Math.max(60, bayW - T - 40), Math.round(updates.offsetX)))
-              : sd.offsetX;
+        const nextX =
+          typeof updates.offsetX === "number"
+            ? Math.max(40, Math.min(Math.max(60, bayW - T - 40), Math.round(updates.offsetX)))
+            : Math.max(40, Math.min(Math.max(60, bayW - T - 40), foundSd.offsetX));
 
-          // If targetMidY is provided (user is dragging the sub-divider vertically in 2D Elevation or 3D),
-          // snap it to the conflict-free shelf interval containing or nearest to targetMidY!
-          if (typeof updates.targetMidY === "number" && freeIntervals.length > 0) {
-            const midY = updates.targetMidY;
-            const containingIv = freeIntervals.find(
-              (iv) => midY >= iv.botY - 18 && midY <= iv.topY + 18
-            );
-            const bestIv =
-              containingIv ||
-              freeIntervals.reduce((best, iv) =>
-                Math.abs((iv.botY + iv.topY) / 2 - midY) <
-                Math.abs((best.botY + best.topY) / 2 - midY)
-                  ? iv
-                  : best
-              );
-            return {
-              ...sd,
-              offsetX: nextX,
-              elevationY: bestIv.botY,
-              height: Math.max(80, bestIv.height),
-            };
-          }
+        let nextY = foundSd.elevationY;
+        let nextH = foundSd.height;
 
-          let nextH =
-            typeof updates.height === "number"
-              ? Math.max(80, Math.min(netH, Math.round(updates.height)))
-              : sd.height;
-          let nextY =
-            typeof updates.elevationY === "number"
-              ? Math.max(0, Math.min(Math.max(0, netH - nextH), Math.round(updates.elevationY)))
-              : sd.elevationY;
-
-          // Prevent manual Y input from placing the sub-divider inside an interval with a hanging rail or drawer
-          const checkMidY = nextY + nextH / 2;
-          const hitConflict = intervals.find(
-            (iv) => iv.hasConflict && checkMidY >= iv.botY && checkMidY <= iv.topY
+        if (typeof updates.elevationY === "number" && typeof updates.height === "number") {
+          nextH = Math.max(60, Math.min(netH, Math.round(updates.height)));
+          nextY = Math.max(0, Math.min(Math.max(0, netH - nextH), Math.round(updates.elevationY)));
+        } else if (typeof updates.targetMidY === "number" && candidateIntervals.length > 0) {
+          const midY = updates.targetMidY;
+          const containingIv = candidateIntervals.find(
+            (iv) => midY >= iv.botY && midY <= iv.topY
           );
-          if (hitConflict && freeIntervals.length > 0) {
-            const nearestFree = freeIntervals.reduce((best, iv) =>
-              Math.abs((iv.botY + iv.topY) / 2 - checkMidY) <
-              Math.abs((best.botY + best.topY) / 2 - checkMidY)
+          const bestIv =
+            containingIv ||
+            candidateIntervals.reduce((best, iv) =>
+              Math.abs((iv.botY + iv.topY) / 2 - midY) <
+              Math.abs((best.botY + best.topY) / 2 - midY)
                 ? iv
                 : best
             );
-            nextY = nearestFree.botY;
-            nextH = Math.max(80, nearestFree.height);
+          nextY = bestIv.botY;
+          nextH = Math.max(60, bestIv.height);
+        } else {
+          if (typeof updates.height === "number") {
+            nextH = Math.max(60, Math.min(netH, Math.round(updates.height)));
           }
+          if (typeof updates.elevationY === "number") {
+            nextY = Math.max(0, Math.min(Math.max(0, netH - nextH), Math.round(updates.elevationY)));
+          }
+        }
 
-          return { ...sd, offsetX: nextX, elevationY: nextY, height: nextH };
-        });
+        const updatedItem = {
+          ...foundSd,
+          bayIndex: destBayIdx,
+          offsetX: nextX,
+          elevationY: nextY,
+          height: nextH,
+        };
+
+        if (destBayIdx !== bayIdx) {
+          srcBay.subDividers = srcBay.subDividers.filter((s) => s.id !== subDividerId);
+          destBay.subDividers = [...(destBay.subDividers || []), updatedItem];
+        } else {
+          srcBay.subDividers = srcBay.subDividers.map((s) =>
+            s.id === subDividerId ? updatedItem : s
+          );
+        }
         return mod;
       }, pushHistory);
     },
     [commitActiveModuleUpdate]
   );
 
-  /**
-   * Remove a partial vertical sub-divider
-   */
   const removeSubDivider = useCallback(
     (bayIdx: number, subDividerId: string) => {
       commitActiveModuleUpdate((mod) => {
@@ -3981,7 +4179,12 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
         | "shoe_tower"
         | "shirt_shelf"
         | "dress_drawer"
-        | "mixed_combo"
+        | "mixed_combo",
+      options?: {
+        shelfCount?: number;
+        shelfMountMode?: "auto" | "all_adjustable" | "all_fixed";
+        shelfThicknessMm?: 18 | 25;
+      }
     ) => {
       commitActiveModuleUpdate((mod) => {
         const bay = mod.bays[bayIdx];
@@ -3996,12 +4199,18 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
         bay.specialFittings = (bay.specialFittings || []).filter((f) => f.type.startsWith("led_"));
 
         if (presetId === "shelves_5") {
-          const count = 5;
+          const count = Math.max(2, Math.min(10, Math.round(options?.shelfCount ?? 5)));
+          const mountMode = options?.shelfMountMode ?? "auto";
           const midFixedIdx = Math.ceil(count / 2); // Shelf 3 of 5 at exact mid-height (~1042mm) acts as structural Konstruktionsboden!
           const step = Math.round(netH / (count + 1));
-          const needs25mm = bw > 980;
+          const resolvedThick = options?.shelfThicknessMm ?? (bw > 980 ? 25 : undefined);
           for (let i = 1; i <= count; i++) {
-            const isMidFixed = netH >= 1400 && i === midFixedIdx;
+            const isMidFixed =
+              mountMode === "all_fixed"
+                ? true
+                : mountMode === "all_adjustable"
+                ? false
+                : netH >= 1400 && i === midFixedIdx;
             const rawY = i * step;
             const snappedY = isMidFixed ? rawY : Math.round(rawY / 32) * 32;
             bay.shelves.push({
@@ -4011,7 +4220,7 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
               isAdjustable: !isMidFixed,
               isFixed: isMidFixed,
               ...(isMidFixed ? { fixedConnectorType: "minifix_dowel" as const } : {}),
-              ...(needs25mm ? { thickness: 25 } : {}),
+              ...(resolvedThick ? { thickness: resolvedThick } : {}),
             });
           }
         } else if (presetId === "rail_double") {
@@ -4360,6 +4569,7 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
           }
           return nextBay;
         });
+        alignModuleShelvesToSystem32(mod);
         return mod;
       }, true);
     },
@@ -6530,7 +6740,7 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
 
   const addCustomCapsuleModule = useCallback(
     (spec: {
-      kind: "capsule_bar" | "capsule_table";
+      kind: "capsule_bar" | "capsule_tv_unit" | "rounded_tambour" | "capsule_table";
       name?: string;
       widthMm: number;
       heightMm: number;
@@ -6544,73 +6754,197 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
       const curProj = state.project;
       const id = `mod_cap_${Date.now()}`;
       const w = Math.max(700, Math.min(3600, Math.round(spec.widthMm)));
-      const d = Math.max(360, Math.min(1200, Math.round(spec.depthMm)));
-      const h = Math.max(450, Math.min(2400, Math.round(spec.heightMm)));
-      const r = Math.max(40, Math.min(Math.floor(d / 2), Math.round(spec.cornerRadiusMm ?? d / 2)));
+      const d = Math.max(340, Math.min(1300, Math.round(spec.depthMm)));
+      const h = Math.max(360, Math.min(2400, Math.round(spec.heightMm)));
       const isTable = spec.kind === "capsule_table";
+      const isRounded = spec.kind === "rounded_tambour";
+      const isTvUnit = spec.kind === "capsule_tv_unit";
+      const r = isRounded
+        ? Math.max(65, Math.min(Math.floor(d / 2) - 20, Math.round(spec.cornerRadiusMm ?? 110)))
+        : Math.max(65, Math.min(Math.floor(d / 2), Math.round(spec.cornerRadiusMm ?? d / 2)));
 
-      // Place cleanly in front of wall or beside existing modules
       const maxRightX = curProj.modules.reduce(
         (acc, m) => Math.max(acc, m.position.x + m.dimensions.width),
         0
       );
 
+      const legH = isTable ? 0 : isTvUnit ? 160 : isRounded ? 150 : 180;
+      const innerEstH = Math.max(160, h - legH - 56);
+      const bodyMat = spec.bodyMaterialId || (isRounded ? "mat_veneer_oak" : "mat_veneer_walnut");
+
+      const bays: import("@birim/core").BayConfig[] = isTable
+        ? [
+            {
+              index: 0,
+              door: {
+                id: `door_${id}_0`,
+                bayIndex: 0,
+                type: "open",
+                doorSystemId: "open",
+                crossSectionProfile: "bevel_45",
+                softClose: false,
+              },
+              shelves: [],
+              hangingRails: [],
+              drawers: [],
+              specialFittings: [],
+            },
+          ]
+        : isTvUnit
+        ? [
+            {
+              index: 0,
+              door: {
+                id: `door_${id}_0`,
+                bayIndex: 0,
+                type: "tambour",
+                doorSystemId: "tambour_roller",
+                crossSectionProfile: "fluted_ribbed",
+                softClose: true,
+                handleCategory: "milled_wood_grip",
+              },
+              shelves: [{ id: `sh_${id}_0_0`, bayIndex: 0, elevationY: Math.round(innerEstH * 0.48), isAdjustable: true }],
+              hangingRails: [],
+              drawers: [],
+              specialFittings: [],
+            },
+            {
+              index: 1,
+              door: {
+                id: `door_${id}_1`,
+                bayIndex: 1,
+                type: "open",
+                doorSystemId: "open",
+                softClose: true,
+              },
+              shelves: [
+                {
+                  id: `sh_${id}_1_0`,
+                  bayIndex: 1,
+                  elevationY: Math.min(innerEstH - 60, Math.max(120, Math.round(innerEstH * 0.52))),
+                  isAdjustable: false,
+                  isFixed: true,
+                },
+              ],
+              hangingRails: [],
+              drawers: [
+                {
+                  id: `drw_${id}_1_0`,
+                  bayIndex: 1,
+                  elevationY: 0,
+                  height: Math.min(200, Math.max(110, Math.round(innerEstH * 0.48))),
+                  slideType: "push_to_open_soft_close",
+                  hardwareProductId: "hw_blum_legrabox_m40",
+                },
+              ],
+              specialFittings: [],
+            },
+            {
+              index: 2,
+              door: {
+                id: `door_${id}_2`,
+                bayIndex: 2,
+                type: "tambour",
+                doorSystemId: "tambour_roller",
+                crossSectionProfile: "fluted_ribbed",
+                softClose: true,
+                handleCategory: "milled_wood_grip",
+              },
+              shelves: [{ id: `sh_${id}_2_0`, bayIndex: 2, elevationY: Math.round(innerEstH * 0.48), isAdjustable: true }],
+              hangingRails: [],
+              drawers: [],
+              specialFittings: [],
+            },
+          ]
+        : [
+            {
+              index: 0,
+              door: {
+                id: `door_${id}_0`,
+                bayIndex: 0,
+                type: "tambour",
+                doorSystemId: "tambour_roller",
+                crossSectionProfile: "fluted_ribbed",
+                softClose: true,
+                handleCategory: "milled_wood_grip",
+              },
+              shelves:
+                innerEstH >= 480
+                  ? [
+                      { id: `sh_${id}_0_0`, bayIndex: 0, elevationY: Math.round(innerEstH * 0.36), isAdjustable: true },
+                      { id: `sh_${id}_0_1`, bayIndex: 0, elevationY: Math.round(innerEstH * 0.68), isAdjustable: true, isGlass: !isRounded },
+                    ]
+                  : [{ id: `sh_${id}_0_0`, bayIndex: 0, elevationY: Math.round(innerEstH * 0.48), isAdjustable: true }],
+              hangingRails: [],
+              drawers: [],
+              specialFittings: [],
+            },
+          ];
+
       const newMod: import("@birim/core").ModuleInstance = {
         id,
         name:
           spec.name?.trim() ||
-          (isTable ? "Birim Kapsül Tasarım Masa" : "Birim Kapsül Tamburlu Bar Dolabı"),
+          (isTable
+            ? "Birim Kapsül Tasarım Masa"
+            : isTvUnit
+            ? "Birim Kapsül Tambur TV Ünitesi"
+            : isRounded
+            ? "Birim R-Köşeli Tambur Konsol"
+            : "Birim Kapsül Tamburlu Bar Dolabı"),
         category: isTable ? "kitchen_island" : "wardrobe",
         moduleFamilyId: isTable ? "fam_kitchen_base" : "fam_wardrobe",
-        templateId: isTable ? "v5_capsule_dining_table_220" : "v5_capsule_bar_cabinet_120",
+        templateId: isTable
+          ? "v5_capsule_dining_table_220"
+          : isTvUnit
+          ? "v5_capsule_tambour_tv_unit_220"
+          : isRounded
+          ? "v5_rounded_tambour_tv_console_200"
+          : "v5_capsule_bar_cabinet_120",
         position: isTable
           ? { x: Math.max(200, Math.round(maxRightX * 0.25)), y: 0, z: 1250 }
-          : { x: maxRightX + 80, y: 0, z: 40 },
+          : { x: maxRightX > 0 ? maxRightX + 60 : 0, y: 0, z: 20 },
         dimensions: { width: w, height: h, depth: d },
         isOpenFront: isTable,
+        utilityCutouts: isTvUnit
+          ? [
+              {
+                id: `cutout_tv_cable_${id}`,
+                targetPanel: "back",
+                kind: "cable_grommet",
+                shape: "rect",
+                centerXMm: Math.round((w - 2 * r) / 2),
+                centerYMm: Math.round(innerEstH * 0.65),
+                widthMm: 180,
+                heightMm: 65,
+                label: "Orta Medya & HDMI Kablo Geçiş Menfezi",
+              },
+            ]
+          : undefined,
         carcass: {
           panelThickness: 18,
           backPanelThickness: 8,
           backPanelType: isTable ? "none" : "grooved",
-          hullShape: isTable ? "capsule_table" : "capsule_stadium",
+          hullShape: isTable ? "capsule_table" : isRounded ? "rounded_corners" : "capsule_stadium",
           cornerRadiusMm: r,
-          tambourSlatPitchMm: spec.tambourSlatPitchMm || 24,
-          plinthHeight: isTable ? 0 : 210,
+          tambourSlatPitchMm: spec.tambourSlatPitchMm || 22,
+          tambourDirection: "horizontal",
+          hasCountertopTray: !isTable && Boolean(spec.topMaterialId),
+          plinthHeight: legH,
           doorPerimeterGap: 2,
           edgeBandThickness: isTable ? 2 : 1,
-          bodyMaterialId: spec.bodyMaterialId || "mat_veneer_walnut",
-          doorMaterialId: spec.bodyMaterialId || "mat_veneer_walnut",
+          bodyMaterialId: bodyMat,
+          doorMaterialId: bodyMat,
           countertopMaterialId:
-            spec.topMaterialId || (isTable ? "mat_veneer_walnut" : "mat_quartz_calacatta"),
-          plinthMaterialId: "mat_metal_brass",
+            spec.topMaterialId || (isTable ? bodyMat : isRounded ? undefined : "mat_quartz_calacatta"),
+          plinthMaterialId: isRounded ? "mat_handle_matte_black" : "mat_metal_brass",
           crossSectionProfile: isTable ? "bevel_45" : "fluted_ribbed",
           jointType: isTable ? "miter_45" : "minifix_dowel",
-          ledLightingEnabled: !isTable,
+          ledLightingEnabled: !isTable && !isRounded,
           ledColorTempK: 2700,
           ledPlacementMode: "shelf_underside",
         },
-        bays: [
-          {
-            index: 0,
-            door: {
-              id: `door_${id}_0`,
-              bayIndex: 0,
-              type: isTable ? "open" : "tambour",
-              doorSystemId: isTable ? "open" : "tambour_roller",
-              crossSectionProfile: isTable ? "bevel_45" : "fluted_ribbed",
-              softClose: !isTable,
-            },
-            shelves: isTable
-              ? []
-              : [
-                  { id: `sh_${id}_0_0`, bayIndex: 0, elevationY: Math.round((h - 240) * 0.36), isAdjustable: true },
-                  { id: `sh_${id}_0_1`, bayIndex: 0, elevationY: Math.round((h - 240) * 0.68), isAdjustable: true, isGlass: true },
-                ],
-            hangingRails: [],
-            drawers: [],
-            specialFittings: [],
-          },
-        ],
+        bays,
       };
 
       const nextModules = [...curProj.modules, newMod];
@@ -6713,7 +7047,7 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
     updateProjectTitle,
     setDimensions: (w: number, h: number, d: number) => {
       const st = useConfiguratorStore.getState();
-      resizeModuleParametric(st.activeModuleIndex, w, undefined, d, h);
+      resizeModuleParametric(st.activeModuleIndex, w, undefined, d, h, undefined, undefined, true);
     },
     setPlinthHeight,
     setMaterials,
@@ -6730,6 +7064,8 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
     flipActiveDoorDirection,
     setBayV4DoorConfig,
     copyDoorConfigToAllBays,
+    copyBayInteriorToAllBays,
+    mirrorModuleBaysLeftRight,
     applyV4Template,
     dropV4TemplateWithSnap,
     applyWardrobeWizard,
@@ -6808,6 +7144,7 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
     setDrawerPlacement,
     setSpecialFittingPlacement,
     setHangingRailElevation,
+    setHangingRailProfile,
     setBayCustomWidth,
     moveInteriorItemToBay,
     addSubDivider,

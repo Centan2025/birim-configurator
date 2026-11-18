@@ -114,10 +114,14 @@ export const DoorCrossSectionProfileSchema = z
     "shaker_frame",
     "fluted_ribbed",
     "glass_frame",
+    "full_smoked_glass",
     "mirror_door",
+    "mirror_frameless",
     "bevel_45",
     "j_pull_bevel",
     "cove_arch",
+    "center_glass_frame",
+    "u_glass_open_top",
     "custom_cad_profile",
   ])
   .optional();
@@ -160,7 +164,7 @@ export const GrainDirectionSchema = z.enum(["lengthwise", "crosswise", "none"]);
 export const Dimensions3DSchema = z.object({
   width: z.number().min(15, "Min width 15mm").max(5000, "Max width 5000mm"),
   height: z.number().min(15, "Min height 15mm").max(3200, "Max height 3200mm"),
-  depth: z.number().min(15, "Min depth 15mm").max(1200, "Max depth 1200mm"),
+  depth: z.number().min(15, "Min depth 15mm").max(1500, "Max depth 1500mm"),
 });
 
 export const Position3DSchema = z.object({
@@ -212,7 +216,16 @@ export const HangingRailConfigSchema = z.object({
   id: z.string(),
   bayIndex: z.number().int().min(0),
   elevationY: z.number().min(0),
-  profileType: z.enum(["oval_30x15", "round_25"]).optional(),
+  profileType: z
+    .enum([
+      "oval_30x15",
+      "round_25",
+      "led_black_30x15",
+      "brass_25",
+      "lift_pantograph",
+      "pullout_front",
+    ])
+    .optional(),
   hasIntegratedLed: z.boolean().optional(),
   isLiftMechanism: z.boolean().optional(),
   isHidden: z.boolean().optional(),
@@ -263,6 +276,7 @@ export const DrawerConfigSchema = z.preprocess(
     hasCooktopHeatShield: z.boolean().optional(),
     grainGroupId: z.string().optional(),
     frontMaterialId: z.string().optional(),
+    frontProfile: DoorCrossSectionProfileSchema,
     hardwareProductId: z.string().optional(),
     nominalLengthMm: z.number().min(200).max(800).optional(),
     isHidden: z.boolean().optional(),
@@ -345,6 +359,7 @@ export const DoorConfigSchema = z.object({
   hingeTopOffsetMm: z.number().min(40).max(500).optional(),
   isGlassFramed: z.boolean().optional(),
   crossSectionProfile: DoorCrossSectionProfileSchema,
+  drawerFrontProfile: DoorCrossSectionProfileSchema,
   customCadProfileName: z.string().optional(),
   customCadPolygon: z.array(CadPolygonPointSchema).optional(),
   handleOrientation: z.enum(["auto", "vertical", "horizontal"]).optional(),
@@ -454,11 +469,14 @@ export const CarcassConfigSchema = z.object({
   plinthMaterialId: z.string().optional(),
   hasAdjustableLegs: z.boolean().optional(),
   crossSectionProfile: DoorCrossSectionProfileSchema,
+  drawerFrontProfile: DoorCrossSectionProfileSchema,
   customCadProfileName: z.string().optional(),
   customCadPolygon: z.array(CadPolygonPointSchema).optional(),
   hullShape: z.enum(["rectangular", "capsule_stadium", "capsule_table", "rounded_corners"]).optional(),
   cornerRadiusMm: z.number().min(10).max(2000).optional(),
   tambourSlatPitchMm: z.number().min(12).max(80).optional(),
+  tambourDirection: z.enum(["horizontal", "vertical"]).optional(),
+  hasCountertopTray: z.boolean().optional(),
   jointType: JointTypeSchema.default("minifix_dowel"),
   doorThickness: z.number().min(10).max(36).optional(),
   overlayDistance: z.number().optional(),
@@ -600,6 +618,7 @@ export const ArchitecturalElementSchema = z.object({
   ]),
   rotationY: z.number().optional(),
   doorSwing: z.enum(["left", "right"]).optional(),
+  doorOpenSide: z.enum(["inward", "outward"]).optional(),
   sillProtrusionMm: z.number().optional(),
   name: z.string(),
   position: Position3DSchema,
@@ -850,6 +869,8 @@ export const CustomMaterialDefinitionSchema = z.object({
   costPerM2: z.number().min(0),
   edgeBandCostPerM: z.number().min(0),
   hasGrain: z.boolean(),
+  requiresEdgeBanding: z.boolean().optional(),
+  requiresPaintshop: z.boolean().optional(),
 });
 
 export const DesignProjectSchema = z.object({

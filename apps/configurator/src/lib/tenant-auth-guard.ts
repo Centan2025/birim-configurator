@@ -63,11 +63,17 @@ const AUDIT_LOGS_BY_TENANT = new Map<string, TenantAuditEvent[]>();
 const RATE_LIMIT_BUCKETS = new Map<string, { count: number; resetAtMs: number }>();
 
 function getSessionSecret(): string {
-  return (
+  const configured =
     process.env.MODUL_SAAS_SESSION_SECRET ||
-    process.env.BIRIM_QUOTE_SIGNING_SECRET ||
-    "modul-saas-dev-session-hmac-secret-v1"
-  );
+    process.env.BIRIM_QUOTE_SIGNING_SECRET;
+  if (!configured && process.env.NODE_ENV === "production") {
+    throw new TenantSecurityError(
+      "SERVER_SECRET_MISSING",
+      "Üretim ortamında MODUL_SAAS_SESSION_SECRET tanımlanması zorunludur.",
+      500
+    );
+  }
+  return configured || "modul-saas-dev-session-hmac-secret-v1";
 }
 
 function toBase64Url(input: string | Buffer): string {
@@ -200,16 +206,17 @@ export function resolveTenantRequestContext(
   const cookieToken = extractCookieValue(req.headers.get("cookie"), "modul_session");
   const headerToken = req.headers.get("x-modul-session-token") || bearerToken || cookieToken;
 
-  const headerOrgId =
+  const explicitHeaderOrgId =
     req.headers.get("x-modul-tenant-id") ||
-    req.headers.get("x-birim-org-id") ||
-    req.headers.get("x-modul-resolved-tenant-slug");
-  const requestedOrgRaw = (
+    req.headers.get("x-birim-org-id");
+  const passiveMiddlewareSlug = req.headers.get("x-modul-resolved-tenant-slug");
+  const explicitRequestedOrgRaw = (
     bodyHint?.tenantId ||
     bodyHint?.organizationId ||
-    headerOrgId ||
+    explicitHeaderOrgId ||
     ""
   ).trim();
+  const requestedOrgRaw = explicitRequestedOrgRaw || (passiveMiddlewareSlug || "").trim();
 
   if (headerToken) {
     const claims = verifyTenantSessionToken(headerToken);
@@ -221,14 +228,14 @@ export function resolveTenantRequestContext(
       );
     }
     const profile = getTenantProfileByIdOrSlug(claims.tenantId);
-    if (requestedOrgRaw) {
-      const requestedProfile = getTenantProfileByIdOrSlug(requestedOrgRaw);
+    if (explicitRequestedOrgRaw) {
+      const requestedProfile = getTenantProfileByIdOrSlug(explicitRequestedOrgRaw);
       const exactMatch =
-        requestedOrgRaw.toLowerCase() === claims.tenantId.toLowerCase() ||
-        requestedOrgRaw.toLowerCase() === claims.tenantSlug.toLowerCase() ||
+        explicitRequestedOrgRaw.toLowerCase() === claims.tenantId.toLowerCase() ||
+        explicitRequestedOrgRaw.toLowerCase() === claims.tenantSlug.toLowerCase() ||
         (requestedProfile.tenantId === claims.tenantId &&
-          (requestedOrgRaw.toLowerCase() === requestedProfile.slug.toLowerCase() ||
-            requestedOrgRaw.toLowerCase() === requestedProfile.tenantId.toLowerCase()));
+          (explicitRequestedOrgRaw.toLowerCase() === requestedProfile.slug.toLowerCase() ||
+            explicitRequestedOrgRaw.toLowerCase() === requestedProfile.tenantId.toLowerCase()));
       if (!exactMatch) {
         recordTenantAuditEvent({
           tenantId: claims.tenantId,
@@ -236,12 +243,12 @@ export function resolveTenantRequestContext(
           actorRole: claims.role,
           action: "SECURITY_CROSS_TENANT_SPOOF_BLOCKED",
           targetType: "organization",
-          targetId: requestedOrgRaw,
-          metadata: { sessionTenantId: claims.tenantId, spoofedTarget: requestedOrgRaw },
+          targetId: explicitRequestedOrgRaw,
+          metadata: { sessionTenantId: claims.tenantId, spoofedTarget: explicitRequestedOrgRaw },
         });
         throw new TenantSecurityError(
           "TENANT_SPOOFING_BLOCKED",
-          `[ZERO-TRUST İZOLASYON KİLİDİ] Oturum organizasyonu (${claims.tenantId}) dışındaki başka bir organizasyona (${requestedOrgRaw}) erişim veya yazma girişimi engellendi.`,
+          `[ZERO-TRUST İZOLASYON KİLİDİ] Oturum organizasyonu (${claims.tenantId}) dışındaki başka bir organizasyona (${explicitRequestedOrgRaw}) erişim veya yazma girişimi engellendi.`,
           403
         );
       }

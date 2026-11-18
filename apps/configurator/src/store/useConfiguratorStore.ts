@@ -40,6 +40,8 @@ import {
   registerOrUpdateTenantProfile,
   type SaasRoleId,
   type TenantWorkspaceProfile,
+  alignModuleShelvesToSystem32,
+  resolveMultiHoleSpec,
 } from "@birim/core";
 import { generateBOMForProject, ManufacturingBOM } from "@birim/manufacturing";
 import { calculateProjectPrice, PricingBreakdown } from "@birim/pricing";
@@ -125,6 +127,9 @@ export interface ConfiguratorState {
   cncXrayMode: boolean;
   studioSplitView: boolean;
   cameraPreset: CameraPreset;
+  displayUnit: "cm" | "mm";
+  activeWallId: string | null;
+  setActiveWallId: (wallId: string | null) => void;
   uiMode: "simple" | "technical";
   userExperienceTier: UserExperienceTier;
   toolbarLabelMode: ToolbarLabelMode;
@@ -157,6 +162,7 @@ export interface ConfiguratorState {
   ) => TenantWorkspaceProfile;
 
   // Actions
+  setDisplayUnit: (unit: "cm" | "mm") => void;
   setUiMode: (mode: "simple" | "technical") => void;
   setUserExperienceTier: (tier: UserExperienceTier) => void;
   setToolbarLabelMode: (mode: ToolbarLabelMode) => void;
@@ -189,7 +195,7 @@ export interface ConfiguratorState {
   setPlinthHeight: (plinth: number) => void;
   setMaterials: (bodyMatId?: string, doorMatId?: string) => void;
   setBayCount: (count: number) => void;
-  setBayDoorType: (bayIdx: number, type: "single_left" | "single_right" | "double" | "sliding" | "open") => void;
+  setBayDoorType: (bayIdx: number, type: "single_left" | "single_right" | "double" | "sliding" | "tambour" | "open") => void;
   setBayHandleCategory: (bayIdx: number, category: HandleCategory, handleProfileId?: string) => void;
 
   // Interior fittings
@@ -256,6 +262,8 @@ export interface ConfiguratorState {
       name?: string;
       rotationY?: number;
       doorSwing?: ArchitecturalElement["doorSwing"];
+      doorOpenSide?: ArchitecturalElement["doorOpenSide"];
+      metadata?: ArchitecturalElement["metadata"];
       position?: Partial<ArchitecturalElement["position"]>;
       dimensions?: Partial<ArchitecturalElement["dimensions"]>;
     }
@@ -659,6 +667,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
   cncXrayMode: false,
   studioSplitView: false,
   cameraPreset: "iso",
+  displayUnit: "cm",
   uiMode: "simple",
   userExperienceTier: "simple",
   toolbarLabelMode: "compact",
@@ -680,7 +689,22 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
   batchStartProject: null,
   selectedModuleIds: initialProj.modules[0] ? [initialProj.modules[0].id] : [],
   selectedSceneObjectId: null,
+  activeWallId: "wall_main",
+  setActiveWallId: (activeWallId) => set({ activeWallId }),
 
+  setDisplayUnit: (displayUnit) => {
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.setItem("birim_elev_unit", displayUnit);
+      } catch {
+        // ignore storage quota
+      }
+    }
+    set((st) => ({
+      displayUnit,
+      project: { ...st.project, displayUnit },
+    }));
+  },
   setUiMode: (uiMode) =>
     set({
       uiMode,
@@ -1179,9 +1203,19 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
     const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
     const next = {
       width: roundIntMm(mod.isFixedWidth ? mod.dimensions.width : clamp(width, limits?.minW ?? 200, limits?.maxW ?? 3600)),
-      height: roundIntMm(clamp(height, limits?.minH ?? 300, limits?.maxH ?? 2800)),
-      depth: roundIntMm(clamp(depth, limits?.minD ?? 200, limits?.maxD ?? 950)),
+      height: roundIntMm(clamp(height, limits?.minH ?? 260, limits?.maxH ?? 2900)),
+      depth: roundIntMm(clamp(depth, limits?.minD ?? 200, limits?.maxD ?? 1450)),
     };
+    if (mod.carcass.hullShape === "capsule_stadium") {
+      mod.carcass.cornerRadiusMm = Math.min(Math.floor(next.width / 2) - 40, Math.round(next.depth / 2));
+    } else if (mod.carcass.hullShape === "rounded_corners") {
+      mod.carcass.cornerRadiusMm = Math.max(
+        65,
+        Math.min(Math.max(65, Math.floor(next.depth / 2) - 20), mod.carcass.cornerRadiusMm || 110)
+      );
+    } else if (mod.carcass.hullShape === "capsule_table") {
+      mod.carcass.cornerRadiusMm = Math.round(next.depth / 2);
+    }
     const maxSafeBays = getMaxSafeBayCount(next.width, mod.carcass.panelThickness);
     if (mod.bays.length > maxSafeBays) {
       mod.bays = mod.bays.slice(0, maxSafeBays).map((b, idx) => ({ ...b, index: idx }));
@@ -1332,7 +1366,18 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
 
-    if (type === "sliding") {
+    if (type === "tambour") {
+      if (mod.dimensions.depth < 320) {
+        mod.dimensions.depth = 360;
+      }
+      const targetBay = mod.bays[bayIdx];
+      targetBay.door.type = "tambour";
+      targetBay.door.doorSystemId = "tambour_roller";
+      targetBay.door.overlayType = "inset";
+      targetBay.door.handleCategory = "milled_wood_grip";
+      targetBay.drawers = (targetBay.drawers || []).map((dr) => ({ ...dr, isInternal: true }));
+      mod.isOpenFront = false;
+    } else if (type === "sliding") {
       // Industrial sliding wardrobe rule: minimum 1200mm width, >=600mm depth, >=2 bays, recessed grips, internal drawers only
       if (mod.dimensions.width < 1200) {
         mod.dimensions.width = 1400;
@@ -1515,6 +1560,9 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
       const snappedY = Math.round(idealY / 32) * 32;
       sh.elevationY = Math.max(48, Math.min(netH - 48, snappedY));
     });
+    if (resolveMultiHoleSpec(mod).mode !== "none") {
+      alignModuleShelvesToSystem32(mod, { includeFixedShelves: true });
+    }
     bay.shelves.sort((a, b) => a.elevationY - b.elevationY);
 
     if (batchStartProject) {
@@ -2379,6 +2427,9 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
       });
     }
 
+    if (resolveMultiHoleSpec(solved.moduleInstance).mode !== "none") {
+      alignModuleShelvesToSystem32(solved.moduleInstance, { includeFixedShelves: true });
+    }
     updated.modules.push(solved.moduleInstance);
     const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
@@ -2449,6 +2500,9 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
         drawers: [],
         specialFittings: [],
       }));
+      if (resolveMultiHoleSpec(baseNew).mode !== "none") {
+        alignModuleShelvesToSystem32(baseNew, { includeFixedShelves: true });
+      }
       updated.modules.push(baseNew);
     }
 
@@ -3113,6 +3167,14 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod) return;
     mod.carcass = { ...mod.carcass, ...patch };
+    if (
+      (patch.multiHoleMode !== undefined && patch.multiHoleMode !== "none") ||
+      ((patch.multiHoleEdgeMarginMm !== undefined ||
+        patch.multiHoleFrontSetbackMm !== undefined) &&
+        resolveMultiHoleSpec(mod).mode !== "none")
+    ) {
+      alignModuleShelvesToSystem32(mod, { includeFixedShelves: true });
+    }
     updated.version += 1;
     updated.updatedAt = new Date().toISOString();
     const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
@@ -3133,11 +3195,9 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
     const { project, history, batchStartProject } = get();
     const updated = cloneProject(project);
     updated.facadeGrainContinuity = Boolean(enabled);
-    if (enabled) {
-      updated.modules.forEach((m) => {
-        m.carcass.grainContinuityMode = "facade_continuous";
-      });
-    }
+    updated.modules.forEach((m) => {
+      m.carcass.grainContinuityMode = enabled ? "facade_continuous" : "none";
+    });
     const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
       history: nextHistory(history, project, batchStartProject),
@@ -3344,6 +3404,8 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
       name: obstacleInput.name,
       rotationY: obstacleInput.rotationY ?? 0,
       doorSwing: obstacleInput.doorSwing ?? "left",
+      doorOpenSide: obstacleInput.doorOpenSide ?? "inward",
+      metadata: obstacleInput.metadata ? { ...obstacleInput.metadata } : undefined,
       position: { ...obstacleInput.position },
       dimensions: { ...obstacleInput.dimensions },
     };
@@ -3380,6 +3442,8 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
             name: patch.name ?? el.name,
             rotationY: patch.rotationY !== undefined ? patch.rotationY : el.rotationY,
             doorSwing: patch.doorSwing !== undefined ? patch.doorSwing : el.doorSwing,
+            doorOpenSide: patch.doorOpenSide !== undefined ? patch.doorOpenSide : el.doorOpenSide,
+            metadata: patch.metadata !== undefined ? { ...(el.metadata || {}), ...patch.metadata } : el.metadata,
             position: patch.position
               ? { ...el.position, ...patch.position }
               : el.position,

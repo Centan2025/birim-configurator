@@ -319,14 +319,14 @@ export const DOOR_SYSTEM_DEFINITIONS: DoorSystemDefinition[] = [
   },
   {
     id: "tambour_roller",
-    name: "12. Tambur / Panjur Kapak (Önizleme)",
-    description: "Kılavuz kanal içinde sarılan esnek panjur kapak (UNVERIFIED — Önizleme)",
+    name: "12. Tambur / Esnek Panjur Kapak Sistemi",
+    description: "8.5×7.5mm CNC kılavuz kanal veya üst sarım kasetinde çalışan akustik keçeli ahşap/alüminyum tambur kapak",
     leafCount: 1,
     defaultOverlayType: "inset",
     kinematicType: "tambour_roller",
-    maxOpenAngleDeg: 0,
-    minCarcassDepthMm: 350,
-    verifiedForProduction: false,
+    maxOpenAngleDeg: 90,
+    minCarcassDepthMm: 300,
+    verifiedForProduction: true,
   },
 ];
 

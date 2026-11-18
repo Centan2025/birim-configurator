@@ -1,4 +1,5 @@
 import {
+  alignModuleShelvesToSystem32,
   calculateNetInnerHeight,
   DoorSystemId,
   HandleCategory,
@@ -530,7 +531,7 @@ export function applyWardrobeInteriorWizard(
           {
             id: `fit_${module.id}_${idx}_jwl`,
             bayIndex: idx,
-            elevationY: 200,
+            elevationY: 345,
             type: "jewelry_tray" as const,
             height: 60,
           },
@@ -607,10 +608,12 @@ export function applyWardrobeInteriorWizard(
     };
   });
 
-  return {
+  const updatedModule: ModuleInstance = {
     ...module,
     bays: updatedBays,
   };
+  alignModuleShelvesToSystem32(updatedModule);
+  return updatedModule;
 }
 
 /**

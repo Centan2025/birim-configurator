@@ -132,7 +132,7 @@ function runBlenderProcess(
   return new Promise((resolve, reject) => {
     const proc = spawn(
       exePath,
-      ["--background", "--python", scriptPath, "--", glbPath, outputPngPath, metaPath],
+      ["--background", "--python-exit-code", "1", "--python", scriptPath, "--", glbPath, outputPngPath, metaPath],
       { stdio: ["ignore", "pipe", "pipe"] }
     );
 
@@ -190,13 +190,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     tenantCtx = resolveTenantRequestContext(request);
     checkTenantRateLimit(tenantCtx.tenantId, "blender_render", 20);
-    consumeTenantUsageQuota(
-      tenantCtx.tenantId,
-      tenantCtx.profile,
-      "cloud_render",
-      1,
-      request.headers.get("Idempotency-Key") || undefined
-    );
   } catch (err) {
     if (err instanceof TenantSecurityError) {
       return NextResponse.json(
@@ -207,11 +200,30 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     throw err;
   }
 
+  const exePath = await resolveBlenderExecutable();
+  const isExternalSaasTenant = tenantCtx.tenantSlug !== "birim";
   const isCloudQueueMode =
     process.env.MODUL_CLOUD_SAAS_MODE === "true" ||
-    (tenantCtx.tenantSlug !== "birim" && process.env.MODUL_ALLOW_LOCAL_BLENDER_SPAWN !== "true");
+    (isExternalSaasTenant && !exePath);
 
   if (isCloudQueueMode) {
+    try {
+      consumeTenantUsageQuota(
+        tenantCtx.tenantId,
+        tenantCtx.profile,
+        "cloud_render",
+        1,
+        request.headers.get("Idempotency-Key") || undefined
+      );
+    } catch (err) {
+      if (err instanceof TenantSecurityError) {
+        return NextResponse.json(
+          { ok: false, code: err.code, error: err.message },
+          { status: err.httpStatus }
+        );
+      }
+      throw err;
+    }
     const cloudJobId = `rnd_${tenantCtx.tenantSlug}_${Date.now()}`;
     const r2TargetKey = `${tenantCtx.tenantId}/configurator/renders/${cloudJobId}.png`;
     recordTenantAuditEvent({
@@ -236,12 +248,29 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const exePath = await resolveBlenderExecutable();
   if (!exePath) {
     return NextResponse.json(
       { error: "Blender yuklu degil veya BLENDER_PATH tanimli degil." },
       { status: 503 }
     );
+  }
+
+  try {
+    consumeTenantUsageQuota(
+      tenantCtx.tenantId,
+      tenantCtx.profile,
+      "cloud_render",
+      1,
+      request.headers.get("Idempotency-Key") || undefined
+    );
+  } catch (err) {
+    if (err instanceof TenantSecurityError) {
+      return NextResponse.json(
+        { ok: false, code: err.code, error: err.message },
+        { status: err.httpStatus }
+      );
+    }
+    throw err;
   }
 
   const scriptPath = path.resolve(process.cwd(), "scripts", "blender_studio_render.py");
@@ -256,6 +285,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const jobId = crypto.randomUUID();
   const tempDir = path.join(os.tmpdir(), "birim-blender-render", jobId);
+  let cleanupHandledByStream = false;
 
   try {
     const formData = await request.formData();
@@ -315,11 +345,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                   lastPct = Math.max(lastPct, 32);
                   send({ type: "progress", pct: lastPct, stage: line.replace("[BIRIM_CYCLES] ", "") });
                 } else {
+                  const tileMatch = line.match(/Rendered\s+(\d+)\s*\/\s*(\d+)\s+Tiles/i);
                   const sampleMatch = line.match(/Sample\s+(\d+)\s*\/\s*(\d+)/i);
                   if (sampleMatch) {
                     const cur = Number(sampleMatch[1]);
                     const tot = Math.max(1, Number(sampleMatch[2]));
-                    const pct = Math.min(93, Math.max(lastPct, 32 + Math.round((cur / tot) * 60)));
+                    let combinedFrac = cur / tot;
+                    if (tileMatch) {
+                      const doneTiles = Math.max(0, Number(tileMatch[1]));
+                      const totalTiles = Math.max(1, Number(tileMatch[2]));
+                      combinedFrac = Math.min(1, (doneTiles + cur / tot) / totalTiles);
+                    }
+                    const pct = Math.min(93, Math.max(lastPct, 32 + Math.round(combinedFrac * 60)));
                     lastPct = pct;
                     const remMatch = line.match(/Remaining:([^\s|]+)/i);
                     const rem = remMatch ? ` • Kalan ~${remMatch[1]}` : "";
@@ -356,6 +393,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           }
         },
       });
+      cleanupHandledByStream = true;
       return new NextResponse(stream, {
         headers: {
           "Content-Type": "application/x-ndjson; charset=utf-8",
@@ -390,10 +428,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const message = err instanceof Error ? err.message : "Blender render hatasi";
     return NextResponse.json({ error: message }, { status: 500 });
   } finally {
-    try {
-      await fs.rm(tempDir, { recursive: true, force: true });
-    } catch {
-      // ignore cleanup error
+    if (!cleanupHandledByStream) {
+      try {
+        await fs.rm(tempDir, { recursive: true, force: true });
+      } catch {
+        // ignore cleanup error
+      }
     }
   }
 }

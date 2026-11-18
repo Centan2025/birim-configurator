@@ -1,5 +1,6 @@
 import { V5_SPECIALIZED_MODULE_TEMPLATES, loadSavedCustomModuleTemplates } from "./v5-scene-object-catalog";
 import {
+  alignModuleShelvesToSystem32,
   DoorOverlayType,
   DoorSystemId,
   ModuleCategory,
@@ -241,18 +242,43 @@ function buildTemplateFromSeed(seed: TemplateSeed): V4ModuleTemplateDefinition {
         const hangingRails = Array.from({ length: seed.bayHangingRailsCount?.[bayIdx] ?? (seed.hangingRailsPerBay || 0) }, (__, rIdx) => ({
           id: `rail_${id}_${bayIdx}_${rIdx}`,
           bayIndex: bayIdx,
-          elevationY: rIdx === 0 ? Math.max(400, innerH - 120) : Math.round(innerH * 0.48),
+          elevationY:
+            rIdx === 0
+              ? Math.max(400, innerH - 120)
+              : Math.max(400, Math.round(innerH * 0.48) - (shelvesCount >= 1 ? 110 : 0)),
           isLiftMechanism: seed.templateId.includes("hanging_heavy") && rIdx === 0,
         }));
+
+        const drawersTopY = rawDrawerHeights.reduce((sum, h) => sum + h + 5, 0);
+        const resolveSpecialFittingSpec = (
+          type: NonNullable<TemplateSeed["specialFitting"]>
+        ): { elevationY: number; height: number } => {
+          switch (type) {
+            case "wardrobe_lift":
+              return { elevationY: Math.max(1150, innerH - 220), height: 120 };
+            case "trouser_rack":
+              return { elevationY: Math.min(Math.max(550, Math.round(innerH * 0.38)), 820), height: 100 };
+            case "shoe_rack":
+              return { elevationY: 180, height: 120 };
+            case "led_profile":
+              return { elevationY: 0, height: innerH };
+            case "jewelry_tray":
+              return {
+                elevationY: rawDrawerHeights.length > 0 ? drawersTopY + 12 : Math.round(innerH * 0.42),
+                height: 60,
+              };
+            default:
+              return { elevationY: 240, height: 120 };
+          }
+        };
 
         const specialFittings = seed.specialFitting
           ? [
               {
                 id: `fit_${id}_${bayIdx}_0`,
                 bayIndex: bayIdx,
-                elevationY: 320,
+                ...resolveSpecialFittingSpec(seed.specialFitting),
                 type: seed.specialFitting,
-                height: 120,
               },
             ]
           : [];
@@ -347,7 +373,7 @@ function buildTemplateFromSeed(seed: TemplateSeed): V4ModuleTemplateDefinition {
         };
       });
 
-      return {
+      const mod: ModuleInstance = {
         id,
         name: customName || seed.name,
         category: seed.category,
@@ -377,6 +403,8 @@ function buildTemplateFromSeed(seed: TemplateSeed): V4ModuleTemplateDefinition {
         complementaryRole: seed.complementaryRole,
         bays,
       };
+      alignModuleShelvesToSystem32(mod);
+      return mod;
     },
   };
 }

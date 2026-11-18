@@ -19,6 +19,7 @@ import {
   V4_MODULE_TEMPLATES,
   V5_COMPOSITE_ASSEMBLIES,
   V5_SCENE_OBJECT_CATALOG,
+  registerDiscoveredSceneObjectCatalogItems,
   V5_SPECIALIZED_MODULE_TEMPLATES,
   type SceneObjectCatalogItem,
 } from "@birim/catalog";
@@ -122,6 +123,24 @@ export const SceneObjectAndModuleHubModal: React.FC<SceneObjectAndModuleHubModal
   const [capBodyMat, setCapBodyMat] = useState<string>("mat_veneer_walnut");
   const [capTopMat, setCapTopMat] = useState<string>("mat_quartz_calacatta");
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
+  const [, setLocalGlbScanTick] = useState(0);
+
+  React.useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    fetch("/api/scene-objects/local-glbs", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled && Array.isArray(data?.items)) {
+          const added = registerDiscoveredSceneObjectCatalogItems(data.items);
+          if (added > 0) setLocalGlbScanTick((t) => t + 1);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
   const [targetWallId, setTargetWallId] = useState<string>(
     project.space.walls?.[0]?.id || "wall_main"
   );

@@ -13,6 +13,7 @@ import {
   isCooktopModule,
   BoundedLruCache,
   computeModuleStructuralSignature,
+  computeModuleIntrinsicSignature,
 } from "@birim/core";
 import { ComponentGeometry, ModuleGeometryBreakdown } from "./types";
 import { generateHandleGeometry } from "./handle-geometry";
@@ -29,7 +30,7 @@ export function generateModuleGeometry(
   module: ModuleInstance,
   options: GenerateGeometryOptions = {}
 ): ModuleGeometryBreakdown {
-  const cacheKey = `${computeModuleStructuralSignature(module)}|${options.doorOpenAngleDeg || 0}:${options.drawerOpenMm || 0}:${options.explodedFactor || 0}`;
+  const cacheKey = `${computeModuleIntrinsicSignature(module)}|${options.doorOpenAngleDeg || 0}:${options.drawerOpenMm || 0}:${options.explodedFactor || 0}`;
   const cached = moduleGeometryCache.get(cacheKey);
   if (cached) return cached;
 
@@ -136,40 +137,60 @@ export function generateModuleGeometry(
     return dshRes;
   }
 
-  // Handle Parametric Capsule Stadium Cabinet & Capsule Table Canonically (P0-01: Single Source of Truth for 3D + 2D + BOM!)
+  // Handle Parametric Capsule Stadium, Rounded-Corners Tambour Units & Capsule Table Canonically (Single Source of Truth for 3D + 2D + BOM!)
   if (
     module.carcass.hullShape === "capsule_stadium" ||
+    module.carcass.hullShape === "rounded_corners" ||
     module.carcass.hullShape === "capsule_table"
   ) {
     const capComponents: ComponentGeometry[] = [];
-    const capR = Math.min(depth / 2, module.carcass.cornerRadiusMm || depth / 2);
+    const isRoundedRect = module.carcass.hullShape === "rounded_corners";
+    const maxAllowedR = Math.max(40, Math.min(depth / 2, width / 2 - 40));
+    const capR = isRoundedRect
+      ? Math.max(65, Math.min(Math.max(65, depth / 2 - 20), maxAllowedR, module.carcass.cornerRadiusMm || 110))
+      : module.carcass.hullShape === "capsule_table"
+      ? Math.max(80, Math.min(maxAllowedR, module.carcass.cornerRadiusMm || depth / 2))
+      : maxAllowedR;
     const straightSpanW = Math.max(0, width - 2 * capR);
-    const buildStadiumContour = (wTotal: number, dTotal: number): [number, number][] => {
-      const r = Math.min(wTotal / 2, dTotal / 2);
-      const xL = r;
-      const xR = Math.max(r, wTotal - r);
+    const flatSideZ = Math.max(0, depth - 2 * capR);
+
+    // Closed 2D polygon in DXF local panel coordinates: X = En (depth, 0..dTotal), Y = Boy (width, 0..wTotal)
+    const buildRoundedContour = (wTotal: number, dTotal: number, rCorner: number): [number, number][] => {
+      const r = Math.max(8, Math.min(wTotal / 2, dTotal / 2, rCorner));
       const pts: [number, number][] = [];
-      // 16-segment smooth stadium closed polygon in [0..dTotal, 0..wTotal] DXF local space (X=En=depth, Y=Boy=width)
-      const segs = 8;
-      for (let i = 0; i <= segs; i++) {
-        const ang = Math.PI + (Math.PI * i) / segs;
+      const corners: [number, number, number, number][] = [
+        [r, r, Math.PI, 1.5 * Math.PI],
+        [dTotal - r, r, 1.5 * Math.PI, 2.0 * Math.PI],
+        [dTotal - r, wTotal - r, 0, 0.5 * Math.PI],
+        [r, wTotal - r, 0.5 * Math.PI, Math.PI],
+      ];
+      for (const [cx, cy, a0, a1] of corners) {
+        for (let i = 0; i <= 6; i++) {
+          const ang = a0 + ((a1 - a0) * i) / 6;
+          pts.push([
+            Math.round((cx + r * Math.cos(ang)) * 100) / 100,
+            Math.round((cy + r * Math.sin(ang)) * 100) / 100,
+          ]);
+        }
+      }
+      return pts;
+    };
+
+    const buildCircleContour = (diam: number): [number, number][] => {
+      const r = diam / 2;
+      const pts: [number, number][] = [];
+      for (let i = 0; i < 20; i++) {
+        const ang = (2 * Math.PI * i) / 20;
         pts.push([
           Math.round((r + r * Math.cos(ang)) * 100) / 100,
-          Math.round((xL + r * Math.sin(ang) * -1) * 100) / 100,
-        ]);
-      }
-      for (let i = 0; i <= segs; i++) {
-        const ang = (Math.PI * i) / segs;
-        pts.push([
-          Math.round((dTotal - r + r * Math.cos(ang)) * 100) / 100,
-          Math.round((xR + r * Math.sin(ang)) * 100) / 100,
+          Math.round((r + r * Math.sin(ang)) * 100) / 100,
         ]);
       }
       return pts;
     };
 
     if (module.carcass.hullShape === "capsule_table") {
-      const topT = module.attachedTableConfig?.topThicknessMm || 36;
+      const topT = module.carcass.topPanelThicknessMm || module.attachedTableConfig?.topThicknessMm || 36;
       const pedH = Math.max(120, height - topT);
       const pedR = Math.round(Math.min(185, Math.max(95, depth * 0.21)));
       const arcFullMm = Math.round(2 * Math.PI * pedR * 10) / 10;
@@ -177,6 +198,7 @@ export function generateModuleGeometry(
       const kerfCnt = Math.max(12, Math.round(arcFullMm / kerfPitch));
       const pedCount = width >= 1450 ? 2 : 1;
       const topMat = module.carcass.countertopMaterialId || doorMaterialId || bodyMaterialId;
+      const innerDiscDiam = Math.max(120, pedR * 2 - 2 * T);
 
       capComponents.push({
         id: `${module.id}_capsule_table_top`,
@@ -188,35 +210,81 @@ export function generateModuleGeometry(
         isFrontFacing: true,
         isManufacturablePanel: true,
         thicknessAxis: "y",
-        polygonContourMm: buildStadiumContour(width, depth),
+        polygonContourMm: buildRoundedContour(width, depth, capR),
       });
 
+      const pedCentersX: number[] = [];
       for (let pi = 0; pi < pedCount; pi++) {
         const cx =
           pedCount === 1
             ? width / 2
             : pi === 0
-            ? Math.max(pedR + 80, width * 0.27)
-            : Math.min(width - pedR - 80, width * 0.73);
-        capComponents.push({
-          id: `${module.id}_kerf_pedestal_${pi + 1}`,
-          role: "kerf_curve",
-          label: `Silindirik Kapsül Sütun Ayak Kerf Açınımı #${pi + 1} (Ø${pedR * 2}mm)`,
-          dimensions: { width: arcFullMm, height: pedH, depth: T },
-          position: { x: cx - pedR, y: 0, z: depth / 2 - pedR },
-          primitive: "cylinder",
-          materialId: doorMaterialId || bodyMaterialId,
-          isFrontFacing: true,
-          isManufacturablePanel: true,
-          thicknessAxis: "z",
-          kerfBendingMeta: {
-            outerRadiusMm: pedR,
-            bendAngleDeg: 360,
-            unfoldedArcLengthMm: arcFullMm,
-            kerfCount: kerfCnt,
-            kerfSpacingMm: Math.round((arcFullMm / kerfCnt) * 100) / 100,
-            residualWebMm: 2.5,
+            ? Math.max(pedR + 90, Math.round(width * 0.26))
+            : Math.min(width - pedR - 90, Math.round(width * 0.74));
+        pedCentersX.push(cx);
+        capComponents.push(
+          {
+            id: `${module.id}_kerf_pedestal_${pi + 1}`,
+            role: "kerf_curve",
+            label: `Silindirik Kapsül Sütun Ayak Kerf Açınımı #${pi + 1} (Ø${pedR * 2}mm)`,
+            dimensions: { width: arcFullMm, height: pedH, depth: T },
+            position: { x: cx - pedR, y: 0, z: depth / 2 - pedR },
+            primitive: "cylinder",
+            materialId: doorMaterialId || bodyMaterialId,
+            isFrontFacing: true,
+            isManufacturablePanel: true,
+            thicknessAxis: "z",
+            kerfBendingMeta: {
+              outerRadiusMm: pedR,
+              bendAngleDeg: 360,
+              unfoldedArcLengthMm: arcFullMm,
+              kerfCount: kerfCnt,
+              kerfSpacingMm: Math.round((arcFullMm / kerfCnt) * 100) / 100,
+              residualWebMm: 2.5,
+            },
           },
+          {
+            id: `${module.id}_pedestal_disc_top_${pi + 1}`,
+            role: "carcass_top",
+            label: `Sütun Ayak Üst Kalıp & Flanş Diski #${pi + 1} (Ø${innerDiscDiam}mm)`,
+            dimensions: { width: innerDiscDiam, height: T, depth: innerDiscDiam },
+            position: { x: cx - innerDiscDiam / 2, y: pedH - T, z: depth / 2 - innerDiscDiam / 2 },
+            materialId: bodyMaterialId,
+            isManufacturablePanel: true,
+            thicknessAxis: "y",
+            polygonContourMm: buildCircleContour(innerDiscDiam),
+          },
+          {
+            id: `${module.id}_pedestal_disc_bot_${pi + 1}`,
+            role: "carcass_bottom",
+            label: `Sütun Ayak Alt Terazi Diski #${pi + 1} (Ø${innerDiscDiam}mm)`,
+            dimensions: { width: innerDiscDiam, height: T, depth: innerDiscDiam },
+            position: { x: cx - innerDiscDiam / 2, y: 8, z: depth / 2 - innerDiscDiam / 2 },
+            materialId: bodyMaterialId,
+            isManufacturablePanel: true,
+            thicknessAxis: "y",
+            polygonContourMm: buildCircleContour(innerDiscDiam),
+          }
+        );
+      }
+
+      if (pedCentersX.length >= 2) {
+        const spanBeamW = Math.max(240, pedCentersX[1] - pedCentersX[0] + pedR);
+        capComponents.push({
+          id: `${module.id}_table_steel_apron`,
+          role: "special_fitting",
+          label: `Masa Altı Çelik Sarkma Önleyici Travers (${Math.round(spanBeamW)}×40×30mm)`,
+          dimensions: { width: Math.round(spanBeamW), height: 30, depth: 80 },
+          position: { x: Math.round((width - spanBeamW) / 2), y: pedH - 30, z: Math.round(depth / 2 - 40) },
+          materialId: "mat_handle_matte_black",
+          isManufacturablePanel: false,
+        });
+      }
+
+      if (module.componentMaterialOverrides) {
+        capComponents.forEach((c) => {
+          const ov = module.componentMaterialOverrides?.[c.id];
+          if (ov) c.materialId = ov;
         });
       }
 
@@ -225,32 +293,36 @@ export function generateModuleGeometry(
         overall: module.dimensions,
         components: capComponents,
         bayWidths: [width],
-        netInnerHeight: height,
+        netInnerHeight: pedH,
         netInnerDepth: depth,
       };
       moduleGeometryCache.set(cacheKey, capTblRes);
       return capTblRes;
     }
 
-    // hullShape === "capsule_stadium" (Curved Capsule Bar / Sideboard Cabinet — ZERO duplicate flat side panels!)
+    // hullShape === "capsule_stadium" | "rounded_corners" (True Tambour Production Architecture)
     const pH = plinthHeight || 0;
-    const bodyBoxH = Math.max(180, height - pH);
+    const hasTopTray = Boolean(
+      module.carcass.countertopMaterialId && module.carcass.hasCountertopTray !== false
+    );
+    const topTrayT = hasTopTray ? 20 : 0;
+    const bodyBoxH = Math.max(180, height - pH - topTrayT);
     const innerClearH = Math.max(120, bodyBoxH - 2 * T);
-    const semiArcMm = Math.round(Math.PI * capR * 10) / 10;
-    const kerfSpacing = 14;
-    const kerfCount = Math.max(8, Math.round(semiArcMm / kerfSpacing));
-    const stadiumPoly = buildStadiumContour(width, depth);
+    const trackInsetMm = 18;
+    const pocketCorridorMm = 32;
+    const pocketOuterR = Math.max(52, capR - pocketCorridorMm);
+    const slabContour = buildRoundedContour(width, depth, capR);
+    const shapeTitle = isRoundedRect ? "R-Köşeli Tambur" : "Kapsül Stadyum";
 
     if (pH > 0) {
-      const recess = 45;
+      const recess = Math.min(65, Math.max(35, Math.round(capR * 0.35)));
       const plinthW = Math.max(160, width - 2 * recess);
-      const plinthD = Math.max(140, depth - 2 * recess);
       capComponents.push({
         id: `${module.id}_capsule_plinth`,
         role: "plinth",
-        label: `Kapsül Geri Çekmeli Baza Kasası (${plinthW}×${pH}mm)`,
+        label: `${shapeTitle} Alt Taşıyıcı Baza / Ayak Kasası (${plinthW}×${pH}mm)`,
         dimensions: { width: plinthW, height: pH, depth: T },
-        position: { x: recess, y: 0, z: depth - recess - T },
+        position: { x: recess, y: 0, z: Math.max(T, depth - recess - T) },
         materialId: module.carcass.plinthMaterialId || doorMaterialId || bodyMaterialId,
         isFrontFacing: true,
         isManufacturablePanel: true,
@@ -258,107 +330,386 @@ export function generateModuleGeometry(
       });
     }
 
-    // Stadium Bottom & Top CNC-Contoured Slabs
+    // Contoured Bottom & Top Slabs with 8.5×7.5mm CNC Tambour Guide Track Groove
+    const trackGrooveSpec = !module.isOpenFront
+      ? {
+          insetFromOuterMm: trackInsetMm,
+          widthMm: 8.5,
+          depthMm: 7.5,
+          cornerRadiusMm: Math.round(capR * 10) / 10,
+        }
+      : undefined;
+
     capComponents.push(
       {
         id: `${module.id}_capsule_bottom`,
         role: "carcass_bottom",
-        label: `Kapsül Stadyum Alt Tabla (${width}×${depth}mm, R=${Math.round(capR)}mm)`,
+        label: `${shapeTitle} Alt Tabla (${width}×${depth}mm, R=${Math.round(capR)}mm)`,
         dimensions: { width, height: T, depth },
         position: { x: 0, y: pH, z: 0 },
-        materialId: bodyMaterialId,
+        materialId: doorMaterialId || bodyMaterialId,
+        isFrontFacing: true,
         isManufacturablePanel: true,
         thicknessAxis: "y",
-        polygonContourMm: stadiumPoly,
+        polygonContourMm: slabContour,
+        tambourTrackGrooveSpec: trackGrooveSpec,
       },
       {
         id: `${module.id}_capsule_top`,
         role: "carcass_top",
-        label: `Kapsül Stadyum Üst Tabla (${width}×${depth}mm, R=${Math.round(capR)}mm)`,
+        label: `${shapeTitle} Üst Tabla (${width}×${depth}mm, R=${Math.round(capR)}mm)`,
         dimensions: { width, height: T, depth },
-        position: { x: 0, y: height - T, z: 0 },
+        position: { x: 0, y: pH + bodyBoxH - T, z: 0 },
         materialId: doorMaterialId || bodyMaterialId,
         isFrontFacing: true,
         isManufacturablePanel: true,
         thicknessAxis: "y",
-        polygonContourMm: stadiumPoly,
+        polygonContourMm: slabContour,
+        tambourTrackGrooveSpec: trackGrooveSpec,
       }
     );
 
-    // Left & Right 180° Semi-Cylindrical CNC Kerf-Bent Shells (Replaces flat rectangular side panels!)
-    [1, 2].forEach((ci) => {
+    if (hasTopTray && topTrayT > 0) {
+      const trayInset = 8;
+      const trayW = Math.max(160, width - 2 * trayInset);
+      const trayD = Math.max(140, depth - 2 * trayInset);
+      const trayR = Math.max(40, capR - trayInset);
       capComponents.push({
-        id: `${module.id}_kerf_curve_${ci}`,
-        role: "kerf_curve",
-        label: `Kapsül Kavisli Yan Gövde Açınımı #${ci} (R=${Math.round(capR)}mm, Yay=${semiArcMm}mm, ${kerfCount} Kerf)`,
-        dimensions: { width: semiArcMm, height: innerClearH, depth: T },
-        position: { x: ci === 1 ? 0 : Math.max(0, width - capR), y: pH + T, z: 0 },
-        materialId: doorMaterialId || bodyMaterialId,
+        id: `${module.id}_capsule_marble_top`,
+        role: "countertop",
+        label: `${shapeTitle} Üst Mermer / Kuvars Tabla (${trayW}×${trayD}×${topTrayT}mm)`,
+        dimensions: { width: trayW, height: topTrayT, depth: trayD },
+        position: { x: trayInset, y: pH + bodyBoxH, z: trayInset },
+        materialId: module.carcass.countertopMaterialId || "mat_quartz_calacatta",
         isFrontFacing: true,
         isManufacturablePanel: true,
-        thicknessAxis: "z",
-        kerfBendingMeta: {
-          outerRadiusMm: Math.round(capR * 10) / 10,
-          bendAngleDeg: 180,
-          unfoldedArcLengthMm: semiArcMm,
-          kerfCount,
-          kerfSpacingMm: Math.round((semiArcMm / kerfCount) * 100) / 100,
-          residualWebMm: 2.5,
-        },
+        thicknessAxis: "y",
+        polygonContourMm: buildRoundedContour(trayW, trayD, trayR),
       });
-    });
+    }
 
-    // Two internal structural vertical bulkheads at tangent transitions (x = capR and x = width - capR)
+    // Internal Curved Kerf-Bent Pocket Shells (Creates real 32mm lateral pocket corridor for tambour slats!)
+    const kerfSpacing = 13;
+    if (isRoundedRect) {
+      const quarterArcMm = Math.round(0.5 * Math.PI * pocketOuterR * 10) / 10;
+      const kerfCount90 = Math.max(6, Math.round(quarterArcMm / kerfSpacing));
+      [1, 2, 3, 4].forEach((ci) => {
+        capComponents.push({
+          id: `${module.id}_kerf_corner_${ci}`,
+          role: "kerf_curve",
+          label: `R-Köşe İç Cep Kerf Açınımı #${ci} (R=${Math.round(pocketOuterR)}mm, Yay=${quarterArcMm}mm, ${kerfCount90} Kerf)`,
+          dimensions: { width: quarterArcMm, height: innerClearH, depth: T },
+          position: {
+            x: ci === 1 || ci === 4 ? pocketCorridorMm : Math.max(0, width - capR),
+            y: pH + T,
+            z: ci <= 2 ? pocketCorridorMm : Math.max(0, depth - capR),
+          },
+          materialId: bodyMaterialId,
+          isFrontFacing: false,
+          isManufacturablePanel: true,
+          thicknessAxis: "z",
+          kerfBendingMeta: {
+            outerRadiusMm: Math.round(pocketOuterR * 10) / 10,
+            bendAngleDeg: 90,
+            unfoldedArcLengthMm: quarterArcMm,
+            kerfCount: kerfCount90,
+            kerfSpacingMm: Math.round((quarterArcMm / kerfCount90) * 100) / 100,
+            residualWebMm: 2.5,
+          },
+        });
+      });
+      if (flatSideZ >= 60) {
+        [pocketCorridorMm, width - pocketCorridorMm - T].forEach((sx, si) => {
+          capComponents.push({
+            id: `${module.id}_rounded_side_wall_${si + 1}`,
+            role: "carcass_divider",
+            label: `R-Köşeli Yan Cep İç Duvarı #${si + 1} (${Math.round(flatSideZ)}×${innerClearH}mm)`,
+            dimensions: { width: T, height: innerClearH, depth: Math.round(flatSideZ) },
+            position: { x: sx, y: pH + T, z: capR },
+            materialId: bodyMaterialId,
+            isManufacturablePanel: true,
+            thicknessAxis: "x",
+          });
+        });
+      }
+    } else {
+      const semiArcMm = Math.round(Math.PI * pocketOuterR * 10) / 10;
+      const kerfCount180 = Math.max(8, Math.round(semiArcMm / kerfSpacing));
+      [1, 2].forEach((ci) => {
+        capComponents.push({
+          id: `${module.id}_kerf_curve_${ci}`,
+          role: "kerf_curve",
+          label: `Kapsül Kavisli Yan Gövde Açınımı #${ci} (R=${Math.round(pocketOuterR)}mm, Yay=${semiArcMm}mm, ${kerfCount180} Kerf)`,
+          dimensions: { width: semiArcMm, height: innerClearH, depth: T },
+          position: {
+            x: ci === 1 ? pocketCorridorMm : Math.max(0, width - capR),
+            y: pH + T,
+            z: pocketCorridorMm,
+          },
+          materialId: doorMaterialId || bodyMaterialId,
+          isFrontFacing: true,
+          isManufacturablePanel: true,
+          thicknessAxis: "z",
+          kerfBendingMeta: {
+            outerRadiusMm: Math.round(pocketOuterR * 10) / 10,
+            bendAngleDeg: 180,
+            unfoldedArcLengthMm: semiArcMm,
+            kerfCount: kerfCount180,
+            kerfSpacingMm: Math.round((semiArcMm / kerfCount180) * 100) / 100,
+            residualWebMm: 2.5,
+          },
+        });
+      });
+    }
+
+    // Internal Usable Carcass Zone (Set back 34mm from front & 32mm+T from rear so tambour track has unobstructed loop clearance!)
+    const zRearBack = pocketCorridorMm;
+    const zInnerStart = zRearBack + T;
+    const zInnerFrontLimit = Math.max(zInnerStart + 120, depth - 34);
+    const netInnerD = Math.max(120, zInnerFrontLimit - zInnerStart);
+    const centerLeftX = Math.min(capR, Math.max(pocketCorridorMm + T, capR));
+    const centerRightX = Math.max(centerLeftX + 2 * T + 100, width - capR);
+    const centerSpanW = Math.max(120, centerRightX - centerLeftX);
+
+    // Two Structural Tangent Bulkheads + Rear Straight Back Panel
     if (straightSpanW >= 120) {
-      [capR, width - capR - T].forEach((bx, bi) => {
+      [centerLeftX, centerRightX - T].forEach((bx, bi) => {
         capComponents.push({
           id: `${module.id}_capsule_bulkhead_${bi + 1}`,
           role: "carcass_divider",
-          label: `Kapsül İç Taşıyıcı Dikme #${bi + 1}`,
-          dimensions: { width: T, height: innerClearH, depth: Math.max(120, depth - 2 * T) },
-          position: { x: bx, y: pH + T, z: T },
+          label: `${shapeTitle} İç Taşıyıcı Dikme #${bi + 1}`,
+          dimensions: { width: T, height: innerClearH, depth: netInnerD },
+          position: { x: bx, y: pH + T, z: zInnerStart },
           materialId: bodyMaterialId,
           isManufacturablePanel: true,
           thicknessAxis: "x",
         });
       });
 
-      // Rear flat center back panel between tangent bulkheads
       capComponents.push({
         id: `${module.id}_capsule_center_back`,
         role: "carcass_back",
-        label: `Kapsül Orta Düz Arkalık (${Math.max(80, straightSpanW)}×${innerClearH}mm)`,
-        dimensions: { width: Math.max(80, straightSpanW), height: innerClearH, depth: T },
-        position: { x: capR, y: pH + T, z: 0 },
-        materialId: doorMaterialId || bodyMaterialId,
+        label: `${shapeTitle} Orta Düz Arkalık (${Math.round(centerSpanW)}×${innerClearH}mm)`,
+        dimensions: { width: Math.round(centerSpanW), height: innerClearH, depth: T },
+        position: { x: centerLeftX, y: pH + T, z: zRearBack },
+        materialId: bodyMaterialId,
         isManufacturablePanel: true,
         thicknessAxis: "z",
       });
+    }
 
-      // Front tambour sliding flexible door panel covering straight front opening
-      if (!module.isOpenFront) {
+    // Compute Bay Clear Widths inside [centerLeftX + T .. centerRightX - T] & Generate Real Dividers, Shelves & Drawers!
+    const bayCount = Math.max(1, module.bays.length);
+    const availBaysClearW = Math.max(
+      120,
+      (straightSpanW >= 120 ? centerSpanW - 2 * T : width - 2 * (pocketCorridorMm + T)) - (bayCount - 1) * T
+    );
+    const bayZoneOriginX = straightSpanW >= 120 ? centerLeftX + T : pocketCorridorMm + T;
+    const rawRatios = module.bays.map((b) =>
+      b.customWidth && b.customWidth > 60 ? b.customWidth : Math.max(100, availBaysClearW / bayCount)
+    );
+    const ratioSum = rawRatios.reduce((a, b) => a + b, 0) || 1;
+    const computedBayClearWs = rawRatios.map((r) => Math.max(80, Math.round((availBaysClearW * r) / ratioSum)));
+    const diffW = availBaysClearW - computedBayClearWs.reduce((a, b) => a + b, 0);
+    if (computedBayClearWs.length > 0) {
+      computedBayClearWs[computedBayClearWs.length - 1] = Math.max(
+        80,
+        computedBayClearWs[computedBayClearWs.length - 1] + diffW
+      );
+    }
+
+    let cursorBayX = bayZoneOriginX;
+    const bayStartsX: number[] = [];
+    module.bays.forEach((bay, bi) => {
+      const bClearW = computedBayClearWs[bi] || availBaysClearW;
+      bayStartsX.push(cursorBayX);
+
+      // Intermediate Bay Divider
+      if (bi > 0) {
         capComponents.push({
-          id: `${module.id}_capsule_tambour_front`,
-          role: "door_left",
-          label: `Kapsül Tambur Çıtalı Ön Sürgü Kapak (${Math.max(120, straightSpanW)}×${innerClearH - 4}mm)`,
-          bayIndex: 0,
-          dimensions: { width: Math.max(120, straightSpanW), height: Math.max(80, innerClearH - 4), depth: T },
-          position: { x: capR, y: pH + T + 2, z: depth - T },
-          materialId: doorMaterialId,
-          isFrontFacing: true,
+          id: `${module.id}_capsule_bay_div_${bi}`,
+          role: "carcass_divider",
+          bayIndex: bi - 1,
+          label: `${shapeTitle} Ara Bölme Dikmesi #${bi}`,
+          dimensions: { width: T, height: innerClearH, depth: netInnerD },
+          position: { x: cursorBayX - T, y: pH + T, z: zInnerStart },
+          materialId: bodyMaterialId,
           isManufacturablePanel: true,
-          thicknessAxis: "z",
+          thicknessAxis: "x",
         });
       }
+
+      // Bay Shelves (respects elevationY, thickness, glass vs wood, and tambour clearance!)
+      (bay.shelves || []).forEach((sh, si) => {
+        if (sh.isHidden) return;
+        const shT = sh.thickness || (sh.isGlass ? 8 : T);
+        const clampedElev = Math.max(32, Math.min(innerClearH - shT - 24, sh.elevationY));
+        const shMat = sh.isGlass ? "mat_glass_clear" : bodyMaterialId;
+        const mountTag = sh.isFixed || sh.isAdjustable === false ? "Sabit" : "Hareketli";
+        capComponents.push({
+          id: sh.id || `${module.id}_cap_shelf_${bi}_${si}`,
+          role: "shelf",
+          bayIndex: bi,
+          label: `${shapeTitle} ${mountTag} Raf B${bi + 1}.${si + 1} (${bClearW}×${Math.max(100, netInnerD - 8)}mm)`,
+          dimensions: { width: bClearW, height: shT, depth: Math.max(100, netInnerD - 8) },
+          position: { x: cursorBayX, y: pH + T + clampedElev, z: zInnerStart + 4 },
+          materialId: shMat,
+          isManufacturablePanel: true,
+          thicknessAxis: "y",
+        });
+      });
+
+      // Bay Drawers (TV Unit Media Drawers & Internal Buffet Drawers!)
+      (bay.drawers || []).forEach((dr, di) => {
+        if (dr.isHidden) return;
+        const drFrontH = Math.max(80, Math.min(innerClearH - 8, dr.height));
+        const drElev = Math.max(0, Math.min(innerClearH - drFrontH, dr.elevationY));
+        const isBehindTambour = bay.door?.type !== "open" && !module.isOpenFront;
+        const frontZ = isBehindTambour ? zInnerFrontLimit - T : depth - trackInsetMm - T;
+        const boxDepth = Math.max(180, Math.floor((frontZ - zInnerStart - 16) / 25) * 25);
+        const pullZ = Math.min(boxDepth * 0.75, Math.max(0, drawerOpenMm));
+        const boxH = Math.max(60, drFrontH - 36);
+        const boxT = 16;
+        const boxInnerW = Math.max(80, bClearW - 26 - 2 * boxT);
+        const drMat = dr.frontMaterialId || doorMaterialId;
+
+        capComponents.push(
+          {
+            id: `${dr.id}_front`,
+            role: "drawer_front",
+            bayIndex: bi,
+            label: `${shapeTitle} Çekmece Klapası B${bi + 1}.${di + 1}`,
+            dimensions: { width: Math.max(80, bClearW - 4), height: drFrontH - 4, depth: T },
+            position: { x: cursorBayX + 2, y: pH + T + drElev + 2, z: frontZ + pullZ },
+            materialId: drMat,
+            isFrontFacing: true,
+            isManufacturablePanel: true,
+            thicknessAxis: "z",
+          },
+          {
+            id: `${dr.id}_bottom`,
+            role: "drawer_bottom",
+            bayIndex: bi,
+            label: `Çekmece Alt Tablası B${bi + 1}.${di + 1}`,
+            dimensions: { width: boxInnerW + 12, height: 8, depth: Math.max(120, boxDepth - boxT) },
+            position: { x: cursorBayX + 13 + boxT - 6, y: pH + T + drElev + 14, z: frontZ - boxDepth + pullZ },
+            materialId: bodyMaterialId,
+            isManufacturablePanel: true,
+            thicknessAxis: "y",
+          },
+          {
+            id: `${dr.id}_side_left`,
+            role: "drawer_side_left",
+            bayIndex: bi,
+            label: `Çekmece Sol Yan B${bi + 1}.${di + 1}`,
+            dimensions: { width: boxT, height: boxH, depth: boxDepth },
+            position: { x: cursorBayX + 13, y: pH + T + drElev + 10, z: frontZ - boxDepth + pullZ },
+            materialId: bodyMaterialId,
+            isManufacturablePanel: true,
+            thicknessAxis: "x",
+          },
+          {
+            id: `${dr.id}_side_right`,
+            role: "drawer_side_right",
+            bayIndex: bi,
+            label: `Çekmece Sağ Yan B${bi + 1}.${di + 1}`,
+            dimensions: { width: boxT, height: boxH, depth: boxDepth },
+            position: { x: cursorBayX + bClearW - 13 - boxT, y: pH + T + drElev + 10, z: frontZ - boxDepth + pullZ },
+            materialId: bodyMaterialId,
+            isManufacturablePanel: true,
+            thicknessAxis: "x",
+          },
+          {
+            id: `${dr.id}_back`,
+            role: "drawer_back",
+            bayIndex: bi,
+            label: `Çekmece Arkalık B${bi + 1}.${di + 1}`,
+            dimensions: { width: boxInnerW, height: Math.max(50, boxH - 12), depth: boxT },
+            position: { x: cursorBayX + 13 + boxT, y: pH + T + drElev + 22, z: frontZ - boxDepth + pullZ },
+            materialId: bodyMaterialId,
+            isManufacturablePanel: true,
+            thicknessAxis: "z",
+          }
+        );
+      });
+
+      cursorBayX += bClearW + T;
+    });
+
+    // Flexible Tambour Door Curtains (Supports Full Center-Split OR Left/Right Tambour around Open Center TV Media Bay!)
+    if (!module.isOpenFront) {
+      const rTrack = Math.max(30, capR - trackInsetMm);
+      const curveWrapMm = Math.round(0.5 * Math.PI * rTrack + flatSideZ * 0.5);
+      const hasOpenCenterMediaBay =
+        module.bays.length >= 3 &&
+        module.bays[0]?.door?.type !== "open" &&
+        module.bays[1]?.door?.type === "open" &&
+        module.bays[module.bays.length - 1]?.door?.type !== "open";
+
+      const leftFrontSpanMm = hasOpenCenterMediaBay
+        ? Math.max(120, bayStartsX[1] - T / 2 - capR)
+        : Math.max(120, straightSpanW / 2);
+      const rightFrontSpanMm = hasOpenCenterMediaBay
+        ? Math.max(
+            120,
+            width - capR - (bayStartsX[module.bays.length - 1] - T / 2)
+          )
+        : Math.max(120, straightSpanW / 2);
+
+      const leftUnfoldedW = Math.max(180, Math.round(leftFrontSpanMm + curveWrapMm));
+      const rightUnfoldedW = Math.max(180, Math.round(rightFrontSpanMm + curveWrapMm));
+      const curtainH = Math.max(80, innerClearH + 10); // +5mm top & +5mm bottom guide tenon inside 7.5mm CNC track
+      const slatThick = 14;
+
+      const anyClosedDoor = module.bays.some((b) => b.door?.type !== "open");
+      if (anyClosedDoor) {
+        capComponents.push(
+          {
+            id: `${module.id}_capsule_tambour_left`,
+            role: "door_left",
+            bayIndex: 0,
+            label: `${shapeTitle} Sol Esnek Tambur Kapak Açınımı (${leftUnfoldedW}×${curtainH}mm, Keçe Sırtlı)`,
+            dimensions: { width: leftUnfoldedW, height: curtainH, depth: slatThick },
+            position: { x: capR, y: pH + T - 5, z: depth - trackInsetMm - slatThick / 2 },
+            materialId: module.bays[0]?.door?.doorMaterialId || doorMaterialId,
+            isFrontFacing: true,
+            isManufacturablePanel: true,
+            thicknessAxis: "z",
+          },
+          {
+            id: `${module.id}_capsule_tambour_right`,
+            role: "door_right",
+            bayIndex: Math.max(0, module.bays.length - 1),
+            label: `${shapeTitle} Sağ Esnek Tambur Kapak Açınımı (${rightUnfoldedW}×${curtainH}mm, Keçe Sırtlı)`,
+            dimensions: { width: rightUnfoldedW, height: curtainH, depth: slatThick },
+            position: {
+              x: width - capR - rightFrontSpanMm,
+              y: pH + T - 5,
+              z: depth - trackInsetMm - slatThick / 2,
+            },
+            materialId: module.bays[module.bays.length - 1]?.door?.doorMaterialId || doorMaterialId,
+            isFrontFacing: true,
+            isManufacturablePanel: true,
+            thicknessAxis: "z",
+          }
+        );
+      }
+    }
+
+    if (module.componentMaterialOverrides) {
+      capComponents.forEach((c) => {
+        const ov = module.componentMaterialOverrides?.[c.id];
+        if (ov) c.materialId = ov;
+      });
     }
 
     const capRes: ModuleGeometryBreakdown = {
       moduleId: module.id,
       overall: module.dimensions,
       components: capComponents,
-      bayWidths: [Math.max(120, straightSpanW || width - 2 * T)],
+      bayWidths: computedBayClearWs.length > 0 ? computedBayClearWs : [Math.max(120, straightSpanW || width - 2 * T)],
       netInnerHeight: innerClearH,
-      netInnerDepth: Math.max(120, depth - 2 * T),
+      netInnerDepth: netInnerD,
     };
     moduleGeometryCache.set(cacheKey, capRes);
     return capRes;
@@ -3706,23 +4057,107 @@ export function generateModuleGeometry(
           });
         }
       } else if (dSys === "tambour_roller" || dType === "tambour") {
-        const visibleH = Math.max(60, doorH * (1 - openRatio * 0.82));
+        const valanceH = Math.min(84, Math.max(56, Math.round(doorH * 0.09)));
+        const curtainClearH = Math.max(80, doorH - valanceH);
+        const visibleH = Math.max(48, Math.round(curtainClearH * (1 - openRatio * 0.86)));
+        const trackZ = Math.max(T + 12, depth - 24);
+        const tambourW = Math.max(100, bayW + 12);
+        const tambourX = bayStartX - 6;
+
+        // 1. Concealed Upper Roller Box Fascia Panel (Manufacturable front valance covering spiral drum)
         components.push({
-          id: `${bay.door.id}_tambour_curtain`,
-          role: "door_left",
-          label: `Tambur Panjur Kapak (Önizleme) B${bayIdx + 1}`,
+          id: `${bay.door.id}_tambour_valance`,
+          role: "carcass_top",
+          label: `Tambur Sarım Kaseti Ön Kapama Alını B${bayIdx + 1}`,
           bayIndex: bayIdx,
-          dimensions: { width: fullDoorW, height: visibleH, depth: T_door },
+          dimensions: { width: bayW, height: valanceH, depth: T_door },
           position: {
-            x: doorX0,
-            y: doorY + (doorH - visibleH),
-            z: doorZ - 8,
+            x: bayStartX,
+            y: doorY + doorH - valanceH,
+            z: depth - T_door,
           },
           materialId: doorMatId,
           isFrontFacing: true,
           isManufacturablePanel: true,
           thicknessAxis: "z",
         });
+
+        // 2. Internal Counterbalanced Spiral Tambour Drum + Left/Right Recessed Aluminum Guide Tracks
+        const drumDiam = Math.min(72, valanceH - 8);
+        components.push(
+          {
+            id: `${bay.door.id}_tambour_drum`,
+            role: "special_fitting",
+            label: `Tambur Yaylı Dengeleme Sarım Tamburu B${bayIdx + 1}`,
+            bayIndex: bayIdx,
+            dimensions: { width: Math.max(80, bayW - 24), height: drumDiam, depth: drumDiam },
+            position: {
+              x: bayStartX + 12,
+              y: doorY + doorH - valanceH + 4,
+              z: Math.max(T + 10, depth - T_door - drumDiam - 14),
+            },
+            primitive: "cylinder",
+            rotation: [0, 0, Math.PI / 2],
+            materialId: "mat_anodized_metal",
+            isManufacturablePanel: false,
+          },
+          {
+            id: `${bay.door.id}_tambour_track_L`,
+            role: "special_fitting",
+            label: `Tambur Sol Alüminyum Gömme Kılavuz Ray B${bayIdx + 1}`,
+            bayIndex: bayIdx,
+            dimensions: { width: 12, height: curtainClearH, depth: 18 },
+            position: { x: bayStartX, y: doorY, z: trackZ - 2 },
+            materialId: "mat_anodized_metal",
+            isManufacturablePanel: false,
+          },
+          {
+            id: `${bay.door.id}_tambour_track_R`,
+            role: "special_fitting",
+            label: `Tambur Sağ Alüminyum Gömme Kılavuz Ray B${bayIdx + 1}`,
+            bayIndex: bayIdx,
+            dimensions: { width: 12, height: curtainClearH, depth: 18 },
+            position: { x: bayStartX + bayW - 12, y: doorY, z: trackZ - 2 },
+            materialId: "mat_anodized_metal",
+            isManufacturablePanel: false,
+          }
+        );
+
+        // 3. Articulated Slat Tambour Curtain + Bottom Anodized Pull Handle Profile
+        const curtainBottomY = doorY + (curtainClearH - visibleH);
+        components.push(
+          {
+            id: `${bay.door.id}_tambour_curtain`,
+            role: "door_left",
+            label: `Esnek Tambur Lamel Perde Açınımı B${bayIdx + 1} (${tambourW}×${curtainClearH + 90}mm)`,
+            bayIndex: bayIdx,
+            dimensions: { width: tambourW, height: visibleH, depth: 14 },
+            position: {
+              x: tambourX,
+              y: curtainBottomY,
+              z: trackZ,
+            },
+            materialId: doorMatId,
+            isFrontFacing: true,
+            isManufacturablePanel: true,
+            thicknessAxis: "z",
+          },
+          {
+            id: `${bay.door.id}_tambour_pull_bar`,
+            role: "door_handle",
+            label: `Tambur Entegre Alt Tutamak Profili B${bayIdx + 1}`,
+            bayIndex: bayIdx,
+            dimensions: { width: bayW - 4, height: 24, depth: 22 },
+            position: {
+              x: bayStartX + 2,
+              y: curtainBottomY,
+              z: trackZ - 2,
+            },
+            materialId: bay.door.handleMaterialId || "mat_handle_matte_black",
+            isFrontFacing: true,
+            isManufacturablePanel: false,
+          }
+        );
       } else {
         const isRight = dType === "single_right" || dType === "inset_right" || dType === "half_overlay_right";
         components.push({
@@ -4039,7 +4474,11 @@ export function generateModuleGeometry(
     if (c.role === "door_left" || c.role === "door_right" || c.role === "drawer_front") {
       const bayObj = typeof c.bayIndex === "number" ? module.bays[c.bayIndex] : module.bays[0];
       const prof =
-        bayObj?.door?.crossSectionProfile || module.carcass.crossSectionProfile;
+        c.role === "drawer_front"
+          ? bayObj?.drawers.find((d) => `${d.id}_front` === c.id)?.frontProfile ||
+            module.carcass.drawerFrontProfile ||
+            "flat_slab"
+          : bayObj?.door?.crossSectionProfile || module.carcass.crossSectionProfile;
       const poly =
         bayObj?.door?.customCadPolygon || module.carcass.customCadPolygon;
       if (prof) c.crossSectionProfile = prof;

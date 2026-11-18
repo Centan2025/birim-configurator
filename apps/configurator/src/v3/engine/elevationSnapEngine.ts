@@ -260,7 +260,7 @@ export function resolveElevationSnap(
   }
 
   return {
-    elevationY: Math.round(rawElevationY / 5) * 5,
+    elevationY: Math.round(rawElevationY / 2) * 2,
     snappedTarget: null,
   };
 }
@@ -282,8 +282,6 @@ export function computeBaySystem32ShelfHoleElevations(
   const draggedShelf = draggedShelfId
     ? bay.shelves.find((s) => s.id === draggedShelfId)
     : undefined;
-  const shelfT = draggedShelf?.thickness || mod.carcass.panelThickness || 18;
-  const shelfHalfT = Math.round(shelfT / 2);
 
   if (draggedShelfId && !options?.includeFixedShelves) {
     if (draggedShelf && (draggedShelf.isAdjustable === false || draggedShelf.isFixed === true)) {
@@ -318,24 +316,21 @@ export function computeBaySystem32ShelfHoleElevations(
     )
     .map((s) => bottomOffsetY + panelT + s.elevationY);
 
-  // For full_system_32 & zone_32, use exact drilled hole rows; for cluster_3 / cluster_5 / single_pin,
-  // generate the canonical 32mm System-32 grid so the hole cluster moves cleanly on the 32mm System-32 pitch!
-  const effectiveGridMode =
-    spec.mode === "zone_32" ? "zone_32" : "full_system_32";
-
+  // Always expose the full vertical System-32 candidate grid (32mm .. netInnerH - 32mm)
+  // so shelves can be freely dragged to top hat-shelf or low shoe-shelf zones even when zone_32 is active!
   const panelHoleYs = computeSystem32MultiHoleYs({
-    mode: effectiveGridMode,
+    mode: spec.mode === "zone_32" ? "zone_32" : "full_system_32",
     panelHeightMm: sidePanelHeight,
     bottomOffsetY,
     panelThicknessMm: panelT,
     edgeMarginMm: spec.edgeMarginMm,
     adjustableShelfYsMm: [],
-    blockedYsMm: fixedPanelYs.map((fy) => ({ y: fy, clearanceMm: 22 })),
+    blockedYsMm: fixedPanelYs.map((fy) => ({ y: fy, clearanceMm: 20 })),
   });
 
   const shelfElevYs = panelHoleYs
-    .map((py) => Math.round(py - bottomOffsetY - panelT - shelfHalfT))
-    .filter((ey) => ey >= Math.max(48, drawerTopY + 32) && ey <= netInnerH - 48);
+    .map((py) => Math.round(py - bottomOffsetY - panelT))
+    .filter((ey) => ey >= Math.max(32, drawerTopY + 24) && ey <= netInnerH - 32);
 
   return shelfElevYs.length > 0 ? shelfElevYs : null;
 }
@@ -369,7 +364,7 @@ export function snapShelfToMultiHoleOrElevationTargets(params: {
   }
 
   const holeYs = computeBaySystem32ShelfHoleElevations(mod, bayIndex, shelfId, {
-    includeFixedShelves: true,
+    includeFixedShelves: false,
   });
   if (!holeYs || holeYs.length === 0) {
     return resolveElevationSnap(rawElevationY, snapTargets, 18);

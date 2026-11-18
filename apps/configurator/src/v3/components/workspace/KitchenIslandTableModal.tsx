@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import type { DesignProject, MaterialDefinition } from "@birim/core";
-import { BirimLogo } from "../../design-system";
+import { BirimLogo, V3PremiumDropdown } from "../../design-system";
 import { startZeroLagModalDrag } from "../../design-system/zeroLagDrag";
 import { getMaterialSwatchStyle } from "../../materials/pbrMaterialSystem";
 import { Plus, Compass, Layers, X, Check } from "lucide-react";
@@ -232,33 +232,37 @@ export const KitchenIslandTableModal: React.FC<KitchenIslandTableModalProps> = (
                 {/* Controls */}
                 <div className="md:col-span-7 space-y-3">
                   <div className="grid grid-cols-2 gap-2.5">
-                    <label className="space-y-1 block">
-                      <span className="font-bold text-slate-700">Bağlanacağı Modül / Ada</span>
-                      <select
-                        value={anchorIdx}
-                        onChange={(e) => setAnchorIdx(Number(e.target.value))}
-                        className="w-full px-2.5 py-1.5 rounded-xl bg-white/85 border border-slate-300 font-semibold text-[#141413]"
-                      >
-                        {candidateAnchors.map(({ m, idx }) => (
-                          <option key={m.id} value={idx}>
-                            #{idx + 1} {m.name} ({m.dimensions.width}mm)
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="space-y-1 block">
-                      <span className="font-bold text-slate-700">Kenetlenme Noktası</span>
-                      <select
+                    <div className="space-y-1 block">
+                      <span className="font-bold text-slate-700 block">Bağlanacağı Modül / Ada</span>
+                      <V3PremiumDropdown
+                        variant="popover"
+                        size="sm"
+                        value={String(anchorIdx)}
+                        onChange={(val) => setAnchorIdx(Number(val))}
+                        options={candidateAnchors.map(({ m, idx }) => ({
+                          value: String(idx),
+                          label: `#${idx + 1} ${m.name}`,
+                          badge: `${m.dimensions.width}mm`,
+                        }))}
+                      />
+                    </div>
+                    <div className="space-y-1 block">
+                      <span className="font-bold text-slate-700 block">Kenetlenme Noktası</span>
+                      <V3PremiumDropdown
+                        variant="popover"
+                        size="sm"
                         value={attachSide}
-                        onChange={(e) => setAttachSide(e.target.value as AddAttachedTableSpec["attachSide"])}
-                        className="w-full px-2.5 py-1.5 rounded-xl bg-white/85 border border-slate-300 font-semibold text-[#141413]"
-                      >
-                        <option value="right_end">Sağ Uçtan Uzanan Masa</option>
-                        <option value="front_center_t">Ön Cepheden T-Masa</option>
-                        <option value="front_right_corner">Sağ Ön Köşeden Açılı</option>
-                        <option value="left_end">Sol Uçtan Uzanan Masa</option>
-                      </select>
-                    </label>
+                        onChange={(val) =>
+                          setAttachSide(val as AddAttachedTableSpec["attachSide"])
+                        }
+                        options={[
+                          { value: "right_end", label: "Sağ Uçtan Uzanan Masa" },
+                          { value: "front_center_t", label: "Ön Cepheden T-Masa" },
+                          { value: "front_right_corner", label: "Sağ Ön Köşeden Açılı" },
+                          { value: "left_end", label: "Sol Uçtan Uzanan Masa" },
+                        ]}
+                      />
+                    </div>
                   </div>
 
                   {/* Angle Presets + Continuous Slider */}
@@ -325,18 +329,20 @@ export const KitchenIslandTableModal: React.FC<KitchenIslandTableModalProps> = (
                         className="w-full px-2.5 py-1.5 rounded-xl bg-white/85 border border-slate-300 font-mono font-bold"
                       />
                     </label>
-                    <label className="space-y-1 block">
-                      <span className="font-bold text-slate-700">Yükseklik Kotu</span>
-                      <select
-                        value={tblHeight}
-                        onChange={(e) => setTblHeight(Number(e.target.value))}
-                        className="w-full px-2 py-1.5 rounded-xl bg-white/85 border border-slate-300 font-mono font-bold text-[11px]"
-                      >
-                        <option value={750}>750mm Yemek</option>
-                        <option value={870}>870mm Tezgâh</option>
-                        <option value={1050}>1050mm Bar</option>
-                      </select>
-                    </label>
+                    <div className="space-y-1 block">
+                      <span className="font-bold text-slate-700 block">Yükseklik Kotu</span>
+                      <V3PremiumDropdown
+                        variant="popover"
+                        size="sm"
+                        value={String(tblHeight)}
+                        onChange={(val) => setTblHeight(Number(val))}
+                        options={[
+                          { value: "750", label: "750mm Yemek" },
+                          { value: "870", label: "870mm Tezgâh" },
+                          { value: "1050", label: "1050mm Bar" },
+                        ]}
+                      />
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-3 gap-1.5">

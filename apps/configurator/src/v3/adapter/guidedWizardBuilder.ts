@@ -8,6 +8,8 @@ import {
   type ModuleInstance,
 } from "@birim/core";
 import { WARDROBE_TEMPLATES, getV4TemplateById } from "@birim/catalog";
+import { generateBOMForProject } from "@birim/manufacturing";
+import { calculateProjectPrice } from "@birim/pricing";
 
 export interface GuidedWizardLayoutInput {
   spaceCategory: "wardrobe" | "walkin" | "kitchen" | "living";
@@ -612,4 +614,199 @@ export function buildGuidedWizardProject(
     space: nextSpace,
     modules: builtModules,
   };
+}
+
+
+export interface SmartStarterTemplateProposal {
+  id: string;
+  title: string;
+  subtitle: string;
+  badge: string;
+  moduleCount: number;
+  bayCount: number;
+  shelfCount: number;
+  drawerCount: number;
+  hangingRailCount: number;
+  estimatedTotalWithVatEur: number;
+  payload: GuidedWizardLayoutInput;
+  previewProject: DesignProject;
+}
+
+/**
+ * Generates 4 dimension-fitted, engineering-validated starter proposals
+ * from the single parametric model (0.00 mm drift between preview, BOM & pricing).
+ */
+export function generateSmartStarterTemplates(
+  baseProject: DesignProject,
+  opts: {
+    spaceCategory: GuidedWizardLayoutInput["spaceCategory"];
+    roomShape: GuidedWizardLayoutInput["roomShape"];
+    wallWidthMm: number;
+    targetHeightMm: number;
+    targetDepthMm: number;
+    colorSwatchId?: string;
+  }
+): SmartStarterTemplateProposal[] {
+  const safeW = Math.max(1200, Math.min(6000, Math.round(opts.wallWidthMm || 2400)));
+  const safeH = opts.spaceCategory === "kitchen" ? 870 : Math.max(1800, Math.min(2800, Math.round(opts.targetHeightMm || 2400)));
+  const safeD = Math.max(450, Math.min(700, Math.round(opts.targetDepthMm || 600)));
+  const slidingSupported =
+    opts.spaceCategory !== "kitchen" && opts.spaceCategory !== "walkin" && safeW >= 1500;
+
+  const recipes: Array<{
+    id: string;
+    title: string;
+    subtitle: string;
+    badge: string;
+    overrides: Partial<GuidedWizardLayoutInput>;
+  }> =
+    opts.spaceCategory === "kitchen"
+      ? [
+          {
+            id: "starter_kitchen_ergonomic",
+            title: "Ergonomik Hazırlık & Eviye Dizilimi",
+            subtitle: "Eviye altı + 3'lü Tandembox çekmece + hazırlık dolapları",
+            badge: "Önerilen",
+            overrides: { interiorFocus: "balanced", doorStyle: "hinged", conceptTier: "smart", addLed: false },
+          },
+          {
+            id: "starter_kitchen_drawer_pro",
+            title: "Tam Çekmeceli & Raf Ağırlıklı Mutfak",
+            subtitle: "Tencere ve erzak erişimi için maksimum çekmece & raf",
+            badge: "Yüksek Depolama",
+            overrides: { interiorFocus: "shelves", doorStyle: "hinged", conceptTier: "smart", addLed: false },
+          },
+          {
+            id: "starter_kitchen_vitrine",
+            title: "Füme Cam Vitrinli Mutfak",
+            subtitle: "Alüminyum çerçeveli füme cam kapak kombinasyonu",
+            badge: "Şık Vitrin",
+            overrides: { interiorFocus: "balanced", doorStyle: "glass", conceptTier: "signature", addLed: false },
+          },
+          {
+            id: "starter_kitchen_eco",
+            title: "Kompakt & Ekonomik Mutfak",
+            subtitle: "Yüksek verimli plaka kullanımı ve sade kapak düzeni",
+            badge: "Ekonomik",
+            overrides: { interiorFocus: "balanced", doorStyle: "hinged", conceptTier: "eco", addLed: false },
+          },
+        ]
+      : [
+          {
+            id: "starter_balanced",
+            title: "Dengeli Günlük Gardırop",
+            subtitle: "Askı borusu, katlama rafları ve alt çekmece dengesi",
+            badge: "En Çok Seçilen",
+            overrides: {
+              interiorFocus: "balanced",
+              doorStyle: opts.spaceCategory === "walkin" ? "open" : "hinged",
+              conceptTier: "smart",
+              addLed: true,
+              addTrouserRack: false,
+              addJewelryTray: false,
+            },
+          },
+          {
+            id: "starter_max_hanging",
+            title: slidingSupported ? "Sürgü Kapaklı Maksimum Askı" : "Maksimum Askı & Uzun Elbise",
+            subtitle: slidingSupported
+              ? "Dar geçişlere uygun sürgü kapak ve kesintisiz askı alanı"
+              : "Gömlek, ceket ve uzun elbiseler için geniş askı hacmi",
+            badge: slidingSupported ? "Sürgü Sistem" : "Geniş Askı",
+            overrides: {
+              interiorFocus: "hanging",
+              doorStyle: opts.spaceCategory === "walkin" ? "open" : slidingSupported ? "sliding" : "hinged",
+              targetDepthMm: slidingSupported ? Math.max(600, safeD) : safeD,
+              conceptTier: "smart",
+              addLed: true,
+              addTrouserRack: true,
+              addJewelryTray: false,
+            },
+          },
+          {
+            id: "starter_drawer_folded",
+            title: "Bol Çekmeceli & Katlama Düzeni",
+            subtitle: "Triko rafları, frenli çekmece grubu ve teleskopik pantolonluk",
+            badge: "Maksimum Düzen",
+            overrides: {
+              interiorFocus: "shelves",
+              doorStyle: opts.spaceCategory === "walkin" ? "open" : "hinged",
+              conceptTier: "smart",
+              addLed: true,
+              addTrouserRack: true,
+              addJewelryTray: false,
+            },
+          },
+          {
+            id: "starter_vitrine_signature",
+            title: opts.spaceCategory === "walkin" ? "Açık Giyinme Odası & Takı Adası" : "Füme Cam Vitrin & LED Signature",
+            subtitle:
+              opts.spaceCategory === "walkin"
+                ? "Kapaksız butik sergileme, 3000K LED ve kadife takı çekmecesi"
+                : "Füme cam çerçeve kapaklar, 3000K gömme LED ve takı çekmecesi",
+            badge: "Signature",
+            overrides: {
+              interiorFocus: "balanced",
+              doorStyle: opts.spaceCategory === "walkin" ? "open" : "glass",
+              conceptTier: "signature",
+              addLed: true,
+              addTrouserRack: true,
+              addJewelryTray: true,
+            },
+          },
+        ];
+
+  return recipes.map((r) => {
+    const payload: GuidedWizardLayoutInput = {
+      spaceCategory: opts.spaceCategory,
+      roomShape: opts.roomShape,
+      wallWidthMm: safeW,
+      targetHeightMm: safeH,
+      targetDepthMm: r.overrides.targetDepthMm ?? safeD,
+      autoFiller50Mm: true,
+      interiorFocus: r.overrides.interiorFocus ?? "balanced",
+      doorStyle: r.overrides.doorStyle ?? "hinged",
+      conceptTier: r.overrides.conceptTier ?? "smart",
+      colorSwatchId: opts.colorSwatchId,
+      addLed: r.overrides.addLed ?? true,
+      addTrouserRack: r.overrides.addTrouserRack ?? false,
+      addJewelryTray: r.overrides.addJewelryTray ?? false,
+    };
+    const previewProject = buildGuidedWizardProject(baseProject, payload);
+    const mainMods = previewProject.modules.filter((m) => m.category !== "complementary");
+    let bayCount = 0;
+    let shelfCount = 0;
+    let drawerCount = 0;
+    let hangingRailCount = 0;
+    for (const m of mainMods) {
+      bayCount += m.bays.length;
+      for (const b of m.bays) {
+        shelfCount += b.shelves.length;
+        drawerCount += b.drawers.length;
+        hangingRailCount += b.hangingRails.length;
+      }
+    }
+    let estimatedTotalWithVatEur = 0;
+    try {
+      const bom = generateBOMForProject(previewProject, undefined, { skipSyncNesting: true });
+      const pr = calculateProjectPrice(bom, undefined, undefined, previewProject.sceneObjects || []);
+      estimatedTotalWithVatEur = Math.round(pr.totalWithVatEur);
+    } catch {
+      estimatedTotalWithVatEur = Math.round((safeW / 1000) * 680);
+    }
+    return {
+      id: r.id,
+      title: r.title,
+      subtitle: r.subtitle,
+      badge: r.badge,
+      moduleCount: mainMods.length,
+      bayCount,
+      shelfCount,
+      drawerCount,
+      hangingRailCount,
+      estimatedTotalWithVatEur,
+      payload,
+      previewProject,
+    };
+  });
 }

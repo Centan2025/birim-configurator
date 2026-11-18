@@ -123,6 +123,9 @@ export interface WebGL2CapabilityReport {
 let cachedCapabilityReport: WebGL2CapabilityReport | null = null;
 
 const LEGACY_GPU_REGEX =
+  /GeForce\s*210|GeForce\s*[89]\d00|GeForce\s*GT\s*[123]\d0|GeForce\s*GT[XS]?\s*[4-7]\d0\b|Direct3D9|vs_3_0|ps_3_0|SwiftShader|Basic Render Driver|llvmpipe|Software|GDI Generic|Intel\(R\)\s*HD Graphics\s*(2000|3000)?\b/i;
+
+const NO_MSAA_GPU_REGEX =
   /GeForce\s*210|GeForce\s*[89]\d00|GeForce\s*GT\s*[123]\d0|Direct3D9|vs_3_0|ps_3_0|SwiftShader|Basic Render Driver|llvmpipe|Software|GDI Generic|Intel\(R\)\s*HD Graphics\s*(2000|3000)?\b/i;
 
 function readUnmaskedGpuString(gl: WebGLRenderingContext | WebGL2RenderingContext): string {
@@ -287,11 +290,12 @@ export function createSafeWebGL2Renderer(options?: {
     return { ok: false, capability: cap };
   }
 
+  const disableMsaa = cap.tier !== "high_performance" || NO_MSAA_GPU_REGEX.test(cap.gpuRendererInfo);
   const attrs: WebGLContextAttributes = {
     ...cap.winningAttributes,
     alpha: options?.preferAlpha ?? false,
-    // Disable MSAA on legacy/integrated GPUs to avoid ANGLE BindToCurrentSequence / D3D surface allocation errors
-    antialias: cap.isLegacyOrLowSpecGpu ? false : Boolean(cap.winningAttributes.antialias),
+    // Disable MSAA only on software/Direct3D9-era GPUs to avoid ANGLE surface allocation errors
+    antialias: disableMsaa ? false : Boolean(cap.winningAttributes.antialias),
   };
 
   const canvas = document.createElement("canvas");

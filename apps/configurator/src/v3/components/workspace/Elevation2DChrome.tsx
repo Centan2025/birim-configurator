@@ -1,5 +1,8 @@
 "use client";
 
+import { calculateNetInnerHeight } from "@birim/core";
+import { getBayShelfIntervalsForSubDivider } from "../../adapter/useV3Adapter";
+
 import React from "react";
 import type { ArchitecturalElement, DesignProject, ModuleInstance } from "@birim/core";
 import { CeilingAndEngineeringQuickPopover } from "./CeilingAndGrain2DOverlays";
@@ -141,7 +144,7 @@ export const ElevationTopBar: React.FC<ElevationTopBarProps> = ({
               🔄 {selectedObstacle.rotationY || 0}°
             </button>
             <label className="flex items-center gap-0.5">
-              <span>W:</span>
+              <span>Genişlik:</span>
               <input
                 type="number"
                 step={50}
@@ -158,7 +161,7 @@ export const ElevationTopBar: React.FC<ElevationTopBarProps> = ({
               />
             </label>
             <label className="flex items-center gap-0.5">
-              <span>H:</span>
+              <span>Yükseklik:</span>
               <input
                 type="number"
                 step={50}
@@ -175,7 +178,7 @@ export const ElevationTopBar: React.FC<ElevationTopBarProps> = ({
               />
             </label>
             <label className="flex items-center gap-0.5">
-              <span>Y:</span>
+              <span>Yerden Kot:</span>
               <input
                 type="number"
                 step={50}
@@ -192,7 +195,7 @@ export const ElevationTopBar: React.FC<ElevationTopBarProps> = ({
               />
             </label>
             <label className="flex items-center gap-0.5">
-              <span>X:</span>
+              <span>Sol Duvara Mesafe:</span>
               <input
                 type="number"
                 step={50}
@@ -390,6 +393,7 @@ export const ElevationTopBar: React.FC<ElevationTopBarProps> = ({
 };
 
 interface ElevationContextualPanelProps {
+  activeModule?: ModuleInstance;
   context: ElevationSelectedContext | null;
   displayUnit: ElevationDisplayUnit;
   topOffsetPx: number;
@@ -400,11 +404,17 @@ interface ElevationContextualPanelProps {
   onSetDrawerPlacement: (bayIdx: number, id: string, elevY?: number, height?: number) => void;
   onSetHangingRailElevation: (bayIdx: number, id: string, elevY: number) => void;
   onSetSpecialFittingPlacement: (bayIdx: number, id: string, patch: { elevationY?: number }) => void;
+  onSetSubDividerPlacement?: (
+    bayIdx: number,
+    id: string,
+    updates: { offsetX?: number; elevationY?: number; height?: number; targetMidY?: number }
+  ) => void;
   onResizeModule: (modIdx: number, w: number, h: number, d: number) => void;
   onSetModulePosition: (modIdx: number, x: number, z: number, wallId: number, y: number) => void;
 }
 
 export const ElevationContextualPanel: React.FC<ElevationContextualPanelProps> = ({
+  activeModule,
   context,
   displayUnit,
   topOffsetPx,
@@ -415,6 +425,7 @@ export const ElevationContextualPanel: React.FC<ElevationContextualPanelProps> =
   onSetDrawerPlacement,
   onSetHangingRailElevation,
   onSetSpecialFittingPlacement,
+  onSetSubDividerPlacement,
   onResizeModule,
   onSetModulePosition,
 }) => {
@@ -589,7 +600,7 @@ export const ElevationContextualPanel: React.FC<ElevationContextualPanelProps> =
         context.targetId &&
         context.elevationYMm !== undefined && (
           <label className="flex items-center justify-between gap-2">
-            <span className="font-semibold text-stone-700">Donanım Kotu (Y):</span>
+            <span className="font-semibold text-stone-700">Donanım Yüksekliği:</span>
             <div className="flex items-center gap-1">
               <input
                 type="number"
@@ -606,6 +617,77 @@ export const ElevationContextualPanel: React.FC<ElevationContextualPanelProps> =
             </div>
           </label>
         )}
+
+      {/* Raf Arası Dikme Kontrolleri (İstenilen Raf Aralığına Taşıma + Ofset X) */}
+      {context.kind === "sub_divider" &&
+        activeModule &&
+        context.bayIndex !== undefined &&
+        context.targetId &&
+        onSetSubDividerPlacement && (() => {
+          const bayObj = activeModule.bays[context.bayIndex];
+          const pT = activeModule.carcass.panelThickness || 18;
+          const ivs = bayObj
+            ? getBayShelfIntervalsForSubDivider(bayObj, calculateNetInnerHeight(activeModule), pT)
+            : [];
+          const sdObj = bayObj?.subDividers?.find((s) => s.id === context.targetId);
+          return (
+            <div className="space-y-1.5">
+              {ivs.length > 0 && (
+                <label className="block space-y-1">
+                  <span className="text-[11px] font-semibold text-stone-700">Bulunduğu Raf Aralığı:</span>
+                  <select
+                    value={Math.max(
+                      0,
+                      ivs.findIndex(
+                        (iv) =>
+                          sdObj &&
+                          (Math.abs(iv.botY - sdObj.elevationY) <= 22 ||
+                            (sdObj.elevationY + sdObj.height / 2 >= iv.botY &&
+                              sdObj.elevationY + sdObj.height / 2 <= iv.topY))
+                      )
+                    )}
+                    onChange={(e) => {
+                      const targetIv = ivs[Number(e.target.value)];
+                      if (targetIv) {
+                        onSetSubDividerPlacement(context.bayIndex!, context.targetId!, {
+                          elevationY: targetIv.botY,
+                          height: targetIv.height,
+                          targetMidY: Math.round((targetIv.botY + targetIv.topY) / 2),
+                        });
+                      }
+                    }}
+                    className="w-full px-2 py-1 rounded border border-stone-300 bg-white text-[11px] font-semibold"
+                  >
+                    {ivs.map((iv, idx) => (
+                      <option key={idx} value={idx}>
+                        {iv.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {sdObj && (
+                <label className="flex items-center justify-between gap-2">
+                  <span className="font-semibold text-stone-700">Bölme Solundan Mesafe:</span>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      step={unitStep}
+                      value={toDisplayUnitNumber(sdObj.offsetX, displayUnit)}
+                      onChange={(e) =>
+                        onSetSubDividerPlacement(context.bayIndex!, context.targetId!, {
+                          offsetX: Math.max(40, toCanonicalMm(Number(e.target.value) || 40, displayUnit)),
+                        })
+                      }
+                      className="w-16 px-1.5 py-0.5 rounded border border-blue-300 font-mono font-bold text-right"
+                    />
+                    <span className="text-[10px] text-stone-500">{displayUnit}</span>
+                  </div>
+                </label>
+              )}
+            </div>
+          );
+        })()}
 
       {/* Blum / Menteşe Bilgi Kartı */}
       {context.kind === "hinge" && (
@@ -714,9 +796,9 @@ export const ElevationBottomBar: React.FC<ElevationBottomBarProps> = ({
         </span>
       </div>
 
-      <div className="flex items-center gap-2.5 shrink-0">
-        <label className="inline-flex items-center gap-1 font-mono">
-          <span className="text-stone-500">X:</span>
+      <div className="flex items-center gap-3 shrink-0">
+        <label className="inline-flex items-center gap-1.5" title="Modülün sol kenarının sol duvara olan uzaklığı">
+          <span className="text-stone-600 font-semibold">Sol Duvara Mesafe:</span>
           <input
             type="number"
             step={displayUnit === "cm" ? 1 : 10}
@@ -727,12 +809,12 @@ export const ElevationBottomBar: React.FC<ElevationBottomBarProps> = ({
                 toCanonicalMm(Number(e.target.value) || 0, displayUnit)
               )
             }
-            className="w-16 px-1.5 py-0.5 rounded-lg bg-white border border-stone-300 font-bold text-[#141413]"
+            className="w-16 px-1.5 py-0.5 rounded-lg bg-white border border-stone-300 font-mono font-bold text-[#141413]"
           />
-          <span>{displayUnit}</span>
+          <span className="font-mono text-stone-500">{displayUnit}</span>
         </label>
-        <label className="inline-flex items-center gap-1 font-mono">
-          <span className="text-stone-500">W:</span>
+        <label className="inline-flex items-center gap-1.5" title="Seçili modülün dıştan dışa toplam genişliği (konumu sabit kalır)">
+          <span className="text-stone-600 font-semibold">Modül Genişliği:</span>
           <input
             type="number"
             step={displayUnit === "cm" ? 1 : 10}
@@ -744,9 +826,9 @@ export const ElevationBottomBar: React.FC<ElevationBottomBarProps> = ({
                 toCanonicalMm(Number(e.target.value) || activeModule.dimensions.width, displayUnit)
               )
             }
-            className="w-16 px-1.5 py-0.5 rounded-lg bg-white border border-stone-300 font-bold text-[#141413]"
+            className="w-16 px-1.5 py-0.5 rounded-lg bg-white border border-stone-300 font-mono font-bold text-[#141413]"
           />
-          <span>{displayUnit}</span>
+          <span className="font-mono text-stone-500">{displayUnit}</span>
         </label>
       </div>
     </div>

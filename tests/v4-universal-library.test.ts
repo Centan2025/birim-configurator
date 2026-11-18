@@ -173,15 +173,27 @@ describe("Birim Configurator V4 — Universal Furniture Module & Hardware Librar
       expect(res.overallStatus).toBe("INCOMPATIBLE");
       expect(res.issues.some((i) => i.code === "CHK_08_HANDLELESS_REQUIRES_PUSH_OR_SERVO")).toBe(true);
 
-      // Tambour door is UNVERIFIED for CNC
-      const modTambour = tpl.createInstance("mod_tambour");
-      modTambour.bays[0].door.doorSystemId = "tambour_roller";
-      const resTambour = evaluateProjectCompatibility({
+      // Tambour door passes CNC production gate when depth >= 300mm, and blocks when depth < 300mm
+      const modTambourOk = tpl.createInstance("mod_tambour_ok");
+      modTambourOk.bays[0].door.doorSystemId = "tambour_roller";
+      modTambourOk.bays[0].door.type = "tambour";
+      const resTambourOk = evaluateProjectCompatibility({
         ...createInitialProject(),
-        modules: [modTambour],
+        modules: [modTambourOk],
       });
-      expect(resTambour.overallStatus).toBe("UNVERIFIED");
-      expect(resTambour.canApproveProduction).toBe(false);
+      expect(resTambourOk.canApproveProduction).toBe(true);
+
+      const modTambourShallow = tpl.createInstance("mod_tambour_shallow");
+      modTambourShallow.dimensions.depth = 240;
+      modTambourShallow.bays[0].door.doorSystemId = "tambour_roller";
+      modTambourShallow.bays[0].door.type = "tambour";
+      const resTambourShallow = evaluateProjectCompatibility({
+        ...createInitialProject(),
+        modules: [modTambourShallow],
+      });
+      expect(resTambourShallow.overallStatus).toBe("INCOMPATIBLE");
+      expect(resTambourShallow.canApproveProduction).toBe(false);
+      expect(resTambourShallow.issues.some((i) => i.code === "CHK_10_TAMBOUR_MIN_DEPTH")).toBe(true);
     });
 
     it("runs deterministic property-based sweep across module dimensions, door systems, and handles", () => {

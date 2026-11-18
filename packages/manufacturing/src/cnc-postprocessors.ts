@@ -337,6 +337,10 @@ export function generateHomagMprPrograms(piece: CncPieceInput): CncProgramFile[]
       if (
         piece.hasBackGroove !== false &&
         (piece.partRole === "carcass_side" ||
+          piece.partRole === "carcass_side_left" ||
+          piece.partRole === "carcass_side_right" ||
+          piece.partRole === "side_left" ||
+          piece.partRole === "side_right" ||
           piece.partRole === "carcass_top" ||
           piece.partRole === "carcass_bottom")
       ) {
@@ -536,6 +540,10 @@ export function generateBiesseCixProgram(piece: CncPieceInput): CncProgramFile {
   if (
     piece.hasBackGroove !== false &&
     (piece.partRole === "carcass_side" ||
+      piece.partRole === "carcass_side_left" ||
+      piece.partRole === "carcass_side_right" ||
+      piece.partRole === "side_left" ||
+      piece.partRole === "side_right" ||
       piece.partRole === "carcass_top" ||
       piece.partRole === "carcass_bottom")
   ) {

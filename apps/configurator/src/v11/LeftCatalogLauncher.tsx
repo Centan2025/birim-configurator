@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   Plus,
   Sparkles,
@@ -25,15 +25,19 @@ import type {
 } from "@birim/core";
 import {
   V5_SCENE_OBJECT_CATALOG,
+  registerDiscoveredSceneObjectCatalogItems,
   type V4ModuleTemplateDefinition,
 } from "@birim/catalog";
 import { V3IsometricModuleIcon } from "../v3/components/V3IsometricModuleIcon";
+import { SceneObjectThumbnail } from "../v3/components/SceneObjectThumbnail";
 import {
   V11_CATALOG_GROUPS,
   classifyTemplateGroup,
   type V11CatalogGroup,
   type V11LeftDrawerTab,
 } from "./v11Constants";
+import { useConfiguratorStore } from "../store/useConfiguratorStore";
+import { getEffectiveSpaceWalls } from "../v3/engine/kitchenSpatialEngine";
 
 export interface LeftCatalogLauncherProps {
   activeDrawer: V11LeftDrawerTab;
@@ -62,7 +66,7 @@ export interface LeftCatalogLauncherProps {
   onLoadKitchenPreset: (kind: "linear" | "l" | "u") => void;
   onOpenWizardModal: () => void;
   onOpenKitchenIslandModal: () => void;
-  onOpenCapsuleAndGlbHub: (tab: "capsule_curved" | "custom_glb") => void;
+  onOpenCapsuleAndGlbHub: (tab: "modules" | "capsule_curved" | "custom_glb" | "automation") => void;
 }
 
 export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.memo(
@@ -97,9 +101,120 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
   }) => {
     const [activeGroup, setActiveGroup] = useState<V11CatalogGroup["id"]>("wardrobe");
     const [objectFilter, setObjectFilter] = useState<
-      "all" | "appliance" | "furniture" | "decor"
+      "all" | "appliance" | "furniture" | "plants" | "decor"
     >("all");
     const [searchQuery, setSearchQuery] = useState("");
+    const [discoveredTick, setDiscoveredTick] = useState(0);
+    const displayUnit = useConfiguratorStore((s) => s.displayUnit);
+    const activeWallId = useConfiguratorStore((s) => s.activeWallId);
+    const setActiveWallId = useConfiguratorStore((s) => s.setActiveWallId);
+    const storeProject = useConfiguratorStore((s) => s.project);
+    const updateSpaceObstacleStore = useConfiguratorStore((s) => s.updateSpaceObstacle);
+    const spaceWalls = useMemo(() => getEffectiveSpaceWalls(storeProject), [storeProject]);
+    const lastDrawerRef = useRef<Exclude<V11LeftDrawerTab, null>>(activeDrawer ?? "catalog");
+    if (activeDrawer) {
+      lastDrawerRef.current = activeDrawer;
+    }
+    const renderedDrawer = activeDrawer ?? lastDrawerRef.current;
+    const isDrawerOpen = Boolean(activeDrawer);
+
+    const fmtLen = (mm: number, withUnit = true) => {
+      if (displayUnit === "cm") {
+        const v = Number((mm / 10).toFixed(1));
+        return withUnit ? `${v} cm` : `${v}`;
+      }
+      const v = Math.round(mm);
+      return withUnit ? `${v} mm` : `${v}`;
+    };
+
+    const placeOnSelectedWall = (
+      obsType: ArchitecturalElement["type"],
+      obsName: string,
+      wMm: number,
+      hMm: number,
+      dMm: number,
+      elevYMm: number
+    ) => {
+      const targetWall =
+        spaceWalls.find((w) => w.id === activeWallId) || spaceWalls[0] || {
+          id: "wall_main",
+          name: "Ana Duvar",
+          length: wallWidthMm,
+          position: { x: 0, y: 0, z: 0 },
+          rotationY: 0,
+        };
+      const wallRot = (((targetWall.rotationY || 0) % 360) + 360) % 360;
+      const rad = (wallRot * Math.PI) / 180;
+      const dirX = Math.cos(rad);
+      const dirZ = Math.sin(rad);
+      const maxStart = Math.max(0, (targetWall.length || wallWidthMm) - wMm);
+
+      // Project existing obstacles on this same wall so sequential additions advance cleanly along the wall vector
+      const sameWallIntervals: Array<[number, number]> = [];
+      for (const ex of obstacles) {
+        const exRot = (((ex.rotationY || 0) % 360) + 360) % 360;
+        const rotDiff = Math.min(Math.abs(exRot - wallRot), 360 - Math.abs(exRot - wallRot));
+        if (rotDiff > 12) continue;
+        const relX = ex.position.x - targetWall.position.x;
+        const relZ = ex.position.z - targetWall.position.z;
+        const along = relX * dirX + relZ * dirZ;
+        const perp = Math.abs(-relX * dirZ + relZ * dirX);
+        if (perp <= 220 && along >= -100 && along <= (targetWall.length || wallWidthMm) + 100) {
+          sameWallIntervals.push([along, along + (ex.dimensions.width || 300)]);
+        }
+      }
+      sameWallIntervals.sort((a, b) => a[0] - b[0]);
+
+      let chosenOffset =
+        obsType === "column"
+          ? 0
+          : obsType === "door"
+          ? Math.max(150, Math.min(maxStart, (targetWall.length || wallWidthMm) - wMm - 150))
+          : Math.min(maxStart, Math.max(150, Math.round(((targetWall.length || wallWidthMm) - wMm) * 0.45)));
+
+      const overlaps = (cand: number) =>
+        sameWallIntervals.some(([s, e]) => cand < e + 60 && cand + wMm > s - 60);
+
+      if (overlaps(chosenOffset)) {
+        let cursor = 120;
+        for (const [s, e] of sameWallIntervals) {
+          if (cursor + wMm + 60 <= s) break;
+          cursor = Math.max(cursor, e + 120);
+        }
+        chosenOffset = Math.max(0, Math.min(maxStart, Math.round(cursor / 50) * 50));
+      }
+
+      onAddSpaceObstacle({
+        type: obsType,
+        name: obsName,
+        rotationY: wallRot,
+        doorSwing: "left",
+        doorOpenSide: "inward",
+        position: {
+          x: Math.round(targetWall.position.x + dirX * chosenOffset),
+          y: elevYMm,
+          z: Math.round(targetWall.position.z + dirZ * chosenOffset),
+        },
+        dimensions: { width: wMm, height: hMm, depth: dMm },
+      });
+    };
+
+    useEffect(() => {
+      if (activeDrawer !== "catalog") return;
+      let cancelled = false;
+      fetch("/api/scene-objects/local-glbs", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (!cancelled && Array.isArray(data?.items)) {
+            const added = registerDiscoveredSceneObjectCatalogItems(data.items);
+            if (added > 0) setDiscoveredTick((t) => t + 1);
+          }
+        })
+        .catch(() => {});
+      return () => {
+        cancelled = true;
+      };
+    }, [activeDrawer]);
 
     useEffect(() => {
       if (!activeDrawer) return;
@@ -161,13 +276,20 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
         if (objectFilter === "furniture") {
           return item.category === "freestanding_furniture";
         }
+        if (objectFilter === "plants") {
+          return (
+            item.visualKind === "plant_olive_tree" ||
+            item.catalogId.includes("plant") ||
+            item.catalogId.includes("olive")
+          );
+        }
         return (
           item.category === "lighting_electronics" ||
           item.category === "custom_glb" ||
           item.category === "architectural_prop"
         );
       });
-    }, [searchQuery, objectFilter]);
+    }, [searchQuery, objectFilter, discoveredTick]);
 
     const toggleDrawer = (tab: Exclude<V11LeftDrawerTab, null>) => {
       onChangeDrawer(activeDrawer === tab ? null : tab);
@@ -188,13 +310,13 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
             data-testid="v11-launcher-catalog"
             onClick={() => toggleDrawer("catalog")}
             title="Ürün, Modül, TV Ünitesi, Ada & Masa Kataloğu"
-            className={`w-10 h-10 rounded-full flex items-center justify-center transition cursor-pointer ${
+            className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-250 cursor-pointer ${
               activeDrawer === "catalog"
-                ? "bg-[#141413] text-white shadow-sm"
+                ? "bg-[#141413] text-white shadow-sm scale-105"
                 : "text-[#44403C] hover:bg-[#EFECE4] hover:text-[#141413]"
             }`}
           >
-            <Plus className="w-5 h-5" />
+            <Plus className={`w-5 h-5 transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${activeDrawer === "catalog" ? "rotate-45" : "rotate-0"}`} />
           </button>
 
           <button
@@ -244,25 +366,29 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
           </button>
         </aside>
 
-        {/* YÜZEN KÜTÜPHANE / DİZİLİM / MEKÂN ÇEKMECESİ */}
-        {activeDrawer && (
+        {/* YÜZEN KÜTÜPHANE / DİZİLİM / MEKÂN ÇEKMECESİ (Yumuşak Açılış & Kapanış Animasyonlu) */}
           <section
-            data-testid={`v11-left-popover-${activeDrawer}`}
-            className="fixed left-[76px] top-[78px] bottom-[84px] w-[396px] max-w-[calc(100vw-96px)] z-30 rounded-3xl bg-[#FAF8F4]/95 backdrop-blur-2xl border border-[#DFD9CE] shadow-[0_24px_60px_rgba(20,20,19,0.14)] flex flex-col overflow-hidden text-[#141413]"
+            aria-hidden={!isDrawerOpen}
+            data-testid={activeDrawer ? `v11-left-popover-${activeDrawer}` : "v11-left-popover-closed"}
+            className={`fixed left-[76px] top-[78px] bottom-[84px] w-[396px] max-w-[calc(100vw-96px)] z-30 rounded-3xl bg-[#FAF8F4]/95 backdrop-blur-2xl border border-[#DFD9CE] shadow-[0_24px_60px_rgba(20,20,19,0.14)] flex flex-col overflow-hidden text-[#141413] origin-left will-change-[transform,opacity] transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+              isDrawerOpen
+                ? "opacity-100 scale-100 translate-x-0 pointer-events-auto"
+                : "opacity-0 scale-95 -translate-x-6 pointer-events-none"
+            }`}
           >
             <div className="px-5 pt-4 pb-3 border-b border-[#E6E1D6] flex items-center justify-between gap-2 shrink-0">
               <div>
                 <h2 className="text-sm font-bold tracking-tight">
-                  {activeDrawer === "catalog"
+                  {renderedDrawer === "catalog"
                     ? "Ürün, Modül & Eşya Kataloğu"
-                    : activeDrawer === "modules"
+                    : renderedDrawer === "modules"
                     ? "Sahnedeki Modüller ve Eşyalar"
                     : "Oda, Hazır Mutfak & Mimari"}
                 </h2>
                 <p className="text-[11px] text-[#78716C] mt-0.5">
-                  {activeDrawer === "catalog"
+                  {renderedDrawer === "catalog"
                     ? "Gardırop, Mutfak Adası, TV Bench, Masa ve 3B Cihazlar"
-                    : activeDrawer === "modules"
+                    : renderedDrawer === "modules"
                     ? `${mainModules.length} modül • ${sceneObjects.length} sahne eşyası`
                     : "Duvar ölçüleri, hazır mutfak yerleşimleri ve engeller"}
                 </p>
@@ -278,7 +404,7 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
             </div>
 
             {/* SEKME 1: ÜRÜN & EŞYA KATALOĞU */}
-            {activeDrawer === "catalog" && (
+            {renderedDrawer === "catalog" && (
               <>
                 <div className="px-4 pt-3 pb-2 space-y-2.5 shrink-0">
                   <div className="relative">
@@ -458,6 +584,7 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                                 { id: "all", label: "Tümü" },
                                 { id: "appliance", label: "Mutfak Cihazları" },
                                 { id: "furniture", label: "Masa, Koltuk & Yatak" },
+                                { id: "plants", label: "İç Mekân Bitkileri" },
                                 { id: "decor", label: "TV, Işık & Dekor" },
                               ] as const
                             ).map((flt) => (
@@ -483,27 +610,27 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                           </div>
                         )}
 
-                        <div className="grid grid-cols-2 gap-2">
+                        <div className="grid grid-cols-2 gap-2.5">
                           {filteredSceneObjects.map((obj) => (
                             <div
                               key={obj.catalogId}
-                              className="p-3 rounded-2xl bg-white border border-[#E5DFD3] flex flex-col justify-between gap-2"
+                              className="group p-3 rounded-2xl bg-white/90 hover:bg-white border border-[#E5DFD3] hover:border-[#141413]/40 flex flex-col justify-between gap-2 transition shadow-2xs"
                             >
-                              <div>
-                                <div className="flex items-center justify-between gap-1.5 mb-1">
-                                  <span
-                                    className="w-5 h-5 rounded-full border border-black/10 shrink-0"
-                                    style={{ backgroundColor: obj.primaryColorHex }}
-                                  />
-                                  <span className="text-[10px] font-mono text-[#78716C]">
-                                    {Math.round(obj.defaultDimensions.width / 10)}×
-                                    {Math.round(obj.defaultDimensions.depth / 10)} cm
-                                  </span>
+                              <button
+                                type="button"
+                                onClick={() => onAddSceneObject(obj.catalogId)}
+                                className="w-full text-left flex flex-col cursor-pointer"
+                              >
+                                <div className="w-full h-24 rounded-xl bg-[#F6F3EC] flex items-center justify-center mb-2 overflow-hidden p-1.5">
+                                  <SceneObjectThumbnail item={obj} />
                                 </div>
                                 <div className="text-xs font-semibold text-[#141413] leading-snug line-clamp-2">
                                   {obj.name}
                                 </div>
-                              </div>
+                                <div className="text-[10px] font-mono text-[#78716C] mt-0.5">
+                                  {fmtLen(obj.defaultDimensions.width, false)}×{fmtLen(obj.defaultDimensions.depth)}
+                                </div>
+                              </button>
                               <button
                                 type="button"
                                 onClick={() => onAddSceneObject(obj.catalogId)}
@@ -537,8 +664,8 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                     filteredTemplates.length > 0 && (
                       <div className="grid grid-cols-2 gap-2.5 content-start">
                         {filteredTemplates.map((tpl) => {
-                          const minCm = Math.round(tpl.dimensionLimits.minW / 10);
-                          const maxCm = Math.round(tpl.dimensionLimits.maxW / 10);
+                          const minVal = fmtLen(tpl.dimensionLimits.minW, false);
+                          const maxVal = fmtLen(tpl.dimensionLimits.maxW, false);
                           return (
                             <div
                               key={tpl.templateId}
@@ -557,7 +684,7 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                                   {tpl.name}
                                 </div>
                                 <div className="w-full text-[10.5px] font-mono text-[#78716C] mt-0.5">
-                                  {minCm === maxCm ? `${minCm} cm` : `${minCm}–${maxCm} cm`}
+                                  {minVal === maxVal ? `${minVal} ${displayUnit}` : `${minVal}–${maxVal} ${displayUnit}`}
                                 </div>
                               </button>
 
@@ -589,7 +716,7 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
             )}
 
             {/* SEKME 2: SAHNEDEKİ MODÜLLER & EŞYALAR */}
-            {activeDrawer === "modules" && (
+            {renderedDrawer === "modules" && (
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
                 <div className="grid grid-cols-2 gap-2">
                   <button
@@ -610,6 +737,30 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                   </button>
                 </div>
 
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onChangeDrawer(null);
+                      onOpenWizardModal();
+                    }}
+                    className="py-2 px-2.5 rounded-xl bg-[#141413] hover:bg-[#292524] text-white text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Yeni Modül / Sihirbaz</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onChangeDrawer(null);
+                      onOpenCapsuleAndGlbHub("automation");
+                    }}
+                    className="py-2 px-2.5 rounded-xl bg-white hover:bg-[#F5F2EA] border border-[#DED8CC] text-[#141413] text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <span>Oda Planı / LiDAR Yükle</span>
+                  </button>
+                </div>
+
                 {remainingWallGapMm >= 350 && (
                   <button
                     type="button"
@@ -621,7 +772,7 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                       <span>Kalan Boşluğu Dolapla Tamamla</span>
                     </span>
                     <span className="px-2 py-0.5 rounded-full bg-white/15 font-mono text-[11px]">
-                      +{Math.round(remainingWallGapMm / 10)} cm
+                      +{fmtLen(remainingWallGapMm)}
                     </span>
                   </button>
                 )}
@@ -651,9 +802,7 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                               isSelected ? "text-[#D6C7B2]" : "text-[#78716C]"
                             }`}
                           >
-                            {Math.round(mod.dimensions.width / 10)} ×{" "}
-                            {Math.round(mod.dimensions.height / 10)} ×{" "}
-                            {Math.round(mod.dimensions.depth / 10)} cm • {mod.bays.length} Bölme
+                            {fmtLen(mod.dimensions.width, false)} × {fmtLen(mod.dimensions.height, false)} × {fmtLen(mod.dimensions.depth)} • {mod.bays.length} Bölme
                           </div>
                         </div>
                         {mainModules.length > 1 && (
@@ -692,8 +841,7 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                         <div className="min-w-0">
                           <div className="font-semibold truncate">{so.name}</div>
                           <div className="text-[10.5px] font-mono text-[#78716C]">
-                            {Math.round(so.dimensions.width / 10)}×
-                            {Math.round(so.dimensions.depth / 10)} cm
+                            {fmtLen(so.dimensions.width, false)}×{fmtLen(so.dimensions.depth)}
                           </div>
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
@@ -722,7 +870,7 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
             )}
 
             {/* SEKME 3: ODA ÖLÇÜLERİ, HAZIR MUTFAK PLANLARI, ADA & ENGELLER */}
-            {activeDrawer === "space" && (
+            {renderedDrawer === "space" && (
               <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
                 <div className="p-3.5 rounded-2xl bg-white border border-[#E5DFD3] space-y-3">
                   <div className="font-bold text-[#141413]">Oda Duvar ve Tavan Ölçüleri</div>
@@ -731,7 +879,7 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                     <div className="flex items-center justify-between">
                       <span className="text-[#57534E]">Duvar Genişliği</span>
                       <span className="font-mono font-bold">
-                        {Math.round(wallWidthMm / 10)} cm
+                        {fmtLen(wallWidthMm)}
                       </span>
                     </div>
                     <input
@@ -751,7 +899,7 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                     <div className="flex items-center justify-between">
                       <span className="text-[#57534E]">Tavan Yüksekliği</span>
                       <span className="font-mono font-bold">
-                        {Math.round(ceilingHeightMm / 10)} cm
+                        {fmtLen(ceilingHeightMm)}
                       </span>
                     </div>
                     <input
@@ -797,25 +945,28 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                 </div>
 
                 <div className="p-3.5 rounded-2xl bg-white border border-[#E5DFD3] space-y-2.5">
-                  <div className="font-bold text-[#141413]">Mimari Eleman Ekle</div>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-bold text-[#141413]">Mimari Eleman Ekle</div>
+                    {spaceWalls.length > 1 && (
+                      <select
+                        aria-label="Hedef Duvar Seçimi"
+                        value={spaceWalls.some((w) => w.id === activeWallId) ? (activeWallId || spaceWalls[0].id) : spaceWalls[0].id}
+                        onChange={(e) => setActiveWallId(e.target.value)}
+                        className="px-2 py-1 rounded-lg bg-[#F5F2EA] border border-[#DED8CC] text-[11px] font-semibold text-[#141413] cursor-pointer"
+                      >
+                        {spaceWalls.map((w) => (
+                          <option key={w.id} value={w.id}>
+                            {w.name} ({Math.round(w.rotationY || 0)}°)
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
                   <div className="grid grid-cols-3 gap-1.5">
                     <button
                       type="button"
                       onClick={() =>
-                        onAddSpaceObstacle({
-                          type: "window",
-                          name: "Pencere",
-                          position: {
-                            x: Math.max(200, Math.round(wallWidthMm * 0.65)),
-                            y: 900,
-                            z: 0,
-                          },
-                          dimensions: {
-                            width: 900,
-                            height: 1200,
-                            depth: 180,
-                          },
-                        })
+                        placeOnSelectedWall("window", "Pencere", 900, 1200, 180, 900)
                       }
                       className="py-2 px-2 rounded-xl bg-[#F5F2EA] hover:bg-[#EAE4D7] font-semibold transition cursor-pointer"
                     >
@@ -824,16 +975,7 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                     <button
                       type="button"
                       onClick={() =>
-                        onAddSpaceObstacle({
-                          type: "column",
-                          name: "Kolon",
-                          position: { x: 0, y: 0, z: 0 },
-                          dimensions: {
-                            width: 300,
-                            height: ceilingHeightMm,
-                            depth: 300,
-                          },
-                        })
+                        placeOnSelectedWall("column", "Kolon", 300, ceilingHeightMm, 300, 0)
                       }
                       className="py-2 px-2 rounded-xl bg-[#F5F2EA] hover:bg-[#EAE4D7] font-semibold transition cursor-pointer"
                     >
@@ -842,20 +984,7 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                     <button
                       type="button"
                       onClick={() =>
-                        onAddSpaceObstacle({
-                          type: "door",
-                          name: "Oda Kapısı",
-                          position: {
-                            x: Math.max(400, wallWidthMm - 950),
-                            y: 0,
-                            z: 0,
-                          },
-                          dimensions: {
-                            width: 900,
-                            height: 2100,
-                            depth: 120,
-                          },
-                        })
+                        placeOnSelectedWall("door", "Oda Kapısı", 900, 2100, 120, 0)
                       }
                       className="py-2 px-2 rounded-xl bg-[#F5F2EA] hover:bg-[#EAE4D7] font-semibold transition cursor-pointer"
                     >
@@ -868,19 +997,48 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                       {obstacles.map((obs) => (
                         <div
                           key={obs.id}
-                          className="flex items-center justify-between px-2.5 py-1.5 rounded-xl bg-[#FAF8F4]"
+                          className="flex items-center justify-between gap-1.5 px-2.5 py-1.5 rounded-xl bg-[#FAF8F4]"
                         >
-                          <span className="font-medium">
-                            {obs.name || obs.type} ({Math.round(obs.dimensions.width / 10)}×
-                            {Math.round(obs.dimensions.height / 10)} cm)
+                          <span className="font-medium truncate">
+                            {obs.name || obs.type} ({fmtLen(obs.dimensions.width, false)}×{fmtLen(obs.dimensions.height)})
                           </span>
-                          <button
-                            type="button"
-                            onClick={() => onRemoveSpaceObstacle(obs.id)}
-                            className="text-[#78716C] hover:text-red-600 cursor-pointer"
-                          >
-                            ✕
-                          </button>
+                          <div className="flex items-center gap-1 shrink-0">
+                            {(obs.type === "door" || obs.type === "window") && (
+                              <button
+                                type="button"
+                                title="Kanat / Menteşe Yönünü Aynala (Sol ↔ Sağ)"
+                                onClick={() =>
+                                  updateSpaceObstacleStore(obs.id, {
+                                    doorSwing: obs.doorSwing === "right" ? "left" : "right",
+                                  })
+                                }
+                                className="px-1.5 py-0.5 rounded-md bg-white border border-[#DED8CC] hover:bg-[#EFECE4] text-[10px] font-bold text-[#141413] cursor-pointer"
+                              >
+                                ⇄ {obs.doorSwing === "right" ? "Sağ" : "Sol"}
+                              </button>
+                            )}
+                            {obs.type === "door" && (
+                              <button
+                                type="button"
+                                title="İçe / Dışa Açılımı Aynala"
+                                onClick={() =>
+                                  updateSpaceObstacleStore(obs.id, {
+                                    doorOpenSide: obs.doorOpenSide === "outward" ? "inward" : "outward",
+                                  })
+                                }
+                                className="px-1.5 py-0.5 rounded-md bg-white border border-[#DED8CC] hover:bg-[#EFECE4] text-[10px] font-bold text-[#141413] cursor-pointer"
+                              >
+                                ⇅ {obs.doorOpenSide === "outward" ? "Dışa" : "İçe"}
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => onRemoveSpaceObstacle(obs.id)}
+                              className="w-6 h-6 rounded-full hover:bg-red-50 text-[#78716C] hover:text-red-600 flex items-center justify-center cursor-pointer"
+                            >
+                              ✕
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -904,7 +1062,6 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
               </div>
             )}
           </section>
-        )}
       </>
     );
   }

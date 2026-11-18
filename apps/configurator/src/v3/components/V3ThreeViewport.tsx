@@ -1,4 +1,6 @@
 "use client";
+
+import { getBayShelfIntervalsForSubDivider } from "../adapter/useV3Adapter";
 import { buildSceneObject3DGroup, subscribeSceneObjectGlbLoaded } from "../materials/sceneObject3DBuilder";
 import { getActiveDraggedSceneCatalogId, setActiveDraggedSceneCatalogId } from "../engine/multiWallSnapAndBvhEngine";
 import {
@@ -113,6 +115,28 @@ function getContactAoShadowTexture(): THREE.CanvasTexture | null {
 }
 
 const SHARED_UNIT_AO_PLANE_GEO = markSharedGeometry(new THREE.PlaneGeometry(1, 1));
+const SHARED_SUBDIV_GRAB_BOX_GEO = markSharedGeometry(new THREE.BoxGeometry(1, 1, 1));
+const SHARED_SUBDIV_GRAB_MAT = markSharedMaterial(
+  new THREE.MeshBasicMaterial({
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    colorWrite: false,
+  })
+);
+const SHARED_BAY_HIT_MAT = markSharedMaterial(
+  new THREE.MeshBasicMaterial({
+    color: 0x94a3b8,
+    transparent: true,
+    opacity: 0.012,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  })
+);
+let cachedCreviceTopMat: THREE.MeshBasicMaterial | null = null;
+let cachedCreviceShelfMat: THREE.MeshBasicMaterial | null = null;
+let cachedLeftCornerAoMat: THREE.MeshBasicMaterial | null = null;
+let cachedRightCornerAoMat: THREE.MeshBasicMaterial | null = null;
 const SHARED_BASE_CREVICE_MAT = markSharedMaterial(
   new THREE.MeshBasicMaterial({
     color: 0x0f0e0d,
@@ -286,14 +310,14 @@ function computeHeroStudioFraming(
   const tanV = Math.max(0.18, Math.tan(halfVertRad));
   const safeAspect = Math.max(0.85, aspect || 1.5);
   const tanH = tanV * safeAspect;
-  // Tight showroom vertical & horizontal fill (~84% vertical height, matching reference studio photograph)
-  const distForHeight = (size.y * 0.595) / tanV;
-  const distForWidth = (size.x * 0.64) / tanH;
-  const dist = Math.max(2100, distForHeight, distForWidth);
+  // Balanced architectural framing (~70% vertical fill, front-biased hero angle)
+  const distForHeight = (size.y * 0.74) / tanV;
+  const distForWidth = (size.x * 0.78) / tanH;
+  const dist = Math.max(2600, distForHeight, distForWidth);
   const dir =
     angle === "front"
       ? new THREE.Vector3(0, 0.02, 1).normalize()
-      : new THREE.Vector3(0.28, 0.048, 1.0).normalize();
+      : new THREE.Vector3(0.16, 0.065, 1.0).normalize();
   const position = target.clone().addScaledVector(dir, dist);
   return { target, position, dist };
 }
@@ -818,6 +842,9 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       { kind: "sceneObject"; id: string } | { kind: "module"; moduleId: string } | null
     >(null);
     const isStoreBatchDragging = useConfiguratorStore((s) => s.batchStartProject !== null);
+    const displayUnit = useConfiguratorStore((s) => s.displayUnit);
+    const displayUnitRef = useRef<"cm" | "mm">(displayUnit);
+    displayUnitRef.current = displayUnit;
     const lastSettled3DEngRef = useRef<ReturnType<typeof evaluateUnifiedEngineeringModel> | null>(null);
     const live3DEngineeringReport = useMemo(() => {
       if ((paused || isStoreBatchDragging) && lastSettled3DEngRef.current) {
@@ -1179,15 +1206,25 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         if (bounds.isEmpty()) return;
         if (preset === "front" || preset === "side" || preset === "top") {
           const center = bounds.getCenter(new THREE.Vector3());
-          const radius = bounds.getSize(new THREE.Vector3()).length() / 2;
-          const dist = Math.max(1250, radius * 2.28);
+          const size = bounds.getSize(new THREE.Vector3());
+          const tanHalfV = Math.tan(THREE.MathUtils.degToRad(perspective.fov) / 2);
+          const tanHalfH = tanHalfV * Math.max(0.5, perspective.aspect || 1.5);
           controls.target.copy(center);
           if (preset === "front") {
+            const distV = (size.y / 2) / (tanHalfV * 0.68);
+            const distH = (size.x / 2) / (tanHalfH * 0.70);
+            const dist = Math.max(1800, distV, distH) + size.z / 2;
             perspective.position.set(center.x, center.y + 60, center.z + dist);
           } else if (preset === "side") {
-            perspective.position.set(center.x + dist, center.y + 80, center.z + 180);
+            const distV = (size.y / 2) / (tanHalfV * 0.68);
+            const distH = (size.z / 2) / (tanHalfH * 0.70);
+            const dist = Math.max(2000, distV, distH) + size.x / 2;
+            perspective.position.set(center.x + dist, center.y + 80, center.z + 220);
           } else {
-            perspective.position.set(center.x, center.y + dist * 1.05, center.z + 120);
+            const distV = (size.z / 2) / (tanHalfV * 0.68);
+            const distH = (size.x / 2) / (tanHalfH * 0.70);
+            const dist = Math.max(2000, distV, distH) + size.y / 2;
+            perspective.position.set(center.x, center.y + dist, center.z + 180);
           }
           perspective.lookAt(center);
         } else {
@@ -1249,16 +1286,44 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
     const minimalChromeRef = useRef<boolean>(Boolean(minimalChrome));
     minimalChromeRef.current = Boolean(minimalChrome);
     const lastSnapBannerRef = useRef<string | null>(null);
+    const snapBannerDomRef = useRef<HTMLDivElement | null>(null);
+    const snapBannerTextRef = useRef<HTMLSpanElement | null>(null);
+    const snapBadgeDomRef = useRef<HTMLDivElement | null>(null);
+    const snapBadgeLabelRef = useRef<HTMLSpanElement | null>(null);
+    const snapBadgeYRef = useRef<HTMLSpanElement | null>(null);
     const setSnapBannerDedup = useCallback((msg: string | null) => {
       if (lastSnapBannerRef.current === msg) return;
       lastSnapBannerRef.current = msg;
-      setDragDropSnapBanner(msg);
+      const el = snapBannerDomRef.current;
+      const txt = snapBannerTextRef.current;
+      if (el && txt) {
+        if (msg) {
+          txt.textContent = msg;
+          el.style.display = "flex";
+        } else {
+          el.style.display = "none";
+        }
+      }
     }, []);
-    const [active3DSnap, setActive3DSnap] = useState<ElevationSnapTarget | null>(null);
+    const setActive3DSnap = useCallback((snap: ElevationSnapTarget | null) => {
+      const el = snapBadgeDomRef.current;
+      const lbl = snapBadgeLabelRef.current;
+      const yEl = snapBadgeYRef.current;
+      if (el && lbl && yEl) {
+        if (snap) {
+          lbl.textContent = `🎯 Hizalandı: ${snap.label}`;
+          yEl.textContent = displayUnitRef.current === "cm" ? `Y: ${Number((snap.elevationY / 10).toFixed(1))} cm` : `Y: ${snap.elevationY} mm`;
+          el.style.display = "flex";
+        } else {
+          el.style.display = "none";
+        }
+      }
+    }, []);
+    const active3DSnap: ElevationSnapTarget | null = null;
+    const dragDropSnapBanner: string | null = null;
     const roomArchGroupRef = useRef<THREE.Group | null>(null);
     const sceneObjectsGroupRef = useRef<THREE.Group | null>(null);
     const [glbRefreshTick, setGlbRefreshTick] = useState<number>(0);
-    const [dragDropSnapBanner, setDragDropSnapBanner] = useState<string | null>(null);
     const [webglUnavailable, setWebglUnavailable] = useState<boolean>(false);
     const [webglCapability, setWebglCapability] = useState<WebGL2CapabilityReport | null>(null);
     const [webglRetryKey, setWebglRetryKey] = useState<number>(0);
@@ -1269,6 +1334,15 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       closed: [],
       dirty: true,
     });
+    const getCachedSolidMeshes = useCallback((curGroup: THREE.Object3D, includeBayVolumes: boolean) => {
+      const cache = solidMeshesCacheRef.current;
+      if (cache.dirty) {
+        cache.open = collectSolidCabinetMeshes(curGroup, true);
+        cache.closed = cache.open.filter((m) => m.userData?.role !== "bay_compartment");
+        cache.dirty = false;
+      }
+      return includeBayVolumes ? cache.open : cache.closed;
+    }, []);
     const isOrbitingRef = useRef<boolean>(false);
     const canvasRectRef = useRef<DOMRect | null>(null);
     const [dismissedBayPopover, setDismissedBayPopover] = useState<boolean>(false);
@@ -1472,6 +1546,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       updateSceneObject,
       beginHistoryTransaction,
       commitHistoryTransaction,
+      addInteriorItemAtElevation,
+      setDoorOpenAngleDeg,
     });
     useEffect(() => {
       latestStateRef.current = {
@@ -1498,6 +1574,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         updateSceneObject,
         beginHistoryTransaction,
         commitHistoryTransaction,
+        addInteriorItemAtElevation,
+        setDoorOpenAngleDeg,
       };
     }, [
       project,
@@ -1523,6 +1601,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       updateSceneObject,
       beginHistoryTransaction,
       commitHistoryTransaction,
+      addInteriorItemAtElevation,
+      setDoorOpenAngleDeg,
     ]);
 
     useEffect(() => {
@@ -1562,7 +1642,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         {
           id: "dim_W",
           tag: "Genişlik",
-          valueText: isSimpleTier ? `${W / 10} cm` : `${W} mm`,
+          valueText: displayUnit === "cm" ? `${Number((W / 10).toFixed(1))} cm` : `${Math.round(W)} mm`,
           borderColor: "#D6D0C4",
           badgeBg: "#141413",
           localMidpoint: new THREE.Vector3(W * 0.5, H + 105, D * 0.65),
@@ -1570,7 +1650,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         {
           id: "dim_H",
           tag: "Yükseklik",
-          valueText: isSimpleTier ? `${H / 10} cm` : `${H} mm`,
+          valueText: displayUnit === "cm" ? `${Number((H / 10).toFixed(1))} cm` : `${Math.round(H)} mm`,
           borderColor: "#D6D0C4",
           badgeBg: "#141413",
           localMidpoint: new THREE.Vector3(W + 115, H * 0.52, D),
@@ -1578,18 +1658,18 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         {
           id: "dim_D",
           tag: "Derinlik",
-          valueText: isSimpleTier ? `${D / 10} cm` : `${D} mm`,
+          valueText: displayUnit === "cm" ? `${Number((D / 10).toFixed(1))} cm` : `${Math.round(D)} mm`,
           borderColor: "#D6D0C4",
           badgeBg: "#57534E",
           localMidpoint: new THREE.Vector3(W + 125, 18, D * 0.5),
         },
       ];
 
-      if (!isSimpleTier) {
+      if (!isSimpleTier || displayUnit === "mm" || displayUnit === "cm") {
         list.push({
           id: "dim_SOKET",
           tag: "Soket",
-          valueText: `${soketW} mm`,
+          valueText: displayUnit === "cm" ? `${Number((soketW / 10).toFixed(1))} cm` : `${Math.round(soketW)} mm`,
           borderColor: "#D6D0C4",
           badgeBg: "#57534E",
           localMidpoint: new THREE.Vector3(W * 0.5, 8, D + 115),
@@ -1606,7 +1686,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           list.push({
             id: `dim_BAY_${bIdx}`,
             tag: `${bIdx + 1}. Bölme`,
-            valueText: isSimpleTier ? `${Math.round(bw / 10)} cm` : `${bw} mm`,
+            valueText: displayUnit === "cm" ? `${Number((bw / 10).toFixed(1))} cm` : `${Math.round(bw)} mm`,
             borderColor: "#D6D0C4",
             badgeBg: "#141413",
             localMidpoint: new THREE.Vector3(midX, H + 28, D * 0.92),
@@ -1624,7 +1704,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         list.push({
           id: "dim_TOTAL_SPAN",
           tag: "Toplam Genişlik",
-          valueText: isSimpleTier ? `${spanMm / 10} cm` : `${spanMm} mm`,
+          valueText: displayUnit === "cm" ? `${Number((spanMm / 10).toFixed(1))} cm` : `${Math.round(spanMm)} mm`,
           borderColor: "#D6D0C4",
           badgeBg: "#141413",
           localMidpoint: new THREE.Vector3((minX + maxX) * 0.5, maxH + 260, 300),
@@ -1632,7 +1712,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       }
 
       return list;
-    }, [project, activeModuleIndex, effectiveShowDimensions, isSimpleTier]);
+    }, [project, activeModuleIndex, effectiveShowDimensions, isSimpleTier, displayUnit]);
 
     const hwCallouts = useMemo(() => {
       const mod = project.modules[activeModuleIndex] || project.modules[0];
@@ -2112,20 +2192,20 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       const scene = new THREE.Scene();
       const bgHex =
         theme === "warm-light"
-          ? 0xe4dfd6
+          ? 0xcfd6dd
           : theme === "showroom-neutral"
-          ? 0xddd7cc
+          ? 0xc6cdd5
           : 0x18181b;
       scene.background = new THREE.Color(bgHex);
       sceneRef.current = scene;
 
       // 30° Architectural Telephoto Lens at Human Eye-Level (eliminates security-camera downward distortion)
       const perspCamera = new THREE.PerspectiveCamera(30, width / height, 15, 28000);
-      perspCamera.position.set(2150, 1260, 4680);
+      perspCamera.position.set(2050, 1820, 7650);
       perspCamRef.current = perspCamera;
 
       const aspect = width / height;
-      const orthoD = 1550;
+      const orthoD = 1950;
       const orthoCamera = new THREE.OrthographicCamera(
         -orthoD * aspect,
         orthoD * aspect,
@@ -2134,7 +2214,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         -50000,
         50000
       );
-      orthoCamera.position.set(2150, 1260, 4680);
+      orthoCamera.position.set(2050, 1820, 7650);
       orthoCamRef.current = orthoCamera;
 
       const safeGl = createSafeWebGL2Renderer({
@@ -2150,16 +2230,25 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
 
       const renderer = safeGl.bundle.renderer;
       const isLegacyGpu = safeGl.bundle.capability.isLegacyOrLowSpecGpu;
-      const targetSharpDpr = isLegacyGpu ? 1 : Math.min(window.devicePixelRatio || 1, 2);
+      const restSharpDpr = isLegacyGpu ? 1 : Math.min(window.devicePixelRatio || 1, 2.0);
+      const motionFastDpr = isLegacyGpu ? 1 : Math.min(window.devicePixelRatio || 1, 1.25);
+      let currentAppliedDpr = restSharpDpr;
+      let settleSharpTimer: ReturnType<typeof setTimeout> | null = null;
+      const setAdaptiveDpr = (dprVal: number) => {
+        if (Math.abs(currentAppliedDpr - dprVal) < 0.02) return;
+        currentAppliedDpr = dprVal;
+        renderer.setPixelRatio(dprVal);
+        needsRenderRef.current = true;
+      };
       renderer.setSize(width, height);
-      renderer.setPixelRatio(targetSharpDpr);
+      renderer.setPixelRatio(restSharpDpr);
       renderer.shadowMap.enabled = !isLegacyGpu;
       renderer.shadowMap.autoUpdate = false;
       renderer.shadowMap.needsUpdate = true;
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       const agxToneMapping = (THREE as unknown as { AgXToneMapping?: THREE.ToneMapping }).AgXToneMapping;
       renderer.toneMapping = agxToneMapping ?? THREE.ACESFilmicToneMapping;
-      renderer.toneMappingExposure = 1.06;
+      renderer.toneMappingExposure = 1.09;
       rendererRef.current = renderer;
       container.appendChild(renderer.domElement);
       canvasRectRef.current = renderer.domElement.getBoundingClientRect();
@@ -2183,12 +2272,22 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       controls.minDistance = 250;
       controls.minPolarAngle = 0.04;
       controls.maxPolarAngle = Math.PI * 0.495;
-      controls.target.set(900, 1080, 300);
+      controls.target.set(850, 1340, 300);
       controls.addEventListener("start", () => {
         isOrbitingRef.current = true;
+        if (settleSharpTimer) {
+          clearTimeout(settleSharpTimer);
+          settleSharpTimer = null;
+        }
+        setAdaptiveDpr(motionFastDpr);
       });
       controls.addEventListener("end", () => {
         isOrbitingRef.current = false;
+        if (settleSharpTimer) clearTimeout(settleSharpTimer);
+        settleSharpTimer = setTimeout(() => {
+          settleSharpTimer = null;
+          setAdaptiveDpr(restSharpDpr);
+        }, 130);
       });
       controls.addEventListener("change", () => {
         if (controls.target.y < 40) {
@@ -2198,18 +2297,12 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       });
       controlsRef.current = controls;
 
-      // Instant <0.2ms equirectangular studio reflection on frame 0 so initial focus & orbit NEVER freeze;
-      // upgrades asynchronously to full PMREM cubemap once idle!
-      scene.environment = getStudioEnvironmentTexture();
-      let idlePmremTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
-        idlePmremTimer = null;
-        if (!pausedRef.current && rendererRef.current === renderer && sceneRef.current === scene) {
-          if (!isOrbitingRef.current) {
-            scene.environment = getStudioPmremEnvironment(renderer);
-            needsRenderRef.current = true;
-          }
-        }
-      }, 260);
+      // Initialize studio environment once at mount so mid-session envMap switching never triggers D3D11 shader recompilation stalls.
+      if (isLegacyGpu) {
+        scene.environment = getStudioEnvironmentTexture();
+      } else {
+        scene.environment = getStudioPmremEnvironment(renderer);
+      }
 
       const detachContextRecovery = attachWebGLContextRecovery(renderer.domElement, {
         onContextLost: () => {
@@ -2223,47 +2316,56 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         },
       });
 
-      const hemiLight = new THREE.HemisphereLight(0xfffdf9, 0xb8afa0, 0.42);
+      const hemiLight = new THREE.HemisphereLight(0xfffef9, 0xcbbfae, 0.58);
       scene.add(hemiLight);
       hemiLightRef.current = hemiLight;
 
-      // Architectural 3/4 Left-Front Key Softbox with 2048px PCFSoftShadowMap
-      const keyLight = new THREE.DirectionalLight(0xfffaf3, 1.32);
-      keyLight.position.set(-2150, 3450, 3350);
-      keyLight.target.position.set(1400, 900, 200);
+      // Architectural 3/4 Left-Front Key Softbox with True 2048×2048 Hi-Res PCFSoftShadowMap
+      const keyLight = new THREE.DirectionalLight(0xfffaf2, 1.52);
+      keyLight.position.set(-2150, 3550, 3450);
+      keyLight.target.position.set(1250, 880, 320);
       scene.add(keyLight.target);
       keyLight.castShadow = !isLegacyGpu;
-      keyLight.shadow.mapSize.width = 1024;
-      keyLight.shadow.mapSize.height = 1024;
-      keyLight.shadow.camera.left = -2500;
-      keyLight.shadow.camera.right = 2800;
-      keyLight.shadow.camera.top = 2700;
-      keyLight.shadow.camera.bottom = -450;
+      keyLight.shadow.mapSize.width = isLegacyGpu ? 1024 : 2048;
+      keyLight.shadow.mapSize.height = isLegacyGpu ? 1024 : 2048;
+      keyLight.shadow.camera.left = -2600;
+      keyLight.shadow.camera.right = 3000;
+      keyLight.shadow.camera.top = 2800;
+      keyLight.shadow.camera.bottom = -550;
       keyLight.shadow.camera.near = 250;
-      keyLight.shadow.camera.far = 9500;
-      keyLight.shadow.bias = -0.00018;
-      keyLight.shadow.normalBias = 0.85;
-      keyLight.shadow.radius = 2.4;
+      keyLight.shadow.camera.far = 10500;
+      keyLight.shadow.bias = -0.00012;
+      keyLight.shadow.normalBias = 0.42;
+      keyLight.shadow.radius = 2.65;
       scene.add(keyLight);
       keyLightRef.current = keyLight;
 
-      const rimLight = new THREE.DirectionalLight(0xebeef2, 0.22);
-      rimLight.position.set(2900, 2300, 1650);
+      const rimLight = new THREE.DirectionalLight(0xf0f4fa, 0.42);
+      rimLight.position.set(3100, 2450, 1750);
       scene.add(rimLight);
       rimLightRef.current = rimLight;
 
-      const frontFillLight = new THREE.DirectionalLight(0xfaf7f2, 0.22);
-      frontFillLight.position.set(1600, 1400, 3400);
+      const frontFillLight = new THREE.DirectionalLight(0xfff9f2, 0.28);
+      frontFillLight.position.set(1650, 1480, 3600);
       scene.add(frontFillLight);
 
-      const floorBounceLight = new THREE.DirectionalLight(0xf0e6d8, 0.1);
-      floorBounceLight.position.set(900, -1400, 2000);
+      const floorBounceLight = new THREE.DirectionalLight(0xf3eadc, 0.14);
+      floorBounceLight.position.set(950, -1400, 2100);
       scene.add(floorBounceLight);
 
-      // Subtle architectural floor grid with clear contrast
-      const gridColor1 = theme === "dark" ? 0x334155 : 0x8c857b;
-      const gridColor2 = theme === "dark" ? 0x1e293b : 0xb5afa4;
+      // Refined architectural floor grid with non-distracting gallery opacity
+      const gridColor1 = theme === "dark" ? 0x334155 : 0xa39c90;
+      const gridColor2 = theme === "dark" ? 0x1e293b : 0xcbc5ba;
       const grid = new THREE.GridHelper(8000, 80, gridColor1, gridColor2);
+      if (Array.isArray(grid.material)) {
+        grid.material.forEach((gm) => {
+          gm.transparent = true;
+          gm.opacity = theme === "dark" ? 0.38 : 0.32;
+        });
+      } else {
+        grid.material.transparent = true;
+        grid.material.opacity = theme === "dark" ? 0.38 : 0.32;
+      }
       grid.position.y = -2;
       grid.visible = showGrid;
       scene.add(grid);
@@ -2322,15 +2424,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       scene.add(engBeaconGroup);
       engineeringBeaconGroupRef.current = engBeaconGroup;
 
-      const getCachedSolidMeshes = (curGroup: THREE.Object3D, includeBayVolumes: boolean) => {
-        const cache = solidMeshesCacheRef.current;
-        if (cache.dirty) {
-          cache.open = collectSolidCabinetMeshes(curGroup, true);
-          cache.closed = cache.open.filter((m) => m.userData?.role !== "bay_compartment");
-          cache.dirty = false;
-        }
-        return includeBayVolumes ? cache.open : cache.closed;
-      };
+
 
       // Direct model raycast selection + 3D Front/Perspective Interior Component Dragging with Cross-Module Snapping
       const raycaster = new THREE.Raycaster();
@@ -2359,6 +2453,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         itemHeightMm?: number;
         cachedSnapTargets?: ReturnType<typeof computeElevationSnapTargets>;
         liveSnappedY?: number;
+        liveSubDivider?: { offsetX: number; elevationY: number; height: number; targetMidY: number; targetBayIndex?: number };
         liveGpuX?: number;
         liveGpuY?: number;
         liveGpuZ?: number;
@@ -2417,7 +2512,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           }
         }
 
-        const isMoveGesture = Boolean(state.moveObjectMode3D || e.shiftKey);
+        const isMoveGesture = Boolean(state.moveObjectMode3D || e.shiftKey || e.ctrlKey || e.metaKey);
         const anyDoorsOpen =
           state.doorsHiddenIn3D ||
           state.doorOpenAngleDeg > 5 ||
@@ -2497,7 +2592,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         }
 
         // 2. Only grab an Architectural Obstacle (Window, Door, Plumbing, Column) if NO cabinet is in front of it!
-        if (curRoomGroup && (state.moveObjectMode3D || e.shiftKey)) {
+        if (curRoomGroup && (state.moveObjectMode3D || e.shiftKey || e.ctrlKey || e.metaKey)) {
           const roomHits = raycaster.intersectObjects(curRoomGroup.children, true);
           for (const rh of roomHits) {
             if (rh.object instanceof THREE.Line || rh.object instanceof THREE.LineSegments) continue;
@@ -2589,10 +2684,21 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             state.doorsHiddenIn3D ||
             state.doorOpenAngleDeg > 5 ||
             Boolean(cMod.isOpenFront) ||
-            cMod.bays.some((b) => b.door.type === "open" || b.door.doorSystemId === "open");
+            cMod.bays.some(
+              (b) =>
+                b.door.type === "open" ||
+                b.door.doorSystemId === "open" ||
+                Boolean(b.door.isGlassFramed) ||
+                b.door.crossSectionProfile === "glass_frame" ||
+                b.door.crossSectionProfile === "full_smoked_glass" ||
+                b.door.crossSectionProfile === "center_glass_frame" ||
+                b.door.crossSectionProfile === "u_glass_open_top"
+            );
 
-          const wantInteriorDrag = !state.moveObjectMode3D ? !e.shiftKey : e.ctrlKey || e.metaKey;
-          if (wantInteriorDrag && (doorsAreOpen || (isExternalDrawerFront && (e.ctrlKey || e.metaKey || e.altKey)))) {
+          const wantInteriorDrag = !state.moveObjectMode3D
+            ? !(e.shiftKey || e.ctrlKey || e.metaKey)
+            : false;
+          if (wantInteriorDrag && (doorsAreOpen || (isExternalDrawerFront && e.altKey))) {
             const fs = calculateFourSpaceDimensions(cMod);
             const dm = findDraggableInteriorComponent(
               cMod,
@@ -2604,6 +2710,24 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               modIdx = cModIdx;
               mod = cMod;
               dragMeta = dm;
+              // If we hit a shelf first, peek 40mm deeper along the same ray in case the user clicked right on a Raf Arası Dikme joint!
+              if (dm.kind !== "sub_divider") {
+                for (const hSub of hits) {
+                  if (hSub.distance > h.distance + 45) break;
+                  const subCid = String(hSub.object?.userData?.componentId || "");
+                  if (!subCid) continue;
+                  const subDm = findDraggableInteriorComponent(
+                    cMod,
+                    subCid,
+                    fs.usableInternal.bayClearWidthsMm
+                  );
+                  if (subDm && subDm.kind === "sub_divider") {
+                    hitObj = hSub.object;
+                    dragMeta = subDm;
+                    break;
+                  }
+                }
+              }
               break;
             }
           }
@@ -2631,8 +2755,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         }
         const mmPerPx = visibleHeightMm / Math.max(200, rect.height);
 
-        // If user is in 3D Move Mode (or holding Shift), grab and move the WHOLE MODULE along the wall!
-        if ((state.moveObjectMode3D || e.shiftKey) && !dragMeta) {
+        // If user is in 3D Move Mode (or holding Ctrl / Shift), grab and move the WHOLE MODULE along the wall!
+        if ((state.moveObjectMode3D || e.shiftKey || e.ctrlKey || e.metaKey) && !dragMeta) {
           state.setActiveModuleIndex(modIdx);
           (state.setSelectedComponentId as (id: string | null, mIdx?: number) => void)(
             clickedCompId,
@@ -2689,6 +2813,19 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                 dragMeta.itemHeightMm
               );
 
+        const camHorizNormal = new THREE.Vector3();
+        curCam.getWorldDirection(camHorizNormal);
+        camHorizNormal.y = 0;
+        if (camHorizNormal.lengthSq() < 1e-4) {
+          camHorizNormal.set(0, 0, -1);
+        } else {
+          camHorizNormal.normalize().negate();
+        }
+        const interiorDragPlane = new THREE.Plane().setFromNormalAndCoplanarPoint(
+          camHorizNormal,
+          hits[0].point
+        );
+
         activeDrag3D = {
           modIdx,
           bayIdx: dragMeta.bayIdx,
@@ -2696,6 +2833,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           targetId: dragMeta.targetId,
           startValueMm: dragMeta.startVal,
           startSecondValueMm: dragMeta.startElevY,
+          dragPlane: interiorDragPlane,
+          startPlaneHit: hits[0].point.clone(),
           itemHeightMm: dragMeta.itemHeightMm,
           cachedSnapTargets: precomputedSnapTargets,
           startClientX: e.clientX,
@@ -3187,22 +3326,158 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           return;
         }
         if (activeDrag3D.kind === "sub_divider") {
-          const rawX = activeDrag3D.startValueMm + dxPx * activeDrag3D.mmPerPx;
-          const snappedX = Math.round(rawX / 10) * 10;
-          const startMidY =
+          const modForSd = state.project.modules[activeDrag3D.modIdx];
+          if (!modForSd) return;
+          const pTSd = modForSd.carcass.panelThickness || 18;
+          const plHSd = modForSd.carcass.plinthHeight ?? 80;
+          const netHSd = calculateNetInnerHeight(modForSd);
+          const bayWidthsSd = calculateBayWidths(modForSd);
+
+          let targetBayIdx = activeDrag3D.bayIdx;
+          let bayStartX =
+            pTSd + bayWidthsSd.slice(0, targetBayIdx).reduce((s, w) => s + w + pTSd, 0);
+          let curBayWSd = bayWidthsSd[targetBayIdx] || 600;
+          let clampedX = activeDrag3D.startValueMm;
+          let cursorElevY =
             (activeDrag3D.startSecondValueMm ?? 0) + (activeDrag3D.itemHeightMm ?? 300) / 2;
-          const targetMidY = Math.round(startMidY - dyPx * activeDrag3D.mmPerPx);
+
+          const curCamSd = (controlsRef.current?.object as THREE.Camera) || perspCamRef.current;
+          if (curRenderer && curCamSd) {
+            const rectSd = canvasRectRef.current || curRenderer.domElement.getBoundingClientRect();
+            const ndcXSd = ((e.clientX - rectSd.left) / rectSd.width) * 2 - 1;
+            const ndcYSd = -((e.clientY - rectSd.top) / rectSd.height) * 2 + 1;
+            raycaster.setFromCamera(new THREE.Vector2(ndcXSd, ndcYSd), curCamSd);
+
+            const plSd = calculateModulePlacement(modForSd);
+            const rightAxis = new THREE.Vector3(
+              Math.cos(plSd.rotationYRad),
+              0,
+              -Math.sin(plSd.rotationYRad)
+            );
+            const frontNormal = new THREE.Vector3(
+              Math.sin(plSd.rotationYRad),
+              0,
+              Math.cos(plSd.rotationYRad)
+            );
+            const midAnchor = new THREE.Vector3(plSd.origin.x, plSd.origin.y, plSd.origin.z).addScaledVector(
+              frontNormal,
+              modForSd.dimensions.depth * 0.5
+            );
+            const midPlane = new THREE.Plane().setFromNormalAndCoplanarPoint(frontNormal, midAnchor);
+            const hitPt = new THREE.Vector3();
+            if (raycaster.ray.intersectPlane(midPlane, hitPt)) {
+              const relX = hitPt.clone().sub(plSd.origin).dot(rightAxis);
+              const relY = hitPt.y - modForSd.position.y;
+              cursorElevY = relY - plHSd - pTSd;
+
+              // Support dragging horizontally into ANY bay as well as within the same bay!
+              let accX = pTSd;
+              for (let bI = 0; bI < bayWidthsSd.length; bI++) {
+                const bw = bayWidthsSd[bI];
+                if (relX >= accX - pTSd && relX <= accX + bw + pTSd) {
+                  targetBayIdx = bI;
+                  bayStartX = accX;
+                  curBayWSd = bw;
+                  break;
+                }
+                accX += bw + pTSd;
+              }
+              clampedX = Math.max(
+                40,
+                Math.min(Math.max(72, curBayWSd - pTSd - 40), Math.round((relX - bayStartX) / 5) * 5)
+              );
+            }
+          }
+
+          const bayObjSd = modForSd.bays[targetBayIdx];
+          const ivsSd = bayObjSd ? getBayShelfIntervalsForSubDivider(bayObjSd, netHSd, pTSd) : [];
+          const usableIvs = ivsSd.filter((iv) => !iv.hasConflict);
+          const candIvs = usableIvs.length > 0 ? usableIvs : ivsSd;
+          const bestIv =
+            candIvs.find((iv) => cursorElevY >= iv.botY - 22 && cursorElevY <= iv.topY + 22) ||
+            (candIvs.length > 0
+              ? candIvs.reduce((best, iv) =>
+                  Math.abs((iv.botY + iv.topY) / 2 - cursorElevY) <
+                  Math.abs((best.botY + best.topY) / 2 - cursorElevY)
+                    ? iv
+                    : best
+                )
+              : {
+                  botY: activeDrag3D.startSecondValueMm ?? 0,
+                  height: activeDrag3D.itemHeightMm ?? 300,
+                  label: "",
+                });
+
+          const targetMidY = Math.round(bestIv.botY + bestIv.height / 2);
+          activeDrag3D.liveSubDivider = {
+            offsetX: clampedX,
+            elevationY: bestIv.botY,
+            height: bestIv.height,
+            targetMidY,
+            targetBayIndex: targetBayIdx,
+          };
+
+          const modContainer3D = meshGroupRef.current?.children.find(
+            (ch) => ch.userData?.moduleIndex === activeDrag3D?.modIdx
+          );
+          if (modContainer3D) {
+            const tId = activeDrag3D.targetId;
+            let movedSd = false;
+            for (const child of modContainer3D.children) {
+              const cid = String(child.userData?.componentId || "");
+              if (cid === tId || cid.startsWith(`${tId}_`)) {
+                if (typeof child.userData.__dragBaseH !== "number") {
+                  child.userData.__dragBaseH = activeDrag3D.itemHeightMm || bestIv.height || 300;
+                }
+                // compGroup origin is at BOTTOM-LEFT of the sub-divider (x = bayStartX + offsetX, y = plH + T + botY)!
+                child.position.x = bayStartX + clampedX;
+                child.position.y = plHSd + pTSd + bestIv.botY;
+                child.scale.y = Math.max(
+                  0.1,
+                  bestIv.height / Math.max(40, child.userData.__dragBaseH as number)
+                );
+                movedSd = true;
+              }
+            }
+            if (movedSd) {
+              if (selectionFrameGroupRef.current) {
+                selectionFrameGroupRef.current.visible = false;
+              }
+              setSnapBannerDedup(
+                `📐 Raf Arası Dikme • Bölme ${targetBayIdx + 1} (${bestIv.label || "Raf Arası"}) • X: ${clampedX} mm`
+              );
+              needsRenderRef.current = true;
+              return;
+            }
+          }
+
           state.setSubDividerPlacement(
             activeDrag3D.bayIdx,
             activeDrag3D.targetId,
-            { offsetX: snappedX, targetMidY },
+            { offsetX: clampedX, elevationY: bestIv.botY, height: bestIv.height, targetMidY, targetBayIndex: targetBayIdx },
             false
           );
+          setSnapBannerDedup(`📐 Raf Arası Dikme • Bölme ${targetBayIdx + 1} • X: ${clampedX} mm`);
           return;
         }
 
-        // Moving mouse UP (negative dyPx) increases elevationY
-        const rawElevY = activeDrag3D.startValueMm - dyPx * activeDrag3D.mmPerPx;
+        // True 3D ray-plane vertical tracking (1:1 locked to cursor from bottom to top of cabinet!)
+        let verticalDeltaMm = -dyPx * activeDrag3D.mmPerPx;
+        const curCamElev = (controlsRef.current?.object as THREE.Camera) || perspCamRef.current;
+        if (curRenderer && curCamElev && activeDrag3D.dragPlane && activeDrag3D.startPlaneHit) {
+          const rectElev = canvasRectRef.current || curRenderer.domElement.getBoundingClientRect();
+          const ndcXElev = ((e.clientX - rectElev.left) / rectElev.width) * 2 - 1;
+          const ndcYElev = -((e.clientY - rectElev.top) / rectElev.height) * 2 + 1;
+          raycaster.setFromCamera(new THREE.Vector2(ndcXElev, ndcYElev), curCamElev);
+          const curHitElev = new THREE.Vector3();
+          if (raycaster.ray.intersectPlane(activeDrag3D.dragPlane, curHitElev)) {
+            const planeDy = curHitElev.y - activeDrag3D.startPlaneHit.y;
+            if (Math.abs(planeDy) < 6000) {
+              verticalDeltaMm = planeDy;
+            }
+          }
+        }
+        const rawElevY = activeDrag3D.startValueMm + verticalDeltaMm;
         const targets =
           activeDrag3D.cachedSnapTargets ||
           computeElevationSnapTargets(
@@ -3237,12 +3512,12 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           activeDrag3D.kind === "shelf"
             ? snappedTarget?.kind === "system32_hole"
               ? Math.round(rawSnappedY)
-              : Math.max(60, Math.min(Math.max(100, netHClamp - 60), Math.round(rawSnappedY)))
+              : Math.max(32, Math.min(Math.max(64, netHClamp - 32), Math.round(rawSnappedY)))
             : activeDrag3D.kind === "drawer"
             ? Math.max(0, Math.min(Math.max(0, netHClamp - itemH), Math.round(rawSnappedY)))
             : activeDrag3D.kind === "rail"
-            ? Math.max(120, Math.min(Math.max(160, netHClamp - 40), Math.round(rawSnappedY)))
-            : Math.max(40, Math.min(Math.max(80, netHClamp - itemH), Math.round(rawSnappedY)));
+            ? Math.max(120, Math.min(Math.max(160, netHClamp - 32), Math.round(rawSnappedY)))
+            : Math.max(32, Math.min(Math.max(64, netHClamp - itemH), Math.round(rawSnappedY)));
 
         activeDrag3D.liveSnappedY = clampedSnappedY;
         const deltaY = clampedSnappedY - activeDrag3D.startValueMm;
@@ -3306,6 +3581,36 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               }
               child.position.y = (child.userData.__dragBaseY as number) + deltaY;
               movedAny = true;
+            }
+          }
+
+          // Also glide clothing, folded stacks, boxes & shoes belonging to this rail/shelf/fitting in real time!
+          const modPropsNode = interiorPropsGroupRef.current?.children.find(
+            (ch) => ch.userData?.moduleId === mId || ch.userData?.moduleIndex === activeDrag3D?.modIdx
+          );
+          if (modPropsNode) {
+            let movedProp = false;
+            for (const bayGrp of modPropsNode.children) {
+              for (const propItem of bayGrp.children) {
+                const pud = propItem.userData;
+                if (!pud || pud.propBayIndex !== bIdx || pud.propOwnerKind !== activeDrag3D.kind) continue;
+                const idMatches =
+                  pud.propOwnerId === tId ||
+                  (activeDrag3D.kind === "shelf" && sIdx >= 0 && pud.propOwnerIdx === sIdx) ||
+                  (activeDrag3D.kind === "rail" && rIdx >= 0 && pud.propOwnerIdx === rIdx) ||
+                  (activeDrag3D.kind === "special_fitting" && fIdx >= 0 && pud.propOwnerIdx === fIdx);
+                if (idMatches) {
+                  if (typeof pud.__dragBaseY !== "number") {
+                    pud.__dragBaseY = propItem.position.y;
+                  }
+                  propItem.position.y = (pud.__dragBaseY as number) + deltaY;
+                  propItem.updateMatrix();
+                  movedProp = true;
+                }
+              }
+            }
+            if (movedProp) {
+              modPropsNode.updateMatrixWorld(true);
             }
           }
 
@@ -3378,6 +3683,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           const pendingGpuY = activeDrag3D.liveGpuY;
           const pendingGpuZ = activeDrag3D.liveGpuZ;
           const pendingSnappedY = activeDrag3D.liveSnappedY;
+          const pendingSubDivider = activeDrag3D.liveSubDivider;
           activeDrag3D = null;
           setActive3DSnap(null);
           if (curRenderer) {
@@ -3461,10 +3767,40 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             );
             if (modContainer3D) {
               for (const child of modContainer3D.children) {
+                delete child.userData.__dragBaseX;
                 delete child.userData.__dragBaseY;
+                delete child.userData.__dragBaseH;
+                child.scale.y = 1;
               }
             }
-            if (moved && typeof pendingSnappedY === "number") {
+            const modPropsCleanup = interiorPropsGroupRef.current?.children.find(
+              (ch) => ch.userData?.moduleIndex === dragModIdx
+            );
+            if (modPropsCleanup) {
+              for (const bayGrp of modPropsCleanup.children) {
+                for (const propItem of bayGrp.children) {
+                  if (typeof propItem.userData?.__dragBaseY === "number") {
+                    propItem.position.y = propItem.userData.__dragBaseY;
+                    delete propItem.userData.__dragBaseY;
+                    propItem.updateMatrix();
+                  }
+                }
+              }
+              modPropsCleanup.updateMatrixWorld(true);
+            }
+            if (selectionFrameGroupRef.current) {
+              selectionFrameGroupRef.current.visible = true;
+            }
+            setSnapBannerDedup(null);
+            if (moved && dragKind === "sub_divider" && pendingSubDivider) {
+              state.setSubDividerPlacement(dragBayIdx, dragTargetId, pendingSubDivider, false);
+              if (
+                typeof pendingSubDivider.targetBayIndex === "number" &&
+                pendingSubDivider.targetBayIndex !== dragBayIdx
+              ) {
+                state.setActiveBayIndex(pendingSubDivider.targetBayIndex);
+              }
+            } else if (moved && typeof pendingSnappedY === "number") {
               if (dragKind === "shelf") {
                 state.setShelfElevation(dragBayIdx, dragTargetId, pendingSnappedY, false);
               } else if (dragKind === "drawer") {
@@ -3595,7 +3931,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               if (typeof window !== "undefined") {
                 window.dispatchEvent(
                   new CustomEvent("birim:select-bay-3d", {
-                    detail: { bayIndex: safeBay, role: roleStr, moduleIndex: hitModIdx },
+                    detail: { bayIndex: safeBay, role: roleStr, componentId: resolvedCompId, moduleIndex: hitModIdx },
                   })
                 );
               }
@@ -3605,6 +3941,9 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         }
         state.setSelectedComponentId(null);
         setClicked3DContext(null);
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("birim:clear-3d-selection"));
+        }
       };
 
       const handleContextMenu = (e: MouseEvent) => {
@@ -4089,6 +4428,9 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         }
 
         const roots: THREE.Object3D[] = [curGroup];
+        if (sceneObjectsGroupRef.current && sceneObjectsGroupRef.current.children.length > 0) {
+          roots.push(sceneObjectsGroupRef.current);
+        }
         if (roomArchGroupRef.current && roomArchGroupRef.current.children.length > 0) {
           roots.push(roomArchGroupRef.current);
         }
@@ -4162,29 +4504,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       winHooks.__birimRenderPathTracedPhoto = renderPathTracedPhoto;
       winHooks.__birimGetLiveSceneStats = getLiveSceneStats;
 
-      // Two-Stage Render Loop: Fast 60 FPS DPR during interaction -> Crisp HiDPI settled studio frame 240ms after stop!
       let animId: number;
-      let idleHiDpiTimer: ReturnType<typeof setTimeout> | null = null;
-      let isHiDpiSettled = false;
-
-      const scheduleIdleHiDpiPass = () => {
-        if (isLegacyGpu) return;
-        if (idleHiDpiTimer) clearTimeout(idleHiDpiTimer);
-        idleHiDpiTimer = setTimeout(() => {
-          idleHiDpiTimer = null;
-          const r = rendererRef.current;
-          const sc = sceneRef.current;
-          const ctrl = controlsRef.current;
-          if (!r || !sc || !ctrl || pausedRef.current || isOrbitingRef.current) return;
-          const sharpDpr = Math.min(window.devicePixelRatio || 1, 1.75);
-          if (r.getPixelRatio() < sharpDpr) {
-            r.setPixelRatio(sharpDpr);
-            const cam = (ctrl.object as THREE.Camera) || perspCamRef.current;
-            if (cam) r.render(sc, cam);
-          }
-          isHiDpiSettled = true;
-        }, 95);
-      };
+      let lastDimSyncMs = 0;
 
       const animate = () => {
         animId = requestAnimationFrame(animate);
@@ -4196,17 +4517,47 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
 
         const updated = curControls.update();
         if (needsRenderRef.current || updated) {
-          const fastDpr = isLegacyGpu ? 1 : Math.min(window.devicePixelRatio || 1, 1.25);
-          if ((updated || isOrbitingRef.current) && curRenderer.getPixelRatio() > fastDpr) {
-            curRenderer.setPixelRatio(fastDpr);
-            isHiDpiSettled = false;
-          }
-
           const t0 = performance.now();
           const cam = (curControls.object as THREE.Camera) || perspCamRef.current;
           if (cam) {
+            // Guarantee 0-frame lock between every cabinet module in meshGroup and its belongings in interiorPropsGroup
+            const mGrp = meshGroupRef.current;
+            const pGrp = interiorPropsGroupRef.current;
+            if (mGrp && pGrp && pGrp.visible && pGrp.children.length > 0) {
+              for (let pi = 0; pi < pGrp.children.length; pi++) {
+                const ph = pGrp.children[pi];
+                const phModId = ph.userData?.moduleId;
+                const phModIdx = ph.userData?.moduleIndex;
+                let liveMod: THREE.Object3D | undefined;
+                for (let mi = 0; mi < mGrp.children.length; mi++) {
+                  const cand = mGrp.children[mi];
+                  if (
+                    (phModId && cand.userData?.moduleId === phModId) ||
+                    (typeof phModIdx === "number" && cand.userData?.moduleIndex === phModIdx)
+                  ) {
+                    liveMod = cand;
+                    break;
+                  }
+                }
+                if (
+                  liveMod &&
+                  (Math.abs(ph.position.x - liveMod.position.x) > 0.05 ||
+                    Math.abs(ph.position.y - liveMod.position.y) > 0.05 ||
+                    Math.abs(ph.position.z - liveMod.position.z) > 0.05 ||
+                    Math.abs(ph.rotation.y - liveMod.rotation.y) > 0.0005)
+                ) {
+                  ph.position.copy(liveMod.position);
+                  ph.rotation.copy(liveMod.rotation);
+                  ph.updateMatrix();
+                  ph.updateMatrixWorld(true);
+                }
+              }
+            }
             curRenderer.render(curScene, cam);
-            updateProjectedDimensionLabels();
+            if (!isOrbitingRef.current || t0 - lastDimSyncMs >= 24) {
+              lastDimSyncMs = t0;
+              updateProjectedDimensionLabels();
+            }
           }
           const dt = performance.now() - t0;
           if (new URLSearchParams(window.location.search).has("audit"))
@@ -4219,7 +4570,6 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             });
           if (onPerformanceSample) onPerformanceSample({ lastRenderMs: dt });
           needsRenderRef.current = false;
-          scheduleIdleHiDpiPass();
         }
       };
       animate();
@@ -4256,9 +4606,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       resizeObserver.observe(container);
 
       return () => {
-        if (idleHiDpiTimer) clearTimeout(idleHiDpiTimer);
-        if (idlePmremTimer) clearTimeout(idlePmremTimer);
         delete (window as unknown as { __birimRenderUltraStudioPhoto?: unknown }).__birimRenderUltraStudioPhoto;
+        if (settleSharpTimer) clearTimeout(settleSharpTimer);
         cancelAnimationFrame(animId);
         resizeObserver.disconnect();
         detachContextRecovery();
@@ -4288,12 +4637,12 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           renderEdgeMode === "cad"
             ? 0xf8fafc
             : lightingPreset === "night_led" || theme === "dark" || wallTone === "anthracite_gallery"
-            ? 0x262624
+            ? 0x242422
             : wallTone === "soft_plaster"
-            ? 0xd6d1c7
+            ? 0xcbd2da
             : lightingPreset === "showroom_warm"
-            ? 0xc0bab0
-            : 0xc6c1b7;
+            ? 0xc8c2b8
+            : 0xc4cbd3;
         sceneRef.current.background = new THREE.Color(bgHex);
         sceneRef.current.environment =
           renderEdgeMode === "cad" || !rendererRef.current
@@ -4396,9 +4745,11 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         minZ = Math.min(minZ, mFp.z);
         maxZ = Math.max(maxZ, mFp.z + mFp.planDepth);
       });
+      const roomCeilH = curProj.space?.ceilingHeight || 2800;
+      const mainWallLen = curProj.space?.walls?.[0]?.length || 3600;
       const sceneBox = new THREE.Box3(
-        new THREE.Vector3(minX, minY, minZ),
-        new THREE.Vector3(maxX, maxY, maxZ)
+        new THREE.Vector3(Math.min(minX, 0), Math.min(minY, 0), minZ),
+        new THREE.Vector3(Math.max(maxX, Math.min(mainWallLen, maxX + 450)), Math.max(maxY, roomCeilH), maxZ)
       );
       const framed = computeHeroStudioFraming(
         sceneBox,
@@ -4810,7 +5161,9 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           (m, idx) =>
             meshGroup.children[idx]?.userData?.baseRenderSig === baseSigs[idx] &&
             m.carcass.hullShape !== "capsule_stadium" &&
-            m.carcass.hullShape !== "capsule_table"
+            m.carcass.hullShape !== "rounded_corners" &&
+            m.carcass.hullShape !== "capsule_table" &&
+            !m.bays.some((b) => b.door?.type === "tambour" || b.door?.doorSystemId === "tambour_roller")
         )
       ) {
         project.modules.forEach((m, idx) => {
@@ -4839,6 +5192,17 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               sub.rotation.set(comp.rotation[0], comp.rotation[1], comp.rotation[2]);
             } else {
               sub.rotation.set(0, 0, 0);
+            }
+            if (comp.role === "door_hinge") {
+              const doorYaw = comp.rotation?.[1] || 0;
+              const carcassFixed = sub.userData?.hingeCarcassFixed;
+              if (carcassFixed instanceof THREE.Object3D) {
+                carcassFixed.rotation.y = -doorYaw;
+              }
+              const linkGroup = sub.userData?.hingeLinkGroup;
+              if (linkGroup instanceof THREE.Object3D) {
+                linkGroup.rotation.y = -doorYaw * 0.48;
+              }
             }
           }
         });
@@ -4928,6 +5292,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
 
         if (
           mod.carcass.hullShape === "capsule_stadium" ||
+          mod.carcass.hullShape === "rounded_corners" ||
           mod.carcass.hullShape === "capsule_table"
         ) {
           const capEdgeMat = getCachedEdgeMaterial(
@@ -4952,7 +5317,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             },
             capEdgeMat,
             modIdx,
-            effectiveDoorsHiddenIn3D ? 85 : doorOpenAngleDeg
+            effectiveDoorsHiddenIn3D ? 85 : doorOpenAngleDeg,
+            drawerOpenMm
           );
           modContainer.add(capGroup);
         } else {
@@ -5051,6 +5417,35 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               }
             }
           });
+          if (
+            comp.role === "carcass_sub_divider" &&
+            typeof comp.bayIndex === "number" &&
+            (mod.bays[comp.bayIndex]?.subDividers || []).some(
+              (sd, sdIdx) => sd.id === comp.id || `${mod.id}_bay_${comp.bayIndex}_subdiv_${sdIdx}` === comp.id
+            )
+          ) {
+            const grabMesh = new THREE.Mesh(SHARED_SUBDIV_GRAB_BOX_GEO, SHARED_SUBDIV_GRAB_MAT);
+            grabMesh.scale.set(
+              Math.max(58, comp.dimensions.width + 40),
+              Math.max(60, comp.dimensions.height),
+              Math.max(120, comp.dimensions.depth)
+            );
+            grabMesh.position.set(
+              comp.dimensions.width / 2,
+              comp.dimensions.height / 2,
+              comp.dimensions.depth / 2
+            );
+            grabMesh.userData = {
+              componentId: comp.id,
+              role: comp.role,
+              label: comp.label || "Raf Arası Dikme",
+              moduleIndex: modIdx,
+              bayIndex: comp.bayIndex,
+              isSelectionHelper: true,
+              preserveCustomMaterial: true,
+            };
+            compGroup.add(grabMesh);
+          }
           modContainer.add(compGroup);
 
           // Interior LED PointLights are placed cleanly at bay centers below (prevents hot-spots 1mm from side panels)
@@ -5149,65 +5544,57 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               bObj.door.doorSystemId === "open" ||
               Boolean(bObj.door.isGlassFramed) ||
               bObj.door.crossSectionProfile === "glass_frame" ||
+              bObj.door.crossSectionProfile === "center_glass_frame" ||
+              bObj.door.crossSectionProfile === "u_glass_open_top" ||
               String(bObj.door.doorMaterialId || "").includes("glass");
 
             if (bayVis && creviceTex) {
-              // 1. Deep Top Soffit Crevice AO on back panel
-              const topCrevice = new THREE.Mesh(
-                new THREE.PlaneGeometry(Math.max(60, bW - 2), 115),
-                new THREE.MeshBasicMaterial({
-                  map: creviceTex,
-                  transparent: true,
-                  opacity: 0.86,
-                  depthWrite: false,
-                })
-              );
+              if (!cachedCreviceTopMat) {
+                cachedCreviceTopMat = markSharedMaterial(
+                  new THREE.MeshBasicMaterial({ map: creviceTex, transparent: true, opacity: 0.86, depthWrite: false })
+                );
+              }
+              if (!cachedCreviceShelfMat) {
+                cachedCreviceShelfMat = markSharedMaterial(
+                  new THREE.MeshBasicMaterial({ map: creviceTex, transparent: true, opacity: 0.72, depthWrite: false })
+                );
+              }
+              const topCrevice = new THREE.Mesh(SHARED_UNIT_AO_PLANE_GEO, cachedCreviceTopMat);
+              topCrevice.scale.set(Math.max(60, bW - 2), 115, 1);
               topCrevice.raycast = () => {};
               topCrevice.position.set(bxCursor + bW / 2, plH + pT + inH - 57.5, pT + 1.1);
               modContainer.add(topCrevice);
 
-              // 2. Left & Right Vertical Inner-Corner Cavity AO strips for realistic 3D depth
               if (leftCornerAoTex && rightCornerAoTex) {
+                if (!cachedLeftCornerAoMat) {
+                  cachedLeftCornerAoMat = markSharedMaterial(
+                    new THREE.MeshBasicMaterial({ map: leftCornerAoTex, transparent: true, opacity: 0.72, depthWrite: false })
+                  );
+                }
+                if (!cachedRightCornerAoMat) {
+                  cachedRightCornerAoMat = markSharedMaterial(
+                    new THREE.MeshBasicMaterial({ map: rightCornerAoTex, transparent: true, opacity: 0.72, depthWrite: false })
+                  );
+                }
                 const cornerW = Math.min(92, bW * 0.24);
-                const leftAo = new THREE.Mesh(
-                  new THREE.PlaneGeometry(cornerW, Math.max(120, inH - 4)),
-                  new THREE.MeshBasicMaterial({
-                    map: leftCornerAoTex,
-                    transparent: true,
-                    opacity: 0.72,
-                    depthWrite: false,
-                  })
-                );
+                const cornerH = Math.max(120, inH - 4);
+                const leftAo = new THREE.Mesh(SHARED_UNIT_AO_PLANE_GEO, cachedLeftCornerAoMat);
+                leftAo.scale.set(cornerW, cornerH, 1);
                 leftAo.raycast = () => {};
                 leftAo.position.set(bxCursor + cornerW / 2, plH + pT + inH / 2, pT + 1.25);
                 modContainer.add(leftAo);
 
-                const rightAo = new THREE.Mesh(
-                  new THREE.PlaneGeometry(cornerW, Math.max(120, inH - 4)),
-                  new THREE.MeshBasicMaterial({
-                    map: rightCornerAoTex,
-                    transparent: true,
-                    opacity: 0.72,
-                    depthWrite: false,
-                  })
-                );
+                const rightAo = new THREE.Mesh(SHARED_UNIT_AO_PLANE_GEO, cachedRightCornerAoMat);
+                rightAo.scale.set(cornerW, cornerH, 1);
                 rightAo.raycast = () => {};
                 rightAo.position.set(bxCursor + bW - cornerW / 2, plH + pT + inH / 2, pT + 1.25);
                 modContainer.add(rightAo);
               }
 
-              // 3. Under-Shelf Crevice AO strips on back panel
               (bObj.shelves || []).slice(0, 8).forEach((sh) => {
                 if (sh.elevationY > 70) {
-                  const shAo = new THREE.Mesh(
-                    new THREE.PlaneGeometry(Math.max(60, bW - 2), 76),
-                    new THREE.MeshBasicMaterial({
-                      map: creviceTex,
-                      transparent: true,
-                      opacity: 0.72,
-                      depthWrite: false,
-                    })
-                  );
+                  const shAo = new THREE.Mesh(SHARED_UNIT_AO_PLANE_GEO, cachedCreviceShelfMat!);
+                  shAo.scale.set(Math.max(60, bW - 2), 76, 1);
                   shAo.raycast = () => {};
                   shAo.userData = { shelfOwnerId: sh.id };
                   shAo.position.set(bxCursor + bW / 2, plH + pT + sh.elevationY - 38, pT + 1.15);
@@ -5327,34 +5714,22 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                 });
               }
 
-              // Real 3D PBR PointLights centered inside the bay for smooth physical inverse-square wall & garment illumination
-              const openSpanH = Math.max(200, inH - openFloorLocalY);
-              const lightHex =
-                ledKelvin <= 2800 ? 0xffbe6b : ledKelvin >= 3800 ? 0xfff6e8 : 0xffdc9e;
-              const upperBayLight = new THREE.PointLight(
-                lightHex,
-                (lightingPreset === "night_led" ? 0.88 : 0.56) * ledDimmer,
-                Math.max(1050, openSpanH * 0.9)
-              );
-              upperBayLight.position.set(
-                bxCursor + bW / 2,
-                plH + pT + openFloorLocalY + openSpanH * 0.72,
-                pT + (mod.dimensions.depth - pT) * 0.62
-              );
-              modContainer.add(upperBayLight);
-
-              if (openSpanH >= 950) {
-                const lowerBayLight = new THREE.PointLight(
+              // Warm 3D PBR interior illumination (capped at <= 6 bay lights across multi-module scenes for 60 FPS)
+              if (project.modules.length <= 3 && mod.bays.length <= 5) {
+                const openSpanH = Math.max(200, inH - openFloorLocalY);
+                const lightHex =
+                  ledKelvin <= 2800 ? 0xffbe6b : ledKelvin >= 3800 ? 0xfff6e8 : 0xffdc9e;
+                const upperBayLight = new THREE.PointLight(
                   lightHex,
-                  (lightingPreset === "night_led" ? 0.68 : 0.42) * ledDimmer,
-                  Math.max(950, openSpanH * 0.75)
+                  (lightingPreset === "night_led" ? 0.86 : 0.54) * ledDimmer,
+                  Math.max(1050, openSpanH * 0.92)
                 );
-                lowerBayLight.position.set(
+                upperBayLight.position.set(
                   bxCursor + bW / 2,
-                  plH + pT + openFloorLocalY + openSpanH * 0.32,
-                  pT + (mod.dimensions.depth - pT) * 0.62
+                  plH + pT + openFloorLocalY + openSpanH * 0.68,
+                  pT + (mod.dimensions.depth - pT) * 0.6
                 );
-                modContainer.add(lowerBayLight);
+                modContainer.add(upperBayLight);
               }
             }
 
@@ -5382,18 +5757,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               const bw =
                 breakdown.bayWidths[bIdx] ||
                 Math.round((mod.dimensions.width - (mod.bays.length + 1) * T) / mod.bays.length);
-              const bayHitGeo = new THREE.PlaneGeometry(
-                Math.max(80, bw - 6),
-                Math.max(120, innerH - 6)
-              );
-              const bayHitMat = new THREE.MeshBasicMaterial({
-                color: 0x94a3b8,
-                transparent: true,
-                opacity: 0.012,
-                side: THREE.DoubleSide,
-                depthWrite: false,
-              });
-              const bayHitMesh = new THREE.Mesh(bayHitGeo, bayHitMat);
+              const bayHitMesh = new THREE.Mesh(SHARED_UNIT_AO_PLANE_GEO, SHARED_BAY_HIT_MAT);
+              bayHitMesh.scale.set(Math.max(80, bw - 6), Math.max(120, innerH - 6), 1);
               bayHitMesh.position.set(curBayX + bw / 2, plinthH + T + innerH / 2, T + 8);
               bayHitMesh.userData = {
                 componentId: `${mod.id}_bay_compartment_${bIdx}`,
@@ -5655,8 +6020,33 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         return;
       }
 
-      // Skip rebuilding props during active slider/pointer batch drags so dragging stays locked at 60 FPS!
+      // Skip expensive geometry rebuilds during active batch drags, BUT always sync live module transforms so open-wardrobe belongings move 1:1!
       if (isStoreBatchDragging) {
+        let movedDuringBatch = false;
+        for (const holder of propsRoot.children) {
+          const mId = holder.userData?.moduleId;
+          const mIdx = holder.userData?.moduleIndex;
+          const mod =
+            (typeof mId === "string" ? project.modules.find((m) => m.id === mId) : undefined) ||
+            (typeof mIdx === "number" ? project.modules[mIdx] : undefined);
+          if (!mod) continue;
+          const pl = calculateModulePlacement(mod);
+          if (
+            Math.abs(holder.position.x - pl.origin.x) > 0.05 ||
+            Math.abs(holder.position.y - pl.origin.y) > 0.05 ||
+            Math.abs(holder.position.z - pl.origin.z) > 0.05 ||
+            Math.abs(holder.rotation.y - pl.rotationYRad) > 0.0005
+          ) {
+            holder.position.set(pl.origin.x, pl.origin.y, pl.origin.z);
+            holder.rotation.y = pl.rotationYRad;
+            holder.updateMatrix();
+            holder.updateMatrixWorld(true);
+            movedDuringBatch = true;
+          }
+        }
+        if (movedDuringBatch) {
+          requestRender();
+        }
         return;
       }
 
@@ -5680,6 +6070,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               b.door.doorSystemId === "open" ||
               Boolean(b.door.isGlassFramed) ||
               b.door.crossSectionProfile === "glass_frame" ||
+              b.door.crossSectionProfile === "center_glass_frame" ||
+              b.door.crossSectionProfile === "u_glass_open_top" ||
               String(b.door.doorMaterialId || "").includes("glass")
           );
 
@@ -5834,6 +6226,13 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                   maxSlotWidthMm
                 );
                 shirtGrp.position.set(gx, railCenterY, railCenterZ);
+                shirtGrp.userData = {
+                  ...shirtGrp.userData,
+                  propOwnerKind: "rail",
+                  propBayIndex: bIdx,
+                  propOwnerId: rail.id,
+                  propOwnerIdx: rIdx,
+                };
                 propsGroup.add(shirtGrp);
               }
             });
@@ -5854,6 +6253,16 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
 
               const isTopmostLuggageShelf = !nextShelf && sh.elevationY > innerH * 0.68;
 
+              const tagShelfProp = (grp: THREE.Object3D) => {
+                grp.userData = {
+                  ...grp.userData,
+                  propOwnerKind: "shelf",
+                  propBayIndex: bIdx,
+                  propOwnerId: sh.id,
+                  propOwnerIdx: sIdx,
+                };
+                propsGroup.add(grp);
+              };
               if (isTopmostLuggageShelf) {
                 const boxH = Math.min(155, clearHeadroom - 28);
                 const boxD = Math.min(330, modD - 105);
@@ -5862,13 +6271,13 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                   [-0.24, 0.24].forEach((frac) => {
                     const bGrp = createLiddedStorageBoxGroup(boxW, boxH, boxD);
                     bGrp.position.set(bayStartX + bw * (0.5 + frac), shelfTopWorldY, centerZ);
-                    propsGroup.add(bGrp);
+                    tagShelfProp(bGrp);
                   });
                 } else {
                   const boxW = Math.min(330, bw * 0.64);
                   const bGrp = createLiddedStorageBoxGroup(boxW, boxH, boxD);
                   bGrp.position.set(bayStartX + bw * 0.5, shelfTopWorldY, centerZ);
-                  propsGroup.add(bGrp);
+                  tagShelfProp(bGrp);
                 }
               } else if (!railInsideSpace) {
                 if (sIdx % 2 === 0) {
@@ -5886,7 +6295,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                     shelfTopWorldY,
                     centerZ
                   );
-                  propsGroup.add(knitGrp);
+                  tagShelfProp(knitGrp);
 
                   if (bw >= 640 && clearHeadroom >= 165 && !isMultiModuleScene) {
                     const boxW = Math.min(270, bw * 0.39);
@@ -5894,7 +6303,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                     const boxD = Math.min(320, modD - 105);
                     const bGrp = createLiddedStorageBoxGroup(boxW, boxH, boxD);
                     bGrp.position.set(bayStartX + bw * 0.73, shelfTopWorldY, centerZ);
-                    propsGroup.add(bGrp);
+                    tagShelfProp(bGrp);
                   }
                 } else {
                   const boxW = Math.min(330, bw * 0.64);
@@ -5902,7 +6311,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                   const boxD = Math.min(325, modD - 105);
                   const bGrp = createLiddedStorageBoxGroup(boxW, boxH, boxD);
                   bGrp.position.set(bayStartX + bw * 0.5, shelfTopWorldY, centerZ);
-                  propsGroup.add(bGrp);
+                  tagShelfProp(bGrp);
                 }
               } else if (clearHeadroom > 720 && bw >= 420) {
                 const boxW = Math.min(300, bw * 0.56);
@@ -5910,7 +6319,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                 const boxD = Math.min(315, modD - 115);
                 const bGrp = createLiddedStorageBoxGroup(boxW, boxH, boxD);
                 bGrp.position.set(bayStartX + bw * 0.48, shelfTopWorldY, centerZ);
-                propsGroup.add(bGrp);
+                tagShelfProp(bGrp);
               }
             });
 
@@ -5930,6 +6339,13 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                   centerZ
                 );
                 shoePair.rotation.x = 0.24;
+                shoePair.userData = {
+                  ...shoePair.userData,
+                  propOwnerKind: "special_fitting",
+                  propBayIndex: bIdx,
+                  propOwnerId: sr.id,
+                  propOwnerIdx: srIdx,
+                };
                 propsGroup.add(shoePair);
               }
             });
@@ -6150,11 +6566,11 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           backdropWallTex.needsUpdate = true;
         }
         const backdropWallMat = new THREE.MeshStandardMaterial({
-          color: 0xffffff,
+          color: activeWallTone === "anthracite_gallery" ? 0x787572 : activeWallTone === "soft_plaster" ? 0xc2cad3 : 0xd2cdc3,
           map: backdropWallTex,
-          roughness: 0.89,
+          roughness: 0.93,
           metalness: 0.01,
-          envMapIntensity: 0.4,
+          envMapIntensity: 0.28,
         });
         const backdropWallMesh = new THREE.Mesh(
           new THREE.PlaneGeometry(backdropSpanW, backdropSpanH),
@@ -6294,7 +6710,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           }
           const floorGeo = new THREE.PlaneGeometry(floorSpanW, floorSpanD);
           const floorMat = new THREE.MeshPhysicalMaterial({
-            color: 0xede3d2,
+            color: floorStyle === "neolith_calacatta" || floorStyle === "microcement" ? 0xe5dfd4 : 0xd4be9e,
             map: floorTex,
             normalMap: floorNorm,
             normalScale: new THREE.Vector2(0.26, 0.26),
@@ -6323,16 +6739,24 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           const oh = obs.dimensions.height;
           const od = Math.max(24, obs.dimensions.depth || 80);
           const normRotY = (((obs.rotationY || 0) % 360) + 360) % 360;
-          const isSideWall = normRotY === 90 || normRotY === 270;
-
-          // When rotated 90°/270° (on Left or Right Side Wall), if near the left wall (x <= 120), lock inner face proud at x = 16mm
-          // so the window is NEVER buried inside the left wall! Similarly on the Back Wall (z <= 120), lock inner face proud at z = 16mm!
-          const effectiveWallX = isSideWall && obs.position.x <= 120 ? 16 : obs.position.x + 16;
-          const effectiveWallZ = !isSideWall && obs.position.z <= 120 ? 16 : obs.position.z + 16;
-          const cx3D = isSideWall ? effectiveWallX : obs.position.x + ow / 2;
+          const rad = (normRotY * Math.PI) / 180;
+          const dirX = Math.cos(rad);
+          const dirZ = Math.sin(rad);
+          const midX = obs.position.x + dirX * (ow * 0.5);
+          const midZ = obs.position.z + dirZ * (ow * 0.5);
+          // With rotation.y = -rad, local +X = (cos rad, 0, sin rad) along wall, local +Z = (-sin rad, 0, cos rad)
+          const nLocalPlusZ = { x: -dirZ, z: dirX };
+          const toRoomCenter = { x: mainW * 0.5 - midX, z: 1100 - midZ };
+          const inwardLocalZSign =
+            nLocalPlusZ.x * toRoomCenter.x + nLocalPlusZ.z * toRoomCenter.z >= 0 ? 1 : -1;
+          const inwardWorldX = nLocalPlusZ.x * inwardLocalZSign;
+          const inwardWorldZ = nLocalPlusZ.z * inwardLocalZSign;
+          const cx3D = midX + inwardWorldX * 16;
           const cy3D = obs.position.y + oh / 2;
-          const cz3D = isSideWall ? obs.position.z + ow / 2 : effectiveWallZ;
-          const obsRotRad = isSideWall ? Math.PI / 2 : -((obs.rotationY || 0) * Math.PI) / 180;
+          const cz3D = midZ + inwardWorldZ * 16;
+          const obsRotRad = -rad;
+          const isSideWall = Math.abs(normRotY - 90) < 0.5 || Math.abs(normRotY - 270) < 0.5;
+          const effectiveWallZ = cz3D;
 
           if (obs.type === "window") {
             const winGroup = new THREE.Group();
@@ -6420,7 +6844,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               winHandleMat
             );
             winHandleRosette.userData = { obstacleId: obs.id };
-            winHandleRosette.position.set(20, -20, 34);
+            const winMirrorSign = obs.doorSwing === "right" ? -1 : 1;
+            winHandleRosette.position.set(20 * winMirrorSign, -20, 34 * inwardLocalZSign);
             winGroup.add(winHandleRosette);
 
             const winHandleLever = new THREE.Mesh(
@@ -6428,7 +6853,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               winHandleMat
             );
             winHandleLever.userData = { obstacleId: obs.id };
-            winHandleLever.position.set(20, -48, 46);
+            winHandleLever.position.set(20 * winMirrorSign, -48, 46 * inwardLocalZSign);
             winGroup.add(winHandleLever);
 
             // Double-glazed reflective glass
@@ -6476,7 +6901,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             const sillMesh = new THREE.Mesh(sillGeo, sillMat);
             sillMesh.renderOrder = 13;
             sillMesh.userData = { obstacleId: obs.id };
-            sillMesh.position.set(0, -oh / 2 - 16, 32);
+            sillMesh.position.set(0, -oh / 2 - 16, 32 * inwardLocalZSign);
             sillMesh.add(
               new THREE.LineSegments(
                 new THREE.EdgesGeometry(sillGeo),
@@ -6517,12 +6942,13 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           } else if (obs.type === "door") {
             const doorGroup = new THREE.Group();
             doorGroup.userData = { obstacleId: obs.id };
-            doorGroup.position.set(cx3D, cy3D, isSideWall ? cz3D : effectiveWallZ);
+            doorGroup.position.set(cx3D, cy3D, cz3D);
             doorGroup.rotation.y = obsRotRad;
 
             const jambW = 68;
             const jambD = 76;
             const isRightHinged = obs.doorSwing === "right";
+            const openSignZ = (obs.doorOpenSide === "outward" ? -1 : 1) * inwardLocalZSign;
             const frameMat = new THREE.MeshStandardMaterial({
               color: 0x292524,
               roughness: 0.42,
@@ -6594,11 +7020,11 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               doorGroup.add(barrel);
             });
 
-            // 3. Pivoted Door Leaf (Slightly Ajar 22° into Room so Opening Direction & Handle are Immediately Clear!)
+            // 3. Pivoted Door Leaf (Supports BOTH Left/Right Hinge Mirror AND Inward/Outward Open Mirror!)
             const leafPivot = new THREE.Group();
             leafPivot.userData = { obstacleId: obs.id };
-            leafPivot.position.set(hingeX, -jambW / 2, 18);
-            const swingAngleRad = (isRightHinged ? 1 : -1) * ((22 * Math.PI) / 180);
+            leafPivot.position.set(hingeX, -jambW / 2, 18 * openSignZ);
+            const swingAngleRad = openSignZ * (isRightHinged ? 1 : -1) * ((22 * Math.PI) / 180);
             leafPivot.rotation.y = swingAngleRad;
 
             const leafCenterOffsetX = isRightHinged ? -leafW / 2 : leafW / 2;
@@ -6684,9 +7110,9 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               const a0 = (s / steps) * (Math.PI / 2);
               const a1 = ((s + 1) / steps) * (Math.PI / 2);
               const x0 = hingeX + (isRightHinged ? -1 : 1) * Math.cos(a0) * leafW;
-              const z0 = 18 + Math.sin(a0) * leafW;
+              const z0 = openSignZ * (18 + Math.sin(a0) * leafW);
               const x1 = hingeX + (isRightHinged ? -1 : 1) * Math.cos(a1) * leafW;
-              const z1 = 18 + Math.sin(a1) * leafW;
+              const z1 = openSignZ * (18 + Math.sin(a1) * leafW);
               arcPoints.push(x0, floorLocalY, z0, x1, floorLocalY, z1);
             }
             const arcGeo = new THREE.BufferGeometry();
@@ -6709,7 +7135,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             });
             const plateMesh = new THREE.Mesh(plateGeo, plateMat);
             plateMesh.userData = { obstacleId: obs.id };
-            plateMesh.position.set(cx3D, cy3D, isSideWall ? cz3D : 6);
+            plateMesh.position.set(midX + inwardWorldX * 8, cy3D, midZ + inwardWorldZ * 8);
             plateMesh.rotation.y = obsRotRad;
             roomGroup.add(plateMesh);
           } else {
@@ -6728,8 +7154,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             colMesh.userData = { obstacleId: obs.id };
             colMesh.castShadow = renderEdgeMode !== "cad";
             colMesh.receiveShadow = renderEdgeMode !== "cad";
-            const colX = isSideWall ? obs.position.x + od / 2 : obs.position.x + ow / 2;
-            const colZ = isSideWall ? obs.position.z + ow / 2 : obs.position.z + od / 2;
+            const colX = midX + inwardWorldX * (od * 0.5);
+            const colZ = midZ + inwardWorldZ * (od * 0.5);
             colMesh.position.set(colX, cy3D, colZ);
             colMesh.rotation.y = obsRotRad;
             if (renderEdgeMode === "cad") {
@@ -6810,6 +7236,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       const localAnchors: DimensionAnchor[] = [];
 
       const soketW = Math.max(200, W - 2 * T);
+      const fmt3DDim = (mmVal: number) =>
+        displayUnit === "cm" ? `${Number((mmVal / 10).toFixed(1))} cm` : `${Math.round(mmVal)} mm`;
       // 1. Total Width (Genişlik) along top edge (Architectural Charcoal)
       addDimensionSegment(
         modDimContainer,
@@ -6820,7 +7248,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         new THREE.Vector3(0, 1, 0),
         95,
         "Genişlik",
-        `${W} mm`,
+        fmt3DDim(W),
         0x1c1917,
         "#D6D0C4",
         "#141413"
@@ -6836,7 +7264,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         new THREE.Vector3(1, 0, 0),
         95,
         "Yükseklik",
-        `${H} mm`,
+        fmt3DDim(H),
         0x1c1917,
         "#D6D0C4",
         "#141413"
@@ -6852,7 +7280,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         new THREE.Vector3(1, 0, 0),
         95,
         "Derinlik",
-        `${D} mm`,
+        fmt3DDim(D),
         0x78716c,
         "#D6D0C4",
         "#57534E"
@@ -6869,7 +7297,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           new THREE.Vector3(0, 0, 1),
           95,
           "Soket",
-          `${soketW} mm`,
+          fmt3DDim(soketW),
           0x78716c,
           "#D6D0C4",
           "#57534E"
@@ -6894,7 +7322,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             new THREE.Vector3(0, 1, 0),
             26,
             `${bIdx + 1}. Bölme`,
-            `${bw} mm`,
+            fmt3DDim(bw),
             isSelBay ? 0x141413 : 0x8c7a6b,
             isSelBay ? "#141413" : "#D6D0C4",
             isSelBay ? "#141413" : "#78716C"
@@ -6929,7 +7357,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           new THREE.Vector3(0, 1, 0),
           75,
           `#${mIdx + 1} ${otherMod.name}`,
-          `${oW}×${oH} mm`,
+          displayUnit === "cm" ? `${Number((oW / 10).toFixed(1))}×${Number((oH / 10).toFixed(1))} cm` : `${oW}×${oH} mm`,
           0x57534e,
           "#57534e",
           "#44403c"
@@ -6961,7 +7389,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           new THREE.Vector3(0, 1, 0),
           260,
           "TOPLAM DİZİLİM",
-          `${Math.round(maxX - minX)} mm`,
+          fmt3DDim(maxX - minX),
           0x0f766e,
           "#0f766e",
           "#0f766e"
@@ -6985,6 +7413,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       activeBayIndex,
       effectiveShowDimensions,
       isSimpleTier,
+      displayUnit,
       updateProjectedDimensionLabels,
       requestRender,
     ]);
@@ -7083,6 +7512,421 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       setEditingBadge(null);
     };
 
+    const livePartPoolRef = useRef<{
+      group: THREE.Group;
+      woodBox: THREE.Mesh;
+      woodEdges: THREE.LineSegments;
+      handleBar: THREE.Mesh;
+      metalRod: THREE.Mesh;
+    } | null>(null);
+
+    useEffect(() => {
+      const ensureLivePartPool = (mod: ModuleInstance): NonNullable<typeof livePartPoolRef.current> | null => {
+        const gGroup = ghostSnapGroupRef.current;
+        if (!gGroup) return null;
+        const matDef =
+          DEFAULT_MATERIALS.find((m) => m.id === mod.carcass.bodyMaterialId) ||
+          (project.customMaterials || []).find((m) => m.id === mod.carcass.bodyMaterialId) ||
+          DEFAULT_MATERIALS[0];
+        const woodMat = getV3PbrMaterial(matDef, false, false, "lengthwise", mod.surfaceFinishOverride);
+        const metalMat = getV3PbrMaterial(DEFAULT_MATERIALS[0], false, true, "lengthwise");
+
+        if (!livePartPoolRef.current) {
+          const unitBox = markSharedGeometry(new THREE.BoxGeometry(1, 1, 1));
+          const unitCyl = markSharedGeometry(new THREE.CylinderGeometry(0.5, 0.5, 1, 16));
+          unitCyl.rotateZ(Math.PI / 2);
+          const woodBox = new THREE.Mesh(unitBox, woodMat);
+          woodBox.raycast = () => {};
+          const woodEdges = new THREE.LineSegments(
+            markSharedGeometry(new THREE.EdgesGeometry(unitBox)),
+            markSharedMaterial(new THREE.LineBasicMaterial({ color: 0x8c6d46 }))
+          );
+          woodEdges.raycast = () => {};
+          woodBox.add(woodEdges);
+
+          const handleBar = new THREE.Mesh(unitBox, metalMat);
+          handleBar.raycast = () => {};
+          const metalRod = new THREE.Mesh(unitCyl, metalMat);
+          metalRod.raycast = () => {};
+
+          const group = new THREE.Group();
+          group.name = "v12_live_real_3d_part_preview";
+          group.add(woodBox, handleBar, metalRod);
+          livePartPoolRef.current = { group, woodBox, woodEdges, handleBar, metalRod };
+        } else {
+          livePartPoolRef.current.woodBox.material = woodMat;
+        }
+        const sceneRoot = gGroup.parent || gGroup;
+        if (livePartPoolRef.current.group.parent !== sceneRoot) {
+          sceneRoot.add(livePartPoolRef.current.group);
+        }
+        livePartPoolRef.current.group.visible = true;
+        return livePartPoolRef.current;
+      };
+
+      const computeLivePlacementFromClient = (
+        clientX: number,
+        clientY: number,
+        spec: { id: string; title: string; visual: string }
+      ) => {
+        const curRenderer = rendererRef.current;
+        const cam = (controlsRef.current?.object as THREE.Camera) || perspCamRef.current;
+        const st = latestStateRef.current;
+        if (!curRenderer || !cam || !st.project.modules.length) return null;
+
+        const rect = curRenderer.domElement.getBoundingClientRect();
+        if (
+          rect.width <= 0 ||
+          rect.height <= 0 ||
+          clientX < rect.left ||
+          clientX > rect.right ||
+          clientY < rect.top ||
+          clientY > rect.bottom
+        ) {
+          return null;
+        }
+
+        const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
+        const ndcY = -((clientY - rect.top) / rect.height) * 2 + 1;
+        const rc = new THREE.Raycaster();
+        rc.setFromCamera(new THREE.Vector2(ndcX, ndcY), cam);
+
+        // Hit-test ALL main modules (prioritizing exact bounds match, then closest horizontal match)
+        // so multi-module Open Wardrobe Systems can receive dragged parts in ANY unit!
+        let mod = st.project.modules[st.activeModuleIndex] || st.project.modules[0];
+        let matchedModIdx = st.activeModuleIndex;
+        let relX = -99999;
+        let relY = -99999;
+        let bestHorizontalScore = Infinity;
+
+        for (let mIdx = 0; mIdx < st.project.modules.length; mIdx++) {
+          const candMod = st.project.modules[mIdx];
+          if (!candMod || candMod.category === "complementary" || !candMod.bays.length) continue;
+          const cPl = calculateModulePlacement(candMod);
+          const rightAxis = new THREE.Vector3(Math.cos(cPl.rotationYRad), 0, -Math.sin(cPl.rotationYRad));
+          const frontNormal = new THREE.Vector3(Math.sin(cPl.rotationYRad), 0, Math.cos(cPl.rotationYRad));
+          const midPlaneAnchor = new THREE.Vector3(cPl.origin.x, cPl.origin.y, cPl.origin.z).addScaledVector(
+            frontNormal,
+            candMod.dimensions.depth * 0.5
+          );
+          const midInteriorPlane = new THREE.Plane().setFromNormalAndCoplanarPoint(frontNormal, midPlaneAnchor);
+          const hitPt = new THREE.Vector3();
+          if (!rc.ray.intersectPlane(midInteriorPlane, hitPt)) continue;
+
+          const cRelX = hitPt.clone().sub(cPl.origin).dot(rightAxis);
+          const cRelY = hitPt.y - candMod.position.y;
+          if (cRelY < -120 || cRelY > candMod.dimensions.height + 160) continue;
+
+          const horizDistOutside =
+            cRelX < 0 ? -cRelX : cRelX > candMod.dimensions.width ? cRelX - candMod.dimensions.width : 0;
+          if (horizDistOutside <= 180 && horizDistOutside < bestHorizontalScore) {
+            bestHorizontalScore = horizDistOutside;
+            mod = candMod;
+            matchedModIdx = mIdx;
+            relX = cRelX;
+            relY = cRelY;
+            if (horizDistOutside === 0) break;
+          }
+        }
+
+        if (bestHorizontalScore > 180) {
+          return null;
+        }
+
+        const carcassT = mod.carcass?.panelThickness || 18;
+        const plinthH = mod.carcass?.plinthHeight ?? 80;
+        const netH = calculateNetInnerHeight(mod);
+        const bayWidths = calculateBayWidths(mod);
+
+        let targetBayIdx = 0;
+        let accX = carcassT;
+        let bayStartX = carcassT;
+        let curBayWidth = bayWidths[0] || 500;
+        for (let i = 0; i < bayWidths.length; i++) {
+          const bw = bayWidths[i];
+          if (relX >= accX - carcassT && relX <= accX + bw + carcassT) {
+            targetBayIdx = i;
+            bayStartX = accX;
+            curBayWidth = bw;
+            break;
+          }
+          accX += bw + carcassT;
+        }
+        if (relX > accX) {
+          targetBayIdx = Math.max(0, bayWidths.length - 1);
+          curBayWidth = bayWidths[targetBayIdx] || 500;
+          bayStartX = carcassT + bayWidths.slice(0, targetBayIdx).reduce((s, w) => s + w + carcassT, 0);
+        }
+        targetBayIdx = Math.max(0, Math.min(mod.bays.length - 1, targetBayIdx));
+
+        const cursorElevY = relY - plinthH - carcassT;
+        const minElev = spec.visual === "drawer" || spec.visual === "internal_drawer" ? 0 : 32;
+        const maxElev =
+          spec.visual === "drawer" || spec.visual === "internal_drawer"
+            ? Math.max(0, netH - 180)
+            : Math.max(64, netH - 32);
+        const clampedRawY = Math.max(minElev, Math.min(maxElev, cursorElevY));
+        const nearest32 = Math.round(clampedRawY / 32) * 32;
+        // Smooth 2mm positioning everywhere, with gentle ±5mm magnetic attraction to System-32 rows!
+        const snappedElevY =
+          Math.abs(clampedRawY - nearest32) <= 5 && nearest32 >= minElev && nearest32 <= maxElev
+            ? nearest32
+            : Math.round(clampedRawY / 2) * 2;
+        const localBayX = Math.max(
+          40,
+          Math.min(Math.max(72, curBayWidth - carcassT - 40), Math.round((relX - bayStartX) / 5) * 5)
+        );
+
+        let subBotY = 0;
+        let subSpanH = 320;
+        let ivLabel = "";
+        if (spec.visual === "sub_divider") {
+          const bayObj = mod.bays[targetBayIdx];
+          const ivs = bayObj ? getBayShelfIntervalsForSubDivider(bayObj, netH, carcassT) : [];
+          const candIvs =
+            ivs.filter((iv) => !iv.hasConflict).length > 0
+              ? ivs.filter((iv) => !iv.hasConflict)
+              : ivs.filter((iv) => iv.conflictReason !== "Çekmece var");
+          if (candIvs.length > 0) {
+            const bestIv =
+              candIvs.find((iv) => cursorElevY >= iv.botY - 18 && cursorElevY <= iv.topY + 18) ||
+              candIvs.reduce((best, iv) =>
+                Math.abs((iv.botY + iv.topY) / 2 - cursorElevY) <
+                Math.abs((best.botY + best.topY) / 2 - cursorElevY)
+                  ? iv
+                  : best
+              );
+            subBotY = bestIv.botY;
+            subSpanH = Math.max(80, bestIv.height);
+            ivLabel = bestIv.label;
+          } else {
+            subBotY = Math.max(0, Math.min(netH - 320, snappedElevY - 160));
+            subSpanH = Math.min(netH - subBotY, 320);
+          }
+        }
+
+        return {
+          mod,
+          matchedModIdx,
+          carcassT,
+          plinthH,
+          bayStartX,
+          curBayWidth,
+          targetBayIdx,
+          snappedElevY,
+          localBayX,
+          subBotY,
+          subSpanH,
+          ivLabel,
+        };
+      };
+
+      let autoOpenedOnce = false;
+
+      const onLiveMove = (ev: Event) => {
+        if (pausedRef.current) return;
+        const detail = (
+          ev as CustomEvent<{ id: string; title: string; visual: string; clientX: number; clientY: number }>
+        ).detail;
+        if (!detail) return;
+        const st = latestStateRef.current;
+        if (!autoOpenedOnce && st.doorOpenAngleDeg < 15 && !st.doorsHiddenIn3D) {
+          autoOpenedOnce = true;
+          st.setDoorOpenAngleDeg(85);
+        }
+        const target = computeLivePlacementFromClient(detail.clientX, detail.clientY, detail);
+        if (!target) {
+          if (livePartPoolRef.current) {
+            livePartPoolRef.current.group.visible = false;
+            requestRender();
+          }
+          window.dispatchEvent(new CustomEvent("birim:live-part-snapped-in-bay", { detail: { active: false } }));
+          setSnapBannerDedup(null);
+          return;
+        }
+        window.dispatchEvent(new CustomEvent("birim:live-part-snapped-in-bay", { detail: { active: true } }));
+        const pool = ensureLivePartPool(target.mod);
+        if (!pool) return;
+
+        const { mod, carcassT, plinthH, bayStartX, curBayWidth, targetBayIdx, snappedElevY, localBayX, subBotY, subSpanH, ivLabel } = target;
+        const pl = calculateModulePlacement(mod);
+        const placeLocalToWorld = (lx: number, ly: number, lz: number) => {
+          const cosR = Math.cos(pl.rotationYRad);
+          const sinR = Math.sin(pl.rotationYRad);
+          return new THREE.Vector3(
+            pl.origin.x + lx * cosR + lz * sinR,
+            pl.origin.y + ly,
+            pl.origin.z - lx * sinR + lz * cosR
+          );
+        };
+        const baseYLocal = plinthH + carcassT;
+        const partD = Math.max(180, mod.dimensions.depth - 30);
+        const centerZLocal = 10 + partD / 2;
+        pool.group.rotation.y = pl.rotationYRad;
+
+        pool.woodBox.visible = false;
+        pool.handleBar.visible = false;
+        pool.metalRod.visible = false;
+
+        pool.group.position.set(pl.origin.x, pl.origin.y, pl.origin.z);
+        void placeLocalToWorld;
+        if (detail.visual === "sub_divider") {
+          pool.woodBox.visible = true;
+          pool.woodBox.scale.set(carcassT, subSpanH, partD);
+          pool.woodBox.position.set(bayStartX + localBayX + carcassT / 2, baseYLocal + subBotY + subSpanH / 2, centerZLocal);
+          setSnapBannerDedup(`📐 ${detail.title} • Bölme ${targetBayIdx + 1} (${ivLabel || "Raf Arası"}) • X: ${localBayX} mm`);
+        } else if (detail.visual === "rail") {
+          pool.metalRod.visible = true;
+          pool.metalRod.scale.set(curBayWidth - 6, 22, 22);
+          pool.metalRod.position.set(bayStartX + curBayWidth / 2, baseYLocal + snappedElevY, centerZLocal);
+          setSnapBannerDedup(`📐 ${detail.title} • Bölme ${targetBayIdx + 1} • Y: ${snappedElevY} mm`);
+        } else if (detail.visual === "drawer" || detail.visual === "internal_drawer") {
+          pool.woodBox.visible = true;
+          pool.woodBox.scale.set(curBayWidth - 6, 180, partD - 12);
+          pool.woodBox.position.set(bayStartX + curBayWidth / 2, baseYLocal + snappedElevY + 90, centerZLocal);
+          if (detail.visual === "drawer") {
+            pool.handleBar.visible = true;
+            pool.handleBar.scale.set(Math.min(140, curBayWidth * 0.35), 10, 18);
+            pool.handleBar.position.set(bayStartX + curBayWidth / 2, baseYLocal + snappedElevY + 115, mod.dimensions.depth - 12);
+          }
+          setSnapBannerDedup(`📐 ${detail.title} • Bölme ${targetBayIdx + 1} • Y: ${snappedElevY} mm`);
+        } else {
+          const shThick = detail.id === "lib_fixed_shelf" ? 25 : carcassT;
+          const isAccessoryTray =
+            detail.visual === "trouser_rack" || detail.visual === "shoe_rack" || detail.visual === "jewelry_tray";
+          pool.woodBox.visible = true;
+          pool.woodBox.scale.set(curBayWidth - 3, isAccessoryTray ? 64 : shThick, partD);
+          pool.woodBox.position.set(
+            bayStartX + curBayWidth / 2,
+            baseYLocal + snappedElevY + (isAccessoryTray ? 32 : shThick / 2),
+            centerZLocal
+          );
+          setSnapBannerDedup(`📐 ${detail.title} • Bölme ${targetBayIdx + 1} • Y: ${snappedElevY} mm`);
+        }
+
+        requestRender();
+      };
+
+      const hideLivePart = () => {
+        autoOpenedOnce = false;
+        window.dispatchEvent(new CustomEvent("birim:live-part-snapped-in-bay", { detail: { active: false } }));
+        if (livePartPoolRef.current) {
+          livePartPoolRef.current.group.visible = false;
+          requestRender();
+        }
+      };
+
+      const onLiveCancel = () => {
+        hideLivePart();
+        setSnapBannerDedup(null);
+      };
+
+      const onLiveDrop = (ev: Event) => {
+        if (pausedRef.current) return;
+        const detail = (
+          ev as CustomEvent<{ id: string; title: string; visual: string; clientX: number; clientY: number }>
+        ).detail;
+        hideLivePart();
+        if (!detail) return;
+        const target = computeLivePlacementFromClient(detail.clientX, detail.clientY, detail);
+        if (!target) {
+          setSnapBannerDedup(null);
+          return;
+        }
+        const elevToCommit =
+          detail.visual === "sub_divider"
+            ? Math.round(target.subBotY + target.subSpanH / 2)
+            : target.snappedElevY;
+        if (typeof target.matchedModIdx === "number" && target.matchedModIdx !== latestStateRef.current.activeModuleIndex) {
+          latestStateRef.current.setActiveModuleIndex(target.matchedModIdx);
+        }
+        latestStateRef.current.addInteriorItemAtElevation(target.targetBayIdx, detail.id, elevToCommit, {
+          offsetX: target.localBayX,
+          exactElevation: true,
+        });
+        setSnapBannerDedup(`✓ ${detail.title} yerleştirildi • Bölme ${target.targetBayIdx + 1}`);
+        setTimeout(() => setSnapBannerDedup(null), 2400);
+      };
+
+      const onLiveMaterialDrop = (ev: Event) => {
+        if (pausedRef.current) return;
+        const detail = (
+          ev as CustomEvent<{ materialId: string; materialName?: string; clientX: number; clientY: number }>
+        ).detail;
+        if (!detail?.materialId) return;
+        const curRenderer = rendererRef.current;
+        const cam = (controlsRef.current?.object as THREE.Camera) || perspCamRef.current;
+        if (!curRenderer || !cam) return;
+        const rect = curRenderer.domElement.getBoundingClientRect();
+        if (
+          rect.width <= 0 ||
+          rect.height <= 0 ||
+          detail.clientX < rect.left ||
+          detail.clientX > rect.right ||
+          detail.clientY < rect.top ||
+          detail.clientY > rect.bottom
+        ) {
+          return;
+        }
+        const ndcX = ((detail.clientX - rect.left) / rect.width) * 2 - 1;
+        const ndcY = -((detail.clientY - rect.top) / rect.height) * 2 + 1;
+        const rc = new THREE.Raycaster();
+        rc.setFromCamera(new THREE.Vector2(ndcX, ndcY), cam);
+
+        const st = latestStateRef.current;
+        if (sceneObjectsGroupRef.current) {
+          const soHits = rc.intersectObject(sceneObjectsGroupRef.current, true);
+          for (const h of soHits) {
+            let cur: THREE.Object3D | null = h.object;
+            while (cur && !cur.userData?.sceneObjectId) cur = cur.parent;
+            if (cur?.userData?.sceneObjectId) {
+              st.updateSceneObject(String(cur.userData.sceneObjectId), {
+                materialId: detail.materialId,
+              });
+              setSnapBannerDedup(`✓ Malzeme atandı: ${detail.materialName || detail.materialId}`);
+              setTimeout(() => setSnapBannerDedup(null), 2400);
+              return;
+            }
+          }
+        }
+        if (meshGroupRef.current) {
+          const hits = rc.intersectObject(meshGroupRef.current, true);
+          for (const h of hits) {
+            if (h.object?.userData?.isSelectionHelper) continue;
+            let cur: THREE.Object3D | null = h.object;
+            while (cur && !cur.userData?.componentId) cur = cur.parent;
+            if (cur?.userData?.componentId) {
+              if (
+                typeof cur.userData.moduleIndex === "number" &&
+                cur.userData.moduleIndex !== st.activeModuleIndex
+              ) {
+                st.setActiveModuleIndex(cur.userData.moduleIndex);
+              }
+              st.applyMaterialToSimilarComponents(
+                detail.materialId,
+                String(cur.userData.componentId),
+                "single"
+              );
+              setSnapBannerDedup(`✓ Malzeme atandı: ${detail.materialName || detail.materialId}`);
+              setTimeout(() => setSnapBannerDedup(null), 2400);
+              return;
+            }
+          }
+        }
+      };
+
+      window.addEventListener("birim:live-3d-part-move", onLiveMove);
+      window.addEventListener("birim:live-3d-part-drop", onLiveDrop);
+      window.addEventListener("birim:live-3d-part-cancel", onLiveCancel);
+      window.addEventListener("birim:live-material-drop", onLiveMaterialDrop);
+      return () => {
+        window.removeEventListener("birim:live-3d-part-move", onLiveMove);
+        window.removeEventListener("birim:live-3d-part-drop", onLiveDrop);
+        window.removeEventListener("birim:live-3d-part-cancel", onLiveCancel);
+        window.removeEventListener("birim:live-material-drop", onLiveMaterialDrop);
+      };
+    }, [project.customMaterials, requestRender, setSnapBannerDedup]);
+
 const clear3DGhostPreview = useCallback(() => {
       setIsDraggingItemOver3D(false);
       lastGhostKeyRef.current = "";
@@ -7103,17 +7947,12 @@ const clear3DGhostPreview = useCallback(() => {
         const rc = new THREE.Raycaster();
         rc.setFromCamera(new THREE.Vector2(ndcX, ndcY), cam);
 
-        // First try raycasting actual 3D cabinet meshes so multi-module & angled camera drags hit the exact cabinet under cursor
+        // O(1) cached raycast (zero recursive scene traversal & zero mid-drag React setState!)
         if (meshGroupRef.current) {
-          const solidMeshes = collectSolidCabinetMeshes(meshGroupRef.current, true);
+          const solidMeshes = getCachedSolidMeshes(meshGroupRef.current, true);
           const hits = rc.intersectObjects(solidMeshes, false);
           if (hits.length > 0) {
-            const firstHit = hits[0];
-            const hitModIdx = firstHit.object?.userData?.moduleIndex;
-            if (typeof hitModIdx === "number" && hitModIdx >= 0 && hitModIdx !== activeModuleIndex) {
-              setActiveModuleIndex(hitModIdx);
-            }
-            return firstHit.point.clone();
+            return hits[0].point.clone();
           }
         }
 
@@ -7162,7 +8001,7 @@ const clear3DGhostPreview = useCallback(() => {
       // CASE 1: ACCESSORY / INTERIOR ITEM DRAG
       if (hasAccessoryMime || activeAcc) {
         e.preventDefault();
-        if (!isDraggingItemOver3D) setIsDraggingItemOver3D(true);
+        void isDraggingItemOver3D;
         e.dataTransfer.dropEffect = "copy";
         const mod = activeModule || project.modules[0];
         if (!mod) return;
@@ -7556,22 +8395,22 @@ const clear3DGhostPreview = useCallback(() => {
             <span className="w-1.5 h-1.5 rounded-full bg-[#D8D3C8]" />
             <span ref={hoverBadgeTextRef} />
           </div>
-          {dragDropSnapBanner && (
-            <div
-              data-testid="viewport-3d-dragdrop-snap-banner"
-              className="pointer-events-auto max-w-full px-4 py-2 rounded-2xl bg-slate-900/92 backdrop-blur-xl text-white border border-emerald-400/80 shadow-xl ring-1 ring-black/15 font-mono text-xs font-bold flex items-center gap-2"
+          <div
+            ref={snapBannerDomRef}
+            data-testid="viewport-3d-dragdrop-snap-banner"
+            style={{ display: "none" }}
+            className="pointer-events-auto max-w-full px-3.5 py-1.5 rounded-full bg-[#FAF8F4]/95 backdrop-blur-xl text-[#141413] border border-[#DFD9CE] shadow-lg font-mono text-[11px] font-bold items-center gap-2"
+          >
+            <span className="w-2 h-2 rounded-full bg-[#8C6D46] shrink-0" />
+            <span ref={snapBannerTextRef} className="truncate" />
+            <button
+              type="button"
+              onClick={() => setSnapBannerDedup(null)}
+              className="ml-1 text-[#78716C] hover:text-[#141413] font-bold cursor-pointer shrink-0"
             >
-              <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
-              <span className="truncate">{dragDropSnapBanner}</span>
-              <button
-                type="button"
-                onClick={() => setSnapBannerDedup(null)}
-                className="ml-1 text-slate-300 hover:text-white font-bold cursor-pointer shrink-0"
-              >
-                ✕
-              </button>
-            </div>
-          )}
+              ✕
+            </button>
+          </div>
           {selectedSceneObjectId && (() => {
             const selObj = (project.sceneObjects || []).find((o) => o.id === selectedSceneObjectId);
             if (!selObj) return null;
@@ -8239,10 +9078,13 @@ const clear3DGhostPreview = useCallback(() => {
                 : stageSafeInsets
                 ? {
                     top: `${(stageSafeInsets.topPx ?? 14) + 52}px`,
+                    left: `calc(${stageSafeInsets.leftPx ?? 16}px + (100% - ${(stageSafeInsets.leftPx ?? 16) + (stageSafeInsets.rightPx ?? 16)}px) / 2)`,
+                    transform: "translateX(-50%)",
+                    maxWidth: `calc(100% - ${(stageSafeInsets.leftPx ?? 16) + (stageSafeInsets.rightPx ?? 16) + 16}px)`,
                   }
                 : undefined
             }
-            className={`absolute ${floatingPanelPos.context ? "top-0 left-0" : "top-16 left-1/2 -translate-x-1/2"} z-20 flex flex-wrap items-center justify-center gap-1.5 birim-ice-pill px-3 py-1.5 rounded-full text-xs text-[#111827] cursor-grab active:cursor-grabbing select-none transition-opacity duration-150 ${
+            className={`absolute ${floatingPanelPos.context ? "top-0 left-0" : stageSafeInsets ? "" : "top-16 left-1/2 -translate-x-1/2"} z-[35] flex flex-wrap items-center justify-center gap-1.5 birim-ice-pill px-3 py-1.5 rounded-full text-xs text-[#111827] cursor-grab active:cursor-grabbing select-none transition-opacity duration-150 ${
               isDraggingItemOver3D ? "opacity-15 pointer-events-none" : ""
             }`}
           >
@@ -9468,17 +10310,15 @@ const clear3DGhostPreview = useCallback(() => {
           })()}
 
         {/* Live Cross-Module / Cross-Bay Elevation Snap Badge during 3D Drag */}
-        {active3DSnap && (
-          <div
-            data-testid="in-canvas-snap-badge"
-            className="absolute top-16 left-1/2 -translate-x-1/2 z-20 pointer-events-none px-3.5 py-1.5 rounded-full birim-ice-pill text-[#1C1917] text-xs font-bold flex items-center gap-2"
-          >
-            <span>🎯 Hizalandı: {active3DSnap.label}</span>
-            <span className="px-2 py-0.5 rounded-full bg-[#F1F5F9] text-[#1C1917] font-mono">
-              Y: {active3DSnap.elevationY} mm
-            </span>
-          </div>
-        )}
+        <div
+          ref={snapBadgeDomRef}
+          data-testid="in-canvas-snap-badge"
+          style={{ display: "none" }}
+          className="absolute top-16 left-1/2 -translate-x-1/2 z-20 pointer-events-none px-3.5 py-1.5 rounded-full birim-ice-pill text-[#1C1917] text-xs font-bold items-center gap-2"
+        >
+          <span ref={snapBadgeLabelRef} />
+          <span ref={snapBadgeYRef} className="px-2 py-0.5 rounded-full bg-[#F1F5F9] text-[#1C1917] font-mono" />
+        </div>
 
         {/* LEFT VERTICAL VIEW & CAMERA PILL (Design Studio: 3D | 2D Plan | Ön | Yan | Üst | İç Görünüm | Fit) */}
         <div
@@ -10712,7 +11552,7 @@ const clear3DGhostPreview = useCallback(() => {
                         { id: "brut_concrete", label: "Brüt Beton", swatch: "#9E9991" },
                         { id: "anthracite_gallery", label: "Koyu Galeri", swatch: "#444341" },
                         { id: "warm_taupe", label: "Sıcak Grej", swatch: "#ACA396" },
-                        { id: "soft_plaster", label: "Açık Sıva", swatch: "#DED9D0" },
+                        { id: "soft_plaster", label: "Mimari Gri Sıva", swatch: "#CDD3DA" },
                       ].map((wt) => (
                         <button
                           key={wt.id}

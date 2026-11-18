@@ -36,13 +36,15 @@ def configure_cycles(scene, samples, bounces):
     scene.render.engine = "CYCLES"
     scene.cycles.samples = max(16, min(256, int(samples)))
     scene.cycles.use_adaptive_sampling = True
-    scene.cycles.adaptive_threshold = 0.025
-    scene.cycles.max_bounces = max(4, min(10, int(bounces) + 1))
-    scene.cycles.diffuse_bounces = max(2, min(4, int(bounces)))
-    scene.cycles.glossy_bounces = max(2, min(4, int(bounces)))
+    scene.cycles.adaptive_threshold = 0.015
+    scene.cycles.max_bounces = max(4, min(8, int(bounces)))
+    scene.cycles.diffuse_bounces = 3
+    scene.cycles.glossy_bounces = 3
     scene.cycles.transmission_bounces = 4
     scene.cycles.transparent_max_bounces = 4
     scene.cycles.sample_clamp_indirect = 10.0
+    if hasattr(scene.cycles, "use_auto_tile"):
+        scene.cycles.use_auto_tile = False
     if hasattr(scene.render, "use_persistent_data"):
         scene.render.use_persistent_data = True
 
@@ -54,7 +56,7 @@ def configure_cycles(scene, samples, bounces):
     except Exception:
         pass
 
-    # Auto-detect GPU (OptiX -> CUDA -> HIP), fallback to CPU
+    # Auto-detect GPU (OptiX -> CUDA -> HIP), skipping legacy GTX 400-700/GT cards that hit Windows 2s TDR timeout
     selected_device = "CPU"
     try:
         prefs = bpy.context.preferences.addons["cycles"].preferences
@@ -62,10 +64,13 @@ def configure_cycles(scene, samples, bounces):
             try:
                 prefs.compute_device_type = backend
                 prefs.refresh_devices()
-                gpu_devs = [d for d in prefs.devices if d.type == backend]
+                gpu_devs = [
+                    d for d in prefs.devices
+                    if d.type == backend and not any(tag in d.name.upper() for tag in ("GTX 4", "GTX 5", "GTX 6", "GTX 7", "GT 4", "GT 5", "GT 6", "GT 7"))
+                ]
                 if gpu_devs:
                     for d in prefs.devices:
-                        d.use = d.type == backend
+                        d.use = d in gpu_devs
                     scene.cycles.device = "GPU"
                     selected_device = backend
                     break
@@ -89,7 +94,7 @@ def setup_color_management(scene):
             scene.view_settings.look = "None"
     except Exception:
         scene.view_settings.view_transform = "Filmic"
-    scene.view_settings.exposure = 0.35
+    scene.view_settings.exposure = 0.0
     scene.view_settings.gamma = 1.0
 
 
@@ -106,17 +111,17 @@ def setup_studio_world(scene, is_dark=False):
     sep_xyz = nt.nodes.new("ShaderNodeSeparateXYZ")
     ramp = nt.nodes.new("ShaderNodeValToRGB")
 
-    # Subtle architectural studio dome (low ambient so softboxes sculpt 3D depth & shadows)
+    # Balanced architectural studio dome for clean GI fill in interiors & cabinets
     ramp.color_ramp.elements[0].position = 0.0
     ramp.color_ramp.elements[1].position = 0.8
     if is_dark:
         ramp.color_ramp.elements[0].color = (0.03, 0.035, 0.045, 1.0)
         ramp.color_ramp.elements[1].color = (0.10, 0.11, 0.13, 1.0)
-        bg.inputs["Strength"].default_value = 0.25
+        bg.inputs["Strength"].default_value = 0.18
     else:
-        ramp.color_ramp.elements[0].color = (0.65, 0.62, 0.58, 1.0)
-        ramp.color_ramp.elements[1].color = (0.94, 0.95, 0.98, 1.0)
-        bg.inputs["Strength"].default_value = 0.28
+        ramp.color_ramp.elements[0].color = (0.74, 0.72, 0.69, 1.0)
+        ramp.color_ramp.elements[1].color = (0.88, 0.91, 0.96, 1.0)
+        bg.inputs["Strength"].default_value = 0.11
 
     nt.links.new(tex_coord.outputs["Generated"], sep_xyz.inputs["Vector"])
     nt.links.new(sep_xyz.outputs["Z"], ramp.inputs["Fac"])
@@ -147,7 +152,7 @@ def compute_scene_bounds(meshes):
     return center, size
 
 
-def add_area_light(name, location, target, energy, size_x, size_y, color, cast_shadow=True):
+def add_area_light(name, location, target, energy, size_x, size_y, color, cast_shadow=True, spread_deg=85.0):
     light_data = bpy.data.lights.new(name=name, type="AREA")
     light_data.shape = "RECTANGLE"
     light_data.size = size_x
@@ -156,7 +161,7 @@ def add_area_light(name, location, target, energy, size_x, size_y, color, cast_s
     light_data.color = color
     light_data.use_shadow = cast_shadow
     if hasattr(light_data, "spread"):
-        light_data.spread = math.radians(95.0)
+        light_data.spread = math.radians(spread_deg)
 
     light_obj = bpy.data.objects.new(name=name, object_data=light_data)
     bpy.context.collection.objects.link(light_obj)
@@ -183,11 +188,12 @@ def has_existing_floor(meshes):
     return False
 
 
-def setup_studio_lights_and_floor(center, size, meshes, is_dark=False):
+def setup_studio_lights_and_floor(center, size, meshes, cam_pos, cam_target, is_dark=False):
     span = max(size.x, size.y, size.z, 1.8)
+    has_room = has_existing_floor(meshes)
 
     # Add matte studio floor only if room architecture didn't already export one
-    if not has_existing_floor(meshes):
+    if not has_room:
         bpy.ops.mesh.primitive_plane_add(size=max(24.0, span * 10.0), location=(center.x, center.y, -0.003))
         floor = bpy.context.active_object
         floor.name = "BirimStudioFloor"
@@ -198,52 +204,67 @@ def setup_studio_lights_and_floor(center, size, meshes, is_dark=False):
             if is_dark:
                 bsdf.inputs["Base Color"].default_value = (0.06, 0.065, 0.075, 1.0)
             else:
-                bsdf.inputs["Base Color"].default_value = (0.82, 0.80, 0.76, 1.0)
+                bsdf.inputs["Base Color"].default_value = (0.72, 0.70, 0.67, 1.0)
             bsdf.inputs["Roughness"].default_value = 0.88
             if "Specular IOR Level" in bsdf.inputs:
                 bsdf.inputs["Specular IOR Level"].default_value = 0.2
         floor.data.materials.append(floor_mat)
 
-    # Single-Shadow Architectural Softbox Rig (prevents double/shifted silhouette shadows on back wall!)
-    scale_pow = (span * 0.55) ** 2
+    # Camera-relative studio softbox rig so room walls/ceiling never occlude the lights
+    to_cam = cam_pos - cam_target
+    cam_dist = max(to_cam.length, 1.5)
+    forward = to_cam.normalized() if to_cam.length > 1e-4 else Vector((0.0, -1.0, 0.35)).normalized()
+    world_up = Vector((0.0, 0.0, 1.0))
+    right = world_up.cross(forward)
+    if right.length < 1e-4:
+        right = Vector((1.0, 0.0, 0.0))
+    right.normalize()
 
-    # 1. Primary Key Softbox (front-left-top, warm 4500K, casts soft natural shadow)
-    key_loc = Vector((center.x - span * 1.35, center.y - span * 1.55, center.z + span * 1.35))
+    rig_dist = min(cam_dist * 0.85, max(span * 0.95, 2.2)) if has_room else max(span * 1.4, cam_dist * 0.85)
+    rig_height = min(size.z * 0.9, rig_dist * 0.65) if has_room else rig_dist * 0.85
+    # Normalize energy at 3.0m reference distance to prevent overexposure under AgX
+    dist_scale = (rig_dist / 3.0) ** 2
+
+    # 1. Architectural Window-Style Key Softbox (crisp-yet-feathered directional shadows & 3D depth)
+    key_loc = cam_target + forward * (rig_dist * 0.55) - right * (rig_dist * 0.95) + Vector((0.0, 0.0, rig_height * 1.15))
     add_area_light(
         "StudioKeySoftbox",
         key_loc,
-        center,
-        energy=620.0 * scale_pow,
-        size_x=span * 1.15,
-        size_y=span * 0.90,
-        color=(1.0, 0.95, 0.88),
+        cam_target,
+        energy=165.0 * dist_scale,
+        size_x=max(1.5, rig_dist * 0.72),
+        size_y=max(1.3, rig_dist * 0.62),
+        color=(1.0, 0.96, 0.90),
         cast_shadow=True,
+        spread_deg=78.0,
     )
 
-    # 2. Shadowless Fill Softbox (front-right, cool-neutral, lifts dark interiors without double shadow)
-    fill_loc = Vector((center.x + span * 1.55, center.y - span * 1.45, center.z + span * 0.75))
+    # 2. Subtle Cool Fill Softbox (preserves shadow contrast while lifting deep blacks)
+    fill_loc = cam_target + forward * (rig_dist * 0.9) + right * (rig_dist * 0.85) + Vector((0.0, 0.0, rig_height * 0.55))
     add_area_light(
         "StudioFillSoftbox",
         fill_loc,
-        center,
-        energy=175.0 * scale_pow,
-        size_x=span * 1.4,
-        size_y=span * 1.0,
-        color=(0.91, 0.95, 1.0),
+        cam_target,
+        energy=18.0 * dist_scale,
+        size_x=max(2.0, rig_dist * 1.1),
+        size_y=max(1.5, rig_dist * 0.85),
+        color=(0.88, 0.94, 1.0),
         cast_shadow=False,
+        spread_deg=115.0,
     )
 
-    # 3. Shadowless Top/Rim Specular Accent (defines wood grain & metal edge highlights)
-    rim_loc = Vector((center.x + span * 0.4, center.y - span * 0.6, center.z + span * 1.85))
+    # 3. Overhead Soft Rim Accent (defines top edges, foliage & wood sheen with natural shadows)
+    rim_loc = cam_target + forward * (rig_dist * 0.25) + right * (rig_dist * 0.35) + Vector((0.0, 0.0, rig_height * 1.3))
     add_area_light(
         "StudioRimSoftbox",
         rim_loc,
-        center,
-        energy=120.0 * scale_pow,
-        size_x=span * 1.2,
-        size_y=span * 0.75,
+        cam_target,
+        energy=28.0 * dist_scale,
+        size_x=max(1.6, rig_dist * 0.8),
+        size_y=max(1.1, rig_dist * 0.6),
         color=(1.0, 0.98, 0.95),
-        cast_shadow=False,
+        cast_shadow=True,
+        spread_deg=88.0,
     )
 
 
@@ -251,8 +272,9 @@ def enhance_imported_materials():
     for mat in bpy.data.materials:
         if not mat.use_nodes or not mat.node_tree:
             continue
+        nt = mat.node_tree
         bsdf = None
-        for node in mat.node_tree.nodes:
+        for node in nt.nodes:
             if node.type == "BSDF_PRINCIPLED":
                 bsdf = node
                 break
@@ -262,6 +284,42 @@ def enhance_imported_materials():
         # Ensure glass / transmissive materials have clean IOR
         if "Transmission Weight" in bsdf.inputs and bsdf.inputs["Transmission Weight"].default_value > 0.05:
             bsdf.inputs["IOR"].default_value = 1.51
+            continue
+
+        # Crevice & contact Ambient Occlusion (8cm) so door/drawer gaps, plinths & pots ground naturally
+        base_in = bsdf.inputs.get("Base Color")
+        if base_in:
+            ao = nt.nodes.new("ShaderNodeAmbientOcclusion")
+            ao.samples = 8
+            ao.inputs["Distance"].default_value = 0.08
+            mix = nt.nodes.new("ShaderNodeMix")
+            mix.data_type = "RGBA"
+            mix.blend_type = "MULTIPLY"
+            mix.inputs["Factor"].default_value = 0.35
+            if base_in.is_linked:
+                orig_link = base_in.links[0]
+                orig_socket = orig_link.from_socket
+                nt.links.remove(orig_link)
+                nt.links.new(orig_socket, mix.inputs[6])  # A (Color)
+            else:
+                mix.inputs[6].default_value = tuple(base_in.default_value)
+            nt.links.new(ao.outputs["Color"], mix.inputs[7])  # B (Color)
+            nt.links.new(mix.outputs[2], base_in)  # Result (Color)
+
+        # Tactile wood/parquet micro-bump + satin sheen from existing diffuse texture
+        tex_nodes = [n for n in nt.nodes if n.type == "TEX_IMAGE" and n.image]
+        if tex_nodes:
+            tex = tex_nodes[0]
+            if "Normal" in bsdf.inputs and not bsdf.inputs["Normal"].is_linked:
+                bump = nt.nodes.new("ShaderNodeBump")
+                bump.inputs["Strength"].default_value = 0.045
+                bump.inputs["Distance"].default_value = 0.001
+                nt.links.new(tex.outputs["Color"], bump.inputs["Height"])
+                nt.links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
+            if "Coat Weight" in bsdf.inputs:
+                bsdf.inputs["Coat Weight"].default_value = 0.12
+                if "Coat Roughness" in bsdf.inputs:
+                    bsdf.inputs["Coat Roughness"].default_value = 0.24
 
 
 def main():
@@ -288,16 +346,18 @@ def main():
     meshes = [o for o in bpy.context.scene.objects if o.type == "MESH"]
     center, size = compute_scene_bounds(meshes)
 
-    is_dark = bool(meta.get("isDark", False))
-    scene = bpy.context.scene
-    setup_studio_world(scene, is_dark=is_dark)
-    setup_studio_lights_and_floor(center, size, meshes, is_dark=is_dark)
-
-    # Camera setup matching Three.js PerspectiveCamera
+    # Camera coordinates in Blender meter space (needed for camera-relative studio lighting)
     cam_meta = meta.get("camera", {})
     cam_pos = three_to_blender_vec(cam_meta.get("position", [2000, 1400, 3800]), 0.001)
     cam_target = three_to_blender_vec(cam_meta.get("target", [900, 1000, 300]), 0.001)
     fov_deg = float(cam_meta.get("fov", 42))
+
+    is_dark = bool(meta.get("isDark", False))
+    scene = bpy.context.scene
+    setup_studio_world(scene, is_dark=is_dark)
+    setup_studio_lights_and_floor(center, size, meshes, cam_pos, cam_target, is_dark=is_dark)
+
+    # Camera setup matching Three.js PerspectiveCamera
 
     cam_data = bpy.data.cameras.new("BirimStudioCam")
     cam_data.lens_unit = "FOV"

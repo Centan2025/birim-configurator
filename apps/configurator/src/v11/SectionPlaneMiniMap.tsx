@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useRef, useCallback, useMemo } from "react";
+import { useConfiguratorStore } from "../store/useConfiguratorStore";
 import { calculateBayWidths, type ModuleInstance } from "@birim/core";
 
 export interface SectionPlaneMiniMapProps {
@@ -37,6 +38,8 @@ export const SectionPlaneMiniMap: React.FC<SectionPlaneMiniMapProps> = React.mem
     const panelT = activeModule.carcass.panelThickness || 18;
     const bayWidths = useMemo(() => calculateBayWidths(activeModule), [activeModule]);
 
+    const displayUnit = useConfiguratorStore((s) => s.displayUnit);
+    const fmtCut = (mm: number) => (displayUnit === "cm" ? `${Number((mm / 10).toFixed(1))} cm` : `${Math.round(mm)} mm`);
     const clampedRatio = Math.min(0.96, Math.max(0.04, ratio));
     const cutMm = Math.round((axis === "X" ? wMm : dMm) * clampedRatio);
 
@@ -149,7 +152,7 @@ export const SectionPlaneMiniMap: React.FC<SectionPlaneMiniMapProps> = React.mem
             <div className="font-bold text-[12.5px] flex items-center gap-1.5">
               <span>Görsel Kesit Planı</span>
               <span className="px-2 py-0.5 rounded-full bg-[#EFECE4] font-mono text-[10.5px] text-[#44403C]">
-                {axis === "X" ? `A–A • X: ${cutMm} mm` : `B–B • Z: ${cutMm} mm`}
+                {axis === "X" ? `A–A • X: ${fmtCut(cutMm)}` : `B–B • Z: ${fmtCut(cutMm)}`}
               </span>
             </div>
             <div className="text-[10.5px] text-[#78716C]">

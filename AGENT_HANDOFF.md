@@ -1,49 +1,32 @@
-# BİRİM CONFIGURATOR (V5.6) — TAM MİMARİ VE AJAN DEVİR KILAVUZU (AGENT HANDOFF)
+# BİRİM CONFIGURATOR (V12.0) — TAM MİMARİ VE AJAN DEVİR KILAVUZU (AGENT HANDOFF)
 
-Bu depo **Birim Mobilya** için geliştirilmiş parametrik 3D/2D mobilya tasarım stüdyosu, mühendislik doğrulama motoru ve **Birim Portal ERP CNC Panel Nesting** tam uyumlu üretim platformudur.
+Bu depo **Birim Mobilya** ve çok kiracılı **Modül SaaS** altyapısı için geliştirilmiş parametrik 3B/2B mobilya tasarım stüdyosu, deterministik mühendislik doğrulama motoru ve **Birim Store / Portal ERP CNC Panel Nesting** üretim platformudur.
 
-## 1. Monorepo Paket Mimarisi (npm workspaces)
-- `packages/core` (`@birim/core`):
-  - Temel veri modelleri (`DesignProject`, `ModuleInstance`, `BayConfig`, `CarcassConfig`, `MaterialDefinition`, `DrillingHole`).
-  - 4-Uzay kapalı ölçü zinciri (`calculateFourSpaceDimensions`), Euler-Bernoulli ISO 7170 raf sehim hesabı, 3D kapak süpürme çakışma kontrolü ve V4 uyumluluk motoru.
-- `packages/catalog` (`@birim/catalog`):
-  - Gardırop, vestiyer, mutfak alt/üst/boy/köşe modül şablonları, Blum / Hettich / Häfele gerçek donanım SKU kataloğu, delik şablonları ve akıllı duvar dizilim sihirbazları.
-- `packages/geometry` (`@birim/geometry`):
-  - Parametrik 3D parça üreteci (`mesh-generator.ts`) ve 2D CAD teknik görünüş/kesit/plan projeksiyon motoru (`projection2d.ts`).
-- `packages/manufacturing` (`@birim/manufacturing`):
-  - Net kesim (PVC bant kalınlığı düşülmüş) BOM üreteci (`bom-generator.ts`), System 32 çift yüzeyli simetrik delik motoru (`drilling-engine.ts`), katmanlı AutoCAD `.DXF` (`dxf-template.ts`), Homag WoodWOP `.MPR` & Biesse `.CIX` (`cnc-postprocessors.ts`), Blum EASYSTICK `.BXF` (`technical-outputs.ts`).
-  - **`src/erp-nesting/` (Birim Portal ERP Birebir Nesting Altyapısı)**:
-    - `erp-nesting-types.ts`: ERP `nesting_projects`, `nesting_sheets`, `nesting_parts`, `nesting_placements` birebir şemaları.
-    - `erp-serialization.ts`: U1/U2/K1/K2 kenar bandı (`0.40mm PVC`, `1.00mm PVC`, `2.00mm PVC`) ve arkalık kanalı (`hasGroove`, `grooveSide`, `grooveOffset`, `grooveWidth`, `grooveDepth`) JSON serileştirmesi (`serializeErpEdgeBanding` / `parseErpEdgeBanding`) ve `[grain:vertical|horizontal|none]` plaka suyolu etiketlemesi.
-    - `erp-guillotine-engine.ts` & `erp-nesting-algorithm.ts`: `Auto`, `Guillotine` (şerit/kafa kesim + operatör kesim reçetesi) ve `MaxRects` yerleşim motorları + `extractErpReclaimableRemnants` (`>=400x400mm` ayrık artık plaka geri kazanımı).
-    - `erp-exporters.ts`: ERP Selco WNT 600 OptiPlanning `.csv` ve CNC Router `.nc` G-Code üreticileri.
-    - `erp-nesting-bridge.ts`: `buildBirimErpNestingBundle(project, bom, materialsMap, options)` — BOM kesim listesini malzeme + kalınlık bazlı ERP iş emirlerine dönüştürür.
-- `packages/pricing` (`@birim/pricing`):
-  - Plaka alanı, kenar bandı metrajı, donanım SKU ve işçilik bazlı EUR/TRY + KDV fiyat motoru.
-- `packages/integrations` (`@birim/integrations`):
-  - Mağaza CPQ (`store-adapter.ts`) ve Birim ERP Üretim & Nesting Köprüsü (`erp-adapter.ts`).
-- `apps/configurator`:
-  - Next.js (App Router) + React + Three.js + Zustand + Tailwind CSS v4 tabanlı Birleşik Tasarım Stüdyosu (`V3UnifiedWorkspace.tsx`, `V3ThreeViewport.tsx`, `V3CadViewport2D.tsx`, `WorkspaceTopBar.tsx`, `SimpleCustomerInspector.tsx`, `BomModal.tsx`, `StoreErpModal.tsx`).
+## 1. Aktif Uygulama Kabuğu (`apps/configurator/src/v11/`)
+Tüm ana rotalar (`/`, `/v3`, `/v3/studio`, `/v3/plan`, `/v3/showroom`, `/embed/[tenantSlug]`, `/p/[code]`) `BirimStudioWorkspace.tsx` bileşenini çalıştırır:
+- **Doğrudan Ürün Üzerinde Tasarım (`OnObjectQuickToolbar.tsx`)**: 3B sahnede kapak, raf, çekmece veya bölmeye dokunulduğunda sahne altında bağlamsal hızlı işlem çubuğu (+ Raf, + Çekmece, + Askı, İçini Gör, Kapak Yönü, Hızlı Renk) açılır.
+- **Hazır Akıllı Tasarım Şablonları (`guidedWizardBuilder.ts` + `GuidedSetupModal.tsx`)**: Girilen duvar ölçüsüne göre 4 mühendislik onaylı, canlı fiyatlı başlangıç tasarımı (*Dengeli Günlük*, *Maksimum Askı*, *Bol Çekmeceli*, *Füme Cam Vitrin & LED Signature*) üretir.
+- **3 Çalışma Seviyesi (`Kolay`, `Pro`, `Üretim`)**: `UserExperienceTier` (`simple`, `architect`, `factory`) aynı `DesignProject` verisini paylaşır; mod geçişlerinde veri kaybolmaz. Kolay modda yönlendirici 3 adım şeridi (*1. Ölçü & Şablon → 2. İç Düzen & Yüzey → 3. Tek Tık Sunum*) gösterilir, ileri düzey CNC/MEP/kertme ayarları gizlenir.
+- **Mobil/Tablet (`<1024px`) ve Dokunmatik Ergonomisi**: Küçük ekranlarda sağ/sol çekmeceler çakışmasız (karşılıklı dışlamalı) çalışır; 3B/2B bölünmüş ekran ayırıcısı `PointerEvent` (`touch-none`) destekler; 3B sahnede sol tuş `ROTATE` (Orbit), sağ sürükleme `PAN`, sağ tık bağlam menüsü açar.
 
-## 2. Son Tamamlanan Kritik Mühendislik ve UI Özellikleri (V5.0 -> V5.6)
-1. **Performans (INP < 50ms) & Seçim Çerçevesi Senkronizasyonu**:
-   - Sekme, mod ve çizim aracı geçişleri `React.startTransition` kapsamındadır.
-   - `V3ThreeViewport.tsx` içinde `doorOpenAngleDeg` / `drawerOpenMm` değiştiğinde parametrik mesh inşası biter bitmez `updateSelectionAndActiveFrames()` çağrılarak OBB seçim çerçevesi açılan kapakla anında senkronize edilir.
-2. **Parametrik Gömme LED Kanal & Sıfır Sarı Bant Bloom**:
-   - `ledFrontSetbackMm`, `ledShelfSetbackMm`, `ledAlignShelfAndSide`, `ledChannelWidthMm`, `ledChannelDepthMm` parametreleri 3D sahne, 2D kesit ve BOM ile tam senkrondur.
-3. **Dünya Standartlarında 3 Gerçek Baza Konstrüksiyonu (`plinthConstruction`)**:
-   - `pedestal_box` (4-taraf kapalı kutu baza + ara taşıyıcı kayıt + PVC sızdırmazlık fitili),
-   - `adjustable_legs_clip` (Häfele Axilo 78 ayarlı ayaklar + C-klips geçmeli ön/yan baza + şeffaf su contası),
-   - `gable_rails` (zemine inen yan dikmeler + ön/arka baza kayıtları + gizli çelik terazi pingoları).
-4. **Birim ERP Nesting Modülü %100 Birebir Uyum**:
-   - Parça net kesim ölçüleri, suyolu kanonikleştirmesi, U1/U2/K1/K2 kenar bantları ve arkalık kanalları Birim ERP veritabanı ve `/api/nesting` uç noktalarıyla %100 aynı yapıda üretilir.
-5. **Buzlu Cam (Frosted Glass), Yarı Şeffaf & İkon Ağırlıklı Düğme Panelleri (`globals.css`)**:
-   - `.birim-ice-bar`, `.birim-ice-rail`, `.birim-ice-pill`, `.birim-ice-popover`, `.birim-ice-btn` ve `.birim-ice-btn-active` sınıflarıyla tüm barlar, raylar ve 3D/2D sahne üstü HUD kapsülleri yarı şeffaf buzlu cam ve saf ikon odaklıdır (`title` ipuçları ve `sr-only` erişilebilirlik/test etiketleri korunmuştur).
+## 2. Kritik Mühendislik, CNC, Fiyat ve Entegrasyon Güvenceleri
+1. **CNC Post-Processor & Suyolu Güvenliği (`packages/manufacturing`)**:
+   - Homag `.MPR` ve Biesse `.CIX` çıktılarında üst/alt tablaların yanı sıra sol ve sağ yan dikmelere (`carcass_side_left`, `carcass_side_right`) 8 mm arkalık kanalı işlenir.
+   - `crosswise` (yatay damarlı 90° döndürülmüş) parçalarda tüm delik koordinatları `(x, y) -> (y, x)` ve kenar bantları eksenleriyle birlikte transpoze edilir; parça sınırını aşan delikler `[ERR_CNC_HOLE_OUT_OF_BOUNDS]` ile yakalanır.
+   - Sistem 32 raf pimi sütunları (içerlek kapak `57 mm` ön sıra dahil) sütun bazlı üretilir; sabit taşıyıcı raflar (`Minifix`/`Rafix`) 3B/2B sürüklemede Ø5 mm pim deliklerine zorlanmaz.
+2. **Malzeme, Donanım ve Fiyat Doğruluğu (`packages/core`, `packages/pricing`)**:
+   - Hazır UV/PET lak levhalar (`AGT Supramat`, `Kastamonu Mattplus`, `Evogloss`) `requiresEdgeBanding: true, requiresPaintshop: false` ile bantlanır; gerçek boyahane ipek mat lake (`requiresPaintshop: true`) bantsız üretilir ve boyahane işçiliği alır.
+   - MDFLam / yonga levha elastisite modülü gerçek `3200–3400 MPa` aralığındadır; Blum AVENTOS `HF top` (`22F`), `HL top` (`22L`) ve `HK top` (`22K`) güç faktörü (`LF`) SKU tabloları ayrıştırılmıştır.
+   - Alternatif malzeme fiyat karşılaştırması sahnedeki ticari cihazları (`commercialObjectsCostEur`) ve aktif KDV oranını korur.
+3. **Artımlı Performans Önbelleği (`computeModuleIntrinsicSignature`)**:
+   - `packages/core/src/lru-cache.ts` içindeki yatay konumdan (`position.x/z`) bağımsız modül imzası sayesinde 50 modüllü projelerde tek modül düzenlenip komşu 49 modül yatay kaydığında geometri ve modül BOM dilimleri `O(1)` önbellekten okunur.
+4. **Supabase Atomik RPC ve SaaS Güvenliği**:
+   - `supabase/migrations/20261118160000_fix_store_erp_rpc_contracts.sql` ile Store teklif ve ERP nesting RPC imzaları `@birim/integrations` adaptörleriyle birebir hizalanmıştır.
 
 ## 3. Çalıştırma ve Doğrulama Komutları
 ```bash
 npm install
 npm run dev          # Geliştirme sunucusu (apps/configurator)
-npm run test         # Vitest birim ve entegrasyon testleri
+npm run test         # Vitest birim, sınır ve E2E regresyon testleri (36 paket)
 npm run build        # Tüm paketlerin ve Next.js uygulamasının derlenmesi
 ```

@@ -808,6 +808,8 @@ export function createComponentMesh(
     linkGroup.add(pivotPin);
 
     group.add(linkGroup);
+    group.userData.hingeCarcassFixed = carcassFixedGroup;
+    group.userData.hingeLinkGroup = linkGroup;
     return group;
   }
 
@@ -1823,6 +1825,9 @@ export function createComponentMesh(
     // Physical dark recessed shadow backing behind doors & drawer fronts for authentic 2-3mm joinery reveal depth!
     const isTranslucentGlassFront =
       comp.crossSectionProfile === "glass_frame" ||
+      comp.crossSectionProfile === "full_smoked_glass" ||
+      comp.crossSectionProfile === "center_glass_frame" ||
+      comp.crossSectionProfile === "u_glass_open_top" ||
       String(comp.materialId || "").includes("glass");
     if (
       !isTranslucentGlassFront &&
@@ -1880,7 +1885,7 @@ export function createComponentMesh(
     const activeProfile =
       explicitProfile ||
       (comp.materialId === "mat_smoked_glass"
-        ? "glass_frame"
+        ? "full_smoked_glass"
         : comp.materialId === "mat_bronze_mirror"
         ? "mirror_door"
         : comp.handleCategory === "decorative_bespoke"
@@ -1890,18 +1895,70 @@ export function createComponentMesh(
     const h = comp.dimensions.height;
     const d = comp.dimensions.depth;
 
-    if (activeProfile === "glass_frame" && w > 140 && h > 140) {
-      // 1. Füme Cam Vitrin Kapak (`glass_frame`): 4 world-UV perimeter frame bars + true translucent smoked glass center pane!
+    if (comp.id.includes("_tambour_curtain") && w > 80 && h > 40) {
+      // 0. Dikey / Yatay Esnek Tambur Panjur Kapak (`_tambour_curtain`): Akustik keçe sırt + gerçek yatay lamel dizisi!
       mesh.visible = false;
-      const frameW = Math.min(54, Math.max(34, Math.round(w * 0.11)));
+      const backing = new THREE.Mesh(box, darkCavityMat);
+      backing.scale.set(Math.max(40, w - 4), Math.max(30, h - 2), 3);
+      backing.position.set(cx, cy, cz - d * 0.35);
+      backing.userData = { preserveCustomMaterial: true };
+      group.add(backing);
+
+      const slatPitch = 22;
+      const slatCount = Math.max(2, Math.floor(h / slatPitch));
+      const actualPitch = h / slatCount;
+      const slatH = Math.max(12, actualPitch - 2.2);
+      const slatD = Math.max(10, d - 2);
+      const slatGeo = getCachedWorldUvBoxGeometry(w, slatH, slatD, true);
+      const instSlats = new THREE.InstancedMesh(slatGeo, material, slatCount);
+      const mtx = new THREE.Matrix4();
+      const yBottom = cy - h / 2;
+      for (let si = 0; si < slatCount; si++) {
+        mtx.identity();
+        mtx.setPosition(cx, yBottom + (si + 0.5) * actualPitch, cz + 1);
+        instSlats.setMatrixAt(si, mtx);
+      }
+      instSlats.instanceMatrix.needsUpdate = true;
+      instSlats.castShadow = true;
+      instSlats.receiveShadow = true;
+      tagSubMesh(instSlats, userData, comp);
+      group.add(instSlats);
+    } else if (activeProfile === "full_smoked_glass" && w > 80 && h > 80) {
+      // 1B. Tam Füme Cam (Çerçevesiz): full edge-to-edge translucent smoked glass pane!
+      mesh.visible = false;
+      const glassPane = new THREE.Mesh(box, sharedSmokedGlassPaneMat);
+      glassPane.scale.set(w, h, Math.max(8, d * 0.45));
+      glassPane.position.set(cx, cy, cz);
+      const gEdge = new THREE.LineSegments(edges, revealShadowMat);
+      glassPane.add(gEdge);
+      tagSubMesh(glassPane, userData, comp);
+      glassPane.castShadow = false;
+      glassPane.renderOrder = 4;
+      group.add(glassPane);
+    } else if (
+      (activeProfile === "glass_frame" ||
+        activeProfile === "center_glass_frame" ||
+        activeProfile === "u_glass_open_top") &&
+      w > 100 &&
+      h > 80
+    ) {
+      // 1. Camlı Vitrin / Ortası Camlı / Üstü Açık Çekmece: perimeter frame bars + true translucent smoked glass center pane!
+      mesh.visible = false;
+      const isOpenTopDrawer =
+        activeProfile === "u_glass_open_top" && comp.role === "drawer_front";
+      const frameW = Math.min(54, Math.max(24, Math.round(Math.min(w, h) * 0.14)));
       const innerW = Math.max(40, w - 2 * frameW);
-      const innerH = Math.max(40, h - 2 * frameW);
+      const innerH = isOpenTopDrawer
+        ? Math.max(40, h - frameW)
+        : Math.max(40, h - 2 * frameW);
       const frameMat =
         comp.materialId === "mat_smoked_glass" ? sharedDarkAnodizedFrameMat : material;
       const frameBars = [
         { sx: frameW, sy: h, px: cx - w / 2 + frameW / 2, py: cy, horiz: false },
         { sx: frameW, sy: h, px: cx + w / 2 - frameW / 2, py: cy, horiz: false },
-        { sx: innerW, sy: frameW, px: cx, py: cy + h / 2 - frameW / 2, horiz: true },
+        ...(isOpenTopDrawer
+          ? []
+          : [{ sx: innerW, sy: frameW, px: cx, py: cy + h / 2 - frameW / 2, horiz: true }]),
         { sx: innerW, sy: frameW, px: cx, py: cy - h / 2 + frameW / 2, horiz: true },
       ];
       frameBars.forEach((fb) => {
@@ -1913,14 +1970,19 @@ export function createComponentMesh(
       });
       const glassPane = new THREE.Mesh(box, sharedSmokedGlassPaneMat);
       glassPane.scale.set(innerW, innerH, Math.max(6, d * 0.32));
-      glassPane.position.set(cx, cy, cz);
+      glassPane.position.set(cx, isOpenTopDrawer ? cy + frameW / 2 : cy, cz);
       tagSubMesh(glassPane, userData, comp);
       glassPane.castShadow = false; // Allow studio & LED light to illuminate inner shelves & clothes behind smoked glass!
       glassPane.renderOrder = 4;
       group.add(glassPane);
-    } else if (activeProfile === "mirror_door" && w > 140 && h > 140) {
-      // 2. Aynalı Kapak (`mirror_door`): Crisp slim perimeter bezel + full-height silver/bronze mirror pane!
-      const rimW = 14;
+    } else if (
+      (activeProfile === "mirror_door" || activeProfile === "mirror_frameless") &&
+      w > 100 &&
+      h > 100
+    ) {
+      // 2. Aynalı Kapak: Çerçeveli (14mm rim) veya Çerçevesiz (edge-to-edge)!
+      const isFrameless = activeProfile === "mirror_frameless";
+      const rimW = isFrameless ? 0 : 14;
       const mirrorW = Math.max(40, w - 2 * rimW);
       const mirrorH = Math.max(40, h - 2 * rimW);
       const mirrorMat =
@@ -2044,7 +2106,7 @@ export function createComponentMesh(
       cvMesh.add(new THREE.LineSegments(cvEdges, revealShadowMat));
       tagSubMesh(cvMesh, userData, comp);
       group.add(cvMesh);
-    } else if (activeProfile === "custom_cad_profile" && w > 140 && h > 140) {
+    } else if (activeProfile === "custom_cad_profile" && w > 100 && h > 80) {
       // 8. Gerçek Çok Halkalı 3D Özel CAD (.DXF / .SVG / .JSON) Kesit Örme (Perimeter Sweep/Loft)
       mesh.visible = false;
       const poly =

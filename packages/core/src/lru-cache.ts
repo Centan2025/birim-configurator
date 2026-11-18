@@ -89,7 +89,20 @@ function serializeSortedStringRecord(rec?: Record<string, string>): string {
  * Captures all geometry-, BOM-, drilling-, and validation-affecting fields
  * without serializing parent project metadata or unrelated modules.
  */
+/**
+ * Position-X/Z & rotation invariant signature for local module geometry and per-module BOM slices.
+ * Retains elevation Y (for ergonomic handle placement & wall-hung detection) while allowing
+ * horizontal wall shifts across 50-module layouts to hit O(1) geometry & BOM caches.
+ */
+export function computeModuleIntrinsicSignature(mod: ModuleInstance): string {
+  return computeModuleStructuralSignatureInternal(mod, false);
+}
+
 export function computeModuleStructuralSignature(mod: ModuleInstance): string {
+  return computeModuleStructuralSignatureInternal(mod, true);
+}
+
+function computeModuleStructuralSignatureInternal(mod: ModuleInstance, includePlanTransform: boolean): string {
   const c = mod.carcass;
   const d = mod.dimensions;
   const p = mod.position;
@@ -107,7 +120,7 @@ export function computeModuleStructuralSignature(mod: ModuleInstance): string {
     let drawersSig = "";
     for (let k = 0; k < (b.drawers?.length || 0); k++) {
       const dw = b.drawers[k];
-      drawersSig += `${dw.id}:${dw.elevationY}:${dw.height}:${dw.slideType}:${dw.boxSystemType || ""}:${dw.boxSideProfileCode || ""}:${dw.isInternal ? 1 : 0}:${dw.hasSiphonCutout ? 1 : 0}:${dw.siphonCutoutWidthMm || 0}:${dw.siphonCutoutDepthMm || 0}:${dw.hasCooktopHeatShield ? 1 : 0}:${dw.grainGroupId || ""}:${dw.frontMaterialId || ""}:${dw.hardwareProductId || ""}:${dw.nominalLengthMm || 0}:${dw.isHidden ? 1 : 0};`;
+      drawersSig += `${dw.id}:${dw.elevationY}:${dw.height}:${dw.slideType}:${dw.boxSystemType || ""}:${dw.boxSideProfileCode || ""}:${dw.isInternal ? 1 : 0}:${dw.hasSiphonCutout ? 1 : 0}:${dw.siphonCutoutWidthMm || 0}:${dw.siphonCutoutDepthMm || 0}:${dw.hasCooktopHeatShield ? 1 : 0}:${dw.grainGroupId || ""}:${dw.frontMaterialId || ""}:${dw.frontProfile || ""}:${dw.hardwareProductId || ""}:${dw.nominalLengthMm || 0}:${dw.isHidden ? 1 : 0};`;
     }
     let railsSig = "";
     for (let h = 0; h < (b.hangingRails?.length || 0); h++) {
@@ -151,7 +164,7 @@ export function computeModuleStructuralSignature(mod: ModuleInstance): string {
     `${mod.id}|${mod.name}|${mod.category}|${mod.moduleFamilyId || ""}|${mod.templateId || ""}|` +
     `${mod.complementaryRole || ""}|${mod.isOpenFront ? 1 : 0}|${mod.isCorner ? 1 : 0}|${mod.cornerAngleDeg || 0}|` +
     `${mod.isFixedWidth ? 1 : 0}|${mod.isFreestandingDishwasher ? 1 : 0}|${mod.surfaceFinishOverride || ""}|${mod.edgeBandMaterialId || ""}|` +
-    `DIM:${d.width}x${d.height}x${d.depth}|POS:${p.x},${p.y},${p.z}|ROT:${r?.x || 0},${r?.y || 0},${r?.z || 0}|` +
+    `DIM:${d.width}x${d.height}x${d.depth}|` + (includePlanTransform ? `POS:${p.x},${p.y},${p.z}|ROT:${r?.x || 0},${r?.y || 0},${r?.z || 0}|` : `ELEVY:${p.y}|`) +
     `CAR:${c.panelThickness}:${c.topPanelThicknessMm || 0}:${c.backPanelThickness}:${c.backPanelType}:${c.backOffsetMm ?? ""}:` +
     `${c.preMillingMm || 0}:${c.allowJumboSheet3660 ? 1 : 0}:${c.carcassJoineryTopology || ""}:${c.connectorSystem || ""}:` +
     `${c.kitchenTopStretcherMode || ""}:${c.appliedEndPanelLeft || ""}:${c.appliedEndPanelRight || ""}:` +
@@ -159,7 +172,7 @@ export function computeModuleStructuralSignature(mod: ModuleInstance): string {
     `${c.scribeAllowanceLeftMm || 0}:${c.scribeAllowanceRightMm || 0}:` +
     `${c.plinthHeight}:${c.plinthConstruction || ""}:${c.plinthSetbackMm ?? ""}:${c.doorPerimeterGap}:${c.centerRevealGapMm ?? ""}:` +
     `${c.edgeBandThickness}:${c.bodyMaterialId}:${c.doorMaterialId}:${c.countertopMaterialId || ""}:${c.plinthMaterialId || ""}:` +
-    `${c.hasAdjustableLegs ? 1 : 0}:${c.crossSectionProfile || ""}:${c.hullShape || ""}:${c.cornerRadiusMm || 0}:${c.tambourSlatPitchMm || 0}:` +
+    `${c.hasAdjustableLegs ? 1 : 0}:${c.crossSectionProfile || ""}:${c.drawerFrontProfile || ""}:${c.hullShape || ""}:${c.cornerRadiusMm || 0}:${c.tambourSlatPitchMm || 0}:${c.tambourDirection || ""}:${c.hasCountertopTray === false ? 0 : 1}:` +
     `${c.jointType}:${c.doorThickness || 0}:${c.overlayDistance ?? ""}:${c.system32FrontSetback ?? ""}:` +
     `${c.multiHoleMode || ""}:${c.multiHoleRowCount || 0}:${c.multiHoleFrontSetbackMm ?? ""}:${c.multiHoleEdgeMarginMm ?? ""}:${c.multiHoleDividerThroughBore ? 1 : 0}:` +
     `${c.grainContinuityMode || ""}:${c.constructionProfileId || ""}:${c.hingeDrillingTemplateId || ""}:${c.drawerDrillingSetId || ""}:` +
@@ -200,7 +213,7 @@ export function computeProjectStructuralSignature(project: DesignProject): strin
     for (let i = 0; i < space.elements.length; i++) {
       const e = space.elements[i];
       if (i > 0) elSig += "|";
-      elSig += `${e.id}:${e.type}:${e.position.x},${e.position.y},${e.position.z}:${e.dimensions.width}x${e.dimensions.height}x${e.dimensions.depth}`;
+      elSig += `${e.id}:${e.type}:${e.position.x},${e.position.y},${e.position.z}:${e.dimensions.width}x${e.dimensions.height}x${e.dimensions.depth}:${e.rotationY || 0}`;
     }
   }
   const ceilSig = (space as { ceilingConfig?: unknown })?.ceilingConfig ? JSON.stringify((space as { ceilingConfig?: unknown }).ceilingConfig) : "";
@@ -212,7 +225,7 @@ export function computeProjectStructuralSignature(project: DesignProject): strin
     for (let i = 0; i < project.customMaterials.length; i++) {
       const m = project.customMaterials[i];
       if (i > 0) customMatSig += "|";
-      customMatSig += `${m.id}:${m.category}:${m.thickness}:${m.costPerM2}`;
+      customMatSig += `${m.id}:${m.category}:${m.thickness}:${m.costPerM2}:${m.requiresEdgeBanding ?? ""}:${m.requiresPaintshop ?? ""}`;
     }
   }
   let sceneObjSig = "";
@@ -224,5 +237,5 @@ export function computeProjectStructuralSignature(project: DesignProject): strin
     }
   }
 
-  return `T:${project.tenantId || "birim"}|E:${project.ergonomicProfileId || ""}|ST:${space?.type || ""}|WS:${space?.wallSubstrateType || ""}|SS:${spaceSlopeSig}|C:${space?.ceilingHeight || 0}|W:${wallsSig}|EL:${elSig}|CL:${ceilSig}|CM:${customMatSig}|SO:${sceneObjSig}|M:${modsSig}`;
+  return `T:${project.tenantId || "birim"}|E:${project.ergonomicProfileId || ""}|FG:${project.facadeGrainContinuity ? 1 : 0}|ST:${space?.type || ""}|WS:${space?.wallSubstrateType || ""}|SS:${spaceSlopeSig}|C:${space?.ceilingHeight || 0}|W:${wallsSig}|EL:${elSig}|CL:${ceilSig}|CM:${customMatSig}|SO:${sceneObjSig}|M:${modsSig}`;
 }

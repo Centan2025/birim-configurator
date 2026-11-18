@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
-import { X, Sparkles, Check } from "lucide-react";
-import type { MaterialDefinition } from "@birim/core";
+import React, { useState, useMemo } from "react";
+import { X, Sparkles, Check, ArrowRight } from "lucide-react";
+import { createInitialProject, type DesignProject, type MaterialDefinition } from "@birim/core";
+import { generateSmartStarterTemplates } from "../v3/adapter/guidedWizardBuilder";
 
 export interface GuidedSetupWizardPayload {
   spaceCategory: "wardrobe" | "walkin" | "kitchen" | "living";
@@ -22,13 +23,14 @@ export interface GuidedSetupWizardPayload {
 
 export interface GuidedSetupModalProps {
   isOpen: boolean;
+  project?: DesignProject;
   materials: MaterialDefinition[];
   onClose: () => void;
   onApply: (payload: GuidedSetupWizardPayload) => void;
 }
 
 export const GuidedSetupModal: React.FC<GuidedSetupModalProps> = React.memo(
-  ({ isOpen, materials, onClose, onApply }) => {
+  ({ isOpen, project, materials, onClose, onApply }) => {
     const [spaceCategory, setSpaceCategory] =
       useState<GuidedSetupWizardPayload["spaceCategory"]>("wardrobe");
     const [roomShape, setRoomShape] =
@@ -43,6 +45,21 @@ export const GuidedSetupModal: React.FC<GuidedSetupModalProps> = React.memo(
     const [swatchId, setSwatchId] = useState<string>(materials[0]?.id || "mat_veneer_oak");
     const [addLed, setAddLed] = useState(true);
     const [addTrouserRack, setAddTrouserRack] = useState(false);
+    const [showAdvanced, setShowAdvanced] = useState(false);
+
+    const baseProj = useMemo(() => project || createInitialProject(), [project]);
+
+    const starterProposals = useMemo(() => {
+      if (!isOpen) return [];
+      return generateSmartStarterTemplates(baseProj, {
+        spaceCategory,
+        roomShape,
+        wallWidthMm: Math.round(wallWidthCm * 10),
+        targetHeightMm: Math.round(heightCm * 10),
+        targetDepthMm: Math.round(depthCm * 10),
+        colorSwatchId: swatchId,
+      });
+    }, [isOpen, baseProj, spaceCategory, roomShape, wallWidthCm, heightCm, depthCm, swatchId]);
 
     if (!isOpen) return null;
 
@@ -50,25 +67,32 @@ export const GuidedSetupModal: React.FC<GuidedSetupModalProps> = React.memo(
     const isSlidingAllowed =
       spaceCategory !== "kitchen" && spaceCategory !== "walkin" && wallWidthCm >= 130;
 
+    const fmtEur = (val: number) =>
+      new Intl.NumberFormat("tr-TR", {
+        style: "currency",
+        currency: "EUR",
+        maximumFractionDigits: 0,
+      }).format(Math.max(0, val || 0));
+
     return (
       <div
         data-testid="v11-guided-setup-modal"
-        className="fixed inset-0 z-50 bg-[#141413]/45 backdrop-blur-sm flex items-center justify-center p-4"
+        className="fixed inset-0 z-[152] bg-[#141413]/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5"
         onClick={onClose}
       >
         <div
           onClick={(e) => e.stopPropagation()}
-          className="w-full max-w-xl rounded-3xl bg-[#FAF8F4] border border-[#DFD9CE] shadow-[0_28px_80px_rgba(20,20,19,0.25)] overflow-hidden text-[#141413]"
+          className="w-full max-w-2xl max-h-[92vh] flex flex-col birim-ice-modal rounded-[28px] overflow-hidden text-[#141413]"
         >
-          <div className="px-6 py-4 border-b border-[#E6E1D6] flex items-center justify-between">
+          <div className="px-6 py-4 birim-ice-shell-header flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2.5">
               <span className="w-9 h-9 rounded-2xl bg-[#141413] text-[#D6C7B2] flex items-center justify-center">
                 <Sparkles className="w-4 h-4" />
               </span>
               <div>
-                <h2 className="text-base font-bold">Hızlı Dolap ve Mekân Kurulumu</h2>
+                <h2 className="text-base font-bold">Akıllı Dolap &amp; Mekân Kurulumu</h2>
                 <p className="text-xs text-[#78716C]">
-                  Endüstriyel standartlara uygun, çakışmasız otomatik modül yerleşimi
+                  Ölçünüzü girin, hazır akıllı şablonlardan birini tek tıkla uygulayın veya özelleştirin
                 </p>
               </div>
             </div>
@@ -81,11 +105,11 @@ export const GuidedSetupModal: React.FC<GuidedSetupModalProps> = React.memo(
             </button>
           </div>
 
-          <div className="p-6 space-y-5 max-h-[75vh] overflow-y-auto text-xs">
+          <div className="p-6 space-y-5 max-h-[76vh] overflow-y-auto text-xs">
             {/* 1. Mekân Tipi ve Oda Formu */}
             <div className="space-y-2.5">
               <div className="font-bold text-[#141413]">1. Mekân Türü ve Plan Tipi</div>
-              <div className="grid grid-cols-4 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {(
                   [
                     { id: "wardrobe", label: "Gardırop" },
@@ -123,7 +147,7 @@ export const GuidedSetupModal: React.FC<GuidedSetupModalProps> = React.memo(
                 {(
                   [
                     { id: "rectangular", label: "Düz Duvar (I-Tipi)" },
-                    { id: "l_shape", label: "L-Tipi Köşe Yerleşim" },
+                    { id: "l_shape", label: "L-Tipi Köşe" },
                     { id: "u_shape", label: "U-Tipi Üç Duvar" },
                   ] as const
                 ).map((sh) => (
@@ -144,9 +168,9 @@ export const GuidedSetupModal: React.FC<GuidedSetupModalProps> = React.memo(
             </div>
 
             {/* 2. Ölçüler */}
-            <div className="p-4 rounded-2xl bg-white border border-[#E5DFD3] grid grid-cols-3 gap-4">
+            <div className="p-4 rounded-2xl bg-white border border-[#E5DFD3] grid grid-cols-3 gap-3 sm:gap-4">
               <label className="space-y-1.5">
-                <span className="font-semibold text-[#57534E] block">Duvar Genişliği (cm)</span>
+                <span className="font-semibold text-[#57534E] block">Genişlik (cm)</span>
                 <input
                   type="number"
                   min={120}
@@ -189,74 +213,62 @@ export const GuidedSetupModal: React.FC<GuidedSetupModalProps> = React.memo(
               </label>
             </div>
 
-            {/* 3. Kapak ve İç Düzen Odağı */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <div className="font-bold text-[#141413]">3. Kapak Tercihi</div>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {(
-                    [
-                      { id: "hinged", label: "Menteşeli", disabled: spaceCategory === "walkin" },
-                      { id: "sliding", label: "Sürgülü", disabled: !isSlidingAllowed },
-                      { id: "glass", label: "Füme Cam", disabled: spaceCategory === "walkin" },
-                      { id: "open", label: "Kapaksız Açık", disabled: spaceCategory === "kitchen" },
-                    ] as const
-                  ).map((ds) => (
-                    <button
-                      key={ds.id}
-                      type="button"
-                      disabled={ds.disabled}
-                      onClick={() => {
-                        setDoorStyle(ds.id);
-                        if (ds.id === "sliding" && depthCm < 60) setDepthCm(60);
-                      }}
-                      className={`py-2.5 px-2 rounded-xl font-semibold border transition cursor-pointer disabled:opacity-35 disabled:pointer-events-none ${
-                        doorStyle === ds.id
-                          ? "bg-[#141413] text-white border-[#141413]"
-                          : "bg-white border-[#E5DFD3]"
-                      }`}
-                    >
-                      {ds.label}
-                    </button>
-                  ))}
+            {/* 3. ÖZELLİK #2: Ölçüye Uygun 4 Hazır Akıllı Başlangıç Tasarımı */}
+            <div className="space-y-2.5" data-testid="v12-smart-starter-cards">
+              <div className="flex items-center justify-between">
+                <div className="font-bold text-[#141413]">
+                  2. Ölçünüze Uygun Hazır Akıllı Tasarımlar ({wallWidthCm}×{heightCm} cm)
                 </div>
-                {doorStyle === "sliding" && (
-                  <p className="text-[10.5px] text-[#78716C]">
-                    Sürgü kapakta tek parça geniş gövde ve ray gerisinde gizli iç çekmece kullanılır.
-                  </p>
-                )}
+                <span className="text-[10.5px] font-semibold text-[#8C7A6B]">
+                  Tek tıkla sahneye uygula
+                </span>
               </div>
 
-              <div className="space-y-2">
-                <div className="font-bold text-[#141413]">4. İç Kullanım Ağırlığı</div>
-                <div className="grid grid-cols-3 gap-1.5">
-                  {(
-                    [
-                      { id: "balanced", label: "Dengeli" },
-                      { id: "hanging", label: "Askı" },
-                      { id: "shelves", label: "Raf & Çekmece" },
-                    ] as const
-                  ).map((inf) => (
-                    <button
-                      key={inf.id}
-                      type="button"
-                      onClick={() => setInteriorFocus(inf.id)}
-                      className={`py-2.5 px-1.5 rounded-xl font-semibold border transition cursor-pointer ${
-                        interiorFocus === inf.id
-                          ? "bg-[#141413] text-white border-[#141413]"
-                          : "bg-white border-[#E5DFD3]"
-                      }`}
-                    >
-                      {inf.label}
-                    </button>
-                  ))}
-                </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {starterProposals.map((card) => (
+                  <button
+                    key={card.id}
+                    type="button"
+                    data-testid={`v12-starter-card-${card.id}`}
+                    onClick={() => {
+                      onApply(card.payload);
+                      onClose();
+                    }}
+                    className="group p-3.5 rounded-2xl bg-white hover:bg-[#FAF7F0] border border-[#E5DFD3] hover:border-[#141413] text-left transition flex flex-col justify-between gap-2.5 cursor-pointer shadow-2xs"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="px-2 py-0.5 rounded-full bg-[#EFECE4] text-[#6B4F28] text-[10px] font-bold">
+                          {card.badge}
+                        </span>
+                        <span className="font-mono font-bold text-xs text-[#141413]">
+                          {fmtEur(card.estimatedTotalWithVatEur)}
+                        </span>
+                      </div>
+                      <div className="font-bold text-[12.5px] text-[#141413] group-hover:underline">
+                        {card.title}
+                      </div>
+                      <p className="text-[11px] text-[#78716C] leading-snug">{card.subtitle}</p>
+                    </div>
+
+                    <div className="pt-2 border-t border-[#F0ECE3] flex items-center justify-between text-[10.5px] text-[#57534E]">
+                      <span>
+                        {card.moduleCount} Ünite • {card.bayCount} Bölme • {card.shelfCount} Raf
+                        {card.drawerCount > 0 ? ` • ${card.drawerCount} Çekmece` : ""}
+                      </span>
+                      <span className="inline-flex items-center gap-1 font-bold text-[#141413]">
+                        <span>Seç</span>
+                        <ArrowRight className="w-3 h-3" />
+                      </span>
+                    </div>
+                  </button>
+                ))}
               </div>
             </div>
 
-            {/* 5. Malzeme ve Ek Donanım */}
+            {/* 4. Yüzey Kartelası */}
             <div className="space-y-2.5">
-              <div className="font-bold text-[#141413]">5. Yüzey Kartelası ve Aydınlatma</div>
+              <div className="font-bold text-[#141413]">3. Yüzey Kartelası</div>
               <div className="grid grid-cols-4 gap-2">
                 {topSwatches.map((m) => {
                   const sel = swatchId === m.id;
@@ -272,7 +284,7 @@ export const GuidedSetupModal: React.FC<GuidedSetupModalProps> = React.memo(
                       }`}
                     >
                       <div
-                        className="h-9 rounded-xl border border-black/10 relative mb-1"
+                        className="h-8 rounded-xl border border-black/10 relative mb-1"
                         style={{ backgroundColor: m.colorHex }}
                       >
                         {sel && (
@@ -286,31 +298,107 @@ export const GuidedSetupModal: React.FC<GuidedSetupModalProps> = React.memo(
                   );
                 })}
               </div>
+            </div>
 
-              {spaceCategory !== "kitchen" && (
-                <div className="flex flex-wrap items-center gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setAddLed((v) => !v)}
-                    className={`px-3.5 py-2 rounded-full font-semibold border transition cursor-pointer ${
-                      addLed
-                        ? "bg-[#141413] text-white border-[#141413]"
-                        : "bg-white border-[#E5DFD3]"
-                    }`}
-                  >
-                    {addLed ? "✓ İç LED Aydınlatma Dahil" : "+ İç LED Aydınlatma Ekle"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAddTrouserRack((v) => !v)}
-                    className={`px-3.5 py-2 rounded-full font-semibold border transition cursor-pointer ${
-                      addTrouserRack
-                        ? "bg-[#141413] text-white border-[#141413]"
-                        : "bg-white border-[#E5DFD3]"
-                    }`}
-                  >
-                    {addTrouserRack ? "✓ Teleskopik Pantolonluk Dahil" : "+ Pantolonluk Ekle"}
-                  </button>
+            {/* 5. İsteğe Bağlı İnce Özelleştirme */}
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={() => setShowAdvanced((v) => !v)}
+                className="text-[11px] font-bold text-[#6B4F28] hover:underline cursor-pointer"
+              >
+                {showAdvanced
+                  ? "▾ Kapak ve İç Aksesuar Özelleştirmesini Gizle"
+                  : "▸ Kapak Tipi, LED ve İç Aksesuarları Kendim Seçmek İstiyorum"}
+              </button>
+
+              {showAdvanced && (
+                <div className="mt-3 space-y-4 p-4 rounded-2xl bg-white/80 border border-[#E5DFD3]">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <div className="font-bold text-[#141413]">Kapak Tercihi</div>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {(
+                          [
+                            { id: "hinged", label: "Menteşeli", disabled: spaceCategory === "walkin" },
+                            { id: "sliding", label: "Sürgülü", disabled: !isSlidingAllowed },
+                            { id: "glass", label: "Füme Cam", disabled: spaceCategory === "walkin" },
+                            { id: "open", label: "Kapaksız Açık", disabled: spaceCategory === "kitchen" },
+                          ] as const
+                        ).map((ds) => (
+                          <button
+                            key={ds.id}
+                            type="button"
+                            disabled={ds.disabled}
+                            onClick={() => {
+                              setDoorStyle(ds.id);
+                              if (ds.id === "sliding" && depthCm < 60) setDepthCm(60);
+                            }}
+                            className={`py-2 px-2 rounded-xl font-semibold border transition cursor-pointer disabled:opacity-35 disabled:pointer-events-none ${
+                              doorStyle === ds.id
+                                ? "bg-[#141413] text-white border-[#141413]"
+                                : "bg-white border-[#E5DFD3]"
+                            }`}
+                          >
+                            {ds.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="font-bold text-[#141413]">İç Kullanım Ağırlığı</div>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {(
+                          [
+                            { id: "balanced", label: "Dengeli" },
+                            { id: "hanging", label: "Askı" },
+                            { id: "shelves", label: "Raf & Çekmece" },
+                          ] as const
+                        ).map((inf) => (
+                          <button
+                            key={inf.id}
+                            type="button"
+                            onClick={() => setInteriorFocus(inf.id)}
+                            className={`py-2 px-1.5 rounded-xl font-semibold border transition cursor-pointer ${
+                              interiorFocus === inf.id
+                                ? "bg-[#141413] text-white border-[#141413]"
+                                : "bg-white border-[#E5DFD3]"
+                            }`}
+                          >
+                            {inf.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {spaceCategory !== "kitchen" && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setAddLed((v) => !v)}
+                        className={`px-3.5 py-2 rounded-full font-semibold border transition cursor-pointer ${
+                          addLed
+                            ? "bg-[#141413] text-white border-[#141413]"
+                            : "bg-white border-[#E5DFD3]"
+                        }`}
+                      >
+                        {addLed ? "✓ İç LED Aydınlatma Dahil" : "+ İç LED Aydınlatma Ekle"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAddTrouserRack((v) => !v)}
+                        className={`px-3.5 py-2 rounded-full font-semibold border transition cursor-pointer ${
+                          addTrouserRack
+                            ? "bg-[#141413] text-white border-[#141413]"
+                            : "bg-white border-[#E5DFD3]"
+                        }`}
+                      >
+                        {addTrouserRack ? "✓ Teleskopik Pantolonluk Dahil" : "+ Pantolonluk Ekle"}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -348,7 +436,7 @@ export const GuidedSetupModal: React.FC<GuidedSetupModalProps> = React.memo(
               }}
               className="h-10 px-6 rounded-full bg-[#141413] hover:bg-[#292524] text-white font-semibold text-xs shadow-sm cursor-pointer"
             >
-              Yerleşimi Oluştur
+              Özel Seçimle Oluştur
             </button>
           </div>
         </div>
