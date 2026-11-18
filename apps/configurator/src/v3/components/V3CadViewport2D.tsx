@@ -8913,6 +8913,194 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 );
               })}
 
+            {/* Reflected Ceiling Plan (RCP — Mimari Tavan İzdüşümü) Overlay */}
+            {project.space.ceilingConfig?.enabled && (() => {
+              const cc = project.space.ceilingConfig!;
+              const cType = cc.ceilingType || "flat_plaster";
+              const rcpDepth = Math.max(2200, maxDepthZ - 420);
+              const soffitD = cc.soffitDepthMm || 620;
+              return (
+                <g data-testid="plan-rcp-ceiling-overlay" className="pointer-events-none" opacity={0.78}>
+                  <rect
+                    x={0}
+                    y={0}
+                    width={mainWall.length}
+                    height={rcpDepth}
+                    fill="none"
+                    stroke="#A8A29E"
+                    strokeWidth="2.5"
+                    strokeDasharray="18 10"
+                  />
+                  {(cType === "dropped_perimeter_cove" || cType === "gypsum_soffit_bulkhead") && (
+                    <rect
+                      x={0}
+                      y={0}
+                      width={mainWall.length}
+                      height={soffitD}
+                      fill="rgba(245, 158, 11, 0.06)"
+                      stroke="#D97706"
+                      strokeWidth="3"
+                      strokeDasharray="14 8"
+                    />
+                  )}
+                  {(cType === "exposed_wood_beams" || cType === "coffered_baffle") && (() => {
+                    const pitch = cType === "exposed_wood_beams" ? cc.beamSpacingMm || 600 : Math.max(180, (cc.bafflePitchMm || 120) * 2);
+                    const cnt = Math.min(28, Math.max(2, Math.floor(mainWall.length / pitch)));
+                    return Array.from({ length: cnt }).map((_, bi) => {
+                      const bx = Math.round(((bi + 0.5) * mainWall.length) / cnt);
+                      return (
+                        <line
+                          key={`rcp_bm_${bi}`}
+                          x1={bx}
+                          y1={0}
+                          x2={bx}
+                          y2={rcpDepth}
+                          stroke="#92400E"
+                          strokeWidth="2"
+                          strokeDasharray="10 10"
+                        />
+                      );
+                    });
+                  })()}
+                  {cc.hasRecessedSpots !== false &&
+                    Array.from({ length: Math.max(2, Math.round(mainWall.length / 950)) }).map((_, si, arr) => {
+                      const sx = Math.round(((si + 1) * mainWall.length) / (arr.length + 1));
+                      const sz = cType === "dropped_perimeter_cove" ? Math.round(soffitD * 0.52) : 680;
+                      return (
+                        <g key={`rcp_spot_${si}`}>
+                          <circle cx={sx} cy={sz} r={22} fill="#FEF3C7" stroke="#D97706" strokeWidth="2.5" />
+                          <line x1={sx - 14} y1={sz} x2={sx + 14} y2={sz} stroke="#B45309" strokeWidth="2" />
+                          <line x1={sx} y1={sz - 14} x2={sx} y2={sz + 14} stroke="#B45309" strokeWidth="2" />
+                        </g>
+                      );
+                    })}
+                </g>
+              );
+            })()}
+
+            {/* FOREGROUND STRUCTURAL COLUMN & BEAM LAYER: Always rendered ABOVE cabinet footprints & rugs so a 3D column NEVER disappears behind opaque modules in 2D Plan! */}
+            {spaceObstacles
+              .filter(
+                (obs) =>
+                  obs.type === "column" ||
+                  obs.type === "beam" ||
+                  obs.type === "protrusion" ||
+                  obs.type === "partition"
+              )
+              .map((obs) => {
+                const isSelectedObs =
+                  selectedPlanObject?.kind === "obstacle" && selectedPlanObject.id === obs.id;
+                const isBeam = obs.type === "beam";
+                const rotNorm = (((obs.rotationY || 0) % 360) + 360) % 360;
+                const isRot90 = rotNorm === 90 || rotNorm === 270;
+                const rawW = Math.max(80, obs.dimensions.width || 300);
+                const rawD = Math.max(80, obs.dimensions.depth || rawW);
+                const effW = isRot90 ? rawD : rawW;
+                const effD = isRot90 ? rawW : rawD;
+                const ox = obs.position.x;
+                const oz = obs.position.z;
+
+                const collidesWithModule =
+                  !isBeam &&
+                  footprints.some(
+                    (fp) =>
+                      ox < fp.x + fp.planWidth - 2 &&
+                      ox + effW > fp.x + 2 &&
+                      oz < fp.z + fp.planDepth - 2 &&
+                      oz + effD > fp.z + 2
+                  );
+
+                const colTxt = `${
+                  isBeam ? "KİRİŞ" : obs.type === "partition" ? "BÖLME DUVAR" : "KOLON"
+                } (${Math.round(effW)}×${Math.round(effD)})`;
+                const colFont = Math.round(22 * ts);
+                const colPillW = Math.max(
+                  Math.round(175 * ts),
+                  Math.round(colTxt.length * colFont * 0.62 + 24 * ts)
+                );
+                const colPillH = Math.round(36 * ts);
+
+                return (
+                  <g
+                    key={`fg_col_${obs.id}`}
+                    data-testid={`plan-column-foreground-${obs.id}`}
+                    onMouseDown={(e) => handleObstaclePointerDown(e, obs)}
+                    onContextMenu={(e) =>
+                      openPlanContextMenu(e, {
+                        kind: "obstacle",
+                        obsId: obs.id,
+                        obsName: obs.name || "Taşıyıcı Kolon",
+                        rotationY: obs.rotationY || 0,
+                      })
+                    }
+                    onDoubleClick={() => removeSpaceObstacle(obs.id)}
+                    className="cursor-move"
+                  >
+                    {collidesWithModule && (
+                      <rect
+                        x={ox - 10}
+                        y={oz - 10}
+                        width={effW + 20}
+                        height={effD + 20}
+                        rx={8}
+                        fill="rgba(220, 38, 38, 0.14)"
+                        stroke="#DC2626"
+                        strokeWidth="4.5"
+                        strokeDasharray="12 6"
+                      />
+                    )}
+                    <rect
+                      x={ox}
+                      y={oz}
+                      width={effW}
+                      height={effD}
+                      fill="#EAE5DC"
+                      fillOpacity={0.94}
+                    />
+                    <rect
+                      x={ox}
+                      y={oz}
+                      width={effW}
+                      height={effD}
+                      fill="url(#column_hatch)"
+                      stroke={isSelectedObs || collidesWithModule ? "#DC2626" : "#1C1917"}
+                      strokeWidth={isSelectedObs ? "6.5" : "4.5"}
+                      strokeDasharray={isBeam ? "12 6" : undefined}
+                    />
+                    {/* Structural cross diagonals inside reinforced concrete column */}
+                    {!isBeam && (
+                      <g stroke="#44403C" strokeWidth="1.8" opacity={0.55} className="pointer-events-none">
+                        <line x1={ox} y1={oz} x2={ox + effW} y2={oz + effD} />
+                        <line x1={ox + effW} y1={oz} x2={ox} y2={oz + effD} />
+                      </g>
+                    )}
+                    <g className="pointer-events-none">
+                      <rect
+                        x={ox + effW / 2 - colPillW / 2}
+                        y={oz + effD + Math.round(8 * ts)}
+                        width={colPillW}
+                        height={colPillH}
+                        rx={Math.round(8 * ts)}
+                        fill="rgba(255, 255, 255, 0.96)"
+                        stroke={isSelectedObs || collidesWithModule ? "#DC2626" : "#292524"}
+                        strokeWidth="2.5"
+                      />
+                      <text
+                        x={ox + effW / 2}
+                        y={oz + effD + Math.round(8 * ts) + Math.round(colPillH * 0.72)}
+                        textAnchor="middle"
+                        fill={isSelectedObs || collidesWithModule ? "#B91C1C" : "#141413"}
+                        fontSize={colFont}
+                        fontWeight="900"
+                        fontFamily="monospace"
+                      >
+                        {colTxt}
+                      </text>
+                    </g>
+                  </g>
+                );
+              })}
+
           </svg>
           <CadContextMenu2D menu={cadContextMenu} onClose={() => setCadContextMenu(null)} />
         </div>
