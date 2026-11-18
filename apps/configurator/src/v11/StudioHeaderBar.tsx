@@ -64,7 +64,7 @@ export interface StudioHeaderBarProps {
   onChangeDisplayUnit?: (unit: "cm" | "mm") => void;
   uiFontScale?: number;
   onChangeUiFontScale?: (scale: number) => void;
-  activeInspectorTab?: "dimensions" | "interior" | "doors" | "materials";
+  activeInspectorTab?: "dimensions" | "interior" | "doors" | "hardware" | "materials";
   onQuickNavigateStep?: (step: "dimensions" | "interior" | "showroom") => void;
 }
 

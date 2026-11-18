@@ -5,7 +5,26 @@ import {
   ModuleFamilyId,
   OpeningTechnology,
   UnitLength,
+  HardwareApplicationEnvelope,
+  HardwareCompanionRequirement,
+  HardwareMountSurface,
+  HardwareProductionStatus,
+  resolveHardwareProductionStatus,
 } from "@birim/core";
+import {
+  EXISTING_HARDWARE_ENRICHMENTS,
+  EXTENDED_HARDWARE_PRODUCTS,
+  HARDWARE_CATEGORY_GROUPS,
+  type HardwareCategoryGroupId,
+  type HardwareCategoryMeta,
+  type HardwareUsagePurpose,
+} from "./v4-hardware-catalog-extended";
+export {
+  HARDWARE_CATEGORY_GROUPS,
+  type HardwareCategoryGroupId,
+  type HardwareCategoryMeta,
+  type HardwareUsagePurpose,
+};
 
 export interface VerificationScopeFlags {
   sourceTechDataVerified: boolean;
@@ -29,18 +48,18 @@ export interface HardwareDrillingTemplate {
 
 export interface HardwareProductRecord {
   id: string;
-  manufacturerId: "mfr_blum" | "mfr_hettich" | "mfr_hafele" | "mfr_grass" | "mfr_salice" | "mfr_hawa" | "mfr_sugatsune";
+  manufacturerId: "mfr_blum" | "mfr_hettich" | "mfr_hafele" | "mfr_grass" | "mfr_salice" | "mfr_hawa" | "mfr_sugatsune" | "mfr_kesseboehmer" | "mfr_lamello";
   manufacturerName: string;
-  familyId:
-    | "fam_hinge_concealed"
-    | "fam_drawer_box"
-    | "fam_runner_concealed"
-    | "fam_lift_system"
-    | "fam_sliding_system"
-    | "fam_pocket_system"
-    | "fam_wardrobe_acc"
-    | "fam_kitchen_acc"
-    | "fam_connector";
+  familyId: HardwareCategoryGroupId;
+  series?: string;
+  productionStatus?: HardwareProductionStatus;
+  mountSurface?: HardwareMountSurface;
+  usagePurposes?: HardwareUsagePurpose[];
+  officialSourceUrl?: string;
+  descriptionTr?: string;
+  technicalDrawingNotesTr?: string;
+  applicationEnvelope?: HardwareApplicationEnvelope;
+  requiredCompanions?: HardwareCompanionRequirement[];
   sku: string;
   name: string;
   revision: string;
@@ -491,7 +510,7 @@ export const OPENING_MECHANISM_DEFINITIONS: OpeningMechanismDefinition[] = [
   },
 ];
 
-export const V4_HARDWARE_CATALOG: HardwareProductRecord[] = [
+const BASE_V4_HARDWARE_CATALOG: HardwareProductRecord[] = [
   // 1. HINGES
   {
     id: "hw_blum_71b3550",
@@ -1056,9 +1075,22 @@ export const V4_HARDWARE_CATALOG: HardwareProductRecord[] = [
   },
 ];
 
+export const V4_HARDWARE_CATALOG: HardwareProductRecord[] = [
+  ...BASE_V4_HARDWARE_CATALOG.map((item) => {
+    const enrich = EXISTING_HARDWARE_ENRICHMENTS[item.id];
+    const merged: HardwareProductRecord = enrich ? { ...item, ...enrich } : { ...item };
+    merged.productionStatus = resolveHardwareProductionStatus(merged);
+    return merged;
+  }),
+  ...EXTENDED_HARDWARE_PRODUCTS.map((item) => ({
+    ...item,
+    productionStatus: resolveHardwareProductionStatus(item),
+  })),
+];
+
 export function getHardwareProductById(id?: string): HardwareProductRecord | undefined {
   if (!id) return undefined;
-  return V4_HARDWARE_CATALOG.find((p) => p.id === id);
+  return getAllHardwareProducts().find((p) => p.id === id || p.sku === id);
 }
 
 export function getDrillingTemplateForHardware(hardwareProductId?: string): HardwareDrillingTemplate {

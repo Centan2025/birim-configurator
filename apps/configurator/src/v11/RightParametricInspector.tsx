@@ -56,6 +56,7 @@ import {
   type CustomDoorProfilePreset,
 } from "./CustomDoorSketchEditor";
 import { getBayShelfIntervalsForSubDivider } from "../v3/adapter/useV3Adapter";
+import { RightHardwareLibraryPanel } from "./RightHardwareLibraryPanel";
 
 export interface RightParametricInspectorProps {
   selectedPartSlot?: React.ReactNode;
@@ -1164,6 +1165,37 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
     const unitMode = useConfiguratorStore((st) => st.displayUnit);
     const setUnitMode = useConfiguratorStore((st) => st.setDisplayUnit);
     const [moduleMenuOpen, setModuleMenuOpen] = useState(false);
+  const [panelWidthPx, setPanelWidthPx] = useState<number>(() => {
+    if (typeof window === "undefined") return 412;
+    try {
+      const saved = Number(localStorage.getItem("birim_right_panel_width_v1"));
+      if (Number.isFinite(saved) && saved >= 340 && saved <= 680) return saved;
+    } catch {
+      // ignore
+    }
+    return 412;
+  });
+  const startPanelResize = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = panelWidthPx;
+    const onMove = (ev: PointerEvent) => {
+      const nextW = Math.max(340, Math.min(680, Math.round(startW + (startX - ev.clientX))));
+      setPanelWidthPx(nextW);
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      try {
+        localStorage.setItem("birim_right_panel_width_v1", String(panelWidthPx));
+      } catch {
+        // ignore
+      }
+    };
+    window.addEventListener("pointermove", onMove, { passive: true });
+    window.addEventListener("pointerup", onUp);
+  };
     const [materialTarget, setMaterialTarget] = useState<"doors" | "carcass" | "all_module">(
       "doors"
     );
@@ -1338,12 +1370,25 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
           aria-label="Modül Parametreleri"
           aria-hidden={!isOpen}
           data-testid="v11-right-inspector"
-          className={`fixed right-4 top-[78px] bottom-[84px] w-[412px] max-w-[calc(100vw-32px)] z-30 rounded-3xl bg-[#FAF8F4]/94 backdrop-blur-2xl border border-[#DFD9CE] shadow-[0_24px_60px_rgba(20,20,19,0.12)] flex flex-col overflow-hidden text-[#141413] origin-right transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+          style={{ width: `${panelWidthPx}px` }}
+          className={`fixed right-4 top-[78px] bottom-[84px] max-w-[calc(100vw-32px)] z-30 rounded-3xl bg-[#FAF8F4]/94 backdrop-blur-2xl border border-[#DFD9CE] shadow-[0_24px_60px_rgba(20,20,19,0.12)] flex flex-col overflow-hidden text-[#141413] origin-right transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
             isOpen
               ? "opacity-100 scale-100 translate-x-0 pointer-events-auto"
               : "opacity-0 scale-95 translate-x-6 pointer-events-none"
           }`}
         >
+        {/* SOL KENAR YENİDEN BOYUTLANDIRMA TUTAMACI (340–680px) */}
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Sağ panel genişliğini ayarla"
+          data-testid="v11-right-inspector-resize-handle"
+          onPointerDown={startPanelResize}
+          title="Panel genişliğini sürükleyerek ayarlayın"
+          className="hidden md:flex absolute left-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-[#141413]/10 z-40 items-center justify-center group"
+        >
+          <span className="w-0.5 h-10 rounded-full bg-[#C7BFB0] group-hover:bg-[#141413] transition" />
+        </div>
         {/* ÜST MODÜL SEÇİCİ VE AKSİYON BA�?LI�?I */}
         <div className="px-4 pt-3.5 pb-3 border-b border-[#E6E1D6] shrink-0 space-y-2.5">
           <div className="flex items-center justify-between gap-2">
@@ -1523,12 +1568,13 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
             </div>
           )}
 
-          <div className="grid grid-cols-4 gap-1 p-1 rounded-2xl bg-[#ECE7DD]/85 border border-[#DFD9CE]">
+          <div className="grid grid-cols-5 gap-1 p-1 rounded-2xl bg-[#ECE7DD]/85 border border-[#DFD9CE]">
             {(
               [
                 { id: "dimensions", label: "Boyut" },
                 { id: "interior", label: "İç Düzen" },
                 { id: "doors", label: "Kapak" },
+                { id: "hardware", label: "Donanım" },
                 { id: "materials", label: "Yüzey" },
               ] as const
             ).map((tb) => {
@@ -1556,7 +1602,20 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
 
         {/* KAYDIRILABİLİR İÇERİK ALANI */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
-          {/* ==================== SEKME 1: BOYUT & MİMARİ DETAYLAR ==================== */}
+                    {/* ==================== SEKME: AKILLI DONANIM KÜTÜPHANESİ ==================== */}
+          {activeTab === "hardware" && (
+            <RightHardwareLibraryPanel
+              activeModule={activeModule}
+              activeBayIndex={activeBayIndex}
+              experienceTier={experienceTier}
+              onApplyHardware={(bayIdx, hwId, opts) =>
+                useConfiguratorStore.getState().applyHardwareProductToBay(bayIdx, hwId, opts)
+              }
+              onOpenCustomHardwareModal={onOpenCustomHardwareModal}
+            />
+          )}
+
+{/* ==================== SEKME 1: BOYUT & MİMARİ DETAYLAR ==================== */}
           {activeTab === "dimensions" && (
             <>
               <div className="flex items-center justify-between">

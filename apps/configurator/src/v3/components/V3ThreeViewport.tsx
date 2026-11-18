@@ -37,7 +37,9 @@ import {
   syncProjectCustomMaterials,
   computeModuleStructuralSignature,
   type MaterialDefinition,
+  evaluateHardwareMountPlacement,
 } from "@birim/core";
+import { getHardwareProductById } from "@birim/catalog";
 import {
   computeElevationSnapTargets,
   resolveElevationSnap,
@@ -7925,12 +7927,94 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       window.addEventListener("birim:live-3d-part-move", onLiveMove);
       window.addEventListener("birim:live-3d-part-drop", onLiveDrop);
       window.addEventListener("birim:live-3d-part-cancel", onLiveCancel);
+      const onLiveHardwareMove = (ev: Event) => {
+        if (pausedRef.current) return;
+        const detail = (
+          ev as CustomEvent<{
+            hardwareId: string;
+            sku: string;
+            name: string;
+            familyId: string;
+            canMount: boolean;
+            clientX: number;
+            clientY: number;
+          }>
+        ).detail;
+        if (!detail?.hardwareId) return;
+        const target = computeLivePlacementFromClient(detail.clientX, detail.clientY, {
+          id: detail.hardwareId,
+          title: detail.name,
+          visual: detail.familyId,
+        });
+        if (!target) {
+          setSnapBannerDedup("⚠ Donanımı yerleştirmek için bir dolap bölmesinin üzerine sürükleyin");
+          return;
+        }
+        const st = latestStateRef.current;
+        const mod = st.project.modules[target.matchedModIdx ?? st.activeModuleIndex] || st.project.modules[0];
+        const hw = getHardwareProductById(detail.hardwareId);
+        if (mod && hw) {
+          const check = evaluateHardwareMountPlacement(mod, hw, target.targetBayIdx);
+          if (check.canMount) {
+            setSnapBannerDedup(
+              `✓ Geçerli Montaj Noktası • Bölme ${target.targetBayIdx + 1} (${check.targetSurface}) • ${hw.sku}`
+            );
+          } else {
+            const firstErr = check.issues.find((i) => i.severity === "error");
+            setSnapBannerDedup(
+              `✕ Geçersiz Alan (Bölme ${target.targetBayIdx + 1}): ${firstErr?.reasonTr || check.summaryTr}`
+            );
+          }
+        }
+      };
+
+      const onLiveHardwareCancel = () => {
+        setSnapBannerDedup(null);
+      };
+
+      const onLiveHardwareDrop = (ev: Event) => {
+        if (pausedRef.current) return;
+        const detail = (
+          ev as CustomEvent<{
+            hardwareId: string;
+            sku: string;
+            name: string;
+            familyId: string;
+            clientX: number;
+            clientY: number;
+          }>
+        ).detail;
+        if (!detail?.hardwareId) return;
+        const target = computeLivePlacementFromClient(detail.clientX, detail.clientY, {
+          id: detail.hardwareId,
+          title: detail.name,
+          visual: detail.familyId,
+        });
+        if (!target) {
+          setSnapBannerDedup(null);
+          return;
+        }
+        const st = latestStateRef.current;
+        if (typeof target.matchedModIdx === "number" && target.matchedModIdx !== st.activeModuleIndex) {
+          st.setActiveModuleIndex(target.matchedModIdx);
+        }
+        const res = useConfiguratorStore.getState().applyHardwareProductToBay(target.targetBayIdx, detail.hardwareId);
+        setSnapBannerDedup(res.applied ? `✓ ${res.messageTr}` : `⚠ ${res.messageTr}`);
+        setTimeout(() => setSnapBannerDedup(null), 3200);
+      };
+
       window.addEventListener("birim:live-material-drop", onLiveMaterialDrop);
+      window.addEventListener("birim:live-hardware-move", onLiveHardwareMove);
+      window.addEventListener("birim:live-hardware-drop", onLiveHardwareDrop);
+      window.addEventListener("birim:live-hardware-cancel", onLiveHardwareCancel);
       return () => {
         window.removeEventListener("birim:live-3d-part-move", onLiveMove);
         window.removeEventListener("birim:live-3d-part-drop", onLiveDrop);
         window.removeEventListener("birim:live-3d-part-cancel", onLiveCancel);
         window.removeEventListener("birim:live-material-drop", onLiveMaterialDrop);
+        window.removeEventListener("birim:live-hardware-move", onLiveHardwareMove);
+        window.removeEventListener("birim:live-hardware-drop", onLiveHardwareDrop);
+        window.removeEventListener("birim:live-hardware-cancel", onLiveHardwareCancel);
       };
     }, [project.customMaterials, requestRender, setSnapBannerDedup]);
 

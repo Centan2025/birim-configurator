@@ -42,6 +42,7 @@ import {
   type TenantWorkspaceProfile,
   alignModuleShelvesToSystem32,
   resolveMultiHoleSpec,
+  evaluateHardwareMountPlacement,
 } from "@birim/core";
 import { generateBOMForProject, ManufacturingBOM } from "@birim/manufacturing";
 import { calculateProjectPrice, PricingBreakdown } from "@birim/pricing";
@@ -59,6 +60,7 @@ import {
   createSceneObjectInstanceFromCatalog,
   loadSavedCustomModuleTemplates,
   persistCustomModuleTemplates,
+  getHardwareProductById,
 } from "@birim/catalog";
 import {
   computeMultiWallModuleSnap,
@@ -193,6 +195,7 @@ export interface ConfiguratorState {
   updateProjectTitle: (title: string) => void;
   setDimensions: (width: number, height: number, depth: number) => void;
   setPlinthHeight: (plinth: number) => void;
+  applyHardwareProductToBay: (bayIndex: number, hardwareProductId: string, options?: { drawerId?: string; forceApply?: boolean }) => { applied: boolean; messageTr: string };
   setMaterials: (bodyMatId?: string, doorMatId?: string) => void;
   setBayCount: (count: number) => void;
   setBayDoorType: (bayIdx: number, type: "single_left" | "single_right" | "double" | "sliding" | "tambour" | "open") => void;
@@ -1255,6 +1258,158 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
       smartAdvice,
       lastChangeImpact,
     });
+  },
+
+  applyHardwareProductToBay: (bayIndex, hardwareProductId, options) => {
+    const { project, history, activeModuleIndex, batchStartProject } = get();
+    const updated = cloneProject(project);
+    const mod = updated.modules[activeModuleIndex] || updated.modules[0];
+    if (!mod) return { applied: false, messageTr: "Aktif modül bulunamadı." };
+    const hw = getHardwareProductById(hardwareProductId);
+    if (!hw) return { applied: false, messageTr: `Donanım bulunamadı: ${hardwareProductId}` };
+
+    const safeBayIdx = Math.max(0, Math.min(bayIndex, Math.max(0, mod.bays.length - 1)));
+    const bay = mod.bays[safeBayIdx];
+    if (!bay) return { applied: false, messageTr: "Hedef bölme bulunamadı." };
+
+    const evaluation = evaluateHardwareMountPlacement(mod, hw, safeBayIdx, options?.drawerId);
+    if (!evaluation.canMount && !options?.forceApply) {
+      const firstErr = evaluation.issues.find((i) => i.severity === "error");
+      return {
+        applied: false,
+        messageTr: firstErr ? `${firstErr.reasonTr} Çözüm: ${firstErr.solutionTr}` : evaluation.summaryTr,
+      };
+    }
+
+    if (hw.familyId === "fam_hinge_concealed" || hw.familyId === "fam_hinge_plate") {
+      if (!bay.door || bay.door.type === "open") {
+        bay.door = {
+          ...(bay.door || { id: `door_${mod.id}_b${safeBayIdx}`, bayIndex: safeBayIdx, softClose: true }),
+          type: "single_left",
+          doorSystemId: "hinged_single",
+          softClose: true,
+        };
+      }
+      bay.door.hardwareProductId = hw.id;
+      if (hw.drillingTemplateId) {
+        mod.carcass.hingeDrillingTemplateId = hw.drillingTemplateId;
+      }
+    } else if (hw.familyId === "fam_drawer_box" || hw.familyId === "fam_runner_concealed") {
+      let targetDrw = options?.drawerId
+        ? bay.drawers.find((d) => d.id === options.drawerId && !d.isHidden)
+        : bay.drawers.find((d) => !d.isHidden);
+      if (!targetDrw) {
+        const nextY = bay.drawers.reduce((maxY, d) => Math.max(maxY, d.elevationY + d.height + 16), 32);
+        targetDrw = {
+          id: `drw_${mod.id}_b${safeBayIdx}_${Date.now().toString(36)}`,
+          bayIndex: safeBayIdx,
+          elevationY: nextY,
+          height: 180,
+          slideType: hw.id.includes("pto") ? "push_to_open" : "soft_close",
+          hardwareProductId: hw.id,
+          nominalLengthMm: evaluation.recommendedNominalLengthMm || 500,
+        };
+        bay.drawers.push(targetDrw);
+      } else {
+        targetDrw.hardwareProductId = hw.id;
+        if (evaluation.recommendedNominalLengthMm) {
+          targetDrw.nominalLengthMm = evaluation.recommendedNominalLengthMm;
+        }
+        if (hw.id.includes("legrabox")) targetDrw.boxSystemType = "metal_box_legrabox";
+        else if (hw.id.includes("tandembox")) targetDrw.boxSystemType = "metal_box_tandembox";
+        else if (hw.id.includes("avantech") || hw.id.includes("atira")) targetDrw.boxSystemType = "metal_box_avantech";
+        else targetDrw.boxSystemType = "wooden_undermount";
+      }
+    } else if (hw.familyId === "fam_lift_system") {
+      const liftType = hw.id.includes("hf")
+        ? "lift_bi_fold"
+        : hw.id.includes("hl")
+        ? "lift_parallel"
+        : "lift_up_stay";
+      bay.door = {
+        ...(bay.door || { id: `door_${mod.id}_b${safeBayIdx}`, bayIndex: safeBayIdx, softClose: true }),
+        type: liftType,
+        doorSystemId: liftType,
+        hardwareProductId: hw.id,
+        softClose: true,
+      };
+    } else if (hw.familyId === "fam_sliding_system") {
+      const isFolding = hw.id.includes("wingline");
+      bay.door = {
+        ...(bay.door || { id: `door_${mod.id}_b${safeBayIdx}`, bayIndex: safeBayIdx, softClose: true }),
+        type: isFolding ? "folding" : hw.id.includes("slido") || hw.id.includes("slideline") ? "sliding_bottom" : "sliding",
+        doorSystemId: isFolding ? "folding_side" : hw.id.includes("slido") || hw.id.includes("slideline") ? "sliding_bottom_rolling" : "sliding_top_hung",
+        hardwareProductId: hw.id,
+        softClose: true,
+      };
+    } else if (hw.familyId === "fam_pocket_system") {
+      bay.door = {
+        ...(bay.door || { id: `door_${mod.id}_b${safeBayIdx}`, bayIndex: safeBayIdx, softClose: true }),
+        type: "pocket",
+        doorSystemId: "pocket_retractable",
+        hardwareProductId: hw.id,
+        softClose: true,
+      };
+    } else if (hw.familyId === "fam_push_soft_close") {
+      if (hw.mountSurface === "drawer_box" && bay.drawers.length > 0) {
+        bay.drawers.forEach((d) => {
+          if (!d.isHidden) d.slideType = "push_to_open_soft_close";
+        });
+      } else if (bay.door && bay.door.type !== "open") {
+        bay.door.openingTechnology = "push_to_open";
+        bay.door.handleCategory = "handleless_plain";
+      }
+    } else if (hw.familyId === "fam_connector") {
+      if (hw.id.includes("cabineo")) mod.carcass.connectorSystem = "lamello_cabineo";
+      else mod.carcass.connectorSystem = "minifix_dowel";
+    } else if (hw.familyId === "fam_plinth_leg") {
+      if (hw.id.includes("axilo")) {
+        mod.carcass.plinthConstruction = "adjustable_legs_clip";
+        mod.carcass.hasAdjustableLegs = true;
+      } else if (hw.id.includes("anti_tip")) {
+        mod.carcass.wallAnchored = true;
+      }
+    } else if (hw.familyId === "fam_kitchen_acc" || hw.familyId === "fam_wardrobe_acc") {
+      const fittingType = hw.id.includes("lemans")
+        ? "corner_lemans"
+        : hw.id.includes("dispensa") || hw.id.includes("tandem") || hw.id.includes("space_tower")
+        ? "pantry_pullout"
+        : hw.id.includes("pantograph")
+        ? "wardrobe_lift"
+        : hw.id.includes("trouser")
+        ? "trouser_rack"
+        : "jewelry_tray";
+      bay.specialFittings = [
+        ...(bay.specialFittings || []),
+        {
+          id: `sf_${mod.id}_b${safeBayIdx}_${Date.now().toString(36)}`,
+          bayIndex: safeBayIdx,
+          elevationY: fittingType === "wardrobe_lift" ? Math.max(800, mod.dimensions.height - 350) : 220,
+          type: fittingType,
+          height: fittingType === "pantry_pullout" ? Math.max(900, mod.dimensions.height - 200) : 160,
+          hardwareProductId: hw.id,
+        },
+      ];
+    }
+
+    updated.updatedAt = new Date().toISOString();
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
+    set({
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      project: updated,
+      autoSaveStatus: "unsaved",
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+      lastChangeImpact,
+    });
+
+    return {
+      applied: true,
+      messageTr: `${hw.name} Bölme ${safeBayIdx + 1} üzerine uygulandı.`,
+    };
   },
 
   setPlinthHeight: (plinth) => {

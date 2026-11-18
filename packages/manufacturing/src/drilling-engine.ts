@@ -4,8 +4,9 @@ import {
   calculateDoorHingePositionsY,
   computeSystem32MultiHoleYs,
   roundMm,
+  resolveHardwareProductionStatus,
 } from "@birim/core";
-import { getDrillingTemplateForHardware } from "@birim/catalog";
+import { getDrillingTemplateForHardware, getHardwareProductById } from "@birim/catalog";
 
 /**
  * Generates collision-free, mirrored, System-32 compliant CNC drilling operations:
@@ -26,6 +27,10 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
   const { width, height, depth: partThickness } = part.dimensions;
   const panelT = part.matingPanelThicknessMm || partThickness || 18;
   const drillTpl = getDrillingTemplateForHardware(part.hardwareRefId);
+  const assignedHwRecord = part.hardwareRefId ? getHardwareProductById(part.hardwareRefId) : undefined;
+  const isVisualOnlyHardware = assignedHwRecord
+    ? resolveHardwareProductionStatus(assignedHwRecord) === "visual_only"
+    : false;
   const mirrorX = Boolean(part.mirrorInnerFaceX);
   const mapX = (xFromFrontEdge: number): number =>
     roundMm(mirrorX ? width - xFromFrontEdge : xFromFrontEdge, 2);
@@ -1240,7 +1245,7 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
           });
         }
       });
-    } else if (!isPureSlidingOrStayLift) {
+    } else if (!isPureSlidingOrStayLift && !isVisualOnlyHardware) {
       const isLeftHinged = part.role.includes("left");
       const cupRadius = drillTpl.cupDiameterMm / 2;
       const cupCenterDist = cupRadius + drillTpl.cupEdgeTabMm;

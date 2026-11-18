@@ -26,10 +26,12 @@ import {
   computeModuleIntrinsicSignature,
   computeProjectStructuralSignature,
   resolveKlapaAndHingeBehavior,
+  evaluateProjectHardwareProductionGate,
 } from "@birim/core";
 import { evaluateFreestandingTipOverRisk, evaluateUnifiedEngineeringModel } from "@birim/core";
 import {
   getHardwareProductById,
+  getAllHardwareProducts,
   HANDLE_PROFILES,
   getAllHandleProfiles,
   selectOptimalRunnerLengthMm,
@@ -2670,6 +2672,28 @@ export function generateBOMForProject(
         passed: true,
         detail: `${totalDrillingHolesCount} CNC delik koordinatı aynalanmış ve kanal çakışmasız üretildi.`,
       },
+      (() => {
+        const hwGate = evaluateProjectHardwareProductionGate(
+          project.modules,
+          getHardwareProductById,
+          getAllHardwareProducts()
+        );
+        if (!hwGate.passed) {
+          hwGate.blockingReasonsTr.forEach((msg) => {
+            if (!validationWarnings.includes(msg)) validationWarnings.push(msg);
+          });
+        }
+        return {
+          id: "GATE_07_HARDWARE_ENGINEERING_VERIFICATION",
+          label: "Donanım Mühendislik Uygunluk & Durum Kapısı (Üretime Uygun / Görsel Blokajı)",
+          passed: hwGate.passed,
+          detail: hwGate.passed
+            ? hwGate.reviewRequiredCount > 0
+              ? `Tüm donanımlar ölçülerle uyumlu; ${hwGate.reviewRequiredCount} adet "Kontrol gerekli" donanım mühendis onayı bekliyor.`
+              : "Tüm atanan donanımlar ölçü ve doğrulama kurallarına uygun."
+            : `BLOKAJ: ${hwGate.visualOnlyCount} adet "Yalnızca görsel" ve ${hwGate.incompatibleCount} adet ölçü uyumsuz donanım tespit edildi.`,
+        };
+      })(),
       {
         id: "GATE_06_PHYSICAL_FACTORY_SIGN_OFF",
         label: "Birim Fabrika Fiziksel Numune & Postprocessor Onayı",

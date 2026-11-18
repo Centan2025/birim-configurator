@@ -11,7 +11,7 @@ import type { V4ModuleTemplateDefinition } from "@birim/catalog";
 export type V11WorkspaceMode = "3d" | "2d" | "plan" | "showroom";
 export type V11CadSubMode = "elevation" | "section" | "split";
 export type V11LeftDrawerTab = null | "catalog" | "space" | "modules";
-export type V11InspectorTab = "dimensions" | "interior" | "doors" | "materials";
+export type V11InspectorTab = "dimensions" | "interior" | "doors" | "hardware" | "materials";
 
 export interface V11CatalogGroup {
   id: "wardrobe" | "kitchen" | "living" | "objects";
