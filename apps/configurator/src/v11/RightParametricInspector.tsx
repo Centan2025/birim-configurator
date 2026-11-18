@@ -3072,7 +3072,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                               <StudioSelect
                                 ariaLabel={`Çekmece ${i + 1} Yüksekliği`}
                                 size="sm"
-                                className="w-24"
+                                className="w-28"
                                 value={dr.height}
                                 onChange={(val) =>
                                   onSetDrawerPlacement(
@@ -3083,10 +3083,21 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                                     true
                                   )
                                 }
-                                options={[120, 140, 160, 180, 220, 280].map((dh) => ({
-                                  value: String(dh),
-                                  label: `${dh} mm`,
-                                }))}
+                                options={
+                                  (dr.boxSystemType || activeModule.carcass.drawerBoxSystem) ===
+                                  "metal_box_legrabox"
+                                    ? [
+                                        { value: "90", label: "N · 90 mm" },
+                                        { value: "115", label: "M · 115 mm" },
+                                        { value: "150", label: "K · 150 mm" },
+                                        { value: "200", label: "C · 200 mm" },
+                                        { value: "265", label: "F · 265 mm" },
+                                      ]
+                                    : [120, 140, 160, 180, 220, 280].map((dh) => ({
+                                        value: String(dh),
+                                        label: `${dh} mm`,
+                                      }))
+                                }
                               />
                               {!isSlidingBay && (
                                 <button

@@ -614,6 +614,50 @@ function evaluateModuleCompatibilityUncached(module: ModuleInstance): Validation
           sourceId: "SRC_STD_EN15338",
         });
       }
+
+      const isLegrabox =
+        drawer.boxSystemType === "metal_box_legrabox" ||
+        module.carcass.drawerBoxSystem === "metal_box_legrabox" ||
+        String(drawer.hardwareProductId || "").includes("legrabox");
+      if (isLegrabox) {
+        const minHeightByCode: Record<string, number> = {
+          N: 85,
+          M: 106,
+          K: 145,
+          C: 193,
+          F: 257,
+        };
+        const code = drawer.boxSideProfileCode || (drawer.height >= 257 ? "F" : drawer.height >= 193 ? "C" : drawer.height >= 145 ? "K" : drawer.height >= 106 ? "M" : "N");
+        const minH = minHeightByCode[code] ?? 85;
+        if (drawer.height < minH) {
+          issues.push({
+            severity: "warning",
+            code: "CHK_09_BLUM_LEGRABOX_MIN_HEIGHT",
+            message: `Bölme ${bayIdx + 1} Çekmece ${dIdx + 1} için Blum LEGRABOX ${code} profili en az ${minH}mm iç boşluk gerektirir (Mevcut: ${drawer.height}mm).`,
+            targetId: drawer.id,
+            compatibilityStatus: "INCOMPATIBLE",
+            categoryIndex: 9,
+            suggestions: [
+              `Çekmece yüksekliğini en az ${minH}mm yapın veya daha alçak LEGRABOX yanak (N/M) seçin.`,
+            ],
+            sourceId: "SRC_BLUM_LEGRABOX",
+          });
+        }
+        if (bayW > 1168) {
+          issues.push({
+            severity: "warning",
+            code: "CHK_09_BLUM_LEGRABOX_MAX_WIDTH",
+            message: `Bölme ${bayIdx + 1} iç genişliği (${bayW}mm) Blum LEGRABOX maksimum test genişliğini (1168mm) aşıyor.`,
+            targetId: drawer.id,
+            compatibilityStatus: "COMPATIBLE_WITH_CONDITIONS",
+            categoryIndex: 9,
+            suggestions: [
+              "Bölmeyi ikiye bölün veya LEGRABOX yan stabilizasyon kiti kullanın.",
+            ],
+            sourceId: "SRC_BLUM_LEGRABOX",
+          });
+        }
+      }
     });
 
     // Category 10: Pocket & Tambour Clearances
