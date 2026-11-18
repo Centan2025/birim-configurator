@@ -282,8 +282,6 @@ export function computeBaySystem32ShelfHoleElevations(
   const draggedShelf = draggedShelfId
     ? bay.shelves.find((s) => s.id === draggedShelfId)
     : undefined;
-  const shelfT = draggedShelf?.thickness || mod.carcass.panelThickness || 18;
-  const shelfHalfT = Math.round(shelfT / 2);
 
   if (draggedShelfId && !options?.includeFixedShelves) {
     if (draggedShelf && (draggedShelf.isAdjustable === false || draggedShelf.isFixed === true)) {
@@ -334,7 +332,7 @@ export function computeBaySystem32ShelfHoleElevations(
   });
 
   const shelfElevYs = panelHoleYs
-    .map((py) => Math.round(py - bottomOffsetY - panelT - shelfHalfT))
+    .map((py) => Math.round(py - bottomOffsetY - panelT))
     .filter((ey) => ey >= Math.max(48, drawerTopY + 32) && ey <= netInnerH - 48);
 
   return shelfElevYs.length > 0 ? shelfElevYs : null;

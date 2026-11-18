@@ -40,6 +40,8 @@ import {
   registerOrUpdateTenantProfile,
   type SaasRoleId,
   type TenantWorkspaceProfile,
+  alignModuleShelvesToSystem32,
+  resolveMultiHoleSpec,
 } from "@birim/core";
 import { generateBOMForProject, ManufacturingBOM } from "@birim/manufacturing";
 import { calculateProjectPrice, PricingBreakdown } from "@birim/pricing";
@@ -1536,6 +1538,9 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
       const snappedY = Math.round(idealY / 32) * 32;
       sh.elevationY = Math.max(48, Math.min(netH - 48, snappedY));
     });
+    if (resolveMultiHoleSpec(mod).mode !== "none") {
+      alignModuleShelvesToSystem32(mod, { includeFixedShelves: true });
+    }
     bay.shelves.sort((a, b) => a.elevationY - b.elevationY);
 
     if (batchStartProject) {
@@ -2400,6 +2405,9 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
       });
     }
 
+    if (resolveMultiHoleSpec(solved.moduleInstance).mode !== "none") {
+      alignModuleShelvesToSystem32(solved.moduleInstance, { includeFixedShelves: true });
+    }
     updated.modules.push(solved.moduleInstance);
     const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
     set({
@@ -2470,6 +2478,9 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
         drawers: [],
         specialFittings: [],
       }));
+      if (resolveMultiHoleSpec(baseNew).mode !== "none") {
+        alignModuleShelvesToSystem32(baseNew, { includeFixedShelves: true });
+      }
       updated.modules.push(baseNew);
     }
 
@@ -3134,6 +3145,14 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod) return;
     mod.carcass = { ...mod.carcass, ...patch };
+    if (
+      (patch.multiHoleMode !== undefined && patch.multiHoleMode !== "none") ||
+      ((patch.multiHoleEdgeMarginMm !== undefined ||
+        patch.multiHoleFrontSetbackMm !== undefined) &&
+        resolveMultiHoleSpec(mod).mode !== "none")
+    ) {
+      alignModuleShelvesToSystem32(mod, { includeFixedShelves: true });
+    }
     updated.version += 1;
     updated.updatedAt = new Date().toISOString();
     const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);

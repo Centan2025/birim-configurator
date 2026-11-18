@@ -172,6 +172,101 @@ export function computeSystem32MultiHoleYs(params: {
     .filter((y) => !blockedYsMm.some((blk) => Math.abs(blk.y - y) < blk.clearanceMm));
 }
 
+/**
+ * Modülün aktif `multiHoleMode` ayarına göre tüm bölmelerdeki hareketli rafların
+ * (`isAdjustable !== false && isFixed !== true`) `elevationY` kotlarını en yakın
+ * System 32 delik koordinatına hizalar.
+ */
+export function alignModuleShelvesToSystem32(
+  mod: ModuleInstance,
+  options?: { includeFixedShelves?: boolean }
+): boolean {
+  const spec = resolveMultiHoleSpec(mod);
+  if (spec.mode === "none" || mod.category === "complementary") {
+    return false;
+  }
+
+  const includeFixed = options?.includeFixedShelves ?? false;
+  const panelT = mod.carcass.panelThickness || 18;
+  const plinthH = mod.carcass.plinthHeight ?? 80;
+  const sideToFloor =
+    plinthH > 0 && String(mod.carcass.plinthConstruction) === "gable_rails";
+  const bottomOffsetY = sideToFloor ? plinthH : 0;
+  const sidePanelHeight = sideToFloor
+    ? mod.dimensions.height
+    : Math.max(200, mod.dimensions.height - plinthH);
+  const netInnerH = Math.max(200, mod.dimensions.height - plinthH - 2 * panelT);
+  const effectiveGridMode: MultiHoleBoringMode =
+    spec.mode === "zone_32" ? "zone_32" : "full_system_32";
+
+  let changed = false;
+
+  for (const bay of mod.bays || []) {
+    const shelves = bay.shelves || [];
+    const drawerTopY =
+      (bay.drawers || []).length > 0
+        ? Math.max(...bay.drawers.map((d) => d.elevationY + d.height))
+        : 0;
+
+    const targetShelves = shelves
+      .filter((s) => {
+        if (s.isHidden) return false;
+        const isAdj = s.isAdjustable !== false && s.isFixed !== true;
+        if (isAdj) return true;
+        if (!includeFixed) return false;
+        // Çekmece üstü kapak raflarını çekmece üst kotundan koparma
+        return drawerTopY === 0 || Math.abs(s.elevationY - drawerTopY) > 12;
+      })
+      .sort((a, b) => a.elevationY - b.elevationY);
+    if (targetShelves.length === 0) continue;
+
+    const targetIds = new Set(targetShelves.map((s) => s.id));
+    const fixedPanelYs = shelves
+      .filter((s) => !s.isHidden && !targetIds.has(s.id) && (s.isAdjustable === false || s.isFixed === true))
+      .map((s) => bottomOffsetY + panelT + s.elevationY);
+
+    const panelHoleYs = computeSystem32MultiHoleYs({
+      mode: effectiveGridMode,
+      panelHeightMm: sidePanelHeight,
+      bottomOffsetY,
+      panelThicknessMm: panelT,
+      edgeMarginMm: spec.edgeMarginMm,
+      adjustableShelfYsMm: [],
+      blockedYsMm: fixedPanelYs.map((fy) => ({ y: fy, clearanceMm: 22 })),
+    });
+
+    const validElevYs = panelHoleYs
+      .map((py) => Math.round(py - bottomOffsetY - panelT))
+      .filter((ey) => ey >= Math.max(48, drawerTopY + 32) && ey <= netInnerH - 48);
+
+    if (validElevYs.length === 0) continue;
+
+    const usedElevs = new Set<number>();
+    for (const sh of targetShelves) {
+      const candidates = validElevYs.filter((ey) => !usedElevs.has(ey));
+      const pool = candidates.length > 0 ? candidates : validElevYs;
+      let best = pool[0];
+      let bestDist = Math.abs(pool[0] - sh.elevationY);
+      for (let i = 1; i < pool.length; i++) {
+        const d = Math.abs(pool[i] - sh.elevationY);
+        if (d < bestDist) {
+          bestDist = d;
+          best = pool[i];
+        }
+      }
+      usedElevs.add(best);
+      if (sh.elevationY !== best) {
+        sh.elevationY = best;
+        changed = true;
+      }
+    }
+
+    shelves.sort((a, b) => a.elevationY - b.elevationY);
+  }
+
+  return changed;
+}
+
 // ============================================================================
 // 2. MİMARİ TAVAN SİSTEMİ & TAVAN TİPLERİ (3D RENDER + 2D ÖN GÖRÜNÜŞ + KOT HESABI)
 // ============================================================================

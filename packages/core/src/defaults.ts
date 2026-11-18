@@ -1,4 +1,5 @@
 import { DesignProject, MaterialDefinition, ModuleInstance, SUPPORTED_PROJECT_SCHEMA_VERSION } from "./types";
+import { alignModuleShelvesToSystem32 } from "./ceiling-and-grain-engine";
 
 export const DEFAULT_MATERIALS: MaterialDefinition[] = [
   {
@@ -485,7 +486,7 @@ export const DEFAULT_MATERIALS: MaterialDefinition[] = [
 
 export function createDefaultWardrobeModule(id = "module_1"): ModuleInstance {
   const pfx = id === "module_1" ? "" : `${id}_`;
-  return {
+  const mod: ModuleInstance = {
     id,
     name: "Master Gardırop Modülü",
     category: "wardrobe",
@@ -585,6 +586,8 @@ export function createDefaultWardrobeModule(id = "module_1"): ModuleInstance {
       },
     ],
   };
+  alignModuleShelvesToSystem32(mod, { includeFixedShelves: true });
+  return mod;
 }
 
 export function createInitialProject(): DesignProject {

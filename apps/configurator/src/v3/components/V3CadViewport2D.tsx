@@ -11265,17 +11265,10 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
           {mode === "elevation" &&
             activeElevSnap &&
             (() => {
-              const draggedShelfT =
-                interiorDrag?.kind === "shelf"
-                  ? interiorDrag.itemHeightMm || activeModule.carcass.panelThickness || 18
-                  : 0;
-              const snapCenterOffset =
-                activeElevSnap.kind === "system32_hole" ? Math.round(draggedShelfT / 2) : 0;
               const snapWorldFromModuleBottom =
                 activeModule.carcass.plinthHeight +
                 activeModule.carcass.panelThickness +
-                activeElevSnap.elevationY +
-                snapCenterOffset;
+                activeElevSnap.elevationY;
               const snapSvgY = breakdown.overall.height - snapWorldFromModuleBottom;
               const hasElevInLabel = activeElevSnap.label.includes(`${activeElevSnap.elevationY}`);
               const badgeText = hasElevInLabel
