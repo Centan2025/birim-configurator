@@ -7521,7 +7521,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
     } | null>(null);
 
     useEffect(() => {
-      const ensureLivePartPool = (mod: ModuleInstance): NonNullable<typeof livePartPoolRef.current> | null => {
+      const ensureLivePartPool = (mod: { carcass: { bodyMaterialId: string }; surfaceFinishOverride?: Parameters<typeof getV3PbrMaterial>[4] }): NonNullable<typeof livePartPoolRef.current> | null => {
         const gGroup = ghostSnapGroupRef.current;
         if (!gGroup) return null;
         const matDef =
@@ -7880,9 +7880,10 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             let cur: THREE.Object3D | null = h.object;
             while (cur && !cur.userData?.sceneObjectId) cur = cur.parent;
             if (cur?.userData?.sceneObjectId) {
-              st.updateSceneObject(String(cur.userData.sceneObjectId), {
-                materialId: detail.materialId,
-              });
+              (st.updateSceneObject as (id: string, p: Record<string, unknown>) => void)(
+                String(cur.userData.sceneObjectId),
+                { materialId: detail.materialId }
+              );
               setSnapBannerDedup(`✓ Malzeme atandı: ${detail.materialName || detail.materialId}`);
               setTimeout(() => setSnapBannerDedup(null), 2400);
               return;
@@ -7902,7 +7903,13 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               ) {
                 st.setActiveModuleIndex(cur.userData.moduleIndex);
               }
-              st.applyMaterialToSimilarComponents(
+              (st as unknown as {
+                applyMaterialToSimilarComponents?: (
+                  matId: string,
+                  compId: string,
+                  scope: "single"
+                ) => void;
+              }).applyMaterialToSimilarComponents?.(
                 detail.materialId,
                 String(cur.userData.componentId),
                 "single"

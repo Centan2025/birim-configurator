@@ -131,7 +131,7 @@ export const OnObjectQuickToolbar: React.FC<OnObjectQuickToolbarProps> = React.m
       ) || bay.hangingRails[0];
 
     const curDoorProfile =
-      bay.door?.crossSectionProfile || activeModule.carcass.crossSectionProfile || "flat_minimal";
+      bay.door?.crossSectionProfile || activeModule.carcass.crossSectionProfile || "flat_slab";
 
     const currentSubIntervalIdx = matchedSubDiv
       ? Math.max(
@@ -222,7 +222,7 @@ export const OnObjectQuickToolbar: React.FC<OnObjectQuickToolbarProps> = React.m
               <div className="inline-flex items-center p-0.5 rounded-xl bg-[#ECE7DD] border border-[#DFD9CE]">
                 {(
                   [
-                    { id: "flat_minimal", label: "Düz", glass: false },
+                    { id: "flat_slab", label: "Düz", glass: false },
                     { id: "shaker_frame", label: "Çerçeve", glass: false },
                     { id: "glass_frame", label: "Cam", glass: true },
                   ] as const

@@ -10439,7 +10439,9 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
           }
           if (tid.startsWith("elev-scene-object-") || tid.startsWith("plan-scene-object-")) {
             const soId = tid.replace(/^elev-scene-object-|^plan-scene-object-/, "");
-            updateSceneObject(soId, { materialId: detail.materialId });
+            (updateSceneObject as (id: string, p: Record<string, unknown>) => void)(soId, {
+              materialId: detail.materialId,
+            });
             setPlanRowSnapBanner(`✓ Malzeme atandı: ${detail.materialName || detail.materialId}`);
             setTimeout(() => setPlanRowSnapBanner(null), 2400);
             return;

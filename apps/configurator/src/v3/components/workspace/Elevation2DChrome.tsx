@@ -1,8 +1,5 @@
 "use client";
 
-import { calculateNetInnerHeight } from "@birim/core";
-import { getBayShelfIntervalsForSubDivider } from "../../adapter/useV3Adapter";
-
 import React from "react";
 import { calculateNetInnerHeight } from "@birim/core";
 import type { ArchitecturalElement, DesignProject, ModuleInstance } from "@birim/core";

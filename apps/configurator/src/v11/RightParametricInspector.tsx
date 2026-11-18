@@ -158,6 +158,9 @@ export interface RightParametricInspectorProps {
       isGlassFramed?: boolean;
       handleCategory?: HandleCategory;
       handleProfileId?: string;
+      handleMaterialId?: string;
+      handleLengthMm?: number;
+      handleOrientation?: "auto" | "vertical" | "horizontal";
       softClose?: boolean;
       frontFillerLeftMm?: number;
       frontFillerRightMm?: number;
@@ -1263,13 +1266,13 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
         return;
       }
       if (applyAllBaysInModule && activeModule.bays.length > 1) {
-        onBeginSliderDrag();
+        onBeginSliderDrag?.();
         activeModule.bays.forEach((b, bIdx) => {
           if (b.door?.type !== "open") {
             onSetBayV4DoorConfig(bIdx, patch);
           }
         });
-        onCommitSliderDrag();
+        onCommitSliderDrag?.();
         return;
       }
       onSetBayV4DoorConfig(safeBayIdx, patch);
@@ -4000,7 +4003,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                       const active = (activeBay?.door?.handleProfileId || "K019") === hp.id;
                       const strokeCol = active ? "#FAF8F4" : "#292524";
                       const renderHandleIcon = () => {
-                        switch (hp.category) {
+                        switch (String(hp.category)) {
                           case "handleless":
                             return (
                               <svg viewBox="0 0 28 20" className="w-7 h-5 shrink-0" fill="none">

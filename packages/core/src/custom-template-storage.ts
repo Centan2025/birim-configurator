@@ -1,4 +1,4 @@
-import type { CustomModuleTemplateRecord } from "./types";
+import type { CustomModuleTemplateRecord } from "./scene-objects-engine";
 import { buildTenantScopedStorageKey } from "./saas-tenant-core";
 
 const CUSTOM_TPL_STORAGE_KEY = "birim_v5_custom_module_templates";
