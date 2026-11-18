@@ -3619,10 +3619,33 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
           itemKind === "lib_drawer" ||
           itemKind === "drawer" ||
           itemKind === "lib_internal_drawer" ||
-          itemKind === "internal_drawer"
+          itemKind === "internal_drawer" ||
+          itemKind === "lib_hw_legrabox" ||
+          itemKind === "lib_hw_tandembox" ||
+          itemKind === "lib_hw_movento"
         ) {
           const isInternal = itemKind.includes("internal") || !!options?.isInternal;
           const h = options?.drawerHeight || (isInternal ? 140 : 180);
+          const targetBoxSys: import("@birim/core").DrawerBoxSystemType | undefined =
+            itemKind === "lib_hw_legrabox"
+              ? "metal_box_legrabox"
+              : itemKind === "lib_hw_tandembox"
+              ? "metal_box_tandembox"
+              : itemKind === "lib_hw_movento"
+              ? "wooden_undermount"
+              : mod.carcass.drawerBoxSystem;
+          if (targetBoxSys) {
+            mod.carcass.drawerBoxSystem = targetBoxSys;
+          }
+          const targetHwId =
+            targetBoxSys === "metal_box_tandembox"
+              ? "hw_blum_tandembox_m30"
+              : targetBoxSys === "wooden_undermount"
+              ? "hw_blum_movento_760h"
+              : isInternal
+              ? "hw_blum_legrabox_m40"
+              : "hw_blum_legrabox_c70";
+
           bay.drawers = bay.drawers || [];
           // Smart stacking: if dropped near the bottom or overlapping an existing drawer, stack neatly on top of the highest drawer or at snappedY
           let clampedY = Math.max(0, Math.min(netH - h, snappedY));
@@ -3648,24 +3671,38 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
             elevationY: clampedY,
             height: h,
             slideType: "soft_close",
+            ...(targetBoxSys ? { boxSystemType: targetBoxSys } : {}),
             isInternal,
-            hardwareProductId: isInternal
-              ? "hw_blum_legrabox_m40"
-              : "hw_blum_legrabox_c70",
+            hardwareProductId: targetHwId,
             nominalLengthMm: optNl,
           });
         } else if (
           itemKind === "lib_rail" ||
           itemKind === "rail" ||
-          itemKind === "hanging_rail"
+          itemKind === "hanging_rail" ||
+          itemKind === "lib_rail_lift" ||
+          itemKind === "lib_rail_led"
         ) {
           // Logical wardrobe hanging zone: at least 350mm, and if dropped near top, place 80mm below top shelf/panel
           const clampedY = resolveCollisionFreeY(snappedY, 128, isExact ? 140 : 320, netH - 36);
+          const profileType: import("@birim/core").HangingRailConfig["profileType"] =
+            itemKind === "lib_rail_lift"
+              ? "lift_pantograph"
+              : itemKind === "lib_rail_led"
+              ? "led_black_30x15"
+              : "oval_30x15";
+          if (itemKind === "lib_rail_led") {
+            mod.carcass.ledLightingEnabled = true;
+            mod.carcass.ledPlacementMode = "hanging_rod";
+          }
           bay.hangingRails = bay.hangingRails || [];
           bay.hangingRails.push({
             id: `rail_${safeBayIdx}_${Date.now()}`,
             bayIndex: safeBayIdx,
             elevationY: clampedY,
+            profileType,
+            hasIntegratedLed: itemKind === "lib_rail_led",
+            isLiftMechanism: itemKind === "lib_rail_lift",
           });
         } else {
           // Special fittings: trouser_rack, shoe_rack, wire_basket, jewelry_tray, tie_rack, belt_rack, wardrobe_lift, led_profile
