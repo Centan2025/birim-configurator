@@ -3,7 +3,7 @@ import path from "path";
 import { NextResponse } from "next/server";
 import type { SceneObjectCatalogItem } from "@birim/catalog";
 
-export const dynamic = "force-dynamic";
+export const dynamic = "force-static";
 
 function resolveSceneObjectsDir(): string | null {
   const candidates = [
@@ -159,5 +159,12 @@ export async function GET() {
     };
   });
 
-  return NextResponse.json({ items });
+  return NextResponse.json(
+    { items },
+    {
+      headers: {
+        "Cache-Control": "public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800",
+      },
+    }
+  );
 }
