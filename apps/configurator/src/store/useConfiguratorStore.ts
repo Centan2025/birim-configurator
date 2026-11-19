@@ -61,6 +61,7 @@ import {
   loadSavedCustomModuleTemplates,
   persistCustomModuleTemplates,
   getHardwareProductById,
+  PROJECT_HARDWARE_PACKAGES,
 } from "@birim/catalog";
 import {
   computeMultiWallModuleSnap,
@@ -196,6 +197,16 @@ export interface ConfiguratorState {
   setDimensions: (width: number, height: number, depth: number) => void;
   setPlinthHeight: (plinth: number) => void;
   applyHardwareProductToBay: (bayIndex: number, hardwareProductId: string, options?: { drawerId?: string; forceApply?: boolean }) => { applied: boolean; messageTr: string };
+  previewHardwarePackageDelta: (packageId: string) => {
+    packageId: string;
+    currentTotalEur: number;
+    projectedTotalEur: number;
+    deltaEur: number;
+    affectedDoors: number;
+    affectedDrawers: number;
+  };
+  applyHardwarePackageToProject: (packageId: string) => { applied: boolean; messageTr: string; deltaEur: number };
+  removeHardwareFromBay: (bayIndex: number, targetKind: "door" | "drawer" | "special_fitting", targetId?: string) => { removed: boolean; messageTr: string };
   setMaterials: (bodyMatId?: string, doorMatId?: string) => void;
   setBayCount: (count: number) => void;
   setBayDoorType: (bayIdx: number, type: "single_left" | "single_right" | "double" | "sliding" | "tambour" | "open") => void;
@@ -1409,6 +1420,173 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
     return {
       applied: true,
       messageTr: `${hw.name} Bölme ${safeBayIdx + 1} üzerine uygulandı.`,
+    };
+  },
+
+  previewHardwarePackageDelta: (packageId) => {
+    const { project, pricing } = get();
+    const pkg = PROJECT_HARDWARE_PACKAGES.find((x) => x.id === packageId);
+    const currentTotalEur = pricing?.totalWithVatEur ?? 0;
+    if (!pkg) {
+      return { packageId, currentTotalEur, projectedTotalEur: currentTotalEur, deltaEur: 0, affectedDoors: 0, affectedDrawers: 0 };
+    }
+    let affectedDoors = 0;
+    let affectedDrawers = 0;
+    let deltaEur = 0;
+
+    project.modules.forEach((mod) => {
+      const doorH = Math.max(300, mod.dimensions.height - mod.carcass.plinthHeight);
+      const hingesPerLeaf = doorH > 2000 ? 5 : doorH > 1500 ? 4 : doorH > 900 ? 3 : 2;
+      mod.bays.forEach((bay) => {
+        const hasInternalDrw = (bay.drawers || []).some((d) => d.isInternal && !d.isHidden);
+        if (bay.door && bay.door.type !== "open") {
+          affectedDoors += 1;
+          const dType = bay.door.type;
+          const isDouble = dType === "double" || dType === "inset_double";
+          const curHw = getHardwareProductById(bay.door.hardwareProductId || "hw_blum_71b3550");
+          let nextId = hasInternalDrw ? pkg.hingeZeroProtrusionId : pkg.hingeStandardId;
+          let qty = isDouble ? hingesPerLeaf * 2 : hingesPerLeaf;
+          if (dType === "lift_bi_fold") { nextId = pkg.liftBiFoldId; qty = 1; }
+          else if (dType.startsWith("lift")) { nextId = pkg.liftStayId; qty = 1; }
+          else if (dType.startsWith("sliding")) { nextId = pkg.slidingId; qty = 1; }
+          const nextHw = getHardwareProductById(nextId);
+          if (curHw && nextHw) {
+            deltaEur += (nextHw.unitPriceEur - curHw.unitPriceEur) * qty;
+          }
+        }
+        (bay.drawers || []).forEach((drw) => {
+          if (drw.isHidden) return;
+          affectedDrawers += 1;
+          const curHw = getHardwareProductById(drw.hardwareProductId || "hw_blum_tandembox_m30");
+          const isHeavy = drw.height >= 220;
+          const nextId = drw.boxSystemType === "wooden_undermount"
+            ? pkg.runnerWoodenId
+            : isHeavy
+            ? pkg.drawerHeavyId
+            : pkg.drawerStandardId;
+          const nextHw = getHardwareProductById(nextId);
+          if (curHw && nextHw) {
+            deltaEur += nextHw.unitPriceEur - curHw.unitPriceEur;
+          }
+        });
+      });
+    });
+
+    const roundedDelta = Math.round(deltaEur * 100) / 100;
+    return {
+      packageId,
+      currentTotalEur,
+      projectedTotalEur: Math.round((currentTotalEur + roundedDelta) * 100) / 100,
+      deltaEur: roundedDelta,
+      affectedDoors,
+      affectedDrawers,
+    };
+  },
+
+  removeHardwareFromBay: (bayIndex, targetKind, targetId) => {
+    const { project, history, activeModuleIndex, batchStartProject } = get();
+    const updated = cloneProject(project);
+    const mod = updated.modules[activeModuleIndex] || updated.modules[0];
+    if (!mod) return { removed: false, messageTr: "Aktif modül bulunamadı." };
+    const safeBayIdx = Math.max(0, Math.min(bayIndex, Math.max(0, mod.bays.length - 1)));
+    const bay = mod.bays[safeBayIdx];
+    if (!bay) return { removed: false, messageTr: "Bölme bulunamadı." };
+
+    let label = "";
+    if (targetKind === "door" && bay.door) {
+      bay.door.hardwareProductId = undefined;
+      label = "Kapak donanımı varsayılana sıfırlandı";
+    } else if (targetKind === "drawer") {
+      const drw = targetId ? bay.drawers.find((d) => d.id === targetId) : bay.drawers[0];
+      if (drw) {
+        drw.hardwareProductId = undefined;
+        label = "Çekmece rayı varsayılana sıfırlandı";
+      }
+    } else if (targetKind === "special_fitting" && targetId) {
+      bay.specialFittings = (bay.specialFittings || []).filter((sf) => sf.id !== targetId);
+      label = "Özel donanım bölmeden söküldü";
+    }
+    if (!label) return { removed: false, messageTr: "Sökülecek donanım bulunamadı." };
+
+    updated.updatedAt = new Date().toISOString();
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
+    set({
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      project: updated,
+      autoSaveStatus: "unsaved",
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+      lastChangeImpact,
+    });
+    return { removed: true, messageTr: `${label} (Bölme ${safeBayIdx + 1}).` };
+  },
+
+  applyHardwarePackageToProject: (packageId) => {
+    const { project, history, batchStartProject, pricing } = get();
+    const pkg = PROJECT_HARDWARE_PACKAGES.find((x) => x.id === packageId);
+    if (!pkg) return { applied: false, messageTr: "Donanım paketi bulunamadı.", deltaEur: 0 };
+    const beforeEur = pricing?.totalWithVatEur ?? 0;
+    const updated = cloneProject(project);
+    const stdHinge = getHardwareProductById(pkg.hingeStandardId);
+    let updatedDoors = 0;
+    let updatedDrawers = 0;
+
+    updated.modules.forEach((mod) => {
+      if (stdHinge?.drillingTemplateId) {
+        mod.carcass.hingeDrillingTemplateId = stdHinge.drillingTemplateId;
+      }
+      mod.bays.forEach((bay) => {
+        const hasInternalDrw = (bay.drawers || []).some((d) => d.isInternal && !d.isHidden);
+        if (bay.door && bay.door.type !== "open") {
+          updatedDoors += 1;
+          const dType = bay.door.type;
+          if (dType === "lift_bi_fold") bay.door.hardwareProductId = pkg.liftBiFoldId;
+          else if (dType.startsWith("lift")) bay.door.hardwareProductId = pkg.liftStayId;
+          else if (dType.startsWith("sliding")) bay.door.hardwareProductId = pkg.slidingId;
+          else if (dType !== "pocket" && dType !== "tambour") {
+            bay.door.hardwareProductId = hasInternalDrw ? pkg.hingeZeroProtrusionId : pkg.hingeStandardId;
+          }
+        }
+        (bay.drawers || []).forEach((drw) => {
+          if (drw.isHidden) return;
+          updatedDrawers += 1;
+          const isHeavy = drw.height >= 220;
+          const targetId = drw.boxSystemType === "wooden_undermount"
+            ? pkg.runnerWoodenId
+            : isHeavy
+            ? pkg.drawerHeavyId
+            : pkg.drawerStandardId;
+          drw.hardwareProductId = targetId;
+          if (targetId.includes("legrabox")) drw.boxSystemType = "metal_box_legrabox";
+          else if (targetId.includes("tandembox")) drw.boxSystemType = "metal_box_tandembox";
+          else if (targetId.includes("avantech") || targetId.includes("atira")) drw.boxSystemType = "metal_box_avantech";
+        });
+      });
+    });
+
+    updated.updatedAt = new Date().toISOString();
+    const { validationIssues, bom, pricing: nextPricing, smartAdvice, lastChangeImpact } = recompute(updated);
+    const deltaEur = Math.round(((nextPricing?.totalWithVatEur ?? beforeEur) - beforeEur) * 100) / 100;
+
+    set({
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      project: updated,
+      autoSaveStatus: "unsaved",
+      validationIssues,
+      bom,
+      pricing: nextPricing,
+      smartAdvice,
+      lastChangeImpact,
+    });
+
+    return {
+      applied: true,
+      deltaEur,
+      messageTr: `${pkg.nameTr} tüm projeye uygulandı (${updatedDoors} kapak, ${updatedDrawers} çekmece • ${deltaEur >= 0 ? "+" : ""}€${deltaEur}).`,
     };
   },
 

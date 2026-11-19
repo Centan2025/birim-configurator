@@ -268,6 +268,14 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
   const [toastText, setToastText] = useState<string | null>(null);
   const [selected3DContextLabel, setSelected3DContextLabel] = useState<string | null>(null);
   const [selected3DPartKind, setSelected3DPartKind] = useState<Selected3DPartKind>("bay");
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(
+      new CustomEvent("birim:3d-part-selected", {
+        detail: { partKind: selected3DPartKind },
+      })
+    );
+  }, [selected3DPartKind]);
   const [selected3DCompId, setSelected3DCompId] = useState<string | null>(null);
   const [isCompactViewport, setIsCompactViewport] = useState<boolean>(false);
   const [uiFontScale, setUiFontScale] = useState<number>(() => {

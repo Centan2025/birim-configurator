@@ -9548,7 +9548,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
               shelfId: interiorDrag.targetId,
               rawElevationY: rawElevY,
               snapTargets,
-              bypassMultiHole: e.altKey,
+              bypassMultiHole: false,
             })
           : resolveElevationSnap(rawElevY, snapTargets, 18);
       setActiveElevSnap((prev) =>

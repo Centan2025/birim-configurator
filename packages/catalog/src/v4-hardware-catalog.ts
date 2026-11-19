@@ -15,12 +15,18 @@ import {
   EXISTING_HARDWARE_ENRICHMENTS,
   EXTENDED_HARDWARE_PRODUCTS,
   HARDWARE_CATEGORY_GROUPS,
+  PROJECT_HARDWARE_PACKAGES,
+  CORE_FACTORY_VERIFICATION_IDS,
+  type ProjectHardwarePackageDefinition,
   type HardwareCategoryGroupId,
   type HardwareCategoryMeta,
   type HardwareUsagePurpose,
 } from "./v4-hardware-catalog-extended";
 export {
   HARDWARE_CATEGORY_GROUPS,
+  PROJECT_HARDWARE_PACKAGES,
+  CORE_FACTORY_VERIFICATION_IDS,
+  type ProjectHardwarePackageDefinition,
   type HardwareCategoryGroupId,
   type HardwareCategoryMeta,
   type HardwareUsagePurpose,

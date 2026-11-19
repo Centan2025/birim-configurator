@@ -359,9 +359,10 @@ export function snapShelfToMultiHoleOrElevationTargets(params: {
   } = params;
 
   const mod = project.modules[moduleIndex] || project.modules[0];
-  if (!mod || bypassMultiHole) {
+  if (!mod) {
     return resolveElevationSnap(rawElevationY, snapTargets, 18);
   }
+  void bypassMultiHole;
 
   const holeYs = computeBaySystem32ShelfHoleElevations(mod, bayIndex, shelfId, {
     includeFixedShelves: false,

@@ -43,6 +43,7 @@ import { getHardwareProductById } from "@birim/catalog";
 import {
   computeElevationSnapTargets,
   resolveElevationSnap,
+  computeBaySystem32ShelfHoleElevations,
   snapShelfToMultiHoleOrElevationTargets,
   findDraggableInteriorComponent,
   type ElevationSnapTarget,
@@ -2233,7 +2234,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       const renderer = safeGl.bundle.renderer;
       const isLegacyGpu = safeGl.bundle.capability.isLegacyOrLowSpecGpu;
       const restSharpDpr = isLegacyGpu ? 1 : Math.min(window.devicePixelRatio || 1, 2.0);
-      const motionFastDpr = isLegacyGpu ? 1 : Math.min(window.devicePixelRatio || 1, 1.25);
+      const motionFastDpr = isLegacyGpu ? 1 : Math.min(window.devicePixelRatio || 1, 1.5);
       let currentAppliedDpr = restSharpDpr;
       let settleSharpTimer: ReturnType<typeof setTimeout> | null = null;
       const setAdaptiveDpr = (dprVal: number) => {
@@ -2250,7 +2251,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       const agxToneMapping = (THREE as unknown as { AgXToneMapping?: THREE.ToneMapping }).AgXToneMapping;
       renderer.toneMapping = agxToneMapping ?? THREE.ACESFilmicToneMapping;
-      renderer.toneMappingExposure = 1.09;
+      renderer.toneMappingExposure = 1.05;
       rendererRef.current = renderer;
       container.appendChild(renderer.domElement);
       canvasRectRef.current = renderer.domElement.getBoundingClientRect();
@@ -2318,31 +2319,33 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         },
       });
 
-      const hemiLight = new THREE.HemisphereLight(0xfffef9, 0xcbbfae, 0.58);
+      const hemiLight = new THREE.HemisphereLight(0xfffef9, 0xc8b9a6, 0.52);
       scene.add(hemiLight);
       hemiLightRef.current = hemiLight;
 
-      // Architectural 3/4 Left-Front Key Softbox with True 2048×2048 Hi-Res PCFSoftShadowMap
-      const keyLight = new THREE.DirectionalLight(0xfffaf2, 1.52);
+      // Architectural 3/4 Left-Front Key Softbox with Adaptive 4096×4096 Ultra-Sharp PCFSoftShadowMap
+      const maxTexSize = renderer.capabilities?.maxTextureSize || 2048;
+      const hiResShadowSize = isLegacyGpu ? 1024 : maxTexSize >= 4096 ? 4096 : 2048;
+      const keyLight = new THREE.DirectionalLight(0xfffaf0, 1.62);
       keyLight.position.set(-2150, 3550, 3450);
       keyLight.target.position.set(1250, 880, 320);
       scene.add(keyLight.target);
       keyLight.castShadow = !isLegacyGpu;
-      keyLight.shadow.mapSize.width = isLegacyGpu ? 1024 : 2048;
-      keyLight.shadow.mapSize.height = isLegacyGpu ? 1024 : 2048;
+      keyLight.shadow.mapSize.width = hiResShadowSize;
+      keyLight.shadow.mapSize.height = hiResShadowSize;
       keyLight.shadow.camera.left = -2600;
       keyLight.shadow.camera.right = 3000;
       keyLight.shadow.camera.top = 2800;
       keyLight.shadow.camera.bottom = -550;
       keyLight.shadow.camera.near = 250;
       keyLight.shadow.camera.far = 10500;
-      keyLight.shadow.bias = -0.00012;
-      keyLight.shadow.normalBias = 0.42;
-      keyLight.shadow.radius = 2.65;
+      keyLight.shadow.bias = -0.00008;
+      keyLight.shadow.normalBias = 0.24;
+      keyLight.shadow.radius = 2.1;
       scene.add(keyLight);
       keyLightRef.current = keyLight;
 
-      const rimLight = new THREE.DirectionalLight(0xf0f4fa, 0.42);
+      const rimLight = new THREE.DirectionalLight(0xeef4ff, 0.50);
       rimLight.position.set(3100, 2450, 1750);
       scene.add(rimLight);
       rimLightRef.current = rimLight;
@@ -3498,7 +3501,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                 shelfId: activeDrag3D.targetId,
                 rawElevationY: rawElevY,
                 snapTargets: targets,
-                bypassMultiHole: e.altKey,
+                bypassMultiHole: false,
               })
             : resolveElevationSnap(rawElevY, targets, 18);
         setActive3DSnap(snappedTarget);
@@ -7669,11 +7672,20 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             : Math.max(64, netH - 32);
         const clampedRawY = Math.max(minElev, Math.min(maxElev, cursorElevY));
         const nearest32 = Math.round(clampedRawY / 32) * 32;
-        // Smooth 2mm positioning everywhere, with gentle ±5mm magnetic attraction to System-32 rows!
-        const snappedElevY =
+        let snappedElevY =
           Math.abs(clampedRawY - nearest32) <= 5 && nearest32 >= minElev && nearest32 <= maxElev
             ? nearest32
             : Math.round(clampedRawY / 2) * 2;
+        if (spec.visual === "shelf" && spec.id !== "lib_fixed_shelf") {
+          const holeYs = computeBaySystem32ShelfHoleElevations(mod, targetBayIdx, undefined, {
+            includeFixedShelves: false,
+          });
+          if (holeYs && holeYs.length > 0) {
+            snappedElevY = holeYs.reduce((best, hy) =>
+              Math.abs(clampedRawY - hy) < Math.abs(clampedRawY - best) ? hy : best
+            , holeYs[0]);
+          }
+        }
         const localBayX = Math.max(
           40,
           Math.min(Math.max(72, curBayWidth - carcassT - 40), Math.round((relX - bayStartX) / 5) * 5)

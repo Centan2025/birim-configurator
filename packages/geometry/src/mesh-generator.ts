@@ -3530,45 +3530,49 @@ export function generateModuleGeometry(
         thicknessAxis: "x",
       });
 
-      // 5. Back Panel of Box (16mm wooden back for both metal-box & wooden systems)
+      // 5. Back Panel of Box — flush-joined cleanly to inner faces of left & right drawer side walls (zero 3D gap!)
+      const innerSpanW = Math.max(68, boxW - 2 * boxT);
       components.push({
         id: `${drawer.id}_back`,
         role: "drawer_back",
         label: `Çekmece Arka Sırt B${bayIdx + 1}-${dIdx + 1}${hasSiphonCut ? " (U-Sifon Kesimli)" : ""}`,
         bayIndex: bayIdx,
-        dimensions: { width: backBoardW, height: boxH, depth: 16 },
-        position: { x: effCellStartX + (effCellW - backBoardW) / 2, y: drawerY0 + 8, z: boxZ0 },
+        dimensions: { width: innerSpanW, height: boxH, depth: 16 },
+        position: { x: boxX0 + boxT, y: drawerY0 + 8, z: boxZ0 },
         siphonCutout: siphonSpec,
         materialId: bodyMaterialId,
         isManufacturablePanel: true,
         thicknessAxis: "z",
       });
 
-      // 6. Bottom Floor Board of Box (16mm on metal box systems; 8mm grooved 13mm above side bottom & +6mm into front groove on wooden systems)
+      // 6. Bottom Floor Board of Box — flush between side walls (with 6mm dado seat on wooden boxes)
+      const visualBottomW = isMetalBoxSystem ? innerSpanW : Math.min(boxW - 4, innerSpanW + 12);
+      const visualBottomX = boxX0 + (boxW - visualBottomW) / 2;
       components.push({
         id: `${drawer.id}_bottom`,
         role: "drawer_bottom",
         label: `Çekmece Tabanı (${bottomT}mm${isMetalBoxSystem ? "" : ", Kanala Geçmeli"}) B${bayIdx + 1}-${dIdx + 1}${hasSiphonCut ? " (U-Sifon Boşluklu)" : ""}`,
         bayIndex: bayIdx,
-        dimensions: { width: bottomBoardW, height: bottomT, depth: isMetalBoxSystem ? boxD : boxD - 10 },
-        position: { x: effCellStartX + (effCellW - bottomBoardW) / 2, y: drawerY0 + 8 + (isMetalBoxSystem ? 0 : 13), z: boxZ0 + (isMetalBoxSystem ? 0 : 16) },
+        dimensions: { width: visualBottomW, height: bottomT, depth: isMetalBoxSystem ? boxD - 16 : boxD - 10 },
+        position: { x: visualBottomX, y: drawerY0 + 8 + (isMetalBoxSystem ? 0 : 13), z: boxZ0 + 16 },
         siphonCutout: siphonSpec,
         materialId: bodyMaterialId,
         isManufacturablePanel: true,
         thicknessAxis: "y",
       });
 
-      // 7. Left & Right Undermount Slide Rails
-      const slideZ0 = boxZ0 - (pulledZ > 0 ? pulledZ * 0.5 : 0);
+      // 7. Left & Right Realistic Telescopic Undermount Slide Rails (Blum MOVENTO/LEGRABOX/TANDEMBOX | Hettich Quadro/AvanTech)
+      const slideZ0 = boxZ0 - (pulledZ > 0 ? pulledZ * 0.48 : 0);
+      const slideBrandTag = (drawer.hardwareProductId || "").includes("hettich") ? "Hettich" : "Blum";
       components.push({
         id: `${drawer.id}_slide_left`,
         role: "drawer_slide",
-        label: `Çekmece Rayı Sol B${bayIdx + 1}-${dIdx + 1}`,
+        label: `${slideBrandTag} Çekmece Rayı Sol B${bayIdx + 1}-${dIdx + 1}`,
         bayIndex: bayIdx,
-        dimensions: { width: 12, height: 16, depth: boxD },
+        dimensions: { width: 16, height: 32, depth: boxD },
         position: {
-          x: bayStartX + 4,
-          y: drawerY0 + 2,
+          x: bayStartX + 1,
+          y: drawerY0 + 1,
           z: slideZ0,
         },
         materialId: "mat_anodized_metal",
@@ -3578,12 +3582,12 @@ export function generateModuleGeometry(
       components.push({
         id: `${drawer.id}_slide_right`,
         role: "drawer_slide",
-        label: `Çekmece Rayı Sağ B${bayIdx + 1}-${dIdx + 1}`,
+        label: `${slideBrandTag} Çekmece Rayı Sağ B${bayIdx + 1}-${dIdx + 1}`,
         bayIndex: bayIdx,
-        dimensions: { width: 12, height: 16, depth: boxD },
+        dimensions: { width: 16, height: 32, depth: boxD },
         position: {
-          x: bayStartX + bayW - 16,
-          y: drawerY0 + 2,
+          x: bayStartX + bayW - 17,
+          y: drawerY0 + 1,
           z: slideZ0,
         },
         materialId: "mat_anodized_metal",
@@ -4612,6 +4616,96 @@ export function generateModuleGeometry(
     } else {
       finalComponents.push(comp);
     }
+  }
+
+  // Emit 3D Architectural Hardware: Adjustable Plinth Feet, Anti-Tip Brackets, TIP-ON Pistons & Shelf Pins
+  if (String(module.category) !== "complementary") {
+    const modW = module.dimensions.width;
+    const modH = module.dimensions.height;
+    const modD = module.dimensions.depth;
+    const modPlinthH = module.carcass.plinthHeight || 0;
+    const panelT = module.carcass.panelThickness || 18;
+
+    // 1. Adjustable Axilo Plinth Legs (4 or 6 cylindrical feet under carcass bottom)
+    if (modPlinthH >= 50 && module.category !== "kitchen_wall") {
+      const legXs = modW > 900 ? [65, modW / 2, modW - 65] : [65, modW - 65];
+      const legZs = [75, Math.max(120, modD - 75)];
+      legXs.forEach((lx, li) => {
+        legZs.forEach((lz, zi) => {
+          finalComponents.push({
+            id: `${module.id}_axilo_leg_${li}_${zi}`,
+            role: "special_fitting",
+            label: "Häfele Axilo Ayarlı Baza Ayağı",
+            dimensions: { width: 34, height: modPlinthH, depth: 34 },
+            position: { x: lx - 17, y: 0, z: lz - 17 },
+            materialId: "mat_anodized_metal",
+            isManufacturablePanel: false,
+          });
+        });
+      });
+    }
+
+    // 2. EN 14749 Anti-Tip Steel Wall Brackets at top rear corners of tall cabinets
+    if (modH >= 1800) {
+      [panelT + 20, modW - panelT - 44].forEach((bx, bi) => {
+        finalComponents.push({
+          id: `${module.id}_anti_tip_${bi}`,
+          role: "special_fitting",
+          label: "EN 14749 Devrilme Önleyici Duvar Braketi",
+          dimensions: { width: 24, height: 42, depth: 42 },
+          position: { x: bx, y: modH - panelT - 44, z: 12 },
+          materialId: "mat_anodized_metal",
+          isManufacturablePanel: false,
+        });
+      });
+    }
+
+    // 3. Per-bay TIP-ON pistons & Ø5mm steel shelf support pins
+    let cursorX = panelT;
+    module.bays.forEach((b, bIdx) => {
+      const bw = bayWidths[bIdx] || 450;
+      if (
+        b.door &&
+        b.door.type !== "open" &&
+        (b.door.openingTechnology === "push_to_open" || b.door.openingTechnology === "push_to_open_soft_close")
+      ) {
+        const onRightSide = b.door.type !== "single_right" && b.door.type !== "inset_right";
+        finalComponents.push({
+          id: `${module.id}_tip_on_b${bIdx}`,
+          role: "special_fitting",
+          label: "Blum TIP-ON Bas-Aç Pistonu",
+          dimensions: { width: 16, height: 18, depth: 76 },
+          position: {
+            x: onRightSide ? cursorX + bw - 16 : cursorX,
+            y: modPlinthH + (modH - modPlinthH) * 0.5,
+            z: Math.max(40, modD - 92),
+          },
+          materialId: "mat_anodized_metal",
+          isManufacturablePanel: false,
+        });
+      }
+
+      (b.shelves || []).forEach((sh, sIdx) => {
+        if (sh.isHidden || !sh.isAdjustable) return;
+        const pinY = modPlinthH + panelT + sh.elevationY - 6;
+        const pinZs = [Math.min(modD - 55, 65), Math.max(70, modD - 65)];
+        [cursorX, cursorX + bw - 8].forEach((px, pSide) => {
+          pinZs.forEach((pz, pDepth) => {
+            finalComponents.push({
+              id: `${module.id}_shelf_pin_b${bIdx}_s${sIdx}_${pSide}_${pDepth}`,
+              role: "special_fitting",
+              label: "System 32 Ø5mm Çelik Raf Pimi",
+              dimensions: { width: 8, height: 8, depth: 12 },
+              position: { x: px, y: pinY, z: pz },
+              materialId: "mat_anodized_metal",
+              isManufacturablePanel: false,
+            });
+          });
+        });
+      });
+
+      cursorX += bw + panelT;
+    });
   }
 
   const result: ModuleGeometryBreakdown = {

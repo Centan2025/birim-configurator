@@ -1300,3 +1300,100 @@ export const EXTENDED_HARDWARE_PRODUCTS: HardwareProductRecord[] = [
     verification: { sourceTechDataVerified: true, cadGeometryVerified: true, bomFormulaVerified: true, drillingPatternVerified: true, physicalFactorySampleTested: true },
   },
 ];
+
+export interface ProjectHardwarePackageDefinition {
+  id: string;
+  nameTr: string;
+  tierLabelTr: string;
+  taglineTr: string;
+  manufacturerLabel: string;
+  hingeStandardId: string;
+  hingeZeroProtrusionId: string;
+  hingePlateId: string;
+  drawerStandardId: string;
+  drawerHeavyId: string;
+  runnerWoodenId: string;
+  liftStayId: string;
+  liftBiFoldId: string;
+  slidingId: string;
+}
+
+export const PROJECT_HARDWARE_PACKAGES: readonly ProjectHardwarePackageDefinition[] = [
+  {
+    id: "pkg_blum_standard",
+    nameTr: "Blum Standart Konfor",
+    tierLabelTr: "Standart",
+    taglineTr: "CLIP top BLUMOTION 110°/155° + TANDEMBOX antaro + MOVENTO",
+    manufacturerLabel: "Blum",
+    hingeStandardId: "hw_blum_71b3550",
+    hingeZeroProtrusionId: "hw_blum_71b7550",
+    hingePlateId: "hw_blum_173h7100",
+    drawerStandardId: "hw_blum_tandembox_m30",
+    drawerHeavyId: "hw_blum_tandembox_d65",
+    runnerWoodenId: "hw_blum_movento_760h",
+    liftStayId: "hw_blum_aventos_hk_27",
+    liftBiFoldId: "hw_blum_aventos_hf_25",
+    slidingId: "hw_hettich_topline_l",
+  },
+  {
+    id: "pkg_blum_premium",
+    nameTr: "Blum Premium (LEGRABOX)",
+    tierLabelTr: "Premium",
+    taglineTr: "12.8 mm ince metal LEGRABOX pure (40/70 kg) + MOVENTO 70 kg + AVENTOS",
+    manufacturerLabel: "Blum",
+    hingeStandardId: "hw_blum_71b3550",
+    hingeZeroProtrusionId: "hw_blum_71b7550",
+    hingePlateId: "hw_blum_173h7100",
+    drawerStandardId: "hw_blum_legrabox_m40",
+    drawerHeavyId: "hw_blum_legrabox_c70",
+    runnerWoodenId: "hw_blum_movento_766h",
+    liftStayId: "hw_blum_aventos_hk_27",
+    liftBiFoldId: "hw_blum_aventos_hf_25",
+    slidingId: "hw_hettich_topline_xl",
+  },
+  {
+    id: "pkg_hettich_standard",
+    nameTr: "Hettich Sensys & Atira",
+    tierLabelTr: "Alman Standart",
+    taglineTr: "Sensys 8645i/8657i (TH52) + InnoTech Atira + Quadro V6 Silent",
+    manufacturerLabel: "Hettich",
+    hingeStandardId: "hw_hettich_9071205",
+    hingeZeroProtrusionId: "hw_hettich_9099540",
+    hingePlateId: "hw_hettich_9071626",
+    drawerStandardId: "hw_hettich_innotech_atira_144",
+    drawerHeavyId: "hw_hettich_innotech_atira_144",
+    runnerWoodenId: "hw_hettich_quadro_v6_silent",
+    liftStayId: "hw_blum_aventos_hk_27",
+    liftBiFoldId: "hw_blum_aventos_hf_25",
+    slidingId: "hw_hettich_topline_l",
+  },
+  {
+    id: "pkg_hettich_premium",
+    nameTr: "Hettich Premium (AvanTech YOU)",
+    tierLabelTr: "Alman Premium",
+    taglineTr: "Sensys 8645i/8657i + 13 mm AvanTech YOU + TopLine XL 80 kg",
+    manufacturerLabel: "Hettich",
+    hingeStandardId: "hw_hettich_9071205",
+    hingeZeroProtrusionId: "hw_hettich_9099540",
+    hingePlateId: "hw_hettich_9071626",
+    drawerStandardId: "hw_hettich_avantech_m",
+    drawerHeavyId: "hw_hettich_avantech_m",
+    runnerWoodenId: "hw_hettich_quadro_v6_silent",
+    liftStayId: "hw_blum_aventos_hk_27",
+    liftBiFoldId: "hw_blum_aventos_hf_25",
+    slidingId: "hw_hettich_topline_xl",
+  },
+] as const;
+
+export const CORE_FACTORY_VERIFICATION_IDS: readonly string[] = [
+  "hw_blum_71b3550",
+  "hw_blum_71b7550",
+  "hw_blum_173h7100",
+  "hw_hettich_9071205",
+  "hw_hettich_9071626",
+  "hw_blum_legrabox_m40",
+  "hw_blum_tandembox_m30",
+  "hw_blum_movento_760h",
+  "hw_hafele_minifix_15",
+  "hw_hafele_rafix_20",
+] as const;

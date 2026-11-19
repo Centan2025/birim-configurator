@@ -28,7 +28,7 @@ function getOrLoadCustomImageTexture(
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
-  tex.anisotropy = 8;
+  tex.anisotropy = 16;
   tex.minFilter = THREE.LinearMipmapLinearFilter;
   tex.magFilter = THREE.LinearFilter;
   tex.repeat.set(1.2, 1.2);
@@ -185,7 +185,7 @@ function buildNormalMapFromHeightField(
   normalTex.wrapS = THREE.RepeatWrapping;
   normalTex.wrapT = THREE.RepeatWrapping;
   normalTex.repeat.set(repeatX, repeatY);
-  normalTex.anisotropy = 8;
+  normalTex.anisotropy = 16;
   normalTex.minFilter = THREE.LinearMipmapLinearFilter;
   normalTex.magFilter = THREE.LinearFilter;
   normalTex.needsUpdate = true;
@@ -262,7 +262,7 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     colorMap.wrapT = THREE.RepeatWrapping;
     colorMap.repeat.set(2.4, 2.4);
     colorMap.colorSpace = THREE.SRGBColorSpace;
-    colorMap.anisotropy = 4;
+    colorMap.anisotropy = 16;
     colorMap.needsUpdate = true;
 
     const roughnessMap = markSharedTexture(new THREE.CanvasTexture(roughCanvas));
@@ -397,7 +397,7 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     colorMap.wrapS = THREE.RepeatWrapping;
     colorMap.wrapT = THREE.RepeatWrapping;
     colorMap.colorSpace = THREE.SRGBColorSpace;
-    colorMap.anisotropy = 8;
+    colorMap.anisotropy = 16;
     colorMap.minFilter = THREE.LinearMipmapLinearFilter;
     colorMap.magFilter = THREE.LinearFilter;
     colorMap.needsUpdate = true;
@@ -405,7 +405,7 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     const roughnessMap = markSharedTexture(new THREE.CanvasTexture(roughCanvas));
     roughnessMap.wrapS = THREE.RepeatWrapping;
     roughnessMap.wrapT = THREE.RepeatWrapping;
-    roughnessMap.anisotropy = 8;
+    roughnessMap.anisotropy = 16;
     roughnessMap.minFilter = THREE.LinearMipmapLinearFilter;
     roughnessMap.magFilter = THREE.LinearFilter;
     roughnessMap.needsUpdate = true;
@@ -453,7 +453,7 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     const roughnessMap = markSharedTexture(new THREE.CanvasTexture(roughCanvas));
     roughnessMap.wrapS = THREE.RepeatWrapping;
     roughnessMap.wrapT = THREE.RepeatWrapping;
-    roughnessMap.anisotropy = 4;
+    roughnessMap.anisotropy = 16;
     roughnessMap.needsUpdate = true;
 
     const normalMap = buildNormalMapFromHeightField(heightField, S, S, 0.9, 1, 1);
@@ -493,7 +493,7 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     roughnessMap.wrapS = THREE.RepeatWrapping;
     roughnessMap.wrapT = THREE.RepeatWrapping;
     roughnessMap.repeat.set(2.5, 2.5);
-    roughnessMap.anisotropy = 4;
+    roughnessMap.anisotropy = 16;
     roughnessMap.needsUpdate = true;
 
     const normalMap = buildNormalMapFromHeightField(heightField, S, S, 0.35, 2.5, 2.5);
@@ -574,7 +574,7 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     colorMap.wrapS = THREE.RepeatWrapping;
     colorMap.wrapT = THREE.RepeatWrapping;
     colorMap.colorSpace = THREE.SRGBColorSpace;
-    colorMap.anisotropy = 8;
+    colorMap.anisotropy = 16;
     colorMap.minFilter = THREE.LinearMipmapLinearFilter;
     colorMap.magFilter = THREE.LinearFilter;
     colorMap.needsUpdate = true;
@@ -582,7 +582,7 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     const roughnessMap = markSharedTexture(new THREE.CanvasTexture(roughCanvas));
     roughnessMap.wrapS = THREE.RepeatWrapping;
     roughnessMap.wrapT = THREE.RepeatWrapping;
-    roughnessMap.anisotropy = 8;
+    roughnessMap.anisotropy = 16;
     roughnessMap.minFilter = THREE.LinearMipmapLinearFilter;
     roughnessMap.magFilter = THREE.LinearFilter;
     roughnessMap.needsUpdate = true;
@@ -655,7 +655,7 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     colorMap.wrapS = THREE.RepeatWrapping;
     colorMap.wrapT = THREE.RepeatWrapping;
     colorMap.colorSpace = THREE.SRGBColorSpace;
-    colorMap.anisotropy = 8;
+    colorMap.anisotropy = 16;
     colorMap.minFilter = THREE.LinearMipmapLinearFilter;
     colorMap.magFilter = THREE.LinearFilter;
     colorMap.needsUpdate = true;
@@ -663,7 +663,7 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     const roughnessMap = markSharedTexture(new THREE.CanvasTexture(roughCanvas));
     roughnessMap.wrapS = THREE.RepeatWrapping;
     roughnessMap.wrapT = THREE.RepeatWrapping;
-    roughnessMap.anisotropy = 8;
+    roughnessMap.anisotropy = 16;
     roughnessMap.minFilter = THREE.LinearMipmapLinearFilter;
     roughnessMap.magFilter = THREE.LinearFilter;
     roughnessMap.needsUpdate = true;
@@ -702,7 +702,7 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     const roughnessMap = markSharedTexture(new THREE.CanvasTexture(roughCanvas));
     roughnessMap.wrapS = THREE.RepeatWrapping;
     roughnessMap.wrapT = THREE.RepeatWrapping;
-    roughnessMap.anisotropy = 4;
+    roughnessMap.anisotropy = 16;
     roughnessMap.needsUpdate = true;
     const normalMap = buildNormalMapFromHeightField(heightField, S, S, 0.35, 2, 2);
     const set: CachedTextureSet = { roughnessMap, normalMap };
@@ -790,7 +790,7 @@ export function getArchitecturalWallTexture(
   tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(3.2, 2.1);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
+  tex.anisotropy = 16;
   tex.needsUpdate = true;
   wallTextureCache.set(tone, tex);
 
@@ -911,7 +911,7 @@ export function getArchitecturalFloorTexture(
   tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(rep, rep);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
+  tex.anisotropy = 16;
   tex.needsUpdate = true;
   floorTextureCache.set(style, tex);
 
@@ -1317,7 +1317,7 @@ export function getV3PbrMaterial(
         : surfaceFinishOverride === "matte"
         ? 0.56
         : 0.44;
-    const clearcoatVal = surfaceFinishOverride === "gloss" ? 0.82 : surfaceFinishOverride === "matte" ? 0.12 : 0.24;
+    const clearcoatVal = surfaceFinishOverride === "gloss" ? 0.88 : surfaceFinishOverride === "matte" ? 0.14 : 0.30;
 
     const mat = new THREE.MeshPhysicalMaterial({
       color: new THREE.Color("#ffffff"),
@@ -1332,7 +1332,7 @@ export function getV3PbrMaterial(
       clearcoat: clearcoatVal,
       clearcoatRoughness: surfaceFinishOverride === "gloss" ? 0.07 : 0.36,
       reflectivity: 0.66,
-      envMapIntensity: 1.08,
+      envMapIntensity: 1.18,
       emissive,
       emissiveIntensity,
     });
@@ -1387,7 +1387,7 @@ export function getV3PbrMaterial(
       clearcoat: isGlossLacq ? 0.92 : 0.26,
       clearcoatRoughness: isGlossLacq ? 0.04 : 0.26,
       reflectivity: 0.78,
-      envMapIntensity: 1.08,
+      envMapIntensity: 1.18,
       emissive,
       emissiveIntensity,
     });

@@ -19,6 +19,9 @@ import {
   Wrench,
   ShieldAlert,
   Filter,
+  Play,
+  Trash2,
+  Sparkles,
 } from "lucide-react";
 import {
   HARDWARE_PRODUCTION_STATUS_META,
@@ -30,13 +33,15 @@ import {
 } from "@birim/core";
 import {
   HARDWARE_CATEGORY_GROUPS,
+  PROJECT_HARDWARE_PACKAGES,
+  CORE_FACTORY_VERIFICATION_IDS,
   getAllHardwareProducts,
   getHardwareProductById,
   type HardwareCategoryGroupId,
   type HardwareProductRecord,
   type HardwareUsagePurpose,
 } from "@birim/catalog";
-import type { UserExperienceTier } from "../store/useConfiguratorStore";
+import { useConfiguratorStore, type UserExperienceTier } from "../store/useConfiguratorStore";
 
 const FAVORITES_STORAGE_KEY = "birim_hw_favorites_v1";
 const RECENTS_STORAGE_KEY = "birim_hw_recents_v1";
@@ -297,7 +302,7 @@ function startHardware3DDrag(
   window.addEventListener("keydown", onKeyDown);
 }
 
-export const RightHardwareLibraryPanel: React.FC<RightHardwareLibraryPanelProps> = ({
+export const RightHardwareLibraryPanel: React.FC<RightHardwareLibraryPanelProps> = React.memo(({
   activeModule,
   activeBayIndex,
   experienceTier,
@@ -312,6 +317,145 @@ export const RightHardwareLibraryPanel: React.FC<RightHardwareLibraryPanelProps>
   const [selectedStatus, setSelectedStatus] = useState<HardwareProductionStatus | "all">("all");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [showFilters, setShowFilters] = useState(false);
+  const [showPackages, setShowPackages] = useState(experienceTier === "simple");
+  const [showFactoryChecklist, setShowFactoryChecklist] = useState(false);
+
+  // Contextual bay hint: detect active bay doors/drawers so user sees relevant families first
+  const activeBay = activeModule.bays[activeBayIndex];
+  const bayContextHint = useMemo(() => {
+    const hasDrawers = (activeBay?.drawers || []).some((d) => !d.isHidden);
+    const hasDoor = Boolean(activeBay?.door && activeBay.door.type !== "open");
+    const isLift = Boolean(activeBay?.door?.type?.startsWith("lift"));
+    const isSliding = Boolean(activeBay?.door?.type?.startsWith("sliding"));
+    if (isLift) return { labelTr: "Kalkar Kapak Önerileri", familyId: "fam_lift_system" as HardwareCategoryGroupId };
+    if (isSliding) return { labelTr: "Sürgü Sistemi Önerileri", familyId: "fam_sliding_system" as HardwareCategoryGroupId };
+    if (hasDrawers) return { labelTr: "Çekmece Ray & Kasa Önerileri", familyId: "fam_drawer_box" as HardwareCategoryGroupId };
+    if (hasDoor) return { labelTr: "Menteşe & Tabla Önerileri", familyId: "fam_hinge_concealed" as HardwareCategoryGroupId };
+    return { labelTr: "Dolap İçi Aksesuar Önerileri", familyId: "fam_kitchen_acc" as HardwareCategoryGroupId };
+  }, [activeBay]);
+
+  // Strictly lazy project-wide package price deltas (zero cost when collapsed!)
+  const packagePreviews = useMemo(() => {
+    if (!showPackages) return [];
+    const st = useConfiguratorStore.getState();
+    return PROJECT_HARDWARE_PACKAGES.map((pkg) => ({
+      pkg,
+      preview: st.previewHardwarePackageDelta ? st.previewHardwarePackageDelta(pkg.id) : null,
+    }));
+  }, [activeModule.id, activeModule.dimensions.width, activeModule.dimensions.height, activeModule.bays.length, showPackages]);
+
+  // Listen to 3D clicked part for automatic contextual hardware focus
+  useEffect(() => {
+    const on3DPartSelected = (ev: Event) => {
+      const kind = (ev as CustomEvent<{ partKind?: string }>).detail?.partKind;
+      if (kind === "door") setSelectedCategory("fam_hinge_concealed");
+      else if (kind === "drawer") setSelectedCategory("fam_drawer_box");
+      else if (kind === "shelf") setSelectedCategory("fam_connector");
+    };
+    window.addEventListener("birim:3d-part-selected", on3DPartSelected);
+    return () => window.removeEventListener("birim:3d-part-selected", on3DPartSelected);
+  }, []);
+
+  // Installed hardware summary for active bay
+  const installedBayHardware = useMemo(() => {
+    const list: Array<{
+      key: string;
+      slotLabel: string;
+      targetKind: "door" | "drawer" | "special_fitting";
+      targetId?: string;
+      familyId: HardwareCategoryGroupId;
+      hw: HardwareProductRecord | undefined;
+    }> = [];
+    if (activeBay?.door && activeBay.door.type !== "open") {
+      const hw = getHardwareProductById(activeBay.door.hardwareProductId || "hw_blum_71b3550");
+      list.push({
+        key: `door_${activeBay.door.id}`,
+        slotLabel: "Kapak",
+        targetKind: "door",
+        targetId: activeBay.door.id,
+        familyId: (hw?.familyId || "fam_hinge_concealed") as HardwareCategoryGroupId,
+        hw,
+      });
+    }
+    (activeBay?.drawers || []).forEach((d, idx) => {
+      if (d.isHidden) return;
+      const hw = getHardwareProductById(d.hardwareProductId || "hw_blum_tandembox_m30");
+      list.push({
+        key: `drw_${d.id}`,
+        slotLabel: `Çekmece #${idx + 1}`,
+        targetKind: "drawer",
+        targetId: d.id,
+        familyId: (hw?.familyId || "fam_drawer_box") as HardwareCategoryGroupId,
+        hw,
+      });
+    });
+    (activeBay?.specialFittings || []).forEach((sf) => {
+      if (sf.isHidden) return;
+      const hw = getHardwareProductById(sf.hardwareProductId);
+      list.push({
+        key: `sf_${sf.id}`,
+        slotLabel: "Aksesuar",
+        targetKind: "special_fitting",
+        targetId: sf.id,
+        familyId: (hw?.familyId || "fam_kitchen_acc") as HardwareCategoryGroupId,
+        hw,
+      });
+    });
+    return list;
+  }, [activeBay]);
+
+  // Automatic Companion & Safety Wizard Suggestions
+  const smartCompanionPrompts = useMemo(() => {
+    const prompts: Array<{
+      id: string;
+      titleTr: string;
+      actionLabelTr: string;
+      onRun: () => void;
+    }> = [];
+    const hasInternalDrw = (activeBay?.drawers || []).some((d) => d.isInternal && !d.isHidden);
+    const doorHwId = activeBay?.door?.hardwareProductId || "hw_blum_71b3550";
+    if (
+      hasInternalDrw &&
+      activeBay?.door &&
+      activeBay.door.type !== "open" &&
+      !doorHwId.includes("71b7550") &&
+      !doorHwId.includes("9099540")
+    ) {
+      prompts.push({
+        id: "prompt_155_zero",
+        titleTr: "İç çekmece algılandı: 110° menteşe çekmece çıkışını engelleyebilir.",
+        actionLabelTr: "155° Sıfır Çıkıntıya (71B7550) Yükselt",
+        onRun: () => {
+          const res = onApplyHardware(activeBayIndex, "hw_blum_71b7550");
+          setFeedbackBanner({ tone: res.applied ? "ok" : "error", text: res.messageTr });
+        },
+      });
+    }
+    if (activeModule.dimensions.height >= 1800 && !activeModule.carcass.wallAnchored) {
+      prompts.push({
+        id: "prompt_en14749_tip",
+        titleTr: `Modül yüksekliği ${Math.round(activeModule.dimensions.height)} mm: EN 14749 duvar sabitleme braketi önerilir.`,
+        actionLabelTr: "EN 14749 Braketi Ekle",
+        onRun: () => {
+          const res = onApplyHardware(activeBayIndex, "hw_en14749_anti_tip");
+          setFeedbackBanner({ tone: res.applied ? "ok" : "error", text: res.messageTr });
+        },
+      });
+    }
+    return prompts;
+  }, [activeBay, activeBayIndex, activeModule.dimensions.height, activeModule.carcass.wallAnchored, onApplyHardware]);
+
+  const doorOpenAngle = useConfiguratorStore((s) => s.doorOpenAngleDeg);
+  const drawerOpenMm = useConfiguratorStore((s) => s.drawerOpenMm);
+  const isKinematicOpen = doorOpenAngle > 5 || drawerOpenMm > 5;
+
+  const coreFactoryProducts = useMemo(
+    () =>
+      CORE_FACTORY_VERIFICATION_IDS.map((id) => getHardwareProductById(id)).filter(
+        (x): x is HardwareProductRecord => Boolean(x)
+      ),
+    []
+  );
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [favorites, setFavorites] = useState<string[]>([]);
   const [recents, setRecents] = useState<string[]>([]);
@@ -364,13 +508,15 @@ export const RightHardwareLibraryPanel: React.FC<RightHardwareLibraryPanelProps>
     return Array.from(map.entries());
   }, [allProducts]);
 
+  const structuralEvalKey = `${activeModule.id}|${activeModule.dimensions.width}x${activeModule.dimensions.height}x${activeModule.dimensions.depth}|${activeModule.carcass.doorThickness || 18}|b${activeBayIndex}|${activeBay?.door?.type || "open"}|${(activeBay?.drawers || []).length}|${(activeBay?.drawers || []).some((d) => d.isInternal)}`;
   const evaluationMap = useMemo(() => {
     const map = new Map<string, ReturnType<typeof evaluateHardwareMountPlacement>>();
     allProducts.forEach((p) => {
       map.set(p.id, evaluateHardwareMountPlacement(activeModule, p, activeBayIndex));
     });
     return map;
-  }, [allProducts, activeModule, activeBayIndex]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allProducts, structuralEvalKey]);
 
   const resizeReport = useMemo(
     () =>
@@ -620,7 +766,7 @@ export const RightHardwareLibraryPanel: React.FC<RightHardwareLibraryPanelProps>
   };
 
   return (
-    <div className="space-y-2.5" data-testid="v11-hardware-library-panel" role="region" aria-label="Akıllı Donanım Kütüphanesi">
+    <div className="space-y-2.5 min-w-0 max-w-full overflow-x-hidden" data-testid="v11-hardware-library-panel" role="region" aria-label="Akıllı Donanım Kütüphanesi">
       {/* Ölçü değişikliği sonrası uyumsuz donanım uyarıları */}
       {!resizeReport.allCompatible && (
         <div
@@ -674,6 +820,220 @@ export const RightHardwareLibraryPanel: React.FC<RightHardwareLibraryPanelProps>
           }`}
         >
           {feedbackBanner.text}
+        </div>
+      )}
+
+      {/* Aktif Bölmede Ne Takılı? + Canlı 3D Aç/Kapa Testi & Boşluklar */}
+      <div className="rounded-2xl bg-white border border-[#E6E1D6] p-2.5 space-y-2" data-testid="v11-installed-bay-hardware-bar">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[11px] font-bold text-[#141413]">
+            Bölme {activeBayIndex + 1} • Takılı Donanımlar ({installedBayHardware.length})
+          </span>
+          <button
+            type="button"
+            data-testid="v11-kinematic-preview-btn"
+            onClick={() => useConfiguratorStore.getState().toggleDoorOpen(true)}
+            className={`px-2 py-1 rounded-lg text-[10px] font-semibold flex items-center gap-1 transition cursor-pointer ${
+              isKinematicOpen
+                ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                : "bg-[#141413] text-white hover:bg-[#292524]"
+            }`}
+            title="3D sahnede kapak ve çekmeceleri canlı aç/kapa"
+          >
+            <Play className="w-2.5 h-2.5" />
+            <span>{isKinematicOpen ? "3D Kapat" : "3D Aç/Kapa Testi"}</span>
+          </button>
+        </div>
+
+        {/* Milimetrik Boşluk Göstergesi */}
+        <div className="flex flex-wrap gap-1 text-[9.5px] font-mono text-[#57534E]">
+          <span className="px-1.5 py-0.5 rounded-md bg-[#FAF8F4] border border-[#E6E1D6]">
+            Kapak Payı: {activeModule.carcass.doorPerimeterGap ?? 2} mm
+          </span>
+          <span className="px-1.5 py-0.5 rounded-md bg-[#FAF8F4] border border-[#E6E1D6]">
+            Arka Ray Payı: 15 mm
+          </span>
+          {activeBay?.door?.openingTechnology === "push_to_open" && (
+            <span className="px-1.5 py-0.5 rounded-md bg-blue-50 border border-blue-200 text-blue-800">
+              Bas-Aç Boşluğu: 2.5 mm
+            </span>
+          )}
+        </div>
+
+        {installedBayHardware.length === 0 ? (
+          <p className="text-[10.5px] text-[#78716C]">Bu bölmede henüz özel donanım atanmamış.</p>
+        ) : (
+          <div className="space-y-1">
+            {installedBayHardware.map((row) => (
+              <div
+                key={row.key}
+                className="flex items-center justify-between gap-1.5 px-2 py-1 rounded-xl bg-[#FAF8F4] border border-[#ECE7DD] text-[10.5px]"
+              >
+                <div className="min-w-0">
+                  <span className="font-bold text-[#141413]">{row.slotLabel}:</span>{" "}
+                  <span className="text-[#57534E] truncate">
+                    {row.hw ? `${row.hw.manufacturerName.split(" ")[0]} ${row.hw.sku}` : "Standart"}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCategory(row.familyId);
+                      setQuickScope("compatible");
+                    }}
+                    className="px-1.5 py-0.5 rounded-md bg-white border border-[#DFD9CE] text-[9.5px] font-semibold text-[#141413] hover:border-[#141413] cursor-pointer"
+                  >
+                    Değiştir
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const res = useConfiguratorStore
+                        .getState()
+                        .removeHardwareFromBay(activeBayIndex, row.targetKind, row.targetId);
+                      setFeedbackBanner({ tone: res.removed ? "ok" : "error", text: res.messageTr });
+                      setTimeout(() => setFeedbackBanner(null), 3500);
+                    }}
+                    aria-label={`${row.slotLabel} donanımını sök`}
+                    className="w-5 h-5 rounded-md hover:bg-red-50 text-[#78716C] hover:text-red-600 flex items-center justify-center cursor-pointer"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Otomatik Kardeş Parça & Güvenlik Eşleştirme Sihirbazı */}
+      {smartCompanionPrompts.length > 0 && (
+        <div className="space-y-1.5" data-testid="v11-smart-companion-wizard">
+          {smartCompanionPrompts.map((pr) => (
+            <div
+              key={pr.id}
+              className="rounded-xl bg-amber-50/90 border border-amber-200 p-2.5 space-y-1.5 text-[10.5px]"
+            >
+              <div className="flex items-start gap-1.5 text-amber-900 font-medium">
+                <Sparkles className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                <span>{pr.titleTr}</span>
+              </div>
+              <button
+                type="button"
+                onClick={pr.onRun}
+                className="px-2.5 py-1 rounded-lg bg-[#141413] text-white text-[10px] font-semibold hover:bg-[#292524] cursor-pointer"
+              >
+                {pr.actionLabelTr}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 0. Proje Geneli Donanım Paketi & Anlık Fiyat Farkı (Müşteri / Satıcı Aracı) */}
+      <div className="rounded-2xl bg-white border border-[#E6E1D6] overflow-hidden" data-testid="v11-hardware-packages-box">
+        <button
+          type="button"
+          onClick={() => setShowPackages((v) => !v)}
+          aria-expanded={showPackages}
+          className="w-full px-3 py-2 flex items-center justify-between bg-[#F5F2EA]/80 hover:bg-[#EFECE4] transition cursor-pointer"
+        >
+          <span className="text-[11px] font-bold text-[#141413]">
+            Proje Donanım Paketi & Fiyat Farkı
+          </span>
+          <span className="text-[10px] font-semibold text-[#8C7A6B]">
+            {showPackages ? "Gizle" : "4 Paket"}
+          </span>
+        </button>
+        {showPackages && (
+          <div className="p-2 grid grid-cols-2 gap-1.5">
+            {packagePreviews.map(({ pkg, preview }) => {
+              const delta = preview?.deltaEur ?? 0;
+              return (
+                <button
+                  key={pkg.id}
+                  type="button"
+                  data-testid={`v11-hw-pkg-${pkg.id}`}
+                  onClick={() => {
+                    const res = useConfiguratorStore.getState().applyHardwarePackageToProject(pkg.id);
+                    setFeedbackBanner({ tone: res.applied ? "ok" : "error", text: res.messageTr });
+                    setTimeout(() => setFeedbackBanner(null), 4500);
+                  }}
+                  className="text-left p-2 rounded-xl border border-[#E6E1D6] bg-[#FAF8F4] hover:border-[#141413] hover:bg-white transition cursor-pointer space-y-1"
+                >
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="text-[9.5px] font-bold uppercase text-[#8C7A6B]">{pkg.tierLabelTr}</span>
+                    <span
+                      className={`text-[10px] font-mono font-bold ${
+                        delta > 0 ? "text-amber-700" : delta < 0 ? "text-emerald-700" : "text-[#78716C]"
+                      }`}
+                    >
+                      {delta === 0 ? "Mevcut" : `${delta > 0 ? "+" : ""}€${delta}`}
+                    </span>
+                  </div>
+                  <div className="text-[11px] font-bold text-[#141413] leading-tight">{pkg.nameTr}</div>
+                  <div className="text-[9.5px] text-[#57534E] line-clamp-2 leading-snug">{pkg.taglineTr}</div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Bağlamsal Bölme Önerisi (Tek Tıkla İlgili Aileye Git) */}
+      <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl bg-[#F5F2EA] border border-[#E6E1D6] text-[10.5px]">
+        <span className="text-[#57534E] truncate">
+          <span className="font-bold text-[#141413]">Bölme {activeBayIndex + 1}:</span> {bayContextHint.labelTr}
+        </span>
+        <button
+          type="button"
+          onClick={() => {
+            setSelectedCategory(bayContextHint.familyId);
+            setQuickScope("compatible");
+          }}
+          className="px-2 py-0.5 rounded-lg bg-[#141413] text-white text-[10px] font-semibold shrink-0 hover:bg-[#292524] cursor-pointer"
+        >
+          Filtrele
+        </button>
+      </div>
+
+      {/* Üretim Modu: Fabrika Çekirdek 10 SKU Onay Takibi */}
+      {experienceTier === "factory" && (
+        <div className="rounded-2xl bg-white border border-[#E6E1D6] overflow-hidden" data-testid="v11-factory-core-checklist">
+          <button
+            type="button"
+            onClick={() => setShowFactoryChecklist((v) => !v)}
+            className="w-full px-3 py-2 flex items-center justify-between bg-emerald-50/70 hover:bg-emerald-50 transition cursor-pointer"
+          >
+            <span className="text-[11px] font-bold text-emerald-900">
+              Fabrika Çekirdek 10 SKU Doğrulama Listesi
+            </span>
+            <span className="text-[10px] font-semibold text-emerald-700">
+              {showFactoryChecklist ? "Gizle" : `${coreFactoryProducts.length} SKU`}
+            </span>
+          </button>
+          {showFactoryChecklist && (
+            <div className="p-2 space-y-1 max-h-48 overflow-y-auto text-[10.5px]">
+              {coreFactoryProducts.map((cp) => (
+                <div key={cp.id} className="flex items-center justify-between gap-2 px-2 py-1 rounded-lg bg-[#FAF8F4] border border-[#ECE7DD]">
+                  <div className="min-w-0">
+                    <span className="font-mono font-bold text-[#141413]">{cp.sku}</span>
+                    <span className="text-[#57534E] ml-1.5 truncate">{cp.name}</span>
+                  </div>
+                  <span
+                    className={`px-1.5 py-0.5 rounded-full text-[9.5px] font-semibold shrink-0 ${
+                      cp.verification.physicalFactorySampleTested
+                        ? "bg-emerald-100 text-emerald-800"
+                        : "bg-amber-100 text-amber-800"
+                    }`}
+                  >
+                    {cp.verification.physicalFactorySampleTested ? "Numune OK" : "CNC Bekliyor"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -821,7 +1181,7 @@ export const RightHardwareLibraryPanel: React.FC<RightHardwareLibraryPanelProps>
       )}
 
       {/* Kategori Filtre Çipleri */}
-      <div className="flex gap-1 overflow-x-auto pb-1 no-scrollbar">
+      <div className="flex flex-wrap gap-1 w-full min-w-0" data-testid="v11-hardware-category-bar">
         <button
           type="button"
           onClick={() => setSelectedCategory("all")}
@@ -1022,4 +1382,5 @@ export const RightHardwareLibraryPanel: React.FC<RightHardwareLibraryPanelProps>
       )}
     </div>
   );
-};
+});
+RightHardwareLibraryPanel.displayName = "RightHardwareLibraryPanel";

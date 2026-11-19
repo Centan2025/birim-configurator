@@ -967,6 +967,803 @@ export function createComponentMesh(
   }
 
   // 1D. REALISTIC 3D WARDROBE HANGING RAIL (Ø25mm Oval/Round Chrome Bar + Side Rosette Flanges + Anti-Slip Strip + Coat Hangers)
+  // 1B. REALISTIC 3D CONCEALED TELESCOPIC DRAWER RUNNER (Blum MOVENTO / LEGRABOX / Hettich Quadro)
+  // Axis verified: `cylinder` = Z-axis, `cylinderY` = Y-axis, `cylinderY` + rotZ(PI/2) = X-axis.
+  if (comp.role === "drawer_slide") {
+    const { width: w, height: h, depth: d } = comp.dimensions;
+    const isRightSlide = comp.id.includes("right");
+    const isHettich = (comp.label || "").toLowerCase().includes("hettich");
+    const inwardSign = isRightSlide ? -1 : 1;
+    const railLen = Math.max(180, d);
+
+    const zincSteelMat = new THREE.MeshStandardMaterial({
+      color: 0xe6ecf4,
+      metalness: 0.95,
+      roughness: 0.17,
+      envMapIntensity: 1.45,
+    });
+    const innerCarriageMat = new THREE.MeshStandardMaterial({
+      color: 0xcbd5e1,
+      metalness: 0.92,
+      roughness: 0.21,
+      envMapIntensity: 1.35,
+    });
+    const darkPolymerMat = new THREE.MeshStandardMaterial({
+      color: 0x26292e,
+      metalness: 0.12,
+      roughness: 0.68,
+    });
+    const latchAccentMat = new THREE.MeshStandardMaterial({
+      color: isHettich ? 0x334155 : 0xea580c,
+      metalness: 0.08,
+      roughness: 0.45,
+    });
+
+    // A. Outer Carcass Mounting C-Channel (bolted flush to carcass side wall)
+    const wallX = isRightSlide ? w - 2.2 : 2.2;
+    const outerWeb = new THREE.Mesh(box, zincSteelMat);
+    outerWeb.scale.set(2.8, Math.max(24, h * 0.88), railLen);
+    outerWeb.position.set(wallX, cy, cz);
+    tagSubMesh(outerWeb, userData, comp);
+    group.add(outerWeb);
+
+    [-1, 1].forEach((vy) => {
+      const flange = new THREE.Mesh(box, zincSteelMat);
+      flange.scale.set(8.5, 2.2, railLen * 0.98);
+      flange.position.set(wallX + inwardSign * 3.8, cy + vy * (h * 0.42), cz);
+      tagSubMesh(flange, userData, comp);
+      group.add(flange);
+    });
+
+    // System 32 Euro mounting screws (axis along X -> cylinderY rotated around Z by PI/2)
+    const screwOffsetsFromFront = [37, 69, Math.min(railLen - 45, 261), Math.max(110, railLen - 37)];
+    screwOffsetsFromFront.forEach((zFromFront) => {
+      const sz = d - zFromFront;
+      if (sz < 16 || sz > d - 16) return;
+      const screw = new THREE.Mesh(cylinderY, screwHeadMat);
+      screw.rotation.z = Math.PI / 2;
+      screw.scale.set(5.5, 2.6, 5.5);
+      screw.position.set(wallX + inwardSign * 1.8, cy + 2, sz);
+      tagSubMesh(screw, userData, comp);
+      group.add(screw);
+    });
+
+    // B. Middle Telescopic Synchronized Carriage + Ball/Roller Cage
+    const midX = wallX + inwardSign * 6.4;
+    const midCarriage = new THREE.Mesh(box, innerCarriageMat);
+    midCarriage.scale.set(4.8, Math.max(14, h * 0.46), railLen * 0.88);
+    midCarriage.position.set(midX, cy - 1, cz + railLen * 0.04);
+    tagSubMesh(midCarriage, userData, comp);
+    group.add(midCarriage);
+
+    const rollerCage = new THREE.Mesh(box, darkPolymerMat);
+    rollerCage.scale.set(2.6, 8.5, railLen * 0.56);
+    rollerCage.position.set(midX - inwardSign * 1.4, cy - 1, cz);
+    tagSubMesh(rollerCage, userData, comp);
+    group.add(rollerCage);
+
+    // C. Inner Undermount Drawer Support L-Rail
+    const innerX = wallX + inwardSign * 11.2;
+    const supportShelf = new THREE.Mesh(box, zincSteelMat);
+    supportShelf.scale.set(8.8, 3.2, railLen * 0.94);
+    supportShelf.position.set(innerX, cy + h * 0.16, cz + railLen * 0.02);
+    tagSubMesh(supportShelf, userData, comp);
+    group.add(supportShelf);
+
+    // D. Hydraulic Soft-Close Damper Cylinder (axis along Z -> `cylinder` with NO rotation!)
+    const damperLen = Math.min(115, railLen * 0.3);
+    const damperZ = Math.max(60, railLen * 0.26);
+    const damperBody = new THREE.Mesh(cylinder, darkPolymerMat);
+    damperBody.scale.set(7.5, 7.5, damperLen);
+    damperBody.position.set(midX + inwardSign * 1.2, cy - h * 0.24, damperZ);
+    tagSubMesh(damperBody, userData, comp);
+    group.add(damperBody);
+
+    const damperRod = new THREE.Mesh(cylinder, chromeHardwareMat);
+    damperRod.scale.set(3.2, 3.2, damperLen * 0.65);
+    damperRod.position.set(midX + inwardSign * 1.2, cy - h * 0.24, damperZ + damperLen * 0.68);
+    tagSubMesh(damperRod, userData, comp);
+    group.add(damperRod);
+
+    // E. Front 4D Locking Device Latch (Blum Orange / Hettich Slate)
+    const frontLatch = new THREE.Mesh(box, latchAccentMat);
+    frontLatch.scale.set(14, 9.5, 32);
+    frontLatch.position.set(innerX + inwardSign * 3.5, cy + h * 0.22, d - 22);
+    tagSubMesh(frontLatch, userData, comp);
+    group.add(frontLatch);
+
+    const latchTrigger = new THREE.Mesh(box, darkPolymerMat);
+    latchTrigger.scale.set(9, 4.5, 16);
+    latchTrigger.position.set(innerX + inwardSign * 5.2, cy + h * 0.05, d - 16);
+    tagSubMesh(latchTrigger, userData, comp);
+    group.add(latchTrigger);
+
+    // F. Rear Positioning Hook Pin (axis along Z -> `cylinder` with NO rotation!)
+    const rearHook = new THREE.Mesh(cylinder, chromeHardwareMat);
+    rearHook.scale.set(4.5, 4.5, 14);
+    rearHook.position.set(innerX, cy + h * 0.34, 10);
+    tagSubMesh(rearHook, userData, comp);
+    group.add(rearHook);
+
+    return group;
+  }
+
+  // 1C. REALISTIC METAL DRAWER SIDE PROFILE (Blum LEGRABOX / TANDEMBOX / Hettich AvanTech)
+  if (
+    (comp.role === "drawer_side_left" || comp.role === "drawer_side_right") &&
+    comp.materialId === "mat_anodized_metal"
+  ) {
+    const { width: w, height: h, depth: d } = comp.dimensions;
+    const isRight = comp.role === "drawer_side_right";
+    const inward = isRight ? -1 : 1;
+
+    const brushedAluMat = new THREE.MeshStandardMaterial({
+      color: 0xdbe3ec,
+      metalness: 0.93,
+      roughness: 0.2,
+      envMapIntensity: 1.4,
+    });
+    const chromeRodMat = new THREE.MeshStandardMaterial({
+      color: 0xf1f5f9,
+      metalness: 0.97,
+      roughness: 0.12,
+      envMapIntensity: 1.5,
+    });
+    const capMat = new THREE.MeshStandardMaterial({
+      color: 0x334155,
+      metalness: 0.35,
+      roughness: 0.45,
+    });
+
+    const baseWallH = Math.min(h, Math.max(58, h * 0.62));
+    const sideWall = new THREE.Mesh(box, brushedAluMat);
+    sideWall.scale.set(Math.max(10, w), baseWallH, d);
+    sideWall.position.set(cx, baseWallH / 2, cz);
+    tagSubMesh(sideWall, userData, comp);
+    group.add(sideWall);
+
+    const topTrim = new THREE.Mesh(box, chromeRodMat);
+    topTrim.scale.set(Math.max(10.5, w + 0.5), 3, d);
+    topTrim.position.set(cx, baseWallH + 1.5, cz);
+    tagSubMesh(topTrim, userData, comp);
+    group.add(topTrim);
+
+    const brandCap = new THREE.Mesh(box, capMat);
+    brandCap.scale.set(1.8, 12, 34);
+    brandCap.position.set(cx + inward * (w / 2 + 0.6), baseWallH * 0.62, d - 68);
+    tagSubMesh(brandCap, userData, comp);
+    group.add(brandCap);
+
+    // High pot-and-pan gallery railing rod (axis along Z -> `cylinder` with NO rotation!)
+    if (h > baseWallH + 18) {
+      const railY = h - 8;
+      const galleryRod = new THREE.Mesh(cylinder, chromeRodMat);
+      galleryRod.scale.set(8, 8, Math.max(40, d - 16));
+      galleryRod.position.set(cx, railY, cz);
+      tagSubMesh(galleryRod, userData, comp);
+      group.add(galleryRod);
+
+      [14, d - 14].forEach((pz) => {
+        const post = new THREE.Mesh(box, brushedAluMat);
+        post.scale.set(Math.max(9, w * 0.8), railY - baseWallH, 10);
+        post.position.set(cx, baseWallH + (railY - baseWallH) / 2, pz);
+        tagSubMesh(post, userData, comp);
+        group.add(post);
+      });
+    }
+    return group;
+  }
+
+  // 1D. REALISTIC 3D SPECIAL FITTINGS & ARCHITECTURAL HARDWARE (100% Axis-Verified)
+  if (comp.role === "special_fitting") {
+    const { width: w, height: h, depth: d } = comp.dimensions;
+    const idLower = (comp.id || "").toLowerCase();
+    const lblLower = (comp.label || "").toLowerCase();
+
+    const chromeMetalMat = new THREE.MeshStandardMaterial({
+      color: 0xeef2f6,
+      metalness: 0.96,
+      roughness: 0.14,
+      envMapIntensity: 1.5,
+    });
+    const brushedSteelMat = new THREE.MeshStandardMaterial({
+      color: 0xd5dce6,
+      metalness: 0.92,
+      roughness: 0.22,
+      envMapIntensity: 1.35,
+    });
+    const darkAnodizedMat = new THREE.MeshStandardMaterial({
+      color: 0x22252a,
+      metalness: 0.25,
+      roughness: 0.55,
+    });
+    const traySurfaceMat = new THREE.MeshStandardMaterial({
+      color: 0xf4f1ea,
+      metalness: 0.05,
+      roughness: 0.52,
+    });
+
+    // 1. Adjustable Axilo Plinth Foot (Vertical Y-axis -> `cylinderY`!)
+    if (idLower.includes("_axilo_leg_")) {
+      const topPlate = new THREE.Mesh(box, darkAnodizedMat);
+      topPlate.scale.set(34, 8, 34);
+      topPlate.position.set(cx, h - 4, cz);
+      tagSubMesh(topPlate, userData, comp);
+      group.add(topPlate);
+
+      const stem = new THREE.Mesh(cylinderY, darkAnodizedMat);
+      stem.scale.set(22, Math.max(16, h - 18), 22);
+      stem.position.set(cx, h / 2, cz);
+      tagSubMesh(stem, userData, comp);
+      group.add(stem);
+
+      const chromeCollar = new THREE.Mesh(cylinderY, chromeMetalMat);
+      chromeCollar.scale.set(26, 8, 26);
+      chromeCollar.position.set(cx, 18, cz);
+      tagSubMesh(chromeCollar, userData, comp);
+      group.add(chromeCollar);
+
+      const footPad = new THREE.Mesh(cylinderY, darkAnodizedMat);
+      footPad.scale.set(36, 10, 36);
+      footPad.position.set(cx, 5, cz);
+      tagSubMesh(footPad, userData, comp);
+      group.add(footPad);
+      return group;
+    }
+
+    // 2. EN 14749 Anti-Tip Steel Wall L-Bracket (wallScrew along Z -> `cylinder` NO rotation!)
+    if (idLower.includes("_anti_tip_")) {
+      const vertLeg = new THREE.Mesh(box, brushedSteelMat);
+      vertLeg.scale.set(w, h, 3.5);
+      vertLeg.position.set(cx, cy, 2);
+      tagSubMesh(vertLeg, userData, comp);
+      group.add(vertLeg);
+
+      const horizLeg = new THREE.Mesh(box, brushedSteelMat);
+      horizLeg.scale.set(w, 3.5, d);
+      horizLeg.position.set(cx, h - 2, cz);
+      tagSubMesh(horizLeg, userData, comp);
+      group.add(horizLeg);
+
+      const wallScrew = new THREE.Mesh(cylinder, screwHeadMat);
+      wallScrew.scale.set(7, 7, 4);
+      wallScrew.position.set(cx, cy - 6, 4.5);
+      tagSubMesh(wallScrew, userData, comp);
+      group.add(wallScrew);
+      return group;
+    }
+
+    // 3. Blum TIP-ON Push-to-Open Piston (axis along Z -> `cylinder` NO rotation!)
+    if (idLower.includes("_tip_on_")) {
+      const adapterPlate = new THREE.Mesh(box, brushedSteelMat);
+      adapterPlate.scale.set(14, 16, d * 0.78);
+      adapterPlate.position.set(cx, cy, cz - 4);
+      tagSubMesh(adapterPlate, userData, comp);
+      group.add(adapterPlate);
+
+      const plunger = new THREE.Mesh(cylinder, chromeMetalMat);
+      plunger.scale.set(9.5, 9.5, d * 0.35);
+      plunger.position.set(cx, cy, d - 12);
+      tagSubMesh(plunger, userData, comp);
+      group.add(plunger);
+
+      const magnetTip = new THREE.Mesh(cylinder, darkAnodizedMat);
+      magnetTip.scale.set(11, 11, 3.5);
+      magnetTip.position.set(cx, cy, d - 1);
+      tagSubMesh(magnetTip, userData, comp);
+      group.add(magnetTip);
+      return group;
+    }
+
+    // 4. System 32 Ø5mm Chrome Steel Shelf Support Pin (axis along X -> `cylinderY` + rotZ(PI/2))
+    if (idLower.includes("_shelf_pin_")) {
+      const pinBarrel = new THREE.Mesh(cylinderY, chromeMetalMat);
+      pinBarrel.rotation.z = Math.PI / 2;
+      pinBarrel.scale.set(5, 10, 5);
+      pinBarrel.position.set(cx, cy, cz);
+      tagSubMesh(pinBarrel, userData, comp);
+      group.add(pinBarrel);
+
+      const pinSpade = new THREE.Mesh(box, chromeMetalMat);
+      pinSpade.scale.set(7, 2.2, 10);
+      pinSpade.position.set(cx, cy + 2.2, cz);
+      tagSubMesh(pinSpade, userData, comp);
+      group.add(pinSpade);
+      return group;
+    }
+
+    // 5. Kesseböhmer LeMans II Corner Kidney Trays (Zero floating parts: pole + swing arms + trays + connected railing posts)
+    if (idLower.includes("lemans") || lblLower.includes("lemans") || lblLower.includes("köşe")) {
+      const poleX = w * 0.2;
+      const poleZ = d * 0.25;
+      const pole = new THREE.Mesh(cylinderY, chromeMetalMat);
+      pole.scale.set(24, Math.max(360, h), 24);
+      pole.position.set(poleX, cy, poleZ);
+      tagSubMesh(pole, userData, comp);
+      group.add(pole);
+
+      // Top & bottom pole mounting flanges
+      [8, h - 8].forEach((fy) => {
+        const flange = new THREE.Mesh(cylinderY, darkAnodizedMat);
+        flange.scale.set(44, 12, 44);
+        flange.position.set(poleX, fy, poleZ);
+        tagSubMesh(flange, userData, comp);
+        group.add(flange);
+      });
+
+      [h * 0.28, h * 0.72].forEach((ty) => {
+        // Swing arm bracket connecting pole to tray underside
+        const arm = new THREE.Mesh(box, brushedSteelMat);
+        arm.scale.set(w * 0.45, 10, 26);
+        arm.position.set(poleX + w * 0.2, ty - 10, poleZ + d * 0.16);
+        tagSubMesh(arm, userData, comp);
+        group.add(arm);
+
+        const trayLobe1 = new THREE.Mesh(cylinderY, traySurfaceMat);
+        trayLobe1.scale.set(w * 0.52, 16, d * 0.54);
+        trayLobe1.position.set(w * 0.34, ty, d * 0.44);
+        tagSubMesh(trayLobe1, userData, comp);
+        group.add(trayLobe1);
+
+        const trayLobe2 = new THREE.Mesh(cylinderY, traySurfaceMat);
+        trayLobe2.scale.set(w * 0.46, 16, d * 0.48);
+        trayLobe2.position.set(w * 0.66, ty, d * 0.56);
+        tagSubMesh(trayLobe2, userData, comp);
+        group.add(trayLobe2);
+
+        // Connected vertical chrome posts + perimeter top rim bars
+        const postCoords: [number, number][] = [
+          [w * 0.14, d * 0.44],
+          [w * 0.34, d * 0.22],
+          [w * 0.56, d * 0.36],
+          [w * 0.84, d * 0.56],
+          [w * 0.66, d * 0.76],
+          [w * 0.34, d * 0.68],
+        ];
+        postCoords.forEach(([px, pz]) => {
+          const post = new THREE.Mesh(cylinderY, chromeMetalMat);
+          post.scale.set(6, 36, 6);
+          post.position.set(px, ty + 22, pz);
+          tagSubMesh(post, userData, comp);
+          group.add(post);
+        });
+        const rimBand1 = new THREE.Mesh(box, chromeMetalMat);
+        rimBand1.scale.set(w * 0.48, 5, 5);
+        rimBand1.position.set(w * 0.42, ty + 38, d * 0.24);
+        tagSubMesh(rimBand1, userData, comp);
+        group.add(rimBand1);
+
+        const rimBand2 = new THREE.Mesh(box, chromeMetalMat);
+        rimBand2.scale.set(w * 0.52, 5, 5);
+        rimBand2.position.set(w * 0.52, ty + 38, d * 0.72);
+        tagSubMesh(rimBand2, userData, comp);
+        group.add(rimBand2);
+
+        // Showroom Kitchenware Props: Stainless Steel Stockpot + Ceramic Bowl sitting flush on tray
+        const potBody = new THREE.Mesh(cylinderY, chromeMetalMat);
+        potBody.scale.set(Math.min(185, w * 0.24), 105, Math.min(185, w * 0.24));
+        potBody.position.set(w * 0.36, ty + 8 + 52.5, d * 0.44);
+        tagSubMesh(potBody, userData, comp);
+        group.add(potBody);
+
+        const potLid = new THREE.Mesh(cylinderY, brushedSteelMat);
+        potLid.scale.set(Math.min(190, w * 0.245), 8, Math.min(190, w * 0.245));
+        potLid.position.set(w * 0.36, ty + 8 + 108, d * 0.44);
+        tagSubMesh(potLid, userData, comp);
+        group.add(potLid);
+
+        const potKnob = new THREE.Mesh(cylinderY, darkAnodizedMat);
+        potKnob.scale.set(28, 14, 28);
+        potKnob.position.set(w * 0.36, ty + 8 + 118, d * 0.44);
+        tagSubMesh(potKnob, userData, comp);
+        group.add(potKnob);
+
+        const ceramicMat = new THREE.MeshStandardMaterial({ color: 0xe6dfd5, roughness: 0.35, metalness: 0.04 });
+        const bowl = new THREE.Mesh(cylinderY, ceramicMat);
+        bowl.scale.set(Math.min(140, w * 0.18), 64, Math.min(140, w * 0.18));
+        bowl.position.set(w * 0.66, ty + 8 + 32, d * 0.56);
+        tagSubMesh(bowl, userData, comp);
+        group.add(bowl);
+      });
+      return group;
+    }
+
+    // 6. Kesseböhmer DISPENSA / Boy Kiler (Twin vertical chrome frame + top/bottom runner tracks + connected 4-sided gallery baskets)
+    if (idLower.includes("pantry") || idLower.includes("dispensa") || lblLower.includes("kiler")) {
+      // Top & bottom telescopic runner tracks
+      [8, h - 8].forEach((ry) => {
+        const track = new THREE.Mesh(box, brushedSteelMat);
+        track.scale.set(36, 14, d * 0.92);
+        track.position.set(cx, ry, cz);
+        tagSubMesh(track, userData, comp);
+        group.add(track);
+      });
+
+      // Front & rear vertical steel support columns joining top & bottom tracks
+      [d * 0.16, d * 0.84].forEach((czCol) => {
+        const col = new THREE.Mesh(box, brushedSteelMat);
+        col.scale.set(22, h - 16, 22);
+        col.position.set(cx, cy, czCol);
+        tagSubMesh(col, userData, comp);
+        group.add(col);
+      });
+
+      const tiers = Math.max(3, Math.min(6, Math.round(h / 320)));
+      const bw = w * 0.88;
+      const bd = d * 0.84;
+      for (let ti = 0; ti < tiers; ti++) {
+        const ty = (h / (tiers + 0.5)) * (ti + 0.5);
+        const shelfBase = new THREE.Mesh(box, traySurfaceMat);
+        shelfBase.scale.set(bw, 14, bd);
+        shelfBase.position.set(cx, ty, cz);
+        tagSubMesh(shelfBase, userData, comp);
+        group.add(shelfBase);
+
+        // 4 corner chrome posts connecting shelfBase to 4-sided gallery rails
+        [-1, 1].forEach((sx) => {
+          [-1, 1].forEach((sz) => {
+            const post = new THREE.Mesh(cylinderY, chromeMetalMat);
+            post.scale.set(6, 40, 6);
+            post.position.set(cx + sx * (bw / 2 - 4), ty + 24, cz + sz * (bd / 2 - 4));
+            tagSubMesh(post, userData, comp);
+            group.add(post);
+          });
+          const sideRail = new THREE.Mesh(cylinder, chromeMetalMat);
+          sideRail.scale.set(6, 6, bd - 6);
+          sideRail.position.set(cx + sx * (bw / 2 - 4), ty + 42, cz);
+          tagSubMesh(sideRail, userData, comp);
+          group.add(sideRail);
+        });
+        [-1, 1].forEach((sz) => {
+          const crossRail = new THREE.Mesh(cylinderY, chromeMetalMat);
+          crossRail.rotation.z = Math.PI / 2;
+          crossRail.scale.set(6, bw - 6, 6);
+          crossRail.position.set(cx, ty + 42, cz + sz * (bd / 2 - 4));
+          tagSubMesh(crossRail, userData, comp);
+          group.add(crossRail);
+        });
+
+        // Showroom Pantry Props: Glass Jars with Oak Lids & Olive Oil Bottles
+        const jarGlassMat = new THREE.MeshPhysicalMaterial({ color: 0xdbeafe, transparent: true, opacity: 0.48, roughness: 0.1, metalness: 0.05 });
+        const oakLidMat = new THREE.MeshStandardMaterial({ color: 0xb68d5c, roughness: 0.65, metalness: 0.0 });
+        const oliveBottleMat = new THREE.MeshStandardMaterial({ color: 0x3b4d2b, roughness: 0.18, metalness: 0.08 });
+        const contentColors = [0xd4a373, 0x8c5a3c, 0xe9d8a6, 0x6b705c];
+        const jarCount = Math.max(2, Math.min(4, Math.floor(bd / 110)));
+        for (let ji = 0; ji < jarCount; ji++) {
+          const jz = cz - bd * 0.34 + (ji / Math.max(1, jarCount - 1)) * (bd * 0.68);
+          const isBottle = (ti + ji) % 3 === 0;
+          if (isBottle) {
+            const bottle = new THREE.Mesh(cylinderY, oliveBottleMat);
+            bottle.scale.set(52, 175, 52);
+            bottle.position.set(cx - bw * 0.14, ty + 7 + 87.5, jz);
+            tagSubMesh(bottle, userData, comp);
+            group.add(bottle);
+            const neck = new THREE.Mesh(cylinderY, oliveBottleMat);
+            neck.scale.set(22, 48, 22);
+            neck.position.set(cx - bw * 0.14, ty + 7 + 195, jz);
+            tagSubMesh(neck, userData, comp);
+            group.add(neck);
+          } else {
+            const fillMat = new THREE.MeshStandardMaterial({ color: contentColors[(ti + ji) % contentColors.length], roughness: 0.78 });
+            const jarFill = new THREE.Mesh(cylinderY, fillMat);
+            jarFill.scale.set(66, 92, 66);
+            jarFill.position.set(cx + bw * 0.12, ty + 7 + 48, jz);
+            tagSubMesh(jarFill, userData, comp);
+            group.add(jarFill);
+
+            const jarOuter = new THREE.Mesh(cylinderY, jarGlassMat);
+            jarOuter.scale.set(74, 128, 74);
+            jarOuter.position.set(cx + bw * 0.12, ty + 7 + 64, jz);
+            tagSubMesh(jarOuter, userData, comp);
+            group.add(jarOuter);
+
+            const lid = new THREE.Mesh(cylinderY, oakLidMat);
+            lid.scale.set(76, 16, 76);
+            lid.position.set(cx + bw * 0.12, ty + 7 + 132, jz);
+            tagSubMesh(lid, userData, comp);
+            group.add(lid);
+          }
+        }
+      }
+      return group;
+    }
+
+    // 7. Pantograph Wardrobe Lift (Connected side housings + pivot joints + twin lift arms + elbow joints + top bar + central wand & T-handle)
+    if (idLower.includes("wardrobe_lift") || idLower.includes("pantograph") || lblLower.includes("asansör") || lblLower.includes("pantograf")) {
+      const pivotY = Math.max(45, h * 0.22);
+      const topBarY = Math.max(pivotY + 120, h - 18);
+      const armLen = topBarY - pivotY;
+
+      [-1, 1].forEach((sx) => {
+        const wallX = sx < 0 ? 11 : w - 11;
+        const armX = wallX - sx * 12;
+
+        const housing = new THREE.Mesh(box, darkAnodizedMat);
+        housing.scale.set(20, 96, 52);
+        housing.position.set(wallX, pivotY, cz);
+        tagSubMesh(housing, userData, comp);
+        group.add(housing);
+
+        // Pivot joint cylinder connecting housing to arm
+        const pivotAxle = new THREE.Mesh(cylinderY, chromeMetalMat);
+        pivotAxle.rotation.z = Math.PI / 2;
+        pivotAxle.scale.set(16, 18, 16);
+        pivotAxle.position.set(wallX - sx * 6, pivotY, cz);
+        tagSubMesh(pivotAxle, userData, comp);
+        group.add(pivotAxle);
+
+        const arm = new THREE.Mesh(cylinderY, chromeMetalMat);
+        arm.scale.set(14, armLen, 14);
+        arm.position.set(armX, pivotY + armLen / 2, cz);
+        tagSubMesh(arm, userData, comp);
+        group.add(arm);
+
+        // Top elbow bracket joining arm cleanly to horizontal hanging bar
+        const elbow = new THREE.Mesh(box, darkAnodizedMat);
+        elbow.scale.set(22, 22, 22);
+        elbow.position.set(armX, topBarY, cz);
+        tagSubMesh(elbow, userData, comp);
+        group.add(elbow);
+      });
+
+      const topBar = new THREE.Mesh(cylinderY, chromeMetalMat);
+      topBar.rotation.z = Math.PI / 2;
+      topBar.scale.set(22, Math.max(120, w - 42), 22);
+      topBar.position.set(cx, topBarY, cz);
+      tagSubMesh(topBar, userData, comp);
+      group.add(topBar);
+
+      // Central T-collar + pull-down wand + T-handle grip
+      const collar = new THREE.Mesh(box, darkAnodizedMat);
+      collar.scale.set(24, 26, 26);
+      collar.position.set(cx, topBarY, cz);
+      tagSubMesh(collar, userData, comp);
+      group.add(collar);
+
+      const wandLen = Math.min(340, armLen * 0.92);
+      const pullWand = new THREE.Mesh(cylinderY, chromeMetalMat);
+      pullWand.scale.set(9, wandLen, 9);
+      pullWand.position.set(cx, topBarY - wandLen / 2, cz);
+      tagSubMesh(pullWand, userData, comp);
+      group.add(pullWand);
+
+      const wandGrip = new THREE.Mesh(cylinderY, darkAnodizedMat);
+      wandGrip.rotation.z = Math.PI / 2;
+      wandGrip.scale.set(14, 72, 14);
+      wandGrip.position.set(cx, topBarY - wandLen, cz);
+      tagSubMesh(wandGrip, userData, comp);
+      group.add(wandGrip);
+
+      // Showroom Hanging Garments on Pantograph Bar (left & right of central pull wand)
+      const jacketPalette = [0x263244, 0x4b4640, 0xc7bdb1, 0x353941];
+      const hangerWoodMat = new THREE.MeshStandardMaterial({ color: 0x9c7651, roughness: 0.6 });
+      const garmentSpan = Math.max(120, w - 110);
+      const slotXs = [cx - garmentSpan * 0.34, cx - garmentSpan * 0.16, cx + garmentSpan * 0.16, cx + garmentSpan * 0.34];
+      slotXs.forEach((gx, gi) => {
+        const fabricMat = new THREE.MeshStandardMaterial({
+          color: jacketPalette[gi % jacketPalette.length],
+          roughness: 0.88,
+          metalness: 0.02,
+        });
+        const hook = new THREE.Mesh(cylinderY, chromeMetalMat);
+        hook.scale.set(5, 34, 5);
+        hook.position.set(gx, topBarY - 18, cz);
+        tagSubMesh(hook, userData, comp);
+        group.add(hook);
+
+        const hanger = new THREE.Mesh(box, hangerWoodMat);
+        hanger.scale.set(12, 14, Math.min(360, d * 0.72));
+        hanger.position.set(gx, topBarY - 38, cz);
+        tagSubMesh(hanger, userData, comp);
+        group.add(hanger);
+
+        const garmentH = Math.min(460, Math.max(220, armLen * 0.85));
+        const garment = new THREE.Mesh(box, fabricMat);
+        garment.scale.set(34, garmentH, Math.min(370, d * 0.74));
+        garment.position.set(gx, topBarY - 42 - garmentH / 2, cz);
+        tagSubMesh(garment, userData, comp);
+        group.add(garment);
+      });
+      return group;
+    }
+
+    // 8. Pull-Out Chrome Trouser Rack (Complete 4-sided anodized frame + side slides + connected trouser bars + front pull handle)
+    if (idLower.includes("trouser") || lblLower.includes("pantolon")) {
+      const frameY = cy;
+      const frameFrontZ = d - 16;
+      const frameRearZ = 16;
+      const frameDepth = Math.max(120, frameFrontZ - frameRearZ);
+      const sideRailXLeft = 10;
+      const sideRailXRight = w - 10;
+      const innerFrameW = Math.max(80, sideRailXRight - sideRailXLeft);
+
+      // Left & Right side frame beams + outer telescopic slide tracks
+      [sideRailXLeft, sideRailXRight].forEach((sxPos, idx) => {
+        const isR = idx === 1;
+        const outerSlide = new THREE.Mesh(box, brushedSteelMat);
+        outerSlide.scale.set(10, 26, frameDepth + 12);
+        outerSlide.position.set(isR ? w - 5 : 5, frameY, cz);
+        tagSubMesh(outerSlide, userData, comp);
+        group.add(outerSlide);
+
+        const sideBeam = new THREE.Mesh(box, darkAnodizedMat);
+        sideBeam.scale.set(14, 22, frameDepth);
+        sideBeam.position.set(isR ? sxPos - 6 : sxPos + 6, frameY, cz);
+        tagSubMesh(sideBeam, userData, comp);
+        group.add(sideBeam);
+      });
+
+      // Front & Rear structural aluminum crossbars connecting left & right beams (zero floating rods!)
+      [frameRearZ, frameFrontZ].forEach((czBar) => {
+        const crossBar = new THREE.Mesh(box, darkAnodizedMat);
+        crossBar.scale.set(innerFrameW, 20, 14);
+        crossBar.position.set(cx, frameY, czBar);
+        tagSubMesh(crossBar, userData, comp);
+        group.add(crossBar);
+      });
+
+      // Sleek brushed chrome front pull bar handle
+      const frontHandle = new THREE.Mesh(cylinderY, chromeMetalMat);
+      frontHandle.rotation.z = Math.PI / 2;
+      frontHandle.scale.set(10, Math.min(220, innerFrameW * 0.45), 10);
+      frontHandle.position.set(cx, frameY, frameFrontZ + 14);
+      tagSubMesh(frontHandle, userData, comp);
+      group.add(frontHandle);
+
+      [-1, 1].forEach((hs) => {
+        const standoff = new THREE.Mesh(cylinder, chromeMetalMat);
+        standoff.scale.set(7, 7, 14);
+        standoff.position.set(cx + hs * Math.min(95, innerFrameW * 0.2), frameY, frameFrontZ + 7);
+        tagSubMesh(standoff, userData, comp);
+        group.add(standoff);
+      });
+
+      // Parallel chrome trouser rods spanning solidly from rear crossbar to front crossbar + anti-slip end collars
+      const barCount = Math.max(5, Math.min(11, Math.floor((innerFrameW - 40) / 52)));
+      for (let bi = 0; bi < barCount; bi++) {
+        const bx = (sideRailXLeft + 26) + (bi / Math.max(1, barCount - 1)) * (innerFrameW - 52);
+        const rod = new THREE.Mesh(cylinder, chromeMetalMat);
+        rod.scale.set(11, 11, frameDepth);
+        rod.position.set(bx, frameY + 2, cz);
+        tagSubMesh(rod, userData, comp);
+        group.add(rod);
+
+        // Anti-slip dark polymer grip sleeves along each rod
+        [-frameDepth * 0.24, frameDepth * 0.24].forEach((dz) => {
+          const sleeve = new THREE.Mesh(cylinder, darkAnodizedMat);
+          sleeve.scale.set(12.2, 12.2, 22);
+          sleeve.position.set(bx, frameY + 2, cz + dz);
+          tagSubMesh(sleeve, userData, comp);
+          group.add(sleeve);
+        });
+
+        // Draped Tailored Trousers on alternating/most rods (realistic folded wool/cotton fabric)
+        const trouserColors = [0x1f2b3d, 0xc8beb0, 0x34383f, 0x9b7b59, 0x4c5866, 0x5c5349];
+        const shouldHangTrouser = bi < Math.max(4, barCount - 2);
+        if (shouldHangTrouser) {
+          const fabricMat = new THREE.MeshStandardMaterial({
+            color: trouserColors[bi % trouserColors.length],
+            roughness: 0.9,
+            metalness: 0.02,
+          });
+          const clothDepth = Math.min(310, frameDepth * 0.76);
+          const hangDrop = Math.min(380, Math.max(240, frameY * 0.8 + 180));
+
+          // Rounded cloth fold wrapping cleanly over the chrome rod
+          const topFold = new THREE.Mesh(cylinder, fabricMat);
+          topFold.scale.set(19, 19, clothDepth);
+          topFold.position.set(bx, frameY + 4, cz);
+          tagSubMesh(topFold, userData, comp);
+          group.add(topFold);
+
+          // Twin hanging trouser legs draped smoothly below the rod
+          [-5.5, 5.5].forEach((legOffset) => {
+            const leg = new THREE.Mesh(box, fabricMat);
+            leg.scale.set(8.5, hangDrop, clothDepth - 6);
+            leg.position.set(bx + legOffset, frameY + 2 - hangDrop / 2, cz);
+            tagSubMesh(leg, userData, comp);
+            group.add(leg);
+          });
+        }
+      }
+      return group;
+    }
+
+    // 9. Jewelry / Cutlery Multi-Compartment Organizer Tray (Complete 4-sided frame + cross & longitudinal dividers)
+    if (idLower.includes("jewelry") || idLower.includes("cutlery") || lblLower.includes("takı") || lblLower.includes("düzenleyici")) {
+      const tw = w * 0.94;
+      const td = d * 0.92;
+      const wallH = Math.min(54, Math.max(32, h * 0.75));
+      const trayBase = new THREE.Mesh(box, traySurfaceMat);
+      trayBase.scale.set(tw, 8, td);
+      trayBase.position.set(cx, 5, cz);
+      tagSubMesh(trayBase, userData, comp);
+      group.add(trayBase);
+
+      // Front & rear perimeter walls
+      [-1, 1].forEach((sz) => {
+        const fbWall = new THREE.Mesh(box, darkAnodizedMat);
+        fbWall.scale.set(tw, wallH, 8);
+        fbWall.position.set(cx, 5 + wallH / 2, cz + sz * (td / 2 - 4));
+        tagSubMesh(fbWall, userData, comp);
+        group.add(fbWall);
+      });
+
+      // Left, right & inner longitudinal dividers
+      for (let ci = 0; ci <= 3; ci++) {
+        const dx = cx - tw / 2 + 4 + (ci / 3) * (tw - 8);
+        const div = new THREE.Mesh(box, darkAnodizedMat);
+        div.scale.set(7, wallH, td);
+        div.position.set(dx, 5 + wallH / 2, cz);
+        tagSubMesh(div, userData, comp);
+        group.add(div);
+      }
+
+      // Inner transverse cross-divider
+      const midCross = new THREE.Mesh(box, darkAnodizedMat);
+      midCross.scale.set(tw - 10, wallH * 0.85, 6);
+      midCross.position.set(cx, 5 + (wallH * 0.85) / 2, cz);
+      tagSubMesh(midCross, userData, comp);
+      group.add(midCross);
+
+      // Showroom Jewelry Props: Watch Cushions with Metallic Watches + Folded Sunglasses + Brass Ring Box
+      const cushionMat = new THREE.MeshStandardMaterial({ color: 0xd6cfc4, roughness: 0.92 });
+      const goldMat = new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.92, roughness: 0.22 });
+      [-1, 1].forEach((wi) => {
+        const wx = cx - tw * 0.32 + wi * 28;
+        const wz = cz - td * 0.24;
+        const pillow = new THREE.Mesh(box, cushionMat);
+        pillow.scale.set(36, 22, 54);
+        pillow.position.set(wx, 20, wz);
+        tagSubMesh(pillow, userData, comp);
+        group.add(pillow);
+
+        const watchDial = new THREE.Mesh(cylinderY, goldMat);
+        watchDial.scale.set(30, 8, 30);
+        watchDial.position.set(wx, 33, wz);
+        tagSubMesh(watchDial, userData, comp);
+        group.add(watchDial);
+      });
+
+      // Minimal sunglasses in center compartment
+      const glassFrame = new THREE.Mesh(box, darkAnodizedMat);
+      glassFrame.scale.set(118, 12, 34);
+      glassFrame.position.set(cx, 16, cz + td * 0.22);
+      tagSubMesh(glassFrame, userData, comp);
+      group.add(glassFrame);
+
+      // Small brass jewelry case in right compartment
+      const ringBox = new THREE.Mesh(box, goldMat);
+      ringBox.scale.set(54, 24, 54);
+      ringBox.position.set(cx + tw * 0.32, 21, cz - td * 0.2);
+      tagSubMesh(ringBox, userData, comp);
+      group.add(ringBox);
+      return group;
+    }
+  }
+
+  // Interior Baked Ambient Occlusion vignette on cabinet back panel (adds realistic interior depth at 0 FPS cost)
+  if (comp.role === "carcass_back") {
+    const { width: w, height: h, depth: d } = comp.dimensions;
+    const baseBack = new THREE.Mesh(box, material);
+    baseBack.scale.set(w, h, d);
+    baseBack.position.set(cx, cy, cz);
+    baseBack.castShadow = true;
+    baseBack.receiveShadow = true;
+    tagSubMesh(baseBack, userData, comp);
+    group.add(baseBack);
+
+    const aoMat = getBakedInteriorAoMaterial();
+    if (aoMat) {
+      const aoPlane = new THREE.Mesh(new THREE.PlaneGeometry(w, h), aoMat);
+      aoPlane.position.set(cx, cy, cz + d / 2 + 0.6);
+      aoPlane.raycast = () => {};
+      aoPlane.userData = { isSelectionHelper: true, isInteriorAo: true };
+      group.add(aoPlane);
+    }
+    return group;
+  }
+
   if (comp.role === "hanging_rail") {
     const w = comp.dimensions.width;
     // Left & Right Side-Panel Mounting Flanges (Askı Borusu Flanjları)
@@ -2164,10 +2961,111 @@ export function publishSceneDiagnostics(canvas: HTMLCanvasElement, scene: THREE.
   canvas.dataset.scene = JSON.stringify(meshes);
 }
 
+let cachedContactShadowMat: THREE.MeshBasicMaterial | null = null;
+function getBakedContactShadowMaterial(): THREE.MeshBasicMaterial | null {
+  if (typeof document === "undefined") return null;
+  if (cachedContactShadowMat) return cachedContactShadowMat;
+  const size = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.clearRect(0, 0, size, size);
+  // Soft two-tier ambient occlusion contact shadow (tight dark core under plinth + soft outer falloff)
+  const drawSoftRect = (pad: number, alpha: number, blurPx: number) => {
+    ctx.save();
+    ctx.filter = `blur(${blurPx}px)`;
+    ctx.fillStyle = `rgba(18, 16, 14, ${alpha})`;
+    ctx.fillRect(pad, pad, size - pad * 2, size - pad * 2);
+    ctx.restore();
+  };
+  drawSoftRect(34, 0.22, 22);
+  drawSoftRect(46, 0.34, 10);
+  drawSoftRect(54, 0.28, 4);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  cachedContactShadowMat = new THREE.MeshBasicMaterial({
+    map: tex,
+    transparent: true,
+    depthWrite: false,
+    opacity: 0.85,
+  });
+  return cachedContactShadowMat;
+}
+
+let cachedInteriorAoMat: THREE.MeshBasicMaterial | null = null;
+function getBakedInteriorAoMaterial(): THREE.MeshBasicMaterial | null {
+  if (typeof document === "undefined") return null;
+  if (cachedInteriorAoMat) return cachedInteriorAoMat;
+  const size = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.clearRect(0, 0, size, size);
+  // Subtle perimeter vignette darkening inside cabinet corners (baked crevice AO, 0 FPS cost)
+  const topG = ctx.createLinearGradient(0, 0, 0, size * 0.26);
+  topG.addColorStop(0, "rgba(22, 19, 16, 0.22)");
+  topG.addColorStop(1, "rgba(22, 19, 16, 0)");
+  ctx.fillStyle = topG;
+  ctx.fillRect(0, 0, size, size * 0.26);
+
+  const botG = ctx.createLinearGradient(0, size, 0, size * 0.78);
+  botG.addColorStop(0, "rgba(22, 19, 16, 0.18)");
+  botG.addColorStop(1, "rgba(22, 19, 16, 0)");
+  ctx.fillStyle = botG;
+  ctx.fillRect(0, size * 0.78, size, size * 0.22);
+
+  const leftG = ctx.createLinearGradient(0, 0, size * 0.18, 0);
+  leftG.addColorStop(0, "rgba(22, 19, 16, 0.16)");
+  leftG.addColorStop(1, "rgba(22, 19, 16, 0)");
+  ctx.fillStyle = leftG;
+  ctx.fillRect(0, 0, size * 0.18, size);
+
+  const rightG = ctx.createLinearGradient(size, 0, size * 0.82, 0);
+  rightG.addColorStop(0, "rgba(22, 19, 16, 0.16)");
+  rightG.addColorStop(1, "rgba(22, 19, 16, 0)");
+  ctx.fillStyle = rightG;
+  ctx.fillRect(size * 0.82, 0, size * 0.18, size);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  cachedInteriorAoMat = new THREE.MeshBasicMaterial({
+    map: tex,
+    transparent: true,
+    depthWrite: false,
+    opacity: 0.9,
+  });
+  return cachedInteriorAoMat;
+}
+
 export function createModuleGroup(module: ModuleInstance) {
   const placement = calculateModulePlacement(module);
   const group = new THREE.Group();
   group.position.set(placement.origin.x, placement.origin.y, placement.origin.z);
   group.rotation.y = placement.rotationYRad;
+
+  // Grounded Baked Floor Contact Shadow (near-zero GPU cost, anchors cabinet to floor)
+  const isFloorStanding =
+    module.category !== "kitchen_wall" &&
+    module.category !== "complementary" &&
+    (module.position?.y ?? 0) <= 50;
+  if (isFloorStanding) {
+    const contactMat = getBakedContactShadowMaterial();
+    if (contactMat) {
+      const padMm = 140;
+      const planeW = module.dimensions.width + padMm * 2;
+      const planeD = module.dimensions.depth + padMm * 2;
+      const shadowPlane = new THREE.Mesh(new THREE.PlaneGeometry(planeW, planeD), contactMat);
+      shadowPlane.rotation.x = -Math.PI / 2;
+      shadowPlane.position.set(module.dimensions.width / 2, 0.8, module.dimensions.depth / 2);
+      shadowPlane.renderOrder = -1;
+      shadowPlane.raycast = () => {};
+      shadowPlane.userData = { isSelectionHelper: true, isContactShadow: true };
+      group.add(shadowPlane);
+    }
+  }
   return group;
 }

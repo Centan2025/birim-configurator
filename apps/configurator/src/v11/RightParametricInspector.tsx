@@ -1165,6 +1165,12 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
     const unitMode = useConfiguratorStore((st) => st.displayUnit);
     const setUnitMode = useConfiguratorStore((st) => st.setDisplayUnit);
     const [moduleMenuOpen, setModuleMenuOpen] = useState(false);
+  const [interiorSubTab, setInteriorSubTab] = useState<"layout" | "hardware">("layout");
+  useEffect(() => {
+    if (activeTab === "hardware") {
+      setInteriorSubTab("hardware");
+    }
+  }, [activeTab]);
   const [panelWidthPx, setPanelWidthPx] = useState<number>(() => {
     if (typeof window === "undefined") return 412;
     try {
@@ -1568,17 +1574,16 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
             </div>
           )}
 
-          <div className="grid grid-cols-5 gap-1 p-1 rounded-2xl bg-[#ECE7DD]/85 border border-[#DFD9CE]">
+          <div className="grid grid-cols-4 gap-1 p-1 rounded-2xl bg-[#ECE7DD]/85 border border-[#DFD9CE]">
             {(
               [
                 { id: "dimensions", label: "Boyut" },
-                { id: "interior", label: "İç Düzen" },
+                { id: "interior", label: "İç & Donanım" },
                 { id: "doors", label: "Kapak" },
-                { id: "hardware", label: "Donanım" },
                 { id: "materials", label: "Yüzey" },
               ] as const
             ).map((tb) => {
-              const active = activeTab === tb.id;
+              const active = activeTab === tb.id || (tb.id === "interior" && activeTab === "hardware");
               return (
                 <button
                   key={tb.id}
@@ -1602,20 +1607,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
 
         {/* KAYDIRILABİLİR İÇERİK ALANI */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
-                    {/* ==================== SEKME: AKILLI DONANIM KÜTÜPHANESİ ==================== */}
-          {activeTab === "hardware" && (
-            <RightHardwareLibraryPanel
-              activeModule={activeModule}
-              activeBayIndex={activeBayIndex}
-              experienceTier={experienceTier}
-              onApplyHardware={(bayIdx, hwId, opts) =>
-                useConfiguratorStore.getState().applyHardwareProductToBay(bayIdx, hwId, opts)
-              }
-              onOpenCustomHardwareModal={onOpenCustomHardwareModal}
-            />
-          )}
-
-{/* ==================== SEKME 1: BOYUT & MİMARİ DETAYLAR ==================== */}
+          {/* ==================== SEKME 1: BOYUT & MİMARİ DETAYLAR ==================== */}
           {activeTab === "dimensions" && (
             <>
               <div className="flex items-center justify-between">
@@ -2448,8 +2440,50 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
           )}
 
           {/* ==================== SEKME 2: İÇ DÜZEN ==================== */}
-          {activeTab === "interior" && (
+          {(activeTab === "interior" || activeTab === "hardware") && (
             <>
+              <div className="grid grid-cols-2 gap-1 p-1 rounded-2xl bg-[#ECE7DD]/80 border border-[#DFD9CE]">
+                <button
+                  type="button"
+                  data-testid="v11-interior-subtab-layout"
+                  onClick={() => {
+                    setInteriorSubTab("layout");
+                    if (activeTab === "hardware") onChangeTab("interior");
+                  }}
+                  className={`py-1.5 px-2 rounded-xl text-[11px] font-semibold transition cursor-pointer ${
+                    interiorSubTab === "layout"
+                      ? "bg-white text-[#141413] shadow-2xs"
+                      : "text-[#57534E] hover:text-[#141413]"
+                  }`}
+                >
+                  Yerleşim (Raf / Çekmece)
+                </button>
+                <button
+                  type="button"
+                  data-testid="v11-interior-subtab-hardware"
+                  onClick={() => setInteriorSubTab("hardware")}
+                  className={`py-1.5 px-2 rounded-xl text-[11px] font-semibold transition cursor-pointer ${
+                    interiorSubTab === "hardware"
+                      ? "bg-[#141413] text-white shadow-2xs"
+                      : "text-[#57534E] hover:text-[#141413]"
+                  }`}
+                >
+                  Donanım & Mekanizma
+                </button>
+              </div>
+
+              {interiorSubTab === "hardware" ? (
+                <RightHardwareLibraryPanel
+                  activeModule={activeModule}
+                  activeBayIndex={activeBayIndex}
+                  experienceTier={experienceTier}
+                  onApplyHardware={(bayIdx, hwId, opts) =>
+                    useConfiguratorStore.getState().applyHardwareProductToBay(bayIdx, hwId, opts)
+                  }
+                  onOpenCustomHardwareModal={onOpenCustomHardwareModal}
+                />
+              ) : (
+                <>
               <div className="p-3.5 rounded-2xl bg-white border border-[#E5DFD3] space-y-2.5">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-[#141413]">
@@ -3692,6 +3726,8 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                   </div>
                 </div>
               </div>
+            </>
+              )}
             </>
           )}
 

@@ -1245,7 +1245,7 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
           });
         }
       });
-    } else if (!isPureSlidingOrStayLift && !isVisualOnlyHardware) {
+    } else if (!isPureSlidingOrStayLift) {
       const isLeftHinged = part.role.includes("left");
       const cupRadius = drillTpl.cupDiameterMm / 2;
       const cupCenterDist = cupRadius + drillTpl.cupEdgeTabMm;
