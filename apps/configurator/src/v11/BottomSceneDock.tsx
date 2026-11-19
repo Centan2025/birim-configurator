@@ -58,6 +58,7 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
     onToggleCncXray,
     explodedFactor,
     onChangeExplodedFactor,
+    isSimpleTier,
     projectId,
     isShowroom = false,
   }) => {
@@ -258,17 +259,7 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
                 >
                   Tel Kafes
                 </button>
-                <button
-                  type="button"
-                  onClick={onToggleCncXray}
-                  className={`py-1.5 px-2 rounded-xl text-[11px] font-semibold transition cursor-pointer ${
-                    cncXrayMode
-                      ? "bg-[#141413] text-white"
-                      : "bg-white hover:bg-[#EFECE4] border border-[#E5DFD3]"
-                  }`}
-                >
-                  CNC X-Ray
-                </button>
+
               </div>
             </div>
 
@@ -292,12 +283,16 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
                   checked: doorsHidden,
                   onToggle: onToggleDoorsHidden,
                 },
-                {
-                  id: "sw_xray",
-                  label: "CNC X-Ray Delik Görünümü",
-                  checked: cncXrayMode,
-                  onToggle: onToggleCncXray,
-                },
+                ...(!isSimpleTier
+                  ? [
+                      {
+                        id: "sw_xray",
+                        label: "CNC X-Ray Delik Görünümü",
+                        checked: cncXrayMode,
+                        onToggle: onToggleCncXray,
+                      },
+                    ]
+                  : []),
               ].map((sw) => (
                 <div key={sw.id} className="flex items-center justify-between gap-2 text-[11px]">
                   <span className="font-semibold text-[#44403C]">{sw.label}</span>

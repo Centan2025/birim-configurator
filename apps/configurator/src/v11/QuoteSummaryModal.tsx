@@ -30,6 +30,8 @@ export const QuoteSummaryModal: React.FC<QuoteSummaryModalProps> = React.memo(
     const [projectNote, setProjectNote] = useState("");
     const [discountPct, setDiscountPct] = useState(0);
     const [snapshotUrl, setSnapshotUrl] = useState<string | null>(null);
+    const [selectedPackageTier, setSelectedPackageTier] = useState<"eco" | "std" | "pro">("std");
+    const [sampleRequested, setSampleRequested] = useState(false);
 
     useEffect(() => {
       if (!isOpen || typeof window === "undefined") return;
@@ -53,7 +55,9 @@ export const QuoteSummaryModal: React.FC<QuoteSummaryModalProps> = React.memo(
 
     const mainModules = project.modules.filter((m) => m.category !== "complementary");
     const rawTotal = pricing?.totalWithVatEur || 0;
-    const discountedTotal = Math.max(0, rawTotal * (1 - discountPct / 100));
+    const packageMultiplier =
+      selectedPackageTier === "eco" ? 0.88 : selectedPackageTier === "pro" ? 1.18 : 1;
+    const discountedTotal = Math.max(0, rawTotal * packageMultiplier * (1 - discountPct / 100));
 
     const fmtEur = (v: number) =>
       new Intl.NumberFormat("tr-TR", {
@@ -245,6 +249,96 @@ export const QuoteSummaryModal: React.FC<QuoteSummaryModalProps> = React.memo(
                     </span>
                   </div>
                 ))}
+              </div>
+            </div>
+
+            {/* 3-Katmanlı Donanım & Yüzey Paketi Kıyaslama */}
+            <div className="p-4 rounded-2xl bg-white border border-[#E5DFD3] space-y-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <div className="font-bold text-[#141413]">Donanım Paketi Kıyaslama</div>
+                <span className="text-[11px] text-[#78716C]">Tek tıkla fiyat farkını inceleyin</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                {(
+                  [
+                    {
+                      id: "eco",
+                      title: "Ekonomik Paket",
+                      desc: "Standart frenli menteşe · Kısmi açılım ray",
+                      mult: 0.88,
+                      tag: "-12%",
+                    },
+                    {
+                      id: "std",
+                      title: "Standart (Seçili)",
+                      desc: "Tam açılım teleskopik · System 32 pim",
+                      mult: 1,
+                      tag: "Mevcut",
+                    },
+                    {
+                      id: "pro",
+                      title: "Premium Blum/Hettich",
+                      desc: "LEGRABOX / TIP-ON · LED & köşe mekanizma",
+                      mult: 1.18,
+                      tag: "+18%",
+                    },
+                  ] as const
+                ).map((pkg) => {
+                  const active = selectedPackageTier === pkg.id;
+                  const pkgPrice = Math.max(0, rawTotal * pkg.mult * (1 - discountPct / 100));
+                  return (
+                    <button
+                      key={pkg.id}
+                      type="button"
+                      onClick={() => setSelectedPackageTier(pkg.id)}
+                      className={`p-3 rounded-xl border text-left transition cursor-pointer ${
+                        active
+                          ? "bg-[#141413] text-white border-[#141413] shadow-xs"
+                          : "bg-[#FAF8F4] hover:bg-[#F3EFE6] text-[#141413] border-[#E5DFD3]"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-xs font-bold">{pkg.title}</span>
+                        <span
+                          className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full ${
+                            active ? "bg-white/15 text-white" : "bg-[#EAE4D8] text-[#57534E]"
+                          }`}
+                        >
+                          {pkg.tag}
+                        </span>
+                      </div>
+                      <div
+                        className={`text-[10px] mt-1 leading-snug ${
+                          active ? "text-[#D6D3D1]" : "text-[#78716C]"
+                        }`}
+                      >
+                        {pkg.desc}
+                      </div>
+                      <div className="font-mono text-xs font-bold mt-2">
+                        {fmtEur(pkgPrice)}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Ücretsiz 3 Yüzey Numunesi Talebi */}
+              <div className="pt-2.5 border-t border-[#F0ECE3] flex flex-wrap items-center justify-between gap-2">
+                <div className="text-[11px] text-[#57534E]">
+                  <strong className="text-[#141413]">Ücretsiz 3 Malzeme Numunesi:</strong>{" "}
+                  Seçili kapak ve gövde renklerini sipariş öncesi evinizde inceleyin.
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSampleRequested(true)}
+                  className={`h-8 px-3.5 rounded-full text-[11px] font-semibold transition cursor-pointer ${
+                    sampleRequested
+                      ? "bg-emerald-700 text-white"
+                      : "bg-[#F1EDE4] hover:bg-[#E7E1D5] text-[#141413] border border-[#DED7C8]"
+                  }`}
+                >
+                  {sampleRequested ? "✓ Numune Kutusu Talebe Eklendi" : "3 Ücretsiz Numune İste"}
+                </button>
               </div>
             </div>
 

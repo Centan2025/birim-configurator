@@ -19,3 +19,5 @@ export * from "./lru-cache";
 export * from "./hardware-compatibility-advisor";
 export * from "./custom-template-storage";
 export * from "./smart-hardware-engine";
+export * from "./hardware-certification-export";
+export * from "./sloped-ceiling-engine";

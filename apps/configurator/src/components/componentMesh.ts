@@ -2178,40 +2178,40 @@ export function createComponentMesh(
 
     group.add(housingGroup);
 
-    // B. Articulated Telescopic Chrome Lever Arm & Gas Spring Strut (Rotates with lift angle toward the door back)
-    const armLen = Math.max(130, d * 0.95);
+    // B. Articulated Telescopic Chrome Lever Arm & Gas Spring Strut (Strictly recessed behind closed door!)
+    const armLen = Math.min(d * 0.78, Math.max(90, d * 0.72));
     const mainArm = new THREE.Mesh(box, chromeHardwareMat);
-    mainArm.scale.set(10, 18, armLen);
-    mainArm.position.set(cx + dialSign * 6, cy - h * 0.12, cz + d * 0.28);
+    mainArm.scale.set(10, 16, armLen);
+    mainArm.position.set(cx + dialSign * 6, cy - h * 0.12, cz + d * 0.04);
     mainArm.add(new THREE.LineSegments(edges, revealShadowMat));
     tagSubMesh(mainArm, userData, comp);
     group.add(mainArm);
 
     // Telescopic Inner Rod & Gas Damper Cylinder
     const gasStrut = new THREE.Mesh(cylinder, darkDamperMat);
-    gasStrut.scale.set(12, 12, armLen * 0.62);
-    gasStrut.position.set(cx + dialSign * 6, cy - h * 0.24, cz + d * 0.12);
+    gasStrut.scale.set(10, 10, armLen * 0.58);
+    gasStrut.position.set(cx + dialSign * 6, cy - h * 0.22, cz - d * 0.02);
     tagSubMesh(gasStrut, userData, comp);
     group.add(gasStrut);
 
     if (isHL || isHF) {
       // Secondary Parallelogram Link (HL) or Bi-Fold Lower Extension Rod (HF)
       const secArm = new THREE.Mesh(box, chromeHardwareMat);
-      secArm.scale.set(8, 14, armLen * 0.88);
+      secArm.scale.set(8, 12, armLen * 0.74);
       secArm.position.set(
         cx + dialSign * 8,
-        cy - h * (isHF ? 0.42 : 0.32),
-        cz + d * (isHF ? 0.42 : 0.26)
+        cy - h * (isHF ? 0.36 : 0.28),
+        cz + d * 0.08
       );
-      secArm.rotation.x = isHF ? 0.32 : 0.05;
+      secArm.rotation.x = isHF ? 0.18 : 0.04;
       tagSubMesh(secArm, userData, comp);
       group.add(secArm);
     }
 
-    // Door Back Clip Bracket at front end of arm
+    // Door Back Clip Bracket flush against inside back face of closed door (never pokes through!)
     const doorBracket = new THREE.Mesh(box, screwHeadMat);
-    doorBracket.scale.set(18, 48, 14);
-    doorBracket.position.set(cx + dialSign * 6, cy - h * 0.15, cz + d * 0.68);
+    doorBracket.scale.set(16, 44, 10);
+    doorBracket.position.set(cx + dialSign * 6, cy - h * 0.14, cz + d * 0.42);
     tagSubMesh(doorBracket, userData, comp);
     group.add(doorBracket);
 
@@ -2348,7 +2348,7 @@ export function createComponentMesh(
     // Bottom / Side Horizontal Shelf of L-Gola Profile
     const shelfFlange = new THREE.Mesh(box, material);
     shelfFlange.scale.set(isVert ? w : w, isVert ? h : 4, d);
-    shelfFlange.position.set(cx, isVert ? cy : cy - h * 0.42, cz + 4);
+    shelfFlange.position.set(cx, isVert ? cy : cy - h * 0.42, cz);
     shelfFlange.add(new THREE.LineSegments(edges, revealShadowMat));
     tagSubMesh(shelfFlange, userData, comp);
     group.add(shelfFlange);
@@ -2356,7 +2356,7 @@ export function createComponentMesh(
     // Front Upward Finger-Hook Lip of Gola Profile
     const frontLip = new THREE.Mesh(box, material);
     frontLip.scale.set(isVert ? 5 : w, isVert ? h : 9, 4);
-    frontLip.position.set(cx, isVert ? cy : cy - h * 0.28, cz + d * 0.52);
+    frontLip.position.set(cx, isVert ? cy : cy - h * 0.28, cz + d * 0.42);
     frontLip.add(new THREE.LineSegments(edges, revealShadowMat));
     tagSubMesh(frontLip, userData, comp);
     group.add(frontLip);

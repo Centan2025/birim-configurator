@@ -15,7 +15,8 @@ import {
   FileSpreadsheet,
   Tag,
 } from "lucide-react";
-import { DEFAULT_MATERIALS, evaluateUnifiedEngineeringModel, type RemediationProposal } from "@birim/core";
+import { DEFAULT_MATERIALS, evaluateUnifiedEngineeringModel, buildHardwareCertificationSummary, exportHardwareCertificationCsv, type RemediationProposal } from "@birim/core";
+import { V4_HARDWARE_CATALOG } from "@birim/catalog";
 import { BirimLogo, V3PremiumDropdown } from "../v3/design-system";
 import { startZeroLagModalDrag } from "../v3/design-system/zeroLagDrag";
 import {
@@ -292,6 +293,19 @@ function BomModalInner({ isOpen, onClose, initialTab = "cutlist" }: BomModalProp
       csvOut,
       `Donanim_BOM_${project.id}_v${project.version}.csv`,
       "text/csv;charset=utf-8"
+    );
+  };
+
+  const downloadHardwareCertificationCsv = () => {
+    const summary = buildHardwareCertificationSummary(V4_HARDWARE_CATALOG, project);
+    const csvOut = exportHardwareCertificationCsv(summary);
+    downloadFile(
+      csvOut,
+      `Fabrika_Donanim_Sertifikasyon_${project.id}_v${project.version}.csv`,
+      "text/csv;charset=utf-8"
+    );
+    setExportStatusBanner(
+      `56 donanım fabrika sertifikasyon listesi indirildi (${summary.productionReadyCount} hazır · ${summary.reviewRequiredCount} onay bekliyor).`
     );
   };
 
@@ -618,6 +632,16 @@ function BomModalInner({ isOpen, onClose, initialTab = "cutlist" }: BomModalProp
               <ListOrdered className="w-3.5 h-3.5 text-sky-700" />
               <span>Hırdavat CSV</span>
             </button>
+              <button
+                type="button"
+                data-testid="download-hardware-cert-csv-btn"
+                onClick={downloadHardwareCertificationCsv}
+                className="px-3 py-1.5 rounded-lg bg-[#141413] hover:bg-[#292524] text-white text-xs font-semibold inline-flex items-center gap-1.5 transition cursor-pointer"
+                title="56 donanımın fabrika onay, yük kapasitesi ve System 32 sertifikasyon listesini CSV olarak indir"
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                <span>56 Donanım Sertifikasyon CSV</span>
+              </button>
             <button
               type="button"
               onClick={downloadJson}

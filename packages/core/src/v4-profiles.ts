@@ -461,8 +461,14 @@ function calculateFourSpaceDimensionsUncached(
         : 0) + userTopOpenMm;
 
     const bottomOverhang = bay.door.bottomOverhangMm ?? 0; // e.g. +15mm handleless wall cabinet drop
+    const isVerticalGola = bay.door.handleProfileId === "hnd_gola_vertical";
+    const isWallGolaOverhang =
+      module.category === "kitchen_wall" &&
+      bay.door.handleCategory === "gola_profile" &&
+      !isVerticalGola;
+    const effBottomOverhang = isWallGolaOverhang ? Math.max(bottomOverhang, 18) : bottomOverhang;
     const rawDoorY0Mm =
-      (overlayType === "inset" ? plinth + T + gap : plinth + gap) - bottomOverhang;
+      (overlayType === "inset" ? plinth + T + gap : plinth + gap) - effBottomOverhang;
     const klapaLeftMm = Math.max(0, bay.door.frontFillerLeftMm || 0);
     const klapaRightMm = Math.max(0, bay.door.frontFillerRightMm || 0);
     const klapaLeftGap = klapaLeftMm > 0 ? gap : 0;
@@ -546,13 +552,17 @@ function calculateFourSpaceDimensionsUncached(
       ? Math.min(rawLeafWidthMm, diagBevelSpanMm)
       : rawLeafWidthMm;
 
-    // Horizontal Top L-Gola finger clearance deduction (35mm on base cabinets, 0mm on wall cabinets with bottom overhang)
+    // Horizontal Top Gola finger clearance deduction (28mm + 2mm gap = exact 30mm on base cabinets; 0mm on wall or vertical Gola!)
     const golaDeduction =
-      bay.door.handleCategory === "gola_profile" && module.category !== "kitchen_wall" ? 35 : 0;
+      bay.door.handleCategory === "gola_profile" &&
+      module.category !== "kitchen_wall" &&
+      !isVerticalGola
+        ? 28
+        : 0;
     const rawBaseDoorHeight =
       overlayType === "inset"
-        ? Math.max(80, netInnerHeightMm - 2 * gap - golaDeduction + bottomOverhang)
-        : Math.max(80, carcassBoxHeightMm - 2 * gap - golaDeduction + bottomOverhang);
+        ? Math.max(80, netInnerHeightMm - 2 * gap - golaDeduction + effBottomOverhang)
+        : Math.max(80, carcassBoxHeightMm - 2 * gap - golaDeduction + effBottomOverhang);
     const baseDoorHeight = Math.max(80, roundIntMm(rawBaseDoorHeight - bottomCutMm - topCutMm));
 
     const leafHeightMm = isBiFoldLift

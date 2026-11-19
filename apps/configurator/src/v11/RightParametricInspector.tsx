@@ -40,6 +40,7 @@ import {
   type RemediationProposal,
   type SpecialFittingConfig,
 } from "@birim/core";
+import { calculateSlopedCeilingGeometry } from "@birim/core";
 import type { HandleProfileDefinition } from "@birim/catalog";
 import { useConfiguratorStore, type UserExperienceTier } from "../store/useConfiguratorStore";
 import {
@@ -56,6 +57,8 @@ import {
   type CustomDoorProfilePreset,
 } from "./CustomDoorSketchEditor";
 import { getBayShelfIntervalsForSubDivider } from "../v3/adapter/useV3Adapter";
+import { InspectorSelectedPartCard } from "./InspectorSelectedPartCard";
+import { HandleCrossSectionSvg, getHandleCrossSectionMeta } from "./HandleCrossSectionSvg";
 import { RightHardwareLibraryPanel } from "./RightHardwareLibraryPanel";
 
 export interface RightParametricInspectorProps {
@@ -1377,12 +1380,16 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
           aria-hidden={!isOpen}
           data-testid="v11-right-inspector"
           style={{ width: `${panelWidthPx}px` }}
-          className={`fixed right-4 top-[78px] bottom-[84px] max-w-[calc(100vw-32px)] z-30 rounded-3xl bg-[#FAF8F4]/94 backdrop-blur-2xl border border-[#DFD9CE] shadow-[0_24px_60px_rgba(20,20,19,0.12)] flex flex-col overflow-hidden text-[#141413] origin-right transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+          className={`fixed right-4 top-[78px] bottom-[84px] max-w-[calc(100vw-32px)] max-lg:!w-auto max-lg:left-2.5 max-lg:right-2.5 max-lg:top-auto max-lg:bottom-2.5 max-lg:h-[58vh] max-lg:max-w-none max-lg:rounded-t-3xl max-lg:rounded-b-2xl max-lg:origin-bottom z-30 rounded-3xl bg-[#FAF8F4]/94 backdrop-blur-2xl border border-[#DFD9CE] shadow-[0_24px_60px_rgba(20,20,19,0.12)] flex flex-col overflow-hidden text-[#141413] origin-right transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
             isOpen
               ? "opacity-100 scale-100 translate-x-0 pointer-events-auto"
               : "opacity-0 scale-95 translate-x-6 pointer-events-none"
           }`}
         >
+        {/* MOBİL / TABLET ALT ÇEKMECE TUTAMAÇ GÖSTERGESİ (<1024px) */}
+        <div className="lg:hidden w-full pt-2 pb-1 flex justify-center shrink-0">
+          <span className="w-10 h-1 rounded-full bg-[#CFC7B9]" />
+        </div>
         {/* SOL KENAR YENİDEN BOYUTLANDIRMA TUTAMACI (340–680px) */}
         <div
           role="separator"
@@ -1608,6 +1615,38 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
         {/* KAYDIRILABİLİR İÇERİK ALANI */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
           {/* ==================== SEKME 1: BOYUT & MİMARİ DETAYLAR ==================== */}
+          {/* SEÇİLİ PARÇA BAĞLAMSAL HIZLI KARTI (React.memo izole) */}
+          {(() => {
+            const bay = activeModule.bays[activeBayIndex];
+            const storeSelCompId = useConfiguratorStore.getState().selectedComponentId;
+            const selComp = storeSelCompId
+              ? bay?.components?.find((c) => c.id === storeSelCompId)
+              : undefined;
+            if (!selComp) return null;
+            const isShelf = selComp.type === "shelf";
+            const isFixed = isShelf && (selComp.isAdjustable === false || selComp.isFixed);
+            const partKind =
+              selComp.type === "shelf"
+                ? "shelf"
+                : selComp.type === "drawer"
+                ? "drawer"
+                : selComp.type === "hanging_rail"
+                ? "rail"
+                : "bay";
+            return (
+              <InspectorSelectedPartCard
+                partLabel={`${activeBayIndex + 1}. Bölme · ${
+                  isShelf ? "Raf" : selComp.type === "drawer" ? "Çekmece" : selComp.type === "hanging_rail" ? "Askı Borusu" : "İç Eleman"
+                }`}
+                partKind={partKind}
+                isFixedShelf={Boolean(isFixed)}
+                elevationMm={Number(selComp.position ?? selComp.y ?? 0)}
+                displayUnit={unitMode}
+                onJumpToTab={(t) => onChangeTab(t)}
+              />
+            );
+          })()}
+
           {activeTab === "dimensions" && (
             <>
               <div className="flex items-center justify-between">
@@ -1960,7 +1999,9 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
               )}
 
 
-              {/* Gövde Yan Dikme, Baza Tipi, Çoklu Delik & Karkas Yapısı */}
+              {/* Gövde Yan Dikme, Baza Tipi, Çoklu Delik & Karkas Yapısı (Yalnızca Pro / Üretim) */}
+              {!isSimple && (
+              <>
               <div className="p-3.5 rounded-2xl bg-white border border-[#E5DFD3] space-y-3">
                 <div className="font-bold text-[#141413]">
                   Gövde, Yan Dikme & Çoklu Delik
@@ -2436,6 +2477,111 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                   )}
                 </div>
               </div>
+            
+                            </>
+              )}
+
+              {/* ÇATI EĞİMİ / NİŞ KESİMİ (EĞİMLİ TAVAN) */}
+              {(() => {
+                const slopeSpec = activeModule.carcass.roofSlope || {
+                  side: "none" as const,
+                  kneeWallHeightMm: Math.max(900, activeModule.dimensions.height - 550),
+                  slopeRunMm: Math.min(activeModule.dimensions.width, 900),
+                };
+                const slopeGeom = calculateSlopedCeilingGeometry(
+                  activeModule.dimensions.width,
+                  activeModule.dimensions.height,
+                  activeModule.dimensions.depth,
+                  slopeSpec
+                );
+                const setSlope = (patch: Partial<typeof slopeSpec>) => {
+                  const next = { ...slopeSpec, ...patch };
+                  onUpdateCarcassConfig({ roofSlope: next });
+                };
+                return (
+                  <div
+                    data-testid="v11-roof-slope-section"
+                    className="p-3 rounded-2xl bg-white/85 border border-[#E5DFD3] space-y-2.5"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-bold text-[#141413]">
+                        Çatı Eğimi / Merdiven Altı Kesimi
+                      </span>
+                      {slopeGeom.isSloped && (
+                        <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-900 border border-blue-200">
+                          {slopeGeom.slopeAngleDeg}° Eğim
+                        </span>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-4 gap-1">
+                      {(
+                        [
+                          { id: "none", label: "Düz" },
+                          { id: "left", label: "Sol Eğim" },
+                          { id: "right", label: "Sağ Eğim" },
+                          { id: "rear", label: "Arka Eğim" },
+                        ] as const
+                      ).map((opt) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => setSlope({ side: opt.id })}
+                          className={`h-7 rounded-lg text-[11px] font-semibold border transition cursor-pointer ${
+                            slopeSpec.side === opt.id
+                              ? "bg-[#141413] text-white border-[#141413]"
+                              : "bg-[#FAF8F4] hover:bg-[#EFEAE0] text-[#44403C] border-[#E5DFD3]"
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                    {slopeGeom.isSloped && (
+                      <div className="space-y-2 pt-1">
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="text-[10px] text-[#57534E] space-y-1">
+                            <span>Düşük Kenar ({unitMode})</span>
+                            <input
+                              type="number"
+                              min={unitMode === "cm" ? 50 : 500}
+                              max={unitMode === "cm" ? Math.round((activeModule.dimensions.height - 150) / 10) : activeModule.dimensions.height - 150}
+                              value={unitMode === "cm" ? Math.round(slopeSpec.kneeWallHeightMm / 10) : slopeSpec.kneeWallHeightMm}
+                              onChange={(e) => {
+                                const raw = Number(e.target.value) || 1200;
+                                setSlope({ kneeWallHeightMm: unitMode === "cm" ? raw * 10 : raw });
+                              }}
+                              className="w-full h-8 px-2.5 rounded-lg bg-[#FAF8F4] border border-[#DDD6C8] font-mono text-xs text-[#141413]"
+                            />
+                          </label>
+                          <label className="text-[10px] text-[#57534E] space-y-1">
+                            <span>Eğim Mesafesi ({unitMode})</span>
+                            <input
+                              type="number"
+                              min={unitMode === "cm" ? 20 : 200}
+                              max={unitMode === "cm" ? Math.round(activeModule.dimensions.width / 10) : activeModule.dimensions.width}
+                              value={unitMode === "cm" ? Math.round(slopeSpec.slopeRunMm / 10) : slopeSpec.slopeRunMm}
+                              onChange={(e) => {
+                                const raw = Number(e.target.value) || 600;
+                                setSlope({ slopeRunMm: unitMode === "cm" ? raw * 10 : raw });
+                              }}
+                              className="w-full h-8 px-2.5 rounded-lg bg-[#FAF8F4] border border-[#DDD6C8] font-mono text-xs text-[#141413]"
+                            />
+                          </label>
+                        </div>
+                        <div className="text-[10px] font-mono text-[#57534E] flex items-center justify-between">
+                          <span>Eğimli Üst Tabla: {slopeGeom.slopedTopLengthMm} mm</span>
+                          <span>Düz Üst: {slopeGeom.flatTopLengthMm} mm</span>
+                        </div>
+                        {slopeGeom.warnings.length > 0 && (
+                          <p className="text-[10px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">
+                            {slopeGeom.warnings[0]}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </>
           )}
 
@@ -2882,6 +3028,35 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                           .length || 0,
                       onClick: () => onAddSpecialFitting(safeBayIdx, "jewelry_tray"),
                     },
+                    {
+                      id: "lib_rail_lift",
+                      label: "Asansörlü Askı",
+                      visual: "rail" as const,
+                      dragVisual: "rail",
+                      count: 0,
+                      onClick: () => onAddHangingRail(safeBayIdx),
+                    },
+                    {
+                      id: "lib_rail_led",
+                      label: "LED'li Askı Borusu",
+                      visual: "rail" as const,
+                      dragVisual: "rail",
+                      count: activeModule.carcass.lighting?.enabled ? 1 : 0,
+                      onClick: () => {
+                        onAddHangingRail(safeBayIdx);
+                        onToggleModuleLed(true, { ledType: "led_rod_strip" });
+                      },
+                    },
+                    {
+                      id: "lib_tie_belt",
+                      label: "Kemer & Kravatlık",
+                      visual: "trouser_rack" as const,
+                      dragVisual: "trouser_rack",
+                      count:
+                        activeBay?.specialFittings.filter((f) => f.type === "tie_rack")
+                          .length || 0,
+                      onClick: () => onAddSpecialFitting(safeBayIdx, "tie_rack"),
+                    },
                   ].map((item) => (
                     <button
                       key={item.label}
@@ -2921,97 +3096,58 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                 </div>
               </div>
 
-              {/* Donanım & Askı Boru Sistemleri (Görselli + Sürükle-Bırak) */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between px-0.5">
-                  <span className="text-[11px] font-bold text-[#57534E]">
-                    Donanım &amp; Askı Sistemleri
-                  </span>
-                  <span className="text-[10px] text-[#8C7A6B]">Tıkla veya 3B&apos;ye sürükle</span>
+              {/* Çekmece Ray & Kasa Sistemi (Pro / Üretim — Fiziksel aksesuarlar üstteki İç Eleman Ekle grubundadır) */}
+              {!isSimple && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between px-0.5">
+                    <span className="text-[11px] font-bold text-[#57534E]">
+                      Çekmece Ray &amp; Kasa Sistemi
+                    </span>
+                    <span className="text-[10px] text-[#8C7A6B]">Çekmece mekanizma seçimi</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {[
+                      {
+                        id: "metal_box_legrabox" as const,
+                        icon: "metal_box_legrabox",
+                        label: "Blum Legrabox",
+                      },
+                      {
+                        id: "metal_box_tandembox" as const,
+                        icon: "metal_box_tandembox",
+                        label: "Blum Tandembox",
+                      },
+                      {
+                        id: "wooden_undermount" as const,
+                        icon: "wooden_undermount",
+                        label: "Movento Gizli Ray",
+                      },
+                    ].map((hw) => {
+                      const activeSys = activeModule.carcass.drawerBoxSystem === hw.id;
+                      return (
+                        <button
+                          key={hw.id}
+                          type="button"
+                          onClick={() => {
+                            onUpdateCarcassConfig({ drawerBoxSystem: hw.id });
+                          }}
+                          title={`${hw.label} — Modüldeki çekmecelerin ray ve kasa sistemini günceller`}
+                          className={`p-2 rounded-2xl border flex flex-col items-center justify-center gap-1 text-center transition cursor-pointer ${
+                            activeSys
+                              ? "bg-[#141413] text-white border-[#141413] shadow-xs"
+                              : "bg-white hover:bg-[#F5F2EA] text-[#141413] border-[#E5DFD3] hover:border-[#8C7A6B]"
+                          }`}
+                        >
+                          {renderHardwareTechnicalSvg(hw.icon)}
+                          <span className="font-semibold text-[10px] leading-tight">
+                            {hw.label}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {[
-                    {
-                      id: "lib_rail_lift",
-                      icon: "lift_pantograph",
-                      label: "Asansörlü Askı",
-                      dragVisual: "rail",
-                      onClick: () => onAddHangingRail(safeBayIdx),
-                    },
-                    {
-                      id: "lib_rail_led",
-                      icon: "led_black_30x15",
-                      label: "LED'li Askı Borusu",
-                      dragVisual: "rail",
-                      onClick: () => {
-                        onAddHangingRail(safeBayIdx);
-                        onToggleModuleLed(true, { ledType: "led_rod_strip" });
-                      },
-                    },
-                    {
-                      id: "lib_hw_legrabox",
-                      icon: "metal_box_legrabox",
-                      label: "Blum Legrabox",
-                      dragVisual: "drawer",
-                      onClick: () => {
-                        onUpdateCarcassConfig({ drawerBoxSystem: "metal_box_legrabox" });
-                        if ((activeBay?.drawers.length || 0) === 0) onAddDrawer(safeBayIdx);
-                      },
-                    },
-                    {
-                      id: "lib_hw_tandembox",
-                      icon: "metal_box_tandembox",
-                      label: "Blum Tandembox",
-                      dragVisual: "drawer",
-                      onClick: () => {
-                        onUpdateCarcassConfig({ drawerBoxSystem: "metal_box_tandembox" });
-                        if ((activeBay?.drawers.length || 0) === 0) onAddDrawer(safeBayIdx);
-                      },
-                    },
-                    {
-                      id: "lib_hw_movento",
-                      icon: "wooden_undermount",
-                      label: "Movento Gizli Ray",
-                      dragVisual: "drawer",
-                      onClick: () => {
-                        onUpdateCarcassConfig({ drawerBoxSystem: "wooden_undermount" });
-                        if ((activeBay?.drawers.length || 0) === 0) onAddDrawer(safeBayIdx);
-                      },
-                    },
-                    {
-                      id: "lib_tie_belt",
-                      icon: "tie_belt_rack",
-                      label: "Kemer & Kravatlık",
-                      dragVisual: "trouser_rack",
-                      onClick: () => onAddSpecialFitting(safeBayIdx, "tie_rack"),
-                    },
-                  ].map((hw) => (
-                    <button
-                      key={hw.id}
-                      type="button"
-                      draggable={false}
-                      onPointerDown={(e) =>
-                        startLive3DPartGrab(
-                          e,
-                          {
-                            id: hw.id,
-                            title: hw.label,
-                            visual: hw.dragVisual,
-                          },
-                          hw.onClick
-                        )
-                      }
-                      title={`${hw.label} — Tıklayın veya 3B dolabın içine sürükleyin`}
-                      className="p-2 rounded-2xl bg-white hover:bg-[#F5F2EA] border border-[#E5DFD3] hover:border-[#8C7A6B] flex items-center gap-2 text-left transition cursor-grab active:cursor-grabbing touch-none select-none"
-                    >
-                      {renderHardwareTechnicalSvg(hw.icon)}
-                      <span className="font-semibold text-[#141413] text-[10.5px] leading-tight truncate">
-                        {hw.label}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
+              )}
 
               {activeBay && (
                 <div className="p-3.5 rounded-2xl bg-white border border-[#E5DFD3] space-y-2">
@@ -4104,64 +4240,54 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                     )}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-1.5">
+                  {/* Seçili Açma / Kulp Sisteminin Büyük Teknik Kesit Önizlemesi */}
+                  {(() => {
+                    const activeProfileId = activeBay?.door?.handleProfileId || "hnd_bar_160";
+                    const activeHp =
+                      handleProfiles.find((h) => h.id === activeProfileId || h.sku === activeProfileId) ||
+                      handleProfiles[0];
+                    if (!activeHp) return null;
+                    const activeMeta = getHandleCrossSectionMeta(
+                      activeHp.id,
+                      String(activeHp.category),
+                      activeHp.name
+                    );
+                    return (
+                      <div
+                        data-testid="v11-active-handle-cross-section"
+                        className="p-2.5 rounded-xl bg-white border border-[#DFD3BC] flex items-center gap-3 shadow-2xs"
+                      >
+                        <div className="rounded-lg bg-[#FAF8F4] border border-[#EAE3D5] p-1 flex items-center justify-center">
+                          <HandleCrossSectionSvg
+                            profileId={activeHp.id}
+                            category={String(activeHp.category)}
+                            size="lg"
+                          />
+                        </div>
+                        <div className="min-w-0 flex-1 space-y-0.5">
+                          <div className="text-[10px] font-bold uppercase tracking-wide text-[#8C6D46]">
+                            Aktif Açma Kesiti
+                          </div>
+                          <div className="text-[11.5px] font-bold text-[#141413] leading-snug">
+                            {activeMeta.shortTitle}
+                          </div>
+                          <div className="text-[10px] text-[#57534E] leading-snug">
+                            {activeMeta.specLine}
+                          </div>
+                          <div className="text-[9.5px] text-[#78716C] leading-snug">
+                            {activeMeta.surfaceNote}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  <div className="space-y-1.5 max-h-[340px] overflow-y-auto pr-0.5">
                     {handleProfiles.map((hp) => {
-                      const active = (activeBay?.door?.handleProfileId || "K019") === hp.id;
-                      const strokeCol = active ? "#FAF8F4" : "#292524";
-                      const renderHandleIcon = () => {
-                        switch (String(hp.category)) {
-                          case "handleless":
-                            return (
-                              <svg viewBox="0 0 28 20" className="w-7 h-5 shrink-0" fill="none">
-                                <rect x="3" y="2" width="22" height="16" rx="2" stroke={strokeCol} strokeWidth="1.4" />
-                                <circle cx="20" cy="10" r="1.5" fill={strokeCol} />
-                              </svg>
-                            );
-                          case "gola_profile":
-                            return (
-                              <svg viewBox="0 0 28 20" className="w-7 h-5 shrink-0" fill="none">
-                                <path d="M4 3H24V7H8V17H4V3Z" fill={strokeCol} fillOpacity="0.25" stroke={strokeCol} strokeWidth="1.4" />
-                              </svg>
-                            );
-                          case "j_pull":
-                            return (
-                              <svg viewBox="0 0 28 20" className="w-7 h-5 shrink-0" fill="none">
-                                <path d="M6 17V5L10 3H23V17H6Z" stroke={strokeCol} strokeWidth="1.4" />
-                                <path d="M6 7H14" stroke={strokeCol} strokeWidth="1.6" />
-                              </svg>
-                            );
-                          case "knob":
-                            return (
-                              <svg viewBox="0 0 28 20" className="w-7 h-5 shrink-0" fill="none">
-                                <rect x="3" y="2" width="22" height="16" rx="2" stroke={strokeCol} strokeWidth="1.1" strokeOpacity="0.4" />
-                                <circle cx="14" cy="10" r="4" fill={strokeCol} />
-                              </svg>
-                            );
-                          case "recessed_grip":
-                            return (
-                              <svg viewBox="0 0 28 20" className="w-7 h-5 shrink-0" fill="none">
-                                <rect x="3" y="2" width="22" height="16" rx="2" stroke={strokeCol} strokeWidth="1.1" strokeOpacity="0.4" />
-                                <rect x="11" y="4" width="6" height="12" rx="1.5" stroke={strokeCol} strokeWidth="1.5" />
-                              </svg>
-                            );
-                          case "milled_wood_grip":
-                            return (
-                              <svg viewBox="0 0 28 20" className="w-7 h-5 shrink-0" fill="none">
-                                <rect x="3" y="2" width="22" height="16" rx="2" stroke={strokeCol} strokeWidth="1.2" />
-                                <rect x="12" y="4" width="4" height="12" rx="1" fill={strokeCol} />
-                              </svg>
-                            );
-                          default:
-                            return (
-                              <svg viewBox="0 0 28 20" className="w-7 h-5 shrink-0" fill="none">
-                                <rect x="3" y="2" width="22" height="16" rx="2" stroke={strokeCol} strokeWidth="1.1" strokeOpacity="0.4" />
-                                <path d="M14 4V16" stroke={strokeCol} strokeWidth="2.4" strokeLinecap="round" />
-                                <circle cx="14" cy="5.5" r="1.2" fill={strokeCol} />
-                                <circle cx="14" cy="14.5" r="1.2" fill={strokeCol} />
-                              </svg>
-                            );
-                        }
-                      };
+                      const active =
+                        (activeBay?.door?.handleProfileId || "K019") === hp.id ||
+                        (activeBay?.door?.handleProfileId || "") === hp.sku;
+                      const meta = getHandleCrossSectionMeta(hp.id, String(hp.category), hp.name);
                       return (
                         <button
                           key={hp.id}
@@ -4171,19 +4297,64 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                               {
                                 handleProfileId: hp.id,
                                 handleCategory: hp.category,
+                                crossSectionProfile:
+                                  hp.category === "j_pull" || hp.id === "hnd_bevel_30_backing"
+                                    ? "j_pull_bevel"
+                                    : "flat_slab",
+                                openingTechnology:
+                                  hp.category === "handleless_plain" ? "push_to_open" : "soft_close",
+                                handleType:
+                                  hp.category === "handleless_plain"
+                                    ? "push_to_open"
+                                    : hp.category === "gola_profile" || hp.category === "j_pull"
+                                    ? "none"
+                                    : hp.category === "recessed_grip"
+                                    ? "recessed"
+                                    : "bar",
                               },
                               batchApplyHandlesToModule,
                               batchApplyHandlesToAllModules
                             )
                           }
-                          className={`py-2 px-2 rounded-xl text-[11px] font-semibold flex items-center gap-2 text-left transition cursor-pointer ${
+                          className={`w-full p-2 rounded-xl border flex items-center gap-2.5 text-left transition cursor-pointer ${
                             active
-                              ? "bg-[#141413] text-white"
-                              : "bg-[#F5F2EA] hover:bg-[#EAE3D5] text-[#44403C]"
+                              ? "bg-[#141413] text-white border-[#141413]"
+                              : "bg-[#F8F5EE] hover:bg-[#EFEAE0] border-[#E5DFD3] text-[#1C1917]"
                           }`}
                         >
-                          {renderHandleIcon()}
-                          <span className="truncate">{hp.name}</span>
+                          <div
+                            className={`rounded-lg p-1 border shrink-0 ${
+                              active
+                                ? "bg-[#1F1E1C] border-white/15"
+                                : "bg-white border-[#E5DFD3]"
+                            }`}
+                          >
+                            <HandleCrossSectionSvg
+                              profileId={hp.id}
+                              category={String(hp.category)}
+                              active={active}
+                              size="sm"
+                            />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-[11px] font-bold leading-snug">
+                              {meta.shortTitle}
+                            </div>
+                            <div
+                              className={`text-[9.5px] leading-snug mt-0.5 ${
+                                active ? "text-stone-300" : "text-[#57534E]"
+                              }`}
+                            >
+                              {meta.specLine}
+                            </div>
+                            <div
+                              className={`text-[9px] leading-snug ${
+                                active ? "text-stone-400" : "text-[#78716C]"
+                              }`}
+                            >
+                              {meta.surfaceNote}
+                            </div>
+                          </div>
                         </button>
                       );
                     })}

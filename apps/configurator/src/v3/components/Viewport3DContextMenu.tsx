@@ -2,6 +2,7 @@
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { DEFAULT_MATERIALS, type DesignProject, type ModuleInstance } from "@birim/core";
+import { V4_MODULE_TEMPLATES } from "@birim/catalog";
 import { useConfiguratorStore } from "../../store/useConfiguratorStore";
 
 type BayDoorKind = ModuleInstance["bays"][number]["door"]["type"];
@@ -84,6 +85,7 @@ export interface Viewport3DContextMenuProps {
   onDuplicateActiveModule: () => void;
   onRotateActiveModule90: (deltaDeg?: number) => void;
   onSwapModuleWithNeighbor: (modIdx: number, direction: -1 | 1) => void;
+  onReplaceModuleWithTemplate?: (modIdx: number, templateId: string) => void;
   onToggleModuleLedLighting: (enabled: boolean) => void;
   onSetPlinthHeight: (heightMm: number) => void;
   onRemoveActiveModule: () => void;
@@ -186,6 +188,7 @@ export const Viewport3DContextMenu: React.FC<Viewport3DContextMenuProps> = ({
   onDuplicateActiveModule,
   onRotateActiveModule90,
   onSwapModuleWithNeighbor,
+  onReplaceModuleWithTemplate,
   onToggleModuleLedLighting,
   onSetPlinthHeight,
   onRemoveActiveModule,
@@ -196,6 +199,8 @@ export const Viewport3DContextMenu: React.FC<Viewport3DContextMenuProps> = ({
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [pos, setPos] = useState<{ left: number; top: number }>({ left: -9999, top: -9999 });
   const [showAllMaterials, setShowAllMaterials] = useState(false);
+  const [showReplaceTemplates, setShowReplaceTemplates] = useState(false);
+  const [replaceQuery, setReplaceQuery] = useState("");
 
   useEffect(() => {
     setShowAllMaterials(false);
@@ -844,6 +849,69 @@ export const Viewport3DContextMenu: React.FC<Viewport3DContextMenuProps> = ({
       <MenuDivider />
 
       <MenuSectionTitle title="Modül İşlemleri" />
+      {onReplaceModuleWithTemplate && mod && (
+        <div className="mb-1">
+          <MenuItem
+            label={showReplaceTemplates ? "▾ Modülü Şablonla Değiştir" : "▸ Modülü Hazır Şablonla Değiştir"}
+            active={showReplaceTemplates}
+            onClick={() => setShowReplaceTemplates((v) => !v)}
+          />
+          {showReplaceTemplates && (
+            <div className="mt-1 mx-1 p-1.5 rounded-xl bg-black/[0.04] border border-black/10 space-y-1.5">
+              <input
+                type="text"
+                value={replaceQuery}
+                onChange={(e) => setReplaceQuery(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                placeholder="Modül ara (fırın, evye, çekmece...)"
+                className="w-full h-7 px-2 rounded-lg bg-white border border-black/15 text-[11px] text-[#141413] placeholder:text-[#78716C] focus:outline-none focus:border-[#141413]"
+              />
+              <div className="max-h-44 overflow-y-auto space-y-0.5 pr-0.5">
+                {V4_MODULE_TEMPLATES.filter((t) => {
+                  const isWallMod =
+                    mod.moduleFamilyId === "fam_kitchen_wall" ||
+                    mod.category === "kitchen_wall" ||
+                    mod.position.y >= 1100;
+                  const isBaseMod =
+                    !isWallMod &&
+                    (mod.moduleFamilyId === "fam_kitchen_base" ||
+                      mod.category === "kitchen_base" ||
+                      mod.category === "kitchen_corner" ||
+                      mod.dimensions.height <= 1050);
+                  const familyOk = isWallMod
+                    ? t.familyId === "fam_kitchen_wall"
+                    : isBaseMod
+                    ? t.familyId === "fam_kitchen_base"
+                    : !t.familyId.startsWith("fam_kitchen_base") &&
+                      !t.familyId.startsWith("fam_kitchen_wall") &&
+                      t.familyId !== "fam_complementary";
+                  if (!familyOk) return false;
+                  const q = replaceQuery.trim().toLowerCase();
+                  return !q || `${t.name} ${t.description || ""}`.toLowerCase().includes(q);
+                })
+                  .slice(0, 18)
+                  .map((tpl) => (
+                    <button
+                      key={tpl.templateId}
+                      type="button"
+                      onClick={() =>
+                        run(() => onReplaceModuleWithTemplate(target.modIdx, tpl.templateId))
+                      }
+                      className={`w-full px-2 py-1.5 rounded-lg text-left text-[11px] font-medium transition cursor-pointer flex items-center justify-between gap-2 ${
+                        mod.templateId === tpl.templateId
+                          ? "bg-[#141413] text-white"
+                          : "hover:bg-white text-[#1C1917]"
+                      }`}
+                    >
+                      <span className="truncate">{tpl.name}</span>
+                      <span className="text-[9.5px] font-mono opacity-65 shrink-0">Uyumlu</span>
+                    </button>
+                  ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
       <MenuItem
         label="Yanına Aynı Modülden Ekle"
         onClick={() => run(() => onAddAdjacentModule("right"))}

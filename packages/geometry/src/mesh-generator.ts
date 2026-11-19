@@ -1220,7 +1220,8 @@ export function generateModuleGeometry(
     // 6. 90° Inner-Corner Bi-Fold Meeting Doors (unless open walk-in)
     if (!module.isOpenFront && firstBay?.door && firstBay.door.type !== "open" && firstBay.door.doorSystemId !== "open") {
       const doorY = plinthHeight + doorPerimeterGap;
-      const doorH = Math.max(120, height - plinthHeight - 2 * doorPerimeterGap);
+      const isGolaCorner = firstBay.door.handleCategory === "gola_profile";
+      const doorH = Math.max(120, height - plinthHeight - 2 * doorPerimeterGap - (isGolaCorner ? 30 : 0));
       const leaf1W = Math.max(120, width - wingD - doorPerimeterGap * 2);
       const leaf2W = Math.max(120, returnSpanZ - T - doorPerimeterGap * 2);
       const rad = (doorOpenAngleDeg * Math.PI) / 180;
@@ -1491,7 +1492,8 @@ export function generateModuleGeometry(
 
     if (!module.isOpenFront && firstBay?.door && firstBay.door.type !== "open" && firstBay.door.doorSystemId !== "open") {
       const doorY = plinthHeight + doorPerimeterGap;
-      const doorH = Math.max(120, height - plinthHeight - 2 * doorPerimeterGap);
+      const isGolaDiag = firstBay.door.handleCategory === "gola_profile";
+      const doorH = Math.max(120, height - plinthHeight - 2 * doorPerimeterGap - (isGolaDiag ? 30 : 0));
       const leafW = Math.max(180, diagLen - doorPerimeterGap * 2);
       const rad = (doorOpenAngleDeg * Math.PI) / 180;
       const doorMatId = firstBay.door.doorMaterialId || doorMaterialId;
@@ -1510,6 +1512,20 @@ export function generateModuleGeometry(
         thicknessAxis: "z",
       };
       components.push(diagDoor);
+      const diagHCat = firstBay.door.handleCategory || "bar_handle";
+      components.push(
+        ...generateHandleGeometry(diagDoor, diagHCat, {
+          moduleCategory: module.category,
+          moduleElevationY: module.position.y,
+          moduleHeight: module.dimensions.height,
+          handleOrientation: firstBay.door.handleOrientation,
+          handleOffsetY: firstBay.door.handleOffsetY,
+          handleEdgeInsetX: firstBay.door.handleEdgeInsetX,
+          handleLengthMm: firstBay.door.handleLengthMm,
+          handleMaterialId: firstBay.door.handleMaterialId,
+          handleProfileId: firstBay.door.handleProfileId,
+        })
+      );
     }
 
     if (module.componentMaterialOverrides) {
@@ -2073,11 +2089,24 @@ export function generateModuleGeometry(
     joineryTopology === "top_bottom_through" || joineryTopology === "miter_45" ? 0 : T;
   const bottomPanelW = sideRunsToFloor ? innerSpanW : horizPanelW;
   const bottomPanelX = sideRunsToFloor ? T : horizPanelX;
+  const hasWallBottomGola268 =
+    (module.category === "kitchen_wall" || module.moduleFamilyId === "fam_kitchen_wall") &&
+    module.bays.some(
+      (b) =>
+        b.door?.handleCategory === "gola_profile" &&
+        b.door?.handleProfileId !== "hnd_gola_vertical" &&
+        b.door?.handleProfileId !== "hnd_overhang_recessed_lip"
+    );
+  const bottomPanelDepth = hasWallBottomGola268 ? Math.max(120, depth - 26) : depth;
   components.push({
     id: `${module.id}_bottom`,
     role: "carcass_bottom",
-    label: joineryTopology === "miter_45" && !sideRunsToFloor ? "Alt Panel (45° Gönye)" : "Alt Panel",
-    dimensions: { width: bottomPanelW, height: T, depth },
+    label: hasWallBottomGola268
+      ? "Alt Panel (Gola 268 Ön 26mm Geri Çekili)"
+      : joineryTopology === "miter_45" && !sideRunsToFloor
+      ? "Alt Panel (45° Gönye)"
+      : "Alt Panel",
+    dimensions: { width: bottomPanelW, height: T, depth: bottomPanelDepth },
     position: { x: bottomPanelX, y: plinthHeight - explodeY * 0.5, z: 0 },
     materialId: bodyMaterialId,
     isManufacturablePanel: true,
@@ -2133,14 +2162,28 @@ export function generateModuleGeometry(
         }
       );
     } else {
-      // Standard Horizontal Front & Rear Top Stretchers (90mm)
+      // Standard Horizontal Front & Rear Top Stretchers (90mm) — Gola/Finger-Box varsa ön kayıt kanalın arkasına çekilir!
+      const golaBaseDoor = module.bays.find(
+        (b) =>
+          b.door?.handleCategory === "gola_profile" &&
+          b.door?.handleProfileId !== "hnd_gola_vertical"
+      )?.door;
+      const topGolaRecessMm = golaBaseDoor
+        ? golaBaseDoor.handleProfileId === "hnd_gola_melamine_box"
+          ? 38
+          : golaBaseDoor.handleProfileId === "hnd_gola_moulded_box"
+          ? 25
+          : golaBaseDoor.handleProfileId === "hnd_bevel_30_backing"
+          ? 18
+          : 26
+        : 0;
       components.push(
         {
           id: `${module.id}_top_stretcher_front`,
           role: "carcass_top",
-          label: "Üst Ön Kayıt (90mm)",
+          label: topGolaRecessMm > 0 ? `Üst Ön Kayıt (Gola ${topGolaRecessMm}mm Geri Çekili)` : "Üst Ön Kayıt (90mm)",
           dimensions: { width: innerSpanW, height: T, depth: stretcherW },
-          position: { x: T, y: height - T + explodeY, z: depth - stretcherW },
+          position: { x: T, y: height - T + explodeY, z: Math.max(26 + stretcherW, depth - topGolaRecessMm - stretcherW) },
           materialId: bodyMaterialId,
           isManufacturablePanel: true,
           thicknessAxis: "y",
@@ -4619,7 +4662,7 @@ export function generateModuleGeometry(
   }
 
   // Emit 3D Architectural Hardware: Adjustable Plinth Feet, Anti-Tip Brackets, TIP-ON Pistons & Shelf Pins
-  if (String(module.category) !== "complementary") {
+  if (module.category !== "complementary") {
     const modW = module.dimensions.width;
     const modH = module.dimensions.height;
     const modD = module.dimensions.depth;

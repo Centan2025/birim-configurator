@@ -58,6 +58,7 @@ export function build3DModuleMultiHoleInstancedMesh(
   const panelT = mod.carcass.panelThickness || 18;
   const matrices: THREE.Matrix4[] = [];
   const dummy = new THREE.Object3D();
+  const hingeComps = components.filter((c) => c.role === "door_hinge");
 
   for (const comp of components) {
     const isLeftSide = comp.role === "carcass_side_left";
@@ -90,41 +91,10 @@ export function build3DModuleMultiHoleInstancedMesh(
       zOffsetsFromFront.push(backSetback);
     }
 
-    let adjShelfYs: number[] = [];
-    let fixedShelfYs: number[] = [];
     const bottomOffsetY =
       isLeftSide || isRightSide
         ? Math.max(0, (mod.carcass.plinthHeight || 0) - (comp.position.y || 0))
         : 0;
-
-    if (isLeftSide || isRightSide) {
-      const bayIdx = isRightSide ? Math.max(0, mod.bays.length - 1) : 0;
-      const bay = mod.bays[bayIdx];
-      adjShelfYs = (bay?.shelves || [])
-        .filter((s) => !s.isHidden && s.isAdjustable !== false)
-        .map((s) => bottomOffsetY + panelT + s.elevationY);
-      fixedShelfYs = (bay?.shelves || [])
-        .filter((s) => !s.isHidden && s.isAdjustable === false)
-        .map((s) => bottomOffsetY + panelT + s.elevationY);
-    } else if (isDivider && typeof comp.bayIndex === "number") {
-      const lb = mod.bays[comp.bayIndex];
-      const rb = mod.bays[comp.bayIndex + 1];
-      const allShelves = [...(lb?.shelves || []), ...(rb?.shelves || [])].filter((s) => !s.isHidden);
-      adjShelfYs = allShelves.filter((s) => s.isAdjustable !== false).map((s) => s.elevationY);
-      fixedShelfYs = allShelves.filter((s) => s.isAdjustable === false).map((s) => s.elevationY);
-    }
-
-    const holeYs = computeSystem32MultiHoleYs({
-      mode: spec.mode,
-      panelHeightMm: panelH,
-      bottomOffsetY,
-      panelThicknessMm: isDivider ? 0 : panelT,
-      edgeMarginMm: spec.edgeMarginMm,
-      adjustableShelfYsMm: adjShelfYs,
-      blockedYsMm: fixedShelfYs.map((fy) => ({ y: fy, clearanceMm: 18 })),
-    });
-
-    if (holeYs.length === 0) continue;
 
     // comp.position modül içi sol-alt-arka köşedir: X [px..px+cw], Y [py..py+panelH], Z [pz..pz+panelD] (ön yüz pz + panelD)
     const px = comp.position.x;
@@ -132,18 +102,80 @@ export function build3DModuleMultiHoleInstancedMesh(
     const pz = comp.position.z;
     const cw = comp.dimensions.width;
 
-    const facesX: number[] = isLeftSide
-      ? [px + cw + 0.35] // Sol dikmenin sağ (iç) yüzü
+    const faceSpecs: Array<{ wx: number; bayIdx: number }> = isLeftSide
+      ? [{ wx: px + cw + 0.35, bayIdx: 0 }] // Sol dikmenin sağ (iç) yüzü
       : isRightSide
-      ? [px - 0.35] // Sağ dikmenin sol (iç) yüzü
-      : [px - 0.35, px + cw + 0.35]; // Orta dikmenin her iki yüzü
+      ? [{ wx: px - 0.35, bayIdx: Math.max(0, mod.bays.length - 1) }] // Sağ dikmenin sol (iç) yüzü
+      : typeof comp.bayIndex === "number"
+      ? [
+          { wx: px - 0.35, bayIdx: comp.bayIndex }, // Orta dikmenin sol yüzü -> yalnızca sol bölme rafları
+          { wx: px + cw + 0.35, bayIdx: comp.bayIndex + 1 }, // Orta dikmenin sağ yüzü -> yalnızca sağ bölme rafları
+        ]
+      : [
+          { wx: px - 0.35, bayIdx: 0 },
+          { wx: px + cw + 0.35, bayIdx: Math.max(0, mod.bays.length - 1) },
+        ];
 
-    for (const wx of facesX) {
+    const baseOffset = isDivider ? 0 : bottomOffsetY + panelT;
+
+    for (const faceSpec of faceSpecs) {
+      const bay = mod.bays[faceSpec.bayIdx];
+      const visibleShelves = (bay?.shelves || []).filter((s) => !s.isHidden);
+      const isFixedShelf = (s: (typeof visibleShelves)[number]) =>
+        s.isAdjustable === false || s.isFixed === true;
+
+      const adjShelfYs = visibleShelves
+        .filter((s) => !isFixedShelf(s))
+        .map((s) => baseOffset + s.elevationY);
+
+      // Sabit raf bloklaması rafın alt yüzü yerine gerçek gövde merkezine (elevationY + thickness/2) hizalanır;
+      // böylece raf altında asimetrik 32-42mm boşluk oluşmaz.
+      const blockedYsMm = visibleShelves
+        .filter((s) => isFixedShelf(s))
+        .map((s) => {
+          const st = s.thickness || panelT;
+          return {
+            y: baseOffset + s.elevationY + st / 2,
+            clearanceMm: st / 2 + 4,
+          };
+        });
+
+      const holeYs = computeSystem32MultiHoleYs({
+        mode: spec.mode,
+        panelHeightMm: panelH,
+        bottomOffsetY,
+        panelThicknessMm: isDivider ? 0 : panelT,
+        edgeMarginMm: spec.edgeMarginMm,
+        adjustableShelfYsMm: adjShelfYs,
+        blockedYsMm,
+      });
+
+      if (holeYs.length === 0) continue;
+
+      // Bu yüze denk gelen menteşe taban deliklerini (±16mm) topla; ön sırada çakışan raf pimi deliklerini ele
+      const bayHingeHoleYs: number[] = [];
+      for (const hc of hingeComps) {
+        if ((hc.bayIndex ?? 0) !== faceSpec.bayIdx) continue;
+        const hcCenterX = hc.position.x + hc.dimensions.width / 2;
+        if (Math.abs(hcCenterX - faceSpec.wx) > 60) continue;
+        const hcCenterY = hc.position.y + hc.dimensions.height / 2;
+        bayHingeHoleYs.push(hcCenterY - 16, hcCenterY + 16);
+      }
+
+      const isBayInset = bay?.door?.overlayType === "inset";
+      const bayHingeSetback = isBayInset ? 57 : 37;
+
       for (const hy of holeYs) {
         const wy = py + hy;
         for (const frontDist of zOffsetsFromFront) {
+          if (
+            Math.abs(frontDist - bayHingeSetback) <= 4 &&
+            bayHingeHoleYs.some((hmy) => Math.abs(hmy - wy) < 14)
+          ) {
+            continue;
+          }
           const wz = pz + panelD - frontDist;
-          dummy.position.set(wx, wy, wz);
+          dummy.position.set(faceSpec.wx, wy, wz);
           dummy.rotation.set(0, 0, 0);
           dummy.scale.set(1, 1, 1);
           dummy.updateMatrix();

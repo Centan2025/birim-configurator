@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useMemo } from "react";
-import { Plus, SlidersHorizontal, ArrowUp, ArrowDown, Trash2, X } from "lucide-react";
+import { Plus, SlidersHorizontal, ArrowUp, ArrowDown, Trash2, X, ArrowLeftRight } from "lucide-react";
+import type { HardwareSwapGroup } from "./HardwareQuickSwapPopover";
 import {
   calculateFourSpaceDimensions,
   type DoorCrossSectionProfile,
@@ -50,6 +51,7 @@ export interface OnObjectQuickToolbarProps {
   onCenterSubDividerX: (bayIdx: number, subDividerId: string, bayClearWidthMm: number) => void;
   onShiftRailElevation: (bayIdx: number, railId: string, deltaMm: number) => void;
   onDeleteSelectedPart: () => void;
+  onOpenHardwareSwap?: (group: HardwareSwapGroup, bayIdx: number) => void;
   onOpenInspectorDetails: () => void;
   onDismiss: () => void;
 }
@@ -82,6 +84,7 @@ export const OnObjectQuickToolbar: React.FC<OnObjectQuickToolbarProps> = React.m
     onCenterSubDividerX,
     onShiftRailElevation,
     onDeleteSelectedPart,
+    onOpenHardwareSwap,
     onOpenInspectorDetails,
     onDismiss,
   }) => {
@@ -174,6 +177,30 @@ export const OnObjectQuickToolbar: React.FC<OnObjectQuickToolbarProps> = React.m
             </span>
           </div>
           <div className="flex items-center gap-1 shrink-0">
+            {onOpenHardwareSwap &&
+              (selectedPartKind === "door" ||
+                selectedPartKind === "drawer" ||
+                selectedPartKind === "rail") && (
+                <button
+                  type="button"
+                  data-testid="v12-on-object-swap-hardware"
+                  onClick={() =>
+                    onOpenHardwareSwap(
+                      selectedPartKind === "door"
+                        ? "hinge"
+                        : selectedPartKind === "drawer"
+                        ? "drawer_slide"
+                        : "rail",
+                      safeBayIdx
+                    )
+                  }
+                  className="h-6 px-2 rounded-lg bg-[#141413] hover:bg-[#292524] text-white text-[10.5px] font-semibold inline-flex items-center gap-1 transition cursor-pointer"
+                  title="Donanımı alternatifleriyle değiştir"
+                >
+                  <ArrowLeftRight className="w-3 h-3" />
+                  <span>Donanım</span>
+                </button>
+              )}
             {!isInspectorOpen && (
               <button
                 type="button"
@@ -366,14 +393,44 @@ export const OnObjectQuickToolbar: React.FC<OnObjectQuickToolbarProps> = React.m
           )}
 
           {/* 3. RAF SEÇİLDİĞİNDE */}
-          {selectedPartKind === "shelf" && matchedShelf && (
+          {selectedPartKind === "shelf" && matchedShelf && (() => {
+            const isFixedShelf = matchedShelf.isAdjustable === false || matchedShelf.isFixed;
+            const shelfElevMm = Math.round(Number(matchedShelf.position ?? matchedShelf.y ?? 0));
+            const shelfElevText =
+              displayUnit === "cm"
+                ? `${Number((shelfElevMm / 10).toFixed(1))} cm`
+                : `${shelfElevMm} mm`;
+            return (
             <>
+              <span
+                data-testid="v11-shelf-mode-badge"
+                title={
+                  isFixedShelf
+                    ? "Sabit yapısal raf (Minifix/Rafix) — serbest konumlandırılabilir"
+                    : "Hareketli pimli raf — System 32 çoklu deliklere 32 mm adımla kilitlenir"
+                }
+                className={`h-7 px-2.5 rounded-xl border text-[11px] font-semibold inline-flex items-center gap-1.5 select-none ${
+                  isFixedShelf
+                    ? "bg-amber-50/90 border-amber-300/80 text-amber-900"
+                    : "bg-blue-50/90 border-blue-300/80 text-blue-900"
+                }`}
+              >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    isFixedShelf ? "bg-amber-600" : "bg-blue-600"
+                  }`}
+                />
+                <span>{isFixedShelf ? "Sabit Raf · Serbest" : "Pimli · 32 mm"}</span>
+                <span className="font-mono text-[10px] opacity-80">Y:{shelfElevText}</span>
+              </span>
+
               <button
                 type="button"
                 onClick={() => onToggleShelfMount(safeBayIdx, matchedShelf.id)}
+                title={isFixedShelf ? "Hareketli pimli rafa çevir (System 32)" : "Sabit yapısal rafa çevir (Minifix/Rafix)"}
                 className="h-7 px-2.5 rounded-xl bg-white hover:bg-[#F3EFE6] border border-[#E5DFD3] text-[11px] font-semibold transition cursor-pointer"
               >
-                {matchedShelf.isAdjustable === false || matchedShelf.isFixed ? "Sabit" : "Hareketli"}
+                {isFixedShelf ? "Sabit → Hareketli" : "Hareketli → Sabit"}
               </button>
 
               <button
@@ -416,7 +473,8 @@ export const OnObjectQuickToolbar: React.FC<OnObjectQuickToolbarProps> = React.m
                 <Trash2 className="w-3.5 h-3.5" />
               </button>
             </>
-          )}
+            );
+          })()}
 
           {/* 4. ÇEKMECE VEYA ASKI SEÇİLDİĞİNDE */}
           {(selectedPartKind === "drawer" || selectedPartKind === "rail") && (

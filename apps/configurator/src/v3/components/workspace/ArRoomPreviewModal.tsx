@@ -79,6 +79,39 @@ export const ArRoomPreviewModal: React.FC<ArRoomPreviewModalProps> = ({
     error: null,
   });
 
+    const [liveArStatus, setLiveArStatus] = useState<string | null>(null);
+
+  const handleLaunchInstantWebAR = () => {
+    if (typeof window === "undefined") return;
+    const ua = navigator.userAgent || "";
+    const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    try {
+      if (isIOS) {
+        const usdzBytes = exportPartsToUSDZ(parts, `${project.name || "birim-dolap"}`);
+        const blob = new Blob([usdzBytes as unknown as BlobPart], { type: "model/vnd.usdz+zip" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.setAttribute("rel", "ar");
+        a.setAttribute("href", url);
+        const img = document.createElement("img");
+        a.appendChild(img);
+        document.body.appendChild(a);
+        a.click();
+        setLiveArStatus("iOS AR Quick Look başlatıldı (1:1 ölçek).");
+        setTimeout(() => {
+          if (a.parentNode) a.parentNode.removeChild(a);
+          URL.revokeObjectURL(url);
+        }, 4000);
+      } else {
+        const glbBytes = exportPartsToGLB(parts, `${project.name || "birim-dolap"}`);
+        triggerDownload(glbBytes, `${(project.name || "birim-dolap").toLowerCase().replace(/[^a-z0-9-_]+/gi, "-")}-ar.glb`, "model/gltf-binary");
+        setLiveArStatus("1:1 GLB modeli indirildi — Android Scene Viewer veya 3B görüntüleyicide açabilirsiniz.");
+      }
+    } catch {
+      setLiveArStatus("AR modeli hazırlanırken hata oluştu; lütfen USDZ/GLB indirme butonlarını kullanın.");
+    }
+  };
+
   const fallbackLocalShareUrl = useMemo(() => {
     if (typeof window === "undefined") return "https://konfigurator.birim.com";
     const token = encodeSharePayloadBase64Url({
@@ -304,6 +337,18 @@ export const ArRoomPreviewModal: React.FC<ArRoomPreviewModalProps> = ({
                 <span>Sunucu İmzalı Kalıcı Teklif & WhatsApp Linki</span>
               </div>
 
+              <button
+                  type="button"
+                  data-testid="launch-instant-webar-btn"
+                  onClick={handleLaunchInstantWebAR}
+                  className="w-full mb-2.5 py-2.5 px-3 rounded-xl bg-[#141413] hover:bg-[#292524] text-white text-xs font-bold inline-flex items-center justify-center gap-2 transition cursor-pointer"
+                >
+                  <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Odamda Canlı AR Aç (1:1 iOS / Android)</span>
+                </button>
+                {liveArStatus && (
+                  <p className="mb-2 text-[11px] font-medium text-[#2E6F40]">{liveArStatus}</p>
+                )}
               {!serverShareState.code ? (
                 <button
                   type="button"

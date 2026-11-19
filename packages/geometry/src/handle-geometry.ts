@@ -172,6 +172,16 @@ export function generateHandleGeometry(
     customMatId?: string
   ) => {
     const fixed = category === "gola_profile";
+    const isLCornerReturn = front.id.includes("_lcorner_return");
+    const isDiag45 = front.id.includes("_diag45_door");
+    const resolvedRotation: [number, number, number] | undefined = fixed
+      ? isLCornerReturn
+        ? [0, Math.PI / 2, 0]
+        : isDiag45
+        ? front.rotation
+        : undefined
+      : front.rotation;
+    const resolvedPivot = fixed ? (isLCornerReturn || isDiag45 ? front.pivot : undefined) : front.pivot;
     parts.push({
       id: `${front.id}_handle_${name}`,
       role: fixed ? "gola_profile" : drawer ? "drawer_handle" : "door_handle",
@@ -183,14 +193,19 @@ export function generateHandleGeometry(
         y: front.position.y + y - h / 2,
         z: front.position.z + dz,
       },
-      rotation: fixed ? undefined : front.rotation,
-      pivot: fixed ? undefined : front.pivot,
+      rotation: resolvedRotation,
+      pivot: resolvedPivot,
       primitive,
       parentComponentId: front.id,
       handleCategory: category,
       materialId:
         customMatId ||
-        (category === "milled_wood_grip" || category === "j_pull"
+        (category === "milled_wood_grip" ||
+        category === "j_pull" ||
+        context?.handleProfileId === "hnd_gola_melamine_box" ||
+        context?.handleProfileId === "hnd_gola_moulded_box" ||
+        context?.handleProfileId === "hnd_bevel_30_backing" ||
+        context?.handleProfileId === "hnd_overhang_recessed_lip"
           ? front.materialId
           : resolvedHandleMatId),
       isFrontFacing: true,
@@ -253,30 +268,53 @@ export function generateHandleGeometry(
           : Math.min(480, Math.max(120, front.dimensions.height - 40));
       const vCy = category === "gola_profile" ? front.dimensions.height / 2 : cy;
       if (category === "gola_profile") {
-        add("gola_vertical_channel", edgeX, vCy, -14, 34, vSpan, 28);
+        add("gola_vertical_channel", edgeX, vCy, -26, 30, vSpan, 26);
       } else if (category === "j_pull") {
         add("jpull_vertical_cutout", edgeX, vCy, z - 4, 24, vSpan, 10);
       } else {
         add("edge_vertical_profile", edgeX, vCy, z - 2, 20, Math.max(180, span), 18);
       }
     } else if (isWallOrHighFront) {
-      // Upper Wall Cabinet: place Gola / J-Pull / Edge profile at the BOTTOM edge (y ≈ 0..24)
+      // Upper Wall Cabinet: Gola 268 sits flush inside the recessed 18mm bottom panel (world Y=0..20, Z=depth-26..depth),
+      // while the door overhangs 18mm below (front.position.y = -18 -> local y = 28 puts channel at world Y=0..20!).
+      const profId = context?.handleProfileId || "";
       if (category === "gola_profile") {
-        add("gola_horizontal_channel", front.dimensions.width / 2, 15, -14, fullW, 30, 28);
+        if (profId === "hnd_overhang_recessed_lip") {
+          add("gola_overhang_lip", front.dimensions.width / 2, 18, -18, fullW, 12, 18);
+        } else {
+          add("gola_wall_268_channel", front.dimensions.width / 2, 28, -26, fullW, 20, 26);
+        }
       } else if (category === "j_pull") {
-        add("jpull_horizontal_cutout", front.dimensions.width / 2, 12, z - 4, fullW, 24, 10);
+        add("jpull_horizontal_cutout", front.dimensions.width / 2, 15, Math.max(0, z - 12), fullW, 30, 12);
       } else {
-        add("edge_horizontal_profile", front.dimensions.width / 2, 8, z - 2, Math.max(140, span), 16, 18);
+        add("edge_horizontal_profile", front.dimensions.width / 2, 2, 0, Math.max(140, span), 4, z + 18);
       }
     } else {
-      // Base Cabinet or Drawer: place at the TOP edge!
-      const golaY = drawer ? top - 14 : top + 14;
+      // Base Cabinet or Drawer: world-standard top Gola / Finger Box / Bevel Backing / J-Pull / Edge Profile
+      const profId = context?.handleProfileId || "";
       if (category === "gola_profile") {
-        add("gola_horizontal_channel", front.dimensions.width / 2, golaY, -14, fullW, 30, 28);
+        if (profId === "hnd_gola_melamine_box") {
+          // 60x38mm recessed melamine finger box: 30mm visible gap + 30mm overlap behind door top
+          add("gola_melamine_box", front.dimensions.width / 2, top, -38, fullW, 60, 38);
+        } else if (profId === "hnd_gola_moulded_box") {
+          // 60x25mm moulded recessed finger box: 30mm gap + 30mm overlap behind door top
+          add("gola_moulded_box", front.dimensions.width / 2, top, -25, fullW, 60, 25);
+        } else if (profId === "hnd_bevel_30_backing") {
+          // 60x18mm matching backing plate behind 30°/45° beveled door top
+          add("gola_bevel_backing", front.dimensions.width / 2, top, -18, fullW, 60, 18);
+        } else if (drawer && profId === "hnd_gola_c_drawer" && front.position.y + top < (context?.moduleHeight || 870) - 80) {
+          // 73x26mm C-Gola channel between stacked drawers (overlaps both upper & lower fronts by ~20mm)
+          add("gola_c_channel", front.dimensions.width / 2, top + 16, -26, fullW, 73, 26);
+        } else {
+          // 49x26mm L-Gola aluminum channel under countertop: 30mm gap + 19mm overlap behind door top
+          add("gola_l_channel", front.dimensions.width / 2, top + 5.5, -26, fullW, 49, 26);
+        }
       } else if (category === "j_pull") {
-        add("jpull_horizontal_cutout", front.dimensions.width / 2, top - 12, z - 4, fullW, 24, 10);
+        // Milled strictly INSIDE the 21-22mm door thickness (0mm front protrusion!)
+        add("jpull_horizontal_cutout", front.dimensions.width / 2, top - 15, Math.max(0, z - 12), fullW, 30, 12);
       } else {
-        add("edge_horizontal_profile", front.dimensions.width / 2, top - 6, z - 2, Math.max(140, span), 16, 18);
+        // Clip-on aluminum edge profile seated directly on the TOP edge of the door
+        add("edge_horizontal_profile", front.dimensions.width / 2, top - 2, 0, Math.max(140, span), 4, z + 18);
       }
     }
   }

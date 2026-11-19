@@ -1,4 +1,5 @@
 import { create, type StoreApi, type UseBoundStore } from "zustand";
+import { harmonizeModuleWithProjectContext } from "../v3/adapter/moduleHarmonizer";
 import {
   DesignProject,
   createInitialProject,
@@ -1426,7 +1427,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
   previewHardwarePackageDelta: (packageId) => {
     const { project, pricing } = get();
     const pkg = PROJECT_HARDWARE_PACKAGES.find((x) => x.id === packageId);
-    const currentTotalEur = pricing?.totalWithVatEur ?? 0;
+    const currentTotalEur = pricing?.totalEur ?? 0;
     if (!pkg) {
       return { packageId, currentTotalEur, projectedTotalEur: currentTotalEur, deltaEur: 0, affectedDoors: 0, affectedDrawers: 0 };
     }
@@ -1528,7 +1529,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
     const { project, history, batchStartProject, pricing } = get();
     const pkg = PROJECT_HARDWARE_PACKAGES.find((x) => x.id === packageId);
     if (!pkg) return { applied: false, messageTr: "Donanım paketi bulunamadı.", deltaEur: 0 };
-    const beforeEur = pricing?.totalWithVatEur ?? 0;
+    const beforeEur = pricing?.totalEur ?? 0;
     const updated = cloneProject(project);
     const stdHinge = getHardwareProductById(pkg.hingeStandardId);
     let updatedDoors = 0;
@@ -1569,7 +1570,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
 
     updated.updatedAt = new Date().toISOString();
     const { validationIssues, bom, pricing: nextPricing, smartAdvice, lastChangeImpact } = recompute(updated);
-    const deltaEur = Math.round(((nextPricing?.totalWithVatEur ?? beforeEur) - beforeEur) * 100) / 100;
+    const deltaEur = Math.round(((nextPricing?.totalEur ?? beforeEur) - beforeEur) * 100) / 100;
 
     set({
       history: nextHistory(history, project, batchStartProject),
@@ -2760,6 +2761,9 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
       });
     }
 
+    harmonizeModuleWithProjectContext(solved.moduleInstance, updated.modules, {
+      mode: "append",
+    });
     if (resolveMultiHoleSpec(solved.moduleInstance).mode !== "none") {
       alignModuleShelvesToSystem32(solved.moduleInstance, { includeFixedShelves: true });
     }
@@ -3226,6 +3230,12 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
     if (!tpl) return;
     const { project, history } = get();
     const newMod = tpl.createInstance(`mod_${Date.now()}`);
+    if (project.modules.length > 0) {
+      harmonizeModuleWithProjectContext(newMod, project.modules, {
+        mode: "replace",
+        targetModule: project.modules[0],
+      });
+    }
     const nextVersion = project.version + 1;
     const updated: DesignProject = {
       ...project,

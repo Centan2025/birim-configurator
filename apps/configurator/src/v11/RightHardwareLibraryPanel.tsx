@@ -59,6 +59,20 @@ const USAGE_PURPOSE_LABELS: Record<HardwareUsagePurpose, string> = {
 
 type QuickScope = "all" | "compatible" | "favorites" | "recents";
 
+
+function formatBrandLabel(rawName?: string): string {
+  const n = (rawName || "").trim();
+  if (!n) return "Birim";
+  if (/blum/i.test(n)) return "Blum";
+  if (/hettich/i.test(n)) return "Hettich";
+  if (/h[aä]fele/i.test(n)) return "Häfele";
+  if (/kesseb[oö]hmer/i.test(n)) return "Kesseböhmer";
+  if (/vauth/i.test(n)) return "Vauth-Sagel";
+  if (/samet/i.test(n)) return "Samet";
+  if (/birim/i.test(n)) return "Birim";
+  return n.split(" ")[0];
+}
+
 export interface RightHardwareLibraryPanelProps {
   activeModule: ModuleInstance;
   activeBayIndex: number;
@@ -317,6 +331,7 @@ export const RightHardwareLibraryPanel: React.FC<RightHardwareLibraryPanelProps>
   const [selectedStatus, setSelectedStatus] = useState<HardwareProductionStatus | "all">("all");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [showFilters, setShowFilters] = useState(false);
+  const [showAllCategories, setShowAllCategories] = useState(false);
   const [showPackages, setShowPackages] = useState(experienceTier === "simple");
   const [showFactoryChecklist, setShowFactoryChecklist] = useState(false);
 
@@ -432,10 +447,13 @@ export const RightHardwareLibraryPanel: React.FC<RightHardwareLibraryPanelProps>
       });
     }
     if (activeModule.dimensions.height >= 1800 && !activeModule.carcass.wallAnchored) {
+      const isSimpleMode = experienceTier === "simple";
       prompts.push({
         id: "prompt_en14749_tip",
-        titleTr: `Modül yüksekliği ${Math.round(activeModule.dimensions.height)} mm: EN 14749 duvar sabitleme braketi önerilir.`,
-        actionLabelTr: "EN 14749 Braketi Ekle",
+        titleTr: isSimpleMode
+          ? `Güvenlik: ${Math.round(activeModule.dimensions.height / 10)} cm yükseklik için duvar sabitleme önerilir.`
+          : `Modül yüksekliği ${Math.round(activeModule.dimensions.height)} mm: EN 14749 duvar sabitleme braketi önerilir.`,
+        actionLabelTr: isSimpleMode ? "Duvar Sabitleme Ekle" : "EN 14749 Braketi Ekle",
         onRun: () => {
           const res = onApplyHardware(activeBayIndex, "hw_en14749_anti_tip");
           setFeedbackBanner({ tone: res.applied ? "ok" : "error", text: res.messageTr });
@@ -645,7 +663,7 @@ export const RightHardwareLibraryPanel: React.FC<RightHardwareLibraryPanelProps>
           </div>
           <div className="flex-1 min-w-0 space-y-1">
             <div className="text-[10px] font-bold uppercase text-[#8C7A6B] truncate">
-              {item.manufacturerName.split(" ")[0]} • {item.sku}
+              {formatBrandLabel(item.manufacturerName)} • {item.sku}
             </div>
             <div className="text-[11.5px] font-semibold text-[#141413] leading-snug line-clamp-2">
               {item.name}
@@ -733,7 +751,7 @@ export const RightHardwareLibraryPanel: React.FC<RightHardwareLibraryPanelProps>
         <div className="p-2.5 space-y-2 flex-1 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between gap-1 text-[10px] font-bold uppercase text-[#8C7A6B]">
-              <span className="truncate">{item.manufacturerName.split(" ")[0]} • {item.sku}</span>
+              <span className="truncate">{formatBrandLabel(item.manufacturerName)} • {item.sku}</span>
               <span className="font-mono text-[#78716C] shrink-0">{item.loadCapacityKg} kg</span>
             </div>
             <div className="text-[11px] font-semibold text-[#141413] leading-snug line-clamp-2 mt-0.5">
@@ -845,7 +863,8 @@ export const RightHardwareLibraryPanel: React.FC<RightHardwareLibraryPanelProps>
           </button>
         </div>
 
-        {/* Milimetrik Boşluk Göstergesi */}
+        {/* Milimetrik Boşluk Göstergesi (Yalnızca Üretim seviyesi) */}
+        {experienceTier === "factory" && (
         <div className="flex flex-wrap gap-1 text-[9.5px] font-mono text-[#57534E]">
           <span className="px-1.5 py-0.5 rounded-md bg-[#FAF8F4] border border-[#E6E1D6]">
             Kapak Payı: {activeModule.carcass.doorPerimeterGap ?? 2} mm
@@ -859,8 +878,13 @@ export const RightHardwareLibraryPanel: React.FC<RightHardwareLibraryPanelProps>
             </span>
           )}
         </div>
+        )}
 
-        {installedBayHardware.length === 0 ? (
+        {experienceTier === "simple" ? (
+          <p className="text-[10.5px] text-[#78716C]">
+            Donanım kalitesi seçili pakete göre otomatik ayarlanır. 3B Aç/Kapa testiyle kapak ve çekmeceleri deneyebilirsiniz.
+          </p>
+        ) : installedBayHardware.length === 0 ? (
           <p className="text-[10.5px] text-[#78716C]">Bu bölmede henüz özel donanım atanmamış.</p>
         ) : (
           <div className="space-y-1">
@@ -872,7 +896,11 @@ export const RightHardwareLibraryPanel: React.FC<RightHardwareLibraryPanelProps>
                 <div className="min-w-0">
                   <span className="font-bold text-[#141413]">{row.slotLabel}:</span>{" "}
                   <span className="text-[#57534E] truncate">
-                    {row.hw ? `${row.hw.manufacturerName.split(" ")[0]} ${row.hw.sku}` : "Standart"}
+                    {row.hw
+                      ? experienceTier === "factory"
+                        ? `${formatBrandLabel(row.hw.manufacturerName)} • ${row.hw.sku}`
+                        : `${formatBrandLabel(row.hw.manufacturerName)} ${row.hw.series || row.hw.nameTr}`
+                      : "Standart"}
                   </span>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
@@ -1193,7 +1221,23 @@ export const RightHardwareLibraryPanel: React.FC<RightHardwareLibraryPanelProps>
         >
           Tüm Kategoriler
         </button>
-        {HARDWARE_CATEGORY_GROUPS.map((cat) => (
+        {HARDWARE_CATEGORY_GROUPS.filter((cat) => {
+          if (showAllCategories || experienceTier === "factory") return true;
+          const isWardrobeMod =
+            activeModule.category === "wardrobe" ||
+            /gard[ıi]rop|giyinme|vestiyer/i.test(activeModule.name || "");
+          // Menteşe ve tabla Kapak sekmesine aittir; gardıropta Mutfak Kiler / Kalkar / Pocket varsayılan gizlenir
+          if (cat.id === "fam_hinge_concealed" || cat.id === "fam_hinge_plate") return false;
+          if (
+            isWardrobeMod &&
+            (cat.id === "fam_kitchen_acc" ||
+              cat.id === "fam_lift_system" ||
+              cat.id === "fam_pocket_system")
+          ) {
+            return false;
+          }
+          return true;
+        }).map((cat) => (
           <button
             key={cat.id}
             type="button"
@@ -1207,6 +1251,15 @@ export const RightHardwareLibraryPanel: React.FC<RightHardwareLibraryPanelProps>
             {cat.shortLabelTr}
           </button>
         ))}
+        {experienceTier !== "factory" && (
+          <button
+            type="button"
+            onClick={() => setShowAllCategories((v) => !v)}
+            className="px-2 py-1 rounded-full text-[10px] font-semibold text-[#78716C] hover:text-[#141413] border border-dashed border-[#D6CFC2] cursor-pointer"
+          >
+            {showAllCategories ? "Bağlama Daralt" : "+ Menteşe / Diğerleri"}
+          </button>
+        )}
       </div>
 
       {/* Seçili Ürün Teknik Çizim & Detay Kartı */}

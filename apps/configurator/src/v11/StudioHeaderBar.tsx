@@ -61,10 +61,11 @@ export interface StudioHeaderBarProps {
   onOpenSceneHubModal: () => void;
   isReadOnlyCustomer?: boolean;
   displayUnit?: "cm" | "mm";
+  onOpenDoorShowcase?: () => void;
   onChangeDisplayUnit?: (unit: "cm" | "mm") => void;
   uiFontScale?: number;
   onChangeUiFontScale?: (scale: number) => void;
-  activeInspectorTab?: "dimensions" | "interior" | "doors" | "hardware" | "materials";
+  activeInspectorTab?: "dimensions" | "interior" | "doors" | "materials";
   onQuickNavigateStep?: (step: "dimensions" | "interior" | "showroom") => void;
 }
 
@@ -104,6 +105,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
     onOpenSceneHubModal,
     isReadOnlyCustomer = false,
     displayUnit = "cm",
+    onOpenDoorShowcase,
     onChangeDisplayUnit,
     uiFontScale = 1,
     onChangeUiFontScale,
@@ -252,7 +254,18 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
             </div>
           ) : (
           <div className="flex items-center gap-2 shrink-0">
-            {/* Küresel cm / mm Ölçü Birimi Seçici */}
+            {/* Küresel cm / mm Ölçü Birimi Seçici (Kolay modda üst çubuk sade tutulur) */}
+            {onOpenDoorShowcase && (
+              <button
+                type="button"
+                data-testid="v11-open-door-showcase"
+                onClick={onOpenDoorShowcase}
+                title="Tüm kapak çeşitleri ve kulpsuz açma kesitlerini paralel karşılaştır"
+                className="h-8 px-2.5 rounded-full bg-white/85 hover:bg-white border border-[#DFD9CE] text-[#141413] text-[11px] font-semibold transition cursor-pointer shrink-0"
+              >
+                Kapak Galerisi
+              </button>
+            )}
             {onChangeDisplayUnit && (
               <div
                 data-testid="v11-global-unit-switcher"
@@ -279,7 +292,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
               <div
                 data-testid="v11-font-scale-switcher"
                 title="Arayüz Yazı Boyutu"
-                className="hidden md:inline-flex items-center p-0.5 rounded-full bg-[#ECE7DD]/85 border border-[#DFD9CE]"
+                className="inline-flex items-center p-0.5 rounded-full bg-[#ECE7DD]/85 border border-[#DFD9CE]"
               >
                 <button
                   type="button"

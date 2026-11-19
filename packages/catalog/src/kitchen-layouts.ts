@@ -157,7 +157,7 @@ export function createKitchenUProject(): DesignProject {
   cornerRight.cornerAngleDeg = 90;
   cornerRight.dimensions = { width: 900, height: 720, depth: 900 };
   cornerRight.position = { x: 1900, y: 0, z: 0 };
-  cornerRight.rotation = { x: 0, y: 90, z: 0 };
+  cornerRight.rotation = { x: 0, y: 270, z: 0 };
   if (cornerRight.bays[0]?.door) {
     cornerRight.bays[0].door.type = "folding";
     cornerRight.bays[0].door.doorSystemId = "folding_side";
@@ -198,6 +198,26 @@ export function createKitchenUProject(): DesignProject {
           thickness: 150,
           position: { x: 0, y: 0, z: 0 },
           rotationY: 0,
+          elements: [],
+        },
+        {
+          id: "wall_u_left",
+          name: "Sol Yan Duvar",
+          length: 2000,
+          height: 2600,
+          thickness: 150,
+          position: { x: 0, y: 0, z: 0 },
+          rotationY: 90,
+          elements: [],
+        },
+        {
+          id: "wall_u_right",
+          name: "Sağ Yan Duvar",
+          length: 2000,
+          height: 2600,
+          thickness: 150,
+          position: { x: 2800, y: 0, z: 0 },
+          rotationY: 90,
           elements: [],
         },
       ],

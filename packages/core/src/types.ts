@@ -605,6 +605,7 @@ export interface CrownMoldingConfig {
 }
 
 export interface CarcassConfig {
+  roofSlope?: { side: "none" | "left" | "right" | "rear"; kneeWallHeightMm: number; slopeRunMm: number };
   panelThickness: UnitLength; // default 18
   topPanelThicknessMm?: UnitLength; // Bağımsız üst tabla kalınlığı (TV bench, konsol vb. için)
   backPanelThickness: UnitLength; // default 8
@@ -716,6 +717,7 @@ export interface ModuleInstance {
   carcass: CarcassConfig;
   isOpenFront?: boolean;
   isCorner?: boolean;
+  roofSlope?: { side: "none" | "left" | "right" | "rear"; kneeWallHeightMm: number; slopeRunMm: number };
   cornerAngleDeg?: number; // 90 for standard L-corner
   isFixedWidth?: boolean;
   isFreestandingDishwasher?: boolean;

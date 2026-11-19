@@ -2,6 +2,8 @@
 import { computeBaySystem32ShelfHoleElevations } from "../engine/elevationSnapEngine";
 import { solveAngledWallSnapForModule, originToModulePosition } from "../engine/angledWallSnapEngine";
 import { buildGuidedWizardProject, type GuidedWizardLayoutInput } from "./guidedWizardBuilder";
+import { harmonizeModuleWithProjectContext } from "./moduleHarmonizer";
+import { buildDoorSystemsShowcaseProject, type DoorShowcaseMode } from "./doorShowcaseBuilder";
 import { applyValidatedDimensionsToModule } from "../components/workspace/moduleLibraryUtils";
 import { useMemo, useCallback, useRef } from "react";
 import { useConfiguratorStore, selectModuleBayComponentSafe } from "../../store/useConfiguratorStore";
@@ -2665,6 +2667,14 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
         : baseMod;
       const activeMod = curProj.modules[state.activeModuleIndex] || curProj.modules.find((m) => m.category !== "complementary") || curProj.modules[0];
 
+      if (newMod.category !== "complementary" && newMod.moduleFamilyId !== "fam_complementary") {
+        harmonizeModuleWithProjectContext(newMod, curProj.modules, {
+          mode: "append",
+          targetModule: activeMod,
+          customDimensions,
+        });
+      }
+
       // Object-Linked Complementary Module Placement: attach directly to the selected parent cabinet!
       if ((newMod.category === "complementary" || newMod.moduleFamilyId === "fam_complementary") && activeMod) {
         const parentMod = activeMod.category === "complementary"
@@ -2910,6 +2920,11 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
     let targetIndex = 0;
 
     if (appendToProject || curProj.modules.length === 0) {
+      harmonizeModuleWithProjectContext(newMod, curProj.modules, {
+        mode: "append",
+        targetModule: lastMod,
+        customDimensions,
+      });
       const nextX = lastMod ? lastMod.position.x + lastMod.dimensions.width : 0;
       newMod.position = { ...newMod.position, x: nextX };
       nextModules = [...curProj.modules, newMod];
@@ -2917,6 +2932,11 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
     } else {
       targetIndex = Math.max(0, Math.min(curProj.modules.length - 1, state.activeModuleIndex ?? 0));
       const targetMod = curProj.modules[targetIndex];
+      harmonizeModuleWithProjectContext(newMod, curProj.modules, {
+        mode: "replace",
+        targetModule: targetMod,
+        customDimensions,
+      });
       newMod.id = targetMod.id;
       // Retain horizontal X and Z placement, but determine Y (elevation) based on new template family:
       // Wall cabinets sit at wall elevation (1450 or previous if already wall), base/tall/wardrobe sit on floor (0).
@@ -3316,6 +3336,27 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
    * V4 Guided Step-by-Step Wizard Atomic Builder:
    * Builds a 100% collision-free, non-overlapping multi-module wall layout in one atomic state commit.
    */
+  const loadDoorSystemsShowcase = useCallback((mode: DoorShowcaseMode) => {
+    const state = useConfiguratorStore.getState();
+    const curProj = state.project;
+    const nextProj = buildDoorSystemsShowcaseProject(curProj, mode);
+    state.setDoorOpenAngleDeg(0, false);
+    state.setDrawerOpenMm(0, false);
+    commitAdapterState({
+      history: [...state.history.slice(-50), curProj],
+      future: [],
+      project: nextProj,
+      activeModuleIndex: 0,
+      activeBayIndex: 0,
+      selectedComponentId: null,
+    });
+    if (typeof window !== "undefined") {
+      window.requestAnimationFrame(() => {
+        window.dispatchEvent(new CustomEvent("birim:fit-camera-3d", { detail: "hero" }));
+      });
+    }
+  }, []);
+
   const applyGuidedWizardLayout = useCallback(
     (wiz: GuidedWizardLayoutInput) => {
       const state = useConfiguratorStore.getState();
@@ -3334,6 +3375,11 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
         activeBayIndex: 0,
         selectedComponentId: null,
       });
+      if (typeof window !== "undefined") {
+        window.requestAnimationFrame(() => {
+          window.dispatchEvent(new CustomEvent("birim:fit-camera-3d", { detail: "hero" }));
+        });
+      }
     },
     []
   );
@@ -7128,6 +7174,7 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
     attachComplementaryToActiveModule,
     applyProjectSegmentPreset,
     applyGuidedWizardLayout,
+    loadDoorSystemsShowcase,
     applyQuickCabinetAtomic,
     setModuleUtilityCutouts,
     autoResolveCornerCollisions,

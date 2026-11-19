@@ -61,6 +61,7 @@ import {
   type ArchitecturalFloorStyle,
   type ArchitecturalWallTone,
 } from "../materials/pbrMaterialSystem";
+import { createInstancedSystem32Holes, createInstancedShelfPins, disposeSharedHardwarePool } from "./instancedHardwarePool";
 import {
   markSharedGeometry,
   markSharedMaterial,
@@ -359,6 +360,8 @@ const xrayIcePanelMat = markSharedMaterial(
   })
 );
 const xrayHoleUnitCylinder = markSharedGeometry(new THREE.CylinderGeometry(0.5, 0.5, 1, 14));
+const hingeMountHole3DMat = markSharedMaterial(new THREE.MeshBasicMaterial({ color: 0x111827 }));
+const hingeMountRing3DMat = markSharedMaterial(new THREE.MeshBasicMaterial({ color: 0xd97706 }));
 const xrayHoleMatD5 = markSharedMaterial(new THREE.MeshBasicMaterial({ color: 0x10b981 }));
 const xrayHoleMatD8 = markSharedMaterial(new THREE.MeshBasicMaterial({ color: 0x3b82f6 }));
 const xrayHoleMatD15 = markSharedMaterial(new THREE.MeshBasicMaterial({ color: 0xef4444 }));
@@ -639,27 +642,32 @@ function addDimensionSegment(
   const d2 = p2.clone().addScaledVector(extDir, extLen);
   const tickOver = 24;
 
-  // Sleek architectural dimension rod + arrowheads
-  add3DRod(group, d1, d2, 2.3, mat);
+  // SketchUp-style crisp architectural dimension line + 45° slash ticks
+  add3DRod(group, d1, d2, 1.35, mat);
   const segDir = new THREE.Vector3().subVectors(d2, d1);
-  if (segDir.length() > 90) {
-    add3DArrowCone(group, d1, segDir.clone().negate(), mat);
-    add3DArrowCone(group, d2, segDir, mat);
+  const segLen = segDir.length();
+  if (segLen > 45) {
+    const unitSeg = segDir.clone().normalize();
+    const unitExt = extDir.clone().normalize();
+    const slashHalf = 18;
+    const slashVec = unitSeg.clone().add(unitExt).normalize().multiplyScalar(slashHalf);
+    add3DRod(group, d1.clone().sub(slashVec), d1.clone().add(slashVec), 1.9, mat);
+    add3DRod(group, d2.clone().sub(slashVec), d2.clone().add(slashVec), 1.9, mat);
   }
 
-  // Extension rods
+  // Thin external extension guide lines
   add3DRod(
     group,
-    p1.clone().addScaledVector(extDir, 12),
+    p1.clone().addScaledVector(extDir, 18),
     d1.clone().addScaledVector(extDir, tickOver),
-    1.6,
+    0.95,
     mat
   );
   add3DRod(
     group,
-    p2.clone().addScaledVector(extDir, 12),
+    p2.clone().addScaledVector(extDir, 18),
     d2.clone().addScaledVector(extDir, tickOver),
-    1.6,
+    0.95,
     mat
   );
 
@@ -815,6 +823,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       flipActiveDoorDirection,
       setModulePosition,
       swapModuleWithNeighbor,
+      applyV4Template,
       finishModuleDragWithSmartSwap,
       updateObstaclePosition,
       beginHistoryTransaction,
@@ -1648,7 +1657,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           valueText: displayUnit === "cm" ? `${Number((W / 10).toFixed(1))} cm` : `${Math.round(W)} mm`,
           borderColor: "#D6D0C4",
           badgeBg: "#141413",
-          localMidpoint: new THREE.Vector3(W * 0.5, H + 105, D * 0.65),
+          localMidpoint: new THREE.Vector3(W * 0.5, H + 195, D * 0.85),
         },
         {
           id: "dim_H",
@@ -1656,7 +1665,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           valueText: displayUnit === "cm" ? `${Number((H / 10).toFixed(1))} cm` : `${Math.round(H)} mm`,
           borderColor: "#D6D0C4",
           badgeBg: "#141413",
-          localMidpoint: new THREE.Vector3(W + 115, H * 0.52, D),
+          localMidpoint: new THREE.Vector3(W + 175, H * 0.52, D),
         },
         {
           id: "dim_D",
@@ -1664,36 +1673,89 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           valueText: displayUnit === "cm" ? `${Number((D / 10).toFixed(1))} cm` : `${Math.round(D)} mm`,
           borderColor: "#D6D0C4",
           badgeBg: "#57534E",
-          localMidpoint: new THREE.Vector3(W + 125, 18, D * 0.5),
+          localMidpoint: new THREE.Vector3(-145, 18, D * 0.5),
         },
       ];
 
-      if (!isSimpleTier || displayUnit === "mm" || displayUnit === "cm") {
+      if (!isSimpleTier) {
         list.push({
           id: "dim_SOKET",
-          tag: "Soket",
+          tag: "İç Net Genişlik",
           valueText: displayUnit === "cm" ? `${Number((soketW / 10).toFixed(1))} cm` : `${Math.round(soketW)} mm`,
           borderColor: "#D6D0C4",
           badgeBg: "#57534E",
-          localMidpoint: new THREE.Vector3(W * 0.5, 8, D + 115),
+          localMidpoint: new THREE.Vector3(W * 0.5, 8, D + 120),
         });
       }
 
       if (mod.category !== "complementary" && mod.bays.length >= 1) {
         const fs = calculateFourSpaceDimensions(mod);
         const bayWidths = fs.usableInternal.bayClearWidthsMm;
+        const plinthH = mod.carcass.plinthHeight ?? 100;
+        const innerBotY = plinthH + T;
+        const innerTopY = H - T;
         let curX = T;
         mod.bays.forEach((b, bIdx) => {
           const bw = bayWidths[bIdx] || Math.round((W - (mod.bays.length + 1) * T) / mod.bays.length);
           const midX = curX + bw * 0.5;
-          list.push({
-            id: `dim_BAY_${bIdx}`,
-            tag: `${bIdx + 1}. Bölme`,
-            valueText: displayUnit === "cm" ? `${Number((bw / 10).toFixed(1))} cm` : `${Math.round(bw)} mm`,
-            borderColor: "#D6D0C4",
-            badgeBg: "#141413",
-            localMidpoint: new THREE.Vector3(midX, H + 28, D * 0.92),
-          });
+          // SketchUp-style contextual declutter: Kolay modda yalnızca aktif bölme genişliği gösterilir
+          if (!isSimpleTier || bIdx === activeBayIndex) {
+            list.push({
+              id: `dim_BAY_${bIdx}`,
+              tag: `${bIdx + 1}. Bölme`,
+              valueText: displayUnit === "cm" ? `${Number((bw / 10).toFixed(1))} cm` : `${Math.round(bw)} mm`,
+              borderColor: "#D6D0C4",
+              badgeBg: "#141413",
+              localMidpoint: new THREE.Vector3(midX, H + 34, D * 0.94),
+            });
+          }
+
+          // Seçili raf için canlı Üst / Alt Net Boşluk ölçüleri
+          if (bIdx === activeBayIndex && selectedComponentId) {
+            const visibleShelves = (b.shelves || [])
+              .filter((sh) => !sh.isHidden)
+              .sort((a, z) => (a.position ?? 0) - (z.position ?? 0));
+            const selIdx = visibleShelves.findIndex((sh) => sh.id === selectedComponentId);
+            if (selIdx >= 0) {
+              const selShelf = visibleShelves[selIdx];
+              const shelfT = selShelf.thickness || T;
+              const shelfBotY = plinthH + T + (selShelf.position ?? 0);
+              const shelfTopY = shelfBotY + shelfT;
+              const prevTopY =
+                selIdx > 0
+                  ? plinthH + T + (visibleShelves[selIdx - 1].position ?? 0) + (visibleShelves[selIdx - 1].thickness || T)
+                  : innerBotY;
+              const nextBotY =
+                selIdx < visibleShelves.length - 1
+                  ? plinthH + T + (visibleShelves[selIdx + 1].position ?? 0)
+                  : innerTopY;
+              const gapBelow = Math.max(0, Math.round(shelfBotY - prevTopY));
+              const gapAbove = Math.max(0, Math.round(nextBotY - shelfTopY));
+              const fmtGap = (mm: number) =>
+                displayUnit === "cm" ? `${Number((mm / 10).toFixed(1))} cm` : `${mm} mm`;
+
+              if (gapAbove >= 40) {
+                list.push({
+                  id: "dim_SHELF_GAP_ABOVE",
+                  tag: "Üst Boşluk",
+                  valueText: fmtGap(gapAbove),
+                  borderColor: "#93C5FD",
+                  badgeBg: "#1D4ED8",
+                  localMidpoint: new THREE.Vector3(midX, shelfTopY + gapAbove * 0.5, D + 26),
+                });
+              }
+              if (gapBelow >= 40) {
+                list.push({
+                  id: "dim_SHELF_GAP_BELOW",
+                  tag: "Alt Boşluk",
+                  valueText: fmtGap(gapBelow),
+                  borderColor: "#93C5FD",
+                  badgeBg: "#1D4ED8",
+                  localMidpoint: new THREE.Vector3(midX, prevTopY + gapBelow * 0.5, D + 26),
+                });
+              }
+            }
+          }
           curX += bw + T;
         });
       }
@@ -1715,7 +1777,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       }
 
       return list;
-    }, [project, activeModuleIndex, effectiveShowDimensions, isSimpleTier, displayUnit]);
+    }, [project, activeModuleIndex, activeBayIndex, selectedComponentId, effectiveShowDimensions, isSimpleTier, displayUnit]);
 
     const hwCallouts = useMemo(() => {
       const mod = project.modules[activeModuleIndex] || project.modules[0];
@@ -2079,12 +2141,14 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         let x = Math.max(72, Math.min(w - 72, rawX));
         let y = Math.max(64, Math.min(h - 68, rawY));
 
-        // Prevent overlapping labels on screen
-        for (const prev of placed) {
-          if (!prev.visible) continue;
-          if (Math.abs(x - prev.x) < 118 && Math.abs(y - prev.y) < 34) {
-            y = prev.y + (y >= prev.y ? 36 : -36);
-            y = Math.max(64, Math.min(h - 68, y));
+        // SketchUp-style 2-pass screen-space de-overlap so labels never stack on top of each other
+        for (let pass = 0; pass < 2; pass += 1) {
+          for (const prev of placed) {
+            if (!prev.visible) continue;
+            if (Math.abs(x - prev.x) < 126 && Math.abs(y - prev.y) < 32) {
+              y = prev.y + (y >= prev.y ? 34 : -34);
+              y = Math.max(68, Math.min(h - 74, y));
+            }
           }
         }
         placed.push({ id: item.id, x, y, visible: true });
@@ -2233,8 +2297,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
 
       const renderer = safeGl.bundle.renderer;
       const isLegacyGpu = safeGl.bundle.capability.isLegacyOrLowSpecGpu;
-      const restSharpDpr = isLegacyGpu ? 1 : Math.min(window.devicePixelRatio || 1, 2.0);
-      const motionFastDpr = isLegacyGpu ? 1 : Math.min(window.devicePixelRatio || 1, 1.5);
+      const restSharpDpr = isLegacyGpu ? 1 : Math.min(window.devicePixelRatio || 1, 2.25);
+      const motionFastDpr = isLegacyGpu ? 1 : Math.min(window.devicePixelRatio || 1, 1.15);
       let currentAppliedDpr = restSharpDpr;
       let settleSharpTimer: ReturnType<typeof setTimeout> | null = null;
       const setAdaptiveDpr = (dprVal: number) => {
@@ -2290,7 +2354,11 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         settleSharpTimer = setTimeout(() => {
           settleSharpTimer = null;
           setAdaptiveDpr(restSharpDpr);
-        }, 130);
+          if (renderer.shadowMap.enabled) {
+            renderer.shadowMap.needsUpdate = true;
+          }
+          needsRenderRef.current = true;
+        }, 140);
       });
       controls.addEventListener("change", () => {
         if (controls.target.y < 40) {
@@ -3894,12 +3962,37 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               selectedComponentId: resolvedCompId,
             });
 
+            const safeBay = Math.max(0, resolvedBayIdx);
+
+            // Doğrudan 3B donanıma (menteşe, kulp, çekmece rayı, askı borusu) tıklandığında hızlı değiştirme kartını aç
+            const directHwGroup: "hinge" | "handle" | "drawer_slide" | "rail" | null =
+              roleStr === "door_hinge"
+                ? "hinge"
+                : roleStr === "door_handle" || roleStr === "drawer_handle"
+                ? "handle"
+                : roleStr === "drawer_slide"
+                ? "drawer_slide"
+                : roleStr === "hanging_rail"
+                ? "rail"
+                : null;
+            if (directHwGroup && typeof window !== "undefined") {
+              window.dispatchEvent(
+                new CustomEvent("birim:select-hardware-3d", {
+                  detail: {
+                    group: directHwGroup,
+                    bayIndex: safeBay,
+                    componentId: rawCompId,
+                    moduleIndex: hitModIdx,
+                  },
+                })
+              );
+            }
+
             const isDoorHit =
               roleStr === "door" ||
               roleStr.startsWith("door_") ||
               rawCompId.includes("_door_") ||
               resolvedCompId.includes("door_");
-            const safeBay = Math.max(0, resolvedBayIdx);
 
             if (isDoorHit && !state.doorsHiddenIn3D) {
               if (!minimalChromeRef.current) {
@@ -4627,6 +4720,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         disposeObject3DTree(scene);
         scene.clear();
         disposeRendererPmremEnvironment(renderer);
+        disposeSharedHardwarePool();
         disposeWebGLRendererCleanly(renderer);
         if (container.contains(renderer.domElement)) {
           container.removeChild(renderer.domElement);
@@ -5783,7 +5877,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           !isXrayActive &&
           !isStoreBatchDragging &&
           (doorOpenAngleDeg > 4 ||
-            doorsHiddenIn3D ||
+            effectiveDoorsHiddenIn3D ||
             cutawayActiveBay ||
             mod.isOpenFront ||
             mod.bays.some((b) => b.door?.type === "open") ||
@@ -5806,6 +5900,80 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             mhClone.instanceMatrix = cachedMh.instanceMatrix;
             mhClone.raycast = () => {};
             modContainer.add(mhClone);
+          }
+
+          // Kapaklar açıldığında veya gizlendiğinde dikme iç yüzlerinde 37mm (inset 57mm) ofsetli, 32mm adımlı Ø5mm menteşe taban deliklerini göster
+          const hingeComps = breakdown.components.filter((c) => c.role === "door_hinge");
+          if (hingeComps.length > 0) {
+            const T = mod.carcass.panelThickness || 18;
+            const bayStarts: number[] = [];
+            let accX = T;
+            mod.bays.forEach((_, bIdx) => {
+              bayStarts.push(accX);
+              accX +=
+                (breakdown.bayWidths[bIdx] ||
+                  Math.round((mod.dimensions.width - (mod.bays.length + 1) * T) / Math.max(1, mod.bays.length))) + T;
+            });
+
+            const holeMatrices: THREE.Matrix4[] = [];
+            const ringMatrices: THREE.Matrix4[] = [];
+            const dummy = new THREE.Object3D();
+
+            hingeComps.forEach((hc) => {
+              const bIdx = typeof hc.bayIndex === "number" ? hc.bayIndex : 0;
+              const bw =
+                breakdown.bayWidths[bIdx] ||
+                Math.round((mod.dimensions.width - (mod.bays.length + 1) * T) / Math.max(1, mod.bays.length));
+              const bayLeftX = bayStarts[bIdx] ?? T;
+              const bayRightX = bayLeftX + bw;
+              const refX = hc.position.x + hc.dimensions.width / 2;
+              const isLeftWall = Math.abs(refX - bayLeftX) <= Math.abs(refX - bayRightX);
+              const wallX = isLeftWall ? bayLeftX + 0.55 : bayRightX - 0.55;
+              const ringX = isLeftWall ? bayLeftX + 0.4 : bayRightX - 0.4;
+              // Her menteşenin kendi gerçek yüksekliği (hc.pivot kapağın alt köşesidir, kullanılmamalı!)
+              const centerY = hc.position.y + hc.dimensions.height / 2;
+              const isBayInset = mod.bays[bIdx]?.door?.overlayType === "inset";
+              const frontSetback = isBayInset ? 57 : 37;
+              const holeZ = Math.max(24, mod.dimensions.depth - frontSetback);
+
+              [-16, 16].forEach((dy) => {
+                dummy.position.set(ringX, centerY + dy, holeZ);
+                dummy.rotation.set(0, 0, Math.PI / 2);
+                dummy.scale.set(8.2, 1.6, 8.2);
+                dummy.updateMatrix();
+                ringMatrices.push(dummy.matrix.clone());
+
+                dummy.position.set(wallX, centerY + dy, holeZ);
+                dummy.rotation.set(0, 0, Math.PI / 2);
+                dummy.scale.set(5, 2.2, 5);
+                dummy.updateMatrix();
+                holeMatrices.push(dummy.matrix.clone());
+              });
+            });
+
+            if (ringMatrices.length > 0) {
+              const hingeRingInst = new THREE.InstancedMesh(
+                xrayHoleUnitCylinder,
+                hingeMountRing3DMat,
+                ringMatrices.length
+              );
+              hingeRingInst.raycast = () => {};
+              ringMatrices.forEach((mtx, i) => hingeRingInst.setMatrixAt(i, mtx));
+              hingeRingInst.instanceMatrix.needsUpdate = true;
+              modContainer.add(hingeRingInst);
+            }
+
+            if (holeMatrices.length > 0) {
+              const hingeHoleInst = new THREE.InstancedMesh(
+                xrayHoleUnitCylinder,
+                hingeMountHole3DMat,
+                holeMatrices.length
+              );
+              hingeHoleInst.raycast = () => {};
+              holeMatrices.forEach((mtx, i) => hingeHoleInst.setMatrixAt(i, mtx));
+              hingeHoleInst.instanceMatrix.needsUpdate = true;
+              modContainer.add(hingeHoleInst);
+            }
           }
         }
 
@@ -7243,23 +7411,23 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       const soketW = Math.max(200, W - 2 * T);
       const fmt3DDim = (mmVal: number) =>
         displayUnit === "cm" ? `${Number((mmVal / 10).toFixed(1))} cm` : `${Math.round(mmVal)} mm`;
-      // 1. Total Width (Genişlik) along top edge (Architectural Charcoal)
+      // 1. Total Width (Genişlik) — high clean offset above cabinet top (170 mm)
       addDimensionSegment(
         modDimContainer,
         localAnchors,
         "dim_W",
-        new THREE.Vector3(0, H, D * 0.65),
-        new THREE.Vector3(W, H, D * 0.65),
+        new THREE.Vector3(0, H, D * 0.85),
+        new THREE.Vector3(W, H, D * 0.85),
         new THREE.Vector3(0, 1, 0),
-        95,
-        "Genişlik",
+        170,
+        "G",
         fmt3DDim(W),
         0x1c1917,
-        "#D6D0C4",
+        "#CBD5E1",
         "#141413"
       );
 
-      // 2. Total Height (Yükseklik) along right-front vertical edge (Architectural Charcoal)
+      // 2. Total Height (Yükseklik) — clean right-front vertical offset (150 mm)
       addDimensionSegment(
         modDimContainer,
         localAnchors,
@@ -7267,27 +7435,27 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         new THREE.Vector3(W, 0, D),
         new THREE.Vector3(W, H, D),
         new THREE.Vector3(1, 0, 0),
-        95,
-        "Yükseklik",
+        150,
+        "Y",
         fmt3DDim(H),
         0x1c1917,
-        "#D6D0C4",
+        "#CBD5E1",
         "#141413"
       );
 
-      // 3. Total Depth (Derinlik) along right-bottom floor edge (Warm Bronze)
+      // 3. Total Depth (Derinlik) — separated cleanly to left-bottom floor edge so it NEVER collides with Height
       addDimensionSegment(
         modDimContainer,
         localAnchors,
         "dim_D",
-        new THREE.Vector3(W, 0, 0),
-        new THREE.Vector3(W, 0, D),
-        new THREE.Vector3(1, 0, 0),
-        95,
-        "Derinlik",
+        new THREE.Vector3(0, 0, 0),
+        new THREE.Vector3(0, 0, D),
+        new THREE.Vector3(-1, 0, 0),
+        125,
+        "D",
         fmt3DDim(D),
-        0x78716c,
-        "#D6D0C4",
+        0x57534e,
+        "#CBD5E1",
         "#57534E"
       );
 
@@ -7318,20 +7486,22 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             bayWidths[bIdx] ||
             Math.round((W - (mod.bays.length + 1) * T) / Math.max(1, mod.bays.length));
           const isSelBay = bIdx === activeBayIndex;
-          addDimensionSegment(
-            modDimContainer,
-            localAnchors,
-            `dim_BAY_${bIdx}`,
-            new THREE.Vector3(curBayX, H, D * 0.92),
-            new THREE.Vector3(curBayX + bw, H, D * 0.92),
-            new THREE.Vector3(0, 1, 0),
-            26,
-            `${bIdx + 1}. Bölme`,
-            fmt3DDim(bw),
-            isSelBay ? 0x141413 : 0x8c7a6b,
-            isSelBay ? "#141413" : "#D6D0C4",
-            isSelBay ? "#141413" : "#78716C"
-          );
+          if (!isSimpleTier || isSelBay) {
+            addDimensionSegment(
+              modDimContainer,
+              localAnchors,
+              `dim_BAY_${bIdx}`,
+              new THREE.Vector3(curBayX, H, D * 0.94),
+              new THREE.Vector3(curBayX + bw, H, D * 0.94),
+              new THREE.Vector3(0, 1, 0),
+              54,
+              `${bIdx + 1}. Bölme`,
+              fmt3DDim(bw),
+              isSelBay ? 0x1d4ed8 : 0x8c7a6b,
+              isSelBay ? "#93C5FD" : "#D6D0C4",
+              isSelBay ? "#1D4ED8" : "#78716C"
+            );
+          }
           curBayX += bw + T;
         });
       }
@@ -8679,34 +8849,40 @@ const clear3DGhostPreview = useCallback(() => {
                       ? `${item.tag} ölçüsünü doğrudan 3D sahnede düzenlemek için tıklayın`
                       : item.tag
                   }
-                  className={`absolute top-0 left-0 inline-flex items-center gap-1.5 px-3 py-1 rounded-full backdrop-blur-md border shadow-sm whitespace-nowrap transition-all duration-100 ${
-                    isActiveBayBadge
-                      ? "bg-[#141413] text-[#FAF9F6] border-[#141413] pointer-events-auto cursor-pointer"
+                  className={`absolute top-0 left-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-md backdrop-blur-sm border whitespace-nowrap transition-all duration-100 ${
+                    item.id.startsWith("dim_SHELF_GAP_")
+                      ? "bg-[#EFF6FF]/92 text-[#1E3A8A] border-[#93C5FD]/80 pointer-events-none shadow-2xs"
+                      : isActiveBayBadge
+                      ? "bg-[#EFF6FF]/95 text-[#1E3A8A] border-[#3B82F6] pointer-events-auto cursor-pointer shadow-2xs"
                       : isBayBadge
-                      ? "bg-[#FAF9F6]/95 hover:bg-white text-[#141413] border-[#D6D0C4] hover:border-[#141413] pointer-events-auto cursor-pointer"
+                      ? "bg-white/75 opacity-65 hover:opacity-100 hover:bg-white text-[#334155] border-transparent hover:border-[#94A3B8] pointer-events-auto cursor-pointer"
                       : isEditingThis
-                      ? "bg-white border-2 border-[#141413] pointer-events-auto cursor-pointer"
+                      ? "bg-white border-2 border-[#141413] pointer-events-auto cursor-pointer shadow-sm"
                       : badgeKey
-                      ? "bg-[#FAF9F6]/95 hover:bg-white hover:border-[#141413] border-[#D6D0C4] pointer-events-auto cursor-pointer group"
-                      : "bg-[#FAF9F6]/95 pointer-events-none border-[#D6D0C4]"
+                      ? "bg-[#F8FAFC]/88 hover:bg-white border-transparent hover:border-[#141413] pointer-events-auto cursor-pointer group"
+                      : "bg-[#F8FAFC]/88 pointer-events-none border-transparent"
                   }`}
                 >
                   <span
                     className={`text-[10px] font-medium leading-none ${
-                      isActiveBayBadge ? "text-[#D6C7B2]" : "text-[#78716C]"
+                      isActiveBayBadge || item.id.startsWith("dim_SHELF_GAP_")
+                        ? "text-[#1D4ED8]"
+                        : "text-[#64748B]"
                     }`}
                   >
                     {item.tag}
                   </span>
                   <span
-                    className={`text-[11px] font-bold leading-none font-mono ${
-                      isActiveBayBadge ? "text-[#FAF9F6]" : "text-[#141413]"
+                    className={`text-[12px] font-bold leading-none font-mono tabular-nums ${
+                      isActiveBayBadge || item.id.startsWith("dim_SHELF_GAP_")
+                        ? "text-[#1E3A8A]"
+                        : "text-[#0F172A]"
                     }`}
                   >
                     {item.valueText}
                   </span>
                   {badgeKey && (
-                    <span className="text-[10px] text-[#475569] group-hover:text-[#111827] leading-none ml-0.5">
+                    <span className="text-[10px] text-[#475569] opacity-0 group-hover:opacity-100 transition-opacity leading-none">
                       ✎
                     </span>
                   )}
@@ -12124,6 +12300,10 @@ const clear3DGhostPreview = useCallback(() => {
           onSwapModuleWithNeighbor={(modIdx, dir) =>
             swapModuleWithNeighbor(modIdx, dir === 1 ? "right" : "left")
           }
+          onReplaceModuleWithTemplate={(modIdx, tplId) => {
+            useConfiguratorStore.getState().setActiveModuleIndex(modIdx);
+            applyV4Template(tplId, false);
+          }}
           onToggleModuleLedLighting={toggleModuleLedLighting}
           onSetPlinthHeight={setPlinthHeight}
           onRemoveActiveModule={removeActiveModule}

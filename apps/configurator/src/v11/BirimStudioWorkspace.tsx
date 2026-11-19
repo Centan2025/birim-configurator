@@ -26,6 +26,8 @@ import { RightParametricInspector } from "./RightParametricInspector";
 import { ShowroomPresentationOverlay } from "./ShowroomPresentationOverlay";
 import { BottomSceneDock } from "./BottomSceneDock";
 import { OnObjectQuickToolbar, type Selected3DPartKind } from "./OnObjectQuickToolbar";
+import { HardwareQuickSwapPopover, type HardwareSwapGroup, type HardwareSwapTarget } from "./HardwareQuickSwapPopover";
+import { DoorSystemsShowcaseModal } from "./DoorSystemsShowcaseModal";
 import type {
   V11CadSubMode,
   V11InspectorTab,
@@ -205,6 +207,7 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
     addSpaceObstacle,
     removeSpaceObstacle,
     applyGuidedWizardLayout,
+    loadDoorSystemsShowcase,
     addKitchenIslandUnit,
     addOrUpdateAttachedTable,
     loadLinearKitchen,
@@ -248,6 +251,9 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
   const setViewportRenderStyle = useConfiguratorStore((s) => s.setViewportRenderStyle);
   const activeTenantId = useConfiguratorStore((s) => s.activeTenantId);
   const updateCeilingConfig = useConfiguratorStore((s) => s.updateCeilingConfig);
+  const updateBayDrawerConfig = useConfiguratorStore((s) => s.updateBayDrawerConfig);
+  const [hardwareSwapTarget, setHardwareSwapTarget] = useState<HardwareSwapTarget | null>(null);
+  const [doorShowcaseOpen, setDoorShowcaseOpen] = useState(false);
 
   const [workspaceMode, setWorkspaceMode] = useState<V11WorkspaceMode>(() =>
     initialMode === "plan" ? "plan" : initialMode === "showroom" ? "showroom" : "3d"
@@ -261,6 +267,7 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
 
   const [leftDrawer, setLeftDrawer] = useState<V11LeftDrawerTab>(null);
   const [isInspectorOpen, setIsInspectorOpen] = useState<boolean>(true);
+  const [dismissedAutoFixKey, setDismissedAutoFixKey] = useState<string | null>(null);
   const [inspectorTab, setInspectorTab] = useState<V11InspectorTab>("interior");
   const [showDimensions3D, setShowDimensions3D] = useState<boolean>(true);
   const [doorsHidden3D, setDoorsHidden3D] = useState<boolean>(false);
@@ -405,11 +412,52 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
       setInspectorTab("materials");
       setIsInspectorOpen(true);
     };
+    const onHardware3D = (ev: Event) => {
+      const detail = (
+        ev as CustomEvent<{
+          group?: string;
+          bayIndex?: number;
+          componentId?: string;
+          moduleIndex?: number;
+          sku?: string;
+        }>
+      ).detail;
+      if (typeof detail?.moduleIndex === "number" && detail.moduleIndex >= 0) {
+        setActiveModuleIndex(detail.moduleIndex);
+      }
+      const bIdx = typeof detail?.bayIndex === "number" ? detail.bayIndex : 0;
+      setActiveBayIndex(bIdx);
+      const rawGroup = detail?.group || "hinge";
+      const mappedGroup: HardwareSwapGroup =
+        rawGroup === "handle"
+          ? "handle"
+          : rawGroup === "drawer_slide" || rawGroup === "drawer"
+          ? "drawer_slide"
+          : rawGroup === "rail" || rawGroup === "accessories"
+          ? "rail"
+          : "hinge";
+      setHardwareSwapTarget({
+        group: mappedGroup,
+        bayIndex: bIdx,
+        componentId: detail?.componentId || null,
+        sku: detail?.sku || null,
+      });
+    };
     const onClear3DSelection = () => {
       setSelected3DContextLabel(null);
       setSelected3DCompId(null);
+      setHardwareSwapTarget(null);
     };
     const onOpenStudioRender = () => setStudioRenderOpen(true);
+    const onDeleteActiveSelection = () => {
+      const selComp = useConfiguratorStore.getState().selectedComponentId;
+      if (selComp) {
+        removeSelectedInteriorComponent();
+        setSelected3DContextLabel(null);
+      } else {
+        removeActiveModule();
+      }
+    };
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
@@ -434,16 +482,20 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
 
     window.addEventListener("birim:select-bay-3d", onBay3D);
     window.addEventListener("birim:select-door-3d", onDoor3D);
+    window.addEventListener("birim:select-hardware-3d", onHardware3D);
     window.addEventListener("birim:select-material-part-3d", onMat3D);
     window.addEventListener("birim:clear-3d-selection", onClear3DSelection);
     window.addEventListener("birim:open-studio-render-modal", onOpenStudioRender);
+    window.addEventListener("birim:delete-active-selection", onDeleteActiveSelection);
     window.addEventListener("keydown", onKeyDown);
     return () => {
       window.removeEventListener("birim:select-bay-3d", onBay3D);
       window.removeEventListener("birim:select-door-3d", onDoor3D);
+      window.removeEventListener("birim:select-hardware-3d", onHardware3D);
       window.removeEventListener("birim:select-material-part-3d", onMat3D);
       window.removeEventListener("birim:clear-3d-selection", onClear3DSelection);
       window.removeEventListener("birim:open-studio-render-modal", onOpenStudioRender);
+      window.removeEventListener("birim:delete-active-selection", onDeleteActiveSelection);
       window.removeEventListener("keydown", onKeyDown);
     };
   }, [setActiveBayIndex, undo, redo]);
@@ -1024,6 +1076,7 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
               removeSelectedInteriorComponent();
               setSelected3DContextLabel(null);
             }}
+            onOpenHardwareSwap={(group, bIdx) => setHardwareSwapTarget({ group, bayIndex: bIdx })}
             onOpenInspectorDetails={() => {
               setIsInspectorOpen(true);
               if (isCompactViewport) setLeftDrawer(null);
@@ -1074,6 +1127,7 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
         isReadOnlyCustomer={initialMode === "showroom"}
         displayUnit={displayUnit}
         onChangeDisplayUnit={setDisplayUnit}
+        onOpenDoorShowcase={() => setDoorShowcaseOpen(true)}
         uiFontScale={uiFontScale}
         onChangeUiFontScale={setUiFontScale}
         activeInspectorTab={inspectorTab}
@@ -1325,6 +1379,69 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
 
       {/* 4B. Sağ Denetçi Kapalıyken Sahne Ortası Taşmayan Seçili Parça Kartı */}
       {!isInspectorOpen && selectedPartQuickToolbar}
+
+      {/* BAĞLAMSAL ÇAKIŞMA VE TEK TIKLA OTOMATİK DÜZELT BALONU */}
+      {workspaceMode === "3d" && !isShowroom && (() => {
+        const actionable = allFindings.find(
+          (f) =>
+            (f.severity === "error" || (f.severity === "warning" && f.remediationProposal)) &&
+            `${f.code}-${f.message}` !== dismissedAutoFixKey
+        );
+        if (!actionable) return null;
+        const findingKey = `${actionable.code}-${actionable.message}`;
+        const isErr = actionable.severity === "error";
+        return (
+          <div
+            data-testid="v11-contextual-autofix-pill"
+            style={{ left: leftDrawer ? "488px" : "84px" }}
+            className={`fixed bottom-[86px] max-w-[420px] z-30 pointer-events-auto transition-[left] duration-200 rounded-2xl border backdrop-blur-xl shadow-[0_12px_32px_rgba(20,20,19,0.12)] px-3.5 py-2.5 flex items-start gap-2.5 max-lg:!left-3 max-lg:right-3 max-lg:max-w-none ${
+              isErr
+                ? "bg-[#FFF8F6]/95 border-red-300/90 text-[#1C1917]"
+                : "bg-[#FFFDF5]/95 border-amber-300/90 text-[#1C1917]"
+            }`}
+          >
+            <span
+              className={`mt-1 w-2 h-2 rounded-full shrink-0 ${
+                isErr ? "bg-red-600" : "bg-amber-500"
+              }`}
+            />
+            <div className="min-w-0 flex-1">
+              <div className="text-[11px] font-bold tracking-tight text-[#141413]">
+                {isErr ? "Çakışma / Mühendislik Uyarısı" : "Akıllı İyileştirme Önerisi"}
+              </div>
+              <p className="text-[11px] leading-snug text-[#44403C] mt-0.5 line-clamp-2">
+                {actionable.message}
+              </p>
+              <div className="flex items-center gap-1.5 mt-2">
+                {actionable.remediationProposal && (
+                  <button
+                    type="button"
+                    onClick={() => handleApplyFindingFix(actionable.remediationProposal!)}
+                    className="h-6 px-2.5 rounded-lg bg-[#141413] hover:bg-[#292524] text-white text-[11px] font-semibold transition cursor-pointer"
+                  >
+                    Otomatik Düzelt
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => handleFocusFinding(actionable)}
+                  className="h-6 px-2.5 rounded-lg bg-white hover:bg-[#F3EFE6] border border-[#DDD6C8] text-[#141413] text-[11px] font-semibold transition cursor-pointer"
+                >
+                  Parçaya Odaklan
+                </button>
+              </div>
+            </div>
+            <button
+              type="button"
+              aria-label="Uyarıyı gizle"
+              onClick={() => setDismissedAutoFixKey(findingKey)}
+              className="w-6 h-6 rounded-lg hover:bg-black/5 text-[#78716C] hover:text-[#141413] inline-flex items-center justify-center text-xs font-bold cursor-pointer shrink-0"
+            >
+              ×
+            </button>
+          </div>
+        );
+      })()}
 
       {/* 5. TEK BİRLEŞİK ALT SAHNE KAPSÜLÜ */}
       {(workspaceMode === "3d" || workspaceMode === "showroom") && (
@@ -1601,6 +1718,79 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
           onClose={() => setSceneHubTab(null)}
         />
       )}
+      {workspaceMode === "3d" && !isShowroom && activeModule && hardwareSwapTarget && (
+        <HardwareQuickSwapPopover
+          target={hardwareSwapTarget}
+          activeModule={activeModule}
+          onApplyDoorHardware={(bayIndices, patch, msg) => {
+            bayIndices.forEach((bIdx) => {
+              setBayV4DoorConfig(bIdx, patch);
+            });
+            showToast(msg);
+          }}
+          onApplyDrawerHardware={(bayIndices, patch, msg) => {
+            bayIndices.forEach((bIdx) => {
+              const drws = activeModule.bays[bIdx]?.drawers || [];
+              drws.forEach((d) => {
+                updateBayDrawerConfig(bIdx, d.id, patch);
+              });
+            });
+            showToast(msg);
+          }}
+          onApplyRailProfile={(bayIndices, profileType, msg) => {
+            bayIndices.forEach((bIdx) => {
+              const rails = activeModule.bays[bIdx]?.hangingRails || [];
+              rails.forEach((r) => {
+                setHangingRailProfile(bIdx, r.id, profileType);
+              });
+            });
+            showToast(msg);
+          }}
+          onClose={() => setHardwareSwapTarget(null)}
+        />
+      )}
+      {doorShowcaseOpen && (
+        <DoorSystemsShowcaseModal
+          isOpen={doorShowcaseOpen}
+          onClose={() => setDoorShowcaseOpen(false)}
+          onLoad3DShowcase={(mode) => {
+            loadDoorSystemsShowcase(mode);
+            showToast(
+              mode === "kitchen_opening_systems"
+                ? "15 paralel mutfak kapak & açılım örneği 3B sahneye dizildi."
+                : "9 paralel kapak modeli & kesit örneği 3B sahneye dizildi."
+            );
+          }}
+        />
+      )}
+
+      {/* 3B Galeri Modundayken Paralel Modül İsim Şeridi (Tek Tıkla Seç & İncele) */}
+      {workspaceMode === "3d" &&
+        !isShowroom &&
+        project.modules.some((m) => m.id.startsWith("mod_show_")) && (
+          <div
+            data-testid="v11-showcase-module-strip"
+            className="fixed bottom-20 left-1/2 -translate-x-1/2 z-30 max-w-[min(92vw,960px)] px-2.5 py-1.5 rounded-2xl bg-[#FAF8F4]/95 backdrop-blur-md border border-[#DFD3BC] shadow-lg flex items-center gap-1.5 overflow-x-auto"
+          >
+            {project.modules.map((m, idx) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => {
+                  setActiveModuleIndex(idx);
+                  setActiveBayIndex(0);
+                }}
+                className={`px-2.5 py-1 rounded-xl text-[10.5px] font-semibold whitespace-nowrap transition cursor-pointer shrink-0 ${
+                  idx === activeModuleIndex
+                    ? "bg-[#141413] text-white"
+                    : "bg-white hover:bg-[#EFEAE0] border border-[#E5DFD3] text-[#1C1917]"
+                }`}
+              >
+                {m.name}
+              </button>
+            ))}
+          </div>
+        )}
     </main>
   );
 };

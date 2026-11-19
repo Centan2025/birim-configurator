@@ -19,6 +19,8 @@ export interface GuidedSetupWizardPayload {
   addLed: boolean;
   addTrouserRack: boolean;
   addJewelryTray: boolean;
+  kitchenGripSystem?: "gola_profile" | "gola_melamine_box" | "bevel_backing" | "j_pull" | "bar_handle" | "push_to_open";
+  kitchenWallOpening?: "lift_bi_fold" | "lift_up_stay" | "lift_parallel" | "hinged";
 }
 
 export interface GuidedSetupModalProps {
@@ -46,6 +48,20 @@ export const GuidedSetupModal: React.FC<GuidedSetupModalProps> = React.memo(
     const [addLed, setAddLed] = useState(true);
     const [addTrouserRack, setAddTrouserRack] = useState(false);
     const [showAdvanced, setShowAdvanced] = useState(false);
+    const [kitchenGripSystem, setKitchenGripSystem] = useState<NonNullable<GuidedSetupWizardPayload["kitchenGripSystem"]>>("gola_profile");
+    const [kitchenWallOpening, setKitchenWallOpening] = useState<NonNullable<GuidedSetupWizardPayload["kitchenWallOpening"]>>("lift_bi_fold");
+    const dispatchApplySmooth = (payload: GuidedSetupWizardPayload) => {
+      onClose();
+      if (typeof window !== "undefined") {
+        window.setTimeout(() => {
+          React.startTransition(() => {
+            onApply(payload);
+          });
+        }, 24);
+      } else {
+        onApply(payload);
+      }
+    };
 
     const baseProj = useMemo(() => project || createInitialProject(), [project]);
 
@@ -127,6 +143,7 @@ export const GuidedSetupModal: React.FC<GuidedSetupModalProps> = React.memo(
                       else if (cat.id === "kitchen") {
                         setDoorStyle("hinged");
                         setHeightCm(87);
+                        setShowAdvanced(true);
                       } else {
                         if (heightCm < 180) setHeightCm(240);
                         if (doorStyle === "open") setDoorStyle("hinged");
@@ -230,10 +247,7 @@ export const GuidedSetupModal: React.FC<GuidedSetupModalProps> = React.memo(
                     key={card.id}
                     type="button"
                     data-testid={`v12-starter-card-${card.id}`}
-                    onClick={() => {
-                      onApply(card.payload);
-                      onClose();
-                    }}
+                    onClick={() => dispatchApplySmooth(card.payload)}
                     className="group p-3.5 rounded-2xl bg-white hover:bg-[#FAF7F0] border border-[#E5DFD3] hover:border-[#141413] text-left transition flex flex-col justify-between gap-2.5 cursor-pointer shadow-2xs"
                   >
                     <div className="space-y-1">
@@ -373,6 +387,65 @@ export const GuidedSetupModal: React.FC<GuidedSetupModalProps> = React.memo(
                     </div>
                   </div>
 
+                  {spaceCategory === "kitchen" && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-[#EFEAE0]">
+                      <div className="space-y-2">
+                        <div className="font-bold text-[#141413]">Kulpsuz / Tutamak Sistemi (Alt &amp; Üst)</div>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {(
+                            [
+                              { id: "gola_profile", label: "Alüminyum Gola (L/C)" },
+                              { id: "gola_melamine_box", label: "Melamin Gola Kutusu" },
+                              { id: "bevel_backing", label: "30°/45° Pah + Arka Bant" },
+                              { id: "j_pull", label: "CNC J-Kulp (22 mm Lake)" },
+                              { id: "bar_handle", label: "Klasik Kulp" },
+                              { id: "push_to_open", label: "Bas-Aç (TIP-ON)" },
+                            ] as const
+                          ).map((g) => (
+                            <button
+                              key={g.id}
+                              type="button"
+                              onClick={() => setKitchenGripSystem(g.id)}
+                              className={`py-2 px-2 rounded-xl font-semibold border transition cursor-pointer ${
+                                kitchenGripSystem === g.id
+                                  ? "bg-[#141413] text-white border-[#141413]"
+                                  : "bg-white border-[#E5DFD3]"
+                              }`}
+                            >
+                              {g.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="font-bold text-[#141413]">Üst Dolap Açılım Sistemi</div>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {(
+                            [
+                              { id: "lift_bi_fold", label: "AVENTOS HF (Katlanır)" },
+                              { id: "lift_up_stay", label: "AVENTOS HK (Tek Kalkar)" },
+                              { id: "lift_parallel", label: "AVENTOS HL (Paralel)" },
+                              { id: "hinged", label: "Standart Menteşeli" },
+                            ] as const
+                          ).map((w) => (
+                            <button
+                              key={w.id}
+                              type="button"
+                              onClick={() => setKitchenWallOpening(w.id)}
+                              className={`py-2 px-2 rounded-xl font-semibold border transition cursor-pointer ${
+                                kitchenWallOpening === w.id
+                                  ? "bg-[#141413] text-white border-[#141413]"
+                                  : "bg-white border-[#E5DFD3]"
+                              }`}
+                            >
+                              {w.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {spaceCategory !== "kitchen" && (
                     <div className="flex flex-wrap items-center gap-2">
                       <button
@@ -414,8 +487,8 @@ export const GuidedSetupModal: React.FC<GuidedSetupModalProps> = React.memo(
             </button>
             <button
               type="button"
-              onClick={() => {
-                onApply({
+              onClick={() =>
+                dispatchApplySmooth({
                   spaceCategory,
                   roomShape,
                   wallWidthMm: Math.round(wallWidthCm * 10),
@@ -431,9 +504,10 @@ export const GuidedSetupModal: React.FC<GuidedSetupModalProps> = React.memo(
                   addLed,
                   addTrouserRack,
                   addJewelryTray: false,
-                });
-                onClose();
-              }}
+                  kitchenGripSystem: spaceCategory === "kitchen" ? kitchenGripSystem : undefined,
+                  kitchenWallOpening: spaceCategory === "kitchen" ? kitchenWallOpening : undefined,
+                })
+              }
               className="h-10 px-6 rounded-full bg-[#141413] hover:bg-[#292524] text-white font-semibold text-xs shadow-sm cursor-pointer"
             >
               Özel Seçimle Oluştur
