@@ -197,9 +197,10 @@ export function getCachedJPullBevelDoorGeometry(
   w: number,
   h: number,
   d: number,
-  isCrossGrain = false
+  isCrossGrain = false,
+  edgePlacement: "top" | "bottom" = "top"
 ): { geo: THREE.BufferGeometry; edges: THREE.EdgesGeometry } {
-  const key = `jpull_${Math.round(w)}_${Math.round(h)}_${Math.round(d * 10)}_${isCrossGrain ? 1 : 0}`;
+  const key = `jpull_v3_${edgePlacement}_${Math.round(w)}_${Math.round(h)}_${Math.round(d * 10)}_${isCrossGrain ? 1 : 0}`;
   const hit = contouredDoorCache.get(key);
   if (hit) return hit;
 
@@ -208,23 +209,36 @@ export function getCachedJPullBevelDoorGeometry(
   const hw = w / 2;
   const hh = h / 2;
   const hd = d / 2;
-  const grooveH = Math.min(36, Math.max(24, h * 0.06));
-  const lipT = Math.max(5, d * 0.28);
-  const yGrooveBot = hh - grooveH;
+  // True TLD HL2 CNC J-Pull Profile milled into 21-22mm door:
+  // - Base/Drawer (`edgePlacement === "top"`): J-groove milled along TOP edge (+hh) for overhand downward pull.
+  // - Upper Wall (`edgePlacement === "bottom"`): J-groove milled along BOTTOM edge (-hh) for underhand upward pull!
+  const grooveDepthY = Math.min(35, Math.max(26, h * 0.05));
+  const backWallT = Math.max(4.5, d * 0.21);
+  const frontHookThick = Math.max(3.5, d * 0.17);
+  const yFloorTop = hh - grooveDepthY;
+  const yHookTipTop = yFloorTop + 5.5;
   const zBack = -hd;
-  const zLipFront = -hd + lipT;
+  const zGrooveBack = -hd + backWallT;
+  const zHookInner = hd - frontHookThick;
   const zFront = hd;
 
-  // Extrude Y-Z cross-section along X [-hw .. +hw]
-  // Cross section in (Y, Z) CCW when viewed from +X:
-  const yzLoop: [number, number][] = [
+  const topLoop: [number, number][] = [
     [-hh, zBack],
     [-hh, zFront],
-    [yGrooveBot - 8, zFront],
-    [yGrooveBot, zLipFront],
-    [hh, zLipFront],
+    [yHookTipTop - 1.5, zFront],
+    [yHookTipTop, zFront - 1.0],
+    [yHookTipTop, zHookInner + 0.8],
+    [yFloorTop + 1.8, zHookInner - 1.2],
+    [yFloorTop, (zGrooveBack + zHookInner) * 0.5],
+    [yFloorTop + 2.0, zGrooveBack + 1.2],
+    [hh, zGrooveBack],
     [hh, zBack],
   ];
+  // Mirror across Y = 0 and reverse winding for bottom-edge J-Pull so normals stay outward!
+  const yzLoop: [number, number][] =
+    edgePlacement === "bottom"
+      ? [...topLoop].reverse().map(([py, pz]) => [-py, pz] as [number, number])
+      : topLoop;
 
   const positions: number[] = [];
   const pushQuad = (

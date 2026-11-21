@@ -309,6 +309,80 @@ function BomModalInner({ isOpen, onClose, initialTab = "cutlist" }: BomModalProp
     );
   };
 
+  const printBomOrNestingSheet = (mode: "nesting" | "bom") => {
+    if (typeof document === "undefined" || typeof window === "undefined") return;
+    const dateStr = new Date().toLocaleDateString("tr-TR");
+    if (mode === "nesting") {
+      const sheetSvgs = Array.from(
+        document.querySelectorAll('[data-testid^="bom-nesting-svg-sheet-"]')
+      );
+      const svgBlocks =
+        sheetSvgs.length > 0
+          ? sheetSvgs
+              .map((el, i) => {
+                const clone = el.cloneNode(true) as SVGSVGElement;
+                clone.setAttribute("style", "width:100%;height:auto;max-height:155mm;display:block;background:#FFFFFF;");
+                return `<div class="sheet-block"><h4>Plaka #${i + 1} Yerleşim Şeması</h4>${new XMLSerializer().serializeToString(clone)}</div>`;
+              })
+              .join("")
+          : `<div class="sheet-block">${generateNestingDiagramSvg(bom)}</div>`;
+      const utilPct = erpNestingBundle ? erpNestingBundle.summary.overall_utilization_percent : "-";
+      const totalSheets = erpNestingBundle
+        ? erpNestingBundle.summary.total_sheets_used
+        : bom.nestingResults.reduce((s, r) => s + r.totalSheetsCount, 0);
+      const html = `<!DOCTYPE html><html lang="tr"><head><meta charset="utf-8"/><title>Birim 2D Plaka Nesting — ${project.title}</title>
+        <style>
+          @page { size: A4 landscape; margin: 10mm; }
+          body { font-family: -apple-system, Segoe UI, sans-serif; margin: 0; padding: 14px; color: #0F172A; background: #FFFFFF; }
+          .hdr { display:flex; justify-content:space-between; align-items:flex-end; border-bottom:2px solid #0F172A; padding-bottom:8px; margin-bottom:12px; }
+          .sheet-block { page-break-inside: avoid; border:1px solid #CBD5E1; border-radius:10px; padding:10px; margin-bottom:14px; background:#FFFFFF; }
+          h4 { margin: 0 0 6px; font-size: 13px; color: #0F172A; }
+        </style></head><body>
+        <div class="hdr">
+          <div><div style="font-size:18px;font-weight:900;">BİRİM® 2D PLAKA NESTİNG &amp; KESİM YERLEŞİM PAFTASI</div>
+          <div style="font-size:11px;color:#475569;">${project.title} • Toplam Plaka: ${totalSheets} Adet • Verimlilik: %${utilPct} • Tarih: ${dateStr}</div></div>
+        </div>
+        ${svgBlocks}
+        <script>window.onload=()=>setTimeout(()=>window.print(),280);</script></body></html>`;
+      const url = URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }));
+      window.open(url, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    const cutRows = bom.cutList
+      .map(
+        (c, idx) =>
+          `<tr><td>${idx + 1}</td><td><b>${c.pieceName}</b></td><td>${c.materialId}</td><td style="text-align:right">${Math.round(c.length)}×${Math.round(c.width)}×${c.thickness}</td><td style="text-align:right">${c.quantity}</td></tr>`
+      )
+      .join("");
+    const hwRows = bom.hardwareList
+      .map(
+        (h) =>
+          `<tr><td><code>${h.sku}</code></td><td>${h.name}</td><td style="text-align:right"><b>${h.quantity} ${h.unit}</b></td></tr>`
+      )
+      .join("");
+    const html = `<!DOCTYPE html><html lang="tr"><head><meta charset="utf-8"/><title>Birim Kesim & Hırdavat Listesi — ${project.title}</title>
+      <style>
+        @page { size: A4 portrait; margin: 12mm; }
+        body { font-family: -apple-system, Segoe UI, sans-serif; margin: 0; padding: 14px; color: #0F172A; background: #FFFFFF; }
+        .hdr { display:flex; justify-content:space-between; border-bottom:2px solid #0F172A; padding-bottom:8px; margin-bottom:12px; }
+        table { width:100%; border-collapse:collapse; font-size:11px; margin-bottom:14px; }
+        th, td { border:1px solid #CBD5E1; padding:5px 7px; text-align:left; }
+        th { background:#F1F5F9; font-weight:800; }
+      </style></head><body>
+      <div class="hdr">
+        <div><div style="font-size:18px;font-weight:900;">BİRİM® KESİM LİSTESİ (BOM) &amp; HIRDAVAT FÖYÜ</div>
+        <div style="font-size:11px;color:#475569;">${project.title} • Toplam Parça: ${bom.cutList.length} • Tarih: ${dateStr}</div></div>
+      </div>
+      <h3 style="font-size:14px;margin:0 0 6px;">Net Kesim Parça Listesi</h3>
+      <table><thead><tr><th>#</th><th>Parça Adı</th><th>Malzeme</th><th style="text-align:right">Ölçü (mm)</th><th style="text-align:right">Adet</th></tr></thead><tbody>${cutRows}</tbody></table>
+      <h3 style="font-size:14px;margin:0 0 6px;">Hırdavat &amp; Bağlantı Elemanları</h3>
+      <table><thead><tr><th>SKU</th><th>Donanım</th><th style="text-align:right">Miktar</th></tr></thead><tbody>${hwRows}</tbody></table>
+      <script>window.onload=()=>setTimeout(()=>window.print(),260);</script></body></html>`;
+    const url = URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }));
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
   const downloadNestingSvg = () => {
     const svgOut = generateNestingDiagramSvg(bom);
     downloadFile(
@@ -688,6 +762,15 @@ function BomModalInner({ isOpen, onClose, initialTab = "cutlist" }: BomModalProp
             >
               <Cpu className="w-3.5 h-3.5 text-fuchsia-700" />
               <span>Nest SVG</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => printBomOrNestingSheet(activeTab === "nesting" ? "nesting" : "bom")}
+              data-testid="bom-print-active-sheet-btn"
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-bold cursor-pointer"
+              title="Aktif Kesim veya Plaka Nesting ekranını A4 / PDF olarak yazdır"
+            >
+              <span>🖨 Yazdır (A4)</span>
             </button>
             <button
               type="button"
@@ -1149,6 +1232,14 @@ function BomModalInner({ isOpen, onClose, initialTab = "cutlist" }: BomModalProp
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => printBomOrNestingSheet("nesting")}
+                      data-testid="bom-print-nesting-a4-btn"
+                      className="px-3 py-1.5 rounded-xl bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-bold flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <span>🖨 Plaka Yerleşimini Yazdır (A4)</span>
+                    </button>
                     <button
                       type="button"
                       onClick={downloadErpNestingJson}

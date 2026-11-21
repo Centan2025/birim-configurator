@@ -1,7 +1,9 @@
 "use client";
 
-import React, { useMemo } from "react";
-import { Plus, SlidersHorizontal, ArrowUp, ArrowDown, Trash2, X, ArrowLeftRight } from "lucide-react";
+import React, { useMemo, useState } from "react";
+import { Plus, SlidersHorizontal, ArrowUp, ArrowDown, Trash2, X, ArrowLeftRight, Palette } from "lucide-react";
+import { getMaterialSwatchStyle } from "../v3/materials/pbrMaterialSystem";
+import { classifyModuleArchitecturalZone, dispatchLive3DMaterialPreview, type QuickZoneScope } from "./quickMaterialAndMoodboardEngine";
 import type { HardwareSwapGroup } from "./HardwareQuickSwapPopover";
 import {
   calculateFourSpaceDimensions,
@@ -28,7 +30,9 @@ export interface OnObjectQuickToolbarProps {
   displayUnit?: "cm" | "mm";
   placementMode?: "docked" | "stage";
   leftSafePx?: number;
+  rightSafePx?: number;
   hasGuidedStepStrip?: boolean;
+  hasTopPaintBanner?: boolean;
   materials: MaterialDefinition[];
   isInspectorOpen: boolean;
   onAddShelf: (bayIdx: number) => void;
@@ -52,6 +56,8 @@ export interface OnObjectQuickToolbarProps {
   onShiftRailElevation: (bayIdx: number, railId: string, deltaMm: number) => void;
   onDeleteSelectedPart: () => void;
   onOpenHardwareSwap?: (group: HardwareSwapGroup, bayIdx: number) => void;
+  onOpenQuickPaletteDock?: () => void;
+  onQuickApplyZoneMaterial?: (scope: QuickZoneScope, materialId: string) => void;
   onOpenInspectorDetails: () => void;
   onDismiss: () => void;
 }
@@ -66,7 +72,9 @@ export const OnObjectQuickToolbar: React.FC<OnObjectQuickToolbarProps> = React.m
     displayUnit = "cm",
     placementMode = "docked",
     leftSafePx = 76,
+    rightSafePx = 64,
     hasGuidedStepStrip = false,
+    hasTopPaintBanner = false,
     materials,
     isInspectorOpen,
     onAddShelf,
@@ -85,14 +93,56 @@ export const OnObjectQuickToolbar: React.FC<OnObjectQuickToolbarProps> = React.m
     onShiftRailElevation,
     onDeleteSelectedPart,
     onOpenHardwareSwap,
+    onOpenQuickPaletteDock,
+    onQuickApplyZoneMaterial,
     onOpenInspectorDetails,
     onDismiss,
   }) => {
+    const [applyToZoneGroup, setApplyToZoneGroup] = useState(false);
     const safeBayIdx = Math.min(activeBayIndex, Math.max(0, activeModule.bays.length - 1));
     const bay = activeModule.bays[safeBayIdx];
     const isSliding = activeModule.bays.some((b) => b.door?.type === "sliding");
-    const quickSwatches = materials.slice(0, 4);
     const activeDoorMatId = activeModule.carcass.doorMaterialId;
+    const modZone = classifyModuleArchitecturalZone(activeModule);
+    const groupScopeForMod: QuickZoneScope =
+      modZone === "wall"
+        ? "wall_cabinets"
+        : modZone === "tall_or_island"
+        ? "tall_and_island"
+        : "base_cabinets";
+    const groupScopeLabelTr =
+      modZone === "wall" ? "Tüm Üstler" : modZone === "tall_or_island" ? "Boy/Ada" : "Tüm Altlar";
+    const quickSwatches = useMemo(() => {
+      const preferredIds = [
+        activeDoorMatId,
+        "mat_camsan_iskandinav_mese",
+        "mat_veneer_oak",
+        "mat_veneer_walnut",
+        "mat_lacquer_cream",
+        "mat_lacquer_sage",
+        "mat_ke_mattplus_vizon",
+        "mat_melamine_anthracite",
+      ];
+      const out: MaterialDefinition[] = [];
+      const seen = new Set<string>();
+      for (const id of preferredIds) {
+        if (!id || seen.has(id)) continue;
+        const found = materials.find((m) => m.id === id);
+        if (found) {
+          seen.add(found.id);
+          out.push(found);
+        }
+        if (out.length >= 6) break;
+      }
+      for (const m of materials) {
+        if (out.length >= 6) break;
+        if (!seen.has(m.id) && m.category !== "stone" && m.category !== "metal") {
+          seen.add(m.id);
+          out.push(m);
+        }
+      }
+      return out;
+    }, [materials, activeDoorMatId]);
 
     const fourSpace = useMemo(
       () => calculateFourSpaceDimensions(activeModule),
@@ -150,14 +200,14 @@ export const OnObjectQuickToolbar: React.FC<OnObjectQuickToolbarProps> = React.m
 
     const containerClass =
       placementMode === "docked"
-        ? "mx-3.5 mt-2.5 p-2.5 rounded-2xl bg-[#FAF8F4]/95 border border-[#DFD3BC] text-[#141413] shadow-2xs space-y-2 shrink-0"
-        : "fixed z-30 w-[min(360px,calc(100vw-24px))] p-2.5 rounded-2xl bg-[#FAF8F4]/95 backdrop-blur-xl border border-[#DFD3BC] text-[#141413] shadow-[0_14px_34px_rgba(20,20,19,0.11)] space-y-2";
+        ? "birim-dramatic-panel mx-3.5 mt-2.5 p-2.5 rounded-2xl bg-[#2B313E]/90 border border-white/[0.20] text-[#F3F4F6] shadow-md space-y-2 shrink-0"
+        : "birim-dramatic-panel fixed z-30 w-[min(372px,calc(100vw-24px))] p-2.5 rounded-2xl bg-[#252A34]/88 backdrop-blur-2xl border border-white/[0.22] ring-1 ring-black/60 text-[#F3F4F6] shadow-[0_20px_48px_rgba(0,0,0,0.56)] space-y-2";
 
     const containerStyle: React.CSSProperties | undefined =
       placementMode === "stage"
         ? {
-            top: hasGuidedStepStrip ? "112px" : "74px",
-            left: `calc(${leftSafePx}px + (100vw - ${leftSafePx + 24}px) / 2)`,
+            top: `${122 + (hasTopPaintBanner ? 42 : 0)}px`,
+            left: `calc(${leftSafePx}px + (100vw - ${leftSafePx + rightSafePx}px) / 2)`,
             transform: "translateX(-50%)",
           }
         : undefined;
@@ -171,7 +221,7 @@ export const OnObjectQuickToolbar: React.FC<OnObjectQuickToolbarProps> = React.m
         {/* Üst Satır: Seçili Parça Başlığı + Sağda Detay/Kapat */}
         <div className="flex items-center justify-between gap-2 min-w-0">
           <div className="flex items-center gap-1.5 min-w-0">
-            <span className="w-2 h-2 rounded-full bg-[#8C6D46] shrink-0" />
+            <span className="w-2 h-2 rounded-full bg-[#38BDF8] shrink-0" />
             <span className="text-[11px] font-bold text-[#141413] truncate">
               {selectedContextLabel}
             </span>
@@ -270,24 +320,71 @@ export const OnObjectQuickToolbar: React.FC<OnObjectQuickToolbarProps> = React.m
                 })}
               </div>
 
-              <div className="inline-flex items-center gap-1 px-1" title="Kapak rengini değiştir">
+              <div
+                onMouseLeave={() => dispatchLive3DMaterialPreview(null)}
+                className="inline-flex items-center gap-1 px-1"
+                title="Üzerine gelince 3B önizler, tıklayınca uygular"
+              >
+                {onQuickApplyZoneMaterial && (
+                  <button
+                    type="button"
+                    onClick={() => setApplyToZoneGroup((v) => !v)}
+                    title={
+                      applyToZoneGroup
+                        ? `Grup Modu Açık: Seçilen renk "${groupScopeLabelTr}" grubuna uygulanır`
+                        : "Tek Modül Modu: Yalnızca bu dolaba uygulanır (Gruba yaymak için tıklayın)"
+                    }
+                    className={`h-5.5 px-1.5 rounded-md text-[9.5px] font-bold border transition cursor-pointer ${
+                      applyToZoneGroup
+                        ? "bg-[#141413] border-[#141413] text-white"
+                        : "bg-white border-[#DED8CC] text-[#57534E] hover:text-[#141413]"
+                    }`}
+                  >
+                    {applyToZoneGroup ? groupScopeLabelTr : "Bu Dolap"}
+                  </button>
+                )}
                 {quickSwatches.map((m) => {
                   const active = activeDoorMatId === m.id;
+                  const targetScope: QuickZoneScope = applyToZoneGroup ? groupScopeForMod : "active_doors";
                   return (
                     <button
                       key={m.id}
                       type="button"
-                      onClick={() => onQuickApplyDoorMaterial(m.id)}
-                      title={`Kapak Yüzeyi: ${m.name}`}
+                      onMouseEnter={() =>
+                        dispatchLive3DMaterialPreview({
+                          materialId: m.id,
+                          scope: targetScope,
+                        })
+                      }
+                      onClick={() => {
+                        dispatchLive3DMaterialPreview(null);
+                        if (applyToZoneGroup && onQuickApplyZoneMaterial) {
+                          onQuickApplyZoneMaterial(groupScopeForMod, m.id);
+                        } else {
+                          onQuickApplyDoorMaterial(m.id);
+                        }
+                      }}
+                      title={`${m.name} (${applyToZoneGroup ? groupScopeLabelTr : "Bu Dolap"})`}
                       className={`w-5 h-5 rounded-full border transition cursor-pointer ${
                         active
                           ? "border-[#141413] scale-110 ring-2 ring-[#141413]/20"
-                          : "border-black/20 opacity-85 hover:opacity-100"
+                          : "border-black/20 opacity-90 hover:opacity-100 hover:scale-110"
                       }`}
-                      style={{ backgroundColor: m.colorHex }}
+                      style={getMaterialSwatchStyle(m)}
                     />
                   );
                 })}
+                {onOpenQuickPaletteDock && (
+                  <button
+                    type="button"
+                    onClick={onOpenQuickPaletteDock}
+                    title="Tüm Kartela ve Hazır Kombinasyonları Aç (M)"
+                    className="h-5.5 px-1.5 rounded-md bg-[#EFEAE0] hover:bg-[#E4DEC9] border border-[#DED8CC] text-[10px] font-bold text-[#141413] inline-flex items-center gap-0.5 cursor-pointer"
+                  >
+                    <Palette className="w-2.5 h-2.5 text-[#8C6D46]" />
+                    <span>+</span>
+                  </button>
+                )}
               </div>
 
               {bay.door?.type !== "open" && (

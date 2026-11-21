@@ -1,32 +1,65 @@
-import type { ModuleInstance } from "@birim/core";
+import {
+  alignModuleShelvesToSystem32,
+  resolveSmartCompatibleDoorPatchForModuleBay,
+  type ModuleInstance,
+} from "@birim/core";
 
-export type ModuleHeightClass = "kitchen_wall" | "kitchen_base" | "tall_or_wardrobe";
+export type ModuleHeightClass =
+  | "kitchen_wall"
+  | "kitchen_base"
+  | "kitchen_tall"
+  | "wardrobe"
+  | "living_or_special";
 
 export function classifyModuleHeightClass(mod: ModuleInstance): ModuleHeightClass {
+  const tpl = (mod.templateId || "").toLowerCase();
+  if (
+    tpl.startsWith("v5_tv_") ||
+    tpl.startsWith("v5_bathroom_") ||
+    tpl.startsWith("v5_capsule_") ||
+    mod.carcass.hullShape === "capsule_stadium" ||
+    mod.carcass.hullShape === "capsule_table"
+  ) {
+    return "living_or_special";
+  }
   if (
     mod.moduleFamilyId === "fam_kitchen_wall" ||
     mod.category === "kitchen_wall" ||
-    mod.position.y >= 1100
+    (!mod.category.startsWith("wardrobe") && mod.position.y >= 1100)
   ) {
     return "kitchen_wall";
+  }
+  if (
+    mod.category === "kitchen_tall" ||
+    mod.moduleFamilyId === "fam_kitchen_tall"
+  ) {
+    return "kitchen_tall";
   }
   if (
     mod.moduleFamilyId === "fam_kitchen_base" ||
     mod.category === "kitchen_base" ||
     mod.category === "kitchen_corner" ||
-    mod.category === "kitchen_island" ||
-    mod.dimensions.height <= 1050
+    mod.category === "kitchen_island"
   ) {
     return "kitchen_base";
   }
-  return "tall_or_wardrobe";
+  if (
+    mod.category === "wardrobe" ||
+    mod.category === "wardrobe_walkin" ||
+    mod.category === "wardrobe_corner" ||
+    mod.moduleFamilyId === "fam_wardrobe"
+  ) {
+    return "wardrobe";
+  }
+  return "living_or_special";
 }
 
 /**
- * Yeni eklenen veya mevcut bir modülün yerine konulan hazır şablonu,
- * sahnedeki mevcut mutfak/gardırop tasarımının renk, malzeme, kulp/Gola stili,
- * yükseklik, derinlik, baza yüksekliği ve (değiştirme modunda) genişlik/açı değerleriyle
- * otomatik olarak uyumlu hale getirir.
+ * Yeni eklenen veya mevcut bir modülün yerine konulan hazır katalog şablonunu,
+ * sahnedeki mevcut tasarımın malzeme ve uyumlu kulp stiliyle eşleştirir;
+ * ANCAK hazır şablonun kendi mühendislik ölçülerini (örn. 600mm EN 1116 fırın/buzdolabı,
+ * 450mm AVENTOS HK üst dolap, 650×650mm köşe üst dolap, 1800mm sürgülü gardırop, 380mm mikrodalga)
+ * ASLA bozmaz!
  */
 export function harmonizeModuleWithProjectContext(
   newMod: ModuleInstance,
@@ -51,27 +84,39 @@ export function harmonizeModuleWithProjectContext(
   const newClass = classifyModuleHeightClass(newMod);
   const targetMod = options.targetModule || null;
 
-  // Stil (renk/malzeme/kulp) referansı: önce değiştirilen hedef modül, yoksa aynı sınıf veya ilk ana modül
+  // Stil referansı: aynı mobilya ailesinden (mutfak vs gardırop) modül varsa onu baz al
+  const isNewKitchen = newClass.startsWith("kitchen_");
+  const sameDomainExisting = mainExisting.find(
+    (m) => classifyModuleHeightClass(m).startsWith("kitchen_") === isNewKitchen
+  );
   const styleRef =
-    targetMod ||
+    (targetMod && classifyModuleHeightClass(targetMod).startsWith("kitchen_") === isNewKitchen
+      ? targetMod
+      : null) ||
     mainExisting.find((m) => classifyModuleHeightClass(m) === newClass) ||
-    mainExisting[0];
+    sameDomainExisting ||
+    null;
 
-  // Ölçü (yükseklik/derinlik/baza) referansı: mutlaka aynı yükseklik sınıfından bir modül!
   const dimRef =
     targetMod && classifyModuleHeightClass(targetMod) === newClass
       ? targetMod
       : mainExisting.find((m) => classifyModuleHeightClass(m) === newClass) || null;
 
-  const isNewCorner = Boolean(newMod.isCorner || newMod.category === "kitchen_corner");
-  const isTargetCorner = Boolean(targetMod?.isCorner || targetMod?.category === "kitchen_corner");
-
-  // 1. Renk, Gövde/Kapak Malzemesi, Kalınlık ve Sistem 32 Ayarları
+  // 1. Gövde / Kapak Malzemesi ve Uyumlu Kulp Stili Aktarımı
   if (styleRef) {
+    const keepSpecialHull =
+      newMod.carcass.hullShape === "capsule_stadium" ||
+      newMod.carcass.hullShape === "capsule_table" ||
+      newMod.carcass.carcassJoineryTopology === "miter_45";
+    const keepHeavy25mmCarcass = (newMod.carcass.panelThickness || 18) >= 25;
+
     newMod.carcass = {
       ...newMod.carcass,
       bodyMaterialId: styleRef.carcass.bodyMaterialId || newMod.carcass.bodyMaterialId,
-      doorMaterialId: styleRef.carcass.doorMaterialId || newMod.carcass.doorMaterialId,
+      doorMaterialId:
+        newMod.carcass.doorMaterialId === "mat_smoked_glass"
+          ? "mat_smoked_glass"
+          : styleRef.carcass.doorMaterialId || newMod.carcass.doorMaterialId,
       backMaterialId: styleRef.carcass.backMaterialId || newMod.carcass.backMaterialId,
       ...(styleRef.carcass.countertopMaterialId
         ? { countertopMaterialId: styleRef.carcass.countertopMaterialId }
@@ -81,13 +126,10 @@ export function harmonizeModuleWithProjectContext(
         styleRef.carcass.bodyMaterialId ||
         styleRef.carcass.doorMaterialId ||
         newMod.carcass.plinthMaterialId,
-      ...(styleRef.carcass.panelThickness
+      ...(!keepSpecialHull && !keepHeavy25mmCarcass && styleRef.carcass.panelThickness
         ? { panelThickness: styleRef.carcass.panelThickness }
         : {}),
-      ...(styleRef.carcass.doorThickness
-        ? { doorThickness: styleRef.carcass.doorThickness }
-        : {}),
-      ...(styleRef.carcass.multiHoleMode
+      ...(styleRef.carcass.multiHoleMode && styleRef.carcass.multiHoleMode !== "none"
         ? { multiHoleMode: styleRef.carcass.multiHoleMode }
         : {}),
       ...(styleRef.carcass.multiHoleRowCount
@@ -101,25 +143,42 @@ export function harmonizeModuleWithProjectContext(
       newMod.surfaceFinishOverride = styleRef.surfaceFinishOverride;
     }
 
-    // Kapak rengi & kulp/Gola/J-Kulp stilini aktar (yeni şablon özel cam vitrin değilse)
-    const refDoor = styleRef.bays.find((b) => b.door && b.door.type !== "open")?.door || styleRef.bays[0]?.door;
+    const refDoor =
+      styleRef.bays.find((b) => b.door && b.door.type !== "open")?.door || styleRef.bays[0]?.door;
     if (refDoor) {
-      newMod.bays = (newMod.bays || []).map((bay) => {
+      let needs22mmForJPull = false;
+      newMod.bays = (newMod.bays || []).map((bay, bIdx) => {
         if (!bay.door) return bay;
-        const keepGlass = Boolean(bay.door.isGlassFramed || bay.door.doorMaterialId === "mat_smoked_glass");
-        const isSlidingNew = bay.door.type === "sliding" || bay.door.doorSystemId?.startsWith("sliding");
-        const isWallNew = newClass === "kitchen_wall";
-        const inheritedHandleProfileId =
-          refDoor.handleCategory === "gola_profile"
-            ? isWallNew
-              ? "hnd_gola_wall_268"
-              : "hnd_gola_profile"
-            : refDoor.handleProfileId;
+        const keepGlass = Boolean(
+          bay.door.isGlassFramed || bay.door.doorMaterialId === "mat_smoked_glass"
+        );
+        const hasExtDrawers = (bay.drawers || []).some((d) => !d.isInternal && !d.isHidden);
+        const isOpenNoDrawers = bay.door.type === "open" && !hasExtDrawers;
+
+        const adaptedHandle =
+          !isOpenNoDrawers && refDoor.handleCategory
+            ? resolveSmartCompatibleDoorPatchForModuleBay(
+                {
+                  handleProfileId: refDoor.handleProfileId,
+                  handleCategory: refDoor.handleCategory,
+                  crossSectionProfile: keepGlass
+                    ? bay.door.crossSectionProfile
+                    : refDoor.crossSectionProfile || bay.door.crossSectionProfile,
+                },
+                newMod,
+                bIdx
+              )
+            : null;
+
+        if (adaptedHandle?.handleCategory === "j_pull") {
+          needs22mmForJPull = true;
+        }
 
         const syncedDrawers = (bay.drawers || []).map((drw) => ({
           ...drw,
           ...(refDoor.handleMaterialId ? { handleMaterialId: refDoor.handleMaterialId } : {}),
         }));
+
         return {
           ...bay,
           drawers: syncedDrawers,
@@ -129,52 +188,60 @@ export function harmonizeModuleWithProjectContext(
               ? bay.door.doorMaterialId
               : refDoor.doorMaterialId || styleRef.carcass.doorMaterialId || bay.door.doorMaterialId,
             ...(refDoor.handleMaterialId ? { handleMaterialId: refDoor.handleMaterialId } : {}),
-            ...(!isSlidingNew && refDoor.handleCategory
+            ...(adaptedHandle
               ? {
-                  handleCategory: refDoor.handleCategory,
-                  handleProfileId: inheritedHandleProfileId,
-                  handleType: refDoor.handleType,
-                  openingTechnology: refDoor.openingTechnology || bay.door.openingTechnology,
-                  crossSectionProfile: keepGlass
-                    ? bay.door.crossSectionProfile
-                    : refDoor.crossSectionProfile || bay.door.crossSectionProfile,
+                  handleCategory: adaptedHandle.handleCategory,
+                  handleProfileId: adaptedHandle.handleProfileId,
+                  ...(adaptedHandle.crossSectionProfile
+                    ? { crossSectionProfile: adaptedHandle.crossSectionProfile }
+                    : {}),
+                  openingTechnology:
+                    adaptedHandle.handleCategory === "handleless_plain"
+                      ? "push_to_open_soft_close"
+                      : bay.door.openingTechnology || "soft_close",
                 }
               : {}),
           },
         };
       });
+
+      if (needs22mmForJPull) {
+        newMod.carcass.doorThickness = Math.max(22, newMod.carcass.doorThickness || 22);
+        const curDoorMat = newMod.carcass.doorMaterialId || "";
+        if (
+          !curDoorMat.includes("lacquer") &&
+          !curDoorMat.includes("veneer") &&
+          !curDoorMat.includes("mattplus")
+        ) {
+          newMod.carcass.doorMaterialId = "mat_lacquer_cashmere";
+        }
+      }
     }
   }
 
-  // 2. Yükseklik, Derinlik ve Baza Uyumu (Aynı sınıf modüller arasında)
-  const customW = options.customDimensions?.width;
-  const customH = options.customDimensions?.height;
-  const customD = options.customDimensions?.depth;
+  // 2. Baza & Üst Kot Hizası (Şablonun kendi W/H/D mühendislik ölçülerini ASLA ezmeden!)
+  const tplLc = (newMod.templateId || "").toLowerCase();
+  const isBuiltInVentTower =
+    !tplLc.includes("fridge_surround") &&
+    (tplLc.includes("oven") || tplLc.includes("fridge"));
 
   if (dimRef) {
-    if (typeof customH !== "number" && dimRef.dimensions.height > 0) {
-      newMod.dimensions = {
-        ...newMod.dimensions,
-        height: dimRef.dimensions.height,
-      };
-    }
     if (
-      typeof customD !== "number" &&
-      !isNewCorner &&
-      !(dimRef.isCorner || dimRef.category === "kitchen_corner") &&
-      dimRef.dimensions.depth > 0
+      newClass !== "kitchen_wall" &&
+      newClass !== "living_or_special" &&
+      (newMod.carcass.plinthHeight ?? 0) > 0 &&
+      typeof dimRef.carcass.plinthHeight === "number" &&
+      dimRef.carcass.plinthHeight > 0
     ) {
-      newMod.dimensions = {
-        ...newMod.dimensions,
-        depth: dimRef.dimensions.depth,
-      };
-    }
-    if (newClass !== "kitchen_wall" && typeof dimRef.carcass.plinthHeight === "number") {
+      const safePlinth = isBuiltInVentTower
+        ? Math.max(100, dimRef.carcass.plinthHeight)
+        : dimRef.carcass.plinthHeight;
       newMod.carcass = {
         ...newMod.carcass,
-        plinthHeight: dimRef.carcass.plinthHeight,
+        plinthHeight: safePlinth,
       };
     }
+
     if (newClass === "kitchen_wall" && options.mode === "append" && dimRef.position.y >= 1100) {
       newMod.position = {
         ...newMod.position,
@@ -183,23 +250,25 @@ export function harmonizeModuleWithProjectContext(
     }
   }
 
-  // 3. Değiştirme (replace) modunda: mevcut modülün genişliğini ve dönüş açısını (L/U kol yönünü) koru
-  if (options.mode === "replace" && targetMod) {
-    if (targetMod.rotation) {
-      newMod.rotation = { ...targetMod.rotation };
+  // Yalnızca açıkça customDimensions geçirildiyse (örn. Kalan Boşluğu Doldur) ölçü uygula
+  if (options.customDimensions) {
+    if (typeof options.customDimensions.width === "number" && !newMod.isFixedWidth) {
+      newMod.dimensions.width = options.customDimensions.width;
     }
-    if (
-      typeof customW !== "number" &&
-      !isNewCorner &&
-      !isTargetCorner &&
-      classifyModuleHeightClass(targetMod) === newClass &&
-      targetMod.dimensions.width >= 200
-    ) {
-      newMod.dimensions = {
-        ...newMod.dimensions,
-        width: targetMod.dimensions.width,
-      };
+    if (typeof options.customDimensions.height === "number") {
+      newMod.dimensions.height = options.customDimensions.height;
     }
+    if (typeof options.customDimensions.depth === "number") {
+      newMod.dimensions.depth = options.customDimensions.depth;
+    }
+    alignModuleShelvesToSystem32(newMod, { includeFixedShelves: true });
+  }
+
+  // 3. Değiştirme (replace) modunda yalnızca L/U duvar dönüş açısını koru (köşe olmayan -> köşe olmayan ise)
+  const isNewCorner = Boolean(newMod.isCorner || newMod.category === "kitchen_corner");
+  const isTargetCorner = Boolean(targetMod?.isCorner || targetMod?.category === "kitchen_corner");
+  if (options.mode === "replace" && targetMod?.rotation && isNewCorner === isTargetCorner) {
+    newMod.rotation = { ...targetMod.rotation };
   }
 
   return newMod;

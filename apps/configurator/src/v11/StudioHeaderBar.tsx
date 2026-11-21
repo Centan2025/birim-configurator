@@ -1,5 +1,8 @@
 "use client";
 
+import { useConfiguratorStore } from "../store/useConfiguratorStore";
+
+import { createPortal } from "react-dom";
 import React, { useState, useRef, useEffect } from "react";
 import {
   Undo2,
@@ -10,6 +13,7 @@ import {
   FileSpreadsheet,
   Camera,
   FileText,
+  Maximize2,
   Smartphone,
   ShieldCheck,
   Store,
@@ -25,6 +29,7 @@ import type { EngineeringValidationFinding, RemediationProposal } from "@birim/c
 import { BirimLogo } from "../v3/design-system";
 import type { UserExperienceTier } from "../store/useConfiguratorStore";
 import { formatFindingForTier, type V11WorkspaceMode, type V11CadSubMode } from "./v11Constants";
+import { AnimatedPopoverPresence } from "./AnimatedWindowPresence";
 
 export interface StudioHeaderBarProps {
   projectTitle: string;
@@ -67,6 +72,14 @@ export interface StudioHeaderBarProps {
   onChangeUiFontScale?: (scale: number) => void;
   activeInspectorTab?: "dimensions" | "interior" | "doors" | "materials";
   onQuickNavigateStep?: (step: "dimensions" | "interior" | "showroom") => void;
+  variantSlots?: ReadonlyArray<{
+    slot: "A" | "B" | "C";
+    saved: boolean;
+    priceEur?: number;
+    summaryTr?: string;
+  }>;
+  activeVariantSlot?: "A" | "B" | "C" | null;
+  onSelectOrSaveVariantSlot?: (slot: "A" | "B" | "C", forceOverwrite?: boolean) => void;
 }
 
 export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
@@ -111,9 +124,35 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
     onChangeUiFontScale,
     activeInspectorTab = "interior",
     onQuickNavigateStep,
+    variantSlots,
+    activeVariantSlot = null,
+    onSelectOrSaveVariantSlot,
   }) => {
     const isShowroom = workspaceMode === "showroom";
     const [outputsOpen, setOutputsOpen] = useState(false);
+    const [variantOpen, setVariantOpen] = useState(false);
+    const variantBtnRef = useRef<HTMLButtonElement | null>(null);
+    const [variantPos, setVariantPos] = useState<{ top: number; left: number }>({ top: 72, left: 260 });
+    const [activeCam3D, setActiveCam3D] = useState<"hero" | "room_front_persp" | "focus_module" | "side">("hero");
+    const viewportRenderStyle = useConfiguratorStore((s) => s.viewportRenderStyle);
+    const setViewportRenderStyle = useConfiguratorStore((s) => s.setViewportRenderStyle);
+    const triggerCamera3D = (preset: "hero" | "room_front_persp" | "focus_module" | "side") => {
+      setActiveCam3D(preset);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("birim:fit-camera-3d", { detail: preset }));
+      }
+    };
+    useEffect(() => {
+      if (typeof window === "undefined") return;
+      const onFit = (ev: Event) => {
+        const d = (ev as CustomEvent<string>).detail;
+        if (d === "hero" || d === "room_front_persp" || d === "focus_module" || d === "side") {
+          setActiveCam3D(d);
+        }
+      };
+      window.addEventListener("birim:fit-camera-3d", onFit);
+      return () => window.removeEventListener("birim:fit-camera-3d", onFit);
+    }, []);
     const [issuesOpen, setIssuesOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
     const issuesRef = useRef<HTMLDivElement>(null);
@@ -121,8 +160,10 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
     useEffect(() => {
       if (!outputsOpen && !issuesOpen) return;
       const onDown = (e: MouseEvent) => {
+        if ((e.target as HTMLElement | null)?.closest?.("[data-birim-portal-menu]")) return;
         if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
           setOutputsOpen(false);
+        setVariantOpen(false);
         }
         if (issuesRef.current && !issuesRef.current.contains(e.target as Node)) {
           setIssuesOpen(false);
@@ -148,26 +189,170 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
       maximumFractionDigits: 0,
     }).format(Math.max(0, totalPriceEur || 0));
 
+    const baseSlotAPrice =
+      variantSlots?.find((v) => v.slot === "A" && v.saved)?.priceEur ?? totalPriceEur;
+
+    const savedVariantCount = variantSlots?.filter((v) => v.saved).length ?? 0;
+    const variantSwitcherNode =
+      variantSlots && onSelectOrSaveVariantSlot ? (
+        <div
+          data-testid="v15-header-variant-switcher"
+          className="relative shrink-0"
+        >
+          <button
+            ref={variantBtnRef}
+            type="button"
+            data-testid="v15-variant-menu-trigger"
+            onClick={() => {
+              if (!variantOpen && variantBtnRef.current) {
+                const r = variantBtnRef.current.getBoundingClientRect();
+                setVariantPos({
+                  top: Math.round(r.bottom + 8),
+                  left: Math.max(12, Math.min(window.innerWidth - 296, Math.round(r.left))),
+                });
+              }
+              setVariantOpen((v) => !v);
+            }}
+            title="Tasarım Varyantları (A / B / C) — Kaydet & Karşılaştır"
+            className={`h-9 px-2.5 rounded-full border text-xs font-bold inline-flex items-center gap-1.5 transition cursor-pointer shrink-0 ${
+              activeVariantSlot
+                ? "bg-gradient-to-br from-[#0284C7]/90 via-[#1D4ED8]/90 to-[#1E3A8A]/90 border-[#38BDF8]/50 text-white shadow-[0_3px_12px_rgba(37,99,235,0.38)]"
+                : "bg-white/[0.10] hover:bg-white/[0.18] border-white/[0.16] text-[#F3F4F6]"
+            }`}
+          >
+            <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-black/35 text-[10.5px] font-extrabold text-sky-300">
+              {activeVariantSlot || "A"}
+            </span>
+            <span className="hidden xl:inline text-[11px] font-semibold">Varyant</span>
+            {savedVariantCount > 0 && (
+              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-white/15 text-sky-200">
+                {savedVariantCount}/3
+              </span>
+            )}
+            <ChevronDown className={`w-3.5 h-3.5 opacity-80 transition-transform ${variantOpen ? "rotate-180" : ""}`} />
+          </button>
+
+          {variantOpen &&
+            typeof document !== "undefined" &&
+            createPortal(
+              <div
+                data-birim-portal-menu="true"
+                data-testid="v15-variant-portal-menu"
+                style={{
+                  position: "fixed",
+                  top: variantPos.top,
+                  left: variantPos.left,
+                  width: 284,
+                  zIndex: 9999,
+                  backgroundColor: "rgba(22, 27, 36, 0.94)",
+                  backdropFilter: "blur(36px) saturate(195%)",
+                  WebkitBackdropFilter: "blur(36px) saturate(195%)",
+                }}
+                className="rounded-2xl border border-white/[0.18] shadow-[0_24px_60px_rgba(0,0,0,0.62)] p-2.5 text-[#F8FAFC]"
+              >
+                <div className="flex items-center justify-between px-1.5 pb-2 mb-1.5 border-b border-white/10">
+                  <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-300">
+                    Tasarım Varyantları (A / B / C)
+                  </span>
+                  <span className="text-[10px] font-mono text-sky-300">{savedVariantCount}/3 Kayıtlı</span>
+                </div>
+                <div className="space-y-1.5">
+                  {variantSlots.map((vs) => {
+                    const isActive = activeVariantSlot === vs.slot;
+                    const deltaEur =
+                      vs.saved && typeof vs.priceEur === "number" && vs.slot !== "A"
+                        ? Math.round(vs.priceEur - baseSlotAPrice)
+                        : 0;
+                    const deltaLabel =
+                      deltaEur > 0 ? `+€${deltaEur}` : deltaEur < 0 ? `-€${Math.abs(deltaEur)}` : vs.saved ? "Baz" : "";
+                    return (
+                      <div
+                        key={vs.slot}
+                        className={`rounded-xl p-2 border transition flex items-center justify-between gap-2 ${
+                          isActive
+                            ? "bg-[#2563EB]/25 border-[#3B82F6]/65"
+                            : "bg-white/[0.05] border-white/[0.08] hover:bg-white/[0.10]"
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          data-testid={`v15-variant-slot-${vs.slot}`}
+                          onClick={(e) => {
+                            onSelectOrSaveVariantSlot(vs.slot, e.shiftKey);
+                            setVariantOpen(false);
+                          }}
+                          className="flex-1 min-w-0 text-left flex items-center gap-2 cursor-pointer"
+                        >
+                          <span
+                            className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-black shrink-0 ${
+                              isActive
+                                ? "bg-[#2563EB] text-white"
+                                : vs.saved
+                                ? "bg-sky-500/25 text-sky-200 border border-sky-400/30"
+                                : "bg-white/10 text-slate-400"
+                            }`}
+                          >
+                            {vs.slot}
+                          </span>
+                          <div className="min-w-0">
+                            <div className="text-xs font-bold text-white truncate">
+                              {vs.saved ? `Varyant ${vs.slot}` : `Varyant ${vs.slot} (Boş)`}
+                            </div>
+                            <div className="text-[10px] text-slate-300 truncate">
+                              {vs.saved
+                                ? `${vs.summaryTr || "Kayıtlı tasarım"}${deltaLabel ? ` · ${deltaLabel}` : ""}`
+                                : "Mevcut tasarımı kaydet"}
+                            </div>
+                          </div>
+                        </button>
+                        {vs.saved && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onSelectOrSaveVariantSlot(vs.slot, true);
+                              setVariantOpen(false);
+                            }}
+                            title={`Mevcut tasarımı Varyant ${vs.slot} üzerine yaz`}
+                            className="px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-[10px] font-bold text-slate-200 shrink-0 cursor-pointer"
+                          >
+                            Güncelle
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>,
+              document.body
+            )}
+        </div>
+      ) : null;
+
     return (
       <header
         data-testid="v11-studio-header"
         className="pointer-events-none fixed top-0 left-0 right-0 z-40 px-4 pt-3 flex flex-col items-center gap-2"
       >
-        <div className="pointer-events-auto w-full max-w-[1920px] h-[54px] px-3.5 rounded-full bg-[#FAF8F4]/92 backdrop-blur-xl border border-[#DFD9CE] shadow-[0_8px_28px_rgba(20,20,19,0.06)] flex items-center justify-between gap-3">
+        <div className="relative pointer-events-auto w-full max-w-[1920px] h-[54px] px-3.5 rounded-full flex items-center justify-between gap-3 text-[#F3F4F6]">
+          {/* Sibling frosted glass layer so child dropdowns (issuesOpen / outputsOpen) do NOT inherit a Chromium Backdrop Root */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 rounded-full bg-[#2C3341]/66 backdrop-blur-2xl border border-white/[0.22] ring-1 ring-black/50 shadow-[0_18px_48px_rgba(0,0,0,0.46)] -z-10"
+          />
           {/* SOL BÖLGE */}
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="pl-1.5 pr-1 flex items-center select-none">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <div className="pl-1.5 pr-1 flex items-center select-none brightness-0 invert opacity-95">
               <BirimLogo className="h-[19px] w-auto" />
             </div>
 
-            <span className="h-4 w-px bg-[#DFD9CE] shrink-0" />
+            <span className="h-4 w-px bg-white/15 shrink-0" />
 
             {!isReadOnlyCustomer ? (
               <button
                 type="button"
                 data-testid="v11-open-project-btn"
                 onClick={onOpenProjectModal}
-                className="h-9 px-3 rounded-full bg-white/80 hover:bg-white border border-[#E5DFD3] text-[#141413] text-xs font-semibold flex items-center gap-2 max-w-[220px] transition cursor-pointer"
+                className="h-9 px-3 rounded-full bg-white/[0.10] hover:bg-white/[0.18] border border-white/[0.15] text-[#F3F4F6] text-xs font-semibold flex items-center gap-2 max-w-[155px] xl:max-w-[220px] shadow-[0_3px_10px_rgba(0,0,0,0.28)] shrink min-w-0 transition cursor-pointer"
                 title="Proje Kaydet, Aç veya Bulut Bağlantısı Paylaş"
               >
                 <FolderOpen className="w-3.5 h-3.5 text-[#78716C] shrink-0" />
@@ -185,20 +370,33 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                 type="button"
                 data-testid="v11-open-wizard-btn"
                 onClick={onOpenWizardModal}
-                className="inline-flex h-9 px-2.5 sm:px-3.5 rounded-full bg-[#F1EDE4] hover:bg-[#E7E1D5] border border-[#DED7C8] text-[#141413] text-xs font-semibold items-center gap-1.5 transition cursor-pointer shrink-0"
+                className="inline-flex h-9 px-2.5 sm:px-3.5 rounded-full bg-gradient-to-r from-[#38BDF8]/22 to-[#2563EB]/20 hover:from-[#38BDF8]/34 hover:to-[#2563EB]/30 border border-[#38BDF8]/45 text-[#E0F2FE] text-xs font-semibold items-center gap-1.5 shadow-[0_3px_12px_rgba(0,0,0,0.28)] transition cursor-pointer shrink-0"
               >
-                <Sparkles className="w-3.5 h-3.5 text-[#8C7A6B]" />
-                <span className="hidden sm:inline">Hızlı Kurulum</span><span className="sm:hidden">Sihirbaz</span>
+                <Sparkles className="w-3.5 h-3.5 text-[#7DD3FC]" />
+                <span className="hidden sm:inline">Kurulum</span><span className="sm:hidden">Kur</span>
               </button>
             )}
+
+            {!isShowroom && variantSwitcherNode}
           </div>
 
-          {/* ORTA BÖLGE */}
+          {/* ORTA BÖLGE — Konumu sabit kilitli */}
           {!isReadOnlyCustomer ? (
             <nav
               aria-label="Çalışma Modu"
-              className="p-1 rounded-full bg-[#ECE7DD]/90 border border-[#DFD9CE] flex items-center gap-0.5 shrink-0"
+              className="relative z-20 grid grid-cols-4 gap-1 p-1 rounded-full bg-black/40 border border-white/[0.12] shrink-0"
             >
+              <span
+                aria-hidden="true"
+                style={{
+                  width: "calc((100% - 8px - 12px) / 4)",
+                  transform: `translate3d(calc(${Math.max(
+                    0,
+                    ["3d", "2d", "plan", "showroom"].indexOf(workspaceMode)
+                  )} * (100% + 4px)), 0, 0)`,
+                }}
+                className="pointer-events-none absolute top-1 bottom-1 left-1 rounded-full bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] shadow-[0_0_20px_rgba(29,78,216,0.58),0_4px_14px_rgba(37,99,235,0.45)] transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
+              />
               {(
                 [
                   { id: "3d", label: "3B Tasarım" },
@@ -214,10 +412,10 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                     type="button"
                     data-testid={`v11-mode-${item.id}`}
                     onClick={() => onChangeWorkspaceMode(item.id)}
-                    className={`h-8 px-3.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+                    className={`relative z-10 h-8 w-[90px] sm:w-[100px] whitespace-nowrap rounded-full text-xs font-bold text-center transition-colors duration-200 cursor-pointer ${
                       active
-                        ? "bg-[#141413] text-white shadow-xs"
-                        : "text-[#57534E] hover:text-[#141413] hover:bg-white/60"
+                        ? "text-white"
+                        : "text-slate-300 hover:text-white"
                     }`}
                   >
                     {item.label}
@@ -233,7 +431,8 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
 
           {/* SAĞ BÖLGE */}
           {isShowroom ? (
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center justify-end gap-2 min-w-0 flex-1">
+              {variantSwitcherNode}
               <button
                 type="button"
                 onClick={onOpenQuoteModal}
@@ -253,7 +452,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
               )}
             </div>
           ) : (
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center justify-end gap-1.5 min-w-0 flex-1">
             {/* Küresel cm / mm Ölçü Birimi Seçici (Kolay modda üst çubuk sade tutulur) */}
             {onOpenDoorShowcase && (
               <button
@@ -261,16 +460,16 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                 data-testid="v11-open-door-showcase"
                 onClick={onOpenDoorShowcase}
                 title="Tüm kapak çeşitleri ve kulpsuz açma kesitlerini paralel karşılaştır"
-                className="h-8 px-2.5 rounded-full bg-white/85 hover:bg-white border border-[#DFD9CE] text-[#141413] text-[11px] font-semibold transition cursor-pointer shrink-0"
+                className="hidden 2xl:inline-flex items-center h-8 px-2.5 rounded-full bg-white/[0.10] hover:bg-white/[0.18] border border-white/[0.14] text-[#F3F4F6] text-[11px] font-semibold transition cursor-pointer shrink-0"
               >
-                Kapak Galerisi
+                Kapaklar
               </button>
             )}
             {onChangeDisplayUnit && (
               <div
                 data-testid="v11-global-unit-switcher"
                 title="Ölçü Birimi: Tüm 3B, 2B ve Panel ölçülerini cm / mm arasında değiştirir"
-                className="inline-flex items-center p-0.5 rounded-full bg-[#ECE7DD]/85 border border-[#DFD9CE]"
+                className="hidden lg:inline-flex items-center p-0.5 rounded-full bg-black/40 border border-white/[0.14]"
               >
                 {(["cm", "mm"] as const).map((u) => (
                   <button
@@ -279,8 +478,8 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                     onClick={() => onChangeDisplayUnit(u)}
                     className={`h-7 px-2.5 rounded-full text-[11px] font-mono font-bold transition cursor-pointer ${
                       displayUnit === u
-                        ? "bg-[#141413] text-white shadow-2xs"
-                        : "text-[#57534E] hover:text-[#141413]"
+                        ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white shadow-xs"
+                        : "text-slate-300 hover:text-white"
                     }`}
                   >
                     {u}
@@ -291,13 +490,13 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
             {onChangeUiFontScale && (
               <div
                 data-testid="v11-font-scale-switcher"
-                title="Arayüz Yazı Boyutu"
-                className="inline-flex items-center p-0.5 rounded-full bg-[#ECE7DD]/85 border border-[#DFD9CE]"
+                title="Sahne Ölçü & Etiket Boyutu"
+                className="hidden 2xl:inline-flex items-center p-0.5 rounded-full bg-black/40 border border-white/[0.14]"
               >
                 <button
                   type="button"
-                  onClick={() => onChangeUiFontScale(Math.max(0.9, Number((uiFontScale - 0.1).toFixed(2))))}
-                  disabled={uiFontScale <= 0.9}
+                  onClick={() => onChangeUiFontScale(Math.max(0.75, Number((uiFontScale - 0.15).toFixed(2))))}
+                  disabled={uiFontScale <= 0.75}
                   className="h-7 px-2 rounded-full text-[11px] font-bold text-[#44403C] hover:bg-white hover:text-[#141413] disabled:opacity-35 transition cursor-pointer"
                   title="Yazıları Küçült"
                 >
@@ -313,8 +512,8 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                 </button>
                 <button
                   type="button"
-                  onClick={() => onChangeUiFontScale(Math.min(1.25, Number((uiFontScale + 0.1).toFixed(2))))}
-                  disabled={uiFontScale >= 1.25}
+                  onClick={() => onChangeUiFontScale(Math.min(1.6, Number((uiFontScale + 0.15).toFixed(2))))}
+                  disabled={uiFontScale >= 1.6}
                   className="h-7 px-2 rounded-full text-[11px] font-bold text-[#44403C] hover:bg-white hover:text-[#141413] disabled:opacity-35 transition cursor-pointer"
                   title="Yazıları Büyüt"
                 >
@@ -373,10 +572,17 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                   </span>
                 </button>
 
-                {issuesOpen && (
+                {typeof document !== "undefined" && createPortal(
+                <AnimatedPopoverPresence isOpen={issuesOpen} origin="top-right" className="fixed right-28 top-[68px] z-[90]">
                   <div
                     data-testid="v11-header-issues-popover"
-                    className="absolute right-0 top-full mt-2 w-96 max-w-[calc(100vw-24px)] max-h-[76vh] overflow-y-auto rounded-3xl bg-[#FAF8F4]/98 backdrop-blur-xl border border-[#DFD9CE] shadow-[0_24px_56px_rgba(20,20,19,0.18)] p-3.5 z-50 text-xs text-[#141413] space-y-2.5"
+                    data-birim-portal-menu="true"
+                    style={{
+                      background: "rgba(30, 36, 48, 0.72)",
+                      backdropFilter: "blur(36px) saturate(195%)",
+                      WebkitBackdropFilter: "blur(36px) saturate(195%)",
+                    }}
+                    className="mt-1.5 w-96 max-w-[calc(100vw-24px)] max-h-[76vh] overflow-y-auto rounded-3xl border border-white/[0.22] ring-1 ring-black/50 shadow-[0_28px_64px_rgba(0,0,0,0.62)] p-3.5 text-xs text-[#F3F4F6] space-y-2.5"
                   >
                     <div className="flex items-center justify-between pb-1.5 border-b border-[#E6E1D6]">
                       <span className="font-bold text-[13px]">
@@ -451,7 +657,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                       );
                     })}
                   </div>
-                )}
+                </AnimatedPopoverPresence>, document.body)}
               </div>
             )}
 
@@ -461,19 +667,26 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                 type="button"
                 data-testid="v11-outputs-menu-btn"
                 onClick={() => setOutputsOpen((v) => !v)}
-                className="h-9 px-3.5 rounded-full bg-white/85 hover:bg-white border border-[#DFD9CE] text-[#141413] text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                className="h-9 px-3.5 rounded-full bg-white/[0.10] hover:bg-white/[0.18] border border-white/[0.15] text-[#F3F4F6] text-xs font-semibold flex items-center gap-1.5 shadow-[0_3px_10px_rgba(0,0,0,0.28)] transition cursor-pointer"
               >
-                <span>Araçlar & Çıktılar</span>
+                <span>Çıktılar</span>
                 {blockingIssueCount > 0 && (
                   <span className="w-2 h-2 rounded-full bg-amber-500" />
                 )}
                 <ChevronDown className="w-3.5 h-3.5 text-[#78716C]" />
               </button>
 
-              {outputsOpen && (
+              {typeof document !== "undefined" && createPortal(
+              <AnimatedPopoverPresence isOpen={outputsOpen} origin="top-right" className="fixed right-4 top-[68px] z-[90]">
                 <div
                   data-testid="v11-outputs-dropdown"
-                  className="absolute right-0 top-full mt-2 w-76 max-h-[82vh] overflow-y-auto rounded-3xl bg-[#FAF8F4]/98 backdrop-blur-xl border border-[#DFD9CE] shadow-[0_20px_48px_rgba(20,20,19,0.14)] p-2 z-50 text-xs text-[#141413]"
+                  data-birim-portal-menu="true"
+                  style={{
+                    background: "rgba(30, 36, 48, 0.72)",
+                    backdropFilter: "blur(36px) saturate(195%)",
+                    WebkitBackdropFilter: "blur(36px) saturate(195%)",
+                  }}
+                  className="mt-1.5 w-76 max-h-[82vh] overflow-y-auto rounded-3xl border border-white/[0.22] ring-1 ring-black/50 shadow-[0_26px_64px_rgba(0,0,0,0.62)] p-2 text-xs text-[#F3F4F6]"
                 >
                   <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[#8C7A6B]">
                     Tasarım &amp; Sahne
@@ -672,7 +885,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                     </button>
                   ) : null}
                 </div>
-              )}
+              </AnimatedPopoverPresence>, document.body)}
             </div>
 
             <button
@@ -683,56 +896,80 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
             >
               <span className="font-mono font-bold tracking-tight">{formattedPrice}</span>
               <span className="opacity-45">•</span>
-              <FileText className="w-3.5 h-3.5 text-[#D6C7B2]" />
+              <FileText className="w-3.5 h-3.5 text-[#7DD3FC]" />
               <span>Teklif</span>
             </button>
           </div>
           )}
         </div>
 
-
-        {workspaceMode === "3d" && experienceTier === "simple" && !isReadOnlyCustomer && onQuickNavigateStep && (
+        {workspaceMode === "3d" && !isReadOnlyCustomer && (
           <div
-            data-testid="v12-guided-step-strip"
-            className="pointer-events-auto px-2 py-1 rounded-full bg-[#FAF8F4]/95 backdrop-blur-xl border border-[#DFD9CE] shadow-sm flex items-center gap-1 text-[11px]"
+            data-testid="v11-header-3d-camera-subbar"
+            className="pointer-events-auto px-1.5 py-1 rounded-full bg-[#2A313F]/72 backdrop-blur-2xl border border-white/[0.22] ring-1 ring-black/50 shadow-[0_14px_36px_rgba(0,0,0,0.45)] flex items-center gap-1 text-xs text-[#F3F4F6]"
           >
+            {(
+              [
+                { id: "hero", label: "Genel 3B" },
+                { id: "room_front_persp", label: "Mekân Karşıdan" },
+                { id: "focus_module", label: "Modüle Odaklan" },
+                { id: "side", label: "Yan" },
+              ] as const
+            ).map((cam) => {
+              const active = activeCam3D === cam.id;
+              return (
+                <button
+                  key={cam.id}
+                  type="button"
+                  onClick={() => triggerCamera3D(cam.id)}
+                  className={`h-7 px-3 rounded-full font-semibold transition cursor-pointer ${
+                    active
+                      ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white font-bold shadow-[0_0_16px_rgba(29,78,216,0.52)]"
+                      : "text-slate-200 hover:text-white hover:bg-white/[0.10]"
+                  }`}
+                >
+                  {cam.label}
+                </button>
+              );
+            })}
             <button
               type="button"
-              onClick={() => onQuickNavigateStep("dimensions")}
-              className={`h-6 px-2.5 rounded-full font-semibold transition cursor-pointer ${
-                activeInspectorTab === "dimensions"
-                  ? "bg-[#141413] text-white"
-                  : "text-[#57534E] hover:bg-[#EFECE4]"
+              onClick={() => triggerCamera3D("hero")}
+              title="Sahneyi Ekrana Ortala"
+              className="w-7 h-7 rounded-full flex items-center justify-center text-slate-200 hover:text-white hover:bg-white/[0.12] transition cursor-pointer"
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+            </button>
+            <span className="h-4 w-px bg-white/15 mx-0.5" />
+            <button
+              type="button"
+              onClick={() => setViewportRenderStyle(viewportRenderStyle === "wireframe" ? "solid" : "wireframe")}
+              title="Tel Çerçeve (Wireframe) Görünümünü Aç/Kapat"
+              className={`h-7 px-2.5 rounded-full text-[11px] font-semibold transition cursor-pointer ${
+                viewportRenderStyle === "wireframe"
+                  ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white font-bold shadow-xs"
+                  : "text-slate-200 hover:text-white hover:bg-white/[0.10]"
               }`}
             >
-              1. Ölçü &amp; Şablon
+              Tel
             </button>
-            <span className="text-[#A8A29E]">→</span>
             <button
               type="button"
-              onClick={() => onQuickNavigateStep("interior")}
-              className={`h-6 px-2.5 rounded-full font-semibold transition cursor-pointer ${
-                activeInspectorTab === "interior" || activeInspectorTab === "doors" || activeInspectorTab === "materials"
-                  ? "bg-[#141413] text-white"
-                  : "text-[#57534E] hover:bg-[#EFECE4]"
+              onClick={() => setViewportRenderStyle(viewportRenderStyle === "transparent" ? "solid" : "transparent")}
+              title="Şeffaf CNC X-Ray Görünümünü Aç/Kapat"
+              className={`h-7 px-2.5 rounded-full text-[11px] font-semibold transition cursor-pointer ${
+                viewportRenderStyle === "transparent"
+                  ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white font-bold shadow-xs"
+                  : "text-slate-200 hover:text-white hover:bg-white/[0.10]"
               }`}
             >
-              2. İç Düzen &amp; Yüzey
-            </button>
-            <span className="text-[#A8A29E]">→</span>
-            <button
-              type="button"
-              data-testid="v12-one-click-presentation-btn"
-              onClick={() => onQuickNavigateStep("showroom")}
-              className="h-6 px-3 rounded-full bg-[#D6C7B2]/45 hover:bg-[#141413] hover:text-white text-[#141413] font-bold transition cursor-pointer"
-            >
-              3. Tek Tık Sunum ✨
+              X-Ray
             </button>
           </div>
         )}
 
         {workspaceMode === "2d" && (
-          <div className="pointer-events-auto px-1.5 py-1 rounded-full bg-[#FAF8F4]/95 backdrop-blur-xl border border-[#DFD9CE] shadow-md flex items-center gap-1 text-xs">
+          <div className="pointer-events-auto px-1.5 py-1 rounded-full bg-[#2A313F]/66 backdrop-blur-2xl border border-white/[0.22] ring-1 ring-black/50 shadow-[0_14px_36px_rgba(0,0,0,0.45)] flex items-center gap-1 text-xs text-[#F3F4F6]">
             {(
               [
                 { id: "elevation", label: "Ön Cephe Görünüşü" },
@@ -748,8 +985,8 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                   onClick={() => onChangeCadSubMode(sub.id)}
                   className={`h-7 px-3 rounded-full font-semibold transition cursor-pointer ${
                     active
-                      ? "bg-[#141413] text-white"
-                      : "text-[#57534E] hover:text-[#141413] hover:bg-[#EFECE4]"
+                      ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white font-bold shadow-xs"
+                      : "text-slate-300 hover:text-white hover:bg-white/[0.08]"
                   }`}
                 >
                   {sub.label}
@@ -758,10 +995,10 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
             })}
             {cadSubMode === "split" && onChangeSplit2DViewMode && (
               <>
-                <span className="h-4 w-px bg-[#DFD9CE] mx-1" />
+                <span className="h-4 w-px bg-white/15 mx-1" />
                 <div
                   data-testid="split-2d-view-switcher"
-                  className="inline-flex items-center gap-0.5 bg-[#EFECE4] p-0.5 rounded-full"
+                  className="inline-flex items-center gap-0.5 bg-black/40 border border-white/12 p-0.5 rounded-full"
                 >
                   {(
                     [
@@ -777,8 +1014,8 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                       onClick={() => onChangeSplit2DViewMode(item.id)}
                       className={`h-6 px-2.5 rounded-full text-[11px] font-semibold transition cursor-pointer ${
                         split2DViewMode === item.id
-                          ? "bg-[#141413] text-white shadow-2xs"
-                          : "text-[#57534E] hover:text-[#141413]"
+                          ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white font-bold shadow-2xs"
+                          : "text-slate-300 hover:text-white"
                       }`}
                     >
                       {item.label}

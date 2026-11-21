@@ -69,48 +69,48 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
           aria-hidden="true"
         >
           {/* Floor shadow */}
-          <polygon points="14,108 148,108 156,98 24,98" fill="#1c1917" opacity="0.1" />
+          <polygon points="14,108 148,108 156,98 24,98" fill="#CBD5E1" opacity="0.1" />
           {/* Tall Oven/Fridge Tower (Left) */}
-          <polygon points="18,24 28,16 50,16 40,24" fill="#f5f5f4" stroke="#292524" strokeWidth="1.2" />
-          <rect x="18" y="24" width="22" height="82" fill="#9caf88" stroke="#292524" strokeWidth="1.3" />
+          <polygon points="18,24 28,16 50,16 40,24" fill="#f5f5f4" stroke="#CBD5E1" strokeWidth="1.2" />
+          <rect x="18" y="24" width="22" height="82" fill="#cfc6b8" stroke="#CBD5E1" strokeWidth="1.3" />
           {/* Built-in Oven & Microwave in Tower */}
           <rect x="20.5" y="42" width="17" height="11" rx="1" fill="#111827" stroke="#475569" strokeWidth="1" />
           <rect x="20.5" y="55" width="17" height="18" rx="1" fill="#0f172a" stroke="#475569" strokeWidth="1" />
           <line x1="23" y1="58" x2="35" y2="58" stroke="#f59e0b" strokeWidth="1.2" />
 
           {/* Base Cabinets Row (Sink + 3-Drawer + Hob Base) */}
-          <rect x="40" y="66" width="96" height="40" fill="#9caf88" stroke="#292524" strokeWidth="1.3" />
-          <polygon points="136,66 146,58 146,98 136,106" fill="#7a8c68" stroke="#292524" strokeWidth="1.2" />
+          <rect x="40" y="66" width="96" height="40" fill="#cfc6b8" stroke="#CBD5E1" strokeWidth="1.3" />
+          <polygon points="136,66 146,58 146,98 136,106" fill="#b3a898" stroke="#CBD5E1" strokeWidth="1.2" />
           {/* Plinth */}
-          <rect x="18" y="102" width="118" height="4" fill="#44403c" />
+          <rect x="18" y="102" width="118" height="4" fill="#94A3B8" />
           {/* Vertical module dividers */}
-          <line x1="72" y1="66" x2="72" y2="102" stroke="#292524" strokeWidth="1.2" />
-          <line x1="104" y1="66" x2="104" y2="102" stroke="#292524" strokeWidth="1.2" />
+          <line x1="72" y1="66" x2="72" y2="102" stroke="#CBD5E1" strokeWidth="1.2" />
+          <line x1="104" y1="66" x2="104" y2="102" stroke="#CBD5E1" strokeWidth="1.2" />
           {/* Sink Base Double Doors */}
-          <line x1="56" y1="66" x2="56" y2="102" stroke="#292524" strokeWidth="1" />
+          <line x1="56" y1="66" x2="56" y2="102" stroke="#CBD5E1" strokeWidth="1" />
           {/* Middle 3-Drawer Stack */}
-          <line x1="72" y1="76" x2="104" y2="76" stroke="#292524" strokeWidth="1" />
-          <line x1="72" y1="88" x2="104" y2="88" stroke="#292524" strokeWidth="1" />
-          <line x1="84" y1="71" x2="92" y2="71" stroke="#1c1917" strokeWidth="1.3" strokeLinecap="round" />
-          <line x1="84" y1="82" x2="92" y2="82" stroke="#1c1917" strokeWidth="1.3" strokeLinecap="round" />
-          <line x1="84" y1="95" x2="92" y2="95" stroke="#1c1917" strokeWidth="1.3" strokeLinecap="round" />
+          <line x1="72" y1="76" x2="104" y2="76" stroke="#CBD5E1" strokeWidth="1" />
+          <line x1="72" y1="88" x2="104" y2="88" stroke="#CBD5E1" strokeWidth="1" />
+          <line x1="84" y1="71" x2="92" y2="71" stroke="#E2E8F0" strokeWidth="1.3" strokeLinecap="round" />
+          <line x1="84" y1="82" x2="92" y2="82" stroke="#E2E8F0" strokeWidth="1.3" strokeLinecap="round" />
+          <line x1="84" y1="95" x2="92" y2="95" stroke="#E2E8F0" strokeWidth="1.3" strokeLinecap="round" />
 
           {/* Continuous Quartz Countertop + Backsplash */}
-          <polygon points="40,66 50,58 146,58 136,66" fill="#fafaf9" stroke="#292524" strokeWidth="1.3" />
+          <polygon points="40,66 50,58 146,58 136,66" fill="#fafaf9" stroke="#CBD5E1" strokeWidth="1.3" />
           <polygon points="48,58 48,40 144,40 144,58" fill="#f5f5f4" stroke="#a8a29e" strokeWidth="0.9" />
           {/* Sink Bowl & Faucet */}
-          <polygon points="46,64 51,60 66,60 61,64" fill="#94a3b8" stroke="#334155" strokeWidth="1" />
-          <path d="M58,60 C58,51 53,51 53,56" fill="none" stroke="#334155" strokeWidth="1.5" strokeLinecap="round" />
+          <polygon points="46,64 51,60 66,60 61,64" fill="#94a3b8" stroke="#94A3B8" strokeWidth="1" />
+          <path d="M58,60 C58,51 53,51 53,56" fill="none" stroke="#94A3B8" strokeWidth="1.5" strokeLinecap="round" />
           {/* Hob Burners */}
           <ellipse cx="116" cy="62" rx="4.5" ry="2" fill="#0f172a" stroke="#ef4444" strokeWidth="0.9" />
           <ellipse cx="127" cy="62" rx="4.5" ry="2" fill="#0f172a" stroke="#ef4444" strokeWidth="0.9" />
 
           {/* Upper Wall Cabinets (3 Modules) */}
-          <polygon points="44,24 52,18 142,18 134,24" fill="#f5f5f4" stroke="#292524" strokeWidth="1.2" />
-          <rect x="44" y="24" width="90" height="22" fill="#e7e5e4" stroke="#292524" strokeWidth="1.3" />
-          <polygon points="134,24 142,18 142,40 134,46" fill="#d6d3d1" stroke="#292524" strokeWidth="1.2" />
-          <line x1="74" y1="24" x2="74" y2="46" stroke="#292524" strokeWidth="1.1" />
-          <line x1="104" y1="24" x2="104" y2="46" stroke="#292524" strokeWidth="1.1" />
+          <polygon points="44,24 52,18 142,18 134,24" fill="#f5f5f4" stroke="#CBD5E1" strokeWidth="1.2" />
+          <rect x="44" y="24" width="90" height="22" fill="#e7e5e4" stroke="#CBD5E1" strokeWidth="1.3" />
+          <polygon points="134,24 142,18 142,40 134,46" fill="#d6d3d1" stroke="#CBD5E1" strokeWidth="1.2" />
+          <line x1="74" y1="24" x2="74" y2="46" stroke="#CBD5E1" strokeWidth="1.1" />
+          <line x1="104" y1="24" x2="104" y2="46" stroke="#CBD5E1" strokeWidth="1.1" />
           {/* Warm Under-Cabinet LED Glow */}
           <line x1="46" y1="47" x2="132" y2="47" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" />
         </svg>
@@ -126,32 +126,32 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
           className={`${dimClass} shrink-0 overflow-visible`}
           aria-hidden="true"
         >
-          <polygon points="18,112 146,104 146,72 56,72 18,98" fill="#1c1917" opacity="0.1" />
+          <polygon points="18,112 146,104 146,72 56,72 18,98" fill="#CBD5E1" opacity="0.1" />
           {/* Back Main Wall Base Run */}
-          <polygon points="48,58 58,50 144,50 134,58" fill="#fafaf9" stroke="#292524" strokeWidth="1.3" />
-          <rect x="48" y="58" width="86" height="38" fill="#9caf88" stroke="#292524" strokeWidth="1.3" />
-          <polygon points="134,58 144,50 144,88 134,96" fill="#7a8c68" stroke="#292524" strokeWidth="1.2" />
-          <line x1="78" y1="58" x2="78" y2="96" stroke="#292524" strokeWidth="1.1" />
-          <line x1="106" y1="58" x2="106" y2="96" stroke="#292524" strokeWidth="1.1" />
-          <line x1="78" y1="70" x2="106" y2="70" stroke="#292524" strokeWidth="1" />
-          <line x1="78" y1="82" x2="106" y2="82" stroke="#292524" strokeWidth="1" />
+          <polygon points="48,58 58,50 144,50 134,58" fill="#fafaf9" stroke="#CBD5E1" strokeWidth="1.3" />
+          <rect x="48" y="58" width="86" height="38" fill="#cfc6b8" stroke="#CBD5E1" strokeWidth="1.3" />
+          <polygon points="134,58 144,50 144,88 134,96" fill="#b3a898" stroke="#CBD5E1" strokeWidth="1.2" />
+          <line x1="78" y1="58" x2="78" y2="96" stroke="#CBD5E1" strokeWidth="1.1" />
+          <line x1="106" y1="58" x2="106" y2="96" stroke="#CBD5E1" strokeWidth="1.1" />
+          <line x1="78" y1="70" x2="106" y2="70" stroke="#CBD5E1" strokeWidth="1" />
+          <line x1="78" y1="82" x2="106" y2="82" stroke="#CBD5E1" strokeWidth="1" />
 
           {/* 90-Degree Left Return Wing (Isometric Forward Return) */}
-          <polygon points="20,78 48,58 66,58 38,78" fill="#fafaf9" stroke="#292524" strokeWidth="1.3" />
-          <polygon points="20,78 38,78 38,114 20,114" fill="#849673" stroke="#292524" strokeWidth="1.3" />
-          <polygon points="38,78 66,58 66,94 38,114" fill="#9caf88" stroke="#292524" strokeWidth="1.3" />
-          <line x1="52" y1="68" x2="52" y2="104" stroke="#292524" strokeWidth="1.1" />
+          <polygon points="20,78 48,58 66,58 38,78" fill="#fafaf9" stroke="#CBD5E1" strokeWidth="1.3" />
+          <polygon points="20,78 38,78 38,114 20,114" fill="#b3a898" stroke="#CBD5E1" strokeWidth="1.3" />
+          <polygon points="38,78 66,58 66,94 38,114" fill="#cfc6b8" stroke="#CBD5E1" strokeWidth="1.3" />
+          <line x1="52" y1="68" x2="52" y2="104" stroke="#CBD5E1" strokeWidth="1.1" />
           {/* Sink on Back Run + Cooktop on Return Wing */}
-          <polygon points="84,56 88,52 102,52 98,56" fill="#94a3b8" stroke="#334155" strokeWidth="1" />
-          <path d="M94,52 C94,44 89,44 89,49" fill="none" stroke="#334155" strokeWidth="1.4" strokeLinecap="round" />
+          <polygon points="84,56 88,52 102,52 98,56" fill="#94a3b8" stroke="#94A3B8" strokeWidth="1" />
+          <path d="M94,52 C94,44 89,44 89,49" fill="none" stroke="#94A3B8" strokeWidth="1.4" strokeLinecap="round" />
           <ellipse cx="42" cy="68" rx="4.5" ry="2.2" fill="#0f172a" stroke="#ef4444" strokeWidth="0.9" />
 
           {/* Back Wall Upper Cabinets */}
-          <polygon points="52,20 60,14 142,14 134,20" fill="#f5f5f4" stroke="#292524" strokeWidth="1.2" />
-          <rect x="52" y="20" width="82" height="20" fill="#e7e5e4" stroke="#292524" strokeWidth="1.3" />
-          <polygon points="134,20 142,14 142,34 134,40" fill="#d6d3d1" stroke="#292524" strokeWidth="1.2" />
-          <line x1="80" y1="20" x2="80" y2="40" stroke="#292524" strokeWidth="1.1" />
-          <line x1="108" y1="20" x2="108" y2="40" stroke="#292524" strokeWidth="1.1" />
+          <polygon points="52,20 60,14 142,14 134,20" fill="#f5f5f4" stroke="#CBD5E1" strokeWidth="1.2" />
+          <rect x="52" y="20" width="82" height="20" fill="#e7e5e4" stroke="#CBD5E1" strokeWidth="1.3" />
+          <polygon points="134,20 142,14 142,34 134,40" fill="#d6d3d1" stroke="#CBD5E1" strokeWidth="1.2" />
+          <line x1="80" y1="20" x2="80" y2="40" stroke="#CBD5E1" strokeWidth="1.1" />
+          <line x1="108" y1="20" x2="108" y2="40" stroke="#CBD5E1" strokeWidth="1.1" />
         </svg>
       );
     }
@@ -198,10 +198,13 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
     const isGlassDoor =
       resolvedModule?.carcass.doorMaterialId === "mat_smoked_glass" ||
       tplId.includes("glass");
+    // Modern architectural default palette: Warm Cashmere Greige (#CFC6B8) for kitchen, Natural Smoked Oak (#C8AD88) for wardrobe/living
+    const rawMatHex =
+      matDef?.id === "mat_lacquer_sage" && !resolvedModule ? "#cfc6b8" : matDef?.colorHex;
     const frontColor =
       propColor ||
-      (isGlassDoor ? "#334155" : matDef?.colorHex) ||
-      (familyId?.startsWith("fam_kitchen") ? "#9caf88" : "#c5a075");
+      (isGlassDoor ? "#334155" : rawMatHex) ||
+      (familyId?.startsWith("fam_kitchen") ? "#cfc6b8" : "#c8ad88");
 
     // 3. COMPLEMENTARY PARTS (Countertop, Plinth, Filler, LED, Feet)
     if (familyId === "fam_complementary" || compRole) {
@@ -228,9 +231,9 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
             </g>
           ) : (
             <g>
-              <polygon points="22,64 44,44 138,44 116,64" fill="#f5f5f4" stroke="#292524" strokeWidth="1.5" />
-              <rect x="22" y="64" width="94" height="16" fill={frontColor} stroke="#292524" strokeWidth="1.5" />
-              <polygon points="116,64 138,44 138,60 116,80" fill="#d6d3d1" stroke="#292524" strokeWidth="1.5" />
+              <polygon points="22,64 44,44 138,44 116,64" fill="#f5f5f4" stroke="#CBD5E1" strokeWidth="1.5" />
+              <rect x="22" y="64" width="94" height="16" fill={frontColor} stroke="#CBD5E1" strokeWidth="1.5" />
+              <polygon points="116,64 138,44 138,60 116,80" fill="#d6d3d1" stroke="#CBD5E1" strokeWidth="1.5" />
             </g>
           )}
         </svg>
@@ -243,10 +246,17 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
       const isBlind = tplId.includes("blind") || nameLower.includes("kör");
       const isUpperCorner =
         resolvedModule?.category === "kitchen_wall" ||
+        familyId === "fam_kitchen_wall" ||
+        tplId.includes("kw_") ||
         tplId.includes("wall") ||
         nameLower.includes("üst");
-      const topY = isUpperCorner ? 22 : 14;
-      const botY = isUpperCorner ? 76 : 104;
+      const isKitchenCornerIcon =
+        Boolean(familyId?.startsWith("fam_kitchen")) ||
+        resolvedModule?.category?.startsWith("kitchen") ||
+        tplId.includes("kb_") ||
+        tplId.includes("kw_");
+      const topY = isUpperCorner ? 12 : 30;
+      const botY = isUpperCorner ? 64 : 106;
       const hSpan = botY - topY;
 
       if (isBlind) {
@@ -263,7 +273,7 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
             <polygon
               points="24,28 38,16 138,16 124,28"
               fill="#f8fafc"
-              stroke="#334155"
+              stroke="#94A3B8"
               strokeWidth="1.4"
               strokeLinejoin="round"
             />
@@ -271,7 +281,7 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
             <polygon
               points="124,28 138,16 138,92 124,104"
               fill="#cbd5e1"
-              stroke="#334155"
+              stroke="#94A3B8"
               strokeWidth="1.4"
               strokeLinejoin="round"
             />
@@ -282,7 +292,7 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
               width="48"
               height="70"
               fill="#e2e8f0"
-              stroke="#334155"
+              stroke="#94A3B8"
               strokeWidth="1.4"
             />
             <line
@@ -313,7 +323,7 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
               width="6"
               height="70"
               fill={frontColor}
-              stroke="#334155"
+              stroke="#94A3B8"
               strokeWidth="1.2"
             />
             {/* Right Hinged Access Door */}
@@ -323,7 +333,7 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
               width="46"
               height="70"
               fill={frontColor}
-              stroke="#334155"
+              stroke="#94A3B8"
               strokeWidth="1.4"
             />
             {/* Handle on Left Edge of Right Access Door */}
@@ -343,7 +353,7 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
               width="96"
               height="6"
               fill="#64748b"
-              stroke="#334155"
+              stroke="#94A3B8"
               strokeWidth="1.1"
             />
           </svg>
@@ -372,14 +382,14 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
             width="54"
             height={hSpan - 12}
             fill={frontColor}
-            stroke="#334155"
+            stroke="#94A3B8"
             strokeWidth="1.4"
           />
           {/* Right Wing 3D Side Face */}
           <polygon
             points={`126,${topY + 14} 140,${topY + 2} 140,${botY - 10} 126,${botY + 2}`}
             fill="#cbd5e1"
-            stroke="#334155"
+            stroke="#94A3B8"
             strokeWidth="1.35"
             strokeLinejoin="round"
           />
@@ -391,7 +401,7 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
               width="54"
               height="6"
               fill="#64748b"
-              stroke="#334155"
+              stroke="#94A3B8"
               strokeWidth="1.1"
             />
           )}
@@ -400,7 +410,7 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
           <polygon
             points={`54,${topY + 30} 72,${topY + 14} 72,${botY + 2} 54,${botY + 16}`}
             fill={frontColor}
-            stroke="#334155"
+            stroke="#94A3B8"
             strokeWidth="1.4"
             strokeLinejoin="round"
           />
@@ -417,7 +427,7 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
             width="30"
             height={hSpan - 12}
             fill="#e2e8f0"
-            stroke="#334155"
+            stroke="#94A3B8"
             strokeWidth="1.4"
           />
           {!isUpperCorner && (
@@ -427,7 +437,7 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
               width="30"
               height="6"
               fill="#64748b"
-              stroke="#334155"
+              stroke="#94A3B8"
               strokeWidth="1.1"
             />
           )}
@@ -436,12 +446,12 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
           <polygon
             points={`24,${topY + 30} 54,${topY + 2} 140,${topY + 2} 126,${topY + 14} 72,${topY + 14} 54,${topY + 30}`}
             fill="#f8fafc"
-            stroke="#334155"
+            stroke="#94A3B8"
             strokeWidth="1.5"
             strokeLinejoin="round"
           />
 
-          {/* 90° Inner-Corner Bi-Fold Meeting Seam & Dual Handles */}
+          {/* 90° Inner-Corner Bi-Fold Meeting Seam & Ergonomic Handles */}
           <line
             x1="72"
             y1={topY + 14}
@@ -452,46 +462,91 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
           />
           <line
             x1="78"
-            y1={topY + Math.round(hSpan * 0.44)}
+            y1={isUpperCorner ? botY - 16 : topY + 20}
             x2="78"
-            y2={topY + Math.round(hSpan * 0.64)}
+            y2={isUpperCorner ? botY - 6 : topY + 31}
             stroke="#111827"
             strokeWidth="2.1"
             strokeLinecap="round"
           />
           <line
             x1="66"
-            y1={topY + Math.round(hSpan * 0.48)}
+            y1={isUpperCorner ? botY - 12 : topY + 24}
             x2="66"
-            y2={topY + Math.round(hSpan * 0.68)}
+            y2={isUpperCorner ? botY - 2 : topY + 35}
             stroke="#111827"
             strokeWidth="2.1"
             strokeLinecap="round"
           />
+
+          {/* Upper Corner Reference Countertop Below vs Base Corner Floor Line */}
+          {isUpperCorner ? (
+            <g>
+              <polygon
+                points="26,74 134,68 142,102 22,108"
+                fill="#fef3c7"
+                opacity="0.28"
+              />
+              <polygon
+                points="20,108 50,90 142,90 126,102 68,102 48,116 20,116"
+                fill="none"
+                stroke="#a8a29e"
+                strokeWidth="1.2"
+                strokeDasharray="3 2"
+              />
+              <rect x="8" y="6" width="32" height="14" rx="4" fill="#334155" />
+              <text x="24" y="15.5" textAnchor="middle" fontSize="8" fontWeight="800" fill="#ffffff">
+                ÜST
+              </text>
+            </g>
+          ) : isKitchenCornerIcon ? (
+            <g>
+              <line x1="16" y1="118" x2="146" y2="118" stroke="#78716c" strokeWidth="1.2" strokeDasharray="4 2" />
+              <rect x="8" y="6" width="32" height="14" rx="4" fill="#CBD5E1" />
+              <text x="24" y="15.5" textAnchor="middle" fontSize="8" fontWeight="800" fill="#ffffff">
+                ALT
+              </text>
+            </g>
+          ) : null}
         </svg>
       );
     }
 
     // 4. STANDARD & SPECIAL CABINET GEOMETRY IN 160x128 VIEWBOX
-    const isWallCab = familyId === "fam_kitchen_wall";
+    const isWallCab =
+      familyId === "fam_kitchen_wall" || resolvedModule?.category === "kitchen_wall";
+    const isIslandCab =
+      tplId.includes("island") || resolvedModule?.category === "kitchen_island";
     const isBaseCab =
-      familyId === "fam_kitchen_base" || tplId.includes("island");
+      familyId === "fam_kitchen_base" ||
+      resolvedModule?.category === "kitchen_base" ||
+      isIslandCab;
+    const isTallKitchenCab =
+      familyId === "fam_kitchen_tall" || resolvedModule?.category === "kitchen_tall";
 
     const normW = Math.max(
       52,
-      Math.min(112, Math.round(48 + (wMm / 2400) * 64))
+      Math.min(108, Math.round(48 + (wMm / 2400) * 60))
     );
     const normH = isWallCab
-      ? Math.max(42, Math.min(62, Math.round((hMm / 900) * 54)))
+      ? Math.max(38, Math.min(50, Math.round((hMm / 900) * 44)))
       : isBaseCab
-      ? 68
-      : Math.max(76, Math.min(96, Math.round((hMm / 2400) * 92)));
-    const isoDx = Math.max(14, Math.min(24, Math.round((dMm / 650) * 20)));
+      ? 64
+      : Math.max(78, Math.min(96, Math.round((hMm / 2400) * 92)));
+    const isoDx = isWallCab
+      ? 12
+      : isBaseCab
+      ? 20
+      : Math.max(15, Math.min(23, Math.round((dMm / 650) * 20)));
     const isoDy = Math.round(isoDx * 0.55);
 
     const x0 = Math.round((160 - (normW + isoDx)) / 2);
+    // Upper cabinet sits HIGH near ceiling (y0=18) with countertop reference below;
+    // Base cabinet sits LOW on the floor (y0=48) with stone countertop slab & open upper wall space above!
     const y0 = isWallCab
-      ? 26
+      ? 18
+      : isBaseCab
+      ? 48
       : Math.round((122 - (normH + isoDy)) / 2) + isoDy;
 
     const topPoints = `${x0},${y0} ${x0 + isoDx},${y0 - isoDy} ${
@@ -545,36 +600,159 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
             <stop offset="100%" stopColor="#fcf9f2" />
           </linearGradient>
         </defs>
-        {/* Soft Multi-Layer Studio Floor Shadow */}
-        <polygon
-          points={`${x0 + 2},${y0 + normH + 6} ${x0 + normW + isoDx + 8},${
-            y0 + normH - isoDy + 6
-          } ${x0 + normW + 4},${y0 + normH + 12} ${x0 - 6},${y0 + normH + 12}`}
-          fill="#0c0a09"
-          opacity={isWallCab ? 0.04 : 0.08}
-        />
-        <polygon
-          points={`${x0 + 4},${y0 + normH + 4} ${x0 + normW + isoDx + 4},${
-            y0 + normH - isoDy + 4
-          } ${x0 + normW + 2},${y0 + normH + 8} ${x0 - 2},${y0 + normH + 8}`}
-          fill="#1c1917"
-          opacity={isWallCab ? 0.07 : 0.14}
-        />
+        {/* Architectural Wall & Elevation Context for Upper vs Base vs Tall Kitchen Modules */}
+        {isWallCab && (
+          <g>
+            {/* Subtle Backsplash Wall Zone + Warm Under-Cabinet LED Cone + Lower Countertop Reference */}
+            <rect
+              x={Math.max(14, x0 - 10)}
+              y={10}
+              width={Math.min(134, normW + isoDx + 20)}
+              height={106}
+              rx={5}
+              fill="#f5f2eb"
+              opacity="0.72"
+            />
+            <polygon
+              points={`${x0 + 3},${y0 + normH + 1} ${x0 + normW - 3},${y0 + normH + 1} ${x0 + normW + 10},102 ${x0 - 10},102`}
+              fill="#fde68a"
+              opacity="0.34"
+            />
+            <line
+              x1={x0 + 4}
+              y1={y0 + normH + 1.5}
+              x2={x0 + normW - 4}
+              y2={y0 + normH + 1.5}
+              stroke="#f59e0b"
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
+            {/* Dashed Lower Countertop Slab Reference so Upper Mount is 100% Unmistakable */}
+            <polygon
+              points={`${x0 - 8},106 ${x0 + isoDx - 2},${106 - isoDy} ${x0 + normW + isoDx + 6},${106 - isoDy} ${x0 + normW + 6},106`}
+              fill="#ebe6dc"
+              fillOpacity="0.65"
+              stroke="#8c8275"
+              strokeWidth="1.15"
+              strokeDasharray="3.5 2"
+            />
+            <line
+              x1={x0 - 8}
+              y1={110}
+              x2={x0 + normW + 6}
+              y2={110}
+              stroke="#a8a29e"
+              strokeWidth="1.1"
+              strokeDasharray="3 2"
+            />
+          </g>
+        )}
 
-        {/* Top 3D Face with Studio Gradient */}
-        <polygon
-          points={topPoints}
-          fill="url(#iso_top_grad)"
-          stroke="#292524"
-          strokeWidth="1.45"
-          strokeLinejoin="round"
-        />
+        {isBaseCab && (
+          <g>
+            {/* Subtle Upper Wall Reference Zone Above Base Cabinet + Solid Floor Baseline Below */}
+            <rect
+              x={Math.max(16, x0 - 6)}
+              y={10}
+              width={Math.min(128, normW + isoDx + 12)}
+              height={22}
+              rx={3}
+              fill="none"
+              stroke="#d6d0c4"
+              strokeWidth="1"
+              strokeDasharray="3 2.5"
+            />
+            <line
+              x1={Math.max(10, x0 - 12)}
+              y1={y0 + normH + 1}
+              x2={Math.min(150, x0 + normW + isoDx + 10)}
+              y2={y0 + normH + 1}
+              stroke="#78716c"
+              strokeWidth="1.4"
+            />
+          </g>
+        )}
+
+        {/* Soft Multi-Layer Studio Floor Shadow */}
+        {!isWallCab && (
+          <>
+            <polygon
+              points={`${x0 + 2},${y0 + normH + 5} ${x0 + normW + isoDx + 8},${
+                y0 + normH - isoDy + 5
+              } ${x0 + normW + 4},${y0 + normH + 10} ${x0 - 6},${y0 + normH + 10}`}
+              fill="#0c0a09"
+              opacity={0.08}
+            />
+            <polygon
+              points={`${x0 + 4},${y0 + normH + 3} ${x0 + normW + isoDx + 4},${
+                y0 + normH - isoDy + 3
+              } ${x0 + normW + 2},${y0 + normH + 7} ${x0 - 2},${y0 + normH + 7}`}
+              fill="#CBD5E1"
+              opacity={0.14}
+            />
+          </>
+        )}
+
+        {/* Top 3D Face — Projecting 38mm Calacatta Quartz Countertop Slab + Rear Upstand on Base Cabinets! */}
+        {isBaseCab ? (
+          <g>
+            {/* Projecting Stone Countertop Top Plane */}
+            <polygon
+              points={`${x0 - 2.5},${y0 - 4} ${x0 + isoDx},${y0 - isoDy - 4} ${
+                x0 + normW + isoDx + 2.5
+              },${y0 - isoDy - 4} ${x0 + normW + 2.5},${y0 - 4}`}
+              fill="#faf9f6"
+              stroke="#CBD5E1"
+              strokeWidth="1.4"
+              strokeLinejoin="round"
+            />
+            {/* 38mm Stone Countertop Front Edge Thickness */}
+            <rect
+              x={x0 - 2.5}
+              y={y0 - 4}
+              width={normW + 5}
+              height={4.2}
+              fill="#e7e2d8"
+              stroke="#CBD5E1"
+              strokeWidth="1.25"
+            />
+            {/* Stone Countertop Right Side Thickness */}
+            <polygon
+              points={`${x0 + normW + 2.5},${y0 - 4} ${x0 + normW + isoDx + 2.5},${
+                y0 - isoDy - 4
+              } ${x0 + normW + isoDx + 2.5},${y0 - isoDy} ${x0 + normW + 2.5},${y0}`}
+              fill="#d6cfc2"
+              stroke="#CBD5E1"
+              strokeWidth="1.2"
+              strokeLinejoin="round"
+            />
+            {/* Rear Wall Backsplash Lip (Tezgâh Süpürgeliği) */}
+            {!isIslandCab && (
+              <polygon
+                points={`${x0 + isoDx},${y0 - isoDy - 8} ${x0 + normW + isoDx + 2},${
+                  y0 - isoDy - 8
+                } ${x0 + normW + isoDx + 2},${y0 - isoDy - 4} ${x0 + isoDx},${y0 - isoDy - 4}`}
+                fill="#ece8df"
+                stroke="#94A3B8"
+                strokeWidth="1"
+              />
+            )}
+          </g>
+        ) : (
+          <polygon
+            points={topPoints}
+            fill="url(#iso_top_grad)"
+            stroke="#CBD5E1"
+            strokeWidth="1.45"
+            strokeLinejoin="round"
+          />
+        )}
 
         {/* Right Side 3D Face with Depth Gradient */}
         <polygon
           points={sidePoints}
           fill="url(#iso_side_grad)"
-          stroke="#292524"
+          stroke="#CBD5E1"
           strokeWidth="1.45"
           strokeLinejoin="round"
         />
@@ -585,13 +763,13 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
             <polygon
               points={`${x0 - 16},${y0 + 12} ${x0},${y0} ${x0 + 22},${y0} ${x0 + 6},${y0 + 12}`}
               fill="#fafaf9"
-              stroke="#292524"
+              stroke="#CBD5E1"
               strokeWidth="1.3"
             />
             <polygon
               points={`${x0 - 16},${y0 + 12} ${x0 + 6},${y0 + 12} ${x0 + 6},${y0 + normH + 10} ${x0 - 16},${y0 + normH + 10}`}
               fill={frontColor}
-              stroke="#292524"
+              stroke="#CBD5E1"
               strokeWidth="1.3"
             />
           </g>
@@ -604,7 +782,7 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
           width={normW}
           height={usableH}
           fill="url(#iso_cavity_grad)"
-          stroke="#292524"
+          stroke="#CBD5E1"
           strokeWidth="1.55"
         />
 
@@ -616,8 +794,8 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
               y={y0 + usableH}
               width={Math.max(4, normW - (isGableRailsIcon ? 7 : 4))}
               height={plinthPx}
-              fill="#44403c"
-              stroke="#292524"
+              fill="#94A3B8"
+              stroke="#CBD5E1"
               strokeWidth="1.2"
             />
             {isGableRailsIcon && (
@@ -628,7 +806,7 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
                   width={3.5}
                   height={plinthPx}
                   fill="#dfd9ce"
-                  stroke="#292524"
+                  stroke="#CBD5E1"
                   strokeWidth="1.2"
                 />
                 <rect
@@ -637,7 +815,7 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
                   width={3.5}
                   height={plinthPx}
                   fill="#dfd9ce"
-                  stroke="#292524"
+                  stroke="#CBD5E1"
                   strokeWidth="1.2"
                 />
               </>
@@ -652,7 +830,7 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
             y1={y0}
             x2={x0 + normW + 1}
             y2={y0}
-            stroke="#44403c"
+            stroke="#94A3B8"
             strokeWidth="2.8"
           />
         )}
@@ -665,7 +843,7 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
                 x0 + normW - 8
               },${y0 - isoDy + 3} ${x0 + normW - 14},${y0 - 2}`}
               fill="#94a3b8"
-              stroke="#334155"
+              stroke="#94A3B8"
               strokeWidth="1.2"
             />
             <path
@@ -675,7 +853,7 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
                 y0 - isoDy - 12
               }, ${x0 + normW * 0.42} ${y0 - isoDy - 3}`}
               fill="none"
-              stroke="#334155"
+              stroke="#94A3B8"
               strokeWidth="2"
               strokeLinecap="round"
             />
@@ -770,7 +948,7 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
                     y1={y0}
                     x2={bx0 + bw}
                     y2={y0 + usableH}
-                    stroke="#292524"
+                    stroke="#CBD5E1"
                     strokeWidth="1.6"
                   />
                 )}
@@ -805,7 +983,7 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
                       width={bw - 3}
                       height={usableH * 0.25}
                       fill={frontColor}
-                      stroke="#292524"
+                      stroke="#CBD5E1"
                       strokeWidth="1.1"
                     />
                     <rect
@@ -912,7 +1090,7 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
                       width={Math.max(4, bw - 2.4)}
                       height={upperH}
                       fill={frontColor}
-                      stroke="#292524"
+                      stroke="#CBD5E1"
                       strokeWidth="1.25"
                       rx="1"
                     />
@@ -936,31 +1114,38 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
                         y1={upperTopY}
                         x2={bx0 + bw / 2}
                         y2={upperBottomY}
-                        stroke="#292524"
+                        stroke="#CBD5E1"
                         strokeWidth="1.2"
                       />
                     )}
-                    {/* Clean Metallic Handles matching 3D hinge sides (Left-hinged door -> handle on right; Double door -> 2 center handles) */}
-                    {!isLift && !isSliding && (
-                      bayDoorType === "double" ||
-                      bayDoorSys === "hinged_double" ||
-                      bwMm > 600 ? (
+                    {/* Ergonomic World-Standard Handle Position: Bottom on Upper Wall, Top on Base, Hand-Height on Tall! */}
+                    {!isLift && !isSliding && (() => {
+                      const hLen = Math.min(10, Math.max(6, upperH * 0.22));
+                      const hy1 = isWallCab
+                        ? Math.max(upperTopY + 3, upperBottomY - hLen - 4.5)
+                        : isBaseCab
+                        ? upperTopY + 5
+                        : upperTopY + upperH * 0.44;
+                      const hy2 = hy1 + hLen;
+                      return bayDoorType === "double" ||
+                        bayDoorSys === "hinged_double" ||
+                        bwMm > 600 ? (
                         <>
                           <line
                             x1={bx0 + bw / 2 - 2.4}
-                            y1={upperTopY + upperH * 0.44}
+                            y1={hy1}
                             x2={bx0 + bw / 2 - 2.4}
-                            y2={upperTopY + upperH * 0.44 + 10}
-                            stroke="#1c1917"
+                            y2={hy2}
+                            stroke="#E2E8F0"
                             strokeWidth="1.7"
                             strokeLinecap="round"
                           />
                           <line
                             x1={bx0 + bw / 2 + 2.4}
-                            y1={upperTopY + upperH * 0.44}
+                            y1={hy1}
                             x2={bx0 + bw / 2 + 2.4}
-                            y2={upperTopY + upperH * 0.44 + 10}
-                            stroke="#1c1917"
+                            y2={hy2}
+                            stroke="#E2E8F0"
                             strokeWidth="1.7"
                             strokeLinecap="round"
                           />
@@ -974,7 +1159,7 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
                               ? bx0 + 3.8
                               : bx0 + Math.max(4, bw - 3.8)
                           }
-                          y1={upperTopY + upperH * 0.44}
+                          y1={hy1}
                           x2={
                             bayDoorType === "single_right" ||
                             bayDoorType === "inset_right" ||
@@ -982,13 +1167,13 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
                               ? bx0 + 3.8
                               : bx0 + Math.max(4, bw - 3.8)
                           }
-                          y2={upperTopY + upperH * 0.44 + 10}
-                          stroke="#1c1917"
+                          y2={hy2}
+                          stroke="#E2E8F0"
                           strokeWidth="1.8"
                           strokeLinecap="round"
                         />
-                      )
-                    )}
+                      );
+                    })()}
                   </g>
                 )}
 
@@ -1007,7 +1192,7 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
                           width={Math.max(4, bw - 2.4)}
                           height={Math.max(3, dh - 1.2)}
                           fill={frontColor}
-                          stroke="#292524"
+                          stroke="#CBD5E1"
                           strokeWidth="1.2"
                           rx="0.8"
                         />
@@ -1016,7 +1201,7 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
                           y1={dy + dh / 2}
                           x2={bx0 + bw / 2 + hw / 2}
                           y2={dy + dh / 2}
-                          stroke="#1c1917"
+                          stroke="#E2E8F0"
                           strokeWidth="1.5"
                           strokeLinecap="round"
                         />
@@ -1027,6 +1212,31 @@ export const V3IsometricModuleIcon: React.FC<V3IsometricModuleIconProps> = React
             );
           });
         })()}
+
+        {/* Crisp Architectural Zone Micro-Badge (ÜST / ALT / BOY / ADA) */}
+        {(isWallCab || isBaseCab || isTallKitchenCab) && (
+          <g>
+            <rect
+              x="6"
+              y="6"
+              width={isIslandCab ? 32 : 30}
+              height="14"
+              rx="4"
+              fill={isWallCab ? "#334155" : isTallKitchenCab ? "#1c1917" : "#57534e"}
+            />
+            <text
+              x={isIslandCab ? 22 : 21}
+              y="15.5"
+              textAnchor="middle"
+              fontSize="7.8"
+              fontWeight="800"
+              letterSpacing="0.3"
+              fill="#ffffff"
+            >
+              {isWallCab ? "ÜST" : isIslandCab ? "ADA" : isTallKitchenCab ? "BOY" : "ALT"}
+            </text>
+          </g>
+        )}
       </svg>
     );
   },

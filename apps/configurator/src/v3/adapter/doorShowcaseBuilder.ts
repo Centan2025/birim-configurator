@@ -81,7 +81,7 @@ export function buildDoorSystemsShowcaseProject(
         title: "5. 30°/45° Pah + Arka Kapama Bandı",
         handleCategory: "gola_profile",
         handleProfileId: "hnd_bevel_30_backing",
-        crossSectionProfile: "j_pull_bevel",
+        crossSectionProfile: "bevel_45",
       },
       {
         title: "6. CNC J-Kulp (22 mm Lake)",
@@ -115,6 +115,14 @@ export function buildDoorSystemsShowcaseProject(
     baseSpecs.forEach((spec, idx) => {
       const tpl = spec.isDrawer ? baseDrawerTpl : baseDoorTpl;
       const m = tpl.createInstance(`mod_show_base_${ts}_${idx + 1}`, spec.title);
+      if (spec.isDrawer && m.bays[0]) {
+        m.bays[0].shelves = [];
+        m.bays[0].drawers = [
+          { id: `drw_${m.id}_0`, bayIndex: 0, elevationY: 0, height: 270, slideType: "soft_close" },
+          { id: `drw_${m.id}_1`, bayIndex: 0, elevationY: 273, height: 220, slideType: "soft_close" },
+          { id: `drw_${m.id}_2`, bayIndex: 0, elevationY: 496, height: 220, slideType: "soft_close" },
+        ];
+      }
       m.name = spec.title;
       m.dimensions = { width: unitW, height: baseH, depth: baseD };
       m.position = { x: idx * (unitW + gapMm), y: 0, z: 0 };
@@ -260,8 +268,8 @@ export function buildDoorSystemsShowcaseProject(
       `mod_show_tall_${ts}`,
       "10. Dikey Gola 1020 (Boy Dolap)"
     );
-    tallMod.name = "10. Dikey Gola 1020 (Boy Dolap)";
-    tallMod.dimensions = { width: unitW, height: 2170, depth: baseD };
+    tallMod.name = "10. Dikey Gola 1020 (2 Bölmeli Boy Dolap)";
+    tallMod.dimensions = { width: 900, height: 2170, depth: baseD };
     tallMod.position = { x: baseSpecs.length * (unitW + gapMm), y: 0, z: 0 };
     tallMod.rotation = { x: 0, y: 0, z: 0 };
     tallMod.carcass = {
@@ -272,23 +280,51 @@ export function buildDoorSystemsShowcaseProject(
       plinthMaterialId: bodyMat,
       plinthHeight: 100,
     };
-    tallMod.bays = (tallMod.bays || []).map((b, bIdx) => ({
-      ...b,
-      index: bIdx,
-      door: {
-        ...b.door,
-        id: `door_${tallMod.id}_${bIdx}`,
-        bayIndex: bIdx,
-        handleCategory: "gola_profile",
-        handleProfileId: "hnd_gola_vertical",
-        handleType: "none",
-        doorMaterialId: doorMat,
-        softClose: true,
-      },
-    }));
+    const baseTallBay = tallMod.bays[0];
+    tallMod.bays = [0, 1].map((bIdx) => {
+      const cloned = JSON.parse(JSON.stringify(baseTallBay)) as typeof baseTallBay;
+      return {
+        ...cloned,
+        index: bIdx,
+        customWidth: undefined,
+        shelves: (cloned.shelves || []).map((sh, sIdx) => ({
+          ...sh,
+          id: `shelf_${tallMod.id}_${bIdx}_${sIdx + 1}`,
+          bayIndex: bIdx,
+        })),
+        drawers: (cloned.drawers || []).map((dr, dIdx) => ({
+          ...dr,
+          id: `drw_${tallMod.id}_${bIdx}_${dIdx + 1}`,
+          bayIndex: bIdx,
+          isInternal: true,
+        })),
+        hangingRails: (cloned.hangingRails || []).map((hr, rIdx) => ({
+          ...hr,
+          id: `rail_${tallMod.id}_${bIdx}_${rIdx + 1}`,
+          bayIndex: bIdx,
+        })),
+        specialFittings: (cloned.specialFittings || []).map((sf, fIdx) => ({
+          ...sf,
+          id: `fit_${tallMod.id}_${bIdx}_${fIdx + 1}`,
+          bayIndex: bIdx,
+        })),
+        door: {
+          ...baseTallBay.door,
+          id: `door_${tallMod.id}_${bIdx}`,
+          bayIndex: bIdx,
+          type: bIdx === 0 ? ("single_left" as const) : ("single_right" as const),
+          doorSystemId: "hinged_single" as const,
+          handleCategory: "gola_profile" as const,
+          handleProfileId: "hnd_gola_vertical",
+          handleType: "none" as const,
+          doorMaterialId: doorMat,
+          softClose: true,
+        },
+      };
+    });
     modules.push(tallMod);
 
-    const totalWallLen = (baseSpecs.length + 1) * (unitW + gapMm) + 200;
+    const totalWallLen = baseSpecs.length * (unitW + gapMm) + 900 + 300;
     return {
       ...curProj,
       title: "Kapak Açma & Kulpsuz Sistemler Karşılaştırma Galerisi",
@@ -327,13 +363,13 @@ export function buildDoorSystemsShowcaseProject(
   }> = [
     { title: "1. Düz Modern (Flat Slab)", profile: "flat_slab" },
     { title: "2. Çerçeveli (Shaker)", profile: "shaker_frame", useLacquer22: true },
-    { title: "3. Çıtalı / Fitilli (Fluted)", profile: "fluted_reeding", useLacquer22: true },
-    { title: "4. 45° Pahlı", profile: "beveled_45", useLacquer22: true },
+    { title: "3. Çıtalı / Fitilli (Fluted)", profile: "fluted_ribbed", useLacquer22: true },
+    { title: "4. 45° Pahlı", profile: "bevel_45", useLacquer22: true },
     { title: "5. J-Kulplu (22 mm Lake)", profile: "j_pull_bevel", useLacquer22: true },
-    { title: "6. Kemerli (Arched)", profile: "arched_frame", useLacquer22: true },
+    { title: "6. İçbükey Kemerli (Cove)", profile: "cove_arch", useLacquer22: true },
     { title: "7. Füme Cam Çerçeveli", profile: "glass_frame", isGlass: true, matId: "mat_smoked_glass" },
-    { title: "8. Tam Füme Cam", profile: "full_glass", isGlass: true, matId: "mat_smoked_glass" },
-    { title: "9. Aynalı Çerçeveli", profile: "mirror_frame", matId: "mat_mirror_silver" },
+    { title: "8. Tam Füme Cam (Çerçevesiz)", profile: "full_smoked_glass", isGlass: true, matId: "mat_smoked_glass" },
+    { title: "9. Bronz Aynalı Çerçeveli", profile: "mirror_door", matId: "mat_bronze_mirror" },
   ];
 
   const unitW = 600;

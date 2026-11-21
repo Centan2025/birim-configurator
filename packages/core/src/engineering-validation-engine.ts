@@ -81,7 +81,9 @@ export interface RemediationProposal {
     | "confirm_wall_substrate"
     | "upgrade_wet_zone_board"
     | "switch_topology_sides_through"
-    | "convert_mid_shelf_to_fixed";
+    | "convert_mid_shelf_to_fixed"
+    | "convert_high_drawers_to_shelves"
+    | "switch_high_drawers_to_push_open";
   patchPayload: Record<string, number | string | boolean>;
 }
 
@@ -596,6 +598,78 @@ function evaluateUnifiedEngineeringModelUncached(
       }
 
 
+      // 2b-i-erg. İnsan Boyu Antropometri & Yüksek Çekmece Görüş / Kavrama Ergonomisi (TS EN 14749 / DIN 33402 / Blum)
+      const activeBayDrawers = bay.drawers.filter((d) => !d.isHidden);
+      if (activeBayDrawers.length > 0) {
+        const sightlineLimitMm = ergProfile.maxDrawerSightlineHeightMm || 1450;
+        const overhandLimitMm = ergProfile.maxOverhandTopGripHeightMm || 1200;
+        const absMaxReachMm = ergProfile.maxUnderhandDrawerGripHeightMm || 1750;
+        const highDrawers = activeBayDrawers.filter(
+          (d) => mod.position.y + plinthH + T + d.elevationY + d.height > sightlineLimitMm
+        );
+        if (highDrawers.length > 0) {
+          const highestDrw = highDrawers.reduce((a, b) =>
+            a.elevationY + a.height >= b.elevationY + b.height ? a : b
+          );
+          const highestTopWorldYMm = roundGeometryMm(
+            mod.position.y + plinthH + T + highestDrw.elevationY + highestDrw.height
+          );
+          const isGolaBay = bay.door?.handleCategory === "gola_profile";
+          const golaNote = isGolaBay
+            ? ` ${Math.round(overhandLimitMm / 10)} cm üzerindeki çekmecelerde üstten L-Gola otomatik iptal edilerek her yüksek çekmecenin kendi altından (avuç yukarı) açılacağı C-Gola profiline çevrildi;`
+            : "";
+          const overShoulderNote =
+            highestTopWorldYMm > absMaxReachMm
+              ? ` Üst çekmece kotu (${Math.round(highestTopWorldYMm / 10)} cm) güvenli uzanma sınırını (${Math.round(absMaxReachMm / 10)} cm) da aşıyor.`
+              : "";
+          addFinding({
+            severity: "warning",
+            code: "WARN_HIGH_DRAWER_ERGONOMIC_REACH",
+            message: `"${mod.name}" Bölme ${bayIdx + 1}: ${highDrawers.length} adet çekmece ortalama insan göz/görüş hizasını (${Math.round(sightlineLimitMm / 10)} cm) aşıyor (En üst: ${Math.round(highestTopWorldYMm / 10)} cm).${golaNote}${overShoulderNote} Kör noktada kalan yüksek çekmeceler yerine ${Math.round(sightlineLimitMm / 10)} cm üstünün raf + kapak düzenine çevrilmesi önerilir.`,
+            targetId: highestDrw.id,
+            targetModuleId: mod.id,
+            targetComponentId: highestDrw.id,
+            compatibilityStatus: "COMPATIBLE_WITH_CONDITIONS",
+            sourceId: ergProfile.sourceId,
+            ruleNature: "ERGONOMIC_ADVISORY",
+            worldPositionMm: {
+              x: roundGeometryMm(mod.position.x + bayCursorX + bayW / 2),
+              y: highestTopWorldYMm,
+              z: roundGeometryMm(mod.position.z + mod.dimensions.depth),
+            },
+            suggestions: [
+              `${Math.round(sightlineLimitMm / 10)} cm üzerindeki çekmeceleri kaldırıp ergonomik raf + üst kapak düzenine dönüştürün (TS EN 14749 / Blum SPACE TOWER standardı).`,
+              "Yüksek çekmeceleri koruyacaksanız Bas-Aç (TIP-ON) ray sistemine geçin veya iç organizasyonu hafif tekstil/kuru gıda ile sınırlayın.",
+            ],
+            remediationProposals: [
+              {
+                id: `fix_high_drw_shelves_${mod.id}_${bayIdx}`,
+                label: `${Math.round(sightlineLimitMm / 10)} cm Üzerindeki Çekmeceleri Raf Düzenine Çevir`,
+                description: `Göz hizası (${Math.round(sightlineLimitMm / 10)} cm) altındaki ergonomik çekmeceleri korur; üst bölgeyi sabit ayırıcı tabla + Sistem 32 hareketli raflara dönüştürür.`,
+                requiresExplicitUserApproval: true,
+                targetModuleId: mod.id,
+                targetBayIndex: bayIdx,
+                targetComponentId: highestDrw.id,
+                patchKind: "convert_high_drawers_to_shelves",
+                patchPayload: { maxSightlineWorldYMm: sightlineLimitMm },
+              },
+              {
+                id: `fix_high_drw_tipon_${mod.id}_${bayIdx}`,
+                label: "Yüksek Çekmece Grubunu Bas-Aç (TIP-ON) Sisteme Çevir",
+                description:
+                  "Yüksek kotta el sokma zorluğunu ortadan kaldırmak için cepheye hafif dokunuşla açılan Bas-Aç mekanizmasına geçer.",
+                requiresExplicitUserApproval: true,
+                targetModuleId: mod.id,
+                targetBayIndex: bayIdx,
+                targetComponentId: highestDrw.id,
+                patchKind: "switch_high_drawers_to_push_open",
+                patchPayload: { openingTechnology: "push_to_open" },
+              },
+            ],
+          });
+        }
+      }
+
       // 2b-ii. Özel İç Donanım Net Genişlik / Net Derinlik / Net Yükseklik ve Menteşe Kambur Payı Denetimi (Bölüm 4)
       const fittingEnvelopeSpecs: Record<
         string,
@@ -865,6 +939,290 @@ function evaluateUnifiedEngineeringModelUncached(
         }
       });
 
+
+      // 2b-ext. Bölme İçi Fiziksel & Üretim Çakışma Kontrolü (Ara Dikme × Pantolonluk/Çekmece/Askı, Raf × Pantolonluk Sarkma Boşluğu/Çekmece, Aksesuar × Aksesuar)
+      const visShelvesForClash = (bay.shelves || []).filter((s) => !s.isHidden);
+      const visDrawersForClash = (bay.drawers || []).filter((d) => !d.isHidden);
+      const visRailsForClash = (bay.hangingRails || []).filter((r) => !r.isHidden);
+      const visFittingsForClash = (bay.specialFittings || []).filter((f) => f && !f.type.startsWith("led_"));
+      const visSubDivsForClash = bay.subDividers || [];
+
+      const fitLabelTr = (fitType: string): string => {
+        const map: Record<string, string> = {
+          trouser_rack: "Pantolonluk",
+          wire_basket: "Tel Sepet",
+          shoe_rack: "Ayakkabılık",
+          jewelry_tray: "Takı Çekmecesi",
+          wardrobe_lift: "Asansörlü Askı",
+          tie_belt_rack: "Kravat / Kemer Askısı",
+          pantry_pullout: "Kiler Mekanizması",
+          foldable_ironing_board: "Katlanır Ütü Masası",
+          safe_box: "Gizli Kasa",
+        };
+        return map[fitType] || "İç Aksesuar";
+      };
+
+      const getFittingZone = (fit: typeof visFittingsForClash[number]) => {
+        const baseY = fit.elevationY || 0;
+        const frameH = Math.max(45, fit.height || (fit.type === "trouser_rack" ? 65 : 140));
+        // Pantolonluk altında asılı pantolonlar için en az 340mm net sarkma boşluğu gerekir
+        const hangDropMm = fit.type === "trouser_rack" ? 340 : 0;
+        return {
+          frameBot: baseY,
+          frameTop: baseY + frameH,
+          clearBot: Math.max(0, baseY - hangDropMm),
+          clearTop: baseY + frameH,
+          hangDropMm,
+        };
+      };
+
+      // A) Raf Arası Dikme (Sub-Divider) Çakışmaları
+      visSubDivsForClash.forEach((sd) => {
+        const sdBot = sd.elevationY || 0;
+        const sdTop = sdBot + Math.max(60, sd.height || 300);
+        const sdX = Math.max(20, Math.min(bayW - 20, sd.offsetX || bayW * 0.5));
+
+        visFittingsForClash.forEach((fit) => {
+          const fz = getFittingZone(fit);
+          const hitsFrame = sdTop > fz.frameBot + 4 && sdBot < fz.frameTop - 4;
+          const hitsDrop = fz.hangDropMm > 0 && sdTop > fz.clearBot + 10 && sdBot < fz.frameBot;
+          if (hitsFrame || hitsDrop) {
+            const ovBot = Math.max(sdBot, hitsFrame ? fz.frameBot : fz.clearBot);
+            const ovTop = Math.min(sdTop, hitsFrame ? fz.frameTop : fz.frameBot);
+            const ovMidY = (ovBot + ovTop) * 0.5;
+            addFinding({
+              severity: "error",
+              code: "ERR_SUBDIVIDER_INTERIOR_CLASH",
+              message: `"${mod.name}" Bölme ${bayIdx + 1}: Raf arası dikme, ${fitLabelTr(fit.type)} ${hitsFrame ? "mekanizmasının içinden geçiyor" : "altındaki askı/pantolon sarkma alanını kesiyor"} — üretim ve montaj hatası!`,
+              targetId: sd.id,
+              targetModuleId: mod.id,
+              targetComponentId: sd.id,
+              blockingProduction: true,
+              compatibilityStatus: "INCOMPATIBLE",
+              sourceId: "SRC_HAFELE_WARDROBE_ACC",
+              ruleNature: "ENGINEERING_VALIDITY",
+              worldPositionMm: {
+                x: roundGeometryMm(mod.position.x + bayCursorX + sdX),
+                y: roundGeometryMm(mod.position.y + plinthH + T + ovMidY),
+                z: roundGeometryMm(mod.position.z + mod.dimensions.depth * 0.65),
+              },
+              suggestions: [
+                `Ara dikmeyi ${fitLabelTr(fit.type)} kotunun dışına taşıyın veya kaldırın.`,
+                `${fitLabelTr(fit.type)} mekanizmasını ara dikme bulunmayan bir yüksekliğe alın.`,
+              ],
+            });
+          }
+        });
+
+        visDrawersForClash.forEach((dr) => {
+          const drBot = dr.elevationY || 0;
+          const drTop = drBot + Math.max(80, dr.height || 180);
+          if (sdTop > drBot + 4 && sdBot < drTop - 4) {
+            const ovMidY = (Math.max(sdBot, drBot) + Math.min(sdTop, drTop)) * 0.5;
+            addFinding({
+              severity: "error",
+              code: "ERR_SUBDIVIDER_INTERIOR_CLASH",
+              message: `"${mod.name}" Bölme ${bayIdx + 1}: Raf arası dikme, çekmece gövdesiyle (Y=${roundGeometryMm(drBot)}mm) kesişiyor — üretim hatası!`,
+              targetId: sd.id,
+              targetModuleId: mod.id,
+              targetComponentId: sd.id,
+              blockingProduction: true,
+              compatibilityStatus: "INCOMPATIBLE",
+              sourceId: "SRC_BLUM_CAT_HINGE",
+              ruleNature: "ENGINEERING_VALIDITY",
+              worldPositionMm: {
+                x: roundGeometryMm(mod.position.x + bayCursorX + sdX),
+                y: roundGeometryMm(mod.position.y + plinthH + T + ovMidY),
+                z: roundGeometryMm(mod.position.z + mod.dimensions.depth * 0.65),
+              },
+              suggestions: [
+                "Ara dikme yalnızca çekmecelerin üstündeki raflar arasında konumlanmalıdır.",
+              ],
+            });
+          }
+        });
+
+        visRailsForClash.forEach((rl) => {
+          const rlY = rl.elevationY || 0;
+          if (sdTop > rlY - 90 && sdBot < rlY + 25) {
+            addFinding({
+              severity: "error",
+              code: "ERR_SUBDIVIDER_INTERIOR_CLASH",
+              message: `"${mod.name}" Bölme ${bayIdx + 1}: Raf arası dikme, elbise askı borusunu (Y=${roundGeometryMm(rlY)}mm) kesiyor!`,
+              targetId: sd.id,
+              targetModuleId: mod.id,
+              targetComponentId: sd.id,
+              blockingProduction: true,
+              compatibilityStatus: "INCOMPATIBLE",
+              sourceId: "SRC_HAFELE_WARDROBE_ACC",
+              ruleNature: "ENGINEERING_VALIDITY",
+              worldPositionMm: {
+                x: roundGeometryMm(mod.position.x + bayCursorX + sdX),
+                y: roundGeometryMm(mod.position.y + plinthH + T + rlY),
+                z: roundGeometryMm(mod.position.z + mod.dimensions.depth * 0.55),
+              },
+              suggestions: [
+                "Ara dikmeyi askı borusu seviyesinin dışına taşıyın veya bölmeyi iki ayrı tam dikmeye ayırın.",
+              ],
+            });
+          }
+        });
+      });
+
+      // B) Raf × Pantolonluk / İç Aksesuar / Çekmece / Askı Borusu Çakışmaları
+      visShelvesForClash.forEach((sh) => {
+        const shBot = sh.elevationY || 0;
+        const shTop = shBot + (sh.thickness || T);
+
+        visFittingsForClash.forEach((fit) => {
+          const fz = getFittingZone(fit);
+          const hitsFrame = shTop > fz.frameBot - 4 && shBot < fz.frameTop + 4;
+          const hitsTrouserDrop =
+            !hitsFrame && fz.hangDropMm > 0 && shTop > fz.clearBot + 10 && shBot < fz.frameBot;
+
+          if (hitsFrame || hitsTrouserDrop) {
+            addFinding({
+              severity: "error",
+              code: "ERR_SHELF_INTERIOR_CLASH",
+              message: hitsFrame
+                ? `"${mod.name}" Bölme ${bayIdx + 1}: Raf (Y=${roundGeometryMm(shBot)}mm), ${fitLabelTr(fit.type)} mekanizmasıyla fiziksel olarak çakışıyor!`
+                : `"${mod.name}" Bölme ${bayIdx + 1}: Raf (Y=${roundGeometryMm(shBot)}mm), Pantolonluk (Y=${roundGeometryMm(fz.frameBot)}mm) altındaki pantolon sarkma alanını kesiyor (en az 340 mm boşluk gerekir)!`,
+              targetId: sh.id,
+              targetModuleId: mod.id,
+              targetComponentId: sh.id,
+              blockingProduction: true,
+              compatibilityStatus: "INCOMPATIBLE",
+              sourceId: "SRC_HAFELE_WARDROBE_ACC",
+              ruleNature: "ENGINEERING_VALIDITY",
+              worldPositionMm: {
+                x: roundGeometryMm(mod.position.x + bayCursorX + bayW * 0.5),
+                y: roundGeometryMm(mod.position.y + plinthH + T + shBot + (sh.thickness || T) * 0.5),
+                z: roundGeometryMm(mod.position.z + mod.dimensions.depth * 0.65),
+              },
+              suggestions: hitsFrame
+                ? [
+                    `Rafı ${fitLabelTr(fit.type)} kotundan yukarı veya aşağı kaydırın ya da rafı silin.`,
+                  ]
+                : [
+                    `Rafı Pantolonluk kotunun en az 340 mm altına (Y ≤ ${Math.max(80, roundGeometryMm(fz.frameBot - 350))}mm) indirin veya kaldırın.`,
+                  ],
+            });
+          }
+        });
+
+        visDrawersForClash.forEach((dr) => {
+          const drBot = dr.elevationY || 0;
+          const drTop = drBot + Math.max(80, dr.height || 180);
+          // Çekmece üst kapağı olarak tam üstüne konulan raf (drTop ± 12mm) geçerlidir; çekmece gövdesinin içinden geçen raf hatadır!
+          if (shTop > drBot + 12 && shBot < drTop - 12) {
+            addFinding({
+              severity: "error",
+              code: "ERR_SHELF_INTERIOR_CLASH",
+              message: `"${mod.name}" Bölme ${bayIdx + 1}: Raf (Y=${roundGeometryMm(shBot)}mm), çekmece gövdesinin içinden geçiyor — üretim hatası!`,
+              targetId: sh.id,
+              targetModuleId: mod.id,
+              targetComponentId: sh.id,
+              blockingProduction: true,
+              compatibilityStatus: "INCOMPATIBLE",
+              sourceId: "SRC_BLUM_CAT_HINGE",
+              ruleNature: "ENGINEERING_VALIDITY",
+              worldPositionMm: {
+                x: roundGeometryMm(mod.position.x + bayCursorX + bayW * 0.5),
+                y: roundGeometryMm(mod.position.y + plinthH + T + shBot),
+                z: roundGeometryMm(mod.position.z + mod.dimensions.depth * 0.65),
+              },
+              suggestions: [
+                `Rafı çekmece üstüne (Y ≥ ${roundGeometryMm(drTop)}mm) taşıyın veya silin.`,
+              ],
+            });
+          }
+        });
+
+        visRailsForClash.forEach((rl) => {
+          const rlY = rl.elevationY || 0;
+          if (shTop > rlY - 50 && shBot < rlY + 25) {
+            addFinding({
+              severity: "error",
+              code: "ERR_SHELF_INTERIOR_CLASH",
+              message: `"${mod.name}" Bölme ${bayIdx + 1}: Raf (Y=${roundGeometryMm(shBot)}mm), elbise askı borusuyla (Y=${roundGeometryMm(rlY)}mm) çakışıyor!`,
+              targetId: sh.id,
+              targetModuleId: mod.id,
+              targetComponentId: sh.id,
+              blockingProduction: true,
+              compatibilityStatus: "INCOMPATIBLE",
+              sourceId: "SRC_HAFELE_WARDROBE_ACC",
+              ruleNature: "ENGINEERING_VALIDITY",
+              worldPositionMm: {
+                x: roundGeometryMm(mod.position.x + bayCursorX + bayW * 0.5),
+                y: roundGeometryMm(mod.position.y + plinthH + T + rlY),
+                z: roundGeometryMm(mod.position.z + mod.dimensions.depth * 0.55),
+              },
+              suggestions: [
+                "Askı borusu ile üst raf arasında en az 50–60 mm elbise askısı takma payı bırakın.",
+              ],
+            });
+          }
+        });
+      });
+
+      // C) İç Aksesuar × Çekmece / İç Aksesuar Çakışmaları
+      for (let fi = 0; fi < visFittingsForClash.length; fi += 1) {
+        const fA = visFittingsForClash[fi];
+        const zA = getFittingZone(fA);
+        for (let fj = fi + 1; fj < visFittingsForClash.length; fj += 1) {
+          const fB = visFittingsForClash[fj];
+          const zB = getFittingZone(fB);
+          if (zA.clearTop > zB.clearBot + 8 && zA.clearBot < zB.clearTop - 8) {
+            addFinding({
+              severity: "error",
+              code: "ERR_INTERNAL_COMPONENTS_OVERLAP",
+              message: `"${mod.name}" Bölme ${bayIdx + 1}: ${fitLabelTr(fA.type)} ile ${fitLabelTr(fB.type)} düşeyde iç içe geçiyor!`,
+              targetId: fA.id,
+              targetModuleId: mod.id,
+              targetComponentId: fA.id,
+              blockingProduction: true,
+              compatibilityStatus: "INCOMPATIBLE",
+              sourceId: "SRC_HAFELE_WARDROBE_ACC",
+              ruleNature: "ENGINEERING_VALIDITY",
+              worldPositionMm: {
+                x: roundGeometryMm(mod.position.x + bayCursorX + bayW * 0.5),
+                y: roundGeometryMm(mod.position.y + plinthH + T + (zA.frameBot + zB.frameBot) * 0.5),
+                z: roundGeometryMm(mod.position.z + mod.dimensions.depth * 0.65),
+              },
+              suggestions: [
+                "İki iç aksesuar arasında yeterli dikey çalışma boşluğu bırakacak şekilde kotlarını ayırın.",
+              ],
+            });
+          }
+        }
+        visDrawersForClash.forEach((dr) => {
+          const drBot = dr.elevationY || 0;
+          const drTop = drBot + Math.max(80, dr.height || 180);
+          if (zA.clearTop > drBot + 8 && zA.clearBot < drTop - 8) {
+            addFinding({
+              severity: "error",
+              code: "ERR_INTERNAL_COMPONENTS_OVERLAP",
+              message: `"${mod.name}" Bölme ${bayIdx + 1}: ${fitLabelTr(fA.type)} ile çekmece (Y=${roundGeometryMm(drBot)}mm) çakışıyor!`,
+              targetId: fA.id,
+              targetModuleId: mod.id,
+              targetComponentId: fA.id,
+              blockingProduction: true,
+              compatibilityStatus: "INCOMPATIBLE",
+              sourceId: "SRC_HAFELE_WARDROBE_ACC",
+              ruleNature: "ENGINEERING_VALIDITY",
+              worldPositionMm: {
+                x: roundGeometryMm(mod.position.x + bayCursorX + bayW * 0.5),
+                y: roundGeometryMm(mod.position.y + plinthH + T + Math.max(zA.clearBot, drBot) + 40),
+                z: roundGeometryMm(mod.position.z + mod.dimensions.depth * 0.65),
+              },
+              suggestions: [
+                `${fitLabelTr(fA.type)} mekanizmasını çekmece bloğunun üstüne taşıyın.`,
+              ],
+            });
+          }
+        });
+      }
+
       // 2c. Duvar Köşesine Sıfır Kulplu Menteşeli Kapak 90° Açılım & Kulp Çarpışma Kontrolü (P2-01)
       const handleCat = bay.door?.handleCategory || "bar_handle";
       const hasProtrudingHandle =
@@ -873,7 +1231,15 @@ function evaluateUnifiedEngineeringModelUncached(
         handleCat === "long_profile_handle" ||
         handleCat === "decorative_bespoke";
 
-      if (dSys.startsWith("hinged") && hasProtrudingHandle) {
+      const hasPhysicalLeftReturnWall = (project.space?.walls || []).some(
+        (w) => Math.abs((((w.rotationY || 0) % 180) + 180) % 180 - 90) <= 12 && Math.abs(w.position.x) <= 50
+      );
+      const hasPhysicalRightReturnWall = (project.space?.walls || []).some(
+        (w) =>
+          Math.abs((((w.rotationY || 0) % 180) + 180) % 180 - 90) <= 12 &&
+          Math.abs(w.position.x - roomWidthMm) <= 80
+      );
+      if (!mod.isCorner && dSys.startsWith("hinged") && hasProtrudingHandle) {
         const isLeftmostBay = bayIdx === 0;
         const isRightmostBay = bayIdx === mod.bays.length - 1;
         const hingesLeft =
@@ -902,14 +1268,14 @@ function evaluateUnifiedEngineeringModelUncached(
           isLeftmostBay &&
           hingesLeft &&
           !hasLeftFiller &&
-          ((isRot0 && mod.position.x <= 15) ||
+          ((isRot0 && hasPhysicalLeftReturnWall && mod.position.x <= 15) ||
             (isRot90 && mod.position.z + mod.dimensions.width >= roomDepthMm - 15) ||
             (isRot270 && mod.position.z <= 15));
         const hitsRightReturnWall =
           isRightmostBay &&
           hingesRight &&
           !hasRightFiller &&
-          ((isRot0 && mod.position.x + mod.dimensions.width >= roomWidthMm - 15) ||
+          ((isRot0 && hasPhysicalRightReturnWall && mod.position.x + mod.dimensions.width >= roomWidthMm - 15) ||
             (isRot90 && mod.position.z <= 15) ||
             (isRot270 && mod.position.z + mod.dimensions.width >= roomDepthMm - 15));
 
@@ -1193,15 +1559,16 @@ function evaluateUnifiedEngineeringModelUncached(
         const shThick = sh.thickness || (sh.isGlass ? 8 : T);
         const shCat = sh.isGlass ? "glass" : baseShelfMatCat;
         const shDepth = Math.max(150, netInnerD - (sh.frontSetbackMm ?? 15));
-        const rawDefl = calculateShelfDeflection(bayW, shDepth, shThick, shCat, designLoadKgPerM);
+        const effSpanW = mod.isCorner ? Math.round(bayW * 0.58) : bayW;
+        const rawDefl = calculateShelfDeflection(effSpanW, shDepth, shThick, shCat, designLoadKgPerM);
         // Semi-rigid cam-lock + dowel rotational end-restraint reduces midspan deflection by ~15% (0.85), never hiding truly excessive spans!
         const isFixedShelf = sh.isAdjustable === false || sh.isFixed === true;
         const supportBoundaryFactor =
           isFixedShelf && !sh.isGlass && mod.carcass.backPanelType !== "none" ? 0.85 : 1.0;
         const effDeflectionMm = roundGeometryMm(rawDefl.deflectionMm * supportBoundaryFactor);
-        const en16122LimitMm = roundGeometryMm(bayW / 200);
+        const en16122LimitMm = roundGeometryMm(effSpanW / 200);
         const glassTooThinForSpan =
-          Boolean(sh.isGlass) && ((shThick < 8 && bayW > 700) || (shThick < 10 && bayW > 950));
+          Boolean(sh.isGlass) && ((shThick < 8 && effSpanW > 700) || (shThick < 10 && effSpanW > 950));
 
         if (effDeflectionMm > en16122LimitMm || glassTooThinForSpan) {
           const targetThick = sh.isGlass ? (bayW > 950 ? 10 : 8) : 25;
@@ -1739,7 +2106,7 @@ function evaluateUnifiedEngineeringModelUncached(
             requiresExplicitUserApproval: true,
             targetModuleId: mod.id,
             patchKind: "upgrade_wet_zone_board",
-            patchPayload: { bodyMaterialId: "mat_lacquer_white" },
+            patchPayload: { bodyMaterialId: "mat_lacquer_cream" },
           },
         ],
       });
@@ -1987,6 +2354,54 @@ function evaluateUnifiedEngineeringModelUncached(
     });
   }
 
+  // V102: Architectural Wall Skirting Board Intersection Detection (Duvar Süpürgeliği Çakışma Kontrolü)
+  const skCfg = project.space?.skirtingConfig;
+  const skEnabled = skCfg ? skCfg.enabled !== false : true;
+  const skH = Math.max(0, skCfg?.heightMm ?? 114);
+  const skT = Math.max(0, skCfg?.thicknessMm ?? 16);
+  if (skEnabled && skH > 0 && skT > 0) {
+    const walls = project.space?.walls || [];
+    const mainWallLen = walls[0]?.length || 3600;
+    project.modules.forEach((mod) => {
+      if (mod.category === "complementary") return;
+      const modBottomY = mod.position?.y || 0;
+      if (modBottomY >= skH) return; // Wall-hung / upper cabinet clears skirting cleanly
+      const rot = (((mod.rotation?.y || 0) % 360) + 360) % 360;
+      let distToWall = 9999;
+      if (rot < 10 || rot > 350) {
+        distToWall = mod.position.z;
+      } else if (Math.abs(rot - 90) <= 10) {
+        distToWall = Math.min(Math.abs(mod.position.x), Math.abs(mainWallLen - mod.position.x));
+      } else if (Math.abs(rot - 270) <= 10) {
+        distToWall = Math.min(Math.abs(mod.position.x), Math.abs(mainWallLen - mod.position.x));
+      } else if (Math.abs(rot - 180) <= 10) {
+        const frontWall = walls.find((w) => (w.position?.z || 0) >= 1000);
+        if (frontWall) distToWall = Math.abs(frontWall.position.z - mod.position.z);
+      }
+      if (distToWall < skT - 1) {
+        addFinding({
+          code: "WARN_WALL_SKIRTING_CLASH",
+          severity: "warning",
+          ruleNature: "ENGINEERING_VALIDITY",
+          blockingProduction: false,
+          category: "spatial",
+          targetModuleId: mod.id,
+          title: `Duvar Süpürgeliği Çakışması (${skH}×${skT} mm)`,
+          message: `"${mod.name}" arka alt kenarı duvar süpürgeliği (${skH} mm yüksek, ${skT} mm kalın) ile kesişiyor. Dolap arka duvara tam yanaşmak için süpürgelik kadar (+${skT} mm) öne alınmalı veya montajda süpürgelik/arka panel kertilmelidir.`,
+          worldPositionMm: {
+            x: roundGeometryMm(mod.position.x + mod.dimensions.width * 0.5),
+            y: roundGeometryMm(Math.min(skH * 0.5, modBottomY + 50)),
+            z: roundGeometryMm(mod.position.z + 18),
+          },
+          suggestions: [
+            `Dolabı duvar süpürgeliği kalınlığı (+${skT} mm) kadar öne çekin`,
+            "Oda ayarlarından duvar süpürgeliğini kapatın veya arka bazada süpürgelik kertmesi uygulayın",
+          ],
+        });
+      }
+    });
+  }
+
   const findings = Array.from(findingsMap.values());
   const blockingSafetyAndEngineeringErrors = findings.filter(
     (f) =>
@@ -2157,7 +2572,7 @@ export function applyApprovedRemediationProposal(
       break;
     }
     case "upgrade_wet_zone_board": {
-      const matId = String(proposal.patchPayload.bodyMaterialId || "mat_lacquer_white");
+      const matId = String(proposal.patchPayload.bodyMaterialId || "mat_lacquer_cream");
       mod.carcass.bodyMaterialId = matId;
       break;
     }
@@ -2176,6 +2591,79 @@ export function applyApprovedRemediationProposal(
           sh.isFixed = true;
           sh.fixedConnectorType = sh.fixedConnectorType || "minifix_dowel";
         }
+      }
+      break;
+    }
+    case "convert_high_drawers_to_shelves": {
+      const bIdx = proposal.targetBayIndex ?? 0;
+      const bay = mod.bays[bIdx];
+      if (bay) {
+        const T = mod.carcass.panelThickness || 18;
+        const plinth = mod.carcass.plinthHeight || 0;
+        const sightlineMm = Number(proposal.patchPayload.maxSightlineWorldYMm || 1450);
+        const netInnerH = Math.max(200, mod.dimensions.height - plinth - 2 * T);
+        const keptDrawers = bay.drawers
+          .filter((d) => mod.position.y + plinth + T + d.elevationY + d.height <= sightlineMm)
+          .sort((a, b) => a.elevationY - b.elevationY);
+        bay.drawers = keptDrawers;
+        const lowerZoneTopLocalY =
+          keptDrawers.length > 0
+            ? Math.max(...keptDrawers.map((d) => d.elevationY + d.height))
+            : 0;
+        const upperSpanMm = netInnerH - lowerZoneTopLocalY;
+        bay.shelves = (bay.shelves || []).filter((s) => s.elevationY < lowerZoneTopLocalY - 10);
+        if (keptDrawers.length > 0 && upperSpanMm >= 180) {
+          bay.shelves.push({
+            id: `shf_erg_div_${mod.id}_${bIdx}`,
+            elevationY: Math.round(lowerZoneTopLocalY),
+            isAdjustable: false,
+            isFixed: true,
+            fixedConnectorType: "minifix_dowel",
+          });
+        }
+        const shelfCount = Math.max(1, Math.min(4, Math.floor(upperSpanMm / 340)));
+        const stepMm = upperSpanMm / (shelfCount + 1);
+        for (let si = 1; si <= shelfCount; si++) {
+          const rawY = lowerZoneTopLocalY + si * stepMm;
+          const snapped32Y = Math.min(netInnerH - 80, Math.max(lowerZoneTopLocalY + 96, Math.round(rawY / 32) * 32));
+          if (!bay.shelves.some((s) => Math.abs(s.elevationY - snapped32Y) < 48)) {
+            bay.shelves.push({
+              id: `shf_erg_${mod.id}_${bIdx}_${si}`,
+              elevationY: snapped32Y,
+              isAdjustable: true,
+              isFixed: false,
+            });
+          }
+        }
+        if (!mod.isOpenFront && (!bay.door || bay.door.type === "open" || bay.door.doorSystemId === "open")) {
+          const bayWidths = calculateBayWidths(mod);
+          const bW = bayWidths[bIdx] || mod.dimensions.width - 2 * T;
+          bay.door = {
+            ...(bay.door || {
+              id: `door_erg_${mod.id}_${bIdx}`,
+              materialId: mod.carcass.bodyMaterialId,
+              handleType: "bar",
+            }),
+            type: bW > 600 ? "double" : "single_left",
+            doorSystemId: bW > 600 ? "hinged_double" : "hinged_single",
+          };
+        }
+      }
+      break;
+    }
+    case "switch_high_drawers_to_push_open": {
+      const bIdx = proposal.targetBayIndex ?? 0;
+      const bay = mod.bays[bIdx];
+      if (bay) {
+        if (bay.door) {
+          bay.door.handleCategory = "handleless_plain";
+          bay.door.handleProfileId = "hnd_none";
+          bay.door.handleType = "push_to_open";
+          bay.door.openingTechnology = "push_to_open";
+        }
+        bay.drawers.forEach((d) => {
+          d.slideType = "push_to_open";
+        });
       }
       break;
     }

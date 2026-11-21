@@ -253,91 +253,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       [elevDisplayUnit]
     );
 
-    useEffect(() => {
-      if (mode !== "elevation" || typeof window === "undefined") return;
-      const resolveElevPoint = (clientX: number, clientY: number) => {
-        const svgEl = document.querySelector("svg[data-birim-elev-svg=\"true\"]") as SVGSVGElement | null;
-        const mod = activeModule || project.modules[0];
-        if (!svgEl || !mod) return null;
-        const rect = svgEl.getBoundingClientRect();
-        if (
-          rect.width <= 0 ||
-          rect.height <= 0 ||
-          clientX < rect.left ||
-          clientX > rect.right ||
-          clientY < rect.top ||
-          clientY > rect.bottom
-        ) {
-          return null;
-        }
-        const pt = svgEl.createSVGPoint();
-        pt.x = clientX;
-        pt.y = clientY;
-        const ctm = svgEl.getScreenCTM();
-        if (!ctm) return null;
-        const svgPt = pt.matrixTransform(ctm.inverse());
-        const activeModShiftX = showRoomContextInElev
-          ? mod.position.x - (lockedElevOriginRef.current?.x ?? mod.position.x)
-          : 0;
-        const localX = svgPt.x - activeModShiftX;
-        const svgY = svgPt.y;
-        const carcassT = mod.carcass?.panelThickness || 18;
-        const plinthH = mod.carcass?.plinthHeight ?? 80;
-        const netH = calculateNetInnerHeight(mod);
-        const bayWidths = calculateBayWidths(mod);
-        let targetBayIdx = 0;
-        let accX = carcassT;
-        let bayStartX = carcassT;
-        let curBayWidth = bayWidths[0] || 500;
-        for (let i = 0; i < bayWidths.length; i++) {
-          const bw = bayWidths[i];
-          if (localX >= accX - carcassT && localX <= accX + bw + carcassT) {
-            targetBayIdx = i;
-            bayStartX = accX;
-            curBayWidth = bw;
-            break;
-          }
-          accX += bw + carcassT;
-        }
-        targetBayIdx = Math.max(0, Math.min(mod.bays.length - 1, targetBayIdx));
-        const localBayX = Math.max(40, Math.min(Math.max(72, curBayWidth - carcassT - 40), Math.round((localX - bayStartX) / 5) * 5));
-        const rawY = mod.dimensions.height - svgY - plinthH - carcassT;
-        const snappedElevY = Math.max(32, Math.min(Math.max(64, netH - 32), Math.round(rawY / 2) * 2));
-        return { mod, targetBayIdx, localBayX, snappedElevY };
-      };
-
-      const onLiveMove2D = (ev: Event) => {
-        const detail = (ev as CustomEvent<{ id: string; title: string; visual: string; clientX: number; clientY: number }>).detail;
-        if (!detail) return;
-        const hit = resolveElevPoint(detail.clientX, detail.clientY);
-        if (!hit) return;
-        setPlanRowSnapBanner(`📐 ${detail.title} • Bölme ${hit.targetBayIdx + 1} • Y: ${fmtPlanDim(hit.snappedElevY)}`);
-      };
-
-      const onLiveDrop2D = (ev: Event) => {
-        const detail = (ev as CustomEvent<{ id: string; title: string; visual: string; clientX: number; clientY: number }>).detail;
-        if (!detail) return;
-        const hit = resolveElevPoint(detail.clientX, detail.clientY);
-        if (!hit) return;
-        addInteriorItemAtElevation(hit.targetBayIdx, detail.id, hit.snappedElevY, {
-          offsetX: hit.localBayX,
-          exactElevation: true,
-        });
-        setPlanRowSnapBanner(`✓ ${detail.title} yerleştirildi • Bölme ${hit.targetBayIdx + 1}`);
-        setTimeout(() => setPlanRowSnapBanner(null), 2400);
-      };
-
-      const onLiveCancel2D = () => setPlanRowSnapBanner(null);
-
-      window.addEventListener("birim:live-3d-part-move", onLiveMove2D);
-      window.addEventListener("birim:live-3d-part-drop", onLiveDrop2D);
-      window.addEventListener("birim:live-3d-part-cancel", onLiveCancel2D);
-      return () => {
-        window.removeEventListener("birim:live-3d-part-move", onLiveMove2D);
-        window.removeEventListener("birim:live-3d-part-drop", onLiveDrop2D);
-        window.removeEventListener("birim:live-3d-part-cancel", onLiveCancel2D);
-      };
-    }, [mode, activeModule, project.modules, showRoomContextInElev, addInteriorItemAtElevation, fmtPlanDim]);
+    // V86: Removed duplicate legacy birim:live-3d-part-drop listener (handled solely by unified resolveAccessoryDropTarget2D + onLiveDrop below)
     const [isDrawingWall, setIsDrawingWall] = useState(false);
     const [chainOriginPoint, setChainOriginPoint] = useState<{ x: number; z: number } | null>(null);
     const [drawWallStart, setDrawWallStart] = useState<{ x: number; z: number } | null>(null);
@@ -369,6 +285,54 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
     const [showPlanDimensions, setShowPlanDimensions] = useState<boolean>(true);
     const [wallDimDisplayMode, setWallDimDisplayMode] = useState<"net_inner" | "outer" | "plinth">("net_inner");
     const [planScaleRatio, setPlanScaleRatio] = useState<20 | 25 | 50>(25);
+
+  const printActive2DCadSheet = useCallback(
+    (sheetKind: "plan" | "elevation") => {
+      if (typeof document === "undefined" || typeof window === "undefined") return;
+      const selector =
+        sheetKind === "plan" ? '[data-testid="v3-cad-plan-svg"]' : '[data-birim-elev-svg="true"]';
+      const svgEl = document.querySelector(selector) as SVGSVGElement | null;
+      if (!svgEl) return;
+      const clone = svgEl.cloneNode(true) as SVGSVGElement;
+      clone.removeAttribute("class");
+      clone.setAttribute("style", "width:100%;height:auto;max-height:165mm;display:block;background:#FFFFFF;");
+      const svgMarkup = new XMLSerializer().serializeToString(clone);
+      const sheetTitle =
+        sheetKind === "plan"
+          ? "BİRİM® MEKÂN YERLEŞİM PLANI (2B)"
+          : "BİRİM® TEKNİK GÖRÜNÜŞ & ÖLÇÜ PAFTASI (2B)";
+      const subMeta = `${project.title || "Birim Projesi"} • Modül Sayısı: ${project.modules.length} • Ölçü Birimi: ${elevDisplayUnit} • Tarih: ${new Date().toLocaleDateString("tr-TR")}`;
+      const modSummary = project.modules
+        .map(
+          (m, idx) =>
+            `<tr><td>#${idx + 1}</td><td><b>${m.name}</b></td><td>${m.dimensions.width} × ${m.dimensions.height} × ${m.dimensions.depth} mm</td><td>X: ${Math.round(m.position.x)} mm • Y: ${Math.round(m.position.y)} mm</td></tr>`
+        )
+        .join("");
+      const html = `<!DOCTYPE html><html lang="tr"><head><meta charset="utf-8"/><title>${sheetTitle}</title>
+        <style>
+          @page { size: A4 landscape; margin: 10mm; }
+          body { font-family: -apple-system, Segoe UI, sans-serif; margin: 0; padding: 14px; color: #0F172A; background: #FFFFFF; }
+          .hdr { display:flex; justify-content:space-between; align-items:flex-end; border-bottom:2px solid #0F172A; padding-bottom:8px; margin-bottom:10px; }
+          .ttl { font-size:18px; font-weight:900; letter-spacing:0.6px; }
+          .sub { font-size:11px; color:#475569; margin-top:2px; }
+          .canvas-box { border:1px solid #CBD5E1; border-radius:10px; padding:8px; background:#FFFFFF; text-align:center; }
+          table { width:100%; border-collapse:collapse; font-size:11px; margin-top:10px; }
+          th, td { border:1px solid #CBD5E1; padding:5px 7px; text-align:left; }
+          th { background:#F1F5F9; font-weight:800; }
+        </style></head><body>
+        <div class="hdr">
+          <div><div class="ttl">${sheetTitle}</div><div class="sub">${subMeta}</div></div>
+          <div style="font-family:monospace;font-size:11px;text-align:right;">Ölçek: 1:${planScaleRatio}<br/>Tavan: ${project.space.ceilingHeight || 2600} mm</div>
+        </div>
+        <div class="canvas-box">${svgMarkup}</div>
+        ${modSummary ? `<table><thead><tr><th>#</th><th>Modül</th><th>Ölçüler (G×Y×D)</th><th>Yerleşim Konumu</th></tr></thead><tbody>${modSummary}</tbody></table>` : ""}
+        <script>window.onload=()=>setTimeout(()=>window.print(),260);</script></body></html>`;
+      const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank", "noopener,noreferrer");
+    },
+    [project.title, project.modules, project.space.ceilingHeight, elevDisplayUnit, planScaleRatio]
+  );
     const [showAdvancedCadBar, setShowAdvancedCadBar] = useState<boolean>(false);
     const [inlineEditWallId, setInlineEditWallId] = useState<string | null>(null);
     const [inlineEditWallLength, setInlineEditWallLength] = useState<number>(3600);
@@ -419,6 +383,18 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
     const snapYBadgeRef = useRef<SVGRectElement | null>(null);
     const snapYTextRef = useRef<SVGTextElement | null>(null);
     const elevSnapBannerDomRef = useRef<HTMLDivElement | null>(null);
+    const [canvasFontScale, setCanvasFontScale] = useState<number>(1);
+    useEffect(() => {
+      if (typeof window === "undefined") return;
+      const cur = Number(getComputedStyle(document.documentElement).getPropertyValue("--birim-canvas-label-scale") || "1");
+      if (Number.isFinite(cur) && cur >= 0.7 && cur <= 1.7) setCanvasFontScale(cur);
+      const onScale = (ev: Event) => {
+        const val = Number((ev as CustomEvent<number>).detail);
+        if (Number.isFinite(val) && val >= 0.7 && val <= 1.7) setCanvasFontScale(val);
+      };
+      window.addEventListener("birim:canvas-font-scale-changed", onScale);
+      return () => window.removeEventListener("birim:canvas-font-scale-changed", onScale);
+    }, []);
     const [elevResizingMod, setElevResizingMod] = useState<{
       modIdx: number;
       axis: "width_right" | "width_left" | "height_top" | "height_bottom";
@@ -597,6 +573,8 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       els: { el: SVGGElement; baseTransform: string }[];
       snappedY: number;
       hasMoved: boolean;
+      destModIdx?: number;
+      destBayIdx?: number;
     } | null>(null);
     const lastInteriorCommitRef = useRef<string>("");
     const lastModElevCommitRef = useRef<string>("");
@@ -1182,7 +1160,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
           }
           setDraggingModIdx(null);
         }
-        if (elevResizingMod !== null) setElevResizingMod(null);
+        if (elevResizingMod !== null) setElevResizingMod(null); if (snapYGroupRef.current) snapYGroupRef.current.style.display = "none";
         if (elevDraggingObs !== null) setElevDraggingObs(null);
         if (elevDraggingMod !== null) {
           const preview = elevDragPreviewRef.current;
@@ -1201,7 +1179,78 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
           if (activeHaloGroupRef.current) activeHaloGroupRef.current.removeAttribute("transform");
           setElevDraggingMod(null);
         }
-        if (interiorDrag !== null) setInteriorDrag(null);
+        if (interiorDrag !== null) {
+          const liveInt = elevInteriorLiveRef.current;
+          if (liveInt) {
+            for (const item of liveInt.els) {
+              if (item.baseTransform) item.el.setAttribute("transform", item.baseTransform);
+              else item.el.removeAttribute("transform");
+            }
+            if (liveInt.hasMoved) {
+              const dstModIdx =
+                typeof liveInt.destModIdx === "number" ? liveInt.destModIdx : activeModuleIndex;
+              const dstBayIdx =
+                typeof liveInt.destBayIdx === "number" ? liveInt.destBayIdx : interiorDrag.bayIdx;
+              if (dstModIdx !== activeModuleIndex || dstBayIdx !== interiorDrag.bayIdx) {
+                let movedCross = false;
+                const st2d = useConfiguratorStore.getState();
+                st2d.applyBatchProjectUpdate((draft) => {
+                  const srcBay = draft.modules[activeModuleIndex]?.bays[interiorDrag.bayIdx];
+                  const dstBay = draft.modules[dstModIdx]?.bays[dstBayIdx];
+                  if (!srcBay || !dstBay) return;
+                  if (interiorDrag.kind === "shelf") {
+                    const idx = srcBay.shelves.findIndex(
+                      (s) => s.id === interiorDrag.targetId || interiorDrag.targetId.includes(s.id)
+                    );
+                    if (idx >= 0) {
+                      const [mItem] = srcBay.shelves.splice(idx, 1);
+                      mItem.elevationY = liveInt.snappedY;
+                      dstBay.shelves.push(mItem);
+                      movedCross = true;
+                    }
+                  } else if (interiorDrag.kind === "drawer") {
+                    const idx = srcBay.drawers.findIndex(
+                      (d) => d.id === interiorDrag.targetId || interiorDrag.targetId.includes(d.id)
+                    );
+                    if (idx >= 0) {
+                      const [mItem] = srcBay.drawers.splice(idx, 1);
+                      mItem.elevationY = liveInt.snappedY;
+                      dstBay.drawers.push(mItem);
+                      movedCross = true;
+                    }
+                  } else if (interiorDrag.kind === "rail") {
+                    const idx = srcBay.hangingRails.findIndex(
+                      (r) => r.id === interiorDrag.targetId || interiorDrag.targetId.includes(r.id)
+                    );
+                    if (idx >= 0) {
+                      const [mItem] = srcBay.hangingRails.splice(idx, 1);
+                      mItem.elevationY = liveInt.snappedY;
+                      dstBay.hangingRails.push(mItem);
+                      movedCross = true;
+                    }
+                  } else if (interiorDrag.kind === "special_fitting" && srcBay.specialFittings) {
+                    const idx = srcBay.specialFittings.findIndex(
+                      (f) => f.id === interiorDrag.targetId || interiorDrag.targetId.includes(f.id)
+                    );
+                    if (idx >= 0) {
+                      const [mItem] = srcBay.specialFittings.splice(idx, 1);
+                      mItem.elevationY = liveInt.snappedY;
+                      if (!dstBay.specialFittings) dstBay.specialFittings = [];
+                      dstBay.specialFittings.push(mItem);
+                      movedCross = true;
+                    }
+                  }
+                }, "İç eleman bölme değiştirildi");
+                if (movedCross) {
+                  if (dstModIdx !== activeModuleIndex) st2d.setActiveModuleIndex(dstModIdx);
+                  st2d.setActiveBayIndex(dstBayIdx);
+                }
+              }
+            }
+            elevInteriorLiveRef.current = null;
+          }
+          setInteriorDrag(null);
+        }
         elevInteriorLiveRef.current = null;
         lastInteriorCommitRef.current = "";
         lastModElevCommitRef.current = "";
@@ -1574,6 +1623,360 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       obstacleTargetWallId,
       updateWallSegment,
     ]);
+
+    // V25 FIX: Hoisted elevation/material drop hooks above all early returns (`!activeModule` & `mode === 'plan'`)
+    const [liveAccessoryGhost2D, setLiveAccessoryGhost2D] = useState<{
+      visual: string;
+      id: string;
+      title: string;
+      bayIndex: number;
+      baySvgX: number;
+      bayWidth: number;
+      carcassT: number;
+      plinthH: number;
+      modY: number;
+      elevationY: number;
+      offsetX: number;
+      subBotY?: number;
+      subSpanH?: number;
+    } | null>(null);
+    const elevContainerRef = useRef<HTMLDivElement | null>(null);
+    const elevDropRuntimeRef = useRef<{
+      vb: { x: number; y: number; width: number; height: number };
+      roomOffX: number;
+      roomOffY: number;
+      roomModH: number;
+      mod: typeof activeModule | undefined;
+      addInteriorItemAtElevation: typeof addInteriorItemAtElevation;
+    } | null>(null);
+
+    const resolveAccessoryDropTarget2D = useCallback(
+      (
+        clientX: number,
+        clientY: number,
+        accObj: { id: string; title?: string; visual?: string }
+      ) => {
+        const ctx = elevDropRuntimeRef.current;
+        const container = elevContainerRef.current;
+        if (!ctx || !ctx.mod || !container) return null;
+        const svgEl = (container.querySelector("svg[data-birim-elev-svg=\"true\"]") || container.querySelector("svg")) as SVGSVGElement | null;
+        const rect = (svgEl || container).getBoundingClientRect();
+        if (
+          clientX < rect.left ||
+          clientX > rect.right ||
+          clientY < rect.top ||
+          clientY > rect.bottom
+        ) {
+          return null;
+        }
+        let svgX: number;
+        let svgY: number;
+        const ctm = svgEl?.getScreenCTM?.();
+        if (svgEl && ctm) {
+          const pt = svgEl.createSVGPoint();
+          pt.x = clientX;
+          pt.y = clientY;
+          const svgPt = pt.matrixTransform(ctm.inverse());
+          svgX = svgPt.x;
+          svgY = svgPt.y;
+        } else {
+          const relX = Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(1, rect.width)));
+          const relY = Math.max(0, Math.min(1, (clientY - rect.top) / Math.max(1, rect.height)));
+          svgX = ctx.vb.x + relX * ctx.vb.width;
+          svgY = ctx.vb.y + relY * ctx.vb.height;
+        }
+
+        const mod = ctx.mod;
+        const carcassT = mod.carcass?.panelThickness || 18;
+        const plinthH = mod.carcass?.plinthHeight ?? 100;
+        const netH = calculateNetInnerHeight(mod);
+        const bayWidths = calculateBayWidths(mod);
+
+        const modSvgX = (mod.position?.x || 0) - ctx.roomOffX;
+        const localX = svgX - modSvgX;
+        // V86: Do not preview or snap inside Bay 0 while cursor is still outside the cabinet horizontally!
+        if (localX < -24 || localX > mod.dimensions.width + 24) {
+          return null;
+        }
+        let targetBayIdx = localX > mod.dimensions.width * 0.5 ? Math.max(0, bayWidths.length - 1) : 0;
+        let accX = carcassT;
+        let bayStartX = carcassT;
+        let curBayWidth = bayWidths[targetBayIdx] || 500;
+        for (let i = 0; i < bayWidths.length; i++) {
+          const bw = bayWidths[i];
+          const isFirst = i === 0;
+          const isLast = i === bayWidths.length - 1;
+          const leftBound = isFirst ? -24 : accX - carcassT * 0.5;
+          const rightBound = isLast ? mod.dimensions.width + 24 : accX + bw + carcassT * 0.5;
+          if (localX >= leftBound && localX <= rightBound) {
+            targetBayIdx = i;
+            bayStartX = accX;
+            curBayWidth = bw;
+            break;
+          }
+          accX += bw + carcassT;
+        }
+        targetBayIdx = Math.max(0, Math.min(mod.bays.length - 1, targetBayIdx));
+        const localBayX = Math.max(
+          48,
+          Math.min(curBayWidth - 48, Math.round((localX - bayStartX) / 10) * 10)
+        );
+
+        const floorSvgY = ctx.roomModH + ctx.roomOffY;
+        const rawY = floorSvgY - (mod.position?.y || 0) - plinthH - carcassT - svgY;
+        const snappedElevY = Math.max(64, Math.min(netH - 64, Math.round(rawY / 32) * 32));
+        return {
+          bayIndex: targetBayIdx,
+          elevationY: snappedElevY,
+          offsetX: localBayX,
+          baySvgX: modSvgX + bayStartX,
+          bayWidth: curBayWidth,
+          plinthH,
+          accessory: accObj,
+          mod,
+          netH,
+          carcassT,
+        };
+      },
+      []
+    );
+
+    const commitAccessoryDrop2D = useCallback(
+      (
+        dropInfo: {
+          bayIndex: number;
+          elevationY: number;
+          offsetX?: number;
+          accessory: { id: string; title?: string; visual?: string };
+        },
+        modBefore?: typeof activeModule
+      ) => {
+        const ctx = elevDropRuntimeRef.current;
+        if (!ctx) return;
+        const acc = dropInfo.accessory;
+        const bayIdx = dropInfo.bayIndex;
+        const elevY = dropInfo.elevationY;
+        const targetMod = modBefore || ctx.mod;
+        const bayBefore = targetMod?.bays[bayIdx];
+        const isSubDivDrop =
+          acc.id === "lib_sub_divider" ||
+          acc.id === "sub_divider" ||
+          acc.visual === "sub_divider";
+        if (isSubDivDrop && targetMod && bayBefore) {
+          const ivs = getBayShelfIntervalsForSubDivider(
+            bayBefore,
+            calculateNetInnerHeight(targetMod),
+            targetMod.carcass.panelThickness || 18
+          );
+          const freeIvs = ivs.filter((iv) => !iv.hasConflict);
+          if (freeIvs.length === 0) {
+            setPlanRowSnapBanner(
+              `⛔ Bölme ${bayIdx + 1} içinde Askılık/Çekmece var ve boş raf aralığı yok! Önce raf ekleyin veya askılığı kaldırın.`
+            );
+            setTimeout(() => setPlanRowSnapBanner(null), 4200);
+            lastAccessoryDropTarget2DRef.current = null;
+            return;
+          }
+        }
+        ctx.addInteriorItemAtElevation(bayIdx, acc.id, elevY, { offsetX: dropInfo.offsetX });
+        setPlanRowSnapBanner(`✓ ${acc.title || "Parça"} yerleştirildi: Bölme ${bayIdx + 1}`);
+        setTimeout(() => setPlanRowSnapBanner(null), 3500);
+        lastAccessoryDropTarget2DRef.current = null;
+      },
+      []
+    );
+
+    useEffect(() => {
+      if (mode !== "elevation") return;
+      const onLiveMove = (ev: Event) => {
+        const detail = (ev as CustomEvent<{
+          id: string;
+          title: string;
+          visual: string;
+          clientX: number;
+          clientY: number;
+        }>).detail;
+        if (!detail) return;
+        const res = resolveAccessoryDropTarget2D(detail.clientX, detail.clientY, {
+          id: detail.id,
+          title: detail.title,
+          visual: detail.visual,
+        });
+        if (!res) {
+          lastAccessoryDropTarget2DRef.current = null;
+          setLiveAccessoryGhost2D(null);
+          window.dispatchEvent(new CustomEvent("birim:live-part-snapped-in-bay", { detail: { active: false } }));
+          setPlanRowSnapBanner(null);
+          return;
+        }
+        window.dispatchEvent(new CustomEvent("birim:live-part-snapped-in-bay", { detail: { active: true } }));
+        const isSubDivAcc =
+          detail.id === "lib_sub_divider" ||
+          detail.id === "sub_divider" ||
+          detail.visual === "sub_divider";
+        if (isSubDivAcc && res.mod.bays[res.bayIndex]) {
+          const ivs = getBayShelfIntervalsForSubDivider(
+            res.mod.bays[res.bayIndex],
+            res.netH,
+            res.carcassT
+          );
+          const hoveredIv = ivs.find(
+            (iv) => res.elevationY >= iv.botY && res.elevationY <= iv.topY
+          );
+          const freeIvs = ivs.filter((iv) => !iv.hasConflict);
+          const chosenIv =
+            (hoveredIv && !hoveredIv.hasConflict ? hoveredIv : null) ||
+            (freeIvs.length > 0
+              ? freeIvs.reduce((best, iv) =>
+                  Math.abs((iv.botY + iv.topY) / 2 - res.elevationY) <
+                  Math.abs((best.botY + best.topY) / 2 - res.elevationY)
+                    ? iv
+                    : best
+                )
+              : hoveredIv);
+          if (chosenIv) {
+            const subMidY = Math.round((chosenIv.botY + chosenIv.topY) / 2);
+            lastAccessoryDropTarget2DRef.current = {
+              bayIndex: res.bayIndex,
+              elevationY: subMidY,
+              offsetX: res.offsetX,
+              accessory: res.accessory,
+            };
+            setLiveAccessoryGhost2D({
+              visual: detail.visual || "sub_divider",
+              id: detail.id,
+              title: detail.title || "Raf Arası Dikme",
+              bayIndex: res.bayIndex,
+              baySvgX: res.baySvgX,
+              bayWidth: res.bayWidth,
+              carcassT: res.carcassT,
+              plinthH: res.plinthH,
+              modY: res.mod.position?.y || 0,
+              elevationY: subMidY,
+              offsetX: res.offsetX,
+              subBotY: chosenIv.botY,
+              subSpanH: Math.max(80, chosenIv.height),
+            });
+            setPlanRowSnapBanner(
+              hoveredIv?.hasConflict
+                ? `⚠️ Bu aralıkta ${hoveredIv.conflictReason}! Boş raf aralığına (${chosenIv.label}) hizalandı • X: ${res.offsetX}mm`
+                : `📐 Raf Arası Dikme • Bölme ${res.bayIndex + 1} (${chosenIv.label}) • X: ${res.offsetX}mm`
+            );
+            return;
+          }
+        }
+        lastAccessoryDropTarget2DRef.current = {
+          bayIndex: res.bayIndex,
+          elevationY: res.elevationY,
+          offsetX: res.offsetX,
+          accessory: res.accessory,
+        };
+        setLiveAccessoryGhost2D({
+          visual: detail.visual || "shelf",
+          id: detail.id,
+          title: detail.title || "Parça",
+          bayIndex: res.bayIndex,
+          baySvgX: res.baySvgX,
+          bayWidth: res.bayWidth,
+          carcassT: res.carcassT,
+          plinthH: res.plinthH,
+          modY: res.mod.position?.y || 0,
+          elevationY: res.elevationY,
+          offsetX: res.offsetX,
+        });
+        setPlanRowSnapBanner(
+          `📐 ${detail.title || "Parça"} • Bölme ${res.bayIndex + 1} • Y: ${res.elevationY} mm`
+        );
+      };
+
+      const onLiveDrop = (ev: Event) => {
+        if ((ev as unknown as { __birimLivePartDropHandled?: boolean }).__birimLivePartDropHandled) return;
+        const detail = (ev as CustomEvent<{
+          id: string;
+          title: string;
+          visual: string;
+          clientX: number;
+          clientY: number;
+        }>).detail;
+        setLiveAccessoryGhost2D(null);
+        if (!detail) return;
+        const res = resolveAccessoryDropTarget2D(detail.clientX, detail.clientY, {
+          id: detail.id,
+          title: detail.title,
+          visual: detail.visual,
+        });
+        lastAccessoryDropTarget2DRef.current = null;
+        if (!res) return;
+        (ev as unknown as { __birimLivePartDropHandled?: boolean }).__birimLivePartDropHandled = true;
+        commitAccessoryDrop2D(
+          {
+            bayIndex: res.bayIndex,
+            elevationY: res.elevationY,
+            offsetX: res.offsetX,
+            accessory: res.accessory,
+          },
+          res.mod
+        );
+      };
+
+      const onLiveCancel = () => {
+        lastAccessoryDropTarget2DRef.current = null;
+        setLiveAccessoryGhost2D(null);
+        setPlanRowSnapBanner(null);
+      };
+
+      window.addEventListener("birim:live-3d-part-move", onLiveMove);
+      window.addEventListener("birim:live-3d-part-drop", onLiveDrop);
+      window.addEventListener("birim:live-3d-part-cancel", onLiveCancel);
+      return () => {
+        window.removeEventListener("birim:live-3d-part-move", onLiveMove);
+        window.removeEventListener("birim:live-3d-part-drop", onLiveDrop);
+        window.removeEventListener("birim:live-3d-part-cancel", onLiveCancel);
+      };
+    }, [mode, resolveAccessoryDropTarget2D, commitAccessoryDrop2D]);
+
+    useEffect(() => {
+      const onMaterialDrop2D = (ev: Event) => {
+        const detail = (
+          ev as CustomEvent<{ materialId: string; materialName?: string; clientX: number; clientY: number }>
+        ).detail;
+        if (!detail?.materialId || typeof document === "undefined") return;
+        const container = elevContainerRef.current;
+        if (container) {
+          const r = container.getBoundingClientRect();
+          if (
+            detail.clientX < r.left ||
+            detail.clientX > r.right ||
+            detail.clientY < r.top ||
+            detail.clientY > r.bottom
+          ) {
+            return;
+          }
+        }
+        const els = document.elementsFromPoint(detail.clientX, detail.clientY);
+        for (const el of els) {
+          const tid = el.closest("[data-testid]")?.getAttribute("data-testid") || "";
+          if (tid.startsWith("cad-el-")) {
+            const compId = tid.slice("cad-el-".length);
+            applyMaterialToSimilarComponents(detail.materialId, compId, "single");
+            setPlanRowSnapBanner(`✓ Malzeme atandı: ${detail.materialName || detail.materialId}`);
+            setTimeout(() => setPlanRowSnapBanner(null), 2400);
+            return;
+          }
+          if (tid.startsWith("elev-scene-object-") || tid.startsWith("plan-scene-object-")) {
+            const soId = tid.replace(/^elev-scene-object-|^plan-scene-object-/, "");
+            (updateSceneObject as (id: string, p: Record<string, unknown>) => void)(soId, {
+              materialId: detail.materialId,
+            });
+            setPlanRowSnapBanner(`✓ Malzeme atandı: ${detail.materialName || detail.materialId}`);
+            setTimeout(() => setPlanRowSnapBanner(null), 2400);
+            return;
+          }
+        }
+      };
+      window.addEventListener("birim:live-material-drop", onMaterialDrop2D);
+      return () => window.removeEventListener("birim:live-material-drop", onMaterialDrop2D);
+    }, [applyMaterialToSimilarComponents, updateSceneObject]);
 
     if (!activeModule) return null;
 
@@ -3379,11 +3782,12 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             return (
               <div
                 data-testid="plan-live-spatial-warnings"
-                className="shrink-0 w-full z-20 px-2.5 py-1.5 bg-slate-900/95 border-b border-red-500/60 pointer-events-auto"
+                style={{ left: "84px" }}
+                className="fixed bottom-[104px] max-w-[320px] z-40 pointer-events-auto transition-[left] duration-200"
               >
                 {spatialAlertsMinimized ? (
                   /* Ultra-Compact Single-Line Pill Mode */
-                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-2xl bg-slate-900/92 backdrop-blur-xl text-white border border-red-400/90 shadow-lg text-[11px]">
+                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-2xl birim-dramatic-panel bg-[#252C3A]/68 backdrop-blur-2xl text-slate-100 border border-red-400/55 shadow-lg text-[11px]">
                     <span className="font-extrabold text-red-300 whitespace-nowrap">
                       ⚠️ {totalAlerts} Çakışma
                     </span>
@@ -3391,7 +3795,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       type="button"
                       data-testid="plan-autofix-all-minimized-btn"
                       onClick={handleAutoFixAllAlerts}
-                      className="px-2 py-0.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-[10px] whitespace-nowrap cursor-pointer transition"
+                      className="px-2 py-0.5 rounded-lg bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white font-bold shadow-[0_0_12px_rgba(29,78,216,0.46)] text-[10px] whitespace-nowrap cursor-pointer transition"
                     >
                       🪄 Tümünü Çöz
                     </button>
@@ -3416,8 +3820,8 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     }}
                     className={`px-3 py-2 rounded-2xl backdrop-blur-xl border shadow-xl text-[11px] leading-snug transition ${
                       al.severity === "error"
-                        ? "bg-slate-900/92 text-white border-red-400/90 ring-1 ring-red-500/30"
-                        : "bg-slate-900/92 text-amber-50 border-amber-400/90 ring-1 ring-amber-500/30"
+                        ? "birim-dramatic-panel bg-[#252C3A]/68 text-slate-100 border-red-400/55 ring-1 ring-red-500/25"
+                        : "birim-dramatic-panel bg-[#252C3A]/68 text-slate-100 border-sky-400/55 ring-1 ring-sky-400/25"
                     }`}
                   >
                     {/* Carousel Header: Alert Count + Prev/Next Stepper + Fix All + Minimize */}
@@ -3515,7 +3919,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                                 setTimeout(() => setPlanRowSnapBanner(null), 3000);
                               }
                             }}
-                            className="px-2 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-[10px] inline-flex items-center gap-1 cursor-pointer transition active:scale-95"
+                            className="px-2 py-1 rounded-lg bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white font-bold shadow-[0_0_12px_rgba(29,78,216,0.46)] text-[10px] inline-flex items-center gap-1 cursor-pointer transition active:scale-95"
                           >
                             <span>🪄</span>
                             <span>Pencere Kenarına Kaydır</span>
@@ -3559,7 +3963,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                               setTimeout(() => setPlanRowSnapBanner(null), 3000);
                             }
                           }}
-                          className="px-2 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-[10px] inline-flex items-center gap-1 cursor-pointer transition active:scale-95"
+                          className="px-2 py-1 rounded-lg bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white font-bold shadow-[0_0_12px_rgba(29,78,216,0.46)] text-[10px] inline-flex items-center gap-1 cursor-pointer transition active:scale-95"
                         >
                           <span>🪄</span>
                           <span>Tesisat Önüne Eviye Modülü Yerleştir</span>
@@ -3580,7 +3984,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                             setPlanRowSnapBanner("✨ 50mm Kör Çıta (Duvar Açılım Payı) bırakılarak kapak sıkışması giderildi");
                             setTimeout(() => setPlanRowSnapBanner(null), 3000);
                           }}
-                          className="px-2 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-[10px] inline-flex items-center gap-1 cursor-pointer transition active:scale-95"
+                          className="px-2 py-1 rounded-lg bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white font-bold shadow-[0_0_12px_rgba(29,78,216,0.46)] text-[10px] inline-flex items-center gap-1 cursor-pointer transition active:scale-95"
                         >
                           <span>🪄</span>
                           <span>50mm Kör Çıta Payı Bırak & Çöz</span>
@@ -3611,7 +4015,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                             setPlanRowSnapBanner("✨ Modüller çakışmayacak şekilde sırayla duvara dizildi");
                             setTimeout(() => setPlanRowSnapBanner(null), 3000);
                           }}
-                          className="px-2 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-[10px] inline-flex items-center gap-1 cursor-pointer transition active:scale-95"
+                          className="px-2 py-1 rounded-lg bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white font-bold shadow-[0_0_12px_rgba(29,78,216,0.46)] text-[10px] inline-flex items-center gap-1 cursor-pointer transition active:scale-95"
                         >
                           <span>🪄</span>
                           <span>Çakışmayı Otomatik Ayır & Hizala</span>
@@ -4758,6 +5162,16 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 <span>🛠</span>
                 <span className="sr-only">CAD</span>
               </button>
+              <button
+                type="button"
+                data-testid="plan-print-a4-btn"
+                onClick={() => printActive2DCadSheet("plan")}
+                title="Mekân Yerleşim Planını A4 Yatay Olarak Yazdır / PDF Kaydet"
+                className="h-7 px-2.5 rounded-xl birim-ice-btn text-[11px] font-bold text-[#F8FAFC] inline-flex items-center gap-1 shrink-0 transition active:scale-95 cursor-pointer"
+              >
+                <span>🖨</span>
+                <span>Yazdır</span>
+              </button>
             </div>
           </div>
 
@@ -5022,7 +5436,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                             fill="#0F172A"
                             fontSize={wallFont}
                             fontWeight="900"
-                            fontFamily="monospace"
+                            fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                           >
                             {wallText}
                           </text>
@@ -5145,7 +5559,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                             fill="#0F172A"
                             fontSize={wallFont}
                             fontWeight="900"
-                            fontFamily="monospace"
+                            fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                           >
                             {wallText}
                           </text>
@@ -5337,7 +5751,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         fill="#0F172A"
                         fontSize={wallFont}
                         fontWeight="900"
-                        fontFamily="monospace"
+                        fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                       >
                         {wallText}
                       </text>
@@ -5477,7 +5891,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         fill="#B45309"
                         fontSize="24"
                         fontWeight="700"
-                        fontFamily="monospace"
+                        fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                       >
                         {fmtPlanDim(previewLen)} ({previewAngle}°)
                       </text>
@@ -5511,7 +5925,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   fill="#065F46"
                   fontSize="20"
                   fontWeight="700"
-                  fontFamily="monospace"
+                  fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                 >
                   ◎ Yakalandı: {activeSnapTarget.label}
                 </text>
@@ -5545,7 +5959,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     fill="#0369A1"
                     fontSize="20"
                     fontWeight="800"
-                    fontFamily="monospace"
+                    fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                   >
                     🎯 {obstaclePreviewPos.wallName ? `${obstaclePreviewPos.wallName} (${prevRot}°)` : `Konumlandır (${fmtPlanDim(obstaclePreviewPos.x, false)}, ${fmtPlanDim(obstaclePreviewPos.z)})`}
                   </text>
@@ -5668,7 +6082,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                           fill={isDoor ? "#92400E" : "#0369A1"}
                           fontSize="22"
                           fontWeight="800"
-                          fontFamily="monospace"
+                          fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                         >
                           {isDoor ? "🚪 YAN KAPI" : "🪟 YAN PENCERE"} ({fmtPlanDim(ow, false)}×{fmtPlanDim(obs.dimensions.height)} • Z:{fmtPlanDim(obs.position.z)})
                         </text>
@@ -5841,7 +6255,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         className="pointer-events-none"
                       >
                         <rect x={-obsPillW / 2} y={-obsPillH / 2} width={obsPillW} height={obsPillH} rx={8} fill="rgba(255,255,255,0.94)" stroke={isDoor ? "#D97706" : "#0284C7"} strokeWidth="2.5" />
-                        <text x={0} y={Math.round(obsFont * 0.35)} textAnchor="middle" fill={isDoor ? "#92400E" : "#0369A1"} fontSize={obsFont} fontWeight="900" fontFamily="monospace">
+                        <text x={0} y={Math.round(obsFont * 0.35)} textAnchor="middle" fill={isDoor ? "#92400E" : "#0369A1"} fontSize={obsFont} fontWeight="900" fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif">
                           {obsText}
                         </text>
                       </g>
@@ -5962,7 +6376,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                             fill={isDoor ? "#92400E" : "#0369A1"}
                             fontSize={obsFont}
                             fontWeight="900"
-                            fontFamily="monospace"
+                            fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                           >
                             {obsText}
                           </text>
@@ -6203,37 +6617,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       fill={isSelectedObs ? "#FCA5A5" : "#78716C"}
                       opacity={0.35}
                     />
-                    {(() => {
-                      const colTxt = `${isBeam ? "KİRİŞ" : "KOLON"} (${fmtPlanDim(obs.dimensions.width, false)}×${fmtPlanDim(obs.dimensions.depth)})`;
-                      const colFont = Math.round(23 * ts);
-                      const colPillW = Math.max(Math.round(180 * ts), Math.round(colTxt.length * colFont * 0.62 + 24 * ts));
-                      const colPillH = Math.round(38 * ts);
-                      return (
-                        <g className="pointer-events-none">
-                          <rect
-                            x={obs.position.x + obs.dimensions.width / 2 - colPillW / 2}
-                            y={obs.position.z + obs.dimensions.depth + Math.round(8 * ts)}
-                            width={colPillW}
-                            height={colPillH}
-                            rx={Math.round(8 * ts)}
-                            fill="rgba(255, 255, 255, 0.94)"
-                            stroke={isSelectedObs ? "#DC2626" : "#44403C"}
-                            strokeWidth="2"
-                          />
-                          <text
-                            x={obs.position.x + obs.dimensions.width / 2}
-                            y={obs.position.z + obs.dimensions.depth + Math.round(8 * ts) + Math.round(colPillH * 0.72)}
-                            textAnchor="middle"
-                            fill={isSelectedObs ? "#B91C1C" : "#0F172A"}
-                            fontSize={colFont}
-                            fontWeight="900"
-                            fontFamily="monospace"
-                          >
-                            {colTxt}
-                          </text>
-                        </g>
-                      );
-                    })()}
+                    {/* Column label rendered once in foreground structural layer */}
                   </g>
                 );
               }
@@ -6272,7 +6656,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       fill={obs.type === "electrical" ? "#92400E" : "#0369A1"}
                       fontSize="22"
                       fontWeight="800"
-                      fontFamily="monospace"
+                      fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                     >
                       {badgeText}
                     </text>
@@ -6339,7 +6723,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                             fill={isSelectedObs ? "#B91C1C" : "#0F172A"}
                             fontSize={nFont}
                             fontWeight="900"
-                            fontFamily="monospace"
+                            fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                           >
                             {nTxt}
                           </text>
@@ -6505,7 +6889,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                                       fill="#0F172A"
                                       fontSize={zFont}
                                       fontWeight="900"
-                                      fontFamily="monospace"
+                                      fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                                     >
                                       {zTxt}
                                     </text>
@@ -6916,7 +7300,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                                         fill="#92400E"
                                         fontSize={drwFont}
                                         fontWeight="900"
-                                        fontFamily="monospace"
+                                        fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                                       >
                                         {`🗄 ${extDrawers.length} Çekmece`}
                                       </text>
@@ -6949,7 +7333,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                                         fill={isAct ? "#1D4ED8" : "#0F172A"}
                                         fontSize={bFont}
                                         fontWeight="900"
-                                        fontFamily="monospace"
+                                        fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                                       >
                                         {bTxt}
                                       </text>
@@ -7024,7 +7408,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                                     fill={doorStroke}
                                     fontSize="19"
                                     fontWeight="800"
-                                    fontFamily="monospace"
+                                    fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                                   >
                                     {bIdx % 2 === 0 ? "SÜRGÜ KAPAK ➔" : "⬅ SÜRGÜ KAPAK"}
                                   </text>
@@ -7089,7 +7473,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                                     fill={doorStroke}
                                     fontSize="19"
                                     fontWeight="800"
-                                    fontFamily="monospace"
+                                    fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                                   >
                                     ↑ KALKAR KAPAK
                                   </text>
@@ -7122,7 +7506,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                                     fill={doorStroke}
                                     fontSize="18"
                                     fontWeight="800"
-                                    fontFamily="monospace"
+                                    fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                                   >
                                     {dSys === "tambour_roller" || dType === "tambour" ? "▤ TAMBUR PANJUR" : "↳ POCKET GİZLENİR"}
                                   </text>
@@ -7418,7 +7802,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                             fill="#FFFFFF"
                             fontSize={ribFont}
                             fontWeight="900"
-                            fontFamily="monospace"
+                            fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                             className="pointer-events-none"
                           >
                             {`★ SEÇİLİ #${idx + 1}`}
@@ -7561,7 +7945,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                           fill="#FFFFFF"
                           fontSize={ribFont}
                           fontWeight="900"
-                          fontFamily="monospace"
+                          fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                           className="pointer-events-none"
                         >
                           {`★ SEÇİLİ #${idx + 1}`}
@@ -7895,7 +8279,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                             fill={hasCollisionError ? "#DC2626" : "#0F172A"}
                             fontSize={dimFont}
                             fontWeight="800"
-                            fontFamily="monospace"
+                            fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                           >
                             {dimLabel}
                           </text>
@@ -7941,7 +8325,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                           fill={hasCollisionError ? "#DC2626" : "#0F172A"}
                           fontSize={dimFont}
                           fontWeight="800"
-                          fontFamily="monospace"
+                          fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                         >
                           {dimLabel}
                         </text>
@@ -7997,7 +8381,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                               fill="#7C2D12"
                               fontSize={calloutFont}
                               fontWeight="800"
-                              fontFamily="monospace"
+                              fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                             >
                               {calloutText}
                             </text>
@@ -8054,7 +8438,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                           fill="#7C2D12"
                           fontSize={calloutFont}
                           fontWeight="800"
-                          fontFamily="monospace"
+                          fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                         >
                           {calloutText}
                         </text>
@@ -8154,7 +8538,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                           fill="#1D4ED8"
                           fontSize={gapFont}
                           fontWeight="800"
-                          fontFamily="monospace"
+                          fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                         >
                           {gapText}
                         </text>
@@ -8197,7 +8581,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                                 fill="#713F12"
                                 fontSize={Math.round(14 * ts)}
                                 fontWeight="900"
-                                fontFamily="monospace"
+                                fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                               >
                                 {soc.type === "electrical" ? "✂ PRİZ BUAT" : "✂ TESİSAT KESİM"}
                               </text>
@@ -8245,7 +8629,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                           fill="#1D4ED8"
                           fontSize={gapFont}
                           fontWeight="800"
-                          fontFamily="monospace"
+                          fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                         >
                           {gapText}
                         </text>
@@ -8324,7 +8708,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     fill="#0F172A"
                     fontSize={botFont}
                     fontWeight="800"
-                    fontFamily="monospace"
+                    fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                   >
                     {combinedBottomText}
                   </text>
@@ -8376,7 +8760,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                               fill="#FFFFFF"
                               fontSize="24"
                               fontWeight="800"
-                              fontFamily="monospace"
+                              fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                             >
                               {`🧲 SNAP X:${fmtPlanDim(sx)}`}
                             </text>
@@ -8453,7 +8837,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         fill="#FFFFFF"
                         fontSize={collFont}
                         fontWeight="900"
-                        fontFamily="monospace"
+                        fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                       >
                         {`⚠️ ${al.title.startsWith("ERR_") || al.title.startsWith("WARN_") || al.title.startsWith("CHK_") ? formatIssueHumanTitle(al.title) : al.title}`}
                       </text>
@@ -8504,7 +8888,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       fill="#FFFFFF"
                       fontSize="22"
                       fontWeight="800"
-                      fontFamily="monospace"
+                      fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                     >
                       {`🧲 X:${fmtPlanDim(slot.x)}`}
                     </text>
@@ -8613,7 +8997,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         fill="#ECFDF5"
                         fontSize="28"
                         fontWeight="800"
-                        fontFamily="monospace"
+                        fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                       >
                         {`SİLUET: ${gm.name} (${gw}×${gd})`}
                       </text>
@@ -8716,7 +9100,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         fill="#475569"
                         fontSize={Math.max(18, Math.min(26, sw * 0.045))}
                         fontWeight="700"
-                        fontFamily="monospace"
+                        fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                       >
                         {`${fmtPlanDim(sw, false)}×${fmtPlanDim(sd)}${rotY ? ` • ${Math.round(rotY)}°` : ""}`}
                       </text>
@@ -8904,7 +9288,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         fill={isSelectedObs || collidesWithModule ? "#B91C1C" : "#141413"}
                         fontSize={colFont}
                         fontWeight="900"
-                        fontFamily="monospace"
+                        fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                       >
                         {colTxt}
                       </text>
@@ -8978,128 +9362,6 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
               );
             })()}
 
-            {/* FOREGROUND STRUCTURAL COLUMN & BEAM LAYER: Always rendered ABOVE cabinet footprints & rugs so a 3D column NEVER disappears behind opaque modules in 2D Plan! */}
-            {spaceObstacles
-              .filter(
-                (obs) =>
-                  obs.type === "column" ||
-                  obs.type === "beam" ||
-                  obs.type === "protrusion" ||
-                  obs.type === "partition"
-              )
-              .map((obs) => {
-                const isSelectedObs =
-                  selectedPlanObject?.kind === "obstacle" && selectedPlanObject.id === obs.id;
-                const isBeam = obs.type === "beam";
-                const rotNorm = (((obs.rotationY || 0) % 360) + 360) % 360;
-                const isRot90 = rotNorm === 90 || rotNorm === 270;
-                const rawW = Math.max(80, obs.dimensions.width || 300);
-                const rawD = Math.max(80, obs.dimensions.depth || rawW);
-                const effW = isRot90 ? rawD : rawW;
-                const effD = isRot90 ? rawW : rawD;
-                const ox = obs.position.x;
-                const oz = obs.position.z;
-
-                const collidesWithModule =
-                  !isBeam &&
-                  footprints.some(
-                    (fp) =>
-                      ox < fp.x + fp.planWidth - 2 &&
-                      ox + effW > fp.x + 2 &&
-                      oz < fp.z + fp.planDepth - 2 &&
-                      oz + effD > fp.z + 2
-                  );
-
-                const colTxt = `${
-                  isBeam ? "KİRİŞ" : obs.type === "partition" ? "BÖLME DUVAR" : "KOLON"
-                } (${Math.round(effW)}×${Math.round(effD)})`;
-                const colFont = Math.round(22 * ts);
-                const colPillW = Math.max(
-                  Math.round(175 * ts),
-                  Math.round(colTxt.length * colFont * 0.62 + 24 * ts)
-                );
-                const colPillH = Math.round(36 * ts);
-
-                return (
-                  <g
-                    key={`fg_col_${obs.id}`}
-                    data-testid={`plan-column-foreground-${obs.id}`}
-                    onMouseDown={(e) => handleObstaclePointerDown(e, obs)}
-                    onContextMenu={(e) =>
-                      openPlanContextMenu(e, {
-                        kind: "obstacle",
-                        obsId: obs.id,
-                        obsName: obs.name || "Taşıyıcı Kolon",
-                        rotationY: obs.rotationY || 0,
-                      })
-                    }
-                    onDoubleClick={() => removeSpaceObstacle(obs.id)}
-                    className="cursor-move"
-                  >
-                    {collidesWithModule && (
-                      <rect
-                        x={ox - 10}
-                        y={oz - 10}
-                        width={effW + 20}
-                        height={effD + 20}
-                        rx={8}
-                        fill="rgba(220, 38, 38, 0.14)"
-                        stroke="#DC2626"
-                        strokeWidth="4.5"
-                        strokeDasharray="12 6"
-                      />
-                    )}
-                    <rect
-                      x={ox}
-                      y={oz}
-                      width={effW}
-                      height={effD}
-                      fill="#EAE5DC"
-                      fillOpacity={0.94}
-                    />
-                    <rect
-                      x={ox}
-                      y={oz}
-                      width={effW}
-                      height={effD}
-                      fill="url(#column_hatch)"
-                      stroke={isSelectedObs || collidesWithModule ? "#DC2626" : "#1C1917"}
-                      strokeWidth={isSelectedObs ? "6.5" : "4.5"}
-                      strokeDasharray={isBeam ? "12 6" : undefined}
-                    />
-                    {/* Structural cross diagonals inside reinforced concrete column */}
-                    {!isBeam && (
-                      <g stroke="#44403C" strokeWidth="1.8" opacity={0.55} className="pointer-events-none">
-                        <line x1={ox} y1={oz} x2={ox + effW} y2={oz + effD} />
-                        <line x1={ox + effW} y1={oz} x2={ox} y2={oz + effD} />
-                      </g>
-                    )}
-                    <g className="pointer-events-none">
-                      <rect
-                        x={ox + effW / 2 - colPillW / 2}
-                        y={oz + effD + Math.round(8 * ts)}
-                        width={colPillW}
-                        height={colPillH}
-                        rx={Math.round(8 * ts)}
-                        fill="rgba(255, 255, 255, 0.96)"
-                        stroke={isSelectedObs || collidesWithModule ? "#DC2626" : "#292524"}
-                        strokeWidth="2.5"
-                      />
-                      <text
-                        x={ox + effW / 2}
-                        y={oz + effD + Math.round(8 * ts) + Math.round(colPillH * 0.72)}
-                        textAnchor="middle"
-                        fill={isSelectedObs || collidesWithModule ? "#B91C1C" : "#141413"}
-                        fontSize={colFont}
-                        fontWeight="900"
-                        fontFamily="monospace"
-                      >
-                        {colTxt}
-                      </text>
-                    </g>
-                  </g>
-                );
-              })}
 
           </svg>
           <CadContextMenu2D menu={cadContextMenu} onClose={() => setCadContextMenu(null)} />
@@ -9165,7 +9427,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       lockedElevModIdRef.current = activeModule.id;
     }
     const vb = lockedElevVbRef.current;
-    const elevLabelScale = Math.max(1, Math.min(2.4, (vb.width || 2200) / 1450));
+    const elevLabelScale = Math.max(1.05, Math.min(3.6, ((vb.width || 2200) / 1050) * canvasFontScale));
     const roomOffX =
       mode === "elevation" && showRoomContextInElev
         ? (lockedElevOriginRef.current?.x ?? activeModOffX)
@@ -9240,7 +9502,74 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
           }
         } else if (elevResizingMod.axis === "height_top") {
           const dyMm = -(e.clientY - elevResizingMod.startClientY) * elevResizingMod.mmPerPxY;
-          const newH = Math.max(350, Math.min(2800, elevResizingMod.startH + dyMm));
+          const rawH = Math.max(350, Math.min(2800, elevResizingMod.startH + dyMm));
+          const rawTopWorldY = elevResizingMod.startY + rawH;
+
+          // V55: Magnetic Height Alignment Snapping to Neighbor Modules, Obstacles & Ceiling!
+          const snapTargets: Array<{ worldY: number; label: string }> = [];
+          const ceilH = project.space?.ceilingHeight || 2600;
+          snapTargets.push({ worldY: ceilH, label: "Tavan Hizası" });
+          if (ceilH > 400) {
+            snapTargets.push({ worldY: ceilH - 30, label: "Tavan Gölge Boşluğu (-30mm)" });
+          }
+          project.modules.forEach((other, oIdx) => {
+            if (oIdx === elevResizingMod.modIdx || other.category === "complementary") return;
+            const oTop = other.position.y + other.dimensions.height;
+            snapTargets.push({ worldY: oTop, label: `#${oIdx + 1} ${other.name} Üstü` });
+            if (other.position.y >= 120) {
+              snapTargets.push({ worldY: other.position.y, label: `#${oIdx + 1} ${other.name} Altı` });
+            }
+          });
+          (spaceObstacles || []).forEach((obs) => {
+            const obsName =
+              obs.type === "window"
+                ? "Pencere"
+                : obs.type === "door"
+                ? "Kapı"
+                : obs.type === "beam"
+                ? "Kiriş"
+                : "Engel";
+            if (obs.position.y >= 200) {
+              snapTargets.push({ worldY: obs.position.y, label: `${obsName} Altı` });
+            }
+            snapTargets.push({
+              worldY: obs.position.y + obs.dimensions.height,
+              label: `${obsName} Üstü`,
+            });
+          });
+
+          const MAGNET_MM = 42;
+          let bestSnap: { worldY: number; label: string; dist: number } | null = null;
+          for (const cand of snapTargets) {
+            const dist = Math.abs(rawTopWorldY - cand.worldY);
+            if (dist <= MAGNET_MM && (!bestSnap || dist < bestSnap.dist)) {
+              bestSnap = { ...cand, dist };
+            }
+          }
+
+          const newH = bestSnap
+            ? Math.max(350, Math.min(2800, bestSnap.worldY - elevResizingMod.startY))
+            : rawH;
+
+          // Visual Horizontal Alignment Laser Guide across entire 2D Elevation
+          if (snapYGroupRef.current) {
+            if (bestSnap) {
+              const sy = snapFloorSvgY - bestSnap.worldY;
+              snapYGroupRef.current.style.display = "inline";
+              if (snapYLineRef.current) {
+                snapYLineRef.current.setAttribute("y1", String(sy));
+                snapYLineRef.current.setAttribute("y2", String(sy));
+              }
+              if (snapYBadgeRef.current) snapYBadgeRef.current.setAttribute("y", String(sy - 26));
+              if (snapYTextRef.current) {
+                snapYTextRef.current.setAttribute("y", String(sy + 9));
+                snapYTextRef.current.textContent = `🧲 ${Math.round(bestSnap.worldY)}mm`;
+              }
+            } else {
+              snapYGroupRef.current.style.display = "none";
+            }
+          }
+
           const res = resizeModuleParametric(
             elevResizingMod.modIdx,
             elevResizingMod.startW,
@@ -9249,7 +9578,9 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             newH
           );
           setPlanRowSnapBanner(
-            `📐 Parametrik Yükseklik (Boy H): ${Math.round(newH / 10) * 10}mm${res ? ` → ${res.shelfCount} Raf` : ""}`
+            bestSnap
+              ? `🧲 Hizalandı: ${bestSnap.label} (${Math.round(bestSnap.worldY)} mm) • Boy H: ${Math.round(newH)} mm`
+              : `📐 Parametrik Yükseklik (Boy H): ${Math.round(newH / 10) * 10}mm${res ? ` → ${res.shelfCount} Raf` : ""}`
           );
         } else if (elevResizingMod.axis === "height_bottom") {
           const dyMm = -(e.clientY - elevResizingMod.startClientY) * elevResizingMod.mmPerPxY;
@@ -9572,11 +9903,112 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
           ? Math.max(120, Math.min(Math.max(160, netHClamp - 40), Math.round(rawSnappedY)))
           : Math.max(40, Math.min(Math.max(80, netHClamp - itemH), Math.round(rawSnappedY)));
 
+      // V83: Detect horizontal cross-bay / cross-module drag in 2D Front Elevation!
+      const dxMm2D = (e.clientX - interiorDrag.startClientX) * mmPerPxX;
+      const srcBws = breakdown.bayWidths;
+      const srcBayCenterSvgX = (() => {
+        let cx = TClamp;
+        for (let i = 0; i < interiorDrag.bayIdx; i += 1) cx += (srcBws[i] || 500) + TClamp;
+        return cx + (srcBws[interiorDrag.bayIdx] || 500) * 0.5;
+      })();
+      const curSvgX = srcBayCenterSvgX + dxMm2D;
+
+      let destModIdx2D = activeModuleIndex;
+      let destBayIdx2D = interiorDrag.bayIdx;
+      let destCenterSvgX = srcBayCenterSvgX;
+
+      const resolveBayInMod = (m: typeof activeModule, localX: number) => {
+        const pt = m.carcass.panelThickness || 18;
+        const bws = calculateBayWidths(m);
+        let cx = pt;
+        for (let bi = 0; bi < m.bays.length; bi += 1) {
+          const bw = bws[bi] || 500;
+          if (localX <= cx + bw + pt * 0.5 || bi === m.bays.length - 1) {
+            return { bayIdx: bi, centerLocalX: cx + bw * 0.5 };
+          }
+          cx += bw + pt;
+        }
+        return { bayIdx: 0, centerLocalX: pt + (bws[0] || 500) * 0.5 };
+      };
+
+      if (curSvgX >= -25 && curSvgX <= activeModule.dimensions.width + 25) {
+        const res = resolveBayInMod(activeModule, Math.max(0, curSvgX));
+        destModIdx2D = activeModuleIndex;
+        destBayIdx2D = res.bayIdx;
+        destCenterSvgX = res.centerLocalX;
+      } else if (showRoomContextInElev) {
+        let matchedOther = false;
+        project.modules.forEach((otherMod, oIdx) => {
+          if (matchedOther || otherMod.category === "complementary" || otherMod.bays.length === 0) return;
+          const relLeft = otherMod.position.x - activeModule.position.x;
+          if (curSvgX >= relLeft - 25 && curSvgX <= relLeft + otherMod.dimensions.width + 25) {
+            const res = resolveBayInMod(otherMod, Math.max(0, curSvgX - relLeft));
+            destModIdx2D = oIdx;
+            destBayIdx2D = res.bayIdx;
+            destCenterSvgX = relLeft + res.centerLocalX;
+            matchedOther = true;
+          }
+        });
+        if (!matchedOther) {
+          const res = resolveBayInMod(activeModule, Math.max(0, Math.min(activeModule.dimensions.width, curSvgX)));
+          destModIdx2D = activeModuleIndex;
+          destBayIdx2D = res.bayIdx;
+          destCenterSvgX = res.centerLocalX;
+        }
+      } else {
+        const res = resolveBayInMod(activeModule, Math.max(0, Math.min(activeModule.dimensions.width, curSvgX)));
+        destModIdx2D = activeModuleIndex;
+        destBayIdx2D = res.bayIdx;
+        destCenterSvgX = res.centerLocalX;
+      }
+
+      const isCrossBay2D = destModIdx2D !== activeModuleIndex || destBayIdx2D !== interiorDrag.bayIdx;
+
       if (elevSnapBannerDomRef.current) {
         elevSnapBannerDomRef.current.style.display = "block";
-        elevSnapBannerDomRef.current.textContent = snappedTarget
-          ? `🧲 ${snappedTarget.label}`
-          : `📐 Yükseklik Kotu Y: ${snappedY} mm`;
+        elevSnapBannerDomRef.current.textContent = isCrossBay2D
+          ? destModIdx2D !== activeModuleIndex
+            ? `⇄ Modül #${destModIdx2D + 1} · ${destBayIdx2D + 1}. Bölmeye Taşı • Y: ${snappedY} mm`
+            : `⇄ ${destBayIdx2D + 1}. Bölmeye Taşı • Y: ${snappedY} mm`
+          : snappedTarget
+            ? `🧲 ${snappedTarget.label}`
+            : `📐 Yükseklik Kotu Y: ${snappedY} mm`;
+      }
+
+      if (isCrossBay2D) {
+        const deltaSvgX = destCenterSvgX - srcBayCenterSvgX;
+        const deltaSvgY = -(snappedY - interiorDrag.startValueMm);
+        let liveInt = elevInteriorLiveRef.current;
+        if (!liveInt) {
+          const foundEls = Array.from(
+            svgEl.querySelectorAll(`[data-interior-owner="${interiorDrag.targetId}"], [data-testid="cad-el-${interiorDrag.targetId}"]`)
+          ) as SVGGElement[];
+          liveInt = {
+            els: foundEls.map((el) => ({ el, baseTransform: el.getAttribute("transform") || "" })),
+            snappedY,
+            hasMoved: true,
+            destModIdx: destModIdx2D,
+            destBayIdx: destBayIdx2D,
+          };
+          elevInteriorLiveRef.current = liveInt;
+        }
+        liveInt.snappedY = snappedY;
+        liveInt.hasMoved = true;
+        liveInt.destModIdx = destModIdx2D;
+        liveInt.destBayIdx = destBayIdx2D;
+        for (const item of liveInt.els) {
+          const prefix = item.baseTransform ? `${item.baseTransform} ` : "";
+          item.el.setAttribute("transform", `${prefix}translate(${deltaSvgX}, ${deltaSvgY})`);
+        }
+        return;
+      }
+
+      if (elevInteriorLiveRef.current) {
+        for (const item of elevInteriorLiveRef.current.els) {
+          if (item.baseTransform) item.el.setAttribute("transform", item.baseTransform);
+          else item.el.removeAttribute("transform");
+        }
+        elevInteriorLiveRef.current = null;
       }
 
       const intCommitKey = `${interiorDrag.kind}_${interiorDrag.bayIdx}_${interiorDrag.targetId}_${snappedY}`;
@@ -9610,7 +10042,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         elevSnapBannerDomRef.current.style.display = "none";
       }
       if (elevResizingMod) {
-        setElevResizingMod(null);
+        setElevResizingMod(null); if (snapYGroupRef.current) snapYGroupRef.current.style.display = "none";
         setPlanRowSnapBanner(null);
         commitHistoryTransaction();
       }
@@ -9658,7 +10090,55 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             else item.el.removeAttribute("transform");
           }
           if (liveInt.hasMoved) {
-            if (interiorDrag.kind === "shelf") {
+            const dstModIdx = typeof liveInt.destModIdx === "number" ? liveInt.destModIdx : activeModuleIndex;
+            const dstBayIdx = typeof liveInt.destBayIdx === "number" ? liveInt.destBayIdx : interiorDrag.bayIdx;
+            if (dstModIdx !== activeModuleIndex || dstBayIdx !== interiorDrag.bayIdx) {
+              let movedCross = false;
+              const st2d = useConfiguratorStore.getState();
+              st2d.applyBatchProjectUpdate((draft) => {
+                const srcBay = draft.modules[activeModuleIndex]?.bays[interiorDrag.bayIdx];
+                const dstBay = draft.modules[dstModIdx]?.bays[dstBayIdx];
+                if (!srcBay || !dstBay) return;
+                if (interiorDrag.kind === "shelf") {
+                  const idx = srcBay.shelves.findIndex((s) => s.id === interiorDrag.targetId || interiorDrag.targetId.includes(s.id));
+                  if (idx >= 0) {
+                    const [mItem] = srcBay.shelves.splice(idx, 1);
+                    mItem.elevationY = liveInt.snappedY;
+                    dstBay.shelves.push(mItem);
+                    movedCross = true;
+                  }
+                } else if (interiorDrag.kind === "drawer") {
+                  const idx = srcBay.drawers.findIndex((d) => d.id === interiorDrag.targetId || interiorDrag.targetId.includes(d.id));
+                  if (idx >= 0) {
+                    const [mItem] = srcBay.drawers.splice(idx, 1);
+                    mItem.elevationY = liveInt.snappedY;
+                    dstBay.drawers.push(mItem);
+                    movedCross = true;
+                  }
+                } else if (interiorDrag.kind === "rail") {
+                  const idx = srcBay.hangingRails.findIndex((r) => r.id === interiorDrag.targetId || interiorDrag.targetId.includes(r.id));
+                  if (idx >= 0) {
+                    const [mItem] = srcBay.hangingRails.splice(idx, 1);
+                    mItem.elevationY = liveInt.snappedY;
+                    dstBay.hangingRails.push(mItem);
+                    movedCross = true;
+                  }
+                } else if (interiorDrag.kind === "special_fitting" && srcBay.specialFittings) {
+                  const idx = srcBay.specialFittings.findIndex((f) => f.id === interiorDrag.targetId || interiorDrag.targetId.includes(f.id));
+                  if (idx >= 0) {
+                    const [mItem] = srcBay.specialFittings.splice(idx, 1);
+                    mItem.elevationY = liveInt.snappedY;
+                    if (!dstBay.specialFittings) dstBay.specialFittings = [];
+                    dstBay.specialFittings.push(mItem);
+                    movedCross = true;
+                  }
+                }
+              }, "İç eleman bölme değiştirildi");
+              if (movedCross) {
+                if (dstModIdx !== activeModuleIndex) st2d.setActiveModuleIndex(dstModIdx);
+                st2d.setActiveBayIndex(dstBayIdx);
+              }
+            } else if (interiorDrag.kind === "shelf") {
               setShelfElevation(interiorDrag.bayIdx, interiorDrag.targetId, liveInt.snappedY, false);
             } else if (interiorDrag.kind === "drawer") {
               setDrawerPlacement(
@@ -10113,30 +10593,6 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
     });
 
 
-    const [liveAccessoryGhost2D, setLiveAccessoryGhost2D] = useState<{
-      visual: string;
-      id: string;
-      title: string;
-      bayIndex: number;
-      baySvgX: number;
-      bayWidth: number;
-      carcassT: number;
-      plinthH: number;
-      modY: number;
-      elevationY: number;
-      offsetX: number;
-      subBotY?: number;
-      subSpanH?: number;
-    } | null>(null);
-    const elevContainerRef = useRef<HTMLDivElement | null>(null);
-    const elevDropRuntimeRef = useRef<{
-      vb: { x: number; y: number; width: number; height: number };
-      roomOffX: number;
-      roomOffY: number;
-      roomModH: number;
-      mod: typeof activeModule | undefined;
-      addInteriorItemAtElevation: typeof addInteriorItemAtElevation;
-    } | null>(null);
     elevDropRuntimeRef.current =
       mode === "elevation"
         ? {
@@ -10149,308 +10605,6 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
           }
         : null;
 
-    const resolveAccessoryDropTarget2D = useCallback(
-      (
-        clientX: number,
-        clientY: number,
-        accObj: { id: string; title?: string; visual?: string }
-      ) => {
-        const ctx = elevDropRuntimeRef.current;
-        const container = elevContainerRef.current;
-        if (!ctx || !ctx.mod || !container) return null;
-        const svgEl = container.querySelector("svg");
-        const rect = (svgEl || container).getBoundingClientRect();
-        if (
-          clientX < rect.left ||
-          clientX > rect.right ||
-          clientY < rect.top ||
-          clientY > rect.bottom
-        ) {
-          return null;
-        }
-        const relX = Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(1, rect.width)));
-        const relY = Math.max(0, Math.min(1, (clientY - rect.top) / Math.max(1, rect.height)));
-        const svgX = ctx.vb.x + relX * ctx.vb.width;
-        const svgY = ctx.vb.y + relY * ctx.vb.height;
-
-        const mod = ctx.mod;
-        const carcassT = mod.carcass?.panelThickness || 18;
-        const plinthH = mod.carcass?.plinthHeight ?? 100;
-        const netH = calculateNetInnerHeight(mod);
-        const bayWidths = calculateBayWidths(mod);
-
-        const modSvgX = (mod.position?.x || 0) - ctx.roomOffX;
-        const localX = svgX - modSvgX;
-        let targetBayIdx = 0;
-        let accX = carcassT;
-        let bayStartX = carcassT;
-        let curBayWidth = bayWidths[0] || 500;
-        for (let i = 0; i < bayWidths.length; i++) {
-          const bw = bayWidths[i];
-          if (localX >= accX && localX <= accX + bw + carcassT) {
-            targetBayIdx = i;
-            bayStartX = accX;
-            curBayWidth = bw;
-            break;
-          }
-          accX += bw + carcassT;
-        }
-        targetBayIdx = Math.max(0, Math.min(mod.bays.length - 1, targetBayIdx));
-        const localBayX = Math.max(
-          48,
-          Math.min(curBayWidth - 48, Math.round((localX - bayStartX) / 10) * 10)
-        );
-
-        const floorSvgY = ctx.roomModH + ctx.roomOffY;
-        const rawY = floorSvgY - (mod.position?.y || 0) - plinthH - carcassT - svgY;
-        const snappedElevY = Math.max(64, Math.min(netH - 64, Math.round(rawY / 32) * 32));
-        return {
-          bayIndex: targetBayIdx,
-          elevationY: snappedElevY,
-          offsetX: localBayX,
-          baySvgX: modSvgX + bayStartX,
-          bayWidth: curBayWidth,
-          plinthH,
-          accessory: accObj,
-          mod,
-          netH,
-          carcassT,
-        };
-      },
-      []
-    );
-
-    const commitAccessoryDrop2D = useCallback(
-      (
-        dropInfo: {
-          bayIndex: number;
-          elevationY: number;
-          offsetX?: number;
-          accessory: { id: string; title?: string; visual?: string };
-        },
-        modBefore?: typeof activeModule
-      ) => {
-        const ctx = elevDropRuntimeRef.current;
-        if (!ctx) return;
-        const acc = dropInfo.accessory;
-        const bayIdx = dropInfo.bayIndex;
-        const elevY = dropInfo.elevationY;
-        const targetMod = modBefore || ctx.mod;
-        const bayBefore = targetMod?.bays[bayIdx];
-        const isSubDivDrop =
-          acc.id === "lib_sub_divider" ||
-          acc.id === "sub_divider" ||
-          acc.visual === "sub_divider";
-        if (isSubDivDrop && targetMod && bayBefore) {
-          const ivs = getBayShelfIntervalsForSubDivider(
-            bayBefore,
-            calculateNetInnerHeight(targetMod),
-            targetMod.carcass.panelThickness || 18
-          );
-          const freeIvs = ivs.filter((iv) => !iv.hasConflict);
-          if (freeIvs.length === 0) {
-            setPlanRowSnapBanner(
-              `⛔ Bölme ${bayIdx + 1} içinde Askılık/Çekmece var ve boş raf aralığı yok! Önce raf ekleyin veya askılığı kaldırın.`
-            );
-            setTimeout(() => setPlanRowSnapBanner(null), 4200);
-            lastAccessoryDropTarget2DRef.current = null;
-            return;
-          }
-        }
-        ctx.addInteriorItemAtElevation(bayIdx, acc.id, elevY, { offsetX: dropInfo.offsetX });
-        setPlanRowSnapBanner(`✓ ${acc.title || "Parça"} yerleştirildi: Bölme ${bayIdx + 1}`);
-        setTimeout(() => setPlanRowSnapBanner(null), 3500);
-        lastAccessoryDropTarget2DRef.current = null;
-      },
-      []
-    );
-
-    useEffect(() => {
-      if (mode !== "elevation") return;
-      const onLiveMove = (ev: Event) => {
-        const detail = (ev as CustomEvent<{
-          id: string;
-          title: string;
-          visual: string;
-          clientX: number;
-          clientY: number;
-        }>).detail;
-        if (!detail) return;
-        const res = resolveAccessoryDropTarget2D(detail.clientX, detail.clientY, {
-          id: detail.id,
-          title: detail.title,
-          visual: detail.visual,
-        });
-        if (!res) {
-          lastAccessoryDropTarget2DRef.current = null;
-          setLiveAccessoryGhost2D(null);
-          window.dispatchEvent(new CustomEvent("birim:live-part-snapped-in-bay", { detail: { active: false } }));
-          setPlanRowSnapBanner(null);
-          return;
-        }
-        window.dispatchEvent(new CustomEvent("birim:live-part-snapped-in-bay", { detail: { active: true } }));
-        const isSubDivAcc =
-          detail.id === "lib_sub_divider" ||
-          detail.id === "sub_divider" ||
-          detail.visual === "sub_divider";
-        if (isSubDivAcc && res.mod.bays[res.bayIndex]) {
-          const ivs = getBayShelfIntervalsForSubDivider(
-            res.mod.bays[res.bayIndex],
-            res.netH,
-            res.carcassT
-          );
-          const hoveredIv = ivs.find(
-            (iv) => res.elevationY >= iv.botY && res.elevationY <= iv.topY
-          );
-          const freeIvs = ivs.filter((iv) => !iv.hasConflict);
-          const chosenIv =
-            (hoveredIv && !hoveredIv.hasConflict ? hoveredIv : null) ||
-            (freeIvs.length > 0
-              ? freeIvs.reduce((best, iv) =>
-                  Math.abs((iv.botY + iv.topY) / 2 - res.elevationY) <
-                  Math.abs((best.botY + best.topY) / 2 - res.elevationY)
-                    ? iv
-                    : best
-                )
-              : hoveredIv);
-          if (chosenIv) {
-            const subMidY = Math.round((chosenIv.botY + chosenIv.topY) / 2);
-            lastAccessoryDropTarget2DRef.current = {
-              bayIndex: res.bayIndex,
-              elevationY: subMidY,
-              offsetX: res.offsetX,
-              accessory: res.accessory,
-            };
-            setLiveAccessoryGhost2D({
-              visual: detail.visual || "sub_divider",
-              id: detail.id,
-              title: detail.title || "Raf Arası Dikme",
-              bayIndex: res.bayIndex,
-              baySvgX: res.baySvgX,
-              bayWidth: res.bayWidth,
-              carcassT: res.carcassT,
-              plinthH: res.plinthH,
-              modY: res.mod.position?.y || 0,
-              elevationY: subMidY,
-              offsetX: res.offsetX,
-              subBotY: chosenIv.botY,
-              subSpanH: Math.max(80, chosenIv.height),
-            });
-            setPlanRowSnapBanner(
-              hoveredIv?.hasConflict
-                ? `⚠️ Bu aralıkta ${hoveredIv.conflictReason}! Boş raf aralığına (${chosenIv.label}) hizalandı • X: ${res.offsetX}mm`
-                : `📐 Raf Arası Dikme • Bölme ${res.bayIndex + 1} (${chosenIv.label}) • X: ${res.offsetX}mm`
-            );
-            return;
-          }
-        }
-        lastAccessoryDropTarget2DRef.current = {
-          bayIndex: res.bayIndex,
-          elevationY: res.elevationY,
-          offsetX: res.offsetX,
-          accessory: res.accessory,
-        };
-        setLiveAccessoryGhost2D({
-          visual: detail.visual || "shelf",
-          id: detail.id,
-          title: detail.title || "Parça",
-          bayIndex: res.bayIndex,
-          baySvgX: res.baySvgX,
-          bayWidth: res.bayWidth,
-          carcassT: res.carcassT,
-          plinthH: res.plinthH,
-          modY: res.mod.position?.y || 0,
-          elevationY: res.elevationY,
-          offsetX: res.offsetX,
-        });
-        setPlanRowSnapBanner(
-          `📐 ${detail.title || "Parça"} • Bölme ${res.bayIndex + 1} • Y: ${res.elevationY} mm`
-        );
-      };
-
-      const onLiveDrop = (ev: Event) => {
-        const detail = (ev as CustomEvent<{
-          id: string;
-          title: string;
-          visual: string;
-          clientX: number;
-          clientY: number;
-        }>).detail;
-        setLiveAccessoryGhost2D(null);
-        if (!detail) return;
-        const res = resolveAccessoryDropTarget2D(detail.clientX, detail.clientY, {
-          id: detail.id,
-          title: detail.title,
-          visual: detail.visual,
-        });
-        if (!res) return;
-        const target = lastAccessoryDropTarget2DRef.current || {
-          bayIndex: res.bayIndex,
-          elevationY: res.elevationY,
-          offsetX: res.offsetX,
-          accessory: res.accessory,
-        };
-        commitAccessoryDrop2D(target, res.mod);
-      };
-
-      const onLiveCancel = () => {
-        lastAccessoryDropTarget2DRef.current = null;
-        setLiveAccessoryGhost2D(null);
-        setPlanRowSnapBanner(null);
-      };
-
-      window.addEventListener("birim:live-3d-part-move", onLiveMove);
-      window.addEventListener("birim:live-3d-part-drop", onLiveDrop);
-      window.addEventListener("birim:live-3d-part-cancel", onLiveCancel);
-      return () => {
-        window.removeEventListener("birim:live-3d-part-move", onLiveMove);
-        window.removeEventListener("birim:live-3d-part-drop", onLiveDrop);
-        window.removeEventListener("birim:live-3d-part-cancel", onLiveCancel);
-      };
-    }, [mode, resolveAccessoryDropTarget2D, commitAccessoryDrop2D]);
-
-    useEffect(() => {
-      const onMaterialDrop2D = (ev: Event) => {
-        const detail = (
-          ev as CustomEvent<{ materialId: string; materialName?: string; clientX: number; clientY: number }>
-        ).detail;
-        if (!detail?.materialId || typeof document === "undefined") return;
-        const container = elevContainerRef.current;
-        if (container) {
-          const r = container.getBoundingClientRect();
-          if (
-            detail.clientX < r.left ||
-            detail.clientX > r.right ||
-            detail.clientY < r.top ||
-            detail.clientY > r.bottom
-          ) {
-            return;
-          }
-        }
-        const els = document.elementsFromPoint(detail.clientX, detail.clientY);
-        for (const el of els) {
-          const tid = el.closest("[data-testid]")?.getAttribute("data-testid") || "";
-          if (tid.startsWith("cad-el-")) {
-            const compId = tid.slice("cad-el-".length);
-            applyMaterialToSimilarComponents(detail.materialId, compId, "single");
-            setPlanRowSnapBanner(`✓ Malzeme atandı: ${detail.materialName || detail.materialId}`);
-            setTimeout(() => setPlanRowSnapBanner(null), 2400);
-            return;
-          }
-          if (tid.startsWith("elev-scene-object-") || tid.startsWith("plan-scene-object-")) {
-            const soId = tid.replace(/^elev-scene-object-|^plan-scene-object-/, "");
-            (updateSceneObject as (id: string, p: Record<string, unknown>) => void)(soId, {
-              materialId: detail.materialId,
-            });
-            setPlanRowSnapBanner(`✓ Malzeme atandı: ${detail.materialName || detail.materialId}`);
-            setTimeout(() => setPlanRowSnapBanner(null), 2400);
-            return;
-          }
-        }
-      };
-      window.addEventListener("birim:live-material-drop", onMaterialDrop2D);
-      return () => window.removeEventListener("birim:live-material-drop", onMaterialDrop2D);
-    }, [applyMaterialToSimilarComponents, updateSceneObject]);
 
     const handleElevDragOver = (e: React.DragEvent<HTMLDivElement>) => {
       if (mode !== "elevation") return;
@@ -10832,6 +10986,17 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             <span>↺</span>
             <span className="sr-only">Sıfırla</span>
           </button>
+          <div className="h-4 w-px bg-white/15 mx-0.5" />
+          <button
+            type="button"
+            data-testid="elev-print-a4-btn"
+            onClick={() => printActive2DCadSheet("elevation")}
+            title="2B Teknik Görünüş Paftasını A4 Yatay Olarak Yazdır / PDF Kaydet"
+            className="h-7 px-2.5 rounded-xl hover:bg-white/15 text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+          >
+            <span>🖨</span>
+            <span>Yazdır</span>
+          </button>
         </div>
         )}
 
@@ -10905,6 +11070,39 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             <pattern id="v3_elev_grid" width="100" height="100" patternUnits="userSpaceOnUse">
               <path d="M 100 0 L 0 0 0 100" fill="none" stroke="#CCC7BC" strokeWidth="1.4" />
             </pattern>
+            {/* Realistic Metallic Chrome Gradients for 2D Front Elevation Hanging Rails */}
+            <linearGradient id="v3_chrome_rail_grad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#475569" />
+              <stop offset="18%" stopColor="#CBD5E1" />
+              <stop offset="34%" stopColor="#FFFFFF" />
+              <stop offset="50%" stopColor="#E2E8F0" />
+              <stop offset="74%" stopColor="#94A3B8" />
+              <stop offset="92%" stopColor="#475569" />
+              <stop offset="100%" stopColor="#334155" />
+            </linearGradient>
+            <linearGradient id="v3_chrome_rail_selected_grad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#1D4ED8" />
+              <stop offset="18%" stopColor="#93C5FD" />
+              <stop offset="34%" stopColor="#EFF6FF" />
+              <stop offset="52%" stopColor="#BFDBFE" />
+              <stop offset="76%" stopColor="#60A5FA" />
+              <stop offset="92%" stopColor="#2563EB" />
+              <stop offset="100%" stopColor="#1E3A8A" />
+            </linearGradient>
+            <linearGradient id="v3_chrome_rail_drag_grad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#C2410C" />
+              <stop offset="20%" stopColor="#FDBA74" />
+              <stop offset="36%" stopColor="#FFF7ED" />
+              <stop offset="54%" stopColor="#FED7AA" />
+              <stop offset="78%" stopColor="#FB923C" />
+              <stop offset="100%" stopColor="#EA580C" />
+            </linearGradient>
+            <linearGradient id="v3_chrome_flange_grad" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor="#334155" />
+              <stop offset="35%" stopColor="#CBD5E1" />
+              <stop offset="58%" stopColor="#F8FAFC" />
+              <stop offset="100%" stopColor="#475569" />
+            </linearGradient>
           </defs>
 
           <rect
@@ -10959,7 +11157,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   fill="#44403C"
                   fontSize="28"
                   fontWeight="800"
-                  fontFamily="monospace"
+                  fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                 >
                   {`🏠 DUVAR CEPHESİ: ${formatElevationValue(mainWallLen, elevDisplayUnit)} × Tavan ${formatElevationValue(ceilingH, elevDisplayUnit)} (Zemin Y: 0)`}
                 </text>
@@ -11114,7 +11312,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                           fill="#FFFFFF"
                           fontSize="24"
                           fontWeight="800"
-                          fontFamily="monospace"
+                          fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                         >
                           {`🪟 ${obs.name} (Denizlik Y:${formatElevationValue(oyBottom, elevDisplayUnit)})`}
                         </text>
@@ -11167,7 +11365,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                           fill="#38BDF8"
                           fontSize="23"
                           fontWeight="800"
-                          fontFamily="monospace"
+                          fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                         >
                           {`🚰 TESİSAT AKSI X:${formatElevationValue(obs.position.x + ow / 2, elevDisplayUnit)} • Y:${formatElevationValue(oyBottom, elevDisplayUnit)}`}
                         </text>
@@ -11207,7 +11405,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                           fill="#FDE68A"
                           fontSize="21"
                           fontWeight="800"
-                          fontFamily="monospace"
+                          fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                         >
                           {`⚡ ${obs.name} (X:${formatElevationValue(obs.position.x, elevDisplayUnit)} • Kot Y:${formatElevationValue(oyBottom, elevDisplayUnit)})`}
                         </text>
@@ -11376,7 +11574,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                           fill="#FEF08A"
                           fontSize="22"
                           fontWeight="800"
-                          fontFamily="monospace"
+                          fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                         >
                           {`🚪 ${obs.name} (${isRightSwing ? "SAĞ" : "SOL"} • ${obs.doorOpenSide === "outward" ? "DIŞA" : "İÇE"} • ${formatElevationValue(ow, elevDisplayUnit, false)}×${formatElevationValue(oh, elevDisplayUnit)})`}
                         </text>
@@ -11398,17 +11596,37 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         strokeWidth="5"
                         strokeDasharray={obs.type === "beam" ? "12 6" : undefined}
                       />
-                      <text
-                        x={ox + ow / 2}
-                        y={oySvg + oh / 2}
-                        textAnchor="middle"
-                        fill="#1C1917"
-                        fontSize="24"
-                        fontWeight="800"
-                        fontFamily="monospace"
-                      >
-                        {`🏛️ ${obs.name} (X:${obs.position.x})`}
-                      </text>
+                      {(() => {
+                        const colTxt = `🏛️ ${obs.name} (X:${obs.position.x})`;
+                        const colPillW = Math.max(260, Math.round(colTxt.length * 14.5 * elevLabelScale * 0.65));
+                        const colPillH = Math.round(38 * Math.min(1.45, Math.max(1, elevLabelScale * 0.75)));
+                        return (
+                          <g pointerEvents="none">
+                            <rect
+                              x={ox + ow / 2 - colPillW / 2}
+                              y={oySvg + oh / 2 - colPillH / 2}
+                              width={colPillW}
+                              height={colPillH}
+                              rx={Math.round(colPillH / 2)}
+                              fill="#0F172A"
+                              fillOpacity="0.93"
+                              stroke="#64748B"
+                              strokeWidth="2"
+                            />
+                            <text
+                              x={ox + ow / 2}
+                              y={oySvg + oh / 2 + Math.round(colPillH * 0.22)}
+                              textAnchor="middle"
+                              fill="#F8FAFC"
+                              fontSize={Math.round(colPillH * 0.52)}
+                              fontWeight="700"
+                              fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
+                            >
+                              {colTxt}
+                            </text>
+                          </g>
+                        );
+                      })()}
                     </g>
                   );
                 })}
@@ -11444,12 +11662,12 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 {/* Active Module Selection Banner in 2D Elevation */}
                 {hasSceneModules && (() => {
                   const rawTitle = activeModule.name.replace(/^V4\s+/i, "");
-                  const shortTitle = truncateCadLabel(rawTitle, breakdown.overall.width, 14);
-                  const haloText = `★ #${activeModuleIndex + 1}: ${shortTitle}`;
-                  const haloFs = Math.round(24 * elevLabelScale);
-                  const haloH = Math.round(48 * elevLabelScale);
-                  const haloW = Math.max(Math.round(280 * elevLabelScale), Math.round(haloText.length * haloFs * 0.62 + 44));
-                  const haloY = -125 - haloH;
+                  const shortTitle = truncateCadLabel(rawTitle, breakdown.overall.width, 16);
+                  const haloText = `#${activeModuleIndex + 1} · ${shortTitle}`;
+                  const haloFs = Math.round(20 * elevLabelScale);
+                  const haloH = Math.round(42 * elevLabelScale);
+                  const haloW = Math.max(Math.round(260 * elevLabelScale), Math.round(haloText.length * haloFs * 0.68 + 72));
+                  const haloY = -68 - haloH;
                   return (
                   <g ref={activeHaloGroupRef} data-testid="elev-active-mod-selection-halo" transform={activeModTransform || ""}>
                     <g
@@ -11476,19 +11694,21 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         y={haloY}
                         width={haloW}
                         height={haloH}
-                        rx={Math.round(12 * elevLabelScale)}
-                        fill={elevDraggingMod ? "#D97706" : "#2563EB"}
-                        stroke="#FFFFFF"
-                        strokeWidth="3.5"
+                        rx={Math.round(haloH / 2)}
+                        fill={elevDraggingMod ? "#B45309" : "#1E293B"}
+                        fillOpacity="0.94"
+                        stroke={elevDraggingMod ? "#FDE68A" : "#38BDF8"}
+                        strokeWidth="2.4"
                       />
                       <text
                         x={breakdown.overall.width / 2}
-                        y={haloY + haloH * 0.68}
+                        y={haloY + haloH * 0.66}
                         textAnchor="middle"
-                        fill="#FFFFFF"
+                        fill="#F8FAFC"
                         fontSize={haloFs}
-                        fontWeight="900"
-                        fontFamily="monospace"
+                        fontWeight="600"
+                        letterSpacing="0.8"
+                        fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                       >
                         {haloText}
                       </text>
@@ -11563,7 +11783,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                             fill="#FFFFFF"
                             fontSize="23"
                             fontWeight="900"
-                            fontFamily="monospace"
+                            fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                           >
                             {`⚠️ ${al.title.startsWith("ERR_") || al.title.startsWith("WARN_") || al.title.startsWith("CHK_") ? formatIssueHumanTitle(al.title) : al.title}`}
                           </text>
@@ -11604,7 +11824,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                             fill="#FFFFFF"
                             fontSize="22"
                             fontWeight="800"
-                            fontFamily="monospace"
+                            fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                           >
                             {`🧲 SNAP X:${slot.x}mm`}
                           </text>
@@ -11703,7 +11923,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                             fill="#ECFDF5"
                             fontSize="26"
                             fontWeight="800"
-                            fontFamily="monospace"
+                            fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                           >
                             {`SİLUET: ${gm.name} (${gw}×${gh})`}
                           </text>
@@ -11764,7 +11984,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         fill="#FFFFFF"
                         fontSize="20"
                         fontWeight="800"
-                        fontFamily="monospace"
+                        fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                       >
                         {isSubDiv ? `${g.title} X:${g.offsetX}mm` : `${g.title} Y:${g.elevationY}mm`}
                       </text>
@@ -12079,9 +12299,9 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       fill="#FFFBEB"
                       fontSize="11"
                       fontWeight="800"
-                      fontFamily="monospace"
+                      fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                     >
-                      SABİT
+                      ●
                     </text>
                   </g>
                 )}
@@ -12103,7 +12323,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     fill="#7C2D12"
                     fontSize="18"
                     fontWeight="800"
-                    fontFamily="monospace"
+                    fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                     className="pointer-events-none"
                   >
                     {sectionDirection2D === "Z" ? "← Çekmece Arkalığı (16mm)" : "Çekmece Arkalığı"}
@@ -12128,7 +12348,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         fill="#44403C"
                         fontSize="20"
                         fontWeight="700"
-                        fontFamily="monospace"
+                        fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                       >
                         {`BAZA H:${formatElevationValue(activeModule.carcass.plinthHeight, elevDisplayUnit)}`}
                       </text>
@@ -12171,7 +12391,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   >
                     <rect
                       x={el.x + el.width / 2 - Math.max(isActiveDrag ? 110 : 0, Math.min(195, el.width * 0.48))}
-                      y={isShelf ? el.y - 46 : el.y + el.height / 2 - 22}
+                      y={isShelf ? el.y - 46 : el.y + Math.round(el.height * 0.76) - 21}
                       width={Math.max(isActiveDrag ? 220 : 0, Math.min(390, el.width * 0.96))}
                       height={42}
                       rx={10}
@@ -12182,18 +12402,18 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                           ? "#1D4ED8"
                           : isShelf && el.label.includes("Sabit")
                           ? "#6B4F28"
-                          : "#1C1917"
+                          : "#0F172A"
                       }
                       opacity={0.94}
                     />
                     <text
                       x={el.x + el.width / 2}
-                      y={isShelf ? el.y - 18 : el.y + el.height / 2 + 6}
+                      y={isShelf ? el.y - 18 : el.y + Math.round(el.height * 0.76) + 7}
                       textAnchor="middle"
                       fill="#FFFFFF"
                       fontSize="23"
                       fontWeight="700"
-                      fontFamily="monospace"
+                      fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                     >
                       {truncateCadLabel(
                         isShelf
@@ -12273,7 +12493,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                             fill="#38BDF8"
                             fontSize={Math.round(20 * elevLabelScale)}
                             fontWeight="800"
-                            fontFamily="monospace"
+                            fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                           >
                             {`${isHettich ? "Hettich" : isSalice ? "Salice" : "Blum"} ${el.label.match(/\(Y:\d+mm\)/)?.[0] || ""}`}
                           </text>
@@ -12471,7 +12691,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                             fill="#ECFDF5"
                             fontSize="19"
                             fontWeight="800"
-                            fontFamily="monospace"
+                            fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                           >
                             {truncateCadLabel(`🛠️ ${lbl}`, el.width * 0.9, 12)}
                           </text>
@@ -12501,7 +12721,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       fill="#FFFFFF"
                       fontSize="22"
                       fontWeight="800"
-                      fontFamily="monospace"
+                      fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                     >
                       {isSubDivider
                         ? `✥ Raf Dikme (${formatElevationValue(dragMeta?.startVal ?? 0, elevDisplayUnit)})`
@@ -12564,56 +12784,218 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 }}
                 className="group/el cursor-ns-resize"
               >
-                <rect
-                  x={rail.position.x}
-                  y={svgY - 22}
-                  width={rail.dimensions.width}
-                  height={65}
-                  fill="transparent"
-                />
-                <rect
-                  x={rail.position.x + 4}
-                  y={svgY}
-                  width={Math.max(10, rail.dimensions.width - 8)}
-                  height={24}
-                  rx={8}
-                  fill={isRailDragging ? "#FDBA74" : isRailSelected ? "#93C5FD" : "#94A3B8"}
-                  stroke={isRailDragging ? "#EA580C" : isRailSelected ? "#2563EB" : "#111827"}
-                  strokeWidth={isRailSelected || isRailDragging ? "4.5" : "3"}
-                />
-                {rail.dimensions.width > 140 && (
-                  <g
-                    className={`pointer-events-none transition-opacity duration-75 ${
-                      railVis.showInteriorItemLabel ? "opacity-100" : "opacity-0 group-hover/el:opacity-100"
-                    }`}
-                  >
-                    <rect
-                      x={rail.position.x + rail.dimensions.width / 2 - Math.min(140, rail.dimensions.width * 0.46)}
-                      y={svgY - 44}
-                      width={Math.min(280, rail.dimensions.width * 0.92)}
-                      height={40}
-                      rx={10}
-                      fill={isRailDragging ? "#EA580C" : isRailSelected ? "#1D4ED8" : "#0F172A"}
-                      opacity={0.92}
-                    />
-                    <text
-                      x={rail.position.x + rail.dimensions.width / 2}
-                      y={svgY - 17}
-                      textAnchor="middle"
-                      fill="#FFFFFF"
-                      fontSize="22"
-                      fontWeight="700"
-                      fontFamily="monospace"
-                      pointerEvents="none"
-                    >
-                      {truncateCadLabel(
-                        `↕ Askı (Y:${formatElevationValue(elevY, elevDisplayUnit)})`,
-                        rail.dimensions.width * 0.88,
-                        13
+                {(() => {
+                  const rx0 = rail.position.x;
+                  const rw = Math.max(24, rail.dimensions.width);
+                  const rodH = 26;
+                  const rodY = svgY;
+                  const plateW = Math.min(7, rw * 0.04);
+                  const socketW = Math.min(15, rw * 0.07);
+                  const rodX = rx0 + plateW + socketW - 2;
+                  const rodW = Math.max(10, rw - 2 * (plateW + socketW - 2));
+                  const hasCenterSupport = rw >= 850;
+                  const railFill = isRailDragging
+                    ? "url(#v3_chrome_rail_drag_grad)"
+                    : isRailSelected
+                      ? "url(#v3_chrome_rail_selected_grad)"
+                      : "url(#v3_chrome_rail_grad)";
+                  const railStroke = isRailDragging
+                    ? "#C2410C"
+                    : isRailSelected
+                      ? "#1D4ED8"
+                      : "#334155";
+                  const flangeStroke = isRailDragging
+                    ? "#9A3412"
+                    : isRailSelected
+                      ? "#1E40AF"
+                      : "#334155";
+                  const badgeW = Math.min(288, rw * 0.9);
+                  const badgeCenterX = hasCenterSupport ? rx0 + rw * 0.28 : rx0 + rw / 2;
+                  const clampedBadgeX = Math.max(
+                    rx0 + 8,
+                    Math.min(rx0 + rw - badgeW - 8, badgeCenterX - badgeW / 2)
+                  );
+                  return (
+                    <>
+                      {/* Generous invisible hit area for effortless vertical drag */}
+                      <rect
+                        x={rx0}
+                        y={rodY - 26}
+                        width={rw}
+                        height={76}
+                        fill="transparent"
+                      />
+                      {/* Subtle underside ambient shadow */}
+                      <rect
+                        x={rodX + 2}
+                        y={rodY + 5}
+                        width={rodW - 4}
+                        height={rodH}
+                        rx={rodH / 2}
+                        fill="#0F172A"
+                        opacity={0.18}
+                        pointerEvents="none"
+                      />
+                      {/* Center vertical chrome support bracket for wide wardrobe spans (>= 850 mm) */}
+                      {hasCenterSupport && (
+                        <g pointerEvents="none">
+                          <rect
+                            x={rx0 + rw / 2 - 14}
+                            y={rodY - 46}
+                            width={28}
+                            height={6}
+                            rx={2}
+                            fill="url(#v3_chrome_flange_grad)"
+                            stroke={flangeStroke}
+                            strokeWidth="1.6"
+                          />
+                          <rect
+                            x={rx0 + rw / 2 - 4}
+                            y={rodY - 40}
+                            width={8}
+                            height={40}
+                            fill="url(#v3_chrome_flange_grad)"
+                            stroke={flangeStroke}
+                            strokeWidth="1.6"
+                          />
+                        </g>
                       )}
-                    </text>
-                  </g>
-                )}
+                      {/* Main cylindrical oval chrome wardrobe hanging rod */}
+                      <rect
+                        x={rodX}
+                        y={rodY}
+                        width={rodW}
+                        height={rodH}
+                        rx={rodH / 2}
+                        fill={railFill}
+                        stroke={railStroke}
+                        strokeWidth={isRailSelected || isRailDragging ? "3.2" : "2.2"}
+                      />
+                      {/* Crisp upper specular chrome highlight */}
+                      <line
+                        x1={rodX + 10}
+                        y1={rodY + 6.5}
+                        x2={rodX + rodW - 10}
+                        y2={rodY + 6.5}
+                        stroke="#FFFFFF"
+                        strokeOpacity={0.82}
+                        strokeWidth="2.6"
+                        strokeLinecap="round"
+                        pointerEvents="none"
+                      />
+                      {/* Subtle underside metallic reflection line */}
+                      <line
+                        x1={rodX + 10}
+                        y1={rodY + rodH - 5.5}
+                        x2={rodX + rodW - 10}
+                        y2={rodY + rodH - 5.5}
+                        stroke="#0F172A"
+                        strokeOpacity={0.28}
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                        pointerEvents="none"
+                      />
+                      {/* Center support ring collar gripping the rod */}
+                      {hasCenterSupport && (
+                        <rect
+                          x={rx0 + rw / 2 - 9}
+                          y={rodY - 3}
+                          width={18}
+                          height={rodH + 6}
+                          rx={4}
+                          fill="url(#v3_chrome_flange_grad)"
+                          stroke={flangeStroke}
+                          strokeWidth="1.8"
+                          pointerEvents="none"
+                        />
+                      )}
+                      {/* Left wall-mount flange bracket (flanş taşıyıcı + vidalar) */}
+                      <g pointerEvents="none">
+                        <rect
+                          x={rx0}
+                          y={rodY - 12}
+                          width={plateW}
+                          height={rodH + 24}
+                          rx={2}
+                          fill="url(#v3_chrome_flange_grad)"
+                          stroke={flangeStroke}
+                          strokeWidth="1.8"
+                        />
+                        <circle cx={rx0 + plateW / 2} cy={rodY - 6} r={1.9} fill="#1E293B" />
+                        <circle cx={rx0 + plateW / 2} cy={rodY + rodH + 6} r={1.9} fill="#1E293B" />
+                        <rect
+                          x={rx0 + plateW - 1}
+                          y={rodY - 3.5}
+                          width={socketW}
+                          height={rodH + 7}
+                          rx={3.5}
+                          fill="url(#v3_chrome_flange_grad)"
+                          stroke={flangeStroke}
+                          strokeWidth="1.8"
+                        />
+                      </g>
+                      {/* Right wall-mount flange bracket (flanş taşıyıcı + vidalar) */}
+                      <g pointerEvents="none">
+                        <rect
+                          x={rx0 + rw - plateW}
+                          y={rodY - 12}
+                          width={plateW}
+                          height={rodH + 24}
+                          rx={2}
+                          fill="url(#v3_chrome_flange_grad)"
+                          stroke={flangeStroke}
+                          strokeWidth="1.8"
+                        />
+                        <circle cx={rx0 + rw - plateW / 2} cy={rodY - 6} r={1.9} fill="#1E293B" />
+                        <circle cx={rx0 + rw - plateW / 2} cy={rodY + rodH + 6} r={1.9} fill="#1E293B" />
+                        <rect
+                          x={rx0 + rw - plateW - socketW + 1}
+                          y={rodY - 3.5}
+                          width={socketW}
+                          height={rodH + 7}
+                          rx={3.5}
+                          fill="url(#v3_chrome_flange_grad)"
+                          stroke={flangeStroke}
+                          strokeWidth="1.8"
+                        />
+                      </g>
+                      {/* Clean non-overlapping elevation badge */}
+                      {rw > 140 && (
+                        <g
+                          className={`pointer-events-none transition-opacity duration-75 ${
+                            railVis.showInteriorItemLabel ? "opacity-100" : "opacity-0 group-hover/el:opacity-100"
+                          }`}
+                        >
+                          <rect
+                            x={clampedBadgeX}
+                            y={rodY - 52}
+                            width={badgeW}
+                            height={40}
+                            rx={10}
+                            fill={isRailDragging ? "#EA580C" : isRailSelected ? "#1D4ED8" : "#0F172A"}
+                            opacity={0.94}
+                          />
+                          <text
+                            x={clampedBadgeX + badgeW / 2}
+                            y={rodY - 25}
+                            textAnchor="middle"
+                            fill="#FFFFFF"
+                            fontSize="22"
+                            fontWeight="700"
+                            fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
+                            pointerEvents="none"
+                          >
+                            {truncateCadLabel(
+                              `↕ Askı (Y:${formatElevationValue(elevY, elevDisplayUnit)})`,
+                              badgeW - 18,
+                              13
+                            )}
+                          </text>
+                        </g>
+                      )}
+                    </>
+                  );
+                })()}
               </g>
             );
           })}
@@ -12681,7 +13063,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     fill="#FFFFFF"
                     fontSize="24"
                     fontWeight="800"
-                    fontFamily="monospace"
+                    fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                   >
                     {badgeText}
                   </text>
@@ -12746,7 +13128,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       fill="#7C2D12"
                       fontSize="36"
                       fontWeight="800"
-                      fontFamily="monospace"
+                      fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                     >
                       {dimText}
                     </text>
@@ -12787,7 +13169,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         fill="#7C2D12"
                         fontSize="36"
                         fontWeight="800"
-                        fontFamily="monospace"
+                        fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                       >
                         {dimText}
                       </text>
@@ -12798,10 +13180,9 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             );
           })}
 
-          {/* 4-EDGE PARAMETRIC RESIZE HANDLES IN 2D ELEVATION (Visible in Selected & Technical modes) */}
+          {/* V74: 4-EDGE PARAMETRIC RESIZE HANDLES IN 2D ELEVATION — ALWAYS ACTIVE ON SELECTED MODULE! */}
           {hasSceneModules &&
-            mode === "elevation" &&
-            (elevDetailLevel !== "clean" || Boolean(elevResizingMod)) && (
+            mode === "elevation" && (
             <g data-testid="elev-parametric-4edge-resize-handles">
               <rect
                 x={-10}
@@ -12838,26 +13219,36 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 }}
                 className="cursor-ns-resize"
               >
+                {/* Full top-edge invisible grab zone so dragging anywhere along the top edge resizes height */}
                 <rect
-                  x={breakdown.overall.width / 2 - Math.round(135 * elevLabelScale)}
-                  y={-Math.round(14 * elevLabelScale)}
-                  width={Math.round(270 * elevLabelScale)}
-                  height={Math.round(38 * elevLabelScale)}
-                  rx={Math.round(10 * elevLabelScale)}
-                  fill="#0284C7"
-                  stroke="#FFFFFF"
-                  strokeWidth="3.5"
+                  x={24}
+                  y={-28}
+                  width={Math.max(80, breakdown.overall.width - 48)}
+                  height={56}
+                  fill="transparent"
+                />
+                <rect
+                  x={breakdown.overall.width / 2 - Math.round(118 * elevLabelScale)}
+                  y={-Math.round(18 * elevLabelScale)}
+                  width={Math.round(236 * elevLabelScale)}
+                  height={Math.round(36 * elevLabelScale)}
+                  rx={Math.round(18 * elevLabelScale)}
+                  fill="#0F172A"
+                  fillOpacity="0.94"
+                  stroke="#38BDF8"
+                  strokeWidth="2.4"
                 />
                 <text
                   x={breakdown.overall.width / 2}
-                  y={Math.round(12 * elevLabelScale)}
+                  y={Math.round(6 * elevLabelScale)}
                   textAnchor="middle"
-                  fill="#FFFFFF"
-                  fontSize={Math.round(21 * elevLabelScale)}
-                  fontWeight="900"
-                  fontFamily="monospace"
+                  fill="#E0F2FE"
+                  fontSize={Math.round(18 * elevLabelScale)}
+                  fontWeight="700"
+                  letterSpacing="0.5"
+                  fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                 >
-                  ▲ BOY ({formatElevationValue(activeModule.dimensions.height, elevDisplayUnit)})
+                  ▲ {formatElevationValue(activeModule.dimensions.height, elevDisplayUnit)}
                 </text>
               </g>
 
@@ -12884,26 +13275,36 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 }}
                 className="cursor-ns-resize"
               >
+                {/* Full bottom-edge invisible grab zone so dragging anywhere along the bottom edge resizes */}
                 <rect
-                  x={breakdown.overall.width / 2 - Math.round(115 * elevLabelScale)}
-                  y={breakdown.overall.height - Math.round(14 * elevLabelScale)}
-                  width={Math.round(230 * elevLabelScale)}
-                  height={Math.round(42 * elevLabelScale)}
-                  rx={Math.round(10 * elevLabelScale)}
-                  fill="#0284C7"
-                  stroke="#FFFFFF"
-                  strokeWidth="3.5"
+                  x={24}
+                  y={breakdown.overall.height - 28}
+                  width={Math.max(80, breakdown.overall.width - 48)}
+                  height={56}
+                  fill="transparent"
+                />
+                <rect
+                  x={breakdown.overall.width / 2 - Math.round(118 * elevLabelScale)}
+                  y={breakdown.overall.height - Math.round(18 * elevLabelScale)}
+                  width={Math.round(236 * elevLabelScale)}
+                  height={Math.round(36 * elevLabelScale)}
+                  rx={Math.round(18 * elevLabelScale)}
+                  fill="#0F172A"
+                  fillOpacity="0.94"
+                  stroke="#38BDF8"
+                  strokeWidth="2.4"
                 />
                 <text
                   x={breakdown.overall.width / 2}
-                  y={breakdown.overall.height + Math.round(14 * elevLabelScale)}
+                  y={breakdown.overall.height + Math.round(6 * elevLabelScale)}
                   textAnchor="middle"
-                  fill="#FFFFFF"
-                  fontSize={Math.round(21 * elevLabelScale)}
-                  fontWeight="900"
-                  fontFamily="monospace"
+                  fill="#E0F2FE"
+                  fontSize={Math.round(18 * elevLabelScale)}
+                  fontWeight="700"
+                  letterSpacing="0.5"
+                  fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                 >
-                  ▼ ALT KOT / BOY
+                  {`▼ ${formatElevationValue(activeModule.dimensions.height, elevDisplayUnit)}`}
                 </text>
               </g>
 
@@ -12930,6 +13331,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 }}
                 className="cursor-ew-resize"
               >
+                <rect x={-28} y={24} width={56} height={Math.max(80, breakdown.overall.height - 48)} fill="transparent" />
                 <rect
                   x={-26}
                   y={breakdown.overall.height / 2 - 42}
@@ -13155,7 +13557,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     fill="#FFFFFF"
                     fontSize={snapFs}
                     fontWeight="900"
-                    fontFamily="monospace"
+                    fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                   />
                 </g>
                 <g ref={snapYGroupRef} style={{ display: "none" }}>
@@ -13189,7 +13591,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     fill="#FFFFFF"
                     fontSize={snapFs}
                     fontWeight="900"
-                    fontFamily="monospace"
+                    fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                   />
                 </g>
               </g>

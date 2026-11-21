@@ -300,28 +300,42 @@ export const ElevationCeilingSectionSvg: React.FC<{
           strokeWidth="4"
           strokeDasharray={gapMm < 0 ? undefined : "8 6"}
         />
-        <rect
-          x={modCenterSvgX - 185}
-          y={(clearLineSvgY + modTopSvgY) / 2 - 22}
-          width={370}
-          height={44}
-          rx={10}
-          fill={gapMm < 0 ? "#991B1B" : gapMm < 15 ? "#92400E" : "#0369A1"}
-          opacity={0.95}
-        />
-        <text
-          x={modCenterSvgX}
-          y={(clearLineSvgY + modTopSvgY) / 2 + 7}
-          textAnchor="middle"
-          fill="#FFFFFF"
-          fontSize="21"
-          fontWeight="800"
-          fontFamily="monospace"
-        >
-          {gapMm < 0
-            ? `⚠ TAVAN ÇAKIŞMASI: ${gapMm}mm`
-            : `↕ Tavan Boşluğu: ${gapMm}mm`}
-        </text>
+        {(() => {
+          const zScale = Math.max(1.2, Math.min(2.4, Math.max(2200, mainWallLen) / 1600));
+          const bw = Math.round(310 * zScale);
+          const bh = Math.round(38 * zScale);
+          const bfs = Math.round(19 * zScale);
+          const by = Math.min(clearLineSvgY + Math.round(28 * zScale), modTopSvgY - Math.round(210 * zScale));
+          return (
+            <>
+              <rect
+                x={modCenterSvgX - bw / 2}
+                y={by}
+                width={bw}
+                height={bh}
+                rx={Math.round(bh / 2)}
+                fill={gapMm < 0 ? "#991B1B" : gapMm < 15 ? "#92400E" : "#0F172A"}
+                fillOpacity="0.94"
+                stroke={gapMm < 0 ? "#F87171" : gapMm < 15 ? "#FBBF24" : "#38BDF8"}
+                strokeWidth={Math.round(2.4 * zScale)}
+              />
+              <text
+                x={modCenterSvgX}
+                y={by + Math.round(bh * 0.67)}
+                textAnchor="middle"
+                fill="#F8FAFC"
+                fontSize={bfs}
+                fontWeight="700"
+                letterSpacing="0.5"
+                fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
+              >
+                {gapMm < 0
+                  ? `⚠ Tavan Çakışması: ${gapMm} mm`
+                  : `↕ Tavan Boşluğu: ${gapMm} mm`}
+              </text>
+            </>
+          );
+        })()}
       </g>
     </g>
   );

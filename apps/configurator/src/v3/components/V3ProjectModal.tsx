@@ -55,6 +55,9 @@ export const V3ProjectModal: React.FC<{
   }, [activeTenantId]);
 
   const refreshCloudVersions = useCallback(async () => {
+    if (typeof window !== "undefined" && !window.localStorage.getItem("modul_saas_session_token")) {
+      return;
+    }
     try {
       const res = await fetch(
         `/api/saas/projects?projectId=${encodeURIComponent(project.id)}`,

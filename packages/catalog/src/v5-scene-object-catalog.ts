@@ -1103,6 +1103,7 @@ export const V5_SPECIALIZED_MODULE_TEMPLATES: V4ModuleTemplateDefinition[] = [
         ledLightingEnabled: true,
         ledColorTempK: 3000,
         ledPlacementMode: "shelf_underside",
+        wallAnchored: true,
       },
       bays: [0, 1].map((idx) => ({
         index: idx,
@@ -1111,7 +1112,9 @@ export const V5_SPECIALIZED_MODULE_TEMPLATES: V4ModuleTemplateDefinition[] = [
           id: `sh_${id}_${idx}_${sIdx}`,
           bayIndex: idx,
           elevationY: ey,
-          isAdjustable: sIdx !== 0,
+          isAdjustable: sIdx !== 0 && sIdx !== 2,
+          isFixed: sIdx === 0 || sIdx === 2,
+          thickness: 25,
         })),
         hangingRails: [],
         drawers: [
@@ -1158,7 +1161,7 @@ export const V5_SPECIALIZED_MODULE_TEMPLATES: V4ModuleTemplateDefinition[] = [
       bays: [
         {
           index: 0,
-          door: { id: `door_${id}_0`, bayIndex: 0, type: "open", softClose: true, handleCategory: "gola_profile" },
+          door: { id: `door_${id}_0`, bayIndex: 0, type: "open", softClose: true, handleCategory: "gola_profile", handleProfileId: "hnd_gola_c_drawer" },
           shelves: [],
           hangingRails: [],
           drawers: [
@@ -1213,12 +1216,13 @@ export const V5_SPECIALIZED_MODULE_TEMPLATES: V4ModuleTemplateDefinition[] = [
         bodyMaterialId: "mat_veneer_oak",
         doorMaterialId: "mat_lacquer_cream",
         jointType: "minifix_dowel",
+        wallAnchored: true,
       },
       bays: [
         {
           index: 0,
           customWidth: 580,
-          door: { id: `door_${id}_0`, bayIndex: 0, type: "single_left", softClose: true, hingeCount: 4 },
+          door: { id: `door_${id}_0`, bayIndex: 0, type: "single_left", doorSystemId: "hinged_single", hardwareProductId: "hw_blum_71b7550", softClose: true, hingeCount: 4 },
           shelves: [320, 640, 960, 1780].map((ey, i) => ({
             id: `sh_${id}_0_${i}`,
             bayIndex: 0,
@@ -1272,6 +1276,7 @@ export const V5_SPECIALIZED_MODULE_TEMPLATES: V4ModuleTemplateDefinition[] = [
         bodyMaterialId: "mat_melamine_white",
         doorMaterialId: "mat_lacquer_cream",
         jointType: "minifix_dowel",
+        wallAnchored: true,
       },
       bays: [
         {
@@ -1319,6 +1324,7 @@ export const V5_SPECIALIZED_MODULE_TEMPLATES: V4ModuleTemplateDefinition[] = [
         ledLightingEnabled: true,
         ledColorTempK: 3000,
         ledPlacementMode: "shelf_underside",
+        wallAnchored: true,
       },
       bays: [
         {
@@ -1499,8 +1505,9 @@ export const V5_COMPOSITE_ASSEMBLIES: MultiModuleCompositePreset[] = [
           doorPerimeterGap: 2,
           edgeBandThickness: 1,
           bodyMaterialId: "mat_melamine_white",
-          doorMaterialId: "mat_lacquer_cream",
+          doorMaterialId: "mat_lacquer_cashmere",
           jointType: "minifix_dowel",
+          wallAnchored: true,
         },
         bays: [
           {
@@ -1537,14 +1544,17 @@ export const V5_COMPOSITE_ASSEMBLIES: MultiModuleCompositePreset[] = [
         bays: [
           {
             index: 0,
-            door: { id: `door_pn_${ts}`, bayIndex: 0, type: "single_right", softClose: true, hingeCount: 4 },
-            shelves: [{ id: `sh_pn_${ts}`, bayIndex: 0, elevationY: 1680, isAdjustable: true }],
+            door: { id: `door_pn_${ts}`, bayIndex: 0, type: "single_right", doorSystemId: "hinged_single", hardwareProductId: "hw_blum_71b7550", softClose: true, hingeCount: 4 },
+            shelves: [
+              { id: `sh_pn_mid_${ts}`, bayIndex: 0, elevationY: 1320, isAdjustable: false, isFixed: true },
+              { id: `sh_pn_${ts}`, bayIndex: 0, elevationY: 1680, isAdjustable: true },
+            ],
             hangingRails: [],
-            drawers: [0, 320, 640, 960, 1280].map((ey, i) => ({
+            drawers: [0, 260, 520, 780, 1040].map((ey, i) => ({
               id: `drw_pn_${ts}_${i}`,
               bayIndex: 0,
               elevationY: ey,
-              height: 200,
+              height: 180,
               slideType: "soft_close",
               isInternal: true,
             })),

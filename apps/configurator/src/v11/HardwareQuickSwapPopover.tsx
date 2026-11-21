@@ -3,11 +3,12 @@
 import React, { useMemo, useState } from "react";
 import { X, Check, ArrowLeftRight, Search, Sparkles, AlertTriangle } from "lucide-react";
 import { HandleCrossSectionSvg, getHandleCrossSectionMeta } from "./HandleCrossSectionSvg";
-import type {
-  DrawerConfig,
-  HangingRailConfig,
-  ModuleInstance,
-  DoorConfig,
+import {
+  isHandleProfileCompatibleWithModuleBay,
+  type DrawerConfig,
+  type HangingRailConfig,
+  type ModuleInstance,
+  type DoorConfig,
 } from "@birim/core";
 import {
   getAllHardwareProducts,
@@ -215,10 +216,14 @@ export const HardwareQuickSwapPopover: React.FC<HardwareQuickSwapPopoverProps> =
     }, [allHardware, q]);
 
     const handleOptions = useMemo<HandleProfileDefinition[]>(() => {
-      return allHandles.filter((h) =>
-        !q ? true : `${h.name} ${h.sku} ${h.category}`.toLowerCase().includes(q)
-      );
-    }, [allHandles, q]);
+      return allHandles
+        .filter((h) =>
+          isHandleProfileCompatibleWithModuleBay(h.id, h.category, activeModule, safeBayIdx)
+        )
+        .filter((h) =>
+          !q ? true : `${h.name} ${h.sku} ${h.category}`.toLowerCase().includes(q)
+        );
+    }, [allHandles, activeModule, safeBayIdx, q]);
 
     const railOptions = useMemo(() => {
       return RAIL_PROFILE_OPTIONS.filter((r) =>

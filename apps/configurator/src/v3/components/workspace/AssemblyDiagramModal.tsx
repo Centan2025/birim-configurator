@@ -1152,6 +1152,8 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
 }) => {
   const [selectedModIdx, setSelectedModIdx] = useState<number>(activeModuleIndex);
   const [activeStep, setActiveStep] = useState<number>(0);
+  const [hideDoorsInDiagram, setHideDoorsInDiagram] = useState<boolean>(false);
+  const [showGrainArrows, setShowGrainArrows] = useState<boolean>(false);
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   const mainModules = useMemo(
@@ -1464,10 +1466,10 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
       }
     }
 
-    const svgW = 680;
-    const svgH = 460;
-    const padX = 82;
-    const padY = 52;
+    const svgW = 920;
+    const svgH = 520;
+    const padX = 205;
+    const padY = 48;
     const spanU = Math.max(1, maxU - minU);
     const spanV = Math.max(1, maxV - minV);
     const scale = Math.min((svgW - 2 * padX) / spanU, (svgH - 2 * padY) / spanV);
@@ -1961,7 +1963,7 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
       .join("");
 
     const html = `<!DOCTYPE html><html lang="tr"><head><meta charset="utf-8"/><title>Birim Montaj Şeması — ${mod.name}</title>
-      <style>body{font-family:-apple-system,Segoe UI,sans-serif;margin:24px;color:#141413}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #cbd5e1;padding:6px 8px;text-align:left}th{background:#f1f5f9}</style>
+      <style>@page{size:A4 portrait;margin:12mm;}body{font-family:-apple-system,Segoe UI,sans-serif;margin:0;padding:16px;color:#141413;background:#fff}svg{width:100%;height:auto;max-height:460px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #cbd5e1;padding:6px 8px;text-align:left}th{background:#f1f5f9}</style>
       </head><body>
       <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #141413;padding-bottom:12px;margin-bottom:16px;">
         <div><div style="font-size:22px;font-weight:900;letter-spacing:1px;">BİRİM® MONTAJ ŞEMASI &amp; KURULUM KILAVUZU</div>
@@ -2101,23 +2103,47 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
                     {assemblyData.D} mm)
                   </span>
                 </span>
-                <button
-                  type="button"
-                  onClick={() => setActiveStep(0)}
-                  className={`px-2.5 py-1 rounded-full text-[10.5px] font-bold cursor-pointer transition ${
-                    activeStep === 0
-                      ? "bg-[#141413] text-white"
-                      : "bg-[#EFECE4] hover:bg-[#E5E0D5] text-[#44403C]"
-                  }`}
-                >
-                  Tüm Parçaları Göster
-                </button>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setHideDoorsInDiagram((v) => !v)}
+                    className={`px-2.5 py-1 rounded-full text-[10.5px] font-bold cursor-pointer transition ${
+                      hideDoorsInDiagram
+                        ? "bg-sky-700 text-white"
+                        : "bg-[#EFECE4] hover:bg-[#E5E0D5] text-[#44403C]"
+                    }`}
+                  >
+                    {hideDoorsInDiagram ? "Kapakları Göster" : "Kapakları Gizle"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowGrainArrows((v) => !v)}
+                    className={`px-2.5 py-1 rounded-full text-[10.5px] font-bold cursor-pointer transition ${
+                      showGrainArrows
+                        ? "bg-amber-700 text-white"
+                        : "bg-[#EFECE4] hover:bg-[#E5E0D5] text-[#44403C]"
+                    }`}
+                  >
+                    Damar Okları
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveStep(0)}
+                    className={`px-2.5 py-1 rounded-full text-[10.5px] font-bold cursor-pointer transition ${
+                      activeStep === 0
+                        ? "bg-[#141413] text-white"
+                        : "bg-[#EFECE4] hover:bg-[#E5E0D5] text-[#44403C]"
+                    }`}
+                  >
+                    Tüm Parçaları Göster
+                  </button>
+                </div>
               </div>
 
               <svg
                 ref={svgRef}
-                viewBox="0 0 680 460"
-                className="w-full h-auto max-h-[410px] select-none"
+                viewBox="0 0 920 520"
+                className="w-full h-auto max-h-[470px] select-none"
               >
                 <defs>
                   <marker
@@ -2156,12 +2182,13 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
                 </defs>
 
                 {/* Subtle Warm Architectural CAD Grid Backdrop */}
-                <rect x="8" y="8" width="664" height="444" rx="16" fill="#FAF8F4" stroke="#E5DFD3" />
+                <rect x="8" y="8" width="904" height="504" rx="16" fill="#FAF8F4" stroke="#E5DFD3" />
 
                 {/* Dynamic 3D-to-2D Isometric Exploded Parts (Painter's Order) */}
                 {isoScene.renderedBoxes.map((box) => {
+                  if (hideDoorsInDiagram && box.code === "⑩") return null;
                   const active = isHighlighted(box.code);
-                  const baseOpacity = box.opacity ?? 1;
+                  const baseOpacity = box.code === "⑩" ? Math.min(box.opacity ?? 0.55, 0.48) : (box.opacity ?? 1);
                   return (
                     <g key={box.id} opacity={active ? baseOpacity : 0.16}>
                       {box.topPoly && (
@@ -2249,7 +2276,7 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
                           strokeLinecap="round"
                         />
                       )}
-                      {box.grainBadgeOverlay && (
+                      {showGrainArrows && box.grainBadgeOverlay && (
                         <g data-testid={`grain-seq-overlay-${box.id}`}>
                           <line
                             x1={box.grainBadgeOverlay.arrowFrom.x}
@@ -2289,7 +2316,7 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
                 })}
 
                 {/* Continuous Wood-Grain Inter-Panel Sequence Flow Arrows */}
-                {isoScene.grainFlowLinks.map((lnk) => (
+                {showGrainArrows && isoScene.grainFlowLinks.map((lnk) => (
                   <line
                     key={lnk.id}
                     x1={lnk.from.x}
@@ -2320,46 +2347,105 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
                   />
                 ))}
 
-                {/* Dynamic Part Number Callouts */}
-                {isoScene.callouts.map((c) => {
-                  const clampedX = Math.max(24, Math.min(545, c.x));
-                  const clampedY = Math.max(24, Math.min(436, c.y));
-                  return (
-                    <g key={`callout-${c.num}`} opacity={isHighlighted(c.code) ? 1 : 0.2}>
-                      <circle cx={clampedX} cy={clampedY} r="10.5" fill="#141413" />
-                      <text
-                        x={clampedX}
-                        y={clampedY + 3.5}
-                        textAnchor="middle"
-                        fill="#ffffff"
-                        fontSize="9.5"
-                        fontWeight="800"
-                      >
-                        {c.num}
-                      </text>
-                      <rect
-                        x={clampedX + 12}
-                        y={clampedY - 8}
-                        width={Math.min(138, Math.max(58, c.label.length * 5.6 + 10))}
-                        height="16"
-                        rx="4"
-                        fill="#ffffff"
-                        fillOpacity="0.88"
-                        stroke="#E5DFD3"
-                        strokeWidth="0.8"
-                      />
-                      <text
-                        x={clampedX + 16}
-                        y={clampedY + 3.2}
-                        fill="#141413"
-                        fontSize="9.2"
-                        fontWeight="700"
-                      >
-                        {c.label}
-                      </text>
-                    </g>
+                {/* Zero-Overlap Outer Margin Callout Columns with Crisp Leader Lines */}
+                {(() => {
+                  const visibleCallouts = isoScene.callouts.filter(
+                    (c) => !(hideDoorsInDiagram && c.code === "⑩")
                   );
-                })}
+                  const leftSide = visibleCallouts
+                    .filter((c) => c.x <= 460)
+                    .sort((a, b) => a.y - b.y);
+                  const rightSide = visibleCallouts
+                    .filter((c) => c.x > 460)
+                    .sort((a, b) => a.y - b.y);
+
+                  const distributeY = (items: typeof visibleCallouts) => {
+                    const minGap = 42;
+                    const topMin = 38;
+                    const botMax = 482;
+                    const ys = items.map((it) => Math.max(topMin, Math.min(botMax, it.y)));
+                    for (let i = 1; i < ys.length; i++) {
+                      if (ys[i] - ys[i - 1] < minGap) ys[i] = ys[i - 1] + minGap;
+                    }
+                    if (ys.length > 0 && ys[ys.length - 1] > botMax) {
+                      const shift = ys[ys.length - 1] - botMax;
+                      for (let i = 0; i < ys.length; i++) ys[i] -= shift;
+                      for (let i = ys.length - 2; i >= 0; i--) {
+                        if (ys[i + 1] - ys[i] < minGap) ys[i] = ys[i + 1] - minGap;
+                      }
+                    }
+                    return ys;
+                  };
+
+                  const leftYs = distributeY(leftSide);
+                  const rightYs = distributeY(rightSide);
+
+                  const renderCol = (
+                    items: typeof visibleCallouts,
+                    ys: number[],
+                    side: "left" | "right"
+                  ) =>
+                    items.map((c, idx) => {
+                      const ly = ys[idx];
+                      const ax = Math.max(190, Math.min(730, c.x));
+                      const ay = Math.max(24, Math.min(496, c.y));
+                      const pillW = 166;
+                      const pillH = 26;
+                      const pillX = side === "left" ? 18 : 920 - 18 - pillW;
+                      const elbowX = side === "left" ? pillX + pillW + 14 : pillX - 14;
+                      const edgeX = side === "left" ? pillX + pillW : pillX;
+                      const active = isHighlighted(c.code);
+                      return (
+                        <g key={`callout-${c.num}`} opacity={active ? 1 : 0.22}>
+                          <polyline
+                            points={`${edgeX},${ly} ${elbowX},${ly} ${ax},${ay}`}
+                            fill="none"
+                            stroke="#475569"
+                            strokeWidth="1.25"
+                            strokeDasharray="3 2"
+                          />
+                          <circle cx={ax} cy={ay} r="3.4" fill="#0F172A" stroke="#FFFFFF" strokeWidth="1.2" />
+                          <rect
+                            x={pillX}
+                            y={ly - pillH / 2}
+                            width={pillW}
+                            height={pillH}
+                            rx="8"
+                            fill="#FFFFFF"
+                            stroke="#CBD5E1"
+                            strokeWidth="1.1"
+                          />
+                          <circle cx={pillX + 14} cy={ly} r="9.5" fill="#141413" />
+                          <text
+                            x={pillX + 14}
+                            y={ly + 3.4}
+                            textAnchor="middle"
+                            fill="#FFFFFF"
+                            fontSize="9.5"
+                            fontWeight="800"
+                          >
+                            {c.num}
+                          </text>
+                          <text
+                            x={pillX + 29}
+                            y={ly + 3.6}
+                            fill="#0F172A"
+                            fontSize="10.2"
+                            fontWeight="700"
+                          >
+                            {c.label}
+                          </text>
+                        </g>
+                      );
+                    });
+
+                  return (
+                    <>
+                      {renderCol(leftSide, leftYs, "left")}
+                      {renderCol(rightSide, rightYs, "right")}
+                    </>
+                  );
+                })()}
               </svg>
             </div>
 

@@ -12,6 +12,7 @@ function loadCustomStandardRulesCount(): number {
 }
 import {
   calculateFourSpaceDimensions,
+  evaluateHandleProfileForModuleBay,
   inferDoorSystemIdFromType,
 } from "./v4-profiles";
 import {
@@ -190,9 +191,10 @@ function evaluateModuleCompatibilityUncached(module: ModuleInstance): Validation
       (s) => s.isAdjustable === false && (s.thickness || module.carcass.panelThickness || 18) <= 18
     );
     const spanLimit18 = isHeavyBookOrPantry ? 850 : has18mmMovable ? 980 : 1000;
+    const effCornerAwareBayW = module.isCorner ? Math.round(bayW * 0.58) : bayW;
     if (
-      ((has18mmMovable || has18mmFixed) && bayW > spanLimit18) ||
-      (bayW > 1200 && (nonGlassShelves.length > 0 || bay.hangingRails.length > 0))
+      ((has18mmMovable || has18mmFixed) && effCornerAwareBayW > spanLimit18) ||
+      (effCornerAwareBayW > 1200 && (nonGlassShelves.length > 0 || bay.hangingRails.length > 0))
     ) {
       issues.push({
         severity: "warning",
@@ -207,6 +209,34 @@ function evaluateModuleCompatibilityUncached(module: ModuleInstance): Validation
         ],
         sourceId: "SRC_STD_ISO7170_2021",
       });
+    }
+
+    // Category 15: World-Standard Handle vs Cabinet Zone Ergonomic Check (EN 14749 / Blum / Scilm)
+    const bayHasExtDrw = (bay.drawers || []).some((d) => !d.isInternal && !d.isHidden);
+    if ((bay.door.type !== "open" || bayHasExtDrw) && bay.door.handleProfileId) {
+      const hCheck = evaluateHandleProfileForModuleBay(
+        bay.door.handleProfileId,
+        handleCat,
+        module,
+        bayIdx
+      );
+      if (!hCheck.compatible) {
+        issues.push({
+          severity: "error",
+          code: "CHK_15_HANDLE_ZONE_ERGONOMICS",
+          message: `Bölme ${bayIdx + 1}: ${hCheck.reasonTr || "Seçilen kulp modeli bu dolap tipiyle uyumsuz."}`,
+          targetId: bay.door.id,
+          blockingProduction: true,
+          compatibilityStatus: "INCOMPATIBLE",
+          categoryIndex: 13,
+          suggestions: [
+            hCheck.recommendedProfileId
+              ? `Uyumlu dünya standardı kulp modeline geçin (${hCheck.recommendedProfileId}).`
+              : "Dolap yüksekliğine ve açılım yönüne uygun bir kulp seçin.",
+          ],
+          sourceId: "SRC_STD_EN1116_2018",
+        });
+      }
     }
 
     if (handleCat === "j_pull") {

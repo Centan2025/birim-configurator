@@ -31,6 +31,151 @@ export interface GuidedSetupModalProps {
   onApply: (payload: GuidedSetupWizardPayload) => void;
 }
 
+
+const renderRoomCategoryArt = (id: "wardrobe" | "walkin" | "kitchen" | "living", active: boolean) => {
+  const stroke = active ? "#FFFFFF" : "#CBD5E1";
+  const accent = active ? "#93C5FD" : "#38BDF8";
+  if (id === "wardrobe") {
+    return (
+      <svg viewBox="0 0 64 42" className="w-12 h-8 mx-auto mb-1" fill="none">
+        <rect x="10" y="4" width="44" height="34" rx="2.5" stroke={stroke} strokeWidth="1.6" fill="rgba(148,163,184,0.10)" />
+        <line x1="25" y1="4" x2="25" y2="38" stroke={stroke} strokeWidth="1.2" />
+        <line x1="39" y1="4" x2="39" y2="38" stroke={stroke} strokeWidth="1.2" />
+        <line x1="22.5" y1="18" x2="22.5" y2="25" stroke={accent} strokeWidth="1.8" strokeLinecap="round" />
+        <line x1="27.5" y1="18" x2="27.5" y2="25" stroke={accent} strokeWidth="1.8" strokeLinecap="round" />
+        <line x1="41.5" y1="18" x2="41.5" y2="25" stroke={accent} strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (id === "walkin") {
+    return (
+      <svg viewBox="0 0 64 42" className="w-12 h-8 mx-auto mb-1" fill="none">
+        <rect x="6" y="4" width="52" height="34" rx="2.5" stroke={stroke} strokeWidth="1.5" fill="rgba(148,163,184,0.08)" />
+        <line x1="21" y1="4" x2="21" y2="38" stroke={stroke} strokeWidth="1.1" />
+        <line x1="43" y1="4" x2="43" y2="38" stroke={stroke} strokeWidth="1.1" />
+        <line x1="9" y1="12" x2="18" y2="12" stroke={accent} strokeWidth="1.7" strokeLinecap="round" />
+        <line x1="24" y1="11" x2="40" y2="11" stroke={stroke} strokeWidth="1.1" />
+        <line x1="24" y1="18" x2="40" y2="18" stroke={stroke} strokeWidth="1.1" />
+        <rect x="24" y="24" width="16" height="5" rx="1" stroke={accent} strokeWidth="1.1" />
+        <rect x="24" y="31" width="16" height="5" rx="1" stroke={accent} strokeWidth="1.1" />
+        <line x1="46" y1="12" x2="55" y2="12" stroke={accent} strokeWidth="1.7" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (id === "kitchen") {
+    return (
+      <svg viewBox="0 0 64 42" className="w-12 h-8 mx-auto mb-1" fill="none">
+        <rect x="8" y="4" width="48" height="12" rx="1.8" stroke={stroke} strokeWidth="1.4" fill="rgba(148,163,184,0.10)" />
+        <line x1="24" y1="4" x2="24" y2="16" stroke={stroke} strokeWidth="1.1" />
+        <line x1="40" y1="4" x2="40" y2="16" stroke={stroke} strokeWidth="1.1" />
+        <line x1="8" y1="23" x2="56" y2="23" stroke={accent} strokeWidth="2" />
+        <rect x="8" y="23" width="48" height="15" rx="1.5" stroke={stroke} strokeWidth="1.5" fill="rgba(148,163,184,0.12)" />
+        <line x1="24" y1="23" x2="24" y2="38" stroke={stroke} strokeWidth="1.1" />
+        <line x1="40" y1="23" x2="40" y2="38" stroke={stroke} strokeWidth="1.1" />
+        <line x1="27" y1="29" x2="37" y2="29" stroke={stroke} strokeWidth="1.1" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 64 42" className="w-12 h-8 mx-auto mb-1" fill="none">
+      <rect x="17" y="6" width="30" height="17" rx="2" stroke={accent} strokeWidth="1.5" fill="rgba(56,189,248,0.12)" />
+      <rect x="8" y="27" width="48" height="10" rx="2" stroke={stroke} strokeWidth="1.5" fill="rgba(148,163,184,0.12)" />
+      <line x1="24" y1="27" x2="24" y2="37" stroke={stroke} strokeWidth="1.1" />
+      <line x1="40" y1="27" x2="40" y2="37" stroke={stroke} strokeWidth="1.1" />
+    </svg>
+  );
+};
+
+const renderRoomShapePlanArt = (id: "rectangular" | "l_shape" | "u_shape", active: boolean) => {
+  const wall = active ? "#FFFFFF" : "#CBD5E1";
+  const cab = active ? "#60A5FA" : "#38BDF8";
+  if (id === "rectangular") {
+    return (
+      <svg viewBox="0 0 56 30" className="w-11 h-6 shrink-0" fill="none">
+        <line x1="6" y1="6" x2="50" y2="6" stroke={wall} strokeWidth="2.4" strokeLinecap="round" />
+        <rect x="10" y="9" width="36" height="11" rx="2" stroke={cab} strokeWidth="1.4" fill="rgba(56,189,248,0.18)" />
+      </svg>
+    );
+  }
+  if (id === "l_shape") {
+    return (
+      <svg viewBox="0 0 56 30" className="w-11 h-6 shrink-0" fill="none">
+        <path d="M10 26 V6 H48" stroke={wall} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M13 9 H45 V17 H21 V25 H13 Z" stroke={cab} strokeWidth="1.4" fill="rgba(56,189,248,0.18)" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 56 30" className="w-11 h-6 shrink-0" fill="none">
+      <path d="M10 26 V6 H46 V26" stroke={wall} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M13 9 H43 V25 H36 V16 H20 V25 H13 Z" stroke={cab} strokeWidth="1.4" fill="rgba(56,189,248,0.18)" strokeLinejoin="round" />
+    </svg>
+  );
+};
+
+const renderStarterElevationArt = (cardId: string, doorStyle: string, hasLed: boolean, bayCount: number) => {
+  const bays = Math.max(2, Math.min(5, bayCount || 3));
+  const isSliding = doorStyle === "sliding" || cardId.includes("sliding");
+  const isGlass = doorStyle === "glass" || cardId.includes("glass") || cardId.includes("signature");
+  const isDrawerHeavy = cardId.includes("drawer") || cardId.includes("shelf") || cardId.includes("maximum");
+  const w = 136;
+  const h = 54;
+  const x0 = 8;
+  const y0 = 6;
+  const cw = w - 16;
+  const ch = h - 12;
+  const bw = cw / bays;
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-[58px] rounded-xl bg-slate-950/55 border border-white/10 p-1" fill="none">
+      {hasLed && (
+        <line x1={x0 + 2} y1={y0 + 2.5} x2={x0 + cw - 2} y2={y0 + 2.5} stroke="#FBBF24" strokeWidth="2.2" strokeLinecap="round" opacity="0.9" />
+      )}
+      <rect x={x0} y={y0} width={cw} height={ch} rx="2" stroke="#E2E8F0" strokeWidth="1.4" fill={isGlass ? "rgba(56,189,248,0.08)" : "rgba(148,163,184,0.08)"} />
+      {Array.from({ length: bays }).map((_, idx) => {
+        const bx = x0 + idx * bw;
+        return (
+          <g key={idx}>
+            {idx > 0 && <line x1={bx} y1={y0} x2={bx} y2={y0 + ch} stroke="#CBD5E1" strokeWidth="1" opacity="0.7" />}
+            {isSliding ? (
+              <>
+                <rect x={bx + 2} y={y0 + 2} width={bw - 4} height={ch - 4} rx="1" stroke="#93C5FD" strokeWidth="1" fill="rgba(148,163,184,0.12)" />
+                <path d={`M ${bx + bw * 0.35} ${y0 + ch * 0.5} H ${bx + bw * 0.65}`} stroke="#38BDF8" strokeWidth="1.2" strokeLinecap="round" />
+              </>
+            ) : isDrawerHeavy ? (
+              <>
+                <line x1={bx + 3} y1={y0 + 10} x2={bx + bw - 3} y2={y0 + 10} stroke="#CBD5E1" strokeWidth="1" />
+                <line x1={bx + 3} y1={y0 + 17} x2={bx + bw - 3} y2={y0 + 17} stroke="#CBD5E1" strokeWidth="1" />
+                <rect x={bx + 3} y={y0 + 23} width={bw - 6} height="5.5" rx="1" stroke="#60A5FA" strokeWidth="1" fill="rgba(56,189,248,0.14)" />
+                <rect x={bx + 3} y={y0 + 30.5} width={bw - 6} height="5.5" rx="1" stroke="#60A5FA" strokeWidth="1" fill="rgba(56,189,248,0.14)" />
+              </>
+            ) : (
+              <>
+                <line x1={bx + 3} y1={y0 + 9} x2={bx + bw - 3} y2={y0 + 9} stroke="#CBD5E1" strokeWidth="1" />
+                {idx % 2 === 0 ? (
+                  <>
+                    <line x1={bx + 4} y1={y0 + 15} x2={bx + bw - 4} y2={y0 + 15} stroke="#38BDF8" strokeWidth="1.5" strokeLinecap="round" />
+                    <path d={`M ${bx + bw * 0.5} ${y0 + 15} L ${bx + bw * 0.3} ${y0 + 21} H ${bx + bw * 0.7} Z`} stroke="#CBD5E1" strokeWidth="0.9" opacity="0.85" />
+                  </>
+                ) : (
+                  <>
+                    <line x1={bx + 3} y1={y0 + 16} x2={bx + bw - 3} y2={y0 + 16} stroke="#CBD5E1" strokeWidth="0.95" />
+                    <line x1={bx + 3} y1={y0 + 23} x2={bx + bw - 3} y2={y0 + 23} stroke="#CBD5E1" strokeWidth="0.95" />
+                  </>
+                )}
+                <rect x={bx + 3} y={y0 + 30} width={bw - 6} height="6" rx="1" stroke="#94A3B8" strokeWidth="1" fill="rgba(148,163,184,0.16)" />
+              </>
+            )}
+            {isGlass && (
+              <line x1={bx + 4} y1={y0 + 5} x2={bx + bw - 4} y2={y0 + ch - 5} stroke="#7DD3FC" strokeWidth="0.8" opacity="0.35" />
+            )}
+          </g>
+        );
+      })}
+      <line x1={x0} y1={y0 + ch - 3} x2={x0 + cw} y2={y0 + ch - 3} stroke="#94A3B8" strokeWidth="1.4" />
+    </svg>
+  );
+};
+
 export const GuidedSetupModal: React.FC<GuidedSetupModalProps> = React.memo(
   ({ isOpen, project, materials, onClose, onApply }) => {
     const [spaceCategory, setSpaceCategory] =
@@ -149,13 +294,14 @@ export const GuidedSetupModal: React.FC<GuidedSetupModalProps> = React.memo(
                         if (doorStyle === "open") setDoorStyle("hinged");
                       }
                     }}
-                    className={`py-2.5 px-2 rounded-2xl font-semibold border transition cursor-pointer ${
+                    className={`py-2.5 px-2 rounded-2xl font-semibold border transition cursor-pointer flex flex-col items-center justify-center ${
                       spaceCategory === cat.id
                         ? "bg-[#141413] text-white border-[#141413]"
                         : "bg-white hover:bg-[#F5F2EA] border-[#E5DFD3]"
                     }`}
                   >
-                    {cat.label}
+                    {renderRoomCategoryArt(cat.id, spaceCategory === cat.id)}
+                    <span>{cat.label}</span>
                   </button>
                 ))}
               </div>
@@ -172,13 +318,14 @@ export const GuidedSetupModal: React.FC<GuidedSetupModalProps> = React.memo(
                     key={sh.id}
                     type="button"
                     onClick={() => setRoomShape(sh.id)}
-                    className={`py-2 px-2 rounded-xl font-semibold border transition cursor-pointer ${
+                    className={`py-2 px-2.5 rounded-xl font-semibold border transition cursor-pointer flex items-center justify-center gap-2 ${
                       roomShape === sh.id
                         ? "bg-[#EFECE4] text-[#141413] border-[#141413]"
                         : "bg-white border-[#E5DFD3] text-[#57534E]"
                     }`}
                   >
-                    {sh.label}
+                    {renderRoomShapePlanArt(sh.id, roomShape === sh.id)}
+                    <span className="truncate">{sh.label}</span>
                   </button>
                 ))}
               </div>
@@ -259,7 +406,8 @@ export const GuidedSetupModal: React.FC<GuidedSetupModalProps> = React.memo(
                           {fmtEur(card.estimatedTotalWithVatEur)}
                         </span>
                       </div>
-                      <div className="font-bold text-[12.5px] text-[#141413] group-hover:underline">
+                      {renderStarterElevationArt(card.id, card.payload.doorStyle, Boolean(card.payload.addLed), card.bayCount)}
+                      <div className="font-bold text-[12.5px] text-[#141413] group-hover:underline pt-1">
                         {card.title}
                       </div>
                       <p className="text-[11px] text-[#78716C] leading-snug">{card.subtitle}</p>
@@ -298,8 +446,8 @@ export const GuidedSetupModal: React.FC<GuidedSetupModalProps> = React.memo(
                       }`}
                     >
                       <div
-                        className="h-8 rounded-xl border border-black/10 relative mb-1"
-                        style={{ backgroundColor: m.colorHex }}
+                        className="h-14 rounded-xl border border-white/15 shadow-inner relative mb-1.5 overflow-hidden"
+                        style={{ backgroundColor: m.colorHex, backgroundImage: "linear-gradient(135deg, rgba(255,255,255,0.22) 0%, rgba(255,255,255,0) 55%, rgba(0,0,0,0.16) 100%)" }}
                       >
                         {sel && (
                           <span className="absolute top-1 right-1 w-4 h-4 rounded-full bg-[#141413] text-white flex items-center justify-center">

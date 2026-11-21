@@ -71,6 +71,31 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
     ];
   };
 
+  const buildFixedShelfCoaxialSpecs = (
+    shelfDepthMm: number,
+    frontOffsetOnCarcassMm: number
+  ): Array<{ boltFromFront: number; dowelFromFront: number | null }> => {
+    const baseTwo = pickTwoEndJoints(buildJointSpecs(shelfDepthMm));
+    return baseTwo.map((jt) => ({
+      boltFromFront: roundMm(jt.boltFromFront + frontOffsetOnCarcassMm, 2),
+      dowelFromFront: jt.dowelFromFront !== null ? roundMm(jt.dowelFromFront + frontOffsetOnCarcassMm, 2) : null,
+    }));
+  };
+  // Blum MOVENTO/LEGRABOX & Hettich Quadro/Actro System 32 Ø5x12mm carcass Euro screw X positions from front edge
+  const getDrawerRunnerHoleXs = (runnerLenMm: number, isInternalOrInset: boolean, panelDepthMm: number): number[] => {
+    const x1 = isInternalOrInset ? 57 : 37;
+    const x2 = x1 + 32;
+    const b1 =
+      runnerLenMm >= 550 ? 320 :
+      runnerLenMm >= 500 ? 288 :
+      runnerLenMm >= 450 ? 256 :
+      runnerLenMm >= 400 ? 224 :
+      runnerLenMm >= 350 ? 160 : 128;
+    const x3 = Math.min(Math.max(x2 + 32, panelDepthMm - 42), x1 + b1);
+    return [x1, x2, roundMm(x3, 2)];
+  };
+  const pickTwoEndJoints = <T,>(specs: T[]): T[] =>
+    specs.length >= 2 ? [specs[0], specs[specs.length - 1]] : specs;
   const connectorSys = part.connectorSystem || "minifix_dowel";
   if (
     connectorSys === "lamello_cabineo" &&
@@ -192,7 +217,10 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
       });
     } else if (String(topology) === "miter_45") {
       // Tip C: 45° Mitered carcass — omit 9mm edge-splitting minifix bolts; place internal alignment dowels!
-      jointSpecs.slice(0, 2).forEach((jt, idx) => {
+      (typeof part.fixedShelfDepthMm === "number" && part.fixedShelfDepthMm >= 140
+        ? buildFixedShelfCoaxialSpecs(part.fixedShelfDepthMm, part.fixedShelfFrontOffsetMm ?? 0)
+        : pickTwoEndJoints(jointSpecs)
+      ).forEach((jt, idx) => {
         const dx = mapX(jt.boltFromFront);
         holes.push(
           {
@@ -250,8 +278,10 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
       // target ONLY the real 90mm front & rear stretchers (or vertical sink apron)!
       if (topology === "kitchen_stretchers") {
         const sMode = part.kitchenStretcherMode || "horizontal";
+        const topNotch = (part.golaNotches || []).find((gn) => gn.kind === "L_TOP");
+        const golaFrontShiftMm = topNotch ? topNotch.widthMm : 0;
         if (sMode === "vertical_sink") {
-          const vertX = mapX(roundMm(panelT / 2, 2));
+          const vertX = mapX(roundMm(golaFrontShiftMm + panelT / 2, 2));
           holes.push(
             {
               id: `H_${part.id}_sink_apron_bolt_top`,
@@ -301,13 +331,15 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
             }
           );
           if (sMode === "horizontal") {
-            // Front 90mm horizontal stretcher spans 0..90mm from front edge -> bolt at 37mm, dowel at 69mm
+            // Front 90mm horizontal stretcher shifts back by golaFrontShiftMm when top Gola/Finger-Box is active!
+            const frontBoltX = roundMm(golaFrontShiftMm + 37, 2);
+            const frontDowelX = roundMm(golaFrontShiftMm + 69, 2);
             holes.push(
               {
                 id: `H_${part.id}_stretcher_front_bolt`,
                 diameter: 8,
                 depth: 11,
-                x: mapX(37),
+                x: mapX(frontBoltX),
                 y: topJointY,
                 z: 0,
                 direction: face,
@@ -317,7 +349,7 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
                 id: `H_${part.id}_stretcher_front_dowel`,
                 diameter: 8,
                 depth: 12,
-                x: mapX(69),
+                x: mapX(frontDowelX),
                 y: topJointY,
                 z: 0,
                 direction: face,
@@ -374,7 +406,10 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
     // Fixed shelf / Oven carrier shelf intermediate Minifix + Dowel rows on side panel
     if (topology !== "miter_45") (part.fixedShelfJointYs || []).forEach((fsY, fsIdx) => {
       if (fsY <= botJointY + 32 || fsY >= topJointY - 32) return;
-      jointSpecs.slice(0, 2).forEach((jt, idx) => {
+      (typeof part.fixedShelfDepthMm === "number" && part.fixedShelfDepthMm >= 140
+        ? buildFixedShelfCoaxialSpecs(part.fixedShelfDepthMm, part.fixedShelfFrontOffsetMm ?? 0)
+        : pickTwoEndJoints(jointSpecs)
+      ).forEach((jt, idx) => {
         holes.push({
           id: `H_${part.id}_fs_bolt_${fsIdx}_${idx}`,
           diameter: 8,
@@ -413,6 +448,25 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
           z: 0,
           direction: face,
           purpose: "rafix_stud",
+        });
+      });
+    });
+
+    // Blum/Hettich Concealed Drawer Runner Ø5x12mm Carcass Euro Screw Holes (37/57mm + 32mm + rear b1)
+    (part.drawerRunnerSpecs || []).forEach((drw, dIdx) => {
+      if (drw.y <= botJointY + 12 || drw.y >= topJointY - 24) return;
+      const xs = getDrawerRunnerHoleXs(drw.runnerLengthMm, Boolean(part.isInsetDoor || drw.isInternal), width);
+      const tag = drw.drawerId || `d${dIdx}`;
+      xs.forEach((rx, xIdx) => {
+        holes.push({
+          id: `H_${part.id}_drw_runner_${tag}_${xIdx}`,
+          diameter: 5,
+          depth: 12,
+          x: mapX(rx),
+          y: roundMm(drw.y, 2),
+          z: 0,
+          direction: face,
+          purpose: "drawer_runner" as DrillingHole["purpose"],
         });
       });
     });
@@ -633,7 +687,10 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
     const divBlindDepth = Math.min(11, Math.max(8, partThickness - 5));
     (part.dividerLeftFixedShelfYs || []).forEach((ly, lIdx) => {
       if (ly <= 48 || ly >= height - 48) return;
-      divJointSpecs.slice(0, 2).forEach((js, xIdx) => {
+      (typeof part.fixedShelfDepthMm === "number" && part.fixedShelfDepthMm >= 140
+        ? buildFixedShelfCoaxialSpecs(part.fixedShelfDepthMm, part.fixedShelfFrontOffsetMm ?? 0)
+        : pickTwoEndJoints(divJointSpecs)
+      ).forEach((js, xIdx) => {
         holes.push({
           id: `H_${part.id}_div_lfs_bolt_${lIdx}_${xIdx}`,
           diameter: 8,
@@ -660,7 +717,10 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
     });
     (part.dividerRightFixedShelfYs || []).forEach((ry, rIdx) => {
       if (ry <= 48 || ry >= height - 48) return;
-      divJointSpecs.slice(0, 2).forEach((js, xIdx) => {
+      (typeof part.fixedShelfDepthMm === "number" && part.fixedShelfDepthMm >= 140
+        ? buildFixedShelfCoaxialSpecs(part.fixedShelfDepthMm, part.fixedShelfFrontOffsetMm ?? 0)
+        : pickTwoEndJoints(divJointSpecs)
+      ).forEach((js, xIdx) => {
         holes.push({
           id: `H_${part.id}_div_rfs_bolt_${rIdx}_${xIdx}`,
           diameter: 8,
@@ -712,6 +772,42 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
           z: partThickness,
           direction: "face_back",
           purpose: "rafix_stud",
+        });
+      });
+    });
+
+    // Blum/Hettich Drawer Runner Ø5x12mm Euro Screw Holes on Intermediate Divider (left=face_front, right=face_back)
+    (part.dividerLeftDrawerRunners || []).forEach((drw, dIdx) => {
+      if (drw.y <= 14 || drw.y >= height - 24) return;
+      const xs = getDrawerRunnerHoleXs(drw.runnerLengthMm, Boolean(part.isInsetDoor || drw.isInternal), width);
+      const tag = drw.drawerId || `ld${dIdx}`;
+      xs.forEach((rx, xIdx) => {
+        holes.push({
+          id: `H_${part.id}_drw_runner_${tag}_${xIdx}`,
+          diameter: 5,
+          depth: 11,
+          x: rx,
+          y: roundMm(drw.y, 2),
+          z: 0,
+          direction: "face_front",
+          purpose: "drawer_runner" as DrillingHole["purpose"],
+        });
+      });
+    });
+    (part.dividerRightDrawerRunners || []).forEach((drw, dIdx) => {
+      if (drw.y <= 14 || drw.y >= height - 24) return;
+      const xs = getDrawerRunnerHoleXs(drw.runnerLengthMm, Boolean(part.isInsetDoor || drw.isInternal), width);
+      const tag = drw.drawerId || `rd${dIdx}`;
+      xs.forEach((rx, xIdx) => {
+        holes.push({
+          id: `H_${part.id}_drw_runner_${tag}_${xIdx}`,
+          diameter: 5,
+          depth: 11,
+          x: rx,
+          y: roundMm(drw.y, 2),
+          z: partThickness,
+          direction: "face_back",
+          purpose: "drawer_runner" as DrillingHole["purpose"],
         });
       });
     });
@@ -943,10 +1039,11 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
       return holes;
     }
 
-    const jointSpecs =
+    const rawJointSpecs =
       width <= 110
         ? [{ boltFromFront: 32, dowelFromFront: width >= 80 ? 64 : (null as number | null) }]
         : buildJointSpecs(width);
+    const jointSpecs = isFixedOrCarrierShelf ? pickTwoEndJoints(rawJointSpecs) : rawJointSpecs;
 
     if (!isFixedOrCarrierShelf && topology === "top_bottom_through") {
       // Tip B: Horizontal top/bottom panels run full width and receive FACE bolts + dowels near y = 9 & y = height - 9!

@@ -391,9 +391,28 @@ function calculateFourSpaceDimensionsUncached(
         ? "half_overlay"
         : "full_overlay");
 
+    const isRightHinged =
+      dType === "single_right" || dType === "inset_right" || dType === "half_overlay_right";
+    const isSingleDoorLeaf =
+      dType === "single_left" ||
+      dType === "single_right" ||
+      dType === "inset_left" ||
+      dType === "inset_right" ||
+      dType === "half_overlay_left" ||
+      dType === "half_overlay_right" ||
+      dSys === "hinged_single";
+    const isVertGolaBay = bay.door.handleProfileId === "hnd_gola_vertical";
+    const isDouble =
+      dType === "double" ||
+      dType === "inset_double" ||
+      dSys === "hinged_double" ||
+      dSys === "folding_side" ||
+      dType === "folding";
+    const effCenterGapMm = isVertGolaBay && isDouble ? 30 : centerGap;
+
     // Exact Half-Overlay formula on shared 18mm middle divider: b_half = (T - g_gap) / 2 (MD Spec Section 6.1.3!)
     const halfOverlayMm = roundMm((T - centerGap) / 2, 2);
-    const leftOverlay =
+    const baseLeftOverlay =
       overlayType === "inset"
         ? -gap
         : overlayType === "half_overlay"
@@ -401,7 +420,7 @@ function calculateFourSpaceDimensionsUncached(
         : bayIdx === 0
         ? T - gap
         : halfOverlayMm;
-    const rightOverlay =
+    const baseRightOverlay =
       overlayType === "inset"
         ? -gap
         : overlayType === "half_overlay"
@@ -410,9 +429,21 @@ function calculateFourSpaceDimensionsUncached(
         ? T - gap
         : halfOverlayMm;
 
-    // Determine automatic hinge crank type (Checklist #8!)
-    const isRightHinged =
-      dType === "single_right" || dType === "inset_right" || dType === "half_overlay_right";
+    // Vertical Gola 1020 Opening-Edge Finger Clearance (30mm gap!):
+    // - On single right-hinged door, left edge is the opening edge: pull back to -6mm on shared divider (18 + 6 + 6 = 30mm!) or -12mm on outer side!
+    // - On single left-hinged door, right edge is the opening edge: pull back to -6mm on shared divider or -12mm on outer side!
+    const leftOverlay =
+      isVertGolaBay && isSingleDoorLeaf && isRightHinged
+        ? bayIdx > 0
+          ? -6
+          : -12
+        : baseLeftOverlay;
+    const rightOverlay =
+      isVertGolaBay && isSingleDoorLeaf && !isRightHinged
+        ? bayIdx < module.bays.length - 1
+          ? -6
+          : -12
+        : baseRightOverlay;
     const hingesOnSharedMiddleDivider =
       overlayType === "half_overlay" ||
       (!isRightHinged && bayIdx > 0) ||
@@ -504,7 +535,7 @@ function calculateFourSpaceDimensionsUncached(
         doorZ0Mm,
         fullDoorSpanWidthMm: totalDoorSpanW,
         baseDoorHeightMm: 0,
-        centerRevealGapMm: centerGap,
+        centerRevealGapMm: effCenterGapMm,
       };
     }
 
@@ -513,20 +544,13 @@ function calculateFourSpaceDimensionsUncached(
       !dSys.startsWith("lift_") &&
       dSys !== "pocket_retractable" &&
       dSys !== "tambour_roller";
-    const isDouble =
-      dType === "double" ||
-      dType === "inset_double" ||
-      dSys === "hinged_double" ||
-      dSys === "folding_side" ||
-      dType === "folding";
     const isBiFoldLift = dType === "lift_bi_fold" || dSys === "lift_bi_fold";
     const leafCount = isDouble || isBiFoldLift ? 2 : 1;
-
     const rawLeafWidthMm =
       dSys === "folding_side" || dType === "folding"
         ? Math.max(0, roundIntMm((totalDoorSpanW - gap) / 2))
         : isDouble
-        ? Math.max(0, roundIntMm((totalDoorSpanW - centerGap) / 2))
+        ? Math.max(0, roundIntMm((totalDoorSpanW - effCenterGapMm) / 2))
         : roundIntMm(totalDoorSpanW);
     // P1-01 Engineering Fix: Never silently clamp regular cabinet leafWidthMm; for Blind Corner & 45° Diagonal Corner,
     // use the actual hinged access opening width rather than full L/blind carcass span!
@@ -540,23 +564,56 @@ function calculateFourSpaceDimensionsUncached(
     const blindAccessSpanMm = isBlindCornerMod
       ? Math.max(400, roundIntMm(width - Math.max(120, Math.round((width - 2 * T) * 0.45)) - 2 * gap))
       : rawLeafWidthMm;
-    const diagWingDMm = isWardrobe
-      ? Math.min(600, Math.round(Math.min(width, depth) * 0.58))
-      : Math.min(580, Math.round(Math.min(width, depth) * 0.64));
+    const minCornerArmMm = Math.min(width, depth);
+    const diagWingDMm =
+      module.category === "kitchen_wall" || module.moduleFamilyId === "fam_kitchen_wall"
+        ? minCornerArmMm >= 580
+          ? 350
+          : Math.min(350, Math.round(minCornerArmMm * 0.56))
+        : isWardrobe
+        ? minCornerArmMm >= 920
+          ? 600
+          : Math.min(600, Math.round(minCornerArmMm * 0.58))
+        : minCornerArmMm >= 780
+        ? 580
+        : Math.min(580, Math.round(minCornerArmMm * 0.64));
+    const isTrueLCornerMod =
+      module.bays.length === 1 &&
+      Boolean(module.isCorner) &&
+      !isBlindCornerMod &&
+      !isDiagCornerMod &&
+      !tplId.includes("outer_corner");
+    const lCornerWingLeafMm = isTrueLCornerMod
+      ? Math.max(180, roundIntMm(width - diagWingDMm - T_door - 2 * gap))
+      : rawLeafWidthMm;
     const diagBevelSpanMm = isDiagCornerMod
-      ? Math.max(380, roundIntMm(Math.hypot(Math.max(120, width - diagWingDMm), Math.max(120, depth - diagWingDMm)) - 2 * gap))
+      ? Math.max(320, roundIntMm(Math.hypot(Math.max(120, width - diagWingDMm), Math.max(120, depth - diagWingDMm)) - 2 * gap))
       : rawLeafWidthMm;
     const leafWidthMm = isBlindCornerMod
       ? Math.min(rawLeafWidthMm, blindAccessSpanMm)
       : isDiagCornerMod
       ? Math.min(rawLeafWidthMm, diagBevelSpanMm)
+      : isTrueLCornerMod
+      ? lCornerWingLeafMm
       : rawLeafWidthMm;
 
-    // Horizontal Top Gola finger clearance deduction (28mm + 2mm gap = exact 30mm on base cabinets; 0mm on wall or vertical Gola!)
+    // Horizontal Top Gola finger clearance deduction (28mm + 2mm gap = exact 30mm on base cabinets <= 1200mm;
+    // 0mm on wall cabinets, vertical Gola, tall doors >= 1200mm, or partial lower doors under top drawers!)
+    const isAutoTallVerticalDoor =
+      bay.door.handleOrientation !== "horizontal" &&
+      (module.category === "kitchen_tall" ||
+        module.category === "wardrobe" ||
+        module.category === "wardrobe_walkin" ||
+        module.category === "wardrobe_corner" ||
+        module.category === "special_corner" ||
+        carcassBoxHeightMm - bottomCutMm - topCutMm >= 1200 ||
+        (module.position?.y || 0) + height > 1250);
     const golaDeduction =
       bay.door.handleCategory === "gola_profile" &&
       module.category !== "kitchen_wall" &&
-      !isVerticalGola
+      !isVerticalGola &&
+      !isAutoTallVerticalDoor &&
+      topCutMm <= 0
         ? 28
         : 0;
     const rawBaseDoorHeight =
@@ -1073,4 +1130,736 @@ export function resolveCanonicalHandlePlacement(
     exceedsPanelSpan,
     minRequiredSpanMm,
   };
+}
+
+/**
+ * Canonical Multi-Drawer Horizontal Gola L + C Pairing Rule (Scilm / Häfele / Schüller Standard):
+ * Given external drawers sorted from BOTTOM (`sortedBottomToTopIndex = 0`) to TOP (`totalExtDrawers - 1`):
+ * - When `topReachesCeiling === true` (drawer stack reaches under countertop):
+ *   • Top drawer (`index = N - 1`) is opened from ABOVE via a normal Top L-Gola (56×26 mm) -> returns `false` for C-Gola.
+ *   • Intermediate drawers pair up from the bottom (`index % 2 === 0`) because each 73.5×26 mm C-Gola is double-sided
+ *     (opens the upper drawer from its bottom edge AND the lower drawer from its top edge), while the bottom-most drawer
+ *     (`index = 0`) sits above the plinth and requires a top grip:
+ *     - 1 drawer  (D1):                Top L only
+ *     - 2 drawers (D1..D2):            Top L + C(1–2)
+ *     - 3 drawers (D1..D3):            Top L + 3mm fuga(1–2) + C(2–3)
+ *     - 4 drawers (D1..D4):            Top L + C(1–2) + 3mm fuga(2–3) + C(3–4)
+ *     - 5 drawers (D1..D5):            Top L + 3mm fuga(1–2) + C(2–3) + 3mm fuga(3–4) + C(4–5)
+ * - When `topReachesCeiling === false` (an upper door sits above the drawer stack):
+ *   • `index = N - 1` ALSO gets a C-Gola above it (between the top drawer and the upper door).
+ */
+export type ErgonomicDrawerGripMode =
+  | "top_l_overhand"
+  | "top_c_overhand"
+  | "bottom_c_underhand";
+
+export interface ErgonomicGolaDrawerPlan {
+  /** Dolabın en üstünde 56×26mm L-Gola (ve 30mm kapak üst düşümü) uygulanacak mı? (>1200mm yüksek çekmecelerde false!) */
+  emitTopLGola: boolean;
+  /** Alttan üste sıralı her dış çekmecenin (0 .. N-1) ÜST kenarındaki derzde 73.5×26mm C-Gola olup olmadığı */
+  cGolaAbove: boolean[];
+  /** Her çekmecenin insan biyomekaniğine göre açılma yönü (üstten avuç aşağı vs. alttan avuç yukarı) */
+  gripModes: ErgonomicDrawerGripMode[];
+}
+
+/**
+ * Anthropometric Two-Pass Optimal Gola L + C Solver (TS EN 14749 / DIN 33402 / Blum Ergonomic Zones):
+ * - Ortalama yetişkin boyunda (~168–172 cm) yerden `maxOverhandTopGripMm` (`1200 mm`) üzerindeki bir çekmece
+ *   üst kenarından bilek bükülerek (overhand / avuç aşağı) AÇILAMAZ; tıpkı üst dolap kapakları gibi
+ *   ALT kenarından parmaklar yukarı kıvrılarak (underhand / avuç yukarı) açılmak zorundadır!
+ * - Bu nedenle:
+ *   1. En üst çekmecenin üst kotu `> 1200 mm` ise üstteki **L-Gola iptal edilir** (`emitTopLGola = false`),
+ *      üst çekmece gövde tavanına tam sıfır çıkar ve kendi altındaki C-Gola'dan alttan çekilerek açılır.
+ *   2. **Faz 1 (Yukarıdan Aşağı Yüksek Bölge Kuralı)**: Üst kotu `> 1200 mm` olan her çekmecenin hemen altına
+ *      zorunlu C-Gola yerleştirilir (`cGolaAbove[k - 1] = true`). Eğer bu kanalın kotu `<= 1200 mm` seviyesine
+ *      inmişse, aynı C-Gola bir alttaki çekmeceyi de üstten açar!
+ *   3. **Faz 2 (Aşağıdan Yukarı Konfor Bölgesi Eşleştirmesi)**: `<= 1200 mm` altındaki kalan çekmeceler
+ *      aşağıdan yukarı ikişerli eşleşerek tek bir çift yönlü C-Gola paylaşır; eşleşmeyen ara derzler net `3 mm` kalır!
+ */
+export function resolveErgonomicGolaDrawerPlan(params: {
+  bottomWorldYsMm: number[];
+  topWorldYsMm: number[];
+  moduleFloorWorldYMm?: number;
+  plinthHeightMm?: number;
+  topReachesCeiling: boolean;
+  maxOverhandTopGripMm?: number;
+}): ErgonomicGolaDrawerPlan {
+  const N = Math.min(params.bottomWorldYsMm.length, params.topWorldYsMm.length);
+  if (N <= 0) {
+    return { emitTopLGola: false, cGolaAbove: [], gripModes: [] };
+  }
+  const maxOverhandMm = params.maxOverhandTopGripMm ?? 1200;
+  const floorPlusPlinthMm = (params.moduleFloorWorldYMm ?? 0) + (params.plinthHeightMm ?? 0);
+
+  if (N === 1) {
+    if (params.topReachesCeiling) {
+      const canOnlyOpenFromTop =
+        params.topWorldYsMm[0] <= maxOverhandMm ||
+        params.bottomWorldYsMm[0] <= floorPlusPlinthMm + 35;
+      return {
+        emitTopLGola: canOnlyOpenFromTop,
+        cGolaAbove: [false],
+        gripModes: [canOnlyOpenFromTop ? "top_l_overhand" : "bottom_c_underhand"],
+      };
+    }
+    return {
+      emitTopLGola: false,
+      cGolaAbove: [true],
+      gripModes: [
+        params.topWorldYsMm[0] <= maxOverhandMm ? "top_c_overhand" : "bottom_c_underhand",
+      ],
+    };
+  }
+
+  const emitTopLGola = Boolean(
+    params.topReachesCeiling && params.topWorldYsMm[N - 1] <= maxOverhandMm
+  );
+  const cGolaAbove = new Array<boolean>(N).fill(false);
+  const opened = new Array<boolean>(N).fill(false);
+  const gripModes = new Array<ErgonomicDrawerGripMode>(N).fill("top_c_overhand");
+
+  if (emitTopLGola) {
+    opened[N - 1] = true;
+    gripModes[N - 1] = "top_l_overhand";
+  }
+  if (!params.topReachesCeiling) {
+    cGolaAbove[N - 1] = true;
+    if (params.topWorldYsMm[N - 1] <= maxOverhandMm) {
+      opened[N - 1] = true;
+      gripModes[N - 1] = "top_c_overhand";
+    }
+  }
+
+  // Pass 1: Top-Down High-Zone Underhand Enforcement (> 1200 mm MUST pull from bottom edge!)
+  for (let k = N - 1; k >= 1; k--) {
+    if (!opened[k] && params.topWorldYsMm[k] > maxOverhandMm) {
+      cGolaAbove[k - 1] = true;
+      opened[k] = true;
+      gripModes[k] = "bottom_c_underhand";
+      if (!opened[k - 1] && params.topWorldYsMm[k - 1] <= maxOverhandMm) {
+        opened[k - 1] = true;
+        gripModes[k - 1] = "top_c_overhand";
+      }
+    }
+  }
+
+  // Pass 2: Bottom-Up Comfortable-Zone Pairing (<= 1200 mm double-sided C-Gola sharing)
+  for (let i = 0; i <= N - 2; i++) {
+    if (!opened[i]) {
+      cGolaAbove[i] = true;
+      opened[i] = true;
+      gripModes[i] = "top_c_overhand";
+      if (!opened[i + 1]) {
+        opened[i + 1] = true;
+        gripModes[i + 1] = "bottom_c_underhand";
+      }
+    }
+  }
+
+  return { emitTopLGola, cGolaAbove, gripModes };
+}
+
+/**
+ * Bir modülün tavan/tezgâh altında yatay Üst L-Gola (veya Gömme Parmak Kutusu) gerektirip gerektirmediğini
+ * tüm bölmelerin kapak ve çekmece ergonomisine göre kesin olarak hesaplar.
+ */
+export function doesModuleEmitTopHorizontalGola(
+  module: ModuleInstance,
+  maxOverhandTopGripMm: number = 1200
+): boolean {
+  if (module.category === "kitchen_wall" || module.category === "complementary") {
+    return false;
+  }
+  const T = module.carcass.panelThickness || 18;
+  const plinth = module.carcass.plinthHeight || 0;
+  const modWorldY = module.position?.y || 0;
+  const modH = module.dimensions.height;
+  const netInnerH = Math.max(120, modH - plinth - 2 * T);
+
+  return module.bays.some((bay) => {
+    if (
+      bay.door?.handleCategory !== "gola_profile" ||
+      bay.door?.handleProfileId === "hnd_gola_vertical" ||
+      bay.door?.handleProfileId === "hnd_overhang_recessed_lip"
+    ) {
+      return false;
+    }
+    const hasNoUpperDoor =
+      Boolean(module.isOpenFront) ||
+      !bay.door ||
+      bay.door.type === "open" ||
+      bay.door.doorSystemId === "open";
+    const extDrawers = [...bay.drawers]
+      .filter((d) => !d.isInternal && !d.isHidden)
+      .sort((a, b) => a.elevationY - b.elevationY);
+
+    if (extDrawers.length > 0) {
+      const highest = extDrawers[extDrawers.length - 1];
+      const topReachesCeiling =
+        highest.elevationY >= netInnerH * 0.55 ||
+        (hasNoUpperDoor && highest.elevationY + highest.height >= netInnerH * 0.7);
+      if (topReachesCeiling) {
+        const plan = resolveErgonomicGolaDrawerPlan({
+          bottomWorldYsMm: extDrawers.map((d) => modWorldY + plinth + T + d.elevationY),
+          topWorldYsMm: extDrawers.map((d) => modWorldY + plinth + T + d.elevationY + d.height),
+          moduleFloorWorldYMm: modWorldY,
+          plinthHeightMm: plinth,
+          topReachesCeiling: true,
+          maxOverhandTopGripMm,
+        });
+        return plan.emitTopLGola;
+      }
+    }
+
+    if (hasNoUpperDoor) return false;
+    const isTallVerticalDoor =
+      bay.door.handleOrientation !== "horizontal" &&
+      (module.category === "kitchen_tall" ||
+        module.category === "wardrobe" ||
+        module.category === "wardrobe_walkin" ||
+        module.category === "wardrobe_corner" ||
+        module.category === "special_corner" ||
+        modH - plinth >= 1200 ||
+        modWorldY + modH > maxOverhandTopGripMm + 50);
+    return !isTallVerticalDoor;
+  });
+}
+
+export function doesDrawerHaveUpperCGolaChannel(
+  sortedBottomToTopIndex: number,
+  totalExtDrawers: number,
+  topReachesCeiling: boolean,
+  options?: {
+    bottomWorldYsMm?: number[];
+    topWorldYsMm?: number[];
+    moduleFloorWorldYMm?: number;
+    plinthHeightMm?: number;
+    maxOverhandTopGripMm?: number;
+  }
+): boolean {
+  if (sortedBottomToTopIndex < 0 || totalExtDrawers <= 0) return false;
+  if (
+    options?.bottomWorldYsMm &&
+    options?.topWorldYsMm &&
+    options.bottomWorldYsMm.length === totalExtDrawers &&
+    options.topWorldYsMm.length === totalExtDrawers
+  ) {
+    const plan = resolveErgonomicGolaDrawerPlan({
+      bottomWorldYsMm: options.bottomWorldYsMm,
+      topWorldYsMm: options.topWorldYsMm,
+      moduleFloorWorldYMm: options.moduleFloorWorldYMm,
+      plinthHeightMm: options.plinthHeightMm,
+      topReachesCeiling,
+      maxOverhandTopGripMm: options.maxOverhandTopGripMm,
+    });
+    return Boolean(plan.cGolaAbove[sortedBottomToTopIndex]);
+  }
+  if (sortedBottomToTopIndex >= totalExtDrawers - 1) {
+    return !topReachesCeiling;
+  }
+  return sortedBottomToTopIndex % 2 === 0;
+}
+
+
+// ============================================================================
+// WORLD-STANDARD CABINET ZONE, HANDLE, DOOR & INTERIOR ELEMENT COMPATIBILITY
+// (TS EN 14749 / EN 1116 / DIN 33402 / Blum / Häfele / Scilm / Kesseböhmer)
+// ============================================================================
+
+export type WorldCabinetZone =
+  | "kitchen_wall"
+  | "kitchen_corner_wall"
+  | "kitchen_base"
+  | "kitchen_corner_base"
+  | "kitchen_sink_base"
+  | "kitchen_appliance_base"
+  | "kitchen_tall"
+  | "wardrobe"
+  | "living_or_other";
+
+export function classifyCabinetPlacementZone(module: ModuleInstance): WorldCabinetZone {
+  const nameLc = (module.name || "").toLowerCase();
+  const tplLc = (module.templateId || "").toLowerCase();
+  const isCorner = Boolean(
+    module.isCorner ||
+      module.category === "kitchen_corner" ||
+      module.category === "wardrobe_corner" ||
+      module.category === "special_corner" ||
+      tplLc.includes("corner") ||
+      nameLc.includes("köşe")
+  );
+  const isUpperWall =
+    module.category === "kitchen_wall" ||
+    module.moduleFamilyId === "fam_kitchen_wall" ||
+    (!module.category.startsWith("wardrobe") && (module.position?.y ?? 0) >= 1100);
+
+  if (isUpperWall) {
+    return isCorner ? "kitchen_corner_wall" : "kitchen_wall";
+  }
+
+  if (
+    module.category === "wardrobe" ||
+    module.category === "wardrobe_walkin" ||
+    module.category === "wardrobe_corner" ||
+    module.moduleFamilyId === "fam_wardrobe"
+  ) {
+    return "wardrobe";
+  }
+
+  const netCarcassH = module.dimensions.height - (module.carcass.plinthHeight ?? 0);
+  if (
+    module.category === "kitchen_tall" ||
+    module.moduleFamilyId === "fam_kitchen_tall" ||
+    (module.category.startsWith("kitchen") && netCarcassH >= 1350)
+  ) {
+    return "kitchen_tall";
+  }
+
+  if (
+    module.category === "kitchen_base" ||
+    module.category === "kitchen_island" ||
+    module.category === "kitchen_corner" ||
+    module.moduleFamilyId === "fam_kitchen_base"
+  ) {
+    if (isCorner) return "kitchen_corner_base";
+    if (tplLc.includes("sink") || nameLc.includes("evye") || nameLc.includes("eviye")) {
+      return "kitchen_sink_base";
+    }
+    if (
+      tplLc.includes("oven") ||
+      tplLc.includes("dishwasher") ||
+      nameLc.includes("fırın") ||
+      nameLc.includes("bulaşık")
+    ) {
+      return "kitchen_appliance_base";
+    }
+    return "kitchen_base";
+  }
+
+  return "living_or_other";
+}
+
+export interface HandleCompatibilityResult {
+  compatible: boolean;
+  reasonTr?: string;
+  recommendedProfileId?: string;
+  recommendedCategory?: HandleCategory;
+}
+
+/**
+ * Dünya mutfak & mobilya mühendisliği standartlarına göre (EN 14749 / Blum / Scilm / Häfele)
+ * bir kulp profilinin belirli bir dolap bölgesi ve bölmesinde (Üst Dolap, Alt Dolap, Boy Dolap,
+ * Sürgülü Kapak, Çekmece Grubu) kullanılabilir olup olmadığını denetler.
+ */
+export function evaluateHandleProfileForModuleBay(
+  profileId: string | undefined,
+  category: HandleCategory | string | undefined,
+  module: ModuleInstance,
+  bayIndex: number = 0
+): HandleCompatibilityResult {
+  const pid = profileId || "hnd_bar_160";
+  const cat = (category || "bar_handle") as HandleCategory;
+  const zone = classifyCabinetPlacementZone(module);
+  const bay = module.bays[bayIndex] || module.bays[0];
+  const doorType = bay?.door?.type || "single_left";
+  const doorSys = bay?.door?.doorSystemId || "";
+  const isSliding =
+    doorType === "sliding" ||
+    doorType === "sliding_bottom" ||
+    doorSys === "sliding_top_hung" ||
+    doorSys === "sliding_bottom_rolling";
+  const extDrawersCount = (bay?.drawers || []).filter((d) => !d.isInternal && !d.isHidden).length;
+  const isPureDrawerBay = doorType === "open" && extDrawersCount > 0;
+  const bayWidths = calculateBayWidths(module);
+  const bayW = bayWidths[bayIndex] || module.dimensions.width;
+  const isDoubleDoor = doorType === "double" || doorSys === "hinged_double";
+  const approxLeafW = isPureDrawerBay ? bayW : isDoubleDoor ? bayW / 2 : bayW;
+
+  // 1. SÜRGÜLÜ KAPAK KURALLARI: Çıkıntılı kulplar arkadan geçen kanada çarpar!
+  if (isSliding) {
+    const allowedSliding =
+      cat === "recessed_grip" ||
+      cat === "milled_wood_grip" ||
+      cat === "edge_profile" ||
+      cat === "long_profile_handle";
+    if (!allowedSliding) {
+      return {
+        compatible: false,
+        reasonTr:
+          "Sürgülü kapaklarda çıkıntılı çekme/düğme kulplar ve karkas Gola profilleri kanat geçişini kilitler; gömme sürgü kulpu veya hemzemin kenar profili kullanılmalıdır.",
+        recommendedProfileId: "hnd_recessed_grip",
+        recommendedCategory: "recessed_grip",
+      };
+    }
+    return { compatible: true };
+  }
+
+  // Sürgüye özel gömme cep kulpu menteşeli/çekmeceli kapaklarda önerilmez
+  if (pid === "hnd_recessed_grip") {
+    return {
+      compatible: false,
+      reasonTr: "Gömme sürgü kulpu yalnızca sürgülü kapak sistemleri içindir.",
+      recommendedProfileId: "hnd_bar_160",
+      recommendedCategory: "bar_handle",
+    };
+  }
+
+  // 2. ÜST DUVAR DOLABI KURALLARI (145 cm+ kot: Üstten el sokulan tezgâh altı L-Gola, C-Gola, Dikey Gola, 960mm kulp ve Çanak kulp YASAKTIR!)
+  if (zone === "kitchen_wall" || zone === "kitchen_corner_wall") {
+    const forbiddenUpperIds = new Set([
+      "hnd_gola_profile",       // Tezgâh altı üst L-Gola (217 cm tavanda el girmez!)
+      "hnd_gola_c_drawer",      // Çekmece arası C-Gola
+      "hnd_gola_vertical",      // Boy dolap dikey Gola 1020
+      "hnd_gola_melamine_box",  // Tezgâh altı 60x38 melamin parmak kutusu
+      "hnd_gola_moulded_box",   // Tezgâh altı şekillendirilmiş kutu
+      "hnd_bevel_30_backing",   // Üst kenar 30°/45° pah + arka kapama bandı (217 cm'de ulaşılamaz!)
+      "hnd_long_profile_960",   // 960 mm boy dolap kulpu (720 mm üst dolap boyunu aşar!)
+      "hnd_cup_pull_96",        // Klasik çanak/kupa kulp yalnızca alt çekmeceler içindir!
+    ]);
+    if (forbiddenUpperIds.has(pid) || cat === "long_profile_handle") {
+      const isGolaOrBevel = cat === "gola_profile" || pid === "hnd_bevel_30_backing";
+      return {
+        compatible: false,
+        reasonTr: isGolaOrBevel
+          ? "Üst duvar dolaplarında (145–217 cm) üstten el sokulan L/C-Gola, dikey Gola veya üst pah kullanılamaz; alt tabana gömülü Gola 268 veya 18 mm sarkık kapak seçilmelidir."
+          : "960 mm gardırop kulpu ve çanak çekmece kulpu üst duvar dolaplarında kullanılamaz.",
+        recommendedProfileId: isGolaOrBevel
+          ? "hnd_gola_wall_268"
+          : pid === "hnd_cup_pull_96"
+          ? "hnd_knob_std"
+          : "hnd_bar_160",
+        recommendedCategory: isGolaOrBevel
+          ? "gola_profile"
+          : pid === "hnd_cup_pull_96"
+          ? "knob"
+          : "bar_handle",
+      };
+    }
+    if (pid === "hnd_bar_320" && approxLeafW < 384) {
+      return {
+        compatible: false,
+        reasonTr: `C-C 320 mm geniş kulp, ${Math.round(approxLeafW)} mm dar üst kapak kanadına sığmaz (min. 384 mm gerekir).`,
+        recommendedProfileId: "hnd_bar_160",
+        recommendedCategory: "bar_handle",
+      };
+    }
+    return { compatible: true };
+  }
+
+  // 3. ALT DOLAP / ADA / EVYE / KÖŞE ALT DOLAP KURALLARI
+  if (
+    zone === "kitchen_base" ||
+    zone === "kitchen_corner_base" ||
+    zone === "kitchen_sink_base" ||
+    zone === "kitchen_appliance_base"
+  ) {
+    if (pid === "hnd_gola_wall_268" || pid === "hnd_overhang_recessed_lip") {
+      return {
+        compatible: false,
+        reasonTr:
+          "Üst Dolap Altı Gola 268 ve sarkık üst dolap tutamağı yalnızca duvar üst dolapları içindir; alt dolaplarda L-Gola veya C-Gola kullanılır.",
+        recommendedProfileId: extDrawersCount > 0 ? "hnd_gola_c_drawer" : "hnd_gola_profile",
+        recommendedCategory: "gola_profile",
+      };
+    }
+    if (pid === "hnd_gola_vertical") {
+      return {
+        compatible: false,
+        reasonTr:
+          "Dikey Gola 1020 profili boy dolap ve gardıroplar içindir; tezgâh altı dolaplarda yatay L-Gola veya C-Gola kullanılır.",
+        recommendedProfileId: extDrawersCount > 0 ? "hnd_gola_c_drawer" : "hnd_gola_profile",
+        recommendedCategory: "gola_profile",
+      };
+    }
+    if (pid === "hnd_long_profile_960" || cat === "long_profile_handle") {
+      return {
+        compatible: false,
+        reasonTr: "960 mm uzun dikey gardırop kulpu 720 mm alt dolap yüksekliğini aşar.",
+        recommendedProfileId: approxLeafW >= 400 ? "hnd_bar_320" : "hnd_bar_160",
+        recommendedCategory: "bar_handle",
+      };
+    }
+    if (pid === "hnd_gola_c_drawer" && extDrawersCount === 0) {
+      return {
+        compatible: false,
+        reasonTr:
+          "Çekmecesiz kapaklı alt dolaplarda ara C-Gola yerine tezgâh altı L-Gola profili kullanılır.",
+        recommendedProfileId: "hnd_gola_profile",
+        recommendedCategory: "gola_profile",
+      };
+    }
+    if (pid === "hnd_bar_320" && approxLeafW < 384 && !isPureDrawerBay) {
+      return {
+        compatible: false,
+        reasonTr: `C-C 320 mm kulp ${Math.round(approxLeafW)} mm dar kapak kanadını aşar.`,
+        recommendedProfileId: "hnd_bar_160",
+        recommendedCategory: "bar_handle",
+      };
+    }
+    return { compatible: true };
+  }
+
+  // 4. BOY DOLAP (KITCHEN TALL) VE GARDIROP KURALLARI
+  if (zone === "kitchen_tall" || zone === "wardrobe") {
+    if (!isPureDrawerBay) {
+      const forbiddenTallDoorIds = new Set([
+        "hnd_gola_wall_268",
+        "hnd_overhang_recessed_lip",
+        "hnd_gola_profile",
+        "hnd_gola_melamine_box",
+        "hnd_gola_moulded_box",
+        "hnd_bevel_30_backing",
+        "hnd_cup_pull_96",
+      ]);
+      if (forbiddenTallDoorIds.has(pid) || (pid === "hnd_gola_c_drawer" && extDrawersCount === 0)) {
+        const isGolaLike = cat === "gola_profile" || pid === "hnd_bevel_30_backing";
+        return {
+          compatible: false,
+          reasonTr: isGolaLike
+            ? "Boy dolap ve gardırop kapaklarında tezgâh altı yatay L-Gola veya üst dolap Gola 268 kullanılamaz; Dikey Alüminyum Gola (1020) kullanılır."
+            : "Çanak kulp boy dolap ve gardırop kapaklarında kullanılamaz.",
+          recommendedProfileId: isGolaLike ? "hnd_gola_vertical" : "hnd_bar_160",
+          recommendedCategory: isGolaLike ? "gola_profile" : "bar_handle",
+        };
+      }
+      if (pid === "hnd_long_profile_960" && module.dimensions.height < 1100) {
+        return {
+          compatible: false,
+          reasonTr: "C-C 960 mm uzun kulp için kapak yüksekliği en az 1100 mm olmalıdır.",
+          recommendedProfileId: "hnd_bar_320",
+          recommendedCategory: "bar_handle",
+        };
+      }
+    } else {
+      // Sadece çekmeceli yüksek bölme
+      if (pid === "hnd_gola_wall_268" || pid === "hnd_overhang_recessed_lip" || pid === "hnd_long_profile_960") {
+        return {
+          compatible: false,
+          reasonTr: "Bu kulp modeli çekmece grubunda kullanılamaz.",
+          recommendedProfileId: cat === "gola_profile" ? "hnd_gola_c_drawer" : "hnd_bar_320",
+          recommendedCategory: cat === "gola_profile" ? "gola_profile" : "bar_handle",
+        };
+      }
+    }
+    return { compatible: true };
+  }
+
+  // 5. TV & YAŞAM ÜNİTELERİ (Alçak konsollar <= 950 mm)
+  if (pid === "hnd_gola_wall_268" && (module.position?.y ?? 0) < 900) {
+    return {
+      compatible: false,
+      reasonTr: "Üst Dolap Altı Gola 268 yalnızca duvara asılı üst modüller içindir.",
+      recommendedProfileId: extDrawersCount > 0 ? "hnd_gola_c_drawer" : "hnd_gola_profile",
+      recommendedCategory: "gola_profile",
+    };
+  }
+  if (pid === "hnd_long_profile_960" && module.dimensions.height < 1100) {
+    return {
+      compatible: false,
+      reasonTr: "C-C 960 mm uzun gardırop kulpu alçak konsollarda kullanılamaz.",
+      recommendedProfileId: "hnd_bar_160",
+      recommendedCategory: "bar_handle",
+    };
+  }
+
+  return { compatible: true };
+}
+
+export function isHandleProfileCompatibleWithModuleBay(
+  profileId: string | undefined,
+  category: HandleCategory | string | undefined,
+  module: ModuleInstance,
+  bayIndex: number = 0
+): boolean {
+  return evaluateHandleProfileForModuleBay(profileId, category, module, bayIndex).compatible;
+}
+
+/**
+ * Sahnedeki tüm dolaplara veya tüm bölmelere toplu kulp/kapak stili uygulanırken,
+ * uyumsuz kulpları hedef dolabın dünya standardındaki eşdeğerine otomatik dönüştürür:
+ * - Gola ailesi -> Alt kapakta L-Gola (`hnd_gola_profile`), Alt çekmecede C-Gola (`hnd_gola_c_drawer`),
+ *   Üst dolapta Gola 268 (`hnd_gola_wall_268`), Boy dolapta Dikey Gola (`hnd_gola_vertical`)!
+ */
+export function resolveSmartCompatibleDoorPatchForModuleBay<
+  T extends {
+    handleProfileId?: string;
+    handleCategory?: HandleCategory;
+    crossSectionProfile?: import("./types").DoorCrossSectionProfile;
+    openingTechnology?: OpeningTechnology;
+    handleType?: "standard" | "integrated_profile" | "push_to_open" | "none" | "bar" | "recessed";
+  }
+>(patch: T, module: ModuleInstance, bayIndex: number = 0): T {
+  if (!patch.handleProfileId && !patch.handleCategory && patch.crossSectionProfile !== "bevel_45") {
+    return patch;
+  }
+  const bay = module.bays[bayIndex] || module.bays[0];
+  const zone = classifyCabinetPlacementZone(module);
+  const reqPid = patch.handleProfileId || bay?.door?.handleProfileId || "hnd_bar_160";
+  const reqCat = patch.handleCategory || bay?.door?.handleCategory || "bar_handle";
+
+  // Üst dolapta 45° üst pah (`bevel_45` / `hnd_bevel_30_backing`) seçildiyse düz kapak + Gola 268 / sarkık tutamağa çevir
+  if (
+    (zone === "kitchen_wall" || zone === "kitchen_corner_wall") &&
+    patch.crossSectionProfile === "bevel_45" &&
+    reqPid === "hnd_bevel_30_backing"
+  ) {
+    return {
+      ...patch,
+      handleProfileId: "hnd_overhang_recessed_lip",
+      handleCategory: "gola_profile",
+      crossSectionProfile: "flat_slab",
+    };
+  }
+
+  const check = evaluateHandleProfileForModuleBay(reqPid, reqCat, module, bayIndex);
+  if (check.compatible) {
+    // Alt dolapta çekmeceli bölmeye L-Gola toplu gönderildiyse L+C Gola olarak zenginleştir
+    const extDrawersCount = (bay?.drawers || []).filter((d) => !d.isInternal && !d.isHidden).length;
+    if (reqPid === "hnd_gola_profile" && extDrawersCount > 0 && zone === "kitchen_base") {
+      return {
+        ...patch,
+        handleProfileId: "hnd_gola_c_drawer",
+        handleCategory: "gola_profile",
+      };
+    }
+    return patch;
+  }
+
+  const nextPid = check.recommendedProfileId || "hnd_bar_160";
+  const nextCat = check.recommendedCategory || "bar_handle";
+  const nextCrossSection =
+    nextCat === "j_pull"
+      ? ("j_pull_bevel" as const)
+      : nextPid === "hnd_bevel_30_backing"
+      ? ("bevel_45" as const)
+      : patch.crossSectionProfile === "bevel_45" || patch.crossSectionProfile === "j_pull_bevel"
+      ? ("flat_slab" as const)
+      : patch.crossSectionProfile;
+
+  return {
+    ...patch,
+    handleProfileId: nextPid,
+    handleCategory: nextCat,
+    ...(nextCrossSection ? { crossSectionProfile: nextCrossSection } : {}),
+  };
+}
+
+export type CompatibleInteriorElementKey =
+  | "movable_shelf"
+  | "fixed_shelf"
+  | "external_drawer"
+  | "internal_drawer"
+  | "sub_divider"
+  | "hanging_rail"
+  | "trouser_pullout"
+  | "shoe_pullout"
+  | "jewelry_tray"
+  | "pantograph_lift"
+  | "led_hanging_rail"
+  | "wire_basket"
+  | "tie_belt_rack"
+  | "waste_bin"
+  | "spice_pullout"
+  | "pantry_pullout"
+  | "corner_lemans";
+
+/**
+ * Seçili dolap tipine göre "+ İç Eleman Ekle" menüsünde gösterilecek dünya standardı
+ * uyumlu iç donanım listesini döndürür (Örn. Üst mutfak dolabına asla elbise askısı,
+ * ayakkabılık, pantolonluk veya çekmece eklenemez!).
+ */
+export function getCompatibleInteriorElementsForModuleBay(
+  module: ModuleInstance,
+  bayIndex: number = 0
+): Set<CompatibleInteriorElementKey> {
+  const zone = classifyCabinetPlacementZone(module);
+  const bay = module.bays[bayIndex] || module.bays[0];
+  const doorType = bay?.door?.type || "single_left";
+  const isSliding =
+    doorType === "sliding" ||
+    doorType === "sliding_bottom" ||
+    bay?.door?.doorSystemId?.startsWith("sliding");
+  const bayWidths = calculateBayWidths(module);
+  const bayW = bayWidths[bayIndex] || module.dimensions.width;
+  const netH = calculateNetInnerHeight(module);
+  const depth = module.dimensions.depth;
+  const hasShelves = (bay?.shelves || []).length >= 1;
+
+  if (zone === "kitchen_wall" || zone === "kitchen_corner_wall") {
+    const set = new Set<CompatibleInteriorElementKey>(["movable_shelf", "fixed_shelf"]);
+    if (hasShelves && zone !== "kitchen_corner_wall") set.add("sub_divider");
+    return set;
+  }
+
+  if (zone === "kitchen_sink_base") {
+    return new Set<CompatibleInteriorElementKey>(["fixed_shelf", "waste_bin"]);
+  }
+
+  if (zone === "kitchen_corner_base") {
+    return new Set<CompatibleInteriorElementKey>(["movable_shelf", "fixed_shelf", "corner_lemans"]);
+  }
+
+  if (zone === "kitchen_appliance_base") {
+    return new Set<CompatibleInteriorElementKey>(["fixed_shelf", "external_drawer"]);
+  }
+
+  if (zone === "kitchen_base") {
+    const set = new Set<CompatibleInteriorElementKey>([
+      "movable_shelf",
+      "fixed_shelf",
+      "internal_drawer",
+      "wire_basket",
+    ]);
+    if (!isSliding) set.add("external_drawer");
+    if (hasShelves) set.add("sub_divider");
+    if (bayW >= 340) set.add("waste_bin");
+    if (bayW <= 460) set.add("spice_pullout");
+    return set;
+  }
+
+  if (zone === "kitchen_tall") {
+    const set = new Set<CompatibleInteriorElementKey>([
+      "movable_shelf",
+      "fixed_shelf",
+      "internal_drawer",
+      "wire_basket",
+    ]);
+    if (!isSliding) set.add("external_drawer");
+    if (hasShelves) set.add("sub_divider");
+    if (bayW <= 660) set.add("pantry_pullout");
+    return set;
+  }
+
+  if (zone === "wardrobe") {
+    const set = new Set<CompatibleInteriorElementKey>([
+      "movable_shelf",
+      "fixed_shelf",
+      "internal_drawer",
+      "hanging_rail",
+      "led_hanging_rail",
+      "shoe_pullout",
+      "jewelry_tray",
+      "wire_basket",
+      "tie_belt_rack",
+    ]);
+    if (!isSliding) set.add("external_drawer");
+    if (hasShelves) set.add("sub_divider");
+    if (depth >= 440) set.add("trouser_pullout");
+    if (netH >= 780 && bayW >= 420) set.add("pantograph_lift");
+    return set;
+  }
+
+  // TV & Yaşam / Banyo / Vestiyer
+  const set = new Set<CompatibleInteriorElementKey>([
+    "movable_shelf",
+    "fixed_shelf",
+    "internal_drawer",
+  ]);
+  if (!isSliding) set.add("external_drawer");
+  if (hasShelves) set.add("sub_divider");
+  if (netH >= 900 && depth >= 450) {
+    set.add("hanging_rail");
+    set.add("shoe_pullout");
+  }
+  return set;
 }

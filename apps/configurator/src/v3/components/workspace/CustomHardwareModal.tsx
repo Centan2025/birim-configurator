@@ -284,7 +284,7 @@ export const CustomHardwareModal: React.FC<CustomHardwareModalProps> = ({
                     <rect x="20" y="16" width="200" height="92" rx="8" fill="#E8E4DC" stroke="#BFB8AA" strokeWidth="1.5" />
                     {hCategory === "knob" ? (
                       <>
-                        <circle cx="120" cy="62" r="18" fill={activeFinish.hex} stroke="#141413" strokeWidth="1.5" />
+                        <circle cx="120" cy="62" r="18" fill={activeFinish.hex} stroke="#E2E8F0" strokeWidth="1.5" />
                         <circle cx="115" cy="56" r="5" fill="#ffffff" fillOpacity="0.28" />
                         <circle cx="120" cy="62" r="2.5" fill="#0ea5e9" />
                         <text x="120" y="98" textAnchor="middle" fontSize="9.5" fontFamily="monospace" fill="#334155">
@@ -306,7 +306,7 @@ export const CustomHardwareModal: React.FC<CustomHardwareModalProps> = ({
                         <rect x="57" y="48" width="10" height="14" rx="2" fill={activeFinish.hex} />
                         <rect x="173" y="48" width="10" height="14" rx="2" fill={activeFinish.hex} />
                         {/* Main Bar Grip */}
-                        <rect x="44" y="40" width="152" height="12" rx="4" fill={activeFinish.hex} stroke="#141413" strokeOpacity="0.35" />
+                        <rect x="44" y="40" width="152" height="12" rx="4" fill={activeFinish.hex} stroke="#E2E8F0" strokeOpacity="0.35" />
                         <line x1="48" y1="43" x2="192" y2="43" stroke="#ffffff" strokeOpacity="0.35" strokeWidth="1.5" />
                         {/* Dimension C-C arrow */}
                         <line x1="62" y1="80" x2="178" y2="80" stroke="#0284c7" strokeWidth="1.4" />

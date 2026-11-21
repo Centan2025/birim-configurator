@@ -123,10 +123,10 @@ export interface WebGL2CapabilityReport {
 let cachedCapabilityReport: WebGL2CapabilityReport | null = null;
 
 const LEGACY_GPU_REGEX =
-  /GeForce\s*210|GeForce\s*[89]\d00|GeForce\s*GT\s*[123]\d0|GeForce\s*GT[XS]?\s*[4-7]\d0\b|Direct3D9|vs_3_0|ps_3_0|SwiftShader|Basic Render Driver|llvmpipe|Software|GDI Generic|Intel\(R\)\s*HD Graphics\s*(2000|3000)?\b/i;
+  /GeForce\s*210|GeForce\s*[89]\d00|GeForce\s*GT\s*[123]\d0|GeForce\s*GT[XS]?\s*[4-7]\d0\b|Direct3D9|vs_3_0|ps_3_0|SwiftShader|Basic Render Driver|llvmpipe|Software|GDI Generic|Intel\(R\)\s*HD Graphics\s*(2000|3000)\b/i;
 
 const NO_MSAA_GPU_REGEX =
-  /GeForce\s*210|GeForce\s*[89]\d00|GeForce\s*GT\s*[123]\d0|Direct3D9|vs_3_0|ps_3_0|SwiftShader|Basic Render Driver|llvmpipe|Software|GDI Generic|Intel\(R\)\s*HD Graphics\s*(2000|3000)?\b/i;
+  /GeForce\s*210|GeForce\s*[89]\d00|GeForce\s*GT\s*[123]\d0|Direct3D9|vs_3_0|ps_3_0|SwiftShader|Basic Render Driver|llvmpipe|Software|GDI Generic|Intel\(R\)\s*HD Graphics\s*(2000|3000)\b/i;
 
 function readUnmaskedGpuString(gl: WebGLRenderingContext | WebGL2RenderingContext): string {
   try {

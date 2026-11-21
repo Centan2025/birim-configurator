@@ -68,6 +68,7 @@ import {
   computeMultiWallModuleSnap,
   solveSceneObjectPlacementSnap,
 } from "../v3/engine/multiWallSnapAndBvhEngine";
+import { getEffectiveSpaceWalls } from "../v3/engine/kitchenSpatialEngine";
 
 export type ViewMode = "3d" | "2d_elevation" | "2d_plan" | "2d_section";
 export type CameraPreset = "front" | "side" | "top" | "iso";
@@ -293,6 +294,11 @@ export interface ConfiguratorState {
   getSavedProjects: () => SavedProjectMeta[];
   exportProjectJSON: () => string;
   importProjectJSON: (jsonStr: string) => { success: boolean; error?: string };
+  applyBatchProjectUpdate: (
+    mutator: (draft: DesignProject) => void,
+    actionLabel?: string
+  ) => void;
+  restoreProjectVariantSnapshot: (snapshot: DesignProject, label?: string) => void;
 
   // Revisions & Atomic Batch Undo
   selectModuleBayComponent: (patch: {
@@ -326,7 +332,7 @@ export interface ConfiguratorState {
   deleteCustomModuleTemplate: (templateId: string) => void;
   addSceneObjectFromCatalog: (
     catalogId: string,
-    cursorWorld?: { x: number; z: number }
+    cursorWorld?: { x?: number; z?: number; wallId?: string }
   ) => SceneObjectInstance | null;
   addCustomSceneObject: (obj: SceneObjectInstance) => void;
   updateSceneObject: (id: string, patch: Partial<SceneObjectInstance>) => void;
@@ -1700,6 +1706,21 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
 
+    // Ensure every bay has a valid DoorConfig object (open-system cabinets may have minimal/empty door configs)
+    mod.bays.forEach((b, idx) => {
+      if (!b.door) {
+        b.door = {
+          id: `${mod.id}_door_${idx}`,
+          bayIndex: idx,
+          type: "open",
+          doorSystemId: "open",
+          overlayType: "full_overlay",
+          handleCategory: "bar_handle",
+          thickness: 18,
+        } as typeof b.door;
+      }
+    });
+
     if (type === "tambour") {
       if (mod.dimensions.depth < 320) {
         mod.dimensions.depth = 360;
@@ -1783,8 +1804,11 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
         mod.bays[bayIdx].door.type = type;
         mod.bays[bayIdx].door.doorSystemId = inferDoorSystemIdFromType(type);
         mod.bays[bayIdx].door.overlayType = "full_overlay";
+        if (type !== "open" && (!mod.bays[bayIdx].door.handleCategory || mod.bays[bayIdx].door.handleCategory === "none")) {
+          mod.bays[bayIdx].door.handleCategory = "bar_handle";
+        }
       }
-      mod.isOpenFront = false;
+      mod.isOpenFront = mod.bays.every((b) => !b.door || b.door.type === "open");
     }
     if (batchStartProject) {
       set({
@@ -2121,24 +2145,70 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
     const T_d = mod.carcass.panelThickness || 18;
     const plinth_d = mod.carcass.plinthHeight ?? 100;
     const netH_d = Math.max(220, mod.dimensions.height - plinth_d - 2 * T_d);
-    const prevTop =
-      bay.drawers.length > 0
-        ? Math.max(...bay.drawers.map((d) => d.elevationY + d.height))
-        : 0;
-    const drwH = Math.min(180, Math.max(110, Math.floor(netH_d / Math.max(2, bay.drawers.length + 1))));
-    const clampedElev = Math.max(0, Math.min(netH_d - drwH, prevTop));
     const isSlidingBay =
       bay.door?.type === "sliding" ||
       bay.door?.type === "sliding_bottom" ||
       Boolean(bay.door?.doorSystemId?.startsWith("sliding"));
-    bay.drawers.push({
-      id: `drw_${bayIdx}_${Date.now()}`,
-      bayIndex: bayIdx,
-      elevationY: clampedElev,
-      height: drwH,
-      slideType: "soft_close",
-      isInternal: isSlidingBay ? true : undefined,
-    });
+    const isFullDrawerBay =
+      !isSlidingBay &&
+      (Boolean(mod.isOpenFront) ||
+        !bay.door ||
+        bay.door.type === "open" ||
+        bay.door.doorSystemId === "open");
+    const extCountBefore = bay.drawers.filter((d) => !d.isInternal).length;
+    const prevTop =
+      bay.drawers.length > 0
+        ? Math.max(...bay.drawers.map((d) => d.elevationY + d.height))
+        : 0;
+
+    if (isFullDrawerBay && extCountBefore >= 1 && prevTop >= netH_d * 0.65) {
+      // Redistribute all N external drawers (2, 3, 4, 5, 6...) proportionally from bottom (0) to top (netH_d) with zero overlap!
+      bay.drawers.push({
+        id: `drw_${bayIdx}_${Date.now()}`,
+        bayIndex: bayIdx,
+        elevationY: prevTop,
+        height: 140,
+        slideType: "soft_close",
+      });
+      const extList = bay.drawers
+        .filter((d) => !d.isInternal)
+        .sort((a, b) => a.elevationY - b.elevationY);
+      const n = extList.length;
+      const gapStep = 3;
+      const usableSum = Math.max(n * 80, netH_d - (n - 1) * gapStep);
+      let cursorY = 0;
+      extList.forEach((d, idx) => {
+        const isLast = idx === n - 1;
+        // Classic 3-drawer ratio (38% bottom + 36% mid + 26% top cutlery); equal height for 2, 4, 5, 6+ drawers
+        const hShare =
+          n === 3
+            ? idx === 0
+              ? Math.round(usableSum * 0.38)
+              : idx === 1
+              ? Math.round(usableSum * 0.35)
+              : usableSum - Math.round(usableSum * 0.38) - Math.round(usableSum * 0.35)
+            : isLast
+            ? netH_d - cursorY
+            : Math.round(usableSum / n);
+        d.elevationY = cursorY;
+        d.height = Math.max(75, hShare);
+        cursorY += d.height + gapStep;
+      });
+    } else {
+      const drwH = Math.min(
+        180,
+        Math.max(110, Math.floor(netH_d / Math.max(2, bay.drawers.length + 1)))
+      );
+      const clampedElev = Math.max(0, Math.min(netH_d - drwH, prevTop));
+      bay.drawers.push({
+        id: `drw_${bayIdx}_${Date.now()}`,
+        bayIndex: bayIdx,
+        elevationY: clampedElev,
+        height: drwH,
+        slideType: "soft_close",
+        isInternal: isSlidingBay ? true : undefined,
+      });
+    }
 
     if (batchStartProject) {
       set({
@@ -2167,7 +2237,42 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
 
+    const bayBefore = mod.bays[bayIdx];
+    const T_r = mod.carcass.panelThickness || 18;
+    const plinth_r = mod.carcass.plinthHeight ?? 100;
+    const netH_r = Math.max(220, mod.dimensions.height - plinth_r - 2 * T_r);
+    const wasFullStack =
+      (Boolean(mod.isOpenFront) ||
+        !bayBefore.door ||
+        bayBefore.door.type === "open" ||
+        bayBefore.door.doorSystemId === "open") &&
+      bayBefore.drawers.some((d) => !d.isInternal && d.elevationY + d.height >= netH_r * 0.72);
     mod.bays[bayIdx].drawers = mod.bays[bayIdx].drawers.filter((d) => d.id !== drawerId);
+    const remExt = mod.bays[bayIdx].drawers
+      .filter((d) => !d.isInternal)
+      .sort((a, b) => a.elevationY - b.elevationY);
+    if (wasFullStack && remExt.length >= 1) {
+      const n = remExt.length;
+      const gapStep = 3;
+      const usableSum = Math.max(n * 80, netH_r - (n - 1) * gapStep);
+      let cursorY = 0;
+      remExt.forEach((d, idx) => {
+        const isLast = idx === n - 1;
+        const hShare =
+          n === 3
+            ? idx === 0
+              ? Math.round(usableSum * 0.38)
+              : idx === 1
+              ? Math.round(usableSum * 0.35)
+              : usableSum - Math.round(usableSum * 0.38) - Math.round(usableSum * 0.35)
+            : isLast
+            ? netH_r - cursorY
+            : Math.round(usableSum / n);
+        d.elevationY = cursorY;
+        d.height = Math.max(75, hShare);
+        cursorY += d.height + gapStep;
+      });
+    }
     if (batchStartProject) {
       set({
         project: updated,
@@ -2635,6 +2740,58 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
     }
   },
 
+  applyBatchProjectUpdate: (mutator, actionLabel) => {
+    const { project, history, batchStartProject, activeModuleIndex, activeBayIndex } = get();
+    const updated = cloneProject(project);
+    mutator(updated);
+    updated.version = (updated.version || 1) + 1;
+    updated.updatedAt = new Date().toISOString();
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
+    if (lastChangeImpact && actionLabel) {
+      lastChangeImpact.actionLabel = actionLabel;
+    }
+    const safeModIdx = Math.max(0, Math.min(Math.max(0, updated.modules.length - 1), activeModuleIndex));
+    const maxBay = Math.max(0, (updated.modules[safeModIdx]?.bays.length || 1) - 1);
+    set({
+      project: updated,
+      activeModuleIndex: safeModIdx,
+      activeBayIndex: Math.max(0, Math.min(maxBay, activeBayIndex)),
+      autoSaveStatus: "unsaved",
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+      lastChangeImpact,
+    });
+  },
+
+  restoreProjectVariantSnapshot: (snapshot, label) => {
+    const { project, history, batchStartProject, activeModuleIndex } = get();
+    const updated = cloneProject(snapshot);
+    updated.version = (project.version || 1) + 1;
+    updated.updatedAt = new Date().toISOString();
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
+    if (lastChangeImpact && label) {
+      lastChangeImpact.actionLabel = label;
+    }
+    const safeModIdx = Math.max(0, Math.min(Math.max(0, updated.modules.length - 1), activeModuleIndex));
+    set({
+      project: updated,
+      activeModuleIndex: safeModIdx,
+      activeBayIndex: 0,
+      autoSaveStatus: "unsaved",
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+      lastChangeImpact,
+    });
+  },
+
   applyApprovedEngineeringFix: (proposal) => {
     const { project, history, batchStartProject } = get();
     const updated = applyApprovedRemediationProposal(project, proposal);
@@ -2735,10 +2892,15 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
   setSelectedSceneObjectId: (selectedSceneObjectId) => set({ selectedSceneObjectId }),
 
   appendModuleWithMultiWallSnap: (templateId, opts) => {
-    const { project, history, batchStartProject } = get();
+    const { project, history, batchStartProject, activeWallId } = get();
     const updated = cloneProject(project);
+    const effWalls = getEffectiveSpaceWalls(updated);
+    if (effWalls.length > updated.space.walls.length) {
+      updated.space.walls = effWalls.map((w) => ({ ...w, position: { ...w.position } }));
+    }
+    const targetWallId = opts?.wallId || activeWallId || effWalls[0]?.id || undefined;
     const solved = computeMultiWallModuleSnap(updated, templateId, {
-      wallId: opts?.wallId,
+      wallId: targetWallId,
       worldX: opts?.worldX,
       worldZ: opts?.worldZ,
       insertBetween: opts?.insertBetween,
@@ -2929,9 +3091,16 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
   },
 
   addSceneObjectFromCatalog: (catalogId, cursorWorld) => {
-    const { project, history, batchStartProject } = get();
+    const { project, history, batchStartProject, activeWallId } = get();
     const updated = cloneProject(project);
-    const solved = solveSceneObjectPlacementSnap(updated, catalogId, cursorWorld);
+    const effWalls = getEffectiveSpaceWalls(updated);
+    if (effWalls.length > updated.space.walls.length) {
+      updated.space.walls = effWalls.map((w) => ({ ...w, position: { ...w.position } }));
+    }
+    const solved = solveSceneObjectPlacementSnap(updated, catalogId, {
+      ...(cursorWorld || {}),
+      wallId: cursorWorld?.wallId || activeWallId || effWalls[0]?.id || undefined,
+    });
     if (!solved) return null;
     updated.sceneObjects = [...(updated.sceneObjects || []), solved.object];
     const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
@@ -3273,6 +3442,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
       future: [],
       batchStartProject: null,
       project: kitchenProj,
+      activeWallId: kitchenProj.space?.walls?.[0]?.id || "wall_main",
       activeModuleIndex: 0,
       validationIssues,
       bom,
@@ -3292,6 +3462,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
       future: [],
       batchStartProject: null,
       project: lProj,
+      activeWallId: lProj.space?.walls?.[0]?.id || "wall_main",
       activeModuleIndex: 0,
       validationIssues,
       bom,
@@ -3311,6 +3482,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
       future: [],
       batchStartProject: null,
       project: uProj,
+      activeWallId: uProj.space?.walls?.[0]?.id || "wall_main",
       activeModuleIndex: 0,
       validationIssues,
       bom,

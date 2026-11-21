@@ -594,7 +594,8 @@ function validateModuleUncached(
         : hasThin18mmFixed
         ? base18mmLimit + 20
         : 1200;
-      if (activeWoodenShelves.length > 0 && bayWidth > effMaxSpan) {
+      const effShelfSpanMm = module.isCorner ? Math.round(bayWidth * 0.58) : bayWidth;
+      if (activeWoodenShelves.length > 0 && effShelfSpanMm > effMaxSpan) {
         issues.push({
           severity: "warning",
           code: "WARN_SHELF_SPAN_DEFLECTION",
@@ -617,6 +618,7 @@ function validateModuleUncached(
       if (
         height >= 1800 &&
         module.category !== "complementary" &&
+        visibleShelvesInBay.length >= 2 &&
         !hasFixedStructuralShelf &&
         bay.drawers.length === 0 &&
         !hasStructuralPulloutFrame
@@ -1448,12 +1450,13 @@ export function autoFixModuleIssues(module: ModuleInstance): AutoFixModuleResult
       bay.door.doorThicknessMm = Math.max(22, bay.door.doorThicknessMm || 22);
       nextMod.carcass.doorThickness = 22;
       if (
-        nextMod.carcass.doorMaterialId !== "mat_lacquer_white" &&
+        nextMod.carcass.doorMaterialId !== "mat_lacquer_cream" &&
+        nextMod.carcass.doorMaterialId !== "mat_lacquer_cashmere" &&
         nextMod.carcass.doorMaterialId !== "mat_lacquer_sage" &&
         nextMod.carcass.doorMaterialId !== "mat_veneer_oak" &&
         nextMod.carcass.doorMaterialId !== "mat_veneer_walnut"
       ) {
-        nextMod.carcass.doorMaterialId = "mat_lacquer_white";
+        nextMod.carcass.doorMaterialId = "mat_lacquer_cream";
       }
       appliedFixes.push(
         `Bölme ${bIdx + 1}: J-Pull kulp için 22mm MDF İpek Mat Lake kapak standardı uygulandı.`

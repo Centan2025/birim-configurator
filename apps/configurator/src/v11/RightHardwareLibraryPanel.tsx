@@ -90,102 +90,159 @@ export interface RightHardwareLibraryPanelProps {
  */
 function getHardwareSvgInnerMarkup(
   familyId: HardwareCategoryGroupId,
-  showCallout = false
+  showCallout = false,
+  productHint = ""
 ): string {
+  const hint = productHint.toLowerCase();
   switch (familyId) {
     case "fam_hinge_concealed":
       return `
         <rect x="6" y="10" width="12" height="52" rx="2" fill="#E7DEC8" stroke="#8C6D46" stroke-width="1.4"/>
-        <circle cx="34" cy="36" r="15" fill="#F1EFEA" stroke="#1C1917" stroke-width="1.8"/>
+        <circle cx="34" cy="36" r="15" fill="#F1EFEA" stroke="#E2E8F0" stroke-width="1.8"/>
         <circle cx="34" cy="36" r="8" fill="#E2DDD3" stroke="#78716C" stroke-dasharray="2.5 2"/>
         <circle cx="25" cy="19" r="2.6" fill="#2563EB"/>
         <circle cx="25" cy="53" r="2.6" fill="#2563EB"/>
-        <rect x="47" y="29" width="40" height="14" rx="3.5" fill="#D6D3CD" stroke="#1C1917" stroke-width="1.8"/>
-        <rect x="74" y="18" width="18" height="36" rx="2.5" fill="#C4BFAF" stroke="#44403C" stroke-width="1.5"/>
+        <rect x="47" y="29" width="40" height="14" rx="3.5" fill="#D6D3CD" stroke="#E2E8F0" stroke-width="1.8"/>
+        <rect x="74" y="18" width="18" height="36" rx="2.5" fill="#C4BFAF" stroke="#94A3B8" stroke-width="1.5"/>
         <circle cx="83" cy="24" r="2.2" fill="#2563EB"/>
         <circle cx="83" cy="48" r="2.2" fill="#2563EB"/>
-        ${showCallout ? '<text x="12" y="70" font-size="7" fill="#57534E" font-family="monospace">Ø35 tas • 45×9.5 / TH52 • 37/32 mm</text>' : ""}
+        ${showCallout ? '<text x="12" y="70" font-size="7" fill="#CBD5E1" font-family="monospace">Ø35 tas • 45×9.5 / TH52 • 37/32 mm</text>' : ""}
       `;
     case "fam_hinge_plate":
       return `
-        <path d="M40 12 H72 V26 H88 V46 H72 V60 H40 V46 H24 V26 H40 Z" fill="#E7E5E0" stroke="#1C1917" stroke-width="1.8"/>
+        <path d="M40 12 H72 V26 H88 V46 H72 V60 H40 V46 H24 V26 H40 Z" fill="#E7E5E0" stroke="#E2E8F0" stroke-width="1.8"/>
         <circle cx="56" cy="20" r="3.4" fill="#2563EB"/>
         <circle cx="56" cy="52" r="3.4" fill="#2563EB"/>
         <line x1="36" y1="36" x2="76" y2="36" stroke="#78716C" stroke-width="1.6"/>
-        <circle cx="56" cy="36" r="4.5" fill="#FAF8F4" stroke="#44403C" stroke-width="1.5"/>
-        ${showCallout ? '<text x="20" y="71" font-size="7" fill="#57534E" font-family="monospace">System 32 (37×32 mm) Haç Tabla</text>' : ""}
+        <circle cx="56" cy="36" r="4.5" fill="#FAF8F4" stroke="#94A3B8" stroke-width="1.5"/>
+        ${showCallout ? '<text x="20" y="71" font-size="7" fill="#CBD5E1" font-family="monospace">System 32 (37×32 mm) Haç Tabla</text>' : ""}
       `;
     case "fam_runner_concealed":
-    case "fam_drawer_box":
+    case "fam_drawer_box": {
+      const isAtira = hint.includes("atira") || hint.includes("bordür") || hint.includes("h144") || hint.includes("9209483");
+      const isAvanTech = hint.includes("avantech") || hint.includes("actroyou");
+      const isLegraboxC = hint.includes("770c") || hint.includes("177") || (hint.includes("legrabox") && hint.includes("tencere"));
+      const isTandembox = hint.includes("tandembox") || hint.includes("antaro") || hint.includes("578.5001");
+
+      if (isAtira) {
+        // Hettich InnoTech Atira H144 — Trapezoidal anthracite lower side wall + elevated rectangular gallery railing rod!
+        return `
+          <polygon points="14,48 38,34 98,34 74,48" fill="#1E293B" stroke="#64748B" stroke-width="1.2"/>
+          <polygon points="14,34 14,52 74,52 74,34" fill="#334155" stroke="#CBD5E1" stroke-width="1.4"/>
+          <polygon points="74,34 98,20 98,38 74,52" fill="#475569" stroke="#E2E8F0" stroke-width="1.6"/>
+          <polygon points="14,16 20,16 20,34 14,34" fill="#334155" stroke="#CBD5E1" stroke-width="1.2"/>
+          <polygon points="74,16 79,13 79,34 74,34" fill="#475569" stroke="#E2E8F0" stroke-width="1.2"/>
+          <polygon points="93,5 98,2 98,22 93,25" fill="#475569" stroke="#CBD5E1" stroke-width="1.2"/>
+          <line x1="76" y1="20" x2="96" y2="8" stroke="#94A3B8" stroke-width="3.2" stroke-linecap="round"/>
+          <line x1="16" y1="20" x2="74" y2="20" stroke="#94A3B8" stroke-width="2.4" stroke-linecap="round"/>
+          <line x1="74" y1="54" x2="98" y2="40" stroke="#38BDF8" stroke-width="2.8" stroke-linecap="round"/>
+          <text x="16" y="66" font-size="7.5" fill="#94A3B8" font-family="monospace">H144 Bordürlü</text>
+        `;
+      }
+      if (isAvanTech) {
+        // Hettich AvanTech YOU (101mm, 13mm ultra-thin architectural side wall + illuminated top design profile!)
+        return `
+          <polygon points="14,46 38,32 98,32 74,46" fill="#1E293B" stroke="#475569" stroke-width="1.1"/>
+          <rect x="14" y="28" width="60" height="24" rx="1.5" fill="#263040" stroke="#94A3B8" stroke-width="1.4"/>
+          <polygon points="74,28 98,14 98,38 74,52" fill="#334155" stroke="#E2E8F0" stroke-width="1.5"/>
+          <line x1="74" y1="28" x2="98" y2="14" stroke="#38BDF8" stroke-width="2.8" stroke-linecap="round"/>
+          <line x1="14" y1="28" x2="74" y2="28" stroke="#7DD3FC" stroke-width="1.6"/>
+          <line x1="74" y1="54" x2="98" y2="40" stroke="#38BDF8" stroke-width="2.4" stroke-linecap="round" opacity="0.85"/>
+          <text x="16" y="66" font-size="7.5" fill="#7DD3FC" font-family="monospace">13mm İnce · 101mm</text>
+        `;
+      }
+      if (isLegraboxC) {
+        // Blum LEGRABOX pure C (177mm tall deep pot drawer, straight 12.8mm Orion Grey metallic side walls)
+        return `
+          <polygon points="14,48 38,34 98,34 74,48" fill="#1E293B" stroke="#475569" stroke-width="1.1"/>
+          <rect x="14" y="14" width="60" height="40" rx="1.5" fill="#3B4454" stroke="#CBD5E1" stroke-width="1.5"/>
+          <polygon points="74,14 98,2 98,42 74,54" fill="#4B5568" stroke="#F8FAFC" stroke-width="1.6"/>
+          <line x1="74" y1="14" x2="98" y2="2" stroke="#E2E8F0" stroke-width="2"/>
+          <line x1="74" y1="56" x2="98" y2="44" stroke="#38BDF8" stroke-width="2.6" stroke-linecap="round"/>
+          <text x="16" y="67" font-size="7.5" fill="#CBD5E1" font-family="monospace">Yüksek C · 177mm</text>
+        `;
+      }
+      if (isTandembox) {
+        // Blum TANDEMBOX antaro M (83.6mm silk-white / brushed steel rectangular side profile)
+        return `
+          <polygon points="14,46 38,34 98,34 74,46" fill="#334155" stroke="#64748B" stroke-width="1.1"/>
+          <rect x="14" y="30" width="60" height="20" rx="1.5" fill="#CBD5E1" stroke="#F8FAFC" stroke-width="1.5"/>
+          <polygon points="74,30 98,18 98,38 74,50" fill="#94A3B8" stroke="#F8FAFC" stroke-width="1.6"/>
+          <line x1="74" y1="36" x2="98" y2="24" stroke="#E2E8F0" stroke-width="1.2" opacity="0.8"/>
+          <line x1="74" y1="52" x2="98" y2="40" stroke="#38BDF8" stroke-width="2.6" stroke-linecap="round"/>
+          <text x="16" y="65" font-size="7.5" fill="#CBD5E1" font-family="monospace">Antaro M · 83.6mm</text>
+        `;
+      }
+      // Default: Blum LEGRABOX pure M (90.5mm low ultra-slim 12.8mm metallic side-wall drawer)
       return `
-        <polygon points="12,26 36,12 98,12 74,26" fill="#F5EFE6" stroke="#78716C" stroke-width="1.5"/>
-        <rect x="12" y="26" width="62" height="28" rx="2" fill="#E6D8C3" stroke="#1C1917" stroke-width="1.8"/>
-        <polygon points="74,26 98,12 98,40 74,54" fill="#CBB89D" stroke="#1C1917" stroke-width="1.8"/>
-        <rect x="34" y="37" width="18" height="4" rx="2" fill="#1C1917"/>
-        <line x1="14" y1="59" x2="96" y2="45" stroke="#2563EB" stroke-width="3.2" stroke-linecap="round"/>
-        <circle cx="24" cy="57" r="2.8" fill="#1E40AF"/>
-        <circle cx="84" cy="47" r="2.8" fill="#1E40AF"/>
-        ${showCallout ? '<text x="14" y="71" font-size="7" fill="#57534E" font-family="monospace">NL 270–650 mm • Tam Açılım Ray</text>' : ""}
+        <polygon points="14,46 38,34 98,34 74,46" fill="#1E293B" stroke="#475569" stroke-width="1.1"/>
+        <rect x="14" y="29" width="60" height="22" rx="1.5" fill="#3F4859" stroke="#CBD5E1" stroke-width="1.5"/>
+        <polygon points="74,29 98,17 98,39 74,51" fill="#525E73" stroke="#F8FAFC" stroke-width="1.6"/>
+        <line x1="74" y1="29" x2="98" y2="17" stroke="#E2E8F0" stroke-width="1.8"/>
+        <line x1="74" y1="53" x2="98" y2="41" stroke="#38BDF8" stroke-width="2.6" stroke-linecap="round"/>
+        <text x="16" y="66" font-size="7.5" fill="#CBD5E1" font-family="monospace">${showCallout ? "NL 270–650 mm • Gizli Ray" : "Pure M · 90.5mm"}</text>
       `;
+    }
     case "fam_lift_system":
       return `
         <rect x="16" y="18" width="76" height="42" rx="2.5" fill="#FAF8F4" stroke="#A8A29E" stroke-width="1.5"/>
-        <line x1="20" y1="20" x2="90" y2="8" stroke="#1C1917" stroke-width="3.2" stroke-linecap="round"/>
+        <line x1="20" y1="20" x2="90" y2="8" stroke="#E2E8F0" stroke-width="3.2" stroke-linecap="round"/>
         <rect x="22" y="24" width="16" height="10" rx="2.5" fill="#2563EB"/>
         <line x1="36" y1="29" x2="62" y2="14" stroke="#2563EB" stroke-width="2.4" stroke-linecap="round"/>
         <path d="M84 36 C92 28, 92 18, 86 12" stroke="#059669" stroke-width="1.8" stroke-dasharray="3 2" fill="none"/>
-        ${showCallout ? '<text x="18" y="71" font-size="7" fill="#57534E" font-family="monospace">LF = KH × Kapak Ağırlığı</text>' : ""}
+        ${showCallout ? '<text x="18" y="71" font-size="7" fill="#CBD5E1" font-family="monospace">LF = KH × Kapak Ağırlığı</text>' : ""}
       `;
     case "fam_sliding_system":
     case "fam_pocket_system":
       return `
-        <rect x="10" y="10" width="92" height="5" rx="2" fill="#1C1917"/>
-        <rect x="14" y="16" width="42" height="44" rx="2.5" fill="#E6D8C3" stroke="#1C1917" stroke-width="1.8"/>
-        <rect x="48" y="20" width="46" height="40" rx="2.5" fill="#CFC0A8" stroke="#57534E" stroke-width="1.6"/>
+        <rect x="10" y="10" width="92" height="5" rx="2" fill="#CBD5E1"/>
+        <rect x="14" y="16" width="42" height="44" rx="2.5" fill="#E6D8C3" stroke="#E2E8F0" stroke-width="1.8"/>
+        <rect x="48" y="20" width="46" height="40" rx="2.5" fill="#CFC0A8" stroke="#94A3B8" stroke-width="1.6"/>
         <path d="M26 38 H66 M60 33 L66 38 L60 43" stroke="#2563EB" stroke-width="2.2" fill="none" stroke-linecap="round"/>
-        ${showCallout ? '<text x="14" y="71" font-size="7" fill="#57534E" font-family="monospace">Üst/Alt Raylı Sürgü / Pocket</text>' : ""}
+        ${showCallout ? '<text x="14" y="71" font-size="7" fill="#CBD5E1" font-family="monospace">Üst/Alt Raylı Sürgü / Pocket</text>' : ""}
       `;
     case "fam_push_soft_close":
       return `
-        <rect x="14" y="26" width="46" height="18" rx="5" fill="#E5E1D8" stroke="#1C1917" stroke-width="1.8"/>
+        <rect x="14" y="26" width="46" height="18" rx="5" fill="#E5E1D8" stroke="#E2E8F0" stroke-width="1.8"/>
         <rect x="60" y="30" width="22" height="10" rx="3" fill="#2563EB"/>
-        <rect x="86" y="14" width="8" height="44" rx="2" fill="#D6C7B2" stroke="#57534E" stroke-width="1.5"/>
+        <rect x="86" y="14" width="8" height="44" rx="2" fill="#D6C7B2" stroke="#94A3B8" stroke-width="1.5"/>
         <path d="M68 20 L80 20" stroke="#059669" stroke-width="2" stroke-linecap="round"/>
-        ${showCallout ? '<text x="16" y="71" font-size="7" fill="#57534E" font-family="monospace">2.0–2.6 mm Bas-Aç Boşluğu</text>' : ""}
+        ${showCallout ? '<text x="16" y="71" font-size="7" fill="#CBD5E1" font-family="monospace">2.0–2.6 mm Bas-Aç Boşluğu</text>' : ""}
       `;
     case "fam_kitchen_acc":
     case "fam_wardrobe_acc":
       return `
         <rect x="18" y="10" width="76" height="50" rx="3.5" fill="#FAF8F4" stroke="#78716C" stroke-width="1.6"/>
-        <line x1="28" y1="14" x2="28" y2="56" stroke="#1C1917" stroke-width="2.6"/>
+        <line x1="28" y1="14" x2="28" y2="56" stroke="#E2E8F0" stroke-width="2.6"/>
         <path d="M28 24 C46 16, 70 16, 86 24 L82 32 C68 26, 46 26, 28 32 Z" fill="#DBEAFE" stroke="#2563EB" stroke-width="1.6"/>
         <path d="M28 42 C46 34, 70 34, 86 42 L82 50 C68 44, 46 44, 28 50 Z" fill="#DBEAFE" stroke="#2563EB" stroke-width="1.6"/>
-        ${showCallout ? '<text x="16" y="71" font-size="7" fill="#57534E" font-family="monospace">Dolap İçi Kiler / Düzenleyici</text>' : ""}
+        ${showCallout ? '<text x="16" y="71" font-size="7" fill="#CBD5E1" font-family="monospace">Dolap İçi Kiler / Düzenleyici</text>' : ""}
       `;
     case "fam_connector":
     case "fam_shelf_support":
       return `
-        <circle cx="36" cy="36" r="15" fill="#E7E5E0" stroke="#1C1917" stroke-width="1.8"/>
-        <path d="M30 36 H42 M36 30 V42" stroke="#57534E" stroke-width="2"/>
+        <circle cx="36" cy="36" r="15" fill="#E7E5E0" stroke="#E2E8F0" stroke-width="1.8"/>
+        <path d="M30 36 H42 M36 30 V42" stroke="#94A3B8" stroke-width="2"/>
         <line x1="51" y1="36" x2="88" y2="36" stroke="#2563EB" stroke-width="4" stroke-linecap="round"/>
         <circle cx="88" cy="36" r="4.8" fill="#1E40AF"/>
-        ${showCallout ? '<text x="16" y="71" font-size="7" fill="#57534E" font-family="monospace">Ø15 Minifix / Ø20 Rafix / Ø5 Pim</text>' : ""}
+        ${showCallout ? '<text x="16" y="71" font-size="7" fill="#CBD5E1" font-family="monospace">Ø15 Minifix / Ø20 Rafix / Ø5 Pim</text>' : ""}
       `;
     case "fam_plinth_leg":
     default:
       return `
         <rect x="16" y="12" width="80" height="10" rx="2" fill="#E6D8C3" stroke="#8C6D46" stroke-width="1.6"/>
-        <rect x="46" y="22" width="20" height="28" rx="2.5" fill="#D6D3CD" stroke="#1C1917" stroke-width="1.8"/>
-        <rect x="34" y="50" width="44" height="9" rx="2.5" fill="#1C1917"/>
+        <rect x="46" y="22" width="20" height="28" rx="2.5" fill="#D6D3CD" stroke="#E2E8F0" stroke-width="1.8"/>
+        <rect x="34" y="50" width="44" height="9" rx="2.5" fill="#CBD5E1"/>
         <path d="M74 28 V44" stroke="#2563EB" stroke-width="1.8" stroke-dasharray="2 2"/>
-        ${showCallout ? '<text x="18" y="71" font-size="7" fill="#57534E" font-family="monospace">Ayarlı Baza Ayağı / Askı</text>' : ""}
+        ${showCallout ? '<text x="18" y="71" font-size="7" fill="#CBD5E1" font-family="monospace">Ayarlı Baza Ayağı / Askı</text>' : ""}
       `;
   }
 }
 
 function renderHardwareSchematicSvg(
   familyId: HardwareCategoryGroupId,
-  variant: "grid" | "list" | "detail"
+  variant: "grid" | "list" | "detail",
+  productHint = ""
 ) {
   const cls =
     variant === "detail"
@@ -199,7 +256,7 @@ function renderHardwareSchematicSvg(
       className={cls}
       fill="none"
       dangerouslySetInnerHTML={{
-        __html: getHardwareSvgInnerMarkup(familyId, variant === "detail"),
+        __html: getHardwareSvgInnerMarkup(familyId, variant === "detail", productHint),
       }}
     />
   );
@@ -234,7 +291,7 @@ function startHardware3DDrag(
       ? "drop-shadow(0 12px 20px rgba(20, 20, 19, 0.32))"
       : "drop-shadow(0 10px 18px rgba(220, 38, 38, 0.42))";
     el.style.willChange = "transform";
-    el.innerHTML = `<svg viewBox="0 0 112 74" width="144" height="96" fill="none">${getHardwareSvgInnerMarkup(item.familyId, false)}</svg>`;
+    el.innerHTML = `<svg viewBox="0 0 112 74" width="144" height="96" fill="none">${getHardwareSvgInnerMarkup(item.familyId, false, `${item.brand} ${item.sku} ${item.modelName}`)}</svg>`;
     document.body.appendChild(el);
     ghostEl = el;
   };
@@ -659,7 +716,7 @@ export const RightHardwareLibraryPanel: React.FC<RightHardwareLibraryPanelProps>
           }`}
         >
           <div className="rounded-xl bg-[#FAF8F4] border border-[#ECE7DD] p-1 shrink-0">
-            {renderHardwareSchematicSvg(item.familyId, "list")}
+            {renderHardwareSchematicSvg(item.familyId, "list", `${item.brand} ${item.sku} ${item.modelName}`)}
           </div>
           <div className="flex-1 min-w-0 space-y-1">
             <div className="text-[10px] font-bold uppercase text-[#8C7A6B] truncate">
@@ -744,7 +801,7 @@ export const RightHardwareLibraryPanel: React.FC<RightHardwareLibraryPanelProps>
               <Info className="w-3 h-3" />
             </button>
           </div>
-          {renderHardwareSchematicSvg(item.familyId, "grid")}
+          {renderHardwareSchematicSvg(item.familyId, "grid", `${item.brand} ${item.sku} ${item.modelName}`)}
         </div>
 
         {/* Kompakt Bilgi & Aksiyon Alt Alanı */}
@@ -1292,7 +1349,7 @@ export const RightHardwareLibraryPanel: React.FC<RightHardwareLibraryPanelProps>
           </div>
 
           <div className="rounded-xl bg-[#FAF8F4] border border-[#E6E1D6] p-2.5">
-            {renderHardwareSchematicSvg(selectedDetailItem.familyId, "detail")}
+            {renderHardwareSchematicSvg(selectedDetailItem.familyId, "detail", `${selectedDetailItem.brand} ${selectedDetailItem.sku} ${selectedDetailItem.modelName}`)}
             {selectedDetailItem.technicalDrawingNotesTr && (
               <p className="text-[10.5px] text-[#57534E] mt-1 font-mono leading-snug">
                 {selectedDetailItem.technicalDrawingNotesTr}

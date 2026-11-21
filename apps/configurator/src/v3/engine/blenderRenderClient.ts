@@ -29,36 +29,14 @@ export interface BlenderRenderResult {
   engine: string;
 }
 
-let cachedBlenderStatus: BlenderEngineStatus | null = null;
-let pendingBlenderStatusPromise: Promise<BlenderEngineStatus> | null = null;
-
 export async function checkBlenderRenderStatus(): Promise<BlenderEngineStatus> {
-  if (cachedBlenderStatus) {
-    return cachedBlenderStatus;
+  try {
+    const res = await fetch("/api/render/blender", { cache: "no-store" });
+    if (!res.ok) return { available: false, path: null, version: null };
+    return (await res.json()) as BlenderEngineStatus;
+  } catch {
+    return { available: false, path: null, version: null };
   }
-  if (pendingBlenderStatusPromise) {
-    return pendingBlenderStatusPromise;
-  }
-  pendingBlenderStatusPromise = (async () => {
-    try {
-      const res = await fetch("/api/render/blender");
-      if (!res.ok) {
-        const fallback: BlenderEngineStatus = { available: false, path: null, version: null };
-        cachedBlenderStatus = fallback;
-        return fallback;
-      }
-      const data = (await res.json()) as BlenderEngineStatus;
-      cachedBlenderStatus = data;
-      return data;
-    } catch {
-      const fallback: BlenderEngineStatus = { available: false, path: null, version: null };
-      cachedBlenderStatus = fallback;
-      return fallback;
-    } finally {
-      pendingBlenderStatusPromise = null;
-    }
-  })();
-  return pendingBlenderStatusPromise;
 }
 
 export async function renderSceneWithBlenderCycles(

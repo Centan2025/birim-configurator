@@ -435,8 +435,11 @@ export const ElevationContextualPanel: React.FC<ElevationContextualPanelProps> =
   return (
     <div
       data-testid="elev-contextual-inspector"
-      style={{ top: `${topOffsetPx}px`, right: `${rightOffsetPx}px` }}
-      className="absolute z-20 w-[248px] rounded-2xl bg-white/95 backdrop-blur-md border border-blue-300 shadow-lg p-3 text-xs text-stone-900 space-y-2.5"
+      style={{
+        top: `${Math.max(128, topOffsetPx)}px`,
+        right: `${Math.max(rightOffsetPx, 416)}px`,
+      }}
+      className="fixed z-[38] w-[248px] birim-stretch-pop-in rounded-2xl bg-white/95 backdrop-blur-2xl border border-sky-400/45 shadow-2xl p-3 text-xs text-stone-900 space-y-2.5"
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">

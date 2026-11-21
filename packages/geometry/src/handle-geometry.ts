@@ -5,6 +5,27 @@ export interface HandlePlacementContext {
   moduleCategory?: ModuleCategory;
   moduleElevationY?: number;
   moduleHeight?: number;
+  moduleWidth?: number;
+  moduleDepth?: number;
+  panelThickness?: number;
+  /** Stationary bay clear span [bayStartX .. bayStartX + bayWidth] on carcass (unaffected by door/drawer motion) */
+  carcassBayStartX?: number;
+  carcassBayWidth?: number;
+  /** Stationary closed front Z0 plane on carcass (unaffected by pulledZ / liftDz / knuckleJointZ) */
+  carcassFrontZ0?: number;
+  /** Stationary closed front Y0 & height on carcass (unaffected by liftDy / knuckleJointY) */
+  carcassClosedY0?: number;
+  carcassClosedHeight?: number;
+  /** Exact Y bottom of the next external drawer front above this drawer (for symmetrical C-Gola centering) */
+  nextUpperDrawerBottomY?: number;
+  /** Explicit flag indicating whether this front reaches the top of the base cabinet under the countertop */
+  isTopAtCabinetCeiling?: boolean;
+  /** For top drawers reaching the cabinet ceiling: false when top > 1200mm ergonomically omits unreachable Top L-Gola */
+  emitTopLGola?: boolean;
+  /** For intermediate drawers in a multi-drawer stack: true ONLY when this drawer's top gap gets a C-Gola */
+  emitIntermediateCGola?: boolean;
+  /** Stationary yaw angle for angled/corner carcass Gola channels (unaffected by doorOpenAngleDeg) */
+  stationaryYawRad?: number;
   handleOrientation?: "auto" | "vertical" | "horizontal";
   handleOffsetY?: number;
   handleEdgeInsetX?: number;
@@ -24,6 +45,8 @@ export function generateHandleGeometry(
 ): ComponentGeometry[] {
   if (
     category === "handleless_plain" ||
+    category === "j_pull" ||
+    context?.handleProfileId === "hnd_overhang_recessed_lip" ||
     front.id.includes("_lift_bifold_top") ||
     front.label.includes("Katlanır Kalkar Üst Kanat")
   ) {
@@ -35,23 +58,27 @@ export function generateHandleGeometry(
     partLabel: front.label,
     frontWidthMm: front.dimensions.width,
     frontHeightMm: front.dimensions.height,
-    frontElevationYMm: front.position.y,
+    frontElevationYMm: context?.carcassClosedY0 ?? front.position.y,
     moduleCategory: context?.moduleCategory,
     moduleElevationYMm: context?.moduleElevationY,
     handleCategory: category,
     openingTechnology: context?.openingTechnology,
     crossSectionProfile: context?.crossSectionProfile,
-    spacingCcMm: context?.spacingCcMm ?? (context?.handleLengthMm ? Math.max(32, context.handleLengthMm - 24) : 160),
+    spacingCcMm:
+      context?.spacingCcMm ??
+      (context?.handleLengthMm ? Math.max(32, context.handleLengthMm - 24) : 160),
     handleOrientation: context?.handleOrientation,
     handleOffsetY: context?.handleOffsetY,
     handleEdgeInsetX: context?.handleEdgeInsetX,
   });
   const drawer = front.role === "drawer_front";
+  const closedY0 = context?.carcassClosedY0 ?? front.position.y;
+  const closedH = context?.carcassClosedHeight ?? front.dimensions.height;
   const isWallOrHighFront =
     !drawer &&
     (context?.moduleCategory === "kitchen_wall" ||
       (context?.moduleElevationY ?? 0) >= 1100 ||
-      front.position.y >= 1100);
+      closedY0 >= 1100);
   const isTallOrWardrobeFront =
     !drawer &&
     !isWallOrHighFront &&
@@ -60,7 +87,7 @@ export function generateHandleGeometry(
       context?.moduleCategory === "wardrobe_corner" ||
       context?.moduleCategory === "kitchen_tall" ||
       context?.moduleCategory === "special_corner" ||
-      front.dimensions.height >= 1200);
+      closedH >= 1200);
 
   // Top/bottom edge-mounted profiles (edge_profile, j_pull, gola_profile) are horizontal on drawers, base doors, or wall doors;
   // on tall/wardrobe doors (>= 1200mm), putting a J-pull or edge profile at the top edge (~2200mm) is unreachable, so it mounts vertically along the opening stile.
@@ -71,12 +98,19 @@ export function generateHandleGeometry(
 
   const autoHorizontal =
     drawer || isLiftDoor || (isTopBottomEdgeProfile && !isTallOrWardrobeFront);
-  const horizontal =
-    !drawer && context?.handleOrientation === "horizontal"
-      ? true
-      : !drawer && context?.handleOrientation === "vertical"
-      ? false
-      : autoHorizontal;
+  const isExplicitVerticalGola = context?.handleProfileId === "hnd_gola_vertical";
+  const horizontal = isExplicitVerticalGola
+    ? false
+    : !drawer && context?.handleOrientation === "horizontal"
+    ? true
+    : !drawer && context?.handleOrientation === "vertical"
+    ? false
+    : autoHorizontal;
+
+  // On double doors (_leaf_left + _leaf_right), horizontal carcass-mounted Gola spans the entire bay once via _leaf_left!
+  if (category === "gola_profile" && horizontal && front.id.includes("_leaf_right")) {
+    return [];
+  }
 
   // Clamp handle span strictly inside the front face with safe margins
   const maxAllowedSpan = Math.max(
@@ -101,47 +135,7 @@ export function generateHandleGeometry(
       : defaultTargetSpan;
   const span = Math.min(targetSpan, maxAllowedSpan);
 
-  const edgeInset = Math.max(
-    22,
-    Math.min(120, context?.handleEdgeInsetX ?? 42)
-  );
-  const openingSideX =
-    front.role === "door_right"
-      ? Math.min(edgeInset, front.dimensions.width / 2)
-      : Math.max(front.dimensions.width / 2, front.dimensions.width - edgeInset);
   const cx = canon.centerXMm;
-
-  // Ergonomic vertical placement:
-  // - Drawers: centered vertically when front height <= 260mm (so handles never overflow top edge), or upper ergonomic zone for deep drawers
-  // - Wall / upper cabinets: near bottom edge so user can reach from below
-  // - Tall / wardrobe doors: ergonomic waist/chest height (~1020mm from module bottom)
-  // - Base cabinets: near top edge
-  const ergonomicTallCy = Math.max(
-    120,
-    Math.min(front.dimensions.height - 180, 1020 - front.position.y)
-  );
-  const wallVerticalCy =
-    category === "knob"
-      ? 48
-      : Math.min(front.dimensions.height / 2, Math.max(70, Math.round(span / 2 + 45)));
-
-  const defaultCy = drawer
-    ? front.dimensions.height <= 260
-      ? front.dimensions.height / 2
-      : Math.max(front.dimensions.height / 2, front.dimensions.height - 36)
-    : isWallOrHighFront
-    ? horizontal
-      ? Math.min(front.dimensions.height / 2, 38)
-      : wallVerticalCy
-    : isTallOrWardrobeFront
-    ? ergonomicTallCy
-    : horizontal
-    ? front.dimensions.height - 18
-    : Math.max(
-        front.dimensions.height / 2,
-        front.dimensions.height - Math.max(60, Math.round(span / 2 + 32))
-      );
-
   const cy = canon.centerYMm;
 
   // Resolve handle finish material ID from K019 / K020 / K021 / K022 or explicit handleMaterialId
@@ -160,7 +154,9 @@ export function generateHandleGeometry(
   // Exact outer face of the door panel (dz = z means flush against the door front face — NEVER detached!)
   const z = front.dimensions.depth;
   const parts: ComponentGeometry[] = [];
-  const add = (
+
+  // Helper for door/drawer-mounted handles (moves & rotates WITH the door or drawer leaf)
+  const addDoorMounted = (
     name: string,
     x: number,
     y: number,
@@ -171,20 +167,9 @@ export function generateHandleGeometry(
     primitive: ComponentGeometry["primitive"] = "box",
     customMatId?: string
   ) => {
-    const fixed = category === "gola_profile";
-    const isLCornerReturn = front.id.includes("_lcorner_return");
-    const isDiag45 = front.id.includes("_diag45_door");
-    const resolvedRotation: [number, number, number] | undefined = fixed
-      ? isLCornerReturn
-        ? [0, Math.PI / 2, 0]
-        : isDiag45
-        ? front.rotation
-        : undefined
-      : front.rotation;
-    const resolvedPivot = fixed ? (isLCornerReturn || isDiag45 ? front.pivot : undefined) : front.pivot;
     parts.push({
       id: `${front.id}_handle_${name}`,
-      role: fixed ? "gola_profile" : drawer ? "drawer_handle" : "door_handle",
+      role: drawer ? "drawer_handle" : "door_handle",
       label: `${category} (${name})`,
       bayIndex: front.bayIndex,
       dimensions: { width: w, height: h, depth: d },
@@ -193,19 +178,14 @@ export function generateHandleGeometry(
         y: front.position.y + y - h / 2,
         z: front.position.z + dz,
       },
-      rotation: resolvedRotation,
-      pivot: resolvedPivot,
+      rotation: front.rotation,
+      pivot: front.pivot,
       primitive,
       parentComponentId: front.id,
       handleCategory: category,
       materialId:
         customMatId ||
-        (category === "milled_wood_grip" ||
-        category === "j_pull" ||
-        context?.handleProfileId === "hnd_gola_melamine_box" ||
-        context?.handleProfileId === "hnd_gola_moulded_box" ||
-        context?.handleProfileId === "hnd_bevel_30_backing" ||
-        context?.handleProfileId === "hnd_overhang_recessed_lip"
+        (category === "milled_wood_grip" || category === "j_pull"
           ? front.materialId
           : resolvedHandleMatId),
       isFrontFacing: true,
@@ -213,17 +193,83 @@ export function generateHandleGeometry(
     });
   };
 
+  // Helper for stationary CARCASS-MOUNTED Gola channels & Fixing Brackets (100% independent of door/drawer motion!)
+  const isLCornerReturn = front.id.includes("_lcorner_return");
+  const isDiag45 = front.id.includes("_diag45_door");
+  const isAngledCarcassFront = isLCornerReturn || isDiag45 || context?.stationaryYawRad !== undefined;
+  const stationaryRotation: [number, number, number] | undefined =
+    context?.stationaryYawRad !== undefined
+      ? [0, context.stationaryYawRad, 0]
+      : isLCornerReturn
+      ? [0, Math.PI / 2, 0]
+      : undefined;
+  const stationaryPivot = isAngledCarcassFront ? front.pivot : undefined;
+
+  const addCarcassGola = (
+    name: string,
+    worldX: number,
+    worldY: number,
+    worldZ: number,
+    w: number,
+    h: number,
+    d: number,
+    label: string,
+    useWoodFinish = false
+  ) => {
+    parts.push({
+      id: `${front.id}_handle_${name}`,
+      role: "gola_profile",
+      label,
+      bayIndex: front.bayIndex,
+      dimensions: { width: w, height: h, depth: d },
+      position: { x: worldX, y: worldY, z: worldZ },
+      rotation: stationaryRotation,
+      pivot: stationaryPivot,
+      primitive: "box",
+      // Carcass-mounted Gola is bolted to cabinet side panels — NEVER parented to a moving door or drawer!
+      parentComponentId: undefined,
+      handleCategory: "gola_profile",
+      materialId: useWoodFinish ? front.materialId : resolvedHandleMatId,
+      isFrontFacing: true,
+      isManufacturablePanel: false,
+    });
+  };
+
+  const addCarcassFixingBracket = (
+    name: string,
+    worldX: number,
+    worldY: number,
+    worldZ: number,
+    w: number,
+    h: number,
+    d: number,
+    label: string
+  ) => {
+    if (isAngledCarcassFront) return;
+    parts.push({
+      id: `${front.id}_gola_fixing_bracket_${name}`,
+      role: "special_fitting",
+      label,
+      bayIndex: front.bayIndex,
+      dimensions: { width: w, height: h, depth: d },
+      position: { x: worldX, y: worldY, z: worldZ },
+      primitive: "box",
+      parentComponentId: undefined,
+      materialId: "mat_anodized_metal",
+      isManufacturablePanel: false,
+    });
+  };
+
   if (category === "knob") {
-    add("stem", cx, cy, z - 2, 12, 12, 14, "cylinder");
-    // Flush against door outer face (dz = z) with total depth 22mm so stem + knob attach directly to door
-    add("knob", cx, cy, z, 32, 32, 22, "sphere");
+    addDoorMounted("stem", cx, cy, z - 2, 12, 12, 14, "cylinder");
+    addDoorMounted("knob", cx, cy, z, 32, 32, 22, "sphere");
   } else if (
     category === "bar_handle" ||
     category === "long_profile_handle" ||
     category === "decorative_bespoke"
   ) {
     for (const sign of [-1, 1]) {
-      add(
+      addDoorMounted(
         `mount_${sign}`,
         cx + (horizontal ? (sign * (span - 24)) / 2 : 0),
         cy + (horizontal ? 0 : (sign * (span - 24)) / 2),
@@ -234,8 +280,7 @@ export function generateHandleGeometry(
         "cylinder"
       );
     }
-    // IMPORTANT: dz = z (NOT z + 20!) so the handle assembly starts directly on the door outer face with zero air gap!
-    add(
+    addDoorMounted(
       "grip",
       cx,
       cy,
@@ -246,75 +291,255 @@ export function generateHandleGeometry(
       category === "decorative_bespoke" ? "sphere" : "box"
     );
   } else if (category === "recessed_grip" || category === "milled_wood_grip") {
-    // 3D Recessed Finger Pocket Cutout (Gömme Kulp / Ahşap Oyma Kulp Yuvası)
     const pocketW = horizontal
       ? Math.min(136, Math.max(48, front.dimensions.width - 36))
       : 38;
     const pocketH = horizontal
       ? Math.min(38, Math.max(22, front.dimensions.height - 20))
       : Math.min(148, Math.max(52, front.dimensions.height - 36));
-    add("recessed_pocket", cx, cy, z - 4, pocketW, pocketH, 8);
-  } else {
-    // Edge-mounted detail systems: Gola Channel (gola_profile), J-Pull Cutout (j_pull), Top/Side Aluminum Edge Profile (edge_profile)
-    const fullW = Math.max(24, front.dimensions.width - 2);
+    addDoorMounted("recessed_pocket", cx, cy, z - 4, pocketW, pocketH, 8);
+  } else if (category === "j_pull") {
+    // CNC J-Pull channel is milled directly into the 3D door leaf (`j_pull_bevel` at top for base, bottom for upper wall) — no extra metal bar!
+    return [];
+  } else if (category !== "gola_profile") {
+    // Door-edge-mounted Clip-On Aluminum Edge Profile (moves WITH door/drawer!)
     const top = front.dimensions.height;
     if (!horizontal) {
-      // Tall / wardrobe door: vertical Gola / J-Pull / Edge profile along the opening stile
       const isRightDoor = front.role === "door_right";
-      const edgeX = isRightDoor ? 14 : Math.max(14, front.dimensions.width - 14);
-      const vSpan =
-        category === "gola_profile"
-          ? Math.max(120, front.dimensions.height - 8)
-          : Math.min(480, Math.max(120, front.dimensions.height - 40));
-      const vCy = category === "gola_profile" ? front.dimensions.height / 2 : cy;
-      if (category === "gola_profile") {
-        add("gola_vertical_channel", edgeX, vCy, -26, 30, vSpan, 26);
-      } else if (category === "j_pull") {
-        add("jpull_vertical_cutout", edgeX, vCy, z - 4, 24, vSpan, 10);
-      } else {
-        add("edge_vertical_profile", edgeX, vCy, z - 2, 20, Math.max(180, span), 18);
+      const edgeX = isRightDoor ? 3 : Math.max(3, front.dimensions.width - 3);
+      addDoorMounted("edge_vertical_profile", edgeX, cy, 0, 6, Math.max(180, span), z + 18);
+    } else if (isWallOrHighFront) {
+      addDoorMounted(
+        "edge_horizontal_profile",
+        front.dimensions.width / 2,
+        2,
+        0,
+        Math.max(140, span),
+        4,
+        z + 18
+      );
+    } else {
+      addDoorMounted(
+        "edge_horizontal_profile",
+        front.dimensions.width / 2,
+        top - 1,
+        0,
+        Math.max(140, span),
+        4,
+        z + 18
+      );
+    }
+  } else {
+    // =========================================================================
+    // STATIONARY CARCASS-MOUNTED GOLA SYSTEMS + CARCASS FIXING BRACKETS
+    // Rigidly bolted to cabinet side panels / dividers via L-shaped snap-on /
+    // screw fixing clips (Scilm SU116 / Häfele 712.63.511 / Gelmar 35×12×35mm).
+    // NEVER moves or rotates when doors or drawers open!
+    // =========================================================================
+    const stationaryZ0 =
+      context?.carcassFrontZ0 ?? context?.moduleDepth ?? front.position.z;
+    const bayX0 = isAngledCarcassFront
+      ? front.position.x + 1
+      : context?.carcassBayStartX ?? front.position.x + 1;
+    const baySpanW = isAngledCarcassFront
+      ? Math.max(24, front.dimensions.width - 2)
+      : Math.max(24, context?.carcassBayWidth ?? front.dimensions.width - 2);
+    const panelT = context?.panelThickness ?? 18;
+    const modH = context?.moduleHeight ?? 870;
+
+    if (!horizontal) {
+      // Skip drawer fronts when Vertical Gola 1020 is active (one continuous vertical profile spans the tall cabinet!)
+      if (drawer) {
+        return parts;
+      }
+      // Tall / Wardrobe Vertical Gola 1020 (56×26mm C-channel on center divider or 46×26mm L-channel)
+      const isRightDoor = front.role === "door_right";
+      const isDoubleLeafLeft = front.id.includes("_leaf_left");
+      const isDoubleLeafRight = front.id.includes("_leaf_right");
+      const isSharedRightNeighbor =
+        !isDoubleLeafLeft && !isDoubleLeafRight && isRightDoor && (front.bayIndex ?? 0) > 0;
+      if (!isDoubleLeafRight && !isSharedRightNeighbor) {
+        const isCenterCGola =
+          isDoubleLeafLeft || (!isRightDoor && (front.bayIndex ?? 0) === 0);
+        const golaW = isCenterCGola ? 56 : 46;
+        const centerWorldX = isDoubleLeafLeft
+          ? front.position.x + front.dimensions.width + 15
+          : !isRightDoor
+          ? front.position.x + front.dimensions.width + 15
+          : front.position.x - 15;
+        const vSpan = Math.max(120, closedH);
+        addCarcassGola(
+          "gola_vertical_channel",
+          centerWorldX - golaW / 2,
+          closedY0,
+          stationaryZ0 - 26,
+          golaW,
+          vSpan,
+          26,
+          `Dikey Alüminyum Gola 1020 (${golaW}×26mm — Gövde Dikmesine Sabit)`
+        );
+        // 3 Vertical Gola Fixing / Spacer Brackets locking channel to recessed carcass divider
+        const clipYs = [
+          closedY0 + 120,
+          closedY0 + vSpan / 2 - 17.5,
+          closedY0 + Math.max(180, vSpan - 155),
+        ];
+        clipYs.forEach((clipY, cIdx) => {
+          addCarcassFixingBracket(
+            `vert_${cIdx + 1}`,
+            centerWorldX - 15,
+            clipY,
+            stationaryZ0 - 26 - 24,
+            30,
+            35,
+            24,
+            `Dikey Gola 1020 Gövde Sabitleyici Klips #${cIdx + 1} (Häfele 712.63.590)`
+          );
+        });
       }
     } else if (isWallOrHighFront) {
-      // Upper Wall Cabinet: Gola 268 sits flush inside the recessed 18mm bottom panel (world Y=0..20, Z=depth-26..depth),
-      // while the door overhangs 18mm below (front.position.y = -18 -> local y = 28 puts channel at world Y=0..20!).
-      const profId = context?.handleProfileId || "";
-      if (category === "gola_profile") {
-        if (profId === "hnd_overhang_recessed_lip") {
-          add("gola_overhang_lip", front.dimensions.width / 2, 18, -18, fullW, 12, 18);
-        } else {
-          add("gola_wall_268_channel", front.dimensions.width / 2, 28, -26, fullW, 20, 26);
-        }
-      } else if (category === "j_pull") {
-        add("jpull_horizontal_cutout", front.dimensions.width / 2, 15, Math.max(0, z - 12), fullW, 30, 12);
-      } else {
-        add("edge_horizontal_profile", front.dimensions.width / 2, 2, 0, Math.max(140, span), 4, z + 18);
-      }
+      // Upper Wall Cabinet: Gola 268 sits permanently inside the recessed 18mm carcass bottom panel
+      // at module-local Y = [0 .. panelT], Z = [stationaryZ0 - 26 .. stationaryZ0]!
+      addCarcassGola(
+        "gola_wall_268_channel",
+        bayX0,
+        0,
+        stationaryZ0 - 26,
+        baySpanW,
+        panelT,
+        26,
+        `Üst Dolap Alt Tabla Gömme Gola 268 (${panelT}×26mm — Alt Tablaya Sabit)`
+      );
     } else {
-      // Base Cabinet or Drawer: world-standard top Gola / Finger Box / Bevel Backing / J-Pull / Edge Profile
+      // Base Cabinet / Drawer Stack: Horizontal Top Gola & Intermediate C-Gola
       const profId = context?.handleProfileId || "";
-      if (category === "gola_profile") {
-        if (profId === "hnd_gola_melamine_box") {
-          // 60x38mm recessed melamine finger box: 30mm visible gap + 30mm overlap behind door top
-          add("gola_melamine_box", front.dimensions.width / 2, top, -38, fullW, 60, 38);
-        } else if (profId === "hnd_gola_moulded_box") {
-          // 60x25mm moulded recessed finger box: 30mm gap + 30mm overlap behind door top
-          add("gola_moulded_box", front.dimensions.width / 2, top, -25, fullW, 60, 25);
-        } else if (profId === "hnd_bevel_30_backing") {
-          // 60x18mm matching backing plate behind 30°/45° beveled door top
-          add("gola_bevel_backing", front.dimensions.width / 2, top, -18, fullW, 60, 18);
-        } else if (drawer && profId === "hnd_gola_c_drawer" && front.position.y + top < (context?.moduleHeight || 870) - 80) {
-          // 73x26mm C-Gola channel between stacked drawers (overlaps both upper & lower fronts by ~20mm)
-          add("gola_c_channel", front.dimensions.width / 2, top + 16, -26, fullW, 73, 26);
-        } else {
-          // 49x26mm L-Gola aluminum channel under countertop: 30mm gap + 19mm overlap behind door top
-          add("gola_l_channel", front.dimensions.width / 2, top + 5.5, -26, fullW, 49, 26);
+      const closedTopY = closedY0 + closedH;
+      const isTopFrontAtCountertop =
+        typeof context?.isTopAtCabinetCeiling === "boolean"
+          ? context.isTopAtCabinetCeiling
+          : closedTopY >= modH - 45;
+
+      // Anthropometric Guard: When a tall drawer stack exceeds 1200 mm, the top drawer cannot be gripped from above;
+      // Top L-Gola is omitted (`emitTopLGola === false`) and the drawer is pulled underhand from the C-Gola below it!
+      if (drawer && isTopFrontAtCountertop && context?.emitTopLGola === false) {
+        return parts;
+      }
+
+      if (profId === "hnd_gola_melamine_box" && isTopFrontAtCountertop) {
+        addCarcassGola(
+          "gola_melamine_box",
+          bayX0,
+          modH - 60,
+          stationaryZ0 - 38,
+          baySpanW,
+          60,
+          38,
+          "Melamin Gömme Parmak Kutusu (60×38mm — Gövdeye Sabit)",
+          true
+        );
+      } else if (profId === "hnd_gola_moulded_box" && isTopFrontAtCountertop) {
+        addCarcassGola(
+          "gola_moulded_box",
+          bayX0,
+          modH - 60,
+          stationaryZ0 - 25,
+          baySpanW,
+          60,
+          25,
+          "Şekillendirilmiş Gömme Parmak Kutusu (60×25mm — Gövdeye Sabit)",
+          true
+        );
+      } else if (profId === "hnd_bevel_30_backing" && isTopFrontAtCountertop) {
+        addCarcassGola(
+          "gola_bevel_backing",
+          bayX0,
+          modH - 60,
+          stationaryZ0 - 18,
+          baySpanW,
+          60,
+          18,
+          "45° Pahlı Kapak Arka Kapama Bandı (60×18mm — Gövdeye Sabit)",
+          true
+        );
+      } else if (!isTopFrontAtCountertop) {
+        // Unpaired intermediate drawers (e.g. gap 1–2 in a 3-drawer unit, gaps 1–2 & 3–4 in a 5-drawer unit)
+        // use a crisp 3mm standard reveal with ZERO C-Gola profile (they pull from the paired C-Gola below or L-Gola above!)
+        if (drawer && context?.emitIntermediateCGola === false) {
+          return parts;
         }
-      } else if (category === "j_pull") {
-        // Milled strictly INSIDE the 21-22mm door thickness (0mm front protrusion!)
-        add("jpull_horizontal_cutout", front.dimensions.width / 2, top - 15, Math.max(0, z - 12), fullW, 30, 12);
+        // Intermediate Horizontal C-Gola (73.5×26mm) symmetrically centered on the 32mm gap between drawers!
+        const upperBotY = context?.nextUpperDrawerBottomY ?? closedTopY + 32;
+        const gapMidY = (closedTopY + upperBotY) / 2;
+        const cH = 73.5;
+        addCarcassGola(
+          "gola_c_channel",
+          bayX0,
+          gapMidY - cH / 2,
+          stationaryZ0 - 26,
+          baySpanW,
+          cH,
+          26,
+          "Orta Yatay Alüminyum C-Gola Profili (73.5×26mm — Yan Dikmelere Sabit)"
+        );
+        // Left & Right Carcass Fixing Brackets (Scilm SU116 / Häfele 712.63.511 — 35×14×35mm)
+        // Screwed into left/right carcass side panels and locked into C-Gola rear dovetail slot!
+        if (baySpanW >= 80) {
+          addCarcassFixingBracket(
+            "mid_L",
+            bayX0,
+            gapMidY - 17.5,
+            stationaryZ0 - 26 - 35,
+            14,
+            35,
+            35,
+            "Orta C-Gola Sol Gövde Sabitleyici L-Klips (Scilm SU116 / 35×14×35mm)"
+          );
+          addCarcassFixingBracket(
+            "mid_R",
+            bayX0 + baySpanW - 14,
+            gapMidY - 17.5,
+            stationaryZ0 - 26 - 35,
+            14,
+            35,
+            35,
+            "Orta C-Gola Sağ Gövde Sabitleyici L-Klips (Scilm SU116 / 35×14×35mm)"
+          );
+        }
       } else {
-        // Clip-on aluminum edge profile seated directly on the TOP edge of the door
-        add("edge_horizontal_profile", front.dimensions.width / 2, top - 2, 0, Math.max(140, span), 4, z + 18);
+        // Top Horizontal L-Gola (56×26mm) flush under countertop [modH - 56 .. modH]
+        addCarcassGola(
+          "gola_l_channel",
+          bayX0,
+          modH - 56,
+          stationaryZ0 - 26,
+          baySpanW,
+          56,
+          26,
+          "Üst Yatay Alüminyum L-Gola Profili (56×26mm — Yan Dikme & Üst Kayda Sabit)"
+        );
+        // Left & Right Top Carcass Fixing Brackets (35×14×32mm) directly below recessed front top stretcher [modH - 50 .. modH - 18]
+        if (baySpanW >= 80) {
+          addCarcassFixingBracket(
+            "top_L",
+            bayX0,
+            modH - panelT - 32,
+            stationaryZ0 - 26 - 35,
+            14,
+            32,
+            35,
+            "Üst L-Gola Sol Gövde Sabitleyici L-Klips (Scilm SU116 / 35×14×32mm)"
+          );
+          addCarcassFixingBracket(
+            "top_R",
+            bayX0 + baySpanW - 14,
+            modH - panelT - 32,
+            stationaryZ0 - 26 - 35,
+            14,
+            32,
+            35,
+            "Üst L-Gola Sağ Gövde Sabitleyici L-Klips (Scilm SU116 / 35×14×32mm)"
+          );
+        }
       }
     }
   }

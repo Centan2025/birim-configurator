@@ -61,6 +61,12 @@ export interface ErgonomicStandardProfile {
   kitchenWorktopMaxHeightMm: UnitLength;
   maxComfortableShelfHeightMm: UnitLength;
   maxComfortableHangingRailHeightMm: UnitLength;
+  /** Maksimum üstten el sokmalı (avuç aşağı / overhand) çekmece veya L-Gola kavrama kotu (mm, yerden) */
+  maxOverhandTopGripHeightMm: UnitLength;
+  /** Çekmece içi üstten görüş sınırı — ortalama yetişkin göz hizası ergonomi eşiği (mm, yerden) */
+  maxDrawerSightlineHeightMm: UnitLength;
+  /** Alttan el sokmalı çekmece için mutlak maksimum güvenli erişim kotu (mm, yerden) */
+  maxUnderhandDrawerGripHeightMm: UnitLength;
   minFrontPassageClearanceMm: UnitLength;
   minParallelKitchenAisleMm: UnitLength;
   requiresKneeClearanceUnderSink: boolean;
@@ -80,6 +86,9 @@ export const REGIONAL_ERGONOMIC_PROFILES: Record<
     kitchenWorktopMaxHeightMm: 940,
     maxComfortableShelfHeightMm: 2050,
     maxComfortableHangingRailHeightMm: 2050,
+    maxOverhandTopGripHeightMm: 1200,
+    maxDrawerSightlineHeightMm: 1450,
+    maxUnderhandDrawerGripHeightMm: 1750,
     minFrontPassageClearanceMm: 800,
     minParallelKitchenAisleMm: 1100,
     requiresKneeClearanceUnderSink: false,
@@ -94,6 +103,9 @@ export const REGIONAL_ERGONOMIC_PROFILES: Record<
     kitchenWorktopMaxHeightMm: 960,
     maxComfortableShelfHeightMm: 2000,
     maxComfortableHangingRailHeightMm: 2000,
+    maxOverhandTopGripHeightMm: 1200,
+    maxDrawerSightlineHeightMm: 1450,
+    maxUnderhandDrawerGripHeightMm: 1750,
     minFrontPassageClearanceMm: 900,
     minParallelKitchenAisleMm: 1200,
     requiresKneeClearanceUnderSink: false,
@@ -108,6 +120,9 @@ export const REGIONAL_ERGONOMIC_PROFILES: Record<
     kitchenWorktopMaxHeightMm: 840,
     maxComfortableShelfHeightMm: 1400,
     maxComfortableHangingRailHeightMm: 1350,
+    maxOverhandTopGripHeightMm: 1000,
+    maxDrawerSightlineHeightMm: 1150,
+    maxUnderhandDrawerGripHeightMm: 1350,
     minFrontPassageClearanceMm: 1500,
     minParallelKitchenAisleMm: 1500,
     requiresKneeClearanceUnderSink: true,

@@ -1038,11 +1038,48 @@ export function generateBOMForProject(
         );
         return;
       }
+      if (comp.role === "gola_profile") {
+        const cid = comp.id;
+        if (
+          !cid.includes("melamine_box") &&
+          !cid.includes("moulded_box") &&
+          !cid.includes("bevel_backing")
+        ) {
+          const spanMm = Math.max(comp.dimensions.width, comp.dimensions.height);
+          const spanM = roundMm(spanMm / 1000, 2);
+          const sku = cid.includes("gola_c_channel")
+            ? "GOLA-C-73"
+            : cid.includes("gola_wall_268")
+            ? "GOLA-W-268"
+            : cid.includes("gola_vertical")
+            ? "GOLA-V-1020"
+            : "GOLA-L-56";
+          const name = cid.includes("gola_c_channel")
+            ? "Alüminyum Orta Yatay Gola C-Profil (73.5×26mm)"
+            : cid.includes("gola_wall_268")
+            ? "Alüminyum Üst Dolap Gömme Gola 268 Profil (18×26mm)"
+            : cid.includes("gola_vertical")
+            ? "Alüminyum Boy Dikey Gola 1020 Profil (56×26mm)"
+            : "Alüminyum Üst Yatay Gola L-Profil (56×26mm)";
+          addHardware(sku, name, "handle", spanM, "mt", 14.5);
+        }
+        return;
+      }
+      if (comp.id.includes("_gola_fixing_bracket_")) {
+        addHardware(
+          "712.63.511",
+          "Gola Gövde Sabitleyici L-Klips Montaj Aparatı (Scilm SU116 / Häfele)",
+          "connector",
+          1,
+          "adet",
+          0.95
+        );
+        return;
+      }
       if (
         comp.isManufacturablePanel === false ||
         comp.role === "door_handle" ||
         comp.role === "door_hinge" ||
-        comp.role === "gola_profile" ||
         comp.role === "drawer_handle" ||
         comp.role === "drawer_slide" ||
         comp.role === "special_fitting"
@@ -1900,6 +1937,72 @@ export function generateBOMForProject(
               return { minifixYs, rafixYs };
             })()
           : undefined;
+      const firstFixedShelfComp = geo.components.find(
+        (gc) => gc.role === "shelf" && gc.label.includes("Sabit")
+      );
+      const refSideComp = geo.components.find(
+        (gc) => gc.role === "carcass_side_left" || gc.role === "carcass_side_right"
+      );
+      const refCarcassFrontZ = refSideComp
+        ? refSideComp.position.z + refSideComp.dimensions.depth
+        : module.dimensions.depth;
+      const fixedShelfFrontOffsetMm =
+        firstFixedShelfComp
+          ? roundMm(Math.max(0, refCarcassFrontZ - (firstFixedShelfComp.position.z + firstFixedShelfComp.dimensions.depth)), 2)
+          : undefined;
+      const fixedShelfDepthMm = firstFixedShelfComp ? roundMm(firstFixedShelfComp.dimensions.depth, 2) : undefined;
+      const snapRunnerLen = (clearD: number) => {
+        const nlList = [550, 500, 450, 400, 350, 300, 270];
+        return nlList.find((nl) => nl <= clearD - 12) || 300;
+      };
+      const nominalRunnerNL = snapRunnerLen(Math.max(280, (module.dimensions.depth || 560) - 24));
+      const sideDrawerRunners =
+        comp.role === "carcass_side_left" || comp.role === "carcass_side_right"
+          ? (() => {
+              const sideBaseY = comp.position.y || 0;
+              const panelT_dr = module.carcass.panelThickness || 18;
+              const plinth_dr = module.carcass.plinthHeight || 0;
+              const adjBay =
+                comp.role === "carcass_side_right"
+                  ? module.bays[Math.max(0, module.bays.length - 1)]
+                  : module.bays[0];
+              const list: Array<{ y: number; runnerLengthMm: number; isInternal?: boolean; drawerId?: string }> = [];
+              for (const d of adjBay?.drawers || []) {
+                if (d.isHidden) continue;
+                list.push({
+                  y: roundMm(plinth_dr + panelT_dr + (d.elevationY || 0) + 22 - sideBaseY, 2),
+                  runnerLengthMm: nominalRunnerNL,
+                  isInternal: Boolean(d.isInternal),
+                  drawerId: d.id,
+                });
+              }
+              return list.length > 0 ? list : undefined;
+            })()
+          : undefined;
+      const dividerDrawerRunners =
+        comp.role === "carcass_divider" && typeof comp.bayIndex === "number"
+          ? (() => {
+              const lb = module.bays[comp.bayIndex];
+              const rb = module.bays[comp.bayIndex + 1];
+              const leftList = (lb?.drawers || [])
+                .filter((d) => !d.isHidden)
+                .map((d) => ({
+                  y: roundMm((d.elevationY || 0) + 22, 2),
+                  runnerLengthMm: nominalRunnerNL,
+                  isInternal: Boolean(d.isInternal),
+                  drawerId: d.id,
+                }));
+              const rightList = (rb?.drawers || [])
+                .filter((d) => !d.isHidden)
+                .map((d) => ({
+                  y: roundMm((d.elevationY || 0) + 22, 2),
+                  runnerLengthMm: nominalRunnerNL,
+                  isInternal: Boolean(d.isInternal),
+                  drawerId: d.id,
+                }));
+              return { leftList, rightList };
+            })()
+          : undefined;
       const sideFixedShelfYs = sideFixedShelfSplit?.minifixYs;
       const sideRafixShelfYs = sideFixedShelfSplit?.rafixYs;
 
@@ -2074,6 +2177,11 @@ export function generateBOMForProject(
         tJunctionFixedShelfYs,
         fixedShelfJointYs: sideFixedShelfYs && sideFixedShelfYs.length > 0 ? sideFixedShelfYs : undefined,
         rafixShelfJointYs: sideRafixShelfYs && sideRafixShelfYs.length > 0 ? sideRafixShelfYs : undefined,
+        fixedShelfFrontOffsetMm,
+        fixedShelfDepthMm,
+        drawerRunnerSpecs: sideDrawerRunners,
+        dividerLeftDrawerRunners: dividerDrawerRunners?.leftList.length ? dividerDrawerRunners.leftList : undefined,
+        dividerRightDrawerRunners: dividerDrawerRunners?.rightList.length ? dividerDrawerRunners.rightList : undefined,
         dividerLeftFixedShelfYs: dividerFixedShelfSplit?.leftMinifix.length ? dividerFixedShelfSplit.leftMinifix : undefined,
         dividerRightFixedShelfYs: dividerFixedShelfSplit?.rightMinifix.length ? dividerFixedShelfSplit.rightMinifix : undefined,
         dividerLeftRafixYs: dividerFixedShelfSplit?.leftRafix.length ? dividerFixedShelfSplit.leftRafix : undefined,

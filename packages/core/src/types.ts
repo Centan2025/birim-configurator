@@ -294,6 +294,16 @@ export interface ParametricPart {
   tJunctionFixedShelfYs?: UnitLength[];
   /** Fixed shelf Y positions on a single side of side/divider panel (Minifix 15 + Dowel) */
   fixedShelfJointYs?: UnitLength[];
+  /** Exact front setback (mm) of fixed shelves relative to carcass front edge for 0.00mm coaxial side/divider drilling */
+  fixedShelfFrontOffsetMm?: number;
+  /** Exact net depth (mm) of fixed shelves for 0.00mm coaxial rear bolt alignment on side/divider panels */
+  fixedShelfDepthMm?: number;
+  /** Blum/Hettich concealed drawer runner Ø5x12mm Euro screw rows on outer side panels */
+  drawerRunnerSpecs?: Array<{ y: number; runnerLengthMm: number; isInternal?: boolean; drawerId?: string }>;
+  /** Drawer runner Ø5x12mm rows on left face (face_front) of intermediate divider */
+  dividerLeftDrawerRunners?: Array<{ y: number; runnerLengthMm: number; isInternal?: boolean; drawerId?: string }>;
+  /** Drawer runner Ø5x12mm rows on right face (face_back) of intermediate divider */
+  dividerRightDrawerRunners?: Array<{ y: number; runnerLengthMm: number; isInternal?: boolean; drawerId?: string }>;
   /** Fixed shelf Y positions using Rafix 20 cam connector (Ø5mm stud on upright, Ø20mm pocket on shelf) */
   rafixShelfJointYs?: UnitLength[];
   /** Single-sided fixed shelf Y positions on front/left face of intermediate divider */
@@ -833,6 +843,12 @@ export interface SpaceDefinition {
   wallSubstrateType?: "reinforced_concrete" | "solid_brick" | "hollow_brick" | "aerated_concrete" | "drywall_reinforced" | "drywall_unreinforced";
   slopedCeiling?: SlopedCeilingConfig;
   ceilingConfig?: SpaceCeilingConfig;
+  skirtingConfig?: {
+    enabled: boolean;
+    heightMm: number;
+    thicknessMm: number;
+    colorHex?: string;
+  };
   elements: ArchitecturalElement[];
   floorPlanUnderlay?: FloorPlanUnderlay;
 }

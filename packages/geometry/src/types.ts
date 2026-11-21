@@ -57,6 +57,7 @@ export interface ComponentGeometry {
   slidingMountingType?: import("@birim/core").SlidingMountingType;
   isInternalDrawer?: boolean;
   crossSectionProfile?: import("@birim/core").DoorCrossSectionProfile;
+  jPullEdge?: "top" | "bottom";
   customCadPolygon?: { x: number; y: number }[];
   /** Optional explicit grain orientation for 3D UV projection */
   grainDirection?: "lengthwise" | "crosswise" | "none";

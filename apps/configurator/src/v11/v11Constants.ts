@@ -27,17 +27,17 @@ export const V11_CATALOG_GROUPS: readonly V11CatalogGroup[] = [
   },
   {
     id: "kitchen",
-    label: "Mutfak & Ada",
+    label: "Mutfak",
     subtitle: "Şelale mutfak adası, alt/üst dolaplar, boy kiler ve ankastre kuleler",
   },
   {
     id: "living",
-    label: "TV, Masa & Yaşam",
+    label: "Yaşam",
     subtitle: "TV bench/konsol, mutfak & yemek masaları, kitaplık, vestiyer ve banyo",
   },
   {
     id: "objects",
-    label: "Cihaz & Eşya",
+    label: "Eşya",
     subtitle: "Ankastre cihazlar, sandalyeler, bar taburesi, koltuk, yatak ve 65\" TV",
   },
 ] as const;

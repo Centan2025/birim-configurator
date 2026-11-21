@@ -31,16 +31,9 @@ export function middleware(req: NextRequest) {
   res.headers.set("X-Content-Type-Options", "nosniff");
   res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   res.headers.set("X-Modul-Tenant-Slug", resolvedSlug);
-  if (hostHeader.endsWith(".vercel.app")) {
-    res.headers.set("X-Robots-Tag", "noindex, nofollow");
-  }
   return res;
 }
 
 export const config = {
-  // Statik dosyaları (3B .glb modelleri, görseller, fontlar, scriptler) middleware'den muaf tutarak
-  // Vercel CDN → Compute trafiğini ve gereksiz Edge/Function CPU kullanımını önle.
-  matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|models/|.*\\.(?:glb|gltf|svg|png|jpg|jpeg|webp|gif|ico|woff|woff2|ttf|eot|css|js|map|txt|xml|md|hdr|exr)$).*)",
-  ],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };

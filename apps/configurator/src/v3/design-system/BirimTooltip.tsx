@@ -262,9 +262,9 @@ function renderVisualDiagram(visual: BirimTooltipVisualId): React.ReactNode {
           <polygon points="44,6 74,18 74,44 44,50" fill="url(#tt3dA)" opacity="0.92" />
           <polygon points="44,6 16,18 16,44 44,50" fill="#8C6D46" />
           <polygon points="44,6 74,18 44,28 16,18" fill="#F3E5D0" />
-          <line x1="59" y1="12" x2="59" y2="47" stroke="#1E293B" strokeWidth="1.2" opacity="0.65" />
-          <line x1="56" y1="26" x2="56" y2="33" stroke="#0F172A" strokeWidth="1.8" strokeLinecap="round" />
-          <line x1="62" y1="25" x2="62" y2="32" stroke="#0F172A" strokeWidth="1.8" strokeLinecap="round" />
+          <line x1="59" y1="12" x2="59" y2="47" stroke="#CBD5E1" strokeWidth="1.2" opacity="0.65" />
+          <line x1="56" y1="26" x2="56" y2="33" stroke="#E2E8F0" strokeWidth="1.8" strokeLinecap="round" />
+          <line x1="62" y1="25" x2="62" y2="32" stroke="#E2E8F0" strokeWidth="1.8" strokeLinecap="round" />
         </svg>
       );
     case "view_elevation":

@@ -235,7 +235,7 @@ export const SectionPlaneMiniMap: React.FC<SectionPlaneMiniMapProps> = React.mem
               height={drawH}
               rx="3"
               fill="#F5F2EA"
-              stroke="#44403C"
+              stroke="#94A3B8"
               strokeWidth="1.8"
             />
 
@@ -282,7 +282,7 @@ export const SectionPlaneMiniMap: React.FC<SectionPlaneMiniMapProps> = React.mem
                     width={Math.max(2, br.wPx - 2)}
                     height={3.5}
                     rx="1"
-                    fill="#141413"
+                    fill="#CBD5E1"
                   />
                 )}
                 <text
@@ -291,7 +291,7 @@ export const SectionPlaneMiniMap: React.FC<SectionPlaneMiniMapProps> = React.mem
                   textAnchor="middle"
                   fontSize="9.5"
                   fontWeight="700"
-                  fill="#57534E"
+                  fill="#CBD5E1"
                 >
                   B{br.idx + 1}
                 </text>

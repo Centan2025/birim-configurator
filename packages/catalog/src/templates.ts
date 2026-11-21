@@ -32,13 +32,14 @@ export const WARDROBE_TEMPLATES: ModuleTemplate[] = [
         bodyMaterialId: "mat_melamine_white",
         doorMaterialId: "mat_veneer_oak",
         jointType: "minifix_dowel",
+        wallAnchored: true,
       },
       bays: [
         {
           index: 0,
           door: { id: `door_${id}_0`, bayIndex: 0, type: "double", softClose: true, hingeCount: 4 },
           shelves: [
-            { id: `shelf_${id}_0_top`, bayIndex: 0, elevationY: 1800, isAdjustable: false, thickness: 25 },
+            { id: `shelf_${id}_0_top`, bayIndex: 0, elevationY: 1800, isAdjustable: false, isFixed: true, thickness: 25 },
             { id: `shelf_${id}_0_bot`, bayIndex: 0, elevationY: 300, isAdjustable: true, thickness: 25 },
           ],
           hangingRails: [{ id: `rail_${id}_0`, bayIndex: 0, elevationY: 1730 }],
@@ -70,6 +71,7 @@ export const WARDROBE_TEMPLATES: ModuleTemplate[] = [
         bodyMaterialId: "mat_melamine_white",
         doorMaterialId: "mat_lacquer_cream",
         jointType: "minifix_dowel",
+        wallAnchored: true,
       },
       bays: [
         {
@@ -77,7 +79,7 @@ export const WARDROBE_TEMPLATES: ModuleTemplate[] = [
           door: { id: `door_${id}_0`, bayIndex: 0, type: "single_left", softClose: true, hingeCount: 4 },
           customWidth: 575,
           shelves: [
-            { id: `shelf_${id}_0_1`, bayIndex: 0, elevationY: 1750, isAdjustable: false },
+            { id: `shelf_${id}_0_1`, bayIndex: 0, elevationY: 1750, isAdjustable: false, isFixed: true },
             { id: `shelf_${id}_0_2`, bayIndex: 0, elevationY: 1350, isAdjustable: true },
             { id: `shelf_${id}_0_3`, bayIndex: 0, elevationY: 950, isAdjustable: true },
             { id: `shelf_${id}_0_4`, bayIndex: 0, elevationY: 550, isAdjustable: true },
@@ -88,12 +90,12 @@ export const WARDROBE_TEMPLATES: ModuleTemplate[] = [
         },
         {
           index: 1,
-          door: { id: `door_${id}_1`, bayIndex: 1, type: "double", softClose: true, hingeCount: 4 },
-          shelves: [{ id: `shelf_${id}_1_drw_top`, bayIndex: 1, elevationY: 365, isAdjustable: false, thickness: 25 }, { id: `shelf_${id}_1_top`, bayIndex: 1, elevationY: 1800, isAdjustable: false, thickness: 25 }],
+          door: { id: `door_${id}_1`, bayIndex: 1, type: "double", doorSystemId: "hinged_double", hardwareProductId: "hw_blum_71b7550", softClose: true, hingeCount: 4 },
+          shelves: [{ id: `shelf_${id}_1_drw_top`, bayIndex: 1, elevationY: 365, isAdjustable: false, isFixed: true, thickness: 25 }, { id: `shelf_${id}_1_top`, bayIndex: 1, elevationY: 1800, isAdjustable: false, isFixed: true, thickness: 25 }],
           hangingRails: [{ id: `rail_${id}_1`, bayIndex: 1, elevationY: 1730 }],
           drawers: [
-            { id: `drw_${id}_1_1`, bayIndex: 1, elevationY: 0, height: 180, slideType: "soft_close" },
-            { id: `drw_${id}_1_2`, bayIndex: 1, elevationY: 185, height: 180, slideType: "soft_close" },
+            { id: `drw_${id}_1_1`, bayIndex: 1, elevationY: 0, height: 180, slideType: "soft_close", isInternal: true },
+            { id: `drw_${id}_1_2`, bayIndex: 1, elevationY: 185, height: 180, slideType: "soft_close", isInternal: true },
           ],
           specialFittings: [],
         },
@@ -123,14 +125,15 @@ export const WARDROBE_TEMPLATES: ModuleTemplate[] = [
         bodyMaterialId: "mat_veneer_walnut",
         doorMaterialId: "mat_veneer_walnut",
         jointType: "minifix_dowel",
+        wallAnchored: true,
       },
       bays: [
         {
           index: 0,
           door: { id: `door_${id}_0`, bayIndex: 0, type: "open", softClose: false },
           shelves: [
-            { id: `shelf_${id}_0_top`, bayIndex: 0, elevationY: 1900, isAdjustable: false },
-            { id: `shelf_${id}_0_mid`, bayIndex: 0, elevationY: 1000, isAdjustable: false },
+            { id: `shelf_${id}_0_top`, bayIndex: 0, elevationY: 1900, isAdjustable: false, isFixed: true, thickness: 25 },
+            { id: `shelf_${id}_0_mid`, bayIndex: 0, elevationY: 1000, isAdjustable: false, isFixed: true, thickness: 25 },
           ],
           hangingRails: [
             { id: `rail_${id}_0_top`, bayIndex: 0, elevationY: 1830 },
@@ -168,7 +171,7 @@ export const KITCHEN_TEMPLATES: ModuleTemplate[] = [
         doorPerimeterGap: 2,
         edgeBandThickness: 1,
         bodyMaterialId: "mat_melamine_white",
-        doorMaterialId: "mat_lacquer_sage",
+        doorMaterialId: "mat_lacquer_cashmere",
         jointType: "minifix_dowel",
       },
       bays: [
@@ -203,7 +206,7 @@ export const KITCHEN_TEMPLATES: ModuleTemplate[] = [
         doorPerimeterGap: 2,
         edgeBandThickness: 1,
         bodyMaterialId: "mat_melamine_white",
-        doorMaterialId: "mat_lacquer_sage",
+        doorMaterialId: "mat_lacquer_cashmere",
         jointType: "minifix_dowel",
       },
       bays: [
@@ -242,7 +245,7 @@ export const KITCHEN_TEMPLATES: ModuleTemplate[] = [
         doorPerimeterGap: 2,
         edgeBandThickness: 1,
         bodyMaterialId: "mat_melamine_white",
-        doorMaterialId: "mat_lacquer_sage",
+        doorMaterialId: "mat_lacquer_cashmere",
         jointType: "minifix_dowel",
       },
       bays: [
@@ -277,8 +280,9 @@ export const KITCHEN_TEMPLATES: ModuleTemplate[] = [
         doorPerimeterGap: 2,
         edgeBandThickness: 1,
         bodyMaterialId: "mat_melamine_white",
-        doorMaterialId: "mat_lacquer_sage",
+        doorMaterialId: "mat_lacquer_cashmere",
         jointType: "minifix_dowel",
+        wallAnchored: true,
       },
       bays: [
         {
@@ -315,22 +319,23 @@ export const KITCHEN_TEMPLATES: ModuleTemplate[] = [
         doorPerimeterGap: 2,
         edgeBandThickness: 1,
         bodyMaterialId: "mat_melamine_white",
-        doorMaterialId: "mat_lacquer_sage",
+        doorMaterialId: "mat_lacquer_cashmere",
         jointType: "minifix_dowel",
+        wallAnchored: true,
       },
       bays: [
         {
           index: 0,
-          door: { id: `door_${id}_0`, bayIndex: 0, type: "single_left", softClose: true, hingeCount: 4 },
+          door: { id: `door_${id}_0`, bayIndex: 0, type: "single_left", doorSystemId: "hinged_single", hardwareProductId: "hw_blum_71b7550", softClose: true, hingeCount: 4 },
           shelves: [
-            { id: `shelf_${id}_0_1`, bayIndex: 0, elevationY: 1500, isAdjustable: true },
+            { id: `shelf_${id}_0_1`, bayIndex: 0, elevationY: 1500, isAdjustable: false, isFixed: true },
             { id: `shelf_${id}_0_2`, bayIndex: 0, elevationY: 1800, isAdjustable: true },
           ],
           hangingRails: [],
           drawers: [
-            { id: `drw_${id}_0_1`, bayIndex: 0, elevationY: 0, height: 180, slideType: "soft_close" },
-            { id: `drw_${id}_0_2`, bayIndex: 0, elevationY: 185, height: 180, slideType: "soft_close" },
-            { id: `drw_${id}_0_3`, bayIndex: 0, elevationY: 370, height: 180, slideType: "soft_close" },
+            { id: `drw_${id}_0_1`, bayIndex: 0, elevationY: 0, height: 180, slideType: "soft_close", isInternal: true },
+            { id: `drw_${id}_0_2`, bayIndex: 0, elevationY: 185, height: 180, slideType: "soft_close", isInternal: true },
+            { id: `drw_${id}_0_3`, bayIndex: 0, elevationY: 370, height: 180, slideType: "soft_close", isInternal: true },
           ],
           specialFittings: [],
         },

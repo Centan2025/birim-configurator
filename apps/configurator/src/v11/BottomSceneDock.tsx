@@ -15,10 +15,13 @@ import {
   Box,
   Download,
   Move,
+  Palette,
+  PaintBucket,
 } from "lucide-react";
 import type { ModuleInstance } from "@birim/core";
 import type { ViewportRenderStyle } from "../store/useConfiguratorStore";
 import { SectionPlaneMiniMap } from "./SectionPlaneMiniMap";
+import { AnimatedPopoverPresence } from "./AnimatedWindowPresence";
 
 export interface BottomSceneDockProps {
   activeModule?: ModuleInstance;
@@ -39,6 +42,10 @@ export interface BottomSceneDockProps {
   isSimpleTier: boolean;
   projectId: string;
   isShowroom?: boolean;
+  isQuickPaletteOpen?: boolean;
+  onToggleQuickPalette?: () => void;
+  paintToolMode?: "none" | "paint" | "eyedropper";
+  onTogglePaintBucket?: () => void;
 }
 
 export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
@@ -61,10 +68,14 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
     isSimpleTier,
     projectId,
     isShowroom = false,
+    isQuickPaletteOpen = false,
+    onToggleQuickPalette,
+    paintToolMode = "none",
+    onTogglePaintBucket,
   }) => {
     const [scenePopoverOpen, setScenePopoverOpen] = useState(false);
     const [sectionPopoverOpen, setSectionPopoverOpen] = useState(false);
-    const [activeCam, setActiveCam] = useState<"hero" | "front" | "side">("hero");
+    const [activeCam, setActiveCam] = useState<"hero" | "room_front_persp" | "focus_module" | "front" | "side">("hero");
     const [lightMode, setLightMode] = useState<"daylight" | "showroom_warm" | "night_led">(
       "daylight"
     );
@@ -97,7 +108,7 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
       };
     }, [scenePopoverOpen, sectionPopoverOpen]);
 
-    const triggerCamera = (preset: "hero" | "front" | "side") => {
+    const triggerCamera = (preset: "hero" | "room_front_persp" | "focus_module" | "front" | "side") => {
       setActiveCam(preset);
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("birim:fit-camera-3d", { detail: preset }));
@@ -136,43 +147,45 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
         data-testid="v11-bottom-scene-dock"
         className="fixed bottom-4 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center"
       >
-        {/* ETKİLEŞİMLİ 3B GÖRSEL KESİT MİNİ PLAN PENCERESİ */}
-        {sectionPopoverOpen && activeModule && (
-          <div className="mb-2.5 w-80">
-            <SectionPlaneMiniMap
-              activeModule={activeModule}
-              axis={sectionAxis || "X"}
-              ratio={sectionRatio}
-              compact={true}
-              onChangeAxis={(nextAx) => syncSection3D(nextAx, sectionRatio)}
-              onChangeRatio={(nextR) => syncSection3D(sectionAxis || "X", nextR)}
-              onClose={() => {
-                syncSection3D(null, sectionRatio);
-                setSectionPopoverOpen(false);
-              }}
-            />
-          </div>
-        )}
+        {/* ETKİLEŞİMLİ 3B GÖRSEL KESİT MİNİ PLAN PENCERESİ (Animasyonlu) */}
+        <AnimatedPopoverPresence isOpen={Boolean(sectionPopoverOpen && activeModule)} origin="bottom">
+          {activeModule && (
+            <div className="mb-2.5 w-80">
+              <SectionPlaneMiniMap
+                activeModule={activeModule}
+                axis={sectionAxis || "X"}
+                ratio={sectionRatio}
+                compact={true}
+                onChangeAxis={(nextAx) => syncSection3D(nextAx, sectionRatio)}
+                onChangeRatio={(nextR) => syncSection3D(sectionAxis || "X", nextR)}
+                onClose={() => {
+                  syncSection3D(null, sectionRatio);
+                  setSectionPopoverOpen(false);
+                }}
+              />
+            </div>
+          )}
+        </AnimatedPopoverPresence>
 
-        {/* YÜZEN SAHNE, GÖRÜNÜM & IŞIK POPOVER */}
-        {scenePopoverOpen && (
+        {/* YÜZEN SAHNE, GÖRÜNÜM & IŞIK POPOVER (Animasyonlu + Dramatik Cam) */}
+        <AnimatedPopoverPresence isOpen={scenePopoverOpen} origin="bottom">
           <div
             data-testid="v11-scene-settings-popover"
-            className="mb-2.5 w-80 rounded-3xl bg-[#FAF8F4]/96 backdrop-blur-2xl border border-[#DFD9CE] shadow-[0_20px_50px_rgba(20,20,19,0.16)] p-4 space-y-3.5 text-xs text-[#141413]"
+            className="birim-dramatic-panel mb-2.5 w-80 rounded-3xl bg-[#2A313F]/68 backdrop-blur-2xl border border-white/[0.22] ring-1 ring-black/60 shadow-[0_26px_64px_rgba(0,0,0,0.62)] p-4 space-y-3.5 text-xs text-[#F3F4F6]"
           >
             <div className="flex items-center justify-between">
               <span className="font-bold text-[13px]">Sahne, Işık ve Görünüm</span>
               <button
                 type="button"
                 onClick={() => setScenePopoverOpen(false)}
-                className="w-6 h-6 rounded-full hover:bg-[#EFECE4] text-[#78716C] hover:text-[#141413] flex items-center justify-center cursor-pointer"
+                className="w-6 h-6 rounded-full hover:bg-[#EFECE4] text-slate-300 hover:text-[#141413] flex items-center justify-center cursor-pointer"
               >
                 ✕
               </button>
             </div>
 
             <div className="space-y-1.5">
-              <div className="text-[10.5px] font-semibold text-[#78716C]">Stüdyo Aydınlatması</div>
+              <div className="text-[10.5px] font-semibold text-slate-300">Stüdyo Aydınlatması</div>
               <div className="grid grid-cols-3 gap-1.5">
                 {(
                   [
@@ -203,7 +216,7 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
             </div>
 
             <div className="space-y-1.5">
-              <div className="text-[10.5px] font-semibold text-[#78716C]">Zemin Kaplaması</div>
+              <div className="text-[10.5px] font-semibold text-slate-300">Zemin Kaplaması</div>
               <div className="grid grid-cols-3 gap-1.5">
                 {[
                   { id: "oak_parquet", label: "Doğal Meşe" },
@@ -230,7 +243,7 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
             </div>
 
             <div className="space-y-1.5">
-              <div className="text-[10.5px] font-semibold text-[#78716C]">Görünüm Stili</div>
+              <div className="text-[10.5px] font-semibold text-slate-300">Görünüm Stili</div>
               <div className="grid grid-cols-3 gap-1.5">
                 <button
                   type="button"
@@ -369,44 +382,47 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
               }}
               className="w-full h-9 rounded-full bg-[#141413] hover:bg-[#292524] disabled:opacity-50 text-white font-semibold flex items-center justify-center gap-2 transition cursor-pointer"
             >
-              <Download className="w-3.5 h-3.5 text-[#D6C7B2]" />
+              <Download className="w-3.5 h-3.5 text-[#7DD3FC]" />
               <span>{renderingPhoto ? "2K Görsel Hazırlanıyor..." : "2K Stüdyo Fotoğraf İndir (.PNG)"}</span>
             </button>
           </div>
-        )}
+        </AnimatedPopoverPresence>
 
-        {/* TEK BİRLEŞİK ALT SAHNE KAPSÜLÜ */}
-        <div className="h-12 px-2.5 rounded-full bg-[#FAF8F4]/92 backdrop-blur-xl border border-[#DFD9CE] shadow-[0_10px_32px_rgba(20,20,19,0.09)] flex items-center gap-1.5 text-xs text-[#141413]">
-          <div className="flex items-center gap-0.5 p-0.5 rounded-full bg-[#ECE7DD]/80">
-            {(
-              [
-                { id: "hero", label: "Perspektif" },
-                { id: "front", label: "Ön" },
-                { id: "side", label: "Yan" },
-              ] as const
-            ).map((cam) => (
+        {/* TEK BİRLEŞİK DRAMATİK FÜME OBSİDYEN ALT SAHNE KAPSÜLÜ */}
+        <div className="h-12 px-2.5 rounded-full bg-[#2C3341]/66 backdrop-blur-2xl border border-white/[0.22] ring-1 ring-black/50 shadow-[0_20px_50px_rgba(0,0,0,0.48)] flex items-center gap-1.5 text-xs text-[#F3F4F6]">
+          {isShowroom && (
+            <div className="flex items-center gap-0.5 p-0.5 rounded-full bg-black/40 border border-white/[0.12]">
+              {(
+                [
+                  { id: "hero", label: "Genel 3B" },
+                  { id: "room_front_persp", label: "Mekân Karşıdan" },
+                  { id: "focus_module", label: "Modüle Odaklan" },
+                  { id: "side", label: "Yan" },
+                ] as const
+              ).map((cam) => (
+                <button
+                  key={cam.id}
+                  type="button"
+                  onClick={() => triggerCamera(cam.id)}
+                  className={`h-8 px-3 rounded-full text-[11px] font-bold transition-all duration-200 cursor-pointer ${
+                    activeCam === cam.id
+                      ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white shadow-[0_0_18px_rgba(29,78,216,0.54),0_4px_12px_rgba(37,99,235,0.42)]"
+                      : "text-slate-300 hover:text-white"
+                  }`}
+                >
+                  {cam.label}
+                </button>
+              ))}
               <button
-                key={cam.id}
                 type="button"
-                onClick={() => triggerCamera(cam.id)}
-                className={`h-8 px-3 rounded-full text-[11px] font-semibold transition cursor-pointer ${
-                  activeCam === cam.id
-                    ? "bg-white text-[#141413] shadow-2xs"
-                    : "text-[#57534E] hover:text-[#141413]"
-                }`}
+                onClick={() => triggerCamera("hero")}
+                title="Sahneyi Ekrana Ortala"
+                className="w-8 h-8 rounded-full flex items-center justify-center text-slate-300 hover:text-white hover:bg-white/[0.12] transition cursor-pointer"
               >
-                {cam.label}
+                <Maximize2 className="w-3.5 h-3.5" />
               </button>
-            ))}
-            <button
-              type="button"
-              onClick={() => triggerCamera("hero")}
-              title="Sahneyi Ekrana Ortala"
-              className="w-8 h-8 rounded-full flex items-center justify-center text-[#57534E] hover:text-[#141413] hover:bg-white/60 transition cursor-pointer"
-            >
-              <Maximize2 className="w-3.5 h-3.5" />
-            </button>
-          </div>
+            </div>
+          )}
 
           {!isShowroom && (
             <>
@@ -428,12 +444,52 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
                 className={`h-8 px-2.5 rounded-full flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer ${
                   moveMode3D
                     ? "bg-[#C2410C] text-white"
-                    : "hover:bg-[#EFECE4] text-[#44403C]"
+                    : "hover:bg-white/[0.14] text-slate-200"
                 }`}
               >
                 <Move className="w-3.5 h-3.5" />
-                <span className="hidden lg:inline">{moveMode3D ? "Taşıma Açık" : "Taşı"}</span>
+                
               </button>
+
+              {onToggleQuickPalette && (
+                <button
+                  type="button"
+                  data-testid="v15-bottom-quick-palette-btn"
+                  onClick={() => {
+                    setScenePopoverOpen(false);
+                    setSectionPopoverOpen(false);
+                    onToggleQuickPalette();
+                  }}
+                  title="Bölgesel Hızlı Kartela ve 8 Hazır İmza Kombinasyonu (Kısayol: M)"
+                  className={`h-8 px-2.5 rounded-full flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer ${
+                    isQuickPaletteOpen
+                      ? "bg-[#141413] text-white shadow-2xs"
+                      : "bg-white/[0.10] hover:bg-white/[0.18] text-[#F3F4F6] border border-white/[0.14]"
+                  }`}
+                >
+                  <Palette className="w-3.5 h-3.5 text-[#8C6D46]" />
+                  <span className="hidden 2xl:inline">Kartela</span>
+                </button>
+              )}
+
+              {onTogglePaintBucket && (
+                <button
+                  type="button"
+                  data-testid="v15-bottom-paint-bucket-btn"
+                  onClick={onTogglePaintBucket}
+                  title="3B Boya Kovası (Kısayol: B) • Alt+Tık: 3B Yüzeyden Malzeme Örnekle"
+                  className={`h-8 px-2.5 rounded-full flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer ${
+                    paintToolMode === "paint"
+                      ? "bg-[#C2410C] text-white"
+                      : paintToolMode === "eyedropper"
+                      ? "bg-[#1D4ED8] text-white"
+                      : "hover:bg-white/[0.14] text-slate-200"
+                  }`}
+                >
+                  <PaintBucket className="w-3.5 h-3.5" />
+                  
+                </button>
+              )}
 
               <span className="h-5 w-px bg-[#DFD9CE]" />
             </>
@@ -447,11 +503,11 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
               className={`h-8 px-2.5 rounded-full flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer ${
                 doorOpenAngleDeg > 10
                   ? "bg-[#141413] text-white"
-                  : "hover:bg-[#EFECE4] text-[#44403C]"
+                  : "hover:bg-white/[0.14] text-slate-200"
               }`}
             >
               <DoorOpen className="w-3.5 h-3.5" />
-              <span>Kapak</span>
+              
             </button>
 
             <input
@@ -464,20 +520,29 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
               onChange={(e) => onChangeDoorAngle(Number(e.target.value), false)}
               className="hidden sm:block w-18 accent-[#141413] h-1.5 bg-[#DFD9CE] rounded-full cursor-pointer"
             />
-            <span className="hidden md:inline-block w-8 font-mono text-[10.5px] text-[#78716C]">
+            <span className="hidden md:inline-block w-8 font-mono text-[10.5px] text-slate-300">
               %{doorOpenPct}
             </span>
 
             <button
               type="button"
               onClick={onToggleDoorsHidden}
-              title={doorsHidden ? "Kapakları Yeniden Göster" : "İç Düzeni Görmek İçin Kapakları Gizle"}
-              className={`h-8 px-2.5 rounded-full flex items-center gap-1 text-[11px] font-semibold transition cursor-pointer ${
-                doorsHidden ? "bg-[#8C7A6B] text-white" : "hover:bg-[#EFECE4] text-[#44403C]"
-              }`}
-            >
-              {doorsHidden ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-              <span className="hidden lg:inline">{doorsHidden ? "Gizli" : "İçini Gör"}</span>
+                  title={doorsHidden ? "Kapakları Yeniden Göster" : "İç Düzeni Görmek İçin Kapakları Gizle"}
+                  className={`h-7 rounded-full flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                    doorsHidden
+                      ? "px-2.5 bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white text-[11px] font-bold shadow-[0_0_14px_rgba(29,78,216,0.55)]"
+                      : "w-7 hover:bg-white/[0.14] text-slate-200"
+                  }`}
+                >
+                  {doorsHidden ? (
+                    <>
+                      <Eye className="w-3.5 h-3.5 shrink-0" />
+                      <span>Kapakları Göster</span>
+                    </>
+                  ) : (
+                    <EyeOff className="w-3.5 h-3.5" />
+                  )}
+              
             </button>
           </div>
 
@@ -502,11 +567,11 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
               className={`h-8 px-3 rounded-full flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer ${
                 sectionAxis
                   ? "bg-[#C2410C] text-white"
-                  : "hover:bg-[#EFECE4] text-[#44403C]"
+                  : "hover:bg-white/[0.14] text-slate-200"
               }`}
             >
               <Scissors className="w-3.5 h-3.5" />
-              <span className="hidden md:inline">{sectionAxis ? `Kesit (${sectionAxis})` : "Kesit"}</span>
+              
             </button>
           )}
 
@@ -515,11 +580,11 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
             onClick={onToggleDimensions}
             title="3B Ölçü Etiketlerini Göster / Gizle"
             className={`h-8 px-3 rounded-full flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer ${
-              showDimensions ? "bg-[#141413] text-white" : "hover:bg-[#EFECE4] text-[#44403C]"
+              showDimensions ? "bg-[#141413] text-white" : "hover:bg-white/[0.14] text-slate-200"
             }`}
           >
             <Ruler className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">Ölçüler</span>
+            
           </button>
 
           <button
@@ -533,7 +598,7 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
             }`}
           >
             <Shirt className="w-3.5 h-3.5" />
-            <span className="hidden xl:inline">Eşyalar</span>
+            
           </button>
 
           {!isShowroom && (
@@ -548,11 +613,11 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
               className={`h-8 px-3 rounded-full flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer ${
                 scenePopoverOpen || cncXrayMode || renderStyle !== "solid"
                   ? "bg-[#141413] text-white"
-                  : "hover:bg-[#EFECE4] text-[#44403C]"
+                  : "hover:bg-white/[0.14] text-slate-200"
               }`}
             >
               <SlidersHorizontal className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Sahne</span>
+              
             </button>
           )}
         </div>

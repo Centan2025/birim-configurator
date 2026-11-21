@@ -8,6 +8,10 @@ const packagesDir = path.resolve(__dirname, "../../packages");
 const nextConfig = {
   reactStrictMode: false,
   distDir: process.env.BIRIM_AUDIT_BUILD === "1" ? ".next-v41" : ".next",
+  onDemandEntries: {
+    maxInactiveAge: 60 * 60 * 1000,
+    pagesBufferLength: 16,
+  },
   eslint: {
     ignoreDuringBuilds: true,
   },
@@ -26,28 +30,6 @@ const nextConfig = {
     "@birim/manufacturing",
     "@birim/integrations",
   ],
-  async headers() {
-    return [
-      {
-        source: "/models/:path*",
-        headers: [
-          {
-            key: "Cache-Control",
-            value: "public, max-age=86400, stale-while-revalidate=604800",
-          },
-        ],
-      },
-      {
-        source: "/icon.svg",
-        headers: [
-          {
-            key: "Cache-Control",
-            value: "public, max-age=86400, stale-while-revalidate=604800",
-          },
-        ],
-      },
-    ];
-  },
   async rewrites() {
     return {
       beforeFiles: [
@@ -58,7 +40,11 @@ const nextConfig = {
       ],
     };
   },
-  webpack: (config) => {
+  webpack: (config, { dev }) => {
+    if (dev) {
+      // Prevents stale .next/cache/webpack 404 ChunkLoadErrors on Windows & non-ASCII paths after file updates
+      config.cache = false;
+    }
     config.resolve = config.resolve || {};
     config.resolve.alias = {
       ...(config.resolve.alias || {}),

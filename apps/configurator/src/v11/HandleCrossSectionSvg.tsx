@@ -8,72 +8,76 @@ export interface HandleCrossSectionMeta {
   surfaceNote: string;
 }
 
-export function getHandleCrossSectionMeta(profileId: string, category: string, fallbackName: string): HandleCrossSectionMeta {
+export function getHandleCrossSectionMeta(
+  profileId: string,
+  category: string,
+  fallbackName: string
+): HandleCrossSectionMeta {
   switch (profileId) {
     case "hnd_gola_profile":
       return {
         shortTitle: "Alüminyum Gola L-Profil",
-        specLine: "49×26 mm kanal • Tezgâh altı 30 mm boşluk",
-        surfaceNote: "Tüm yüzeyler (MDFLam, Lake, Kaplama) • Alt dolap",
+        specLine: "56×26 mm L-kanal + Sabitleyici L-Klips • 30 mm boşluk",
+        surfaceNote: "Yan dikme & üst kayda klipsli sabit (kapakla açılmaz)",
       };
     case "hnd_gola_c_drawer":
       return {
         shortTitle: "Alüminyum Gola C-Profil",
-        specLine: "73×26 mm yatay C kanal • İki çekmece/kapak arası",
-        surfaceNote: "Tüm yüzeyler • Üstten ve alttan kavrama",
+        specLine: "73.5×26 mm C-kanal + Sabitleyici Klips • 32 mm boşluk",
+        surfaceNote: "≤120 cm'de Üst L + ikişerli C profil; >120 cm yüksek çekmecelerde otomatik alttan C profil (TS EN 14749)",
       };
     case "hnd_gola_vertical":
       return {
         shortTitle: "Dikey Alüminyum Gola (1020)",
-        specLine: "Dikey yan kanal • Boy dolap & gardırop",
-        surfaceNote: "Buzdolabı, boy kiler ve gardırop kanat arası",
+        specLine: "56×26 mm dikey C/L kanal • Dikmeye klipsle sabit",
+        surfaceNote: "Boy kiler, ankastre buzdolabı ve gardıroplar",
       };
     case "hnd_gola_wall_268":
       return {
         shortTitle: "Üst Dolap Altı Gola 268",
-        specLine: "18 mm alt tablaya gömülü • Alttan el sokma + LED",
-        surfaceNote: "Mutfak üst duvar dolapları için",
+        specLine: "18×26 mm alt tablaya sabit gömülü + 18 mm sarkma",
+        surfaceNote: "Mutfak üst duvar dolapları (alttan el sokmalı + LED)",
       };
     case "hnd_gola_melamine_box":
       return {
         shortTitle: "Melamin / Ahşap Gola Kutusu",
-        specLine: "60×38 mm gövde rengi kutu • 32 mm parmak boşluğu",
+        specLine: "60×38 mm 2 parçalı gövdeye sabit kutu • 30 mm boşluk",
         surfaceNote: "MDFLam, Lake, Kaplama • Metal profilsiz aynı renk",
       };
     case "hnd_gola_moulded_box":
       return {
-        shortTitle: "Tek Parça Şekillendirilmiş Kutu",
-        specLine: "60×25 mm gömme kavisli kanal • 30 mm boşluk",
+        shortTitle: "Şekillendirilmiş Gömme Kutu",
+        specLine: "60×25 mm tek parça gövdeye sabit kutu • 30 mm boşluk",
         surfaceNote: "Membran / PVC ve boyalı kapaklar için",
       };
     case "hnd_bevel_30_backing":
       return {
         shortTitle: "30°/45° Pahlı Kapak + Arka Bant",
-        specLine: "30°–45° eğimli üst kenar + 60×18 mm arka kapama",
+        specLine: "45° eğimli kapak üstü + 60×18 mm sabit arka bant",
         surfaceNote: "Lake, Kaplama ve seçili laminat • 30 mm boşluk",
       };
     case "hnd_overhang_recessed_lip":
       return {
-        shortTitle: "Gömme Ters Dudak / Sarkık Kapak",
-        specLine: "18×12 mm alt/üst oyuk • 4 mm pahlı kavrama",
-        surfaceNote: "Üst dolap alt kenarı veya ters dudaklı kapaklar",
+        shortTitle: "Üst Dolap Sarkık Kapak (18 mm)",
+        specLine: "Kapak alt kenarı gövdeden 18 mm aşağı sarkar",
+        surfaceNote: "Ek profil gerektirmeyen kulpsuz üst dolap çözümü",
       };
     case "hnd_j_pull":
       return {
-        shortTitle: "CNC J-Kulp (Üst Kenar Oyuk)",
-        specLine: "30 mm CNC oyuk • 0 mm iç hacim kaybı",
+        shortTitle: "CNC J-Kulp (Entegre Oyuk)",
+        specLine: "22 mm kapak içine oyulmuş 34 mm J-kanal • 0 mm kayıp",
         surfaceNote: "21–22 mm Lake veya Doğal Ahşap Kaplama gerektirir",
       };
     case "hnd_edge_profile":
       return {
         shortTitle: "Kenar Geçme Alüminyum Profil",
-        specLine: "Kapak üst kenarına geçme 20 mm ince profil",
+        specLine: "Kapak üst cumbasına binen 2 mm + 18 mm ön tırnak",
         surfaceNote: "18 mm tüm kapak yüzeylerine uyumlu",
       };
     case "hnd_none":
       return {
         shortTitle: "Bas-Aç (TIP-ON / SERVO-DRIVE)",
-        specLine: "Tamamen düz kulpsuz cephe • 3 mm basma payı",
+        specLine: "Tamamen düz kulpsuz cephe • 3 mm tetikleme boşluğu",
         surfaceNote: "Dokunarak açılan tüm alt, üst ve boy dolaplar",
       };
     case "hnd_knob_std":
@@ -83,10 +87,29 @@ export function getHandleCrossSectionMeta(profileId: string, category: string, f
         surfaceNote: "Tüm kapak ve çekmecelere uyumlu",
       };
     case "hnd_bar_160":
+    case "K019":
       return {
-        shortTitle: "Standart Çubuk Kulp (160 mm)",
+        shortTitle: "Standart Çekme / Çubuk Kulp (160 mm)",
         specLine: "C-C 160 mm delik aksı • 32 mm çıkıntı",
-        surfaceNote: "Mutfak ve gardırop için klasik ergonomi",
+        surfaceNote: "Mutfak kapak ve çekmeceleri için klasik ergonomi",
+      };
+    case "hnd_bar_320":
+      return {
+        shortTitle: "Geniş Çekmece Kulpu (320 mm)",
+        specLine: "C-C 320 mm delik aksı • 32 mm çıkıntı",
+        surfaceNote: "60–120 cm geniş tencere ve erzak çekmeceleri için ideal",
+      };
+    case "hnd_bridge_pull_128":
+      return {
+        shortTitle: "Modern Köprü Çekme Kulp (128 mm)",
+        specLine: "C-C 128 mm tek parça ince U-köprü • 28 mm çıkıntı",
+        surfaceNote: "Yalın modern mutfak kapakları ve çekmeceler",
+      };
+    case "hnd_cup_pull_96":
+      return {
+        shortTitle: "Çanak / Kupa Çekme Kulp (96 mm)",
+        specLine: "C-C 96 mm alttan kavramalı yarım ay çanak • 26 mm çıkıntı",
+        surfaceNote: "Shaker / çerçeveli mutfak çekmeceleri ve kapaklar",
       };
     case "hnd_long_profile_960":
       return {
@@ -117,198 +140,214 @@ export interface HandleCrossSectionSvgProps {
 }
 
 /**
- * Architectural 2D side cross-section diagram for kitchen & wardrobe door opening systems.
- * Visually shows countertop, carcass, recessed Gola/box/bevel profile, door front & finger direction.
+ * True-to-scale technical cross-section reference diagrams matching DIN / European KBB standards:
+ * - Countertop front overhang = +40mm past carcass (Z=580 -> Z=620, i.e., +22mm past 18mm door face!)
+ * - Top front stretcher recessed strictly BEHIND the Gola / Finger-Box notch
+ * - Explicit Scilm SU116 / Häfele 712.63.511 Carcass Fixing Brackets (Sabitleyici L-Klips) locking into rear T-slot of L & C Gola!
  */
 export const HandleCrossSectionSvg: React.FC<HandleCrossSectionSvgProps> = React.memo(
   ({ profileId, category, active = false, size = "sm" }) => {
     const stroke = active ? "#FAF8F4" : "#1C1917";
-    const muted = active ? "#A8A29E" : "#78716C";
-    const carcassFill = active ? "#292524" : "#E7E2D8";
-    const doorFill = active ? "#44403C" : "#D6CFC2";
-    const accent = active ? "#F59E0B" : "#B45309";
-    const aluFill = active ? "#D6D3D1" : "#57534E";
-    const cls = size === "lg" ? "w-[112px] h-[78px] shrink-0" : "w-[68px] h-[50px] shrink-0";
+    const ctopFill = active ? "#57534E" : "#D6CFC2";
+    const carcassFill = active ? "#292524" : "#EDE8DD";
+    const doorFill = active ? "#64748B" : "#CBD5E1";
+    const clipFill = active ? "#94A3B8" : "#64748B";
+    const accent = active ? "#FBBF24" : "#D97706";
+    const aluStroke = active ? "#F59E0B" : "#B45309";
+    const cls = size === "lg" ? "w-[118px] h-[82px] shrink-0" : "w-[68px] h-[50px] shrink-0";
 
-    // 1. Alüminyum Gola L-Profil (Tezgâh Altı)
+    // 1. Alüminyum Gola L-Profil (56×26 mm + Gövde Sabitleyici L-Klips SU116)
     if (profileId === "hnd_gola_profile") {
       return (
-        <svg viewBox="0 0 96 68" className={cls} fill="none">
-          {/* Tezgâh */}
-          <rect x="4" y="4" width="76" height="11" rx="2" fill={muted} fillOpacity="0.35" stroke={stroke} strokeWidth="1.2" />
-          {/* Gövde üst kayıt */}
-          <rect x="4" y="15" width="38" height="9" fill={carcassFill} stroke={stroke} strokeWidth="1" />
-          {/* Alüminyum L-Gola profili */}
-          <path d="M42 15 V35 Q42 39 46 39 H57" stroke={aluFill} strokeWidth="3.2" strokeLinecap="round" />
-          {/* Kapak (30mm düşük) */}
-          <rect x="58" y="34" width="14" height="30" fill={doorFill} stroke={stroke} strokeWidth="1.3" />
-          {/* El giriş oku */}
-          <path d="M84 25 H65 M69 21 L64 25 L69 29" stroke={accent} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-          <text x="75" y="19" fontSize="7" fill={accent} fontWeight="700">30</text>
+        <svg viewBox="0 0 100 72" className={cls} fill="none">
+          {/* Tezgâh (+22mm kapak önünden taşar: x=80) */}
+          <rect x="4" y="4" width="76" height="11" rx="1.5" fill={ctopFill} stroke={stroke} strokeWidth="1.1" />
+          {/* Geri çekilmiş üst ön kayıt (x=4..39, Gola arkasında biter!) */}
+          <rect x="4" y="15" width="35" height="9" fill={carcassFill} stroke={stroke} strokeWidth="1" />
+          {/* Yan dikmeye vidalı Sabitleyici L-Klips (35x14x32mm: x=22..39, y=24..43) + arka T-kanal kilidi */}
+          <path d="M22 24 H39 V42 H22 Z" fill={clipFill} fillOpacity="0.88" stroke={stroke} strokeWidth="0.9" />
+          <circle cx="27" cy="29" r="1.4" fill="#F8FAFC" stroke={stroke} strokeWidth="0.6" />
+          <circle cx="27" cy="37" r="1.4" fill="#F8FAFC" stroke={stroke} strokeWidth="0.6" />
+          {/* İnce etli Alüminyum L-Gola + arka kırlangıç kanal dişi */}
+          <path d="M37 29 H40 M37 37 H40" stroke={aluStroke} strokeWidth="1.8" />
+          <path
+            d="M40 15 V43 Q40 46 43 46 H55 V41"
+            stroke={aluStroke}
+            strokeWidth="2.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          {/* Kapak (30mm boşluk altında y=32..68, x=56..68) */}
+          <rect x="56" y="32" width="12" height="36" fill={doorFill} stroke={stroke} strokeWidth="1.2" />
+          {/* Parmak giriş oku */}
+          <path d="M92 23 H62 M66 19.5 L61.5 23 L66 26.5" stroke={accent} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          <text x="82" y="19" fontSize="6.5" fontFamily="monospace" fill={accent} fontWeight="700">30</text>
         </svg>
       );
     }
 
-    // 2. Alüminyum Gola C-Profil (73×26 mm, İki Çekmece/Kapak Arası)
+    // 2. Alüminyum Gola C-Profil (73.5×26 mm + Yan Dikme Sabitleyici Klips SU116 / 712.63.511)
     if (profileId === "hnd_gola_c_drawer") {
       return (
-        <svg viewBox="0 0 96 68" className={cls} fill="none">
-          {/* Yan gövde */}
-          <rect x="6" y="4" width="46" height="60" fill={carcassFill} stroke={stroke} strokeWidth="1" />
-          {/* Üst kapak/çekmece */}
-          <rect x="52" y="4" width="14" height="20" fill={doorFill} stroke={stroke} strokeWidth="1.3" />
-          {/* Alt kapak/çekmece */}
-          <rect x="52" y="44" width="14" height="20" fill={doorFill} stroke={stroke} strokeWidth="1.3" />
-          {/* C-Gola Profili (73x26) */}
-          <path d="M52 16 H36 Q32 16 32 20 V48 Q32 52 36 52 H52" stroke={aluFill} strokeWidth="3.2" fill={active ? "#1C1917" : "#FAF8F4"} />
-          {/* El giriş oku */}
-          <path d="M84 34 H58 M62 30 L57 34 L62 38" stroke={accent} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-          <text x="72" y="29" fontSize="7" fill={accent} fontWeight="700">C73</text>
+        <svg viewBox="0 0 100 72" className={cls} fill="none">
+          {/* Yan dikme ve C-kertmesi (ara raf YOK, yan dikme kertmeli!) */}
+          <path d="M6 4 H56 V16 H39 V56 H56 V68 H6 Z" fill={carcassFill} stroke={stroke} strokeWidth="1" />
+          {/* Yan dikmeye vidalı Orta Sabitleyici L-Klips (35x14x35mm: x=21..39, y=26..46) */}
+          <path d="M21 26 H39 V46 H21 Z" fill={clipFill} fillOpacity="0.9" stroke={stroke} strokeWidth="0.9" />
+          <circle cx="26" cy="31" r="1.4" fill="#F8FAFC" stroke={stroke} strokeWidth="0.6" />
+          <circle cx="26" cy="41" r="1.4" fill="#F8FAFC" stroke={stroke} strokeWidth="0.6" />
+          {/* C-Gola arka kırlangıç T-kanal tırnakları */}
+          <path d="M36.5 31.5 H39.5 M36.5 40.5 H39.5" stroke={aluStroke} strokeWidth="1.8" />
+          {/* Üst çekmece klapası */}
+          <rect x="56" y="4" width="12" height="16" fill={doorFill} stroke={stroke} strokeWidth="1.2" />
+          {/* Alt çekmece klapası */}
+          <rect x="56" y="52" width="12" height="16" fill={doorFill} stroke={stroke} strokeWidth="1.2" />
+          {/* İnce etli 73.5x26 Alüminyum C-Gola Profili (her iki klapa arkasına 21mm simetrik biner!) */}
+          <path
+            d="M55 21 V16.5 H42 Q39.5 16.5 39.5 19 V53 Q39.5 55.5 42 55.5 H55 V51"
+            stroke={aluStroke}
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <path d="M92 36 H61 M65 32.5 L60.5 36 L65 39.5" stroke={accent} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          <text x="74" y="31" fontSize="6.5" fontFamily="monospace" fill={accent} fontWeight="700">C73</text>
         </svg>
       );
     }
 
-    // 3. Dikey Alüminyum Gola (Plan Kesiti)
+    // 3. Dikey Alüminyum Gola 1020 (Yatay X-Z Plan Kesiti + Orta Dikme Sabitleyici Klips)
     if (profileId === "hnd_gola_vertical") {
       return (
-        <svg viewBox="0 0 96 68" className={cls} fill="none">
-          {/* Sol & Sağ Gövde */}
-          <rect x="6" y="8" width="28" height="34" fill={carcassFill} stroke={stroke} strokeWidth="1" />
-          <rect x="62" y="8" width="28" height="34" fill={carcassFill} stroke={stroke} strokeWidth="1" />
-          {/* Dikey C/L Gola kanalı */}
-          <path d="M34 42 V24 Q34 20 38 20 H58 Q62 20 62 24 V42" stroke={aluFill} strokeWidth="3" fill={active ? "#1C1917" : "#FAF8F4"} />
-          {/* Sol ve Sağ Kapak */}
-          <rect x="6" y="42" width="32" height="12" fill={doorFill} stroke={stroke} strokeWidth="1.3" />
-          <rect x="58" y="42" width="32" height="12" fill={doorFill} stroke={stroke} strokeWidth="1.3" />
-          {/* Parmak oku */}
-          <path d="M48 63 V44 M44 48 L48 43 L52 48" stroke={accent} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        <svg viewBox="0 0 100 72" className={cls} fill="none">
+          {/* Orta dikme (26mm geri çekili: y=6..28) */}
+          <rect x="44" y="6" width="12" height="22" fill={carcassFill} stroke={stroke} strokeWidth="1" />
+          {/* Dikme ucu Sabitleyici Klips */}
+          <rect x="41" y="22" width="18" height="8" fill={clipFill} stroke={stroke} strokeWidth="0.9" />
+          {/* Yatay plan C-Gola 1020 (56x26mm: x=30..70, y=30..46) */}
+          <path
+            d="M31 45 H30 V32 Q30 30 32 30 H68 Q70 30 70 32 V45 H69"
+            stroke={aluStroke}
+            strokeWidth="2.5"
+            strokeLinecap="round"
+          />
+          {/* Sol ve Sağ Boy Kapaklar (arada 30mm el boşluğu!) */}
+          <rect x="6" y="46" width="30" height="11" fill={doorFill} stroke={stroke} strokeWidth="1.2" />
+          <rect x="64" y="46" width="30" height="11" fill={doorFill} stroke={stroke} strokeWidth="1.2" />
+          <path d="M50 67 V48 M46.5 52 L50 47.5 L53.5 52" stroke={accent} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       );
     }
 
-    // 4. Üst Dolap Altı Gola 268 + LED
+    // 4. Üst Dolap Altı Gola 268 (18mm Alt Tablaya Sıfır Gömülü + 18mm Sarkık Kapak)
     if (profileId === "hnd_gola_wall_268") {
       return (
-        <svg viewBox="0 0 96 68" className={cls} fill="none">
-          {/* Üst dolap gövde */}
-          <rect x="8" y="6" width="46" height="34" fill={carcassFill} stroke={stroke} strokeWidth="1" />
-          {/* Alt tabla 18mm */}
-          <rect x="8" y="34" width="34" height="10" fill={carcassFill} stroke={stroke} strokeWidth="1.1" />
-          {/* Gömülü Gola 268 profili */}
-          <path d="M42 44 V35 H56 V44" stroke={aluFill} strokeWidth="2.8" fill={active ? "#1C1917" : "#FAF8F4"} />
-          {/* LED noktası */}
-          <circle cx="49" cy="40" r="2.2" fill="#F59E0B" />
-          {/* Sarkık üst kapak */}
-          <rect x="56" y="6" width="14" height="46" fill={doorFill} stroke={stroke} strokeWidth="1.3" />
-          {/* Alttan el giriş oku */}
-          <path d="M49 62 V47 M45 51 L49 46 L53 51" stroke={accent} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-          <text x="68" y="61" fontSize="6.5" fill={accent} fontWeight="700">268</text>
+        <svg viewBox="0 0 100 72" className={cls} fill="none">
+          <rect x="8" y="6" width="48" height="38" fill={carcassFill} fillOpacity="0.45" stroke={stroke} strokeWidth="0.9" strokeDasharray="2 2" />
+          <rect x="8" y="33" width="32" height="11" fill={carcassFill} stroke={stroke} strokeWidth="1.2" />
+          <path d="M40 44 V33 H56 V36" stroke={aluStroke} strokeWidth="2.5" strokeLinejoin="round" />
+          <circle cx="48" cy="38" r="2" fill="#F59E0B" />
+          <rect x="56" y="6" width="12" height="49" fill={doorFill} stroke={stroke} strokeWidth="1.2" />
+          <path d="M48 66 V47 M44.5 51 L48 46.5 L51.5 51" stroke={accent} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          <text x="71" y="55" fontSize="6.5" fontFamily="monospace" fill={accent} fontWeight="700">268</text>
         </svg>
       );
     }
 
-    // 5. Melamin / Ahşap Gömme Parmak Kutusu (Gola de Melamina 60×38)
+    // 5. Melamin / Ahşap Gömme Parmak Kutusu ("Gola de Melamina" 60×38 mm, 2 Parça L)
     if (profileId === "hnd_gola_melamine_box") {
       return (
-        <svg viewBox="0 0 96 68" className={cls} fill="none">
-          <rect x="4" y="4" width="76" height="11" rx="2" fill={muted} fillOpacity="0.35" stroke={stroke} strokeWidth="1.2" />
+        <svg viewBox="0 0 100 72" className={cls} fill="none">
+          <rect x="4" y="4" width="76" height="11" rx="1.5" fill={ctopFill} stroke={stroke} strokeWidth="1.1" />
           <rect x="4" y="15" width="28" height="9" fill={carcassFill} stroke={stroke} strokeWidth="1" />
-          {/* L şeklinde aynı renk melamin kutu */}
-          <path d="M32 15 H42 V32 H58 V41 H32 Z" fill={doorFill} stroke={stroke} strokeWidth="1.2" />
-          {/* Kapak */}
-          <rect x="58" y="34" width="14" height="30" fill={doorFill} stroke={stroke} strokeWidth="1.3" />
-          {/* El giriş oku */}
-          <path d="M84 25 H65 M69 21 L64 25 L69 29" stroke={accent} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-          <text x="73" y="19" fontSize="6.5" fill={accent} fontWeight="700">32</text>
+          <rect x="32" y="15" width="10" height="33" fill={doorFill} stroke={stroke} strokeWidth="1.1" />
+          <rect x="42" y="39" width="14" height="9" fill={doorFill} stroke={stroke} strokeWidth="1.1" />
+          <rect x="56" y="32" width="12" height="36" fill={doorFill} stroke={stroke} strokeWidth="1.2" />
+          <path d="M92 23 H62 M66 19.5 L61.5 23 L66 26.5" stroke={accent} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       );
     }
 
-    // 6. Tek Parça Şekillendirilmiş Gömme Kutu (60×25)
+    // 6. Tek Parça Şekillendirilmiş Gömme Kutu (Moulded 60×25 mm)
     if (profileId === "hnd_gola_moulded_box") {
       return (
-        <svg viewBox="0 0 96 68" className={cls} fill="none">
-          <rect x="4" y="4" width="76" height="11" rx="2" fill={muted} fillOpacity="0.35" stroke={stroke} strokeWidth="1.2" />
-          <rect x="4" y="15" width="34" height="9" fill={carcassFill} stroke={stroke} strokeWidth="1" />
-          {/* Tek parça şekillendirilmiş kavisli kutu */}
-          <path d="M38 15 H46 V32 Q46 35 49 35 H58 V42 H42 Q38 42 38 38 Z" fill={doorFill} stroke={stroke} strokeWidth="1.2" />
-          <rect x="58" y="34" width="14" height="30" fill={doorFill} stroke={stroke} strokeWidth="1.3" />
-          <path d="M84 25 H65 M69 21 L64 25 L69 29" stroke={accent} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        <svg viewBox="0 0 100 72" className={cls} fill="none">
+          <rect x="4" y="4" width="76" height="11" rx="1.5" fill={ctopFill} stroke={stroke} strokeWidth="1.1" />
+          <rect x="4" y="15" width="35" height="9" fill={carcassFill} stroke={stroke} strokeWidth="1" />
+          <path d="M39 15 H46 V36 Q46 40 50 40 H56 V47 H43 Q39 47 39 42 Z" fill={doorFill} stroke={stroke} strokeWidth="1.1" />
+          <rect x="56" y="32" width="12" height="36" fill={doorFill} stroke={stroke} strokeWidth="1.2" />
+          <path d="M92 23 H62 M66 19.5 L61.5 23 L66 26.5" stroke={accent} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       );
     }
 
-    // 7. 30°/45° Pahlı Kapak + Arka Kapama Bandı (60×18)
+    // 7. 30°/45° Pahlı Kapak + Aynı Renk Arka Kapama Bandı (60×18 mm)
     if (profileId === "hnd_bevel_30_backing") {
       return (
-        <svg viewBox="0 0 96 68" className={cls} fill="none">
-          <rect x="4" y="4" width="76" height="11" rx="2" fill={muted} fillOpacity="0.35" stroke={stroke} strokeWidth="1.2" />
-          <rect x="4" y="15" width="38" height="9" fill={carcassFill} stroke={stroke} strokeWidth="1" />
-          {/* Aynı renk 60x18 arka kapama bandı */}
-          <rect x="42" y="15" width="12" height="28" fill={doorFill} stroke={stroke} strokeWidth="1.2" />
-          {/* 30°/45° Pahlı Kapak Üst Kenarı */}
-          <path d="M56 38 L70 30 V64 H56 Z" fill={doorFill} stroke={stroke} strokeWidth="1.3" />
-          <path d="M84 23 H65 M69 19 L64 23 L69 27" stroke={accent} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-          <text x="72" y="42" fontSize="6.5" fill={accent} fontWeight="700">45°</text>
+        <svg viewBox="0 0 100 72" className={cls} fill="none">
+          <rect x="4" y="4" width="76" height="11" rx="1.5" fill={ctopFill} stroke={stroke} strokeWidth="1.1" />
+          <rect x="4" y="15" width="41" height="9" fill={carcassFill} stroke={stroke} strokeWidth="1" />
+          <rect x="45" y="15" width="11" height="33" fill={doorFill} stroke={stroke} strokeWidth="1.1" />
+          <path d="M56 42 L68 32 V68 H56 Z" fill={doorFill} stroke={stroke} strokeWidth="1.2" />
+          <path d="M92 23 H62 M66 19.5 L61.5 23 L66 26.5" stroke={accent} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          <text x="72" y="44" fontSize="6.5" fontFamily="monospace" fill={accent} fontWeight="700">45°</text>
         </svg>
       );
     }
 
-    // 8. Üst Dolap Sarkık Kapak / Ters Dudak (18 mm Sarkma)
+    // 8. Üst Dolap Sarkık Kapak (18 mm Sarkma — Ek Profil Yok)
     if (profileId === "hnd_overhang_recessed_lip") {
       return (
-        <svg viewBox="0 0 96 68" className={cls} fill="none">
-          {/* Üst dolap yan gövde ve alt tabla */}
-          <rect x="8" y="6" width="46" height="32" fill={carcassFill} stroke={stroke} strokeWidth="1" />
-          <rect x="8" y="30" width="46" height="10" fill={carcassFill} stroke={stroke} strokeWidth="1.2" />
-          {/* Alt sarkık kapak (18mm aşağı sarkar) */}
-          <rect x="54" y="6" width="14" height="48" fill={doorFill} stroke={stroke} strokeWidth="1.3" />
-          {/* Alttan parmak kavrama oku */}
-          <path d="M44 60 V45 H52 M48 41 L53 45 L48 49" stroke={accent} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-          <text x="70" y="54" fontSize="6.5" fill={accent} fontWeight="700">18</text>
+        <svg viewBox="0 0 100 72" className={cls} fill="none">
+          <rect x="8" y="6" width="48" height="38" fill={carcassFill} fillOpacity="0.45" stroke={stroke} strokeWidth="0.9" strokeDasharray="2 2" />
+          <rect x="8" y="33" width="48" height="11" fill={carcassFill} stroke={stroke} strokeWidth="1.2" />
+          <rect x="56" y="6" width="12" height="50" fill={doorFill} stroke={stroke} strokeWidth="1.2" />
+          <path d="M44 62 V49 H54 M50 45.5 L54.5 49 L50 52.5" stroke={accent} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          <text x="71" y="55" fontSize="6.5" fontFamily="monospace" fill={accent} fontWeight="700">18</text>
         </svg>
       );
     }
 
-    // 9. Sürekli CNC J-Kulp (30mm Oyuk, 22mm Lake)
+    // 9. Sürekli CNC J-Kulp (22 mm Lake Kapak İçine Oyulmuş J-Kanal, TLD HL2)
     if (profileId === "hnd_j_pull" || category === "j_pull") {
       return (
-        <svg viewBox="0 0 96 68" className={cls} fill="none">
-          <rect x="4" y="4" width="76" height="11" rx="2" fill={muted} fillOpacity="0.35" stroke={stroke} strokeWidth="1.2" />
-          <rect x="4" y="15" width="46" height="10" fill={carcassFill} stroke={stroke} strokeWidth="1" />
-          {/* 22mm kalın kapak içinde CNC J-oyuğu */}
-          <path d="M52 17 H57 V31 Q57 35 61 35 H65 L70 30 V64 H52 Z" fill={doorFill} stroke={stroke} strokeWidth="1.3" />
-          <path d="M84 24 H64 M68 20 L63 24 L68 28" stroke={accent} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-          <text x="73" y="43" fontSize="6.5" fill={accent} fontWeight="700">22</text>
+        <svg viewBox="0 0 100 72" className={cls} fill="none">
+          <rect x="4" y="4" width="76" height="11" rx="1.5" fill={ctopFill} stroke={stroke} strokeWidth="1.1" />
+          <rect x="4" y="15" width="52" height="9" fill={carcassFill} stroke={stroke} strokeWidth="1" />
+          <path
+            d="M56 17 H60 V34 Q60 37 64 37 Q67 37 68 33 L71 33 V68 H56 Z"
+            fill={doorFill}
+            stroke={stroke}
+            strokeWidth="1.2"
+          />
+          <path d="M92 24 H65 M69 20.5 L64.5 24 L69 27.5" stroke={accent} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          <text x="74" y="46" fontSize="6.5" fontFamily="monospace" fill={accent} fontWeight="700">22</text>
         </svg>
       );
     }
 
-    // 10. Kenar Geçme Alüminyum Profil
+    // 10. Kenar Geçme Alüminyum Profil (Kapak Üst Cumbasına Geçme)
     if (profileId === "hnd_edge_profile" || category === "edge_profile") {
       return (
-        <svg viewBox="0 0 96 68" className={cls} fill="none">
-          <rect x="4" y="4" width="76" height="11" rx="2" fill={muted} fillOpacity="0.35" stroke={stroke} strokeWidth="1.2" />
-          <rect x="4" y="15" width="46" height="10" fill={carcassFill} stroke={stroke} strokeWidth="1" />
-          <rect x="52" y="21" width="14" height="43" fill={doorFill} stroke={stroke} strokeWidth="1.3" />
-          {/* İnce L geçme kulp */}
-          <path d="M52 20 H74 V25" stroke={aluFill} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-          <path d="M84 31 L71 25" stroke={accent} strokeWidth="1.5" strokeLinecap="round" />
+        <svg viewBox="0 0 100 72" className={cls} fill="none">
+          <rect x="4" y="4" width="76" height="11" rx="1.5" fill={ctopFill} stroke={stroke} strokeWidth="1.1" />
+          <rect x="4" y="15" width="52" height="9" fill={carcassFill} stroke={stroke} strokeWidth="1" />
+          <rect x="56" y="19" width="12" height="49" fill={doorFill} stroke={stroke} strokeWidth="1.2" />
+          <path d="M56 18 H78 V24" stroke={aluStroke} strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M90 31 L77 24" stroke={accent} strokeWidth="1.5" strokeLinecap="round" />
         </svg>
       );
     }
 
-    // 11. Bas-Aç (TIP-ON / Handleless Plain)
+    // 11. Bas-Aç (TIP-ON)
     if (profileId === "hnd_none" || category === "handleless_plain") {
       return (
-        <svg viewBox="0 0 96 68" className={cls} fill="none">
-          <rect x="8" y="10" width="42" height="48" fill={carcassFill} stroke={stroke} strokeWidth="1" />
-          {/* TIP-ON itici pim */}
-          <rect x="34" y="28" width="19" height="6" rx="2" fill={accent} />
-          {/* Düz kulpsuz kapak */}
-          <rect x="54" y="10" width="14" height="48" fill={doorFill} stroke={stroke} strokeWidth="1.3" />
-          {/* Basma oku */}
-          <path d="M86 31 H72 M76 27 L71 31 L76 35" stroke={accent} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        <svg viewBox="0 0 100 72" className={cls} fill="none">
+          <rect x="4" y="4" width="76" height="11" rx="1.5" fill={ctopFill} stroke={stroke} strokeWidth="1.1" />
+          <rect x="4" y="15" width="52" height="9" fill={carcassFill} stroke={stroke} strokeWidth="1" />
+          <rect x="40" y="29" width="16" height="5" rx="1.5" fill={accent} />
+          <rect x="58" y="17" width="12" height="51" fill={doorFill} stroke={stroke} strokeWidth="1.2" />
+          <path d="M90 32 H74 M78 28.5 L73.5 32 L78 35.5" stroke={accent} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       );
     }
@@ -316,11 +355,11 @@ export const HandleCrossSectionSvg: React.FC<HandleCrossSectionSvgProps> = React
     // 12. Düğme Kulp
     if (category === "knob") {
       return (
-        <svg viewBox="0 0 96 68" className={cls} fill="none">
-          <rect x="10" y="10" width="38" height="48" fill={carcassFill} stroke={stroke} strokeWidth="1" />
-          <rect x="48" y="10" width="14" height="48" fill={doorFill} stroke={stroke} strokeWidth="1.3" />
-          <rect x="62" y="31" width="9" height="6" fill={aluFill} />
-          <circle cx="76" cy="34" r="7" fill={aluFill} stroke={stroke} strokeWidth="1.2" />
+        <svg viewBox="0 0 100 72" className={cls} fill="none">
+          <rect x="10" y="10" width="44" height="52" fill={carcassFill} stroke={stroke} strokeWidth="1" />
+          <rect x="54" y="10" width="12" height="52" fill={doorFill} stroke={stroke} strokeWidth="1.2" />
+          <rect x="66" y="33" width="8" height="6" fill={aluStroke} />
+          <circle cx="79" cy="36" r="7" fill={aluStroke} stroke={stroke} strokeWidth="1.1" />
         </svg>
       );
     }
@@ -328,20 +367,34 @@ export const HandleCrossSectionSvg: React.FC<HandleCrossSectionSvgProps> = React
     // 13. Gömme Sürgü Kulpu
     if (category === "recessed_grip" || category === "milled_wood_grip") {
       return (
-        <svg viewBox="0 0 96 68" className={cls} fill="none">
-          <rect x="10" y="10" width="38" height="48" fill={carcassFill} stroke={stroke} strokeWidth="1" />
-          <path d="M48 10 H64 V24 H56 V44 H64 V58 H48 Z" fill={doorFill} stroke={stroke} strokeWidth="1.3" />
-          <path d="M78 34 H60 M64 30 L59 34 L64 38" stroke={accent} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        <svg viewBox="0 0 100 72" className={cls} fill="none">
+          <rect x="10" y="10" width="44" height="52" fill={carcassFill} stroke={stroke} strokeWidth="1" />
+          <path d="M54 10 H68 V24 H60 V48 H68 V62 H54 Z" fill={doorFill} stroke={stroke} strokeWidth="1.2" />
+          <path d="M84 36 H64 M68 32.5 L63.5 36 L68 39.5" stroke={accent} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       );
     }
 
-    // 14. Varsayılan: Çubuk / Bar Kulp Yan Kesit
+    // 13b. Çanak / Kupa Çekme Kulp (Alttan Kavramalı Yarım Ay)
+    if (profileId === "hnd_cup_pull_96") {
+      return (
+        <svg viewBox="0 0 100 72" className={cls} fill="none">
+          <rect x="4" y="4" width="76" height="11" rx="1.5" fill={ctopFill} stroke={stroke} strokeWidth="1.1" />
+          <rect x="4" y="15" width="52" height="9" fill={carcassFill} stroke={stroke} strokeWidth="1" />
+          <rect x="56" y="17" width="12" height="51" fill={doorFill} stroke={stroke} strokeWidth="1.2" />
+          <path d="M68 25 C84 25 85 45 76 50 L68 50" fill={aluStroke} fillOpacity="0.22" stroke={aluStroke} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M77 62 V49" stroke={accent} strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      );
+    }
+
+    // 14. Varsayılan: Standart Çubuk Kulp
     return (
-      <svg viewBox="0 0 96 68" className={cls} fill="none">
-        <rect x="10" y="10" width="38" height="48" fill={carcassFill} stroke={stroke} strokeWidth="1" />
-        <rect x="48" y="10" width="14" height="48" fill={doorFill} stroke={stroke} strokeWidth="1.3" />
-        <path d="M62 20 H74 V48 H62" stroke={aluFill} strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
+      <svg viewBox="0 0 100 72" className={cls} fill="none">
+        <rect x="4" y="4" width="76" height="11" rx="1.5" fill={ctopFill} stroke={stroke} strokeWidth="1.1" />
+        <rect x="4" y="15" width="52" height="9" fill={carcassFill} stroke={stroke} strokeWidth="1" />
+        <rect x="56" y="17" width="12" height="51" fill={doorFill} stroke={stroke} strokeWidth="1.2" />
+        <path d="M68 25 H79 V56 H68" stroke={aluStroke} strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     );
   }

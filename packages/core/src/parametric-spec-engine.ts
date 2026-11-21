@@ -1,4 +1,9 @@
 import {
+  doesDrawerHaveUpperCGolaChannel,
+  doesModuleEmitTopHorizontalGola,
+  resolveErgonomicGolaDrawerPlan,
+} from "./v4-profiles";
+import {
   ContinuousBacksplashSegment,
   ContinuousCountertopSegment,
   ContinuousLayersSummary,
@@ -349,8 +354,13 @@ export function computeGolaSidePanelNotches(
   sidePanelBottomYMm: number,
   sidePanelHeightMm: number
 ): { kind: "L_TOP" | "C_MID"; yBottomMm: number; widthMm: number; heightMm: number }[] {
-  const hasGola = module.bays.some((b) => b.door?.handleCategory === "gola_profile");
-  if (!hasGola || module.category === "kitchen_wall" || module.category === "complementary") {
+  const horizGolaDoor = module.bays.find(
+    (b) =>
+      b.door?.handleCategory === "gola_profile" &&
+      b.door?.handleProfileId !== "hnd_gola_vertical" &&
+      b.door?.handleProfileId !== "hnd_overhang_recessed_lip"
+  )?.door;
+  if (!horizGolaDoor || module.category === "kitchen_wall" || module.category === "complementary") {
     return [];
   }
 
@@ -358,27 +368,76 @@ export function computeGolaSidePanelNotches(
   const T = module.carcass.panelThickness || 18;
   const plinth = module.carcass.plinthHeight || 0;
 
-  // 1. Horizontal Top L-Gola Notch (26mm deep x 57mm high at top front corner of base module)
-  if (module.category === "kitchen_base" || module.category === "kitchen_island" || module.category === "kitchen_corner") {
-    const yTopNotch = Math.max(0, roundMm(sidePanelHeightMm - 57, 1));
+  // 1. Profile-exact Horizontal Top Gola / Melamine Finger-Box / Moulded Box / Bevel Backing Notch
+  // Ergonomik koruma: Yalnızca üst kenarı <= 1200 mm olup gerçekten Üst Yatay L-Gola üreten modüllerde L_TOP çentiği açılır!
+  if (doesModuleEmitTopHorizontalGola(module)) {
+    const profId = horizGolaDoor.handleProfileId || "hnd_gola_profile";
+    const notchDepthMm =
+      profId === "hnd_gola_melamine_box"
+        ? 38
+        : profId === "hnd_gola_moulded_box"
+        ? 25
+        : profId === "hnd_bevel_30_backing"
+        ? 18
+        : 26;
+    const notchHeightMm =
+      profId === "hnd_gola_melamine_box" ||
+      profId === "hnd_gola_moulded_box" ||
+      profId === "hnd_bevel_30_backing"
+        ? 60
+        : 56;
+    const yTopNotch = Math.max(0, roundMm(sidePanelHeightMm - notchHeightMm, 1));
     notches.push({
       kind: "L_TOP",
       yBottomMm: yTopNotch,
-      widthMm: 26,
-      heightMm: 57,
+      widthMm: notchDepthMm,
+      heightMm: notchHeightMm,
     });
   }
 
-  // 2. Horizontal Intermediate C-Gola Notches (26mm deep x 73.5mm high between stacked external drawers)
+  // 2. Horizontal Intermediate C-Gola Notches (26mm deep x 73.5mm high ONLY at paired C-Gola gaps!)
+  const netInnerHForNotch = Math.max(200, module.dimensions.height - plinth - 2 * T);
   const cGolaCenters = new Set<number>();
   module.bays.forEach((bay) => {
-    if (bay.door?.handleCategory !== "gola_profile") return;
+    if (
+      bay.door?.handleCategory !== "gola_profile" ||
+      bay.door?.handleProfileId === "hnd_gola_vertical" ||
+      bay.door?.handleProfileId === "hnd_overhang_recessed_lip"
+    ) {
+      return;
+    }
+    const hasNoUpperDoor =
+      Boolean(module.isOpenFront) ||
+      !bay.door ||
+      bay.door.type === "open" ||
+      bay.door.doorSystemId === "open";
     const extDrawers = [...bay.drawers]
       .filter((d) => !d.isInternal && !d.isHidden)
       .sort((a, b) => a.elevationY - b.elevationY);
-    for (let i = 0; i < extDrawers.length - 1; i++) {
-      const jointWorldY = plinth + T + extDrawers[i].elevationY + extDrawers[i].height;
-      const localY = roundMm(jointWorldY - sidePanelBottomYMm - 73.5 / 2, 1);
+    if (extDrawers.length === 0) return;
+    const highest = extDrawers[extDrawers.length - 1];
+    const topReachesCeiling =
+      highest.elevationY >= netInnerHForNotch * 0.55 ||
+      (hasNoUpperDoor && highest.elevationY + highest.height >= netInnerHForNotch * 0.7);
+
+    const modWorldYForNotch = module.position?.y || 0;
+    const golaPlan = resolveErgonomicGolaDrawerPlan({
+      bottomWorldYsMm: extDrawers.map((d) => modWorldYForNotch + plinth + T + d.elevationY),
+      topWorldYsMm: extDrawers.map((d) => modWorldYForNotch + plinth + T + d.elevationY + d.height),
+      moduleFloorWorldYMm: modWorldYForNotch,
+      plinthHeightMm: plinth,
+      topReachesCeiling,
+    });
+    for (let i = 0; i < extDrawers.length; i++) {
+      if (!golaPlan.cGolaAbove[i]) {
+        continue;
+      }
+      const upperRefBottomY =
+        i < extDrawers.length - 1
+          ? plinth + T + extDrawers[i + 1].elevationY + 1.5
+          : plinth + T + highest.elevationY + highest.height + 16;
+      const gapMidWorldY = upperRefBottomY - 16;
+      const localY = roundMm(gapMidWorldY - sidePanelBottomYMm - 73.5 / 2, 1);
       if (localY > 20 && localY + 73.5 < sidePanelHeightMm - 30) {
         cGolaCenters.add(localY);
       }
@@ -506,7 +565,15 @@ export function computeContinuousKitchenLayers(project: DesignProject): Continuo
     const startAlong = Math.min(...grp.map((g) => g.minAlong));
     const endAlong = Math.max(...grp.map((g) => g.maxAlong));
     const carcassSpan = Math.max(100, endAlong - startAlong);
-    const maxCarcassDepth = Math.max(...grp.map((g) => g.mod.dimensions.depth));
+    const maxCarcassDepth = Math.max(
+      ...grp.map((g) => {
+        const m = g.mod;
+        if (m.isCorner && m.dimensions.width >= 750 && m.dimensions.depth >= 750) {
+          return 580;
+        }
+        return m.dimensions.depth;
+      })
+    );
     const topY = first.position.y + first.dimensions.height;
 
     const frontOverhangMm = 40; // 20mm door + 20mm drip edge (MD Spec Section 8.1)

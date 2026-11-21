@@ -223,9 +223,15 @@ export function classifyModuleCornerFootprint(mod: ModuleInstance): {
 
   const minArm = Math.min(rawW, rawD);
   const wingDepthMm = isWallL
-    ? Math.min(350, Math.round(minArm * 0.56))
+    ? minArm >= 580
+      ? 350
+      : Math.min(350, Math.round(minArm * 0.56))
     : isWardrobe
-    ? Math.min(600, Math.round(minArm * 0.58))
+    ? minArm >= 920
+      ? 600
+      : Math.min(600, Math.round(minArm * 0.58))
+    : minArm >= 780
+    ? 580
     : Math.min(580, Math.round(minArm * 0.64));
 
   const isBlind =

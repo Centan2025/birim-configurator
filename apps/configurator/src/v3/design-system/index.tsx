@@ -526,6 +526,7 @@ function renderAutoOptionVisual(opt?: V3PremiumDropdownOption) {
     mat_mdf_anthracite: "#334155",
     mat_wood_natural_oak: "#C8A476",
     mat_wood_smoked_walnut: "#5C4028",
+    mat_lacquer_cashmere: "#CFC6B8",
     mat_lacquer_sage: "#849B87",
     mat_lacquer_sand: "#E2D9C8",
     mat_glass_bronze: "#785A46",
@@ -588,7 +589,7 @@ export const V3PremiumDropdown: React.FC<{
   variant = "inline",
   placement = "auto",
   size = "md",
-  dark = false,
+  dark = true,
   disabled = false,
   className = "",
 }) => {
@@ -642,7 +643,7 @@ export const V3PremiumDropdown: React.FC<{
   const optionList = (
     <div
       className={`p-1.5 space-y-0.5 max-h-64 overflow-y-auto ${
-        dark ? "bg-neutral-900/95" : "bg-white/95 backdrop-blur-xl"
+        dark ? "bg-[#151A23]/98 backdrop-blur-2xl" : "bg-white/98 backdrop-blur-xl"
       }`}
     >
       {options.map((opt, optIdx) => {
@@ -659,10 +660,10 @@ export const V3PremiumDropdown: React.FC<{
             className={`w-full px-2.5 ${isSm ? "py-1.5" : "py-2"} rounded-xl text-left flex items-center justify-between gap-2 transition-all duration-150 cursor-pointer ${
               isSel
                 ? dark
-                  ? "bg-white/15 text-white border border-white/25"
+                  ? "bg-[#2563EB]/25 text-white border border-[#3B82F6]/60 shadow-2xs"
                   : "bg-blue-50/90 text-blue-950 border border-blue-400 shadow-2xs"
                 : dark
-                ? "hover:bg-white/10 text-neutral-200 border border-transparent"
+                ? "hover:bg-white/10 text-slate-100 border border-transparent"
                 : "hover:bg-slate-100/80 text-[#111827] border border-transparent"
             }`}
           >
@@ -719,8 +720,8 @@ export const V3PremiumDropdown: React.FC<{
         isPopover ? "overflow-visible" : "overflow-hidden"
       } ${isSm ? "rounded-xl" : "rounded-2xl"} border transition-all duration-200 ${
         dark
-          ? "border-white/15 bg-neutral-900/90 hover:border-white/30"
-          : "border-slate-300/90 bg-white/85 backdrop-blur-xl shadow-xs hover:border-blue-400"
+          ? "border-white/18 bg-[#1B212C]/92 backdrop-blur-xl shadow-sm hover:border-[#3B82F6]/60"
+          : "border-slate-300/90 bg-white/90 backdrop-blur-xl shadow-xs hover:border-blue-400"
       } ${disabled ? "opacity-50 pointer-events-none" : ""} ${className}`}
     >
       {/* Hidden native select for automated test compatibility */}
@@ -747,8 +748,8 @@ export const V3PremiumDropdown: React.FC<{
           isPopover ? (isSm ? "rounded-xl" : "rounded-2xl") : ""
         } ${
           dark
-            ? "bg-transparent hover:bg-white/5 text-neutral-100"
-            : "bg-gradient-to-b from-white to-slate-50/70 hover:from-blue-50/40 hover:to-blue-50/20"
+            ? "bg-transparent hover:bg-white/8 text-[#F8FAFC]"
+            : "bg-white hover:bg-blue-50/40 text-[#0F172A]"
         }`}
       >
         <div className="flex items-center gap-2 min-w-0">
@@ -803,8 +804,8 @@ export const V3PremiumDropdown: React.FC<{
           <div
             className={`absolute left-0 min-w-full ${
               openUpward ? "bottom-full mb-1.5" : "top-full mt-1.5"
-            } z-[140] rounded-xl border shadow-2xl overflow-hidden ${
-              dark ? "border-white/15 bg-neutral-900" : "border-slate-200/90 bg-white"
+            } z-[240] rounded-xl border shadow-2xl overflow-hidden ${
+              dark ? "border-white/18 bg-[#151A23]" : "border-slate-200/90 bg-white"
             }`}
           >
             {optionList}

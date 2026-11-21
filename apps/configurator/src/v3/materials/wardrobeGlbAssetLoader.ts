@@ -198,17 +198,21 @@ function ensureSharedHangerResources(): void {
   crown.translate(0, -58.5, 0);
 
   const woodCurve = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(-114, -126, 0),
-    new THREE.Vector3(-56, -84, 0),
-    new THREE.Vector3(0, -58, 0),
-    new THREE.Vector3(56, -84, 0),
-    new THREE.Vector3(114, -126, 0),
+    new THREE.Vector3(-175, -138, 0),
+    new THREE.Vector3(-102, -96, 0),
+    new THREE.Vector3(0, -64, 0),
+    new THREE.Vector3(102, -96, 0),
+    new THREE.Vector3(175, -138, 0),
   ]);
-  const woodTube = new THREE.TubeGeometry(woodCurve, 10, 6.4, 5, false);
-  woodTube.scale(1, 1, 0.76);
-  hangerWoodMergedGeo = markSharedGeometry(mergeStaticBufferGeometries([crown, woodTube], false));
+  const woodTube = new THREE.TubeGeometry(woodCurve, 22, 6.2, 10, false);
+  woodTube.scale(1, 1, 0.72);
+  const trouserBar = new THREE.CylinderGeometry(3.6, 3.6, 310, 8);
+  trouserBar.rotateZ(Math.PI / 2);
+  trouserBar.translate(0, -140, 0);
+  hangerWoodMergedGeo = markSharedGeometry(mergeStaticBufferGeometries([crown, woodTube, trouserBar], false));
   crown.dispose();
   woodTube.dispose();
+  trouserBar.dispose();
 
   // Instant 72-triangle sculpted garment silhouette (used immediately before async GLB arrives or offline)
   const torso = new THREE.CylinderGeometry(0.38, 0.44, 1, 10, 2, false);
@@ -1305,6 +1309,265 @@ function mountTemplateCloneOrAsync(
   return anchor;
 }
 
+
+// ============================================================================
+// V115: SCULPTED ITALIAN-SHOWROOM TAILORED HANGING GARMENTS
+// Procedural multi-pleat draped torso, contoured shoulders, sleeves & collars
+// with MeshPhysicalMaterial fabric sheen — zero blocky cylinder proxies!
+// ============================================================================
+let tailoredJacketGeo: THREE.BufferGeometry | null = null;
+let tailoredJacketInnerShirtGeo: THREE.BufferGeometry | null = null;
+let tailoredShirtGeo: THREE.BufferGeometry | null = null;
+let tailoredShirtCollarGeo: THREE.BufferGeometry | null = null;
+let tailoredCoatGeo: THREE.BufferGeometry | null = null;
+const fabricPhysicalMatCache = new Map<string, THREE.MeshPhysicalMaterial>();
+
+function getFabricPhysicalMat(hex: string, roughness = 0.88, sheen = 0.38): THREE.MeshPhysicalMaterial {
+  const key = `${hex}_${roughness}_${sheen}`;
+  const hit = fabricPhysicalMatCache.get(key);
+  if (hit) return hit;
+  const mat = markSharedMaterial(
+    new THREE.MeshPhysicalMaterial({
+      color: new THREE.Color(hex),
+      roughness,
+      metalness: 0.0,
+      sheen,
+      sheenRoughness: 0.72,
+      sheenColor: new THREE.Color("#ffffff"),
+      side: THREE.DoubleSide,
+    })
+  );
+  fabricPhysicalMatCache.set(key, mat);
+  return mat;
+}
+
+function buildDrapedTorsoGeometry(opts: {
+  shoulderW: number;
+  waistW: number;
+  hemW: number;
+  height: number;
+  thicknessZ: number;
+  pleatAmp: number;
+  pleatFreq: number;
+  isOpenFrontJacket?: boolean;
+  hemCurve?: number;
+}): THREE.BufferGeometry {
+  const segU = 28;
+  const segV = 18;
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+
+  for (let iv = 0; iv <= segV; iv++) {
+    const v = iv / segV; // 0 = top shoulder/collar, 1 = bottom hem
+    // Width profile: narrow neck -> wide rounded shoulders -> subtle waist taper -> graceful hem
+    let halfW: number;
+    if (v < 0.14) {
+      const t = v / 0.14;
+      halfW = (opts.shoulderW * 0.28) + (opts.shoulderW * 0.5 - opts.shoulderW * 0.28) * Math.sin(t * Math.PI * 0.5);
+    } else if (v < 0.58) {
+      const t = (v - 0.14) / 0.44;
+      halfW = opts.shoulderW * 0.5 + (opts.waistW * 0.5 - opts.shoulderW * 0.5) * Math.sin(t * Math.PI * 0.5);
+    } else {
+      const t = (v - 0.58) / 0.42;
+      halfW = opts.waistW * 0.5 + (opts.hemW * 0.5 - opts.waistW * 0.5) * t;
+    }
+
+    // Natural shoulder drop at outer edges near top
+    const depthProfile = opts.thicknessZ * (0.42 + 0.58 * Math.sin(Math.min(1, v * 1.15) * Math.PI * 0.65));
+    const drapeStrength = Math.pow(Math.max(0, v - 0.12) / 0.88, 1.35);
+
+    for (let iu = 0; iu <= segU; iu++) {
+      const u = iu / segU;
+      const theta = u * Math.PI * 2;
+      const cosT = Math.cos(theta);
+      const sinT = Math.sin(theta);
+
+      // Soft superellipse cross-section for realistic pressed fabric volume
+      const sx = Math.sign(cosT) * Math.pow(Math.abs(cosT), 0.78);
+      const sz = Math.sign(sinT) * Math.pow(Math.abs(sinT), 0.82);
+
+      // Organic vertical drape folds (subtle multi-harmonic pleats)
+      const fold =
+        (Math.sin(theta * opts.pleatFreq + 0.4) * 0.65 +
+          Math.cos(theta * (opts.pleatFreq + 2) - 0.7) * 0.35) *
+        opts.pleatAmp *
+        drapeStrength;
+
+      // Subtle V-neck / open front lapel indent on front center (sinT > 0.7, v < 0.45)
+      let yDrop = 0;
+      if (v < 0.16) {
+        const edgeRatio = Math.abs(sx);
+        yDrop = edgeRatio * edgeRatio * 48 * (1 - v / 0.16);
+      }
+      if (v > 0.85 && opts.hemCurve) {
+        yDrop += (1 - Math.abs(sx)) * opts.hemCurve * ((v - 0.85) / 0.15);
+      }
+
+      let x = sx * halfW;
+      let z = sz * (depthProfile * 0.5) + fold;
+
+      // Slight vertical lapel separation at front center for blazers
+      if (opts.isOpenFrontJacket && sinT > 0.85 && Math.abs(sx) < 0.14) {
+        z -= 4.5 * (1 - Math.abs(sx) / 0.14);
+      }
+
+      const y = -v * opts.height - yDrop;
+      positions.push(x, y, z);
+      uvs.push(u, v);
+    }
+  }
+
+  for (let iv = 0; iv < segV; iv++) {
+    for (let iu = 0; iu < segU; iu++) {
+      const a = iv * (segU + 1) + iu;
+      const b = a + 1;
+      const c = (iv + 1) * (segU + 1) + iu;
+      const d = c + 1;
+      indices.push(a, c, b, b, c, d);
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+function buildDrapedSleevePair(
+  shoulderX: number,
+  topY: number,
+  sleeveLen: number,
+  topRad: number,
+  cuffRad: number
+): THREE.BufferGeometry[] {
+  const parts: THREE.BufferGeometry[] = [];
+  [-1, 1].forEach((side) => {
+    const curve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(side * (shoulderX - 10), topY - 22, 0),
+      new THREE.Vector3(side * (shoulderX + 8), topY - sleeveLen * 0.34, 4),
+      new THREE.Vector3(side * (shoulderX + 4), topY - sleeveLen * 0.72, 2),
+      new THREE.Vector3(side * (shoulderX - 6), topY - sleeveLen, -2),
+    ]);
+    const tube = new THREE.TubeGeometry(curve, 14, (topRad + cuffRad) * 0.5, 10, false);
+    const pos = tube.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const py = pos.getY(i);
+      const t = Math.max(0, Math.min(1, (topY - py) / Math.max(1, sleeveLen)));
+      const radialScale = (topRad * (1 - t) + cuffRad * t) / ((topRad + cuffRad) * 0.5);
+      const cx = side * (shoulderX + 4 * Math.sin(t * Math.PI));
+      pos.setX(i, cx + (pos.getX(i) - cx) * radialScale);
+      pos.setZ(i, pos.getZ(i) * radialScale * 0.68);
+    }
+    tube.computeVertexNormals();
+    parts.push(tube);
+  });
+  return parts;
+}
+
+function ensureTailoredGarmentGeometries(): void {
+  if (tailoredJacketGeo && tailoredShirtGeo && tailoredCoatGeo) return;
+
+  // 1. Tailored Italian Blazer / Jacket (420mm shoulders, 730mm drop)
+  const jTorso = buildDrapedTorsoGeometry({
+    shoulderW: 410,
+    waistW: 360,
+    hemW: 392,
+    height: 710,
+    thicknessZ: 74,
+    pleatAmp: 5.5,
+    pleatFreq: 5,
+    isOpenFrontJacket: true,
+    hemCurve: -8,
+  });
+  const jSleeves = buildDrapedSleevePair(196, -26, 610, 38, 25);
+  // Crisp notched collar band around neck
+  const jCollar = new THREE.TorusGeometry(54, 13, 8, 18, Math.PI * 1.45);
+  jCollar.rotateX(Math.PI * 0.46);
+  jCollar.rotateZ(-Math.PI * 0.22);
+  jCollar.scale(1.15, 1.0, 0.72);
+  jCollar.translate(0, -14, -4);
+  tailoredJacketGeo = markSharedGeometry(
+    mergeStaticBufferGeometries([jTorso, ...jSleeves, jCollar], false)
+  );
+  jTorso.dispose();
+  jSleeves.forEach((g) => g.dispose());
+  jCollar.dispose();
+
+  // Inner crisp shirt V-insert visible at blazer collar
+  const vShirt = new THREE.CylinderGeometry(42, 34, 155, 12);
+  vShirt.scale(1.0, 1.0, 0.52);
+  vShirt.translate(0, -82, 10);
+  tailoredJacketInnerShirtGeo = markSharedGeometry(vShirt);
+
+  // 2. Crisp Tailored Dress Shirt (395mm shoulders, 680mm drop)
+  const sTorso = buildDrapedTorsoGeometry({
+    shoulderW: 390,
+    waistW: 348,
+    hemW: 368,
+    height: 675,
+    thicknessZ: 56,
+    pleatAmp: 6.2,
+    pleatFreq: 6,
+    hemCurve: 18,
+  });
+  const sSleeves = buildDrapedSleevePair(184, -22, 585, 31, 20);
+  tailoredShirtGeo = markSharedGeometry(mergeStaticBufferGeometries([sTorso, ...sSleeves], false));
+  sTorso.dispose();
+  sSleeves.forEach((g) => g.dispose());
+
+  // Folded spread shirt collar
+  const sCollar = new THREE.CylinderGeometry(48, 56, 36, 16, 1, true);
+  sCollar.scale(1.08, 1.0, 0.68);
+  sCollar.translate(0, -12, 0);
+  tailoredShirtCollarGeo = markSharedGeometry(sCollar);
+
+  // 3. Long Draped Wool Coat / Trench (425mm shoulders, 940mm drop)
+  const cTorso = buildDrapedTorsoGeometry({
+    shoulderW: 420,
+    waistW: 368,
+    hemW: 448,
+    height: 920,
+    thicknessZ: 82,
+    pleatAmp: 9.0,
+    pleatFreq: 6,
+    isOpenFrontJacket: true,
+    hemCurve: 6,
+  });
+  const cSleeves = buildDrapedSleevePair(202, -28, 640, 41, 27);
+  const cCollar = new THREE.TorusGeometry(58, 16, 8, 18, Math.PI * 1.5);
+  cCollar.rotateX(Math.PI * 0.45);
+  cCollar.rotateZ(-Math.PI * 0.25);
+  cCollar.scale(1.16, 1.0, 0.74);
+  cCollar.translate(0, -16, -4);
+  tailoredCoatGeo = markSharedGeometry(
+    mergeStaticBufferGeometries([cTorso, ...cSleeves, cCollar], false)
+  );
+  cTorso.dispose();
+  cSleeves.forEach((g) => g.dispose());
+  cCollar.dispose();
+}
+
+const LUXURY_JACKET_PALETTE = [
+  "#2F3540", // Charcoal Wool
+  "#6E6358", // Warm Taupe Cashmere
+  "#253247", // Midnight Navy
+  "#473930", // Espresso Wool
+  "#9E8366", // Camel Hair
+  "#3F4944", // Deep Olive Slate
+];
+
+const LUXURY_SHIRT_PALETTE = [
+  "#F2EFEA", // Crisp Optic Linen
+  "#E7E0D4", // Warm Ivory
+  "#CFDCE8", // Powder Sky Cotton
+  "#D9D3C7", // Stone Sand
+  "#C8D1CA", // Soft Sage
+  "#E5DDD5", // Oat Milk
+];
+
 export function createReadyMadeHangingGarmentGroup(
   variantIndex: number,
   maxDropMm = 860,
@@ -1313,26 +1576,29 @@ export function createReadyMadeHangingGarmentGroup(
 ): THREE.Group {
   ensureSharedHangerResources();
   const anchor = new THREE.Group();
+  anchor.name = "birim_glb_hanging_garment";
   anchor.raycast = () => {};
   const category: WardrobeGlbCategory = variantIndex % 3 === 0 ? "jacket" : "shirt";
   const absAngle = Math.PI * 0.48 + (((variantIndex % 3) - 1) * 0.015);
   const rackAngleRad = -absAngle;
 
+  // Clean minimalist fallback drape only while GLB loads (no detached pipe sleeves or torus!)
   const buildProxy = () => {
     const holder = new THREE.Group();
-    const fitW = Math.min(440, Math.max(220, maxCabinetClearDepthMm * 0.88));
-    const fitD = Math.min(125, Math.max(76, maxSlotWidthMm * 0.78));
-    const fitH = Math.min(760, Math.max(260, maxDropMm - 75));
+    const fitW = Math.min(410, Math.max(220, maxCabinetClearDepthMm * 0.84));
+    const fitD = Math.min(72, Math.max(44, maxSlotWidthMm * 0.62));
+    const fitH = Math.min(720, Math.max(260, maxDropMm - 78));
     const hex =
       category === "jacket"
-        ? DARK_GARMENT_TINTS[Math.abs(Math.floor(variantIndex / 3)) % DARK_GARMENT_TINTS.length] || "#3B4252"
-        : SHIRT_WARDROBE_TINTS[Math.abs(variantIndex) % SHIRT_WARDROBE_TINTS.length];
-    const body = new THREE.Mesh(proxyGarmentTorsoGeo!, getSolidSharedMat(hex, 0.86));
+        ? LUXURY_JACKET_PALETTE[Math.abs(variantIndex) % LUXURY_JACKET_PALETTE.length]
+        : LUXURY_SHIRT_PALETTE[Math.abs(variantIndex) % LUXURY_SHIRT_PALETTE.length];
+    const body = new THREE.Mesh(proxyGarmentTorsoGeo!, getFabricPhysicalMat(hex, 0.88, 0.3));
     body.rotation.y = rackAngleRad;
     body.scale.set(fitW, fitH, fitD);
-    body.position.y = -68;
+    body.position.y = -72;
+    body.raycast = () => {};
     holder.add(body);
-    holder.add(createContouredCoatHangerGroup(rackAngleRad, variantIndex, Math.min(1, fitW / 440)));
+    holder.add(createContouredCoatHangerGroup(rackAngleRad, variantIndex, Math.min(1, fitW / 410)));
     return holder;
   };
 
@@ -1342,11 +1608,11 @@ export function createReadyMadeHangingGarmentGroup(
     (cloned, sizeMm) => {
       if (category === "jacket") {
         const darkHex =
-          DARK_GARMENT_TINTS[Math.abs(Math.floor(variantIndex / 3)) % DARK_GARMENT_TINTS.length];
+          LUXURY_JACKET_PALETTE[Math.abs(Math.floor(variantIndex / 3)) % LUXURY_JACKET_PALETTE.length];
         applySubtleMeshTint(cloned, darkHex, 0.88);
       } else {
         const lightHex =
-          SHIRT_WARDROBE_TINTS[Math.abs(variantIndex) % SHIRT_WARDROBE_TINTS.length];
+          LUXURY_SHIRT_PALETTE[Math.abs(variantIndex) % LUXURY_SHIRT_PALETTE.length];
         applySubtleMeshTint(cloned, lightHex, 0.84);
       }
 

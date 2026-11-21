@@ -21,6 +21,7 @@ import {
   calculateNetInnerHeight,
   validateProject,
   calculateFourSpaceDimensions,
+  resolveSmartCompatibleDoorPatchForModuleBay,
   evaluateProjectCompatibility,
   evaluateUnifiedEngineeringModel,
   applyApprovedRemediationProposal,
@@ -2443,44 +2444,89 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
       commitActiveModuleUpdate((mod) => {
         const bay = mod.bays[bayIdx];
         if (!bay) return mod;
-        const nextDoor = { ...bay.door, ...updates };
-        if (updates.handleCategory && updates.handleProfileId === undefined) {
+        const compatUpdates = resolveSmartCompatibleDoorPatchForModuleBay(updates, mod, bayIdx);
+        const nextDoor = { ...bay.door, ...compatUpdates };
+        if (compatUpdates.handleCategory && compatUpdates.handleProfileId === undefined) {
           nextDoor.handleProfileId = bay.door.handleProfileId;
         }
-        if (typeof updates.softClose === "boolean" && !updates.openingTechnology) {
-          nextDoor.openingTechnology = updates.softClose ? "soft_close" : "manual_standard";
+        if (typeof compatUpdates.softClose === "boolean" && !compatUpdates.openingTechnology) {
+          nextDoor.openingTechnology = compatUpdates.softClose ? "soft_close" : "manual_standard";
         }
-        if (updates.openingTechnology && updates.softClose === undefined) {
+        if (compatUpdates.openingTechnology && compatUpdates.softClose === undefined) {
           nextDoor.softClose =
-            updates.openingTechnology === "soft_close" ||
-            updates.openingTechnology === "push_to_open_soft_close" ||
-            updates.openingTechnology === "sliding_damped";
+            compatUpdates.openingTechnology === "soft_close" ||
+            compatUpdates.openingTechnology === "push_to_open_soft_close" ||
+            compatUpdates.openingTechnology === "sliding_damped";
         }
-        if (updates.doorSystemId) {
-          mod.isOpenFront = updates.doorSystemId === "open";
+        if (compatUpdates.doorSystemId) {
+          mod.isOpenFront = compatUpdates.doorSystemId === "open";
           const types: Partial<Record<DoorSystemId, typeof nextDoor.type>> = { open: "open", hinged_single: "single_left", hinged_double: "double", hinged_inset: "inset_left", hinged_overlay_variant: "half_overlay_left", sliding_top_hung: "sliding", sliding_bottom_rolling: "sliding_bottom", lift_up_stay: "lift_up_stay", lift_parallel: "lift_parallel", lift_bi_fold: "lift_bi_fold", folding_side: "folding", pocket_retractable: "pocket", tambour_roller: "tambour" };
-          nextDoor.type = types[updates.doorSystemId] ?? "single_left";
-          nextDoor.overlayType = updates.doorSystemId === "hinged_inset" ? "inset" : updates.doorSystemId === "hinged_overlay_variant" ? "half_overlay" : "full_overlay";
+          nextDoor.type = types[compatUpdates.doorSystemId] ?? "single_left";
+          nextDoor.overlayType = compatUpdates.doorSystemId === "hinged_inset" ? "inset" : compatUpdates.doorSystemId === "hinged_overlay_variant" ? "half_overlay" : "full_overlay";
         }
-        if (updates.doorSystemId) {
-          if (updates.doorSystemId === "hinged_double") nextDoor.type = "double";
-          else if (updates.doorSystemId === "hinged_single") nextDoor.type = bay.door.type === "single_right" ? "single_right" : "single_left";
+        if (compatUpdates.doorSystemId) {
+          if (compatUpdates.doorSystemId === "hinged_double") nextDoor.type = "double";
+          else if (compatUpdates.doorSystemId === "hinged_single") nextDoor.type = bay.door.type === "single_right" ? "single_right" : "single_left";
           else if (
-            updates.doorSystemId === "sliding_top_hung" ||
-            updates.doorSystemId === "sliding_bottom_rolling"
+            compatUpdates.doorSystemId === "sliding_top_hung" ||
+            compatUpdates.doorSystemId === "sliding_bottom_rolling"
           ) {
             nextDoor.type = "sliding";
-          } else if (updates.doorSystemId === "hinged_inset") {
+          } else if (compatUpdates.doorSystemId === "hinged_inset") {
             nextDoor.overlayType = "inset";
-          } else if (updates.doorSystemId === "hinged_overlay_variant") {
+          } else if (compatUpdates.doorSystemId === "hinged_overlay_variant") {
             nextDoor.overlayType = "half_overlay";
           }
+          // Üst dolapta AVENTOS HK top (maks 600mm), HL top (maks 580mm) veya HF top (min 480mm) seçildiğinde gövde boyunu otomatik uyarla
+          if (mod.category === "kitchen_wall" || mod.moduleFamilyId === "fam_kitchen_wall") {
+            let adjustedWallH: number | null = null;
+            if (compatUpdates.doorSystemId === "lift_up_stay" && mod.dimensions.height > 600) {
+              adjustedWallH = 600;
+            } else if (compatUpdates.doorSystemId === "lift_parallel" && mod.dimensions.height > 580) {
+              adjustedWallH = 540;
+            } else if (compatUpdates.doorSystemId === "lift_bi_fold" && mod.dimensions.height < 480) {
+              adjustedWallH = 720;
+            }
+            if (adjustedWallH !== null) {
+              mod.dimensions = { ...mod.dimensions, height: adjustedWallH };
+              const newNetH = Math.max(120, adjustedWallH - (mod.carcass.plinthHeight || 0) - 2 * (mod.carcass.panelThickness || 18));
+              mod.bays.forEach((mb) => {
+                mb.shelves = mb.shelves.map((sh, si, arr) => ({
+                  ...sh,
+                  elevationY: Math.min(
+                    Math.max(64, newNetH - 64),
+                    sh.elevationY > newNetH - 48
+                      ? Math.round(((si + 1) * newNetH) / (arr.length + 1))
+                      : sh.elevationY
+                  ),
+                }));
+              });
+            }
+          }
+          // Kapak açılış tipi değiştiğinde mevcut kulbun yeni kapakla uyumluluğunu tekrar doğrula
+          const rechecked = resolveSmartCompatibleDoorPatchForModuleBay(
+            {
+              handleProfileId: nextDoor.handleProfileId,
+              handleCategory: nextDoor.handleCategory,
+              crossSectionProfile: nextDoor.crossSectionProfile,
+            },
+            {
+              ...mod,
+              bays: mod.bays.map((b, bi) => (bi === bayIdx ? { ...b, door: nextDoor } : b)),
+            },
+            bayIdx
+          );
+          nextDoor.handleProfileId = rechecked.handleProfileId;
+          nextDoor.handleCategory = rechecked.handleCategory;
+          if (rechecked.crossSectionProfile) {
+            nextDoor.crossSectionProfile = rechecked.crossSectionProfile;
+          }
         }
-        if (updates.handleCategory === "handleless_plain") {
+        if (compatUpdates.handleCategory === "handleless_plain") {
           nextDoor.handleType = "push_to_open";
-        } else if (updates.handleCategory === "gola_profile" || updates.handleCategory === "j_pull") {
+        } else if (compatUpdates.handleCategory === "gola_profile" || compatUpdates.handleCategory === "j_pull") {
           nextDoor.handleType = "integrated_profile";
-        } else if (updates.handleCategory) {
+        } else if (compatUpdates.handleCategory) {
           nextDoor.handleType = "standard";
         }
         bay.door = nextDoor;
@@ -2575,28 +2621,39 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
         const srcBay = mod.bays[srcIdx];
         if (!srcBay || !srcBay.door) return mod;
         const srcDoor = srcBay.door;
-        mod.bays = mod.bays.map((b) => ({
-          ...b,
-          door: {
-            ...b.door,
-            crossSectionProfile: srcDoor.crossSectionProfile,
-            isGlassFramed: srcDoor.isGlassFramed,
-            handleCategory: srcDoor.handleCategory,
-            handleProfileId: srcDoor.handleProfileId,
-            handleMaterialId: srcDoor.handleMaterialId,
-            handleOrientation: srcDoor.handleOrientation,
-            handleOffsetY: srcDoor.handleOffsetY,
-            handleEdgeInsetX: srcDoor.handleEdgeInsetX,
-            handleLengthMm: srcDoor.handleLengthMm,
-            handleType: srcDoor.handleType,
-            doorMaterialId: srcDoor.doorMaterialId,
-            doorThicknessMm: srcDoor.doorThicknessMm,
-            doorEdgeBandThicknessMm: srcDoor.doorEdgeBandThicknessMm,
-            softClose: srcDoor.softClose,
-            openingTechnology: srcDoor.openingTechnology,
-            overlayType: srcDoor.overlayType,
-          },
-        }));
+        mod.bays = mod.bays.map((b, bIdx) => {
+          const adapted = resolveSmartCompatibleDoorPatchForModuleBay(
+            {
+              handleProfileId: srcDoor.handleProfileId,
+              handleCategory: srcDoor.handleCategory,
+              crossSectionProfile: srcDoor.crossSectionProfile,
+            },
+            mod,
+            bIdx
+          );
+          return {
+            ...b,
+            door: {
+              ...b.door,
+              crossSectionProfile: adapted.crossSectionProfile ?? srcDoor.crossSectionProfile,
+              isGlassFramed: srcDoor.isGlassFramed,
+              handleCategory: adapted.handleCategory ?? srcDoor.handleCategory,
+              handleProfileId: adapted.handleProfileId ?? srcDoor.handleProfileId,
+              handleMaterialId: srcDoor.handleMaterialId,
+              handleOrientation: srcDoor.handleOrientation,
+              handleOffsetY: srcDoor.handleOffsetY,
+              handleEdgeInsetX: srcDoor.handleEdgeInsetX,
+              handleLengthMm: srcDoor.handleLengthMm,
+              handleType: srcDoor.handleType,
+              doorMaterialId: srcDoor.doorMaterialId,
+              doorThicknessMm: srcDoor.doorThicknessMm,
+              doorEdgeBandThicknessMm: srcDoor.doorEdgeBandThicknessMm,
+              softClose: srcDoor.softClose,
+              openingTechnology: srcDoor.openingTechnology,
+              overlayType: srcDoor.overlayType,
+            },
+          };
+        });
         if (srcDoor.crossSectionProfile) {
           const isSolid =
             srcDoor.crossSectionProfile !== "glass_frame" &&
@@ -2807,8 +2864,29 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
             candX + newMod.dimensions.width > m.position.x + 2
         );
 
+      const hasLeftReturnWall = (curProj?.space?.walls || []).some(
+        (w) =>
+          Math.abs((((w?.rotationY || 0) % 180) + 180) % 180 - 90) <= 12 &&
+          Math.abs(w?.position?.x ?? 9999) <= 50 &&
+          (w?.length || 0) >= 250
+      );
+      const needsLeftWallFillerGap =
+        hasLeftReturnWall &&
+        !newMod.isCorner &&
+        Boolean(
+          newMod.bays[0]?.door &&
+            (newMod.bays[0].door.type === "single_left" ||
+              newMod.bays[0].door.type === "double")
+        );
+      const defaultStartWallX = needsLeftWallFillerGap ? 50 : 0;
       const snapCandidates: { x: number; label: string }[] = [
-        { x: 0, label: "Duvar Başlangıcı (X: 0mm)" },
+        {
+          x: defaultStartWallX,
+          label:
+            defaultStartWallX > 0
+              ? `Sol Duvar 50mm Kör Boşluk Hizası (X: ${defaultStartWallX}mm)`
+              : "Duvar Başlangıcı (X: 0mm)",
+        },
       ];
       yOverlappingMods.forEach((m, idx) => {
         const rightEdge = m.position.x + m.dimensions.width;
@@ -2919,13 +2997,29 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
     let nextModules: ModuleInstance[];
     let targetIndex = 0;
 
+    const hasLeftReturnWall = (curProj?.space?.walls || []).some(
+      (w) =>
+        Math.abs((((w?.rotationY || 0) % 180) + 180) % 180 - 90) <= 12 &&
+        Math.abs(w?.position?.x ?? 9999) <= 50 &&
+        (w?.length || 0) >= 250
+    );
+    const needsLeftWallClearance =
+      hasLeftReturnWall &&
+      !newMod.isCorner &&
+      Boolean(
+        newMod.bays[0]?.door &&
+          (newMod.bays[0].door.type === "single_left" ||
+            newMod.bays[0].door.type === "double")
+      );
+    const minLeftStartClearanceX = needsLeftWallClearance ? 50 : 0;
+
     if (appendToProject || curProj.modules.length === 0) {
       harmonizeModuleWithProjectContext(newMod, curProj.modules, {
         mode: "append",
         targetModule: lastMod,
         customDimensions,
       });
-      const nextX = lastMod ? lastMod.position.x + lastMod.dimensions.width : 0;
+      const nextX = lastMod ? lastMod.position.x + lastMod.dimensions.width : minLeftStartClearanceX;
       newMod.position = { ...newMod.position, x: nextX };
       nextModules = [...curProj.modules, newMod];
       targetIndex = nextModules.length - 1;
@@ -2946,13 +3040,44 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
             ? targetMod.position.y
             : 1450
           : 0;
+      // Köşe şablonuna geçiliyorsa (0, newY, 0) köşesine oturt; köşeden normal menteşeli dolaba geçiliyorsa sol dik duvardan 50mm kör boşluk bırak
+      const isSwappingIntoCorner = Boolean(newMod.isCorner && !targetMod.isCorner);
+      const placedX = isSwappingIntoCorner
+        ? 0
+        : targetMod.position.x === 0 && minLeftStartClearanceX > 0
+          ? minLeftStartClearanceX
+          : targetMod.position.x;
+      const placedZ = isSwappingIntoCorner ? 0 : targetMod.position.z;
       newMod.position = {
         ...newMod.position,
-        x: targetMod.position.x,
+        x: placedX,
         y: newY,
-        z: targetMod.position.z,
+        z: placedZ,
       };
-      nextModules = curProj.modules.map((m, idx) => (idx === targetIndex ? newMod : m));
+      const deltaW = newMod.dimensions.width - targetMod.dimensions.width;
+      const targetRotY = targetMod.rotation?.y || 0;
+      const targetIsWall =
+        targetMod.category === "kitchen_wall" || targetMod.moduleFamilyId === "fam_kitchen_wall";
+      const newIsWall =
+        newMod.category === "kitchen_wall" || newMod.moduleFamilyId === "fam_kitchen_wall";
+      nextModules = curProj.modules.map((m, idx) => {
+        if (idx === targetIndex) return newMod;
+        if (
+          !isSwappingIntoCorner &&
+          deltaW !== 0 &&
+          targetIsWall === newIsWall &&
+          (m.category === "kitchen_wall" || m.moduleFamilyId === "fam_kitchen_wall") === newIsWall &&
+          Math.abs((m.rotation?.y || 0) - targetRotY) <= 5 &&
+          targetRotY === 0 &&
+          m.position.x >= targetMod.position.x + targetMod.dimensions.width - 5
+        ) {
+          return {
+            ...m,
+            position: { ...m.position, x: Math.max(0, m.position.x + deltaW) },
+          };
+        }
+        return m;
+      });
     }
 
     const nextProj = {
@@ -3271,7 +3396,7 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
         },
         premium: {
           bodyMat: "mat_ke_mattplus_vizon",
-          doorMat: "mat_lacquer_sage",
+          doorMat: "mat_lacquer_cashmere",
           runnerId: "hw_blum_legrabox_m40",
           hingeId: "hw_blum_71b7550",
           addLed: true,
@@ -5461,7 +5586,10 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
     for (let bIdx = 0; bIdx < mod.bays.length; bIdx++) {
       const bay = mod.bays[bIdx];
       const shelfMatch = bay.shelves.find(
-        (s, sIdx) => s.id === selId || `${mod.id}_bay_${bIdx}_shelf_${sIdx}` === selId
+        (s, sIdx) =>
+          s.id === selId ||
+          selId.startsWith(`${s.id}_`) ||
+          `${mod.id}_bay_${bIdx}_shelf_${sIdx}` === selId
       );
       if (shelfMatch) {
         removeShelf(bIdx, shelfMatch.id);
@@ -5470,7 +5598,10 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
       }
 
       const drawerMatch = bay.drawers.find(
-        (d) => selId === d.id || selId.startsWith(`${d.id}_`)
+        (d, dIdx) =>
+          selId === d.id ||
+          selId.startsWith(`${d.id}_`) ||
+          `${mod.id}_bay_${bIdx}_drawer_${dIdx}` === selId
       );
       if (drawerMatch) {
         removeDrawer(bIdx, drawerMatch.id);
@@ -5479,7 +5610,10 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
       }
 
       const railMatch = bay.hangingRails.find(
-        (r, rIdx) => r.id === selId || `${mod.id}_bay_${bIdx}_rail_${rIdx}` === selId
+        (r, rIdx) =>
+          r.id === selId ||
+          selId.startsWith(`${r.id}_`) ||
+          `${mod.id}_bay_${bIdx}_rail_${rIdx}` === selId
       );
       if (railMatch) {
         removeHangingRail(bIdx, railMatch.id);
@@ -5488,7 +5622,12 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
       }
 
       const fitMatch = (bay.specialFittings || []).find(
-        (f, fIdx) => f.id === selId || `${mod.id}_bay_${bIdx}_fit_${fIdx}` === selId
+        (f, fIdx) =>
+          f.id === selId ||
+          selId.startsWith(`${f.id}_`) ||
+          selId.includes(f.id) ||
+          `${mod.id}_bay_${bIdx}_fit_${fIdx}` === selId ||
+          `${mod.id}_bay_${bIdx}_fitting_${fIdx}` === selId
       );
       if (fitMatch) {
         removeSpecialFitting(bIdx, fitMatch.id);
@@ -5497,7 +5636,10 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
       }
 
       const subDivMatch = (bay.subDividers || []).find(
-        (sd, sdIdx) => sd.id === selId || `${mod.id}_bay_${bIdx}_subdiv_${sdIdx}` === selId
+        (sd, sdIdx) =>
+          sd.id === selId ||
+          selId.startsWith(`${sd.id}_`) ||
+          `${mod.id}_bay_${bIdx}_subdiv_${sdIdx}` === selId
       );
       if (subDivMatch) {
         removeSubDivider(bIdx, subDivMatch.id);

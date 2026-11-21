@@ -7,8 +7,8 @@
   }
 
   body {
-    background-color: #e4dfd6;
-    color: #141413;
+    background-color: #12151c;
+    color: #f3f4f6;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
     user-select: none;
     overflow: hidden;
@@ -126,12 +126,7 @@
   -webkit-backdrop-filter: none !important;
 }
 
-.birim-ice-floating-shell [class*="backdrop-blur"],
-.birim-ice-modal [class*="backdrop-blur"],
-.birim-ice-popover [class*="backdrop-blur"] {
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
-}
+/* V41: Preserve genuine frosted glass backdrop blur on all transparent panels! */
 
 .birim-ice-bar {
   background: linear-gradient(
@@ -662,4 +657,954 @@ body[data-birim-ui-dragging="1"] .birim-ice-modal {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
   background: rgba(251, 250, 247, 0.98) !important;
+}
+
+
+/* ============================================================================
+   V24 DRAMATIC ARCHITECTURAL STUDIO & UNIVERSAL WINDOW OPEN/CLOSE ANIMATIONS
+   ============================================================================ */
+.birim-animated-modal-stage > div,
+.birim-animated-modal-stage > section,
+.birim-animated-modal-stage > aside {
+  transition:
+    opacity 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    backdrop-filter 220ms ease !important;
+}
+
+.birim-animated-modal-stage > div > div,
+.birim-animated-modal-stage > section > div {
+  transition:
+    opacity 220ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 230ms cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.birim-animated-modal-stage[data-birim-modal-stage="entering"] > div,
+.birim-animated-modal-stage[data-birim-modal-stage="exiting"] > div,
+.birim-animated-modal-stage[data-birim-modal-stage="entering"] > section,
+.birim-animated-modal-stage[data-birim-modal-stage="exiting"] > section,
+.birim-animated-modal-stage[data-birim-modal-stage="entering"] > aside,
+.birim-animated-modal-stage[data-birim-modal-stage="exiting"] > aside {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+.birim-animated-modal-stage[data-birim-modal-stage="entering"] > div > div,
+.birim-animated-modal-stage[data-birim-modal-stage="exiting"] > div > div,
+.birim-animated-modal-stage[data-birim-modal-stage="entering"] > section > div,
+.birim-animated-modal-stage[data-birim-modal-stage="exiting"] > section > div {
+  opacity: 0 !important;
+  transform: scale3d(0.96, 0.84, 1) translate3d(0, 14px, 0) !important;
+}
+
+.birim-animated-modal-stage[data-birim-modal-stage="open"] > div,
+.birim-animated-modal-stage[data-birim-modal-stage="open"] > section,
+.birim-animated-modal-stage[data-birim-modal-stage="open"] > aside {
+  opacity: 1;
+}
+
+.birim-animated-modal-stage[data-birim-modal-stage="open"] > div > div,
+.birim-animated-modal-stage[data-birim-modal-stage="open"] > section > div {
+  opacity: 1;
+  transform: none;
+}
+
+
+/* ============================================================================
+   V30 EXHAUSTIVE ZERO-LEAK TITANIUM-GREY & ARCTIC CYAN/COBALT THEME
+   Auto-generated from 100% of light background, dark text, border & hover
+   classes across the entire codebase (101 light BGs,
+   33 dark texts,
+   56 light hovers, 66 light borders).
+   ============================================================================ */
+body {
+  background-color: #1a1e26;
+  color: #f1f5f9;
+}
+
+body ::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.34);
+}
+body ::-webkit-scrollbar-thumb:hover {
+  background: rgba(56, 189, 248, 0.55);
+}
+
+/* 1. Floating shells, popovers, rails, bars & modals: refined titanium-grey glass + light crisp frame */
+.birim-ice-floating-shell,
+.birim-ice-modal,
+.birim-ice-popover,
+.birim-ice-bar,
+.birim-ice-rail,
+.birim-ice-pill,
+.birim-ice-rail-pill,
+.birim-ice-drawer {
+  background: linear-gradient(165deg, rgba(44, 51, 65, 0.66) 0%, rgba(35, 41, 54, 0.62) 100%) !important;
+  backdrop-filter: blur(24px) saturate(160%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(160%) !important;
+  color: #f1f5f9 !important;
+  border: 1px solid rgba(255, 255, 255, 0.22) !important;
+  box-shadow:
+    0 22px 54px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12) !important;
+}
+
+.birim-ice-shell-header {
+  background: rgba(30, 35, 46, 0.65) !important;
+  border-bottom-color: rgba(255, 255, 255, 0.14) !important;
+}
+
+.birim-ice-card,
+.birim-ice-btn {
+  background: rgba(52, 60, 74, 0.86) !important;
+  color: #f1f5f9 !important;
+  border-color: rgba(255, 255, 255, 0.18) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+}
+
+.birim-ice-btn:hover {
+  background: rgba(66, 76, 94, 0.96) !important;
+  color: #ffffff !important;
+  border-color: rgba(56, 189, 248, 0.50) !important;
+}
+
+.birim-ice-btn-active,
+.birim-ice-rail-icon-active,
+.birim-ice-charcoal-pill {
+  background: linear-gradient(135deg, #0284c7 0%, #1d4ed8 100%) !important;
+  color: #ffffff !important;
+  border-color: rgba(56, 189, 248, 0.50) !important;
+}
+
+body[data-birim-ui-dragging="1"] .birim-ice-bar,
+body[data-birim-ui-dragging="1"] .birim-ice-rail,
+body[data-birim-ui-dragging="1"] .birim-ice-pill,
+body[data-birim-ui-dragging="1"] .birim-ice-rail-pill,
+body[data-birim-ui-dragging="1"] .birim-ice-floating-shell,
+body[data-birim-ui-dragging="1"] .birim-ice-popover,
+body[data-birim-ui-dragging="1"] .birim-ice-modal {
+  background: rgba(38, 44, 56, 0.96) !important;
+}
+
+/* 2. Exhaustive Light Surface -> Titanium-Grey Panel/Card Remap (0 leaked cream/white boxes!) */
+body :is(
+  .bg-\[\#A8A29E\],
+  .bg-\[\#C7BFB0\],
+  .bg-\[\#CBD5E1\],
+  .bg-\[\#CFC7B9\],
+  .bg-\[\#CFC9BE\],
+  .bg-\[\#D6B88D\],
+  .bg-\[\#D6C7B2\],
+  .bg-\[\#D6CFC2\],
+  .bg-\[\#D8D3C8\],
+  .bg-\[\#DFD9CE\],
+  .bg-\[\#E2DDD2\],
+  .bg-\[\#E2DED5\],
+  .bg-\[\#E2E8F0\],
+  .bg-\[\#E4DFD5\],
+  .bg-\[\#E6E0D3\],
+  .bg-\[\#E6E0D3\]\/60,
+  .bg-\[\#E6E1D6\],
+  .bg-\[\#EAE3D5\],
+  .bg-\[\#EAE4D8\],
+  .bg-\[\#EAE5DC\],
+  .bg-\[\#ECE7DD\],
+  .bg-\[\#ECE7DD\]\/75,
+  .bg-\[\#ECE7DD\]\/80,
+  .bg-\[\#ECE7DD\]\/85,
+  .bg-\[\#ECE7DD\]\/90,
+  .bg-\[\#ECE8E0\],
+  .bg-\[\#EEF3F8\],
+  .bg-\[\#EFEAE0\],
+  .bg-\[\#EFECE4\],
+  .bg-\[\#EFECE4\]\/80,
+  .bg-\[\#EFECE5\],
+  .bg-\[\#EFF6FF\]\/92,
+  .bg-\[\#EFF6FF\]\/95,
+  .bg-\[\#EFF6FF\]\/98,
+  .bg-\[\#F0EDE6\],
+  .bg-\[\#F1EDE4\],
+  .bg-\[\#F1F5F9\],
+  .bg-\[\#F2EDE3\],
+  .bg-\[\#F2EEE4\],
+  .bg-\[\#F2EEE5\],
+  .bg-\[\#F2F7F4\],
+  .bg-\[\#F3EFE6\],
+  .bg-\[\#F4F0E8\],
+  .bg-\[\#F4F1EA\],
+  .bg-\[\#F59E0B\],
+  .bg-\[\#F5F2EA\],
+  .bg-\[\#F5F2EA\]\/75,
+  .bg-\[\#F5F2EA\]\/80,
+  .bg-\[\#F5F3EE\],
+  .bg-\[\#F6EFE2\],
+  .bg-\[\#F6F2EA\],
+  .bg-\[\#F6F3EC\],
+  .bg-\[\#F7F2E7\],
+  .bg-\[\#F8F5EE\],
+  .bg-\[\#F8F6F1\],
+  .bg-\[\#F8F6F2\],
+  .bg-\[\#F8F7F4\],
+  .bg-\[\#F8FAFC\],
+  .bg-\[\#F8FAFC\]\/88,
+  .bg-\[\#FAF6F0\],
+  .bg-\[\#FAF8F4\],
+  .bg-\[\#FAF8F4\]\/92,
+  .bg-\[\#FAF8F4\]\/95,
+  .bg-\[\#FAF8F4\]\/96,
+  .bg-\[\#FAF8F4\]\/97,
+  .bg-\[\#FAF8F4\]\/98,
+  .bg-\[\#FAF9F6\],
+  .bg-\[\#FAF9F6\]\/95,
+  .bg-\[\#FBF9F5\]\/95,
+  .bg-\[\#FCFBF8\],
+  .bg-\[\#FDF2F2\],
+  .bg-\[\#FDF8F2\],
+  .bg-\[\#f59e0b\],
+  .bg-slate-100,
+  .bg-slate-100\/90,
+  .bg-slate-200,
+  .bg-slate-300,
+  .bg-slate-50,
+  .bg-stone-100,
+  .bg-stone-100\/80,
+  .bg-stone-200,
+  .bg-stone-200\/70,
+  .bg-stone-300,
+  .bg-stone-50,
+  .bg-white,
+  .bg-white\/40,
+  .bg-white\/45,
+  .bg-white\/50,
+  .bg-white\/55,
+  .bg-white\/58,
+  .bg-white\/60,
+  .bg-white\/65,
+  .bg-white\/70,
+  .bg-white\/75,
+  .bg-white\/80,
+  .bg-white\/85,
+  .bg-white\/88,
+  .bg-white\/90,
+  .bg-white\/92,
+  .bg-white\/95,
+  .bg-white\/98,
+  .bg-black\/5,
+  .bg-slate-900\/\[0\.06\]
+):not([style*="background"]):not(canvas):not(svg):not([role="switch"] > span) {
+  background-color: rgba(52, 61, 77, 0.62) !important;
+  color: #f1f5f9;
+}
+
+/* Outer modal dialog cards & floating menus: deeper smoked titanium-grey + crisp subtle frame */
+body :is(
+  .birim-animated-modal-stage > div > div,
+  .birim-animated-modal-stage > section > div,
+  [role="dialog"],
+  [role="menu"]
+):not([style*="background"]) {
+  background-color: rgba(38, 45, 58, 0.78) !important;
+  backdrop-filter: blur(26px) saturate(160%) !important;
+  -webkit-backdrop-filter: blur(26px) saturate(160%) !important;
+  color: #f1f5f9 !important;
+  border: 1px solid rgba(255, 255, 255, 0.22) !important;
+  box-shadow:
+    0 26px 64px rgba(0, 0, 0, 0.50),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12) !important;
+}
+
+/* Recessed dark-grey pill trays for segmented controls (`A B C`, `Kolay/Pro/Üretim`, `Tümü/Kulplar`, `Undo/Redo`) */
+body div:is(
+  .bg-\[\#EFECE4\],
+  .bg-\[\#EFECE5\],
+  .bg-\[\#EFECE4\]\/80,
+  .bg-\[\#ECE7DD\],
+  .bg-\[\#ECE7DD\]\/75,
+  .bg-\[\#ECE7DD\]\/80,
+  .bg-\[\#ECE7DD\]\/85,
+  .bg-\[\#ECE7DD\]\/90,
+  .bg-\[\#EAE5DC\],
+  .bg-\[\#E6E0D3\],
+  .bg-\[\#E6E1D6\],
+  .bg-\[\#DFD9CE\],
+  .bg-\[\#F2EDE3\],
+  .bg-\[\#F5F2EA\],
+  .bg-stone-200,
+  .bg-slate-200,
+  .bg-black\/5,
+  .bg-slate-900\/\[0\.06\]
+):not([style*="background"]) {
+  background-color: rgba(28, 33, 44, 0.78) !important;
+  border-color: rgba(255, 255, 255, 0.16) !important;
+}
+
+/* 3. Semantic Pastel Status Surfaces -> Translucent Dark Status Alerts */
+body :is(.bg-amber-100,
+  .bg-amber-50,
+  .bg-amber-50\/60,
+  .bg-amber-50\/70,
+  .bg-amber-50\/90,
+  .bg-amber-50\/95,
+  .bg-orange-50):not([style*="background"]) {
+  background-color: rgba(245, 158, 11, 0.16) !important;
+  border-color: rgba(251, 191, 36, 0.40) !important;
+}
+body :is(.bg-red-100,
+  .bg-red-50,
+  .bg-red-50\/20,
+  .bg-red-50\/30,
+  .bg-red-50\/70,
+  .bg-red-50\/80,
+  .bg-red-50\/90,
+  .bg-rose-100,
+  .bg-rose-50):not([style*="background"]) {
+  background-color: rgba(239, 68, 68, 0.20) !important;
+  border-color: rgba(248, 113, 113, 0.48) !important;
+}
+body :is(.bg-emerald-100,
+  .bg-emerald-50,
+  .bg-emerald-50\/70,
+  .bg-emerald-50\/75):not([style*="background"]) {
+  background-color: rgba(16, 185, 129, 0.16) !important;
+  border-color: rgba(52, 211, 153, 0.38) !important;
+}
+body :is(.bg-blue-100,
+  .bg-blue-50,
+  .bg-blue-50\/90,
+  .bg-sky-100,
+  .bg-sky-50,
+  .bg-sky-50\/40):not([style*="background"]) {
+  background-color: rgba(56, 189, 248, 0.16) !important;
+  border-color: rgba(56, 189, 248, 0.38) !important;
+}
+
+/* 4. Solid Active Buttons -> Modern Arctic Cyan / Electric Cobalt Gradient (Crisp White Text) */
+body :is(
+  button.bg-\[\#141413\],
+  a.bg-\[\#141413\],
+  div.bg-\[\#141413\]:not([class*="fixed"]),
+  span.bg-\[\#141413\],
+  button.bg-\[\#1C1917\],
+  button.bg-\[\#1E1D1B\],
+  button.bg-stone-900,
+  button.bg-slate-900,
+  button.bg-zinc-900
+):not([style*="background"]) {
+  background: linear-gradient(135deg, #0284c7 0%, #1d4ed8 100%) !important;
+  color: #ffffff !important;
+  border-color: rgba(56, 189, 248, 0.52) !important;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.34) !important;
+}
+
+body :is(
+  button.bg-\[\#141413\],
+  a.bg-\[\#141413\],
+  span.bg-\[\#141413\],
+  button.bg-\[\#1C1917\],
+  button.bg-\[\#1E1D1B\],
+  button.bg-stone-900,
+  button.bg-slate-900,
+  button.bg-zinc-900
+):not([style*="background"]):hover {
+  background: linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%) !important;
+  color: #ffffff !important;
+}
+
+body :is(
+  button.bg-\[\#141413\],
+  a.bg-\[\#141413\],
+  span.bg-\[\#141413\],
+  button.bg-\[\#1C1917\],
+  button.bg-\[\#1E1D1B\],
+  button.bg-stone-900,
+  button.bg-slate-900,
+  button.bg-zinc-900
+):not([style*="background"]) * {
+  color: #ffffff !important;
+}
+
+/* 5. Exhaustive Hover Backgrounds (Zero white/cream hover flashes!) */
+body :is(
+  .hover\:bg-\[\#D6D0C3\],
+  .hover\:bg-\[\#E2DDD0\],
+  .hover\:bg-\[\#E2E8F0\],
+  .hover\:bg-\[\#E4DEC9\],
+  .hover\:bg-\[\#E4DFD3\],
+  .hover\:bg-\[\#E4ECF4\],
+  .hover\:bg-\[\#E5DFD3\],
+  .hover\:bg-\[\#E5E0D5\],
+  .hover\:bg-\[\#E7E1D4\],
+  .hover\:bg-\[\#E7E1D5\],
+  .hover\:bg-\[\#E8E1D3\],
+  .hover\:bg-\[\#EAE3D5\],
+  .hover\:bg-\[\#EAE3D6\],
+  .hover\:bg-\[\#EAE4D7\],
+  .hover\:bg-\[\#EAE5D9\],
+  .hover\:bg-\[\#EFEAE0\],
+  .hover\:bg-\[\#EFECE4\],
+  .hover\:bg-\[\#EFECE5\],
+  .hover\:bg-\[\#EFF6FF\],
+  .hover\:bg-\[\#F1F5F9\],
+  .hover\:bg-\[\#F2EEE4\],
+  .hover\:bg-\[\#F3EFE6\],
+  .hover\:bg-\[\#F4F0E8\],
+  .hover\:bg-\[\#F5F1E8\],
+  .hover\:bg-\[\#F5F2EA\],
+  .hover\:bg-\[\#F5F3EE\],
+  .hover\:bg-\[\#F6F2EA\],
+  .hover\:bg-\[\#F8FAFC\],
+  .hover\:bg-\[\#FAF7F0\],
+  .hover\:bg-\[\#FAF7F1\],
+  .hover\:bg-\[\#FAF8F4\],
+  .hover\:bg-\[\#FFFFFF\],
+  .hover\:bg-amber-100,
+  .hover\:bg-amber-100\/70,
+  .hover\:bg-amber-200,
+  .hover\:bg-amber-50,
+  .hover\:bg-slate-100,
+  .hover\:bg-slate-100\/80,
+  .hover\:bg-slate-200,
+  .hover\:bg-slate-300,
+  .hover\:bg-stone-100,
+  .hover\:bg-stone-200,
+  .hover\:bg-stone-200\/60,
+  .hover\:bg-stone-200\/70,
+  .hover\:bg-stone-300,
+  .hover\:bg-stone-300\/80,
+  .hover\:bg-stone-50\/80,
+  .hover\:bg-white,
+  .hover\:bg-white\/50,
+  .hover\:bg-white\/55,
+  .hover\:bg-white\/60,
+  .hover\:bg-white\/70,
+  .hover\:bg-white\/72,
+  .hover\:bg-white\/75,
+  .hover\:bg-white\/80,
+  .hover\:bg-white\/95,
+  .hover\:bg-black\/10,
+  .hover\:bg-black\/5
+):not([style*="background"]):hover {
+  background-color: rgba(66, 76, 94, 0.95) !important;
+  color: #ffffff !important;
+}
+
+body :is(.hover\:bg-red-50, .hover\:bg-red-100, .hover\:bg-rose-50):not([style*="background"]):hover {
+  background-color: rgba(239, 68, 68, 0.28) !important;
+  color: #fecaca !important;
+}
+
+body :is(.hover\:bg-blue-50, .hover\:bg-sky-50):not([style*="background"]):hover {
+  background-color: rgba(56, 189, 248, 0.26) !important;
+  color: #e0f2fe !important;
+}
+
+body :is(.hover\:bg-\[\#292524\], .hover\:bg-\[\#1C1917\], .hover\:bg-stone-800, .hover\:bg-slate-800):not(.bg-\[\#141413\]):not([style*="background"]):hover {
+  background-color: rgba(74, 85, 106, 0.96) !important;
+  color: #ffffff !important;
+}
+
+/* 6. Exhaustive High-Contrast Typography (Zero dark-on-dark unreadable text!) */
+body :is(
+  .text-\[\#0F172A\],
+  .text-\[\#111318\],
+  .text-\[\#111827\],
+  .text-\[\#141413\],
+  .text-\[\#18181B\],
+  .text-\[\#1C1917\],
+  .text-\[\#1E3A8A\],
+  .text-\[\#1E462E\],
+  .text-\[\#292524\],
+  .text-\[\#2C2A29\],
+  .text-\[\#334155\],
+  .text-\[\#44403C\],
+  .text-\[\#5C3A1E\],
+  .text-\[\#7F1D1D\],
+  .text-slate-800,
+  .text-slate-900,
+  .text-slate-950,
+  .text-stone-800,
+  .text-stone-900,
+  .text-stone-950
+) {
+  color: #f8fafc !important;
+}
+
+body :is(
+  .text-\[\#2E6F40\],
+  .text-\[\#475569\],
+  .text-\[\#57534E\],
+  .text-\[\#64748B\],
+  .text-\[\#6B5E4C\],
+  .text-\[\#78716C\],
+  .text-\[\#8C7A6B\],
+  .text-slate-500,
+  .text-slate-600,
+  .text-slate-700,
+  .text-stone-500,
+  .text-stone-600,
+  .text-stone-700
+) {
+  color: #cbd5e1 !important;
+}
+
+body :is(
+  .text-\[\#1D4ED8\],
+  .text-\[\#2563EB\],
+  .text-\[\#6B4F28\],
+  .text-\[\#8C5A2B\],
+  .text-\[\#8C6D46\],
+  .text-\[\#9E2A2B\],
+  .text-\[\#C2410C\],
+  .text-\[\#DC2626\],
+  .text-\[\#FF5500\]
+) {
+  color: #7dd3fc !important;
+}
+
+body :is(.text-amber-600,
+  .text-amber-700,
+  .text-amber-800,
+  .text-amber-900,
+  .text-amber-900\/90,
+  .text-amber-950,
+  .text-amber-950\/90,
+  .text-orange-700) {
+  color: #fde68a !important;
+}
+body :is(.text-red-600,
+  .text-red-700,
+  .text-red-800,
+  .text-red-900,
+  .text-red-950,
+  .text-rose-600,
+  .text-rose-700,
+  .text-rose-800,
+  .text-rose-950) {
+  color: #fca5a5 !important;
+}
+body :is(.text-emerald-700,
+  .text-emerald-800,
+  .text-emerald-900,
+  .text-emerald-950) {
+  color: #6ee7b7 !important;
+}
+body :is(.text-blue-600,
+  .text-blue-700,
+  .text-blue-800,
+  .text-blue-900,
+  .text-blue-950,
+  .text-indigo-700,
+  .text-indigo-800,
+  .text-indigo-900,
+  .text-sky-700,
+  .text-sky-800,
+  .text-sky-900,
+  .text-sky-950) {
+  color: #7dd3fc !important;
+}
+
+body :is(
+  .hover\:text-\[\#111827\],
+  .hover\:text-\[\#141413\],
+  .hover\:text-\[\#18181B\],
+  .hover\:text-\[\#1C1917\],
+  .hover\:text-slate-900,
+  .hover\:text-slate-950,
+  .hover\:text-stone-800,
+  .hover\:text-stone-900
+):hover {
+  color: #ffffff !important;
+}
+
+/* 7. Exhaustive Crisp Subtle Light Borders */
+body :is(
+  .border-\[\#38BDF8\]\/45,
+  .border-\[\#38BDF8\]\/50,
+  .border-\[\#93C5FD\]\/80,
+  .border-\[\#94A3B8\],
+  .border-\[\#C5DDD0\],
+  .border-\[\#C7BCAE\],
+  .border-\[\#C7BFB0\],
+  .border-\[\#CBD5E1\],
+  .border-\[\#D3CCC0\],
+  .border-\[\#D6CFC2\],
+  .border-\[\#D8D1C4\],
+  .border-\[\#D8D3C8\],
+  .border-\[\#D8D3C8\]\/30,
+  .border-\[\#D8D3C8\]\/40,
+  .border-\[\#DAD3C5\],
+  .border-\[\#DDD6C8\],
+  .border-\[\#DED7C8\],
+  .border-\[\#DED8CC\],
+  .border-\[\#DFCFAF\],
+  .border-\[\#DFD3BC\],
+  .border-\[\#DFD9CE\],
+  .border-\[\#E2DACB\],
+  .border-\[\#E2E8F0\],
+  .border-\[\#E3B587\],
+  .border-\[\#E3D5B8\],
+  .border-\[\#E4DDD0\],
+  .border-\[\#E4DFD5\],
+  .border-\[\#E5D5C0\],
+  .border-\[\#E5DFD3\],
+  .border-\[\#E5E0D5\],
+  .border-\[\#E6E0D3\],
+  .border-\[\#E6E0D4\],
+  .border-\[\#E6E1D6\],
+  .border-\[\#EAD5BE\],
+  .border-\[\#EAE3D5\],
+  .border-\[\#EAE4D8\],
+  .border-\[\#EAE5DC\],
+  .border-\[\#ECE7DC\],
+  .border-\[\#ECE7DD\],
+  .border-\[\#EFEAE0\],
+  .border-\[\#EFECE4\],
+  .border-\[\#EFECE5\],
+  .border-\[\#F0ECE3\],
+  .border-\[\#F2C6C6\],
+  .border-\[\#F2EFE9\],
+  .border-slate-100,
+  .border-slate-200,
+  .border-slate-200\/70,
+  .border-slate-200\/80,
+  .border-slate-200\/90,
+  .border-slate-300,
+  .border-slate-300\/90,
+  .border-stone-200,
+  .border-stone-200\/80,
+  .border-stone-200\/90,
+  .border-stone-300,
+  .border-stone-300\/80,
+  .border-white,
+  .border-white\/50,
+  .border-white\/55,
+  .border-white\/60,
+  .border-white\/70,
+  .border-white\/75,
+  .border-white\/80,
+  .border-white\/85,
+  .border-white\/90
+) {
+  border-color: rgba(255, 255, 255, 0.18) !important;
+}
+
+body :is(.border-\[\#141413\], .border-\[\#1C1917\]) {
+  border-color: rgba(56, 189, 248, 0.72) !important;
+}
+
+/* 8. Form Controls, Inputs, Selects, Sliders & Switches */
+body :is(
+  input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="color"]):not(.bg-transparent),
+  select,
+  textarea
+) {
+  background-color: rgba(24, 30, 41, 0.72) !important;
+  color: #f8fafc !important;
+  border-color: rgba(255, 255, 255, 0.20) !important;
+}
+
+/* Keep transparent inline numeric inputs (like `150 cm` inside rounded pill steppers) completely seamless with zero dark rectangle! */
+body input.bg-transparent,
+body .rounded-full > input:not([type="range"]):not([type="checkbox"]):not([type="radio"]),
+body .rounded-2xl > input.bg-transparent {
+  background-color: transparent !important;
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  color: #f8fafc !important;
+}
+body input.bg-transparent:focus,
+body .rounded-full > input:not([type="range"]):focus {
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+body :is(input, select, textarea)::placeholder {
+  color: #94a3b8 !important;
+}
+
+body :is(input:not([type="range"]), select, textarea):focus {
+  outline: none !important;
+  border-color: #38bdf8 !important;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.28) !important;
+}
+
+body input[type="range"] {
+  accent-color: #38bdf8 !important;
+}
+
+/* Fix switches: ONLY style direct pill-track switches (`.rounded-full`), NEVER wrapper switches with text labels! */
+body button[role="switch"].rounded-full[aria-checked="true"] {
+  background: linear-gradient(135deg, #0284c7 0%, #1d4ed8 100%) !important;
+  border-color: rgba(56, 189, 248, 0.55) !important;
+}
+body button[role="switch"].rounded-full[aria-checked="false"] {
+  background: rgba(71, 85, 105, 0.82) !important;
+  border-color: rgba(255, 255, 255, 0.24) !important;
+}
+body button[role="switch"].birim-switch-wrapper,
+body button[role="switch"].birim-switch-wrapper .birim-switch-label {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+body button[role="switch"] .birim-switch-knob,
+body button[role="switch"].rounded-full > span.rounded-full {
+  background-color: #ffffff !important;
+}
+
+/* Genuine Translucent Frosted Glass (Buzlu Cam) for all floating panels, drawers & popovers */
+.birim-dramatic-panel {
+  background-color: rgba(42, 49, 62, 0.64) !important;
+  backdrop-filter: blur(26px) saturate(165%) !important;
+  -webkit-backdrop-filter: blur(26px) saturate(165%) !important;
+  border-color: rgba(255, 255, 255, 0.24) !important;
+  box-shadow:
+    0 24px 58px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16) !important;
+}
+
+/* Preserve crisp dark text inside 2D CAD white-paper SVG drawings */
+svg[data-testid^="v3-cad"] text,
+svg[data-testid^="v3-cad"] tspan {
+  color: inherit !important;
+}
+
+
+/* ============================================================================
+   V36 NEON CYAN-COBALT INTERACTIVE BUTTON GLOW & CRISP TAB SELECTION
+   ============================================================================ */
+body :is(
+  button.bg-\[\#141413\],
+  a.bg-\[\#141413\],
+  span.bg-\[\#141413\],
+  button.bg-\[\#18181B\],
+  span.bg-\[\#18181B\],
+  .birim-ice-btn-active,
+  .birim-ice-rail-icon-active,
+  .birim-ice-charcoal-pill
+):not([style*="background"]) {
+  background: linear-gradient(135deg, #0284c7 0%, #1d4ed8 52%, #1e3a8a 100%) !important;
+  color: #ffffff !important;
+  border-color: rgba(56, 189, 248, 0.62) !important;
+  box-shadow:
+    0 0 18px rgba(29, 78, 216, 0.52),
+    0 4px 14px rgba(37, 99, 235, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.36) !important;
+}
+
+/* Subtle electric neon hover rim on all interactive buttons */
+body button:not(:disabled):not([role="switch"]):not(.birim-switch-wrapper):not([style*="background"]):hover {
+  border-color: rgba(56, 189, 248, 0.70) !important;
+  box-shadow: 0 0 14px rgba(34, 211, 238, 0.30) !important;
+}
+
+/* Catch-all for any white-pill active segmented control buttons across modals/panels */
+body :is(.rounded-full, .rounded-xl, .rounded-2xl) > button:is(.bg-white.shadow-2xs, .bg-white.shadow-xs, .bg-white.shadow-sm):not([style*="background"]) {
+  background: linear-gradient(135deg, #0284c7 0%, #1d4ed8 52%, #1e3a8a 100%) !important;
+  color: #ffffff !important;
+  border-color: rgba(56, 189, 248, 0.62) !important;
+  box-shadow: 0 0 16px rgba(29, 78, 216, 0.54), 0 3px 10px rgba(37, 99, 235, 0.40) !important;
+}
+
+
+/* ============================================================================
+   V41 GENUINE REAL FROSTED GLASS (BUZLU CAM) FOR ALL TRANSPARENT PANELS
+   ============================================================================ */
+header[data-testid="v11-studio-header"] > div,
+aside[data-testid="v11-left-launcher"],
+div[data-testid="v11-bottom-scene-dock"] > div:last-child,
+div[data-testid="v23-quick-material-bar"] > div:first-child,
+.birim-dramatic-panel,
+.birim-ice-modal,
+.birim-ice-floating-shell,
+.birim-ice-popover,
+[role="menu"],
+[role="dialog"],
+[class*="backdrop-blur-2xl"],
+[class*="backdrop-blur-xl"],
+[class*="backdrop-blur-lg"],
+[class*="backdrop-blur-md"],
+.birim-animated-modal-stage > div > div:not([style*="background"]),
+.birim-animated-modal-stage > section > div:not([style*="background"]) {
+  backdrop-filter: blur(36px) saturate(195%) brightness(1.06) !important;
+  -webkit-backdrop-filter: blur(36px) saturate(195%) brightness(1.06) !important;
+  background-color: rgba(42, 50, 64, 0.54) !important;
+  background-image: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.14) 0%,
+    rgba(255, 255, 255, 0.04) 48%,
+    rgba(15, 23, 42, 0.10) 100%
+  ) !important;
+  border-color: rgba(255, 255, 255, 0.26) !important;
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.06) !important;
+}
+
+/* Outer dim overlays MUST NOT set backdrop-filter (would block child modal frosted glass in Chromium!) */
+.birim-animated-modal-stage > div.fixed,
+.birim-animated-modal-stage > section.fixed {
+  background-color: rgba(10, 13, 20, 0.42) !important;
+  background-image: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+/* ============================================================================
+   V46 PROMINENT BUTTON ICONS & HIGH-CONTRAST PARALLEL 3D DIMENSION LABELS
+   ============================================================================ */
+button svg.lucide {
+  width: 18px !important;
+  height: 18px !important;
+  stroke-width: 2.15 !important;
+  flex-shrink: 0;
+}
+
+button svg.lucide[class*="w-2.5"],
+button svg.lucide[class*="w-3 "],
+span svg.lucide[class*="w-2.5"],
+span svg.lucide[class*="w-3 "] {
+  width: 13px !important;
+  height: 13px !important;
+  stroke-width: 2.25 !important;
+}
+
+[data-testid="viewport-3d-dim-labels"] button,
+[data-testid="viewport-3d-dim-labels"] > div > div {
+  font-size: calc(12.5px * var(--birim-canvas-label-scale, 1)) !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.02em !important;
+  color: #ffffff !important;
+  background-color: rgba(15, 23, 42, 0.88) !important;
+  border: 1.5px solid rgba(125, 211, 252, 0.68) !important;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.48), inset 0 1px 0 rgba(255, 255, 255, 0.22) !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85) !important;
+  padding: 3px 9px !important;
+  border-radius: 999px !important;
+  white-space: nowrap !important;
+}
+
+/* ============================================================================
+   V50 ELASTIC STRETCH OPEN/CLOSE ANIMATION FOR CONTEXT MENUS & DROPDOWNS
+   ============================================================================ */
+@keyframes birimStretchPopIn {
+  0% {
+    opacity: 0;
+    transform: scaleY(0.72) scaleX(0.96) translateY(-6px);
+  }
+  70% {
+    opacity: 1;
+    transform: scaleY(1.02) scaleX(1.0) translateY(0);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.birim-stretch-pop-in {
+  transform-origin: top center;
+  animation: birimStretchPopIn 220ms cubic-bezier(0.22, 1.14, 0.36, 1) forwards;
+}
+
+/* ============================================================================
+   V53 CANVAS-FOCUSED FONT SCALING (3D/2D DIMENSIONS, MODULE & OBJECT LABELS)
+   ============================================================================ */
+[data-testid="viewport-3d-dim-labels"] button,
+[data-testid="viewport-3d-dim-labels"] > div > div {
+  padding: calc(3px * var(--birim-canvas-label-scale, 1)) calc(9px * var(--birim-canvas-label-scale, 1)) !important;
+}
+
+[data-testid="viewport-3d-dim-labels"] span {
+  font-size: inherit !important;
+}
+
+/* V70: Universal Canvas Dimension & Info Text Scaling across 3D, 2D Technical Elevation, Floor Plan & Section!
+   Uses individual CSS `scale` property so existing SVG rotate(-90) transforms on vertical dimensions are 100% preserved! */
+[data-testid="v3-cad-plan-interactive"] svg text,
+[data-testid*="cad"] svg text,
+[data-testid*="elevation"] svg text,
+[data-testid*="section"] svg text,
+main svg:not(.lucide) text {
+  transform-box: fill-box;
+  transform-origin: center center;
+  /* scaled proportionally via elevLabelScale */
+}
+
+/* Keep small UI sidebar/header/modal SVG labels unscaled (only scale canvas views!) */
+header svg text,
+aside svg text,
+[role="dialog"] svg text,
+.birim-ice-modal svg text,
+[data-testid="v11-right-inspector"] svg text,
+[data-testid="v11-left-launcher"] svg text,
+[data-testid="v11-bottom-scene-dock"] svg text {
+  scale: 1 !important;
+}
+
+/* ============================================================================
+   V56 BIGGER MODULE CATEGORY ICONS & MODERN THIN-LINE ARCHITECTURAL HEADERS
+   ============================================================================ */
+aside[data-testid="v11-left-launcher"] .grid-cols-4 button svg {
+  width: 34px !important;
+  height: 34px !important;
+  transition: transform 180ms ease;
+}
+aside[data-testid="v11-left-launcher"] .grid-cols-4 button:hover svg {
+  transform: scale(1.08);
+}
+
+/* Modern sleek thin-line architectural panel headers */
+aside[data-testid="v11-left-launcher"] h2,
+aside[data-testid="v11-left-launcher"] h3,
+[data-testid^="v11-left-popover-"] h2,
+[data-testid^="v11-left-popover-"] h3,
+.birim-ice-shell-header h2,
+.birim-ice-shell-header h3,
+.birim-ice-modal h2,
+[data-testid="v11-right-inspector"] h2,
+[data-testid="v11-right-inspector"] h3,
+[data-testid="v11-scene-settings-popover"] > div:first-child > span {
+  font-weight: 200 !important;
+  font-size: 17px !important;
+  letter-spacing: 0.085em !important;
+  line-height: 1.15 !important;
+  transform: scaleY(1.16);
+  transform-origin: left center;
+  display: inline-block;
+  color: #f8fafc !important;
+  font-family: "Inter", "Helvetica Neue", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+}
+
+/* ============================================================================
+   V72 UNIVERSAL DARK TITANIUM <SELECT> COLOR HARMONY (NO WHITE-ON-WHITE PILLS)
+   ============================================================================ */
+body select {
+  background-color: rgba(34, 42, 56, 0.90) !important;
+  background-image: none !important;
+  color: #f8fafc !important;
+  border: 1px solid rgba(255, 255, 255, 0.22) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12) !important;
+}
+
+body select:hover,
+body select:focus {
+  background-color: rgba(44, 54, 72, 0.96) !important;
+  border-color: rgba(56, 189, 248, 0.65) !important;
+  color: #ffffff !important;
+}
+
+body select option,
+body select optgroup {
+  background-color: #1e2634 !important;
+  color: #f8fafc !important;
+}
+
+/* V75: Keep pill-enclosed SVG badges proportionally intact so text NEVER overflows its pill rect */
+[data-testid="elev-active-mod-selection-halo"] text,
+[data-testid="elev-mod-resize-height-handle"] text,
+[data-testid="elev-mod-resize-bottom-handle"] text {
+  scale: 1 !important;
 }

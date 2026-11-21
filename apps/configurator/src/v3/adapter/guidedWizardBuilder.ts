@@ -70,7 +70,7 @@ export function buildGuidedWizardProject(
     white: { body: "mat_melamine_white", door: "mat_melamine_white" },
     oak: { body: "mat_ke_safir_mese", door: "mat_veneer_oak" },
     walnut: { body: "mat_ke_mattplus_vizon", door: "mat_veneer_walnut" },
-    anthracite: { body: "mat_mdf_anthracite", door: "mat_lacquer_anthracite" },
+    anthracite: { body: "mat_melamine_anthracite", door: "mat_ke_d143_antrasit" },
   };
   const directMat = wiz.colorSwatchId
     ? DEFAULT_MATERIALS.find((dm) => dm.id === wiz.colorSwatchId)

@@ -34,12 +34,78 @@ const sharedSpotTrimMat = markSharedMaterial(
 );
 const sharedSpotGlowMat = markSharedMaterial(
   new THREE.MeshStandardMaterial({
-    color: 0xfff3d6,
-    emissive: new THREE.Color(0xffcf75),
-    emissiveIntensity: 2.4,
-    roughness: 0.2,
+    color: 0xfff8e7,
+    emissive: new THREE.Color(0xffd27d),
+    emissiveIntensity: 3.2,
+    roughness: 0.15,
   })
 );
+
+let cachedVolumetricConeTex: THREE.CanvasTexture | null = null;
+function getVolumetricSpotConeTexture(): THREE.CanvasTexture | null {
+  if (typeof document === "undefined") return null;
+  if (cachedVolumetricConeTex) return cachedVolumetricConeTex;
+  const c = document.createElement("canvas");
+  c.width = 64;
+  c.height = 256;
+  const ctx = c.getContext("2d");
+  if (!ctx) return null;
+  const g = ctx.createLinearGradient(0, 0, 0, 256);
+  g.addColorStop(0.0, "rgba(255, 240, 205, 0.85)");
+  g.addColorStop(0.18, "rgba(255, 224, 168, 0.42)");
+  g.addColorStop(0.55, "rgba(255, 212, 145, 0.14)");
+  g.addColorStop(1.0, "rgba(255, 204, 128, 0.0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 64, 256);
+  const tex = new THREE.CanvasTexture(c);
+  tex.needsUpdate = true;
+  cachedVolumetricConeTex = tex;
+  return tex;
+}
+
+let cachedRadialHaloTex: THREE.CanvasTexture | null = null;
+function getSoftRadialLightHaloTexture(): THREE.CanvasTexture | null {
+  if (typeof document === "undefined") return null;
+  if (cachedRadialHaloTex) return cachedRadialHaloTex;
+  const c = document.createElement("canvas");
+  c.width = 128;
+  c.height = 128;
+  const ctx = c.getContext("2d");
+  if (!ctx) return null;
+  const g = ctx.createRadialGradient(64, 64, 2, 64, 64, 64);
+  g.addColorStop(0.0, "rgba(255, 245, 220, 0.95)");
+  g.addColorStop(0.28, "rgba(255, 222, 165, 0.45)");
+  g.addColorStop(0.65, "rgba(255, 205, 130, 0.12)");
+  g.addColorStop(1.0, "rgba(255, 195, 110, 0.0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 128, 128);
+  const tex = new THREE.CanvasTexture(c);
+  tex.needsUpdate = true;
+  cachedRadialHaloTex = tex;
+  return tex;
+}
+
+let cachedCoveWashTex: THREE.CanvasTexture | null = null;
+function getCoveWallWashTexture(): THREE.CanvasTexture | null {
+  if (typeof document === "undefined") return null;
+  if (cachedCoveWashTex) return cachedCoveWashTex;
+  const c = document.createElement("canvas");
+  c.width = 64;
+  c.height = 128;
+  const ctx = c.getContext("2d");
+  if (!ctx) return null;
+  const g = ctx.createLinearGradient(0, 0, 0, 128);
+  g.addColorStop(0.0, "rgba(255, 214, 140, 0.0)");
+  g.addColorStop(0.22, "rgba(255, 225, 165, 0.78)");
+  g.addColorStop(0.55, "rgba(255, 208, 130, 0.28)");
+  g.addColorStop(1.0, "rgba(255, 196, 110, 0.0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 64, 128);
+  const tex = new THREE.CanvasTexture(c);
+  tex.needsUpdate = true;
+  cachedCoveWashTex = tex;
+  return tex;
+}
 
 /**
  * Seçilen modülün `multiHoleMode` (`full_system_32`, `zone_32`, `cluster_5`, `cluster_3`, `single_pin`)
@@ -203,7 +269,8 @@ export function build3DModuleMultiHoleInstancedMesh(
  */
 export function build3DArchitecturalCeilingGroup(
   space: SpaceDefinition,
-  mainWallLengthMm: number
+  mainWallLengthMm: number,
+  lightingPreset: "daylight" | "showroom_warm" | "night_led" = "daylight"
 ): THREE.Group | null {
   const cfg = resolveSpaceCeilingConfig(space);
   if (!cfg.enabled || !cfg.showIn3D) return null;
@@ -270,6 +337,50 @@ export function build3DArchitecturalCeilingGroup(
   const addRecessedSpots = (spotY: number, zCenter: number, count: number) => {
     if (!cfg.hasRecessedSpots || isTranslucent) return;
     const step = spanW / (count + 1);
+    const coneTex = getVolumetricSpotConeTexture();
+    const haloTex = getSoftRadialLightHaloTexture();
+    const isNight = lightingPreset === "night_led";
+    const isWarm = lightingPreset === "showroom_warm";
+    const coneOpacity = isNight ? 0.24 : isWarm ? 0.16 : 0.085;
+    const haloOpacity = isNight ? 0.85 : isWarm ? 0.62 : 0.36;
+    const poolOpacity = isNight ? 0.24 : isWarm ? 0.16 : 0.08;
+    const coneH = Math.max(600, Math.min(1850, spotY - 220));
+    const coneGeo = coneTex ? new THREE.ConeGeometry(340, coneH, 16, 1, true) : null;
+    const coneMat = coneTex
+      ? new THREE.MeshBasicMaterial({
+          map: coneTex,
+          color: isNight ? 0xffcf82 : 0xffe2b0,
+          transparent: true,
+          opacity: coneOpacity,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        })
+      : null;
+    const lensHaloGeo = haloTex ? new THREE.PlaneGeometry(210, 210) : null;
+    const lensHaloMat = haloTex
+      ? new THREE.MeshBasicMaterial({
+          map: haloTex,
+          color: 0xffe4b5,
+          transparent: true,
+          opacity: haloOpacity,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        })
+      : null;
+    const floorPoolGeo = haloTex ? new THREE.PlaneGeometry(860, 860) : null;
+    const floorPoolMat = haloTex
+      ? new THREE.MeshBasicMaterial({
+          map: haloTex,
+          color: 0xffd79a,
+          transparent: true,
+          opacity: poolOpacity,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        })
+      : null;
+
     for (let i = 1; i <= count; i++) {
       const sx = step * i;
       const trim = new THREE.Mesh(sharedSpotTrimGeo, sharedSpotTrimMat);
@@ -281,6 +392,38 @@ export function build3DArchitecturalCeilingGroup(
       core.position.set(sx, spotY - 4, zCenter);
       core.raycast = () => {};
       group.add(core);
+
+      if (lensHaloGeo && lensHaloMat) {
+        const halo = new THREE.Mesh(lensHaloGeo, lensHaloMat);
+        halo.rotation.x = Math.PI / 2;
+        halo.position.set(sx, spotY - 7, zCenter);
+        halo.raycast = () => {};
+        group.add(halo);
+      }
+      if (coneGeo && coneMat) {
+        const cone = new THREE.Mesh(coneGeo, coneMat);
+        cone.position.set(sx, spotY - 12 - coneH / 2, zCenter);
+        cone.raycast = () => {};
+        group.add(cone);
+      }
+      if (floorPoolGeo && floorPoolMat) {
+        const pool = new THREE.Mesh(floorPoolGeo, floorPoolMat);
+        pool.rotation.x = -Math.PI / 2;
+        pool.position.set(sx, 3.2, zCenter);
+        pool.raycast = () => {};
+        group.add(pool);
+      }
+    }
+
+    // Zero-shadow pooled real PointLights (max 2) so cabinets, doors & handles catch real warm ceiling illumination at 60 FPS
+    const realLightCount = Math.min(2, Math.max(1, count));
+    const realIntensity = isNight ? 3.2 : isWarm ? 2.4 : 1.35;
+    for (let li = 0; li < realLightCount; li++) {
+      const lx = realLightCount === 1 ? spanW * 0.5 : spanW * (li === 0 ? 0.30 : 0.70);
+      const pl = new THREE.PointLight(0xffd699, realIntensity, 3800, 0.32);
+      pl.castShadow = false;
+      pl.position.set(lx, Math.max(1400, spotY - 140), zCenter + 80);
+      group.add(pl);
     }
   };
 
@@ -410,6 +553,38 @@ export function build3DArchitecturalCeilingGroup(
       ledStripRear.position.set(spanW / 2, ceilH - drop + 22, bandD + 6);
       ledStripRear.raycast = () => {};
       group.add(ledStripRear);
+
+      // Zero-cost additive cove light wash across ceiling recess + 1 lightweight PointLight
+      const coveWashTex = getCoveWallWashTexture();
+      if (coveWashTex && !isTranslucent) {
+        const washOpacity = lightingPreset === "night_led" ? 0.42 : lightingPreset === "showroom_warm" ? 0.28 : 0.14;
+        const coveWash = new THREE.Mesh(
+          new THREE.PlaneGeometry(innerSpanW, 340),
+          new THREE.MeshBasicMaterial({
+            map: coveWashTex,
+            color: 0xffcf7a,
+            transparent: true,
+            opacity: washOpacity,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+          })
+        );
+        coveWash.rotation.x = Math.PI / 2;
+        coveWash.position.set(spanW / 2, ceilH - 8, bandD + 160);
+        coveWash.raycast = () => {};
+        group.add(coveWash);
+
+        const covePl = new THREE.PointLight(
+          0xffca78,
+          lightingPreset === "night_led" ? 2.8 : lightingPreset === "showroom_warm" ? 1.9 : 1.0,
+          3200,
+          0.35
+        );
+        covePl.castShadow = false;
+        covePl.position.set(spanW / 2, ceilH - drop * 0.5, bandD + 140);
+        group.add(covePl);
+      }
     }
 
     addRecessedSpots(ceilH - drop, bandD * 0.52, Math.max(2, Math.round(spanW / 1000)));

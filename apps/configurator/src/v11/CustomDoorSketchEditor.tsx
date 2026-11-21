@@ -728,7 +728,7 @@ export const CustomDoorSketchEditor: React.FC<CustomDoorSketchEditorProps> = ({
                     d={closedSectionSvgD}
                     fill="#D6C7B2"
                     fillOpacity="0.45"
-                    stroke="#141413"
+                    stroke="#E2E8F0"
                     strokeWidth="2.2"
                     strokeLinejoin="round"
                   />
@@ -749,7 +749,7 @@ export const CustomDoorSketchEditor: React.FC<CustomDoorSketchEditorProps> = ({
                           textAnchor="middle"
                           fontSize="7.5"
                           fontWeight="700"
-                          fill="#57534E"
+                          fill="#CBD5E1"
                           fontFamily="monospace"
                         >
                           {len}mm
@@ -1069,7 +1069,7 @@ export const CustomDoorSketchEditor: React.FC<CustomDoorSketchEditorProps> = ({
               {/* Synchronized Front Elevation Preview */}
               <div className="pt-2 border-t border-[#F0ECE3] flex items-center gap-3">
                 <svg viewBox="0 0 80 100" className="w-20 h-24 shrink-0 rounded-xl bg-[#FCFBF8] border border-[#E5DFD3]">
-                  <rect x="6" y="6" width="68" height="88" rx="2" fill="#F5F2EA" stroke="#141413" strokeWidth="2" />
+                  <rect x="6" y="6" width="68" height="88" rx="2" fill="#F5F2EA" stroke="#E2E8F0" strokeWidth="2" />
                   {(() => {
                     const inset = Math.min(24, Math.max(6, Math.round(profileSpanMm * 0.25)));
                     return (
@@ -1080,7 +1080,7 @@ export const CustomDoorSketchEditor: React.FC<CustomDoorSketchEditorProps> = ({
                         height={Math.max(16, 88 - inset * 2)}
                         fill={isGlass ? "#94A3B8" : "#E6DEC8"}
                         fillOpacity={isGlass ? 0.35 : 0.65}
-                        stroke="#141413"
+                        stroke="#E2E8F0"
                         strokeWidth="1.2"
                       />
                     );
