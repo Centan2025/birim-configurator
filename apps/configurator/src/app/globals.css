@@ -1463,9 +1463,9 @@ button svg.lucide {
 }
 
 button svg.lucide[class*="w-2.5"],
-button svg.lucide[class*="w-3 "],
+button svg.lucide[class~="w-3"],
 span svg.lucide[class*="w-2.5"],
-span svg.lucide[class*="w-3 "] {
+span svg.lucide[class~="w-3"] {
   width: 13px !important;
   height: 13px !important;
   stroke-width: 2.25 !important;
