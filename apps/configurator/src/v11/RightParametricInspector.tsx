@@ -175,6 +175,9 @@ export interface RightParametricInspectorProps {
       frontFillerRightMm?: number;
       frontFillerPosition?: "coplanar_front" | "recessed_inner";
       hardwareProductId?: string;
+      doorSystemId?: import("@birim/core").DoorSystemId;
+      openingTechnology?: import("@birim/core").OpeningTechnology;
+      handleType?: import("@birim/core").DoorConfig["handleType"];
     }
   ) => void;
   onCopyDoorToAllBays: (sourceBayIdx: number) => void;
@@ -1906,7 +1909,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
             const bay = activeModule.bays[activeBayIndex];
             const storeSelCompId = useConfiguratorStore.getState().selectedComponentId;
             const selComp = storeSelCompId
-              ? bay?.components?.find((c) => c.id === storeSelCompId)
+              ? (bay as unknown as { components?: Array<{ id: string; type?: string; isAdjustable?: boolean; isFixed?: boolean; position?: number; y?: number; elevationY?: number }> } | undefined)?.components?.find((c) => c.id === storeSelCompId)
               : undefined;
             if (!selComp) return null;
             const isShelf = selComp.type === "shelf";
@@ -3507,7 +3510,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                         label: "LED'li Askı Borusu",
                         visual: "rail",
                         dragVisual: "rail",
-                        count: activeModule.carcass.lighting?.enabled ? 1 : 0,
+                        count: (activeModule as unknown as { lighting?: { enabled?: boolean } }).lighting?.enabled ? 1 : 0,
                         onClick: () => {
                           onAddHangingRail(safeBayIdx);
                           onToggleModuleLed(true, { ledType: "led_rod_strip" });
@@ -4459,7 +4462,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                         onClick={() =>
                           dt.id === "folding"
                             ? onSetBayV4DoorConfig(safeBayIdx, { doorSystemId: "folding_side" })
-                            : onSetBayDoorType(safeBayIdx, dt.id)
+                            : onSetBayDoorType(safeBayIdx, dt.id as "single_left" | "single_right" | "double" | "sliding" | "tambour" | "open")
                         }
                         className={`py-2 px-1 rounded-xl text-[10.5px] font-semibold transition cursor-pointer flex flex-col items-center gap-1 ${
                           active
@@ -5057,8 +5060,8 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                                     : hp.category === "gola_profile" || hp.category === "j_pull"
                                     ? "none"
                                     : hp.category === "recessed_grip"
-                                    ? "recessed"
-                                    : "bar",
+                                    ? "integrated_profile"
+                                    : "standard",
                               },
                               batchApplyHandlesToModule,
                               batchApplyHandlesToAllModules

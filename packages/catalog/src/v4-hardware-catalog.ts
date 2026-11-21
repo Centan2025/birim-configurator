@@ -856,7 +856,13 @@ const BASE_V4_HARDWARE_CATALOG: HardwareProductRecord[] = [
     unitPriceEur: 8.9,
     unit: "adet",
     sourceId: "SRC_BLUM_CAT_HINGE",
-    verification: { verifiedDimensions: true, verifiedDrilling: true, verifiedPricing: true },
+    verification: {
+      sourceTechDataVerified: true,
+      cadGeometryVerified: true,
+      bomFormulaVerified: true,
+      drillingPatternVerified: true,
+      physicalFactorySampleTested: false,
+    },
   },
   {
     id: "hw_blum_legrabox_c40",
@@ -880,7 +886,13 @@ const BASE_V4_HARDWARE_CATALOG: HardwareProductRecord[] = [
     unitPriceEur: 92.0,
     unit: "takım",
     sourceId: "SRC_BLUM_CAT_DRAWER",
-    verification: { verifiedDimensions: true, verifiedDrilling: true, verifiedPricing: true },
+    verification: {
+      sourceTechDataVerified: true,
+      cadGeometryVerified: true,
+      bomFormulaVerified: true,
+      drillingPatternVerified: true,
+      physicalFactorySampleTested: false,
+    },
   },
   {
     id: "hw_blum_legrabox_m40",
@@ -1119,7 +1131,13 @@ const BASE_V4_HARDWARE_CATALOG: HardwareProductRecord[] = [
     unitPriceEur: 34.0,
     unit: "takım",
     sourceId: "SRC_BLUM_CAT_LIFT",
-    verification: { verifiedDimensions: true, verifiedDrilling: true, verifiedPricing: true },
+    verification: {
+      sourceTechDataVerified: true,
+      cadGeometryVerified: true,
+      bomFormulaVerified: true,
+      drillingPatternVerified: true,
+      physicalFactorySampleTested: false,
+    },
   },
   {
     id: "hw_blum_aventos_hs_top",
@@ -1138,7 +1156,13 @@ const BASE_V4_HARDWARE_CATALOG: HardwareProductRecord[] = [
     unitPriceEur: 128.0,
     unit: "takım",
     sourceId: "SRC_BLUM_CAT_LIFT",
-    verification: { verifiedDimensions: true, verifiedDrilling: true, verifiedPricing: true },
+    verification: {
+      sourceTechDataVerified: true,
+      cadGeometryVerified: true,
+      bomFormulaVerified: true,
+      drillingPatternVerified: true,
+      physicalFactorySampleTested: false,
+    },
   },
   {
     id: "hw_hettich_topline_l",

@@ -1061,7 +1061,7 @@ export function generateBOMForProject(
             : cid.includes("gola_vertical")
             ? "Alüminyum Boy Dikey Gola 1020 Profil (56×26mm)"
             : "Alüminyum Üst Yatay Gola L-Profil (56×26mm)";
-          addHardware(sku, name, "handle", spanM, "mt", 14.5);
+          addHardware(sku, name, "handle", spanM, "metre", 14.5);
         }
         return;
       }

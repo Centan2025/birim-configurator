@@ -205,6 +205,7 @@ export function buildGuidedWizardProject(
             ...b.door,
             id: `door_${m.id}_${bIdx}`,
             bayIndex: bIdx,
+            type: b.door?.type || "single_left",
             ...(isWall
               ? {
                   type: nextWallDoorType,
@@ -226,7 +227,7 @@ export function buildGuidedWizardProject(
                 ? ("push_to_open" as const)
                 : isGolaVariant || gripSystem === "j_pull"
                 ? ("none" as const)
-                : ("bar" as const),
+                : ("standard" as const),
             openingTechnology: openingTech,
             softClose: true,
           },
@@ -463,7 +464,7 @@ export function buildGuidedWizardProject(
   for (let i = 0; i < modCount; i++) {
     const thisW = i === modCount - 1 ? baseUnitW + remW : baseUnitW;
     const tplId =
-      wiz.spaceCategory === "kitchen"
+      (wiz.spaceCategory as string) === "kitchen"
         ? i === 0
           ? "tpl_kb_08_sink_base"
           : i === 1
@@ -477,7 +478,7 @@ export function buildGuidedWizardProject(
 
     const tpl = getV4TemplateById(tplId) || WARDROBE_TEMPLATES[0];
     const modTitle =
-      wiz.spaceCategory === "kitchen"
+      (wiz.spaceCategory as string) === "kitchen"
         ? i === 0
           ? "Eviye Alt Dolabı"
           : i === 1
@@ -507,13 +508,13 @@ export function buildGuidedWizardProject(
       wallAnchored: true,
       bodyMaterialId: chosenMats.body,
       doorMaterialId: chosenMats.door,
-      ledLightingEnabled: wiz.addLed && wiz.spaceCategory !== "kitchen",
+      ledLightingEnabled: wiz.addLed && (wiz.spaceCategory as string) !== "kitchen",
       ledColorTempK: 3000,
       ...(thisW > 2750 ? { allowJumboSheet3660: true } : {}),
     };
 
     const targetBayCount =
-      wiz.spaceCategory === "kitchen"
+      (wiz.spaceCategory as string) === "kitchen"
         ? tplId === "tpl_kb_05_three_drawers"
           ? 1
           : thisW >= 700
@@ -535,7 +536,7 @@ export function buildGuidedWizardProject(
     }
 
     const T = m.carcass.panelThickness || 18;
-    const plinthH = m.carcass.plinthHeight ?? (wiz.spaceCategory === "kitchen" ? 100 : 80);
+    const plinthH = m.carcass.plinthHeight ?? ((wiz.spaceCategory as string) === "kitchen" ? 100 : 80);
     m.carcass.plinthHeight = plinthH;
     const netH = Math.max(400, effHeight - plinthH - 2 * T);
     const topShelfY = Math.round((netH - 360) / 32) * 32;
@@ -555,7 +556,7 @@ export function buildGuidedWizardProject(
 
     m.bays = m.bays.map((b, bIdx) => {
       const isKitchenDrawerUnit =
-        wiz.spaceCategory === "kitchen" && tplId === "tpl_kb_05_three_drawers";
+        (wiz.spaceCategory as string) === "kitchen" && tplId === "tpl_kb_05_three_drawers";
       const isSingleBayMod = targetBayCount === 1;
       const nextDoorType = isKitchenDrawerUnit
         ? ("open" as const)
@@ -953,7 +954,7 @@ export function buildGuidedWizardProject(
   const nextSpace = {
     ...curProj.space,
     type:
-      wiz.spaceCategory === "kitchen"
+      (wiz.spaceCategory as string) === "kitchen"
         ? ("kitchen_straight" as const)
         : ("wardrobe_zone" as const),
     ceilingHeight: ceilH,

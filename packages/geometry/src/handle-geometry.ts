@@ -94,7 +94,7 @@ export function generateHandleGeometry(
   const isLiftDoor =
     front.id.includes("lift_") || Boolean(front.rotation && Math.abs(front.rotation[0]) > 0.001);
   const isTopBottomEdgeProfile =
-    category === "edge_profile" || category === "j_pull" || category === "gola_profile";
+    category === "edge_profile" || (category as string) === "j_pull" || category === "gola_profile";
 
   const autoHorizontal =
     drawer || isLiftDoor || (isTopBottomEdgeProfile && !isTallOrWardrobeFront);
@@ -185,7 +185,7 @@ export function generateHandleGeometry(
       handleCategory: category,
       materialId:
         customMatId ||
-        (category === "milled_wood_grip" || category === "j_pull"
+        (category === "milled_wood_grip" || (category as string) === "j_pull"
           ? front.materialId
           : resolvedHandleMatId),
       isFrontFacing: true,
@@ -298,7 +298,7 @@ export function generateHandleGeometry(
       ? Math.min(38, Math.max(22, front.dimensions.height - 20))
       : Math.min(148, Math.max(52, front.dimensions.height - 36));
     addDoorMounted("recessed_pocket", cx, cy, z - 4, pocketW, pocketH, 8);
-  } else if (category === "j_pull") {
+  } else if ((category as string) === "j_pull") {
     // CNC J-Pull channel is milled directly into the 3D door leaf (`j_pull_bevel` at top for base, bottom for upper wall) — no extra metal bar!
     return [];
   } else if (category !== "gola_profile") {

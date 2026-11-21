@@ -143,6 +143,7 @@ export function buildDoorSystemsShowcaseProject(
           ...b.door,
           id: `door_${m.id}_${bIdx}`,
           bayIndex: bIdx,
+          type: b.door?.type || "single_left",
           doorMaterialId: spec.useLacquer22 ? lacquerMat : doorMat,
           handleCategory: spec.handleCategory,
           handleProfileId: spec.handleProfileId,
@@ -150,7 +151,7 @@ export function buildDoorSystemsShowcaseProject(
             ? "push_to_open"
             : spec.handleCategory === "gola_profile" || spec.handleCategory === "j_pull"
             ? "none"
-            : "bar",
+            : "standard",
           crossSectionProfile: spec.crossSectionProfile || "flat_slab",
           openingTechnology: spec.pushToOpen ? "push_to_open" : "soft_close",
           softClose: true,

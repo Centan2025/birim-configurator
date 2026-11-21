@@ -730,14 +730,15 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
     }
     if (Array.isArray(storeValidationIssues)) {
       storeValidationIssues.forEach((vi) => {
+        const viCompat = vi as typeof vi & { moduleId?: string; bayId?: string; suggestion?: string };
         pushUnique({
           code: vi.code || "VALIDATION_ISSUE",
           severity: vi.severity === "error" ? "error" : "warning",
           category: "spatial_collision",
           message: vi.message,
-          targetModuleId: vi.moduleId || project.modules[activeModuleIndex]?.id || "",
-          targetId: vi.bayId || vi.moduleId || "",
-          suggestions: vi.suggestion ? [vi.suggestion] : [],
+          targetModuleId: viCompat.moduleId || project.modules[activeModuleIndex]?.id || "",
+          targetId: viCompat.bayId || viCompat.moduleId || "",
+          suggestions: viCompat.suggestion ? [viCompat.suggestion] : [],
         } as unknown as EngineeringValidationFinding);
       });
     }
@@ -2083,10 +2084,10 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
                 {actionable.message}
               </p>
               <div className="flex items-center gap-1.5 mt-2">
-                {actionable.remediationProposal && (
+                {actionable.remediationProposals?.[0] && (
                   <button
                     type="button"
-                    onClick={() => handleApplyFindingFix(actionable.remediationProposal!)}
+                    onClick={() => handleApplyFindingFix(actionable.remediationProposals![0]!)}
                     className="h-6 px-2.5 rounded-lg bg-[#141413] hover:bg-[#292524] text-white text-[11px] font-semibold transition cursor-pointer"
                   >
                     Otomatik Düzelt

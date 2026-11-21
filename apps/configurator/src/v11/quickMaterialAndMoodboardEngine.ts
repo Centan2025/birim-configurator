@@ -302,7 +302,7 @@ export function classifyModuleArchitecturalZone(
   }
   if (
     mod.category === "kitchen_island" ||
-    mod.moduleFamilyId === "fam_kitchen_island" ||
+    (mod.moduleFamilyId as string) === "fam_kitchen_island" ||
     mod.moduleFamilyId === "fam_kitchen_tall" ||
     mod.category === "kitchen_tall" ||
     mod.dimensions.height > 1150
@@ -370,11 +370,11 @@ function applyCountertopMaterialToModule(mod: ModuleInstance, materialId: string
     changed = true;
   }
   if (mod.islandCountertopConfig) {
-    mod.islandCountertopConfig.materialId = materialId;
+    mod.islandCountertopConfig.countertopMaterialId = materialId;
     changed = true;
   }
   if (mod.attachedTableConfig) {
-    mod.attachedTableConfig.materialId = materialId;
+    (mod.attachedTableConfig as unknown as { materialId?: string }).materialId = materialId;
     changed = true;
   }
   if (mod.complementaryRole === "countertop" || mod.id.includes("countertop")) {
@@ -580,7 +580,7 @@ export function applyCuratedMoodboardToProjectDraft(
       if (m.complementaryRole === "countertop" || m.id.includes("countertop")) {
         m.carcass.bodyMaterialId = moodboard.countertopMaterialId;
         m.carcass.doorMaterialId = moodboard.countertopMaterialId;
-      } else if (m.complementaryRole === "plinth") {
+      } else if ((m.complementaryRole as string) === "plinth" || m.complementaryRole === "plinth_strip") {
         m.carcass.bodyMaterialId = moodboard.plinthMaterialId;
         m.carcass.doorMaterialId = moodboard.plinthMaterialId;
       } else {
@@ -609,7 +609,7 @@ export function applyCuratedMoodboardToProjectDraft(
     m.surfaceFinishOverride = moodboard.surfaceFinishOverride;
     m.carcass.grainContinuityMode = moodboard.enableGrainContinuity
       ? "facade_continuous"
-      : "standard";
+      : "none";
     affectedModules++;
   });
 
@@ -644,12 +644,13 @@ export function replaceExistingMaterialAcrossProjectDraft(
     if (m.edgeBandMaterialId === fromMaterialId) {
       m.edgeBandMaterialId = toMaterialId;
     }
-    if (m.islandCountertopConfig?.materialId === fromMaterialId) {
-      m.islandCountertopConfig.materialId = toMaterialId;
+    if (m.islandCountertopConfig?.countertopMaterialId === fromMaterialId) {
+      m.islandCountertopConfig.countertopMaterialId = toMaterialId;
       replacedSlots++;
     }
-    if (m.attachedTableConfig?.materialId === fromMaterialId) {
-      m.attachedTableConfig.materialId = toMaterialId;
+    const tableCfg = m.attachedTableConfig as unknown as { materialId?: string } | undefined;
+    if (tableCfg?.materialId === fromMaterialId) {
+      tableCfg.materialId = toMaterialId;
       replacedSlots++;
     }
     m.bays.forEach((b) => {

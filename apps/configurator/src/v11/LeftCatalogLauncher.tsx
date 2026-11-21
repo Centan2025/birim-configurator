@@ -735,8 +735,8 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                   const st = useConfiguratorStore.getState();
                   st.applyBatchProjectUpdate((draft) => {
                     draft.space.walls = (draft.space.walls || []).filter((w) => w.id !== wallIdToDel);
-                    if (draft.space.walls.length === 1) draft.space.shape = "rectangular";
-                    else if (draft.space.walls.length === 2) draft.space.shape = "l_shape";
+                    if (draft.space.walls.length === 1) (draft.space as unknown as { shape?: string }).shape = "rectangular";
+                    else if (draft.space.walls.length === 2) (draft.space as unknown as { shape?: string }).shape = "l_shape";
                   }, "Duvar silindi");
                   if (activeId === wallIdToDel) st.setActiveWallId("wall_main");
                 };
@@ -1411,14 +1411,14 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                             const minVal = fmtLen(tpl.dimensionLimits.minW, false);
                             const maxVal = fmtLen(tpl.dimensionLimits.maxW, false);
                             const isKitchenTpl =
-                              tpl.moduleFamilyId === "fam_kitchen_base" ||
-                              tpl.moduleFamilyId === "fam_kitchen_wall" ||
-                              tpl.moduleFamilyId === "fam_kitchen_tall" ||
-                              tpl.moduleFamilyId === "fam_kitchen_island" ||
+                              tpl.familyId === "fam_kitchen_base" ||
+                              tpl.familyId === "fam_kitchen_wall" ||
+                              tpl.familyId === "fam_kitchen_tall" ||
+                              (tpl.familyId as string) === "fam_kitchen_island" ||
                               tpl.templateId.includes("kitchen");
                             const kSub = isKitchenTpl ? classifyKitchenSub(tpl) : null;
                             const isWallUpper =
-                              kSub === "wall" || tpl.moduleFamilyId === "fam_kitchen_wall";
+                              kSub === "wall" || tpl.familyId === "fam_kitchen_wall";
                             const kitchenBadge =
                               kSub === "wall"
                                 ? {
@@ -1773,7 +1773,7 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                     }, "Duvar süpürgeliği güncellendi");
                   };
                   const clashingMods = skEnabled
-                    ? mainModules.filter((m) => (m.position?.y || 0) < skH && (m.position?.z || 0) < skT - 1)
+                    ? mainModules.filter((m) => (m.mod.position?.y || 0) < skH && (m.mod.position?.z || 0) < skT - 1)
                     : [];
                   return (
                     <div className="p-3.5 rounded-2xl bg-white border border-[#E5DFD3] space-y-2.5">

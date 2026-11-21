@@ -492,7 +492,7 @@ export const OnObjectQuickToolbar: React.FC<OnObjectQuickToolbarProps> = React.m
           {/* 3. RAF SEÇİLDİĞİNDE */}
           {selectedPartKind === "shelf" && matchedShelf && (() => {
             const isFixedShelf = matchedShelf.isAdjustable === false || matchedShelf.isFixed;
-            const shelfElevMm = Math.round(Number(matchedShelf.position ?? matchedShelf.y ?? 0));
+            const shelfElevMm = Math.round(Number(matchedShelf.elevationY ?? 0));
             const shelfElevText =
               displayUnit === "cm"
                 ? `${Number((shelfElevMm / 10).toFixed(1))} cm`

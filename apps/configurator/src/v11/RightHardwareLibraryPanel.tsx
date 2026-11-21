@@ -291,7 +291,7 @@ function startHardware3DDrag(
       ? "drop-shadow(0 12px 20px rgba(20, 20, 19, 0.32))"
       : "drop-shadow(0 10px 18px rgba(220, 38, 38, 0.42))";
     el.style.willChange = "transform";
-    el.innerHTML = `<svg viewBox="0 0 112 74" width="144" height="96" fill="none">${getHardwareSvgInnerMarkup(item.familyId, false, `${item.brand} ${item.sku} ${item.modelName}`)}</svg>`;
+    el.innerHTML = `<svg viewBox="0 0 112 74" width="144" height="96" fill="none">${getHardwareSvgInnerMarkup(item.familyId, false, `${item.manufacturerName} ${item.sku} ${item.series || item.name}`)}</svg>`;
     document.body.appendChild(el);
     ghostEl = el;
   };
@@ -716,7 +716,7 @@ export const RightHardwareLibraryPanel: React.FC<RightHardwareLibraryPanelProps>
           }`}
         >
           <div className="rounded-xl bg-[#FAF8F4] border border-[#ECE7DD] p-1 shrink-0">
-            {renderHardwareSchematicSvg(item.familyId, "list", `${item.brand} ${item.sku} ${item.modelName}`)}
+            {renderHardwareSchematicSvg(item.familyId, "list", `${item.manufacturerName} ${item.sku} ${item.series || item.name}`)}
           </div>
           <div className="flex-1 min-w-0 space-y-1">
             <div className="text-[10px] font-bold uppercase text-[#8C7A6B] truncate">
@@ -801,7 +801,7 @@ export const RightHardwareLibraryPanel: React.FC<RightHardwareLibraryPanelProps>
               <Info className="w-3 h-3" />
             </button>
           </div>
-          {renderHardwareSchematicSvg(item.familyId, "grid", `${item.brand} ${item.sku} ${item.modelName}`)}
+          {renderHardwareSchematicSvg(item.familyId, "grid", `${item.manufacturerName} ${item.sku} ${item.series || item.name}`)}
         </div>
 
         {/* Kompakt Bilgi & Aksiyon Alt Alanı */}
@@ -956,7 +956,7 @@ export const RightHardwareLibraryPanel: React.FC<RightHardwareLibraryPanelProps>
                     {row.hw
                       ? experienceTier === "factory"
                         ? `${formatBrandLabel(row.hw.manufacturerName)} • ${row.hw.sku}`
-                        : `${formatBrandLabel(row.hw.manufacturerName)} ${row.hw.series || row.hw.nameTr}`
+                        : `${formatBrandLabel(row.hw.manufacturerName)} ${row.hw.series || row.hw.name}`
                       : "Standart"}
                   </span>
                 </div>
@@ -1349,7 +1349,7 @@ export const RightHardwareLibraryPanel: React.FC<RightHardwareLibraryPanelProps>
           </div>
 
           <div className="rounded-xl bg-[#FAF8F4] border border-[#E6E1D6] p-2.5">
-            {renderHardwareSchematicSvg(selectedDetailItem.familyId, "detail", `${selectedDetailItem.brand} ${selectedDetailItem.sku} ${selectedDetailItem.modelName}`)}
+            {renderHardwareSchematicSvg(selectedDetailItem.familyId, "detail", `${selectedDetailItem.manufacturerName} ${selectedDetailItem.sku} ${selectedDetailItem.series || selectedDetailItem.name}`)}
             {selectedDetailItem.technicalDrawingNotesTr && (
               <p className="text-[10.5px] text-[#57534E] mt-1 font-mono leading-snug">
                 {selectedDetailItem.technicalDrawingNotesTr}

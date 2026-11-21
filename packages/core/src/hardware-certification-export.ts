@@ -1,4 +1,4 @@
-import type { HardwareCatalogItem } from "@birim/catalog";
+import type { HardwareProductRecord } from "@birim/catalog";
 import type { DesignProject } from "./types";
 
 export interface HardwareCertificationRow {
@@ -29,7 +29,7 @@ export interface ProjectHardwareCertificationSummary {
  * 56-item hardware catalog and highlights items currently used in the active project.
  */
 export function buildHardwareCertificationSummary(
-  catalog: readonly HardwareCatalogItem[],
+  catalog: readonly HardwareProductRecord[],
   project?: DesignProject | null
 ): ProjectHardwareCertificationSummary {
   const projectUsedSet = new Set<string>();
@@ -41,10 +41,10 @@ export function buildHardwareCertificationSummary(
         for (const id of hw.hardwareIds) projectUsedSet.add(id);
       }
       for (const bay of mod.bays || []) {
-        for (const comp of bay.components || []) {
-          const cid = (comp as unknown as { hardwareId?: string; catalogItemId?: string });
-          if (cid.hardwareId) projectUsedSet.add(cid.hardwareId);
-          if (cid.catalogItemId) projectUsedSet.add(cid.catalogItemId);
+        const legacyComponents = (bay as unknown as { components?: Array<{ hardwareId?: string; catalogItemId?: string }> }).components;
+        for (const comp of legacyComponents || []) {
+          if (comp.hardwareId) projectUsedSet.add(comp.hardwareId);
+          if (comp.catalogItemId) projectUsedSet.add(comp.catalogItemId);
         }
       }
     }

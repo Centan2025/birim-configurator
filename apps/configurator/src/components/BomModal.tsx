@@ -352,7 +352,7 @@ function BomModalInner({ isOpen, onClose, initialTab = "cutlist" }: BomModalProp
     const cutRows = bom.cutList
       .map(
         (c, idx) =>
-          `<tr><td>${idx + 1}</td><td><b>${c.pieceName}</b></td><td>${c.materialId}</td><td style="text-align:right">${Math.round(c.length)}×${Math.round(c.width)}×${c.thickness}</td><td style="text-align:right">${c.quantity}</td></tr>`
+          `<tr><td>${idx + 1}</td><td><b>${c.pieceName}</b></td><td>${c.materialId}</td><td style="text-align:right">${Math.round(c.lengthMm)}×${Math.round(c.widthMm)}×${c.thicknessMm}</td><td style="text-align:right">${c.quantity}</td></tr>`
       )
       .join("");
     const hwRows = bom.hardwareList

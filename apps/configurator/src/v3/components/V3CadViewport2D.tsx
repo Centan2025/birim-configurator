@@ -9554,7 +9554,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
           // Visual Horizontal Alignment Laser Guide across entire 2D Elevation
           if (snapYGroupRef.current) {
             if (bestSnap) {
-              const sy = snapFloorSvgY - bestSnap.worldY;
+              const sy = floorSvgY - bestSnap.worldY;
               snapYGroupRef.current.style.display = "inline";
               if (snapYLineRef.current) {
                 snapYLineRef.current.setAttribute("y1", String(sy));

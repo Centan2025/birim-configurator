@@ -5506,7 +5506,7 @@ export function generateModuleGeometry(
   }
 
   // Emit 3D Architectural Hardware: Adjustable Plinth Feet, Anti-Tip Brackets, TIP-ON Pistons & Shelf Pins
-  if (module.category !== "complementary") {
+  if ((module.category as string) !== "complementary") {
     const modW = module.dimensions.width;
     const modH = module.dimensions.height;
     const modD = module.dimensions.depth;

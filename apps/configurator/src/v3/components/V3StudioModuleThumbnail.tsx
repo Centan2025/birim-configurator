@@ -149,7 +149,7 @@ function renderTemplateThumbnailSync(template: V4ModuleTemplateDefinition): stri
     inst.position = { x: 0, y: isWallUpper ? 420 : 0, z: 0 };
     inst.rotation = { x: 0, y: 0, z: 0 };
 
-    const geom = generateModuleGeometry(inst, 0, 0, false, false);
+    const geom = generateModuleGeometry(inst);
     const matMap = new Map<string, MaterialDefinition>(
       DEFAULT_MATERIALS.map((m) => [m.id, m])
     );
@@ -165,12 +165,13 @@ function renderTemplateThumbnailSync(template: V4ModuleTemplateDefinition): stri
     innerGrp.position.set(-w * 0.5, inst.position.y, 0);
 
     for (const comp of geom.components) {
+      const roleStr = comp.role as string;
       if (
-        comp.role === "hinge_cup" ||
-        comp.role === "drawer_slide" ||
-        comp.role === "shelf_pin" ||
-        comp.role === "cam_lock" ||
-        comp.role === "dowel"
+        roleStr === "hinge_cup" ||
+        roleStr === "drawer_slide" ||
+        roleStr === "shelf_pin" ||
+        roleStr === "cam_lock" ||
+        roleStr === "dowel"
       ) {
         continue;
       }

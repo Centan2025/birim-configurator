@@ -117,7 +117,6 @@ export function harmonizeModuleWithProjectContext(
         newMod.carcass.doorMaterialId === "mat_smoked_glass"
           ? "mat_smoked_glass"
           : styleRef.carcass.doorMaterialId || newMod.carcass.doorMaterialId,
-      backMaterialId: styleRef.carcass.backMaterialId || newMod.carcass.backMaterialId,
       ...(styleRef.carcass.countertopMaterialId
         ? { countertopMaterialId: styleRef.carcass.countertopMaterialId }
         : {}),

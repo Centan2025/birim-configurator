@@ -324,9 +324,9 @@ export const Viewport3DContextMenu: React.FC<Viewport3DContextMenuProps> = ({
                 st.applyBatchProjectUpdate((draft) => {
                   draft.space.walls = (draft.space.walls || []).filter((w) => w.id !== target.wallId);
                   if (draft.space.walls.length === 1) {
-                    draft.space.shape = "rectangular";
+                    (draft.space as unknown as { shape?: string }).shape = "rectangular";
                   } else if (draft.space.walls.length === 2) {
-                    draft.space.shape = "l_shape";
+                    (draft.space as unknown as { shape?: string }).shape = "l_shape";
                   }
                 }, `${target.wallName} silindi`);
                 st.setActiveWallId("wall_main");

@@ -1532,7 +1532,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             const isCarcass =
               role.startsWith("carcass_") || role === "shelf" || role === "drawer_box";
             const isCountertop = role === "countertop" || mod.complementaryRole === "countertop";
-            const isPlinth = role === "plinth" || mod.complementaryRole === "plinth";
+            const isPlinth = role === "plinth" || (mod.complementaryRole as string) === "plinth" || mod.complementaryRole === "plinth_strip";
             const isHandleOrGola =
               (role === "door_handle" || role === "drawer_handle" || role === "gola_profile") &&
               compGroup.userData?.handleCategory !== "j_pull" &&
@@ -1618,7 +1618,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               role === "door_sliding" ||
               role === "drawer_front";
             const isCountertop = role === "countertop" || mod.complementaryRole === "countertop";
-            const isPlinth = role === "plinth" || mod.complementaryRole === "plinth";
+            const isPlinth = role === "plinth" || (mod.complementaryRole as string) === "plinth" || mod.complementaryRole === "plinth_strip";
             const isHandleOrGola =
               (role === "door_handle" || role === "drawer_handle" || role === "gola_profile") &&
               compGroup.userData?.handleCategory !== "j_pull" &&
@@ -2067,6 +2067,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           borderColor: "#D6D0C4",
           badgeBg: "#141413",
           localMidpoint: new THREE.Vector3(W * 0.5, H + 195, D * 0.85),
+          localStart: new THREE.Vector3(0, H + 195, D * 0.85),
+          localEnd: new THREE.Vector3(W, H + 195, D * 0.85),
         },
         {
           id: "dim_H",
@@ -2075,6 +2077,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           borderColor: "#D6D0C4",
           badgeBg: "#141413",
           localMidpoint: new THREE.Vector3(W + 175, H * 0.52, D),
+          localStart: new THREE.Vector3(W + 175, 0, D),
+          localEnd: new THREE.Vector3(W + 175, H, D),
         },
         {
           id: "dim_D",
@@ -2083,6 +2087,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           borderColor: "#D6D0C4",
           badgeBg: "#57534E",
           localMidpoint: new THREE.Vector3(-145, 18, D * 0.5),
+          localStart: new THREE.Vector3(-145, 18, 0),
+          localEnd: new THREE.Vector3(-145, 18, D),
         },
       ];
 
@@ -2094,6 +2100,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           borderColor: "#D6D0C4",
           badgeBg: "#57534E",
           localMidpoint: new THREE.Vector3(W * 0.5, 8, D + 120),
+          localStart: new THREE.Vector3(T, 8, D + 120),
+          localEnd: new THREE.Vector3(W - T, 8, D + 120),
         });
       }
 
@@ -2116,6 +2124,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               borderColor: "#D6D0C4",
               badgeBg: "#141413",
               localMidpoint: new THREE.Vector3(midX, H + 34, D * 0.94),
+              localStart: new THREE.Vector3(curX, H + 34, D * 0.94),
+              localEnd: new THREE.Vector3(curX + bw, H + 34, D * 0.94),
             });
           }
 
@@ -2123,20 +2133,20 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           if (bIdx === activeBayIndex && selectedComponentId) {
             const visibleShelves = (b.shelves || [])
               .filter((sh) => !sh.isHidden)
-              .sort((a, z) => (a.position ?? 0) - (z.position ?? 0));
+              .sort((a, z) => (a.elevationY ?? 0) - (z.elevationY ?? 0));
             const selIdx = visibleShelves.findIndex((sh) => sh.id === selectedComponentId);
             if (selIdx >= 0) {
               const selShelf = visibleShelves[selIdx];
               const shelfT = selShelf.thickness || T;
-              const shelfBotY = plinthH + T + (selShelf.position ?? 0);
+              const shelfBotY = plinthH + T + (selShelf.elevationY ?? 0);
               const shelfTopY = shelfBotY + shelfT;
               const prevTopY =
                 selIdx > 0
-                  ? plinthH + T + (visibleShelves[selIdx - 1].position ?? 0) + (visibleShelves[selIdx - 1].thickness || T)
+                  ? plinthH + T + (visibleShelves[selIdx - 1].elevationY ?? 0) + (visibleShelves[selIdx - 1].thickness || T)
                   : innerBotY;
               const nextBotY =
                 selIdx < visibleShelves.length - 1
-                  ? plinthH + T + (visibleShelves[selIdx + 1].position ?? 0)
+                  ? plinthH + T + (visibleShelves[selIdx + 1].elevationY ?? 0)
                   : innerTopY;
               const gapBelow = Math.max(0, Math.round(shelfBotY - prevTopY));
               const gapAbove = Math.max(0, Math.round(nextBotY - shelfTopY));
@@ -2151,6 +2161,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                   borderColor: "#93C5FD",
                   badgeBg: "#1D4ED8",
                   localMidpoint: new THREE.Vector3(midX, shelfTopY + gapAbove * 0.5, D + 26),
+                  localStart: new THREE.Vector3(midX, shelfTopY, D + 26),
+                  localEnd: new THREE.Vector3(midX, nextBotY, D + 26),
                 });
               }
               if (gapBelow >= 40) {
@@ -2161,6 +2173,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                   borderColor: "#93C5FD",
                   badgeBg: "#1D4ED8",
                   localMidpoint: new THREE.Vector3(midX, prevTopY + gapBelow * 0.5, D + 26),
+                  localStart: new THREE.Vector3(midX, prevTopY, D + 26),
+                  localEnd: new THREE.Vector3(midX, shelfBotY, D + 26),
                 });
               }
             }
@@ -2182,6 +2196,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           borderColor: "#D6D0C4",
           badgeBg: "#141413",
           localMidpoint: new THREE.Vector3((minX + maxX) * 0.5, maxH + 260, 300),
+          localStart: new THREE.Vector3(minX, maxH + 260, 300),
+          localEnd: new THREE.Vector3(maxX, maxH + 260, 300),
         });
       }
 
@@ -3153,7 +3169,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               state.beginHistoryTransaction();
               activeDrag3D = {
                 modIdx: rModIdx,
-                bayIdx: state.activeBayIndex,
+                bayIdx: activeBayIndex,
                 kind: "resize_3d",
                 targetId: rAxis,
                 startValueMm: rAxis === "height_top" ? rMod.dimensions.height : rMod.dimensions.width,
@@ -4918,7 +4934,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                 for (const dh of (liveHitOverride || dropHits)) {
                   // Skip the dragged component itself & door leaves so we detect the bay/module behind the cursor!
                   const hitCid = String(dh.object?.userData?.componentId || "");
-                  const hitRole = String(dh.object?.userData?.role || "");
+                  const hitRole = String((dh.object?.userData as Record<string, unknown> | undefined)?.role || "");
                   if (hitCid && (hitCid === dragTargetId || hitCid.includes(dragTargetId))) continue;
                   if (hitRole === "door_left" || hitRole === "door_right" || hitRole === "door_handle") continue;
                   const dModIdx = typeof dh.object?.userData?.moduleIndex === "number" ? dh.object.userData.moduleIndex : -1;
@@ -7944,7 +7960,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         // C. Store validationIssues fallback (e.g., wall overflow, obstacle clash)
         const storeIssues = useConfiguratorStore.getState().validationIssues || [];
         storeIssues.forEach((vi) => {
-          const modIdxFound = project.modules.findIndex((m) => m.id === vi.moduleId);
+          const viCompat = vi as typeof vi & { moduleId?: string; suggestion?: string };
+          const modIdxFound = project.modules.findIndex((m) => m.id === viCompat.moduleId);
           const safeModIdx = modIdxFound >= 0 ? modIdxFound : activeModuleIndex;
           const hostMod = project.modules[safeModIdx] || project.modules[0];
           if (!hostMod) return;
@@ -7957,7 +7974,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             severity: vi.severity === "error" ? "error" : "warning",
             title: formatEngineeringErrorCode(vi.code || "VALIDATION_ERROR"),
             message: vi.message,
-            suggestions: vi.suggestion ? [vi.suggestion] : [],
+            suggestions: viCompat.suggestion ? [viCompat.suggestion] : [],
             remediationProposals: [],
             moduleIndex: safeModIdx,
             bayIndex: 0,

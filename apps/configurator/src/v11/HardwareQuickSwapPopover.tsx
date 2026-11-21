@@ -426,8 +426,8 @@ export const HardwareQuickSwapPopover: React.FC<HardwareQuickSwapPopoverProps> =
                             : hp.category === "gola_profile" || hp.category === "j_pull"
                             ? "none"
                             : hp.category === "recessed_grip"
-                            ? "recessed"
-                            : "bar",
+                            ? "integrated_profile"
+                            : "standard",
                       },
                       `Kulp profili "${hp.name}" olarak değiştirildi (${
                         applyAllBays ? "Tüm dolap" : `${safeBayIdx + 1}. bölme`

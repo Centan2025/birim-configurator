@@ -70,7 +70,7 @@ export interface StudioHeaderBarProps {
   onChangeDisplayUnit?: (unit: "cm" | "mm") => void;
   uiFontScale?: number;
   onChangeUiFontScale?: (scale: number) => void;
-  activeInspectorTab?: "dimensions" | "interior" | "doors" | "materials";
+  activeInspectorTab?: "dimensions" | "interior" | "doors" | "materials" | "hardware";
   onQuickNavigateStep?: (step: "dimensions" | "interior" | "showroom") => void;
   variantSlots?: ReadonlyArray<{
     slot: "A" | "B" | "C";

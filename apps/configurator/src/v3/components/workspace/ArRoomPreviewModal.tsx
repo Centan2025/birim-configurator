@@ -87,7 +87,7 @@ export const ArRoomPreviewModal: React.FC<ArRoomPreviewModalProps> = ({
     const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
     try {
       if (isIOS) {
-        const usdzBytes = exportPartsToUSDZ(parts, `${project.name || "birim-dolap"}`);
+        const usdzBytes = exportPartsToUSDZ(parts, materials, `${project.title || "birim-dolap"}`);
         const blob = new Blob([usdzBytes as unknown as BlobPart], { type: "model/vnd.usdz+zip" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
@@ -103,8 +103,8 @@ export const ArRoomPreviewModal: React.FC<ArRoomPreviewModalProps> = ({
           URL.revokeObjectURL(url);
         }, 4000);
       } else {
-        const glbBytes = exportPartsToGLB(parts, `${project.name || "birim-dolap"}`);
-        triggerDownload(glbBytes, `${(project.name || "birim-dolap").toLowerCase().replace(/[^a-z0-9-_]+/gi, "-")}-ar.glb`, "model/gltf-binary");
+        const glbBytes = exportPartsToGLB(parts, materials, `${project.title || "birim-dolap"}`);
+        triggerDownload(glbBytes, `${(project.title || "birim-dolap").toLowerCase().replace(/[^a-z0-9-_]+/gi, "-")}-ar.glb`, "model/gltf-binary");
         setLiveArStatus("1:1 GLB modeli indirildi — Android Scene Viewer veya 3B görüntüleyicide açabilirsiniz.");
       }
     } catch {

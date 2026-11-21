@@ -1433,7 +1433,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
   previewHardwarePackageDelta: (packageId) => {
     const { project, pricing } = get();
     const pkg = PROJECT_HARDWARE_PACKAGES.find((x) => x.id === packageId);
-    const currentTotalEur = pricing?.totalEur ?? 0;
+    const currentTotalEur = pricing?.totalWithVatEur ?? 0;
     if (!pkg) {
       return { packageId, currentTotalEur, projectedTotalEur: currentTotalEur, deltaEur: 0, affectedDoors: 0, affectedDrawers: 0 };
     }
@@ -1535,7 +1535,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
     const { project, history, batchStartProject, pricing } = get();
     const pkg = PROJECT_HARDWARE_PACKAGES.find((x) => x.id === packageId);
     if (!pkg) return { applied: false, messageTr: "Donanım paketi bulunamadı.", deltaEur: 0 };
-    const beforeEur = pricing?.totalEur ?? 0;
+    const beforeEur = pricing?.totalWithVatEur ?? 0;
     const updated = cloneProject(project);
     const stdHinge = getHardwareProductById(pkg.hingeStandardId);
     let updatedDoors = 0;
@@ -1576,7 +1576,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
 
     updated.updatedAt = new Date().toISOString();
     const { validationIssues, bom, pricing: nextPricing, smartAdvice, lastChangeImpact } = recompute(updated);
-    const deltaEur = Math.round(((nextPricing?.totalEur ?? beforeEur) - beforeEur) * 100) / 100;
+    const deltaEur = Math.round(((nextPricing?.totalWithVatEur ?? beforeEur) - beforeEur) * 100) / 100;
 
     set({
       history: nextHistory(history, project, batchStartProject),
@@ -1804,7 +1804,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
         mod.bays[bayIdx].door.type = type;
         mod.bays[bayIdx].door.doorSystemId = inferDoorSystemIdFromType(type);
         mod.bays[bayIdx].door.overlayType = "full_overlay";
-        if (type !== "open" && (!mod.bays[bayIdx].door.handleCategory || mod.bays[bayIdx].door.handleCategory === "none")) {
+        if (type !== "open" && (!mod.bays[bayIdx].door.handleCategory || (mod.bays[bayIdx].door.handleCategory as string) === "none")) {
           mod.bays[bayIdx].door.handleCategory = "bar_handle";
         }
       }

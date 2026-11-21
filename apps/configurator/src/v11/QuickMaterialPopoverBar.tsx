@@ -365,7 +365,7 @@ export const QuickMaterialPopoverBar: React.FC<QuickMaterialPopoverBarProps> = R
     const [popoverAnchorX, setPopoverAnchorX] = useState<number>(0);
 
     const toggleMenuAt = (
-      menu: Exclude<QuickPopoverKind, null>,
+      menu: Exclude<OpenMenuId, null>,
       ev: React.MouseEvent<HTMLButtonElement>,
       approxPopWidth: number
     ) => {

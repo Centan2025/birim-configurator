@@ -2384,9 +2384,7 @@ function evaluateUnifiedEngineeringModelUncached(
           severity: "warning",
           ruleNature: "ENGINEERING_VALIDITY",
           blockingProduction: false,
-          category: "spatial",
           targetModuleId: mod.id,
-          title: `Duvar Süpürgeliği Çakışması (${skH}×${skT} mm)`,
           message: `"${mod.name}" arka alt kenarı duvar süpürgeliği (${skH} mm yüksek, ${skT} mm kalın) ile kesişiyor. Dolap arka duvara tam yanaşmak için süpürgelik kadar (+${skT} mm) öne alınmalı veya montajda süpürgelik/arka panel kertilmelidir.`,
           worldPositionMm: {
             x: roundGeometryMm(mod.position.x + mod.dimensions.width * 0.5),
@@ -2615,6 +2613,7 @@ export function applyApprovedRemediationProposal(
         if (keptDrawers.length > 0 && upperSpanMm >= 180) {
           bay.shelves.push({
             id: `shf_erg_div_${mod.id}_${bIdx}`,
+            bayIndex: bIdx,
             elevationY: Math.round(lowerZoneTopLocalY),
             isAdjustable: false,
             isFixed: true,
@@ -2629,6 +2628,7 @@ export function applyApprovedRemediationProposal(
           if (!bay.shelves.some((s) => Math.abs(s.elevationY - snapped32Y) < 48)) {
             bay.shelves.push({
               id: `shf_erg_${mod.id}_${bIdx}_${si}`,
+              bayIndex: bIdx,
               elevationY: snapped32Y,
               isAdjustable: true,
               isFixed: false,
