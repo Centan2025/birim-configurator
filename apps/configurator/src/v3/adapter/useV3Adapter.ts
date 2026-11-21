@@ -22,6 +22,7 @@ import {
   validateProject,
   calculateFourSpaceDimensions,
   resolveSmartCompatibleDoorPatchForModuleBay,
+  computeBayDoorZones,
   evaluateProjectCompatibility,
   evaluateUnifiedEngineeringModel,
   applyApprovedRemediationProposal,
@@ -805,12 +806,37 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
       if (!mod) return;
       const nextModules = curProj.modules.map((m, idx) => {
         if (idx !== state.activeModuleIndex) return m;
+        const nextBoxSys = patch.drawerBoxSystem;
+        const nextBays = nextBoxSys
+          ? m.bays.map((b) => ({
+              ...b,
+              drawers: (b.drawers || []).map((dr) => ({
+                ...dr,
+                boxSystemType: nextBoxSys,
+                hardwareProductId:
+                  nextBoxSys === "wooden_undermount"
+                    ? "hw_blum_movento_760h"
+                    : nextBoxSys === "metal_box_legrabox"
+                    ? dr.height >= 205
+                      ? "hw_blum_legrabox_c70"
+                      : "hw_blum_legrabox_m40"
+                    : nextBoxSys === "metal_box_tandembox"
+                    ? dr.height >= 205
+                      ? "hw_blum_tandembox_d65"
+                      : "hw_blum_tandembox_m30"
+                    : nextBoxSys === "metal_box_avantech"
+                    ? "hw_hettich_avantech_m"
+                    : dr.hardwareProductId,
+              })),
+            }))
+          : m.bays;
         return {
           ...m,
           carcass: {
             ...m.carcass,
             ...patch,
           },
+          bays: nextBays,
         };
       });
       commitAdapterState({
@@ -2439,6 +2465,9 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
         frontFillerLeftMm?: number;
         frontFillerRightMm?: number;
         frontFillerPosition?: "coplanar_front" | "recessed_inner";
+        upperZoneDoorState?: "auto" | "closed" | "open";
+        lowerZoneDoorState?: "auto" | "closed" | "open";
+        zoneDoorStates?: Record<string, "closed" | "open">;
       }
     ) => {
       commitActiveModuleUpdate((mod) => {
@@ -2476,6 +2505,19 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
             nextDoor.overlayType = "inset";
           } else if (compatUpdates.doorSystemId === "hinged_overlay_variant") {
             nextDoor.overlayType = "half_overlay";
+          }
+          if (compatUpdates.doorSystemId !== "open") {
+            const hasExtDrawers = (bay.drawers || []).some((d) => !d.isInternal && !d.isHidden);
+            const forcesInternalDrawers =
+              compatUpdates.doorSystemId === "tambour_roller" ||
+              compatUpdates.doorSystemId.startsWith("sliding") ||
+              compatUpdates.doorSystemId.startsWith("lift_") ||
+              compatUpdates.doorSystemId === "pocket_retractable";
+            if (hasExtDrawers && (forcesInternalDrawers || computeBayDoorZones(mod, bayIdx).length === 0)) {
+              bay.drawers = bay.drawers.map((dr) =>
+                !dr.isHidden ? { ...dr, isInternal: true } : dr
+              );
+            }
           }
           // Üst dolapta AVENTOS HK top (maks 600mm), HL top (maks 580mm) veya HF top (min 480mm) seçildiğinde gövde boyunu otomatik uyarla
           if (mod.category === "kitchen_wall" || mod.moduleFamilyId === "fam_kitchen_wall") {
@@ -3811,6 +3853,8 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
           const targetHwId =
             targetBoxSys === "metal_box_tandembox"
               ? "hw_blum_tandembox_m30"
+              : targetBoxSys === "metal_box_avantech"
+              ? "hw_hettich_avantech_m"
               : targetBoxSys === "wooden_undermount"
               ? "hw_blum_movento_760h"
               : isInternal
@@ -3887,14 +3931,23 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
           else if (itemKind.includes("lift")) fittingType = "wardrobe_lift";
           else if (itemKind.includes("led")) fittingType = "led_profile";
 
-          const clampedY = resolveCollisionFreeY(snappedY, 96, 32, netH - 32);
+          const fitHeight =
+            fittingType === "wardrobe_lift"
+              ? Math.min(820, Math.max(420, netH - 80))
+              : 120;
+          const maxFitY = Math.max(32, netH - fitHeight - 48);
+          const targetY =
+            fittingType === "wardrobe_lift"
+              ? Math.min(maxFitY, Math.max(32, snappedY - Math.round(fitHeight * 0.75)))
+              : snappedY;
+          const clampedY = resolveCollisionFreeY(targetY, 96, 32, maxFitY);
           bay.specialFittings = bay.specialFittings || [];
           bay.specialFittings.push({
             id: `fit_${fittingType}_${safeBayIdx}_${Date.now()}`,
             bayIndex: safeBayIdx,
-            elevationY: clampedY,
+            elevationY: Math.min(maxFitY, clampedY),
             type: fittingType,
-            height: fittingType === "wardrobe_lift" ? 850 : 120,
+            height: fitHeight,
           });
         }
         return mod;
@@ -3966,6 +4019,8 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
         hardwareProductId?: string;
         nominalLengthMm?: number;
         isInternal?: boolean;
+        frontProfile?: import("@birim/core").DoorCrossSectionProfile;
+        frontMaterialId?: string;
       }
     ) => {
       commitActiveModuleUpdate((mod) => {

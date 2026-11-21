@@ -1,6 +1,7 @@
 import { BoundedLruCache, computeModuleStructuralSignature, computeModuleIntrinsicSignature, computeProjectStructuralSignature } from "./lru-cache";
 import { calculateFourSpaceDimensions } from "./v4-profiles";
 import {
+  BayConfig,
   ModuleInstance,
   ValidationIssue,
   UnitLength,
@@ -691,7 +692,8 @@ function validateModuleUncached(
           const isZeroProtrusion =
             bay.door.hardwareProductId === "hw_blum_71b7550" ||
             bay.door.hardwareProductId === "hw_hettich_9099540" ||
-            module.carcass.internalDrawerHingeSolution === "spacer_block_25mm";
+            module.carcass.internalDrawerHingeSolution === "spacer_block_25mm" ||
+            module.carcass.internalDrawerHingeSolution === "blind_panel_filler";
           const dynFourSpace = calculateFourSpaceDimensions(module);
           const dynLeaf = dynFourSpace.doorLeaves[idx];
           const plinthH = module.carcass.plinthHeight || 0;
@@ -704,15 +706,15 @@ function validateModuleUncached(
           const clashingHingeY = actualHingeInnerYs.find(
             (hy) =>
               Math.abs(runnerAxisY - hy) < 42 ||
-              (hy >= drawer.elevationY - 10 && hy <= drawer.elevationY + Math.min(65, drawer.height))
+              (hy >= drawer.elevationY - 15 && hy <= drawer.elevationY + drawer.height + 15)
           );
           if (clashingHingeY !== undefined && !isZeroProtrusion) {
             issues.push({
               severity: "error",
               code: "ERR_INTERNAL_DRAWER_HINGE_COLLISION",
-              message: `Bölme ${idx + 1} iç çekmecesi (Y=${drawer.elevationY}mm) gerçek menteşe kotu (Y=${Math.round(
+              message: `Bölme ${idx + 1} iç çekmecesi (Y=${drawer.elevationY}..${drawer.elevationY + drawer.height}mm) menteşe gövdesiyle (Y=${Math.round(
                 clashingHingeY
-              )}mm) ile fiziksel olarak çakışıyor; 25mm besleme çıtası veya 155° sıfır çıkıntılı menteşe seçiniz.`,
+              )}mm) çakışıyor; Kör Dikme + Kapama (40mm) veya 155° sıfır çıkıntılı menteşe seçiniz.`,
               targetId: drawer.id,
               blockingProduction: true,
             });
@@ -720,7 +722,7 @@ function validateModuleUncached(
             issues.push({
               severity: "warning",
               code: "WARN_INTERNAL_DRAWER_HINGE_PROTRUSION",
-              message: `Bölme ${idx + 1} iç çekmecesi standart 110° menteşeli kapak arkasında; kapak iç çıkıntısını aşmak için 155° menteşe veya 25mm çıta önerilir.`,
+              message: `Bölme ${idx + 1} iç çekmecesi standart 110° menteşeli kapak arkasında; kapak iç çıkıntısını aşmak için Kör Dikme + Kapama (40mm) veya 155° sıfır çıkıntı menteşe kullanın.`,
               targetId: drawer.id,
             });
           }
@@ -1411,7 +1413,8 @@ export function autoFixModuleIssues(module: ModuleInstance): AutoFixModuleResult
       bay.door.type !== "open" &&
       bay.door.hardwareProductId !== "hw_blum_71b7550" &&
       bay.door.hardwareProductId !== "hw_hettich_9099540" &&
-      nextMod.carcass.internalDrawerHingeSolution !== "spacer_block_25mm"
+      nextMod.carcass.internalDrawerHingeSolution !== "spacer_block_25mm" &&
+      nextMod.carcass.internalDrawerHingeSolution !== "blind_panel_filler"
     ) {
       bay.door.hardwareProductId = "hw_blum_71b7550";
       appliedFixes.push(
@@ -1483,4 +1486,270 @@ export function autoFixModuleIssues(module: ModuleInstance): AutoFixModuleResult
   });
 
   return { updatedModule: nextMod, appliedFixes };
+}
+
+export interface BayDoorZoneInterval {
+  /** Deterministic key: "lower", "mid_0", "mid_1", ..., or "upper" */
+  key: string;
+  label: string;
+  y: number;
+  height: number;
+  isOpen: boolean;
+}
+
+/**
+ * Resolves whether a given door zone key ("lower" | "mid_k" | "upper") is open (removed).
+ * Harmonizes new `zoneDoorStates` map with legacy `upperZoneDoorState` / `lowerZoneDoorState`.
+ */
+export function isDoorZoneOpen(
+  door: ModuleInstance["bays"][number]["door"] | undefined,
+  zoneKey: string
+): boolean {
+  if (!door) return true;
+  if (door.zoneDoorStates && zoneKey in door.zoneDoorStates) {
+    return door.zoneDoorStates[zoneKey] === "open";
+  }
+  if (zoneKey === "upper") return door.upperZoneDoorState === "open";
+  if (zoneKey === "lower") return door.lowerZoneDoorState === "open";
+  return false;
+}
+
+/**
+ * Extracts the deterministic door zone key from a 3D door component ID.
+ * Examples: "..._lower_left" -> "lower", "..._mid_2_leaf_right" -> "mid_2", "..._left" -> "upper".
+ */
+export function resolveDoorZoneKeyFromComponentId(componentId: string | null | undefined): string {
+  if (!componentId) return "upper";
+  if (componentId.includes("_lower_")) return "lower";
+  const midMatch = componentId.match(/_mid_(\d+)_/);
+  if (midMatch) return `mid_${midMatch[1]}`;
+  return "upper";
+}
+
+/**
+ * Computes all valid (>= 140mm) hinged door intervals around external drawers in a bay,
+ * ordered top-to-bottom for UI clarity (Upper -> Mid N..1 -> Lower).
+ */
+export function computeBayDoorZones(
+  module: ModuleInstance,
+  bayIdx: number
+): BayDoorZoneInterval[] {
+  const bay = module.bays[bayIdx];
+  if (!bay || !bay.door) return [];
+  const extDrawers = (bay.drawers || [])
+    .filter((d) => !d.isInternal && !d.isHidden)
+    .sort((a, b) => a.elevationY - b.elevationY);
+  if (extDrawers.length === 0) return [];
+
+  const T = module.carcass.panelThickness || 18;
+  const plinthH = module.carcass.plinthHeight ?? 100;
+  const gap = module.carcass.doorPerimeterGap ?? 2;
+  const totalH = module.dimensions.height;
+  const zones: BayDoorZoneInterval[] = [];
+
+  // 1. Lower zone (below lowest external drawer)
+  const lowY0 = plinthH + gap;
+  const lowY1 = plinthH + T + extDrawers[0].elevationY - 4;
+  const lowH = Math.round(lowY1 - lowY0 - 3);
+  if (lowH >= 140) {
+    zones.push({
+      key: "lower",
+      label: "Alt Bölge",
+      y: lowY0,
+      height: lowH,
+      isOpen: isDoorZoneOpen(bay.door, "lower"),
+    });
+  }
+
+  // 2. Middle zones (between consecutive external drawers)
+  for (let i = 0; i < extDrawers.length - 1; i++) {
+    const prev = extDrawers[i];
+    const next = extDrawers[i + 1];
+    const midY0 = plinthH + T + prev.elevationY + prev.height + 3;
+    const midY1 = plinthH + T + next.elevationY - 4;
+    const midH = Math.round(midY1 - midY0 - 3);
+    if (midH >= 140) {
+      zones.push({
+        key: `mid_${i}`,
+        label: extDrawers.length === 2 ? "Orta Bölge" : `Orta Bölge ${i + 1}`,
+        y: midY0,
+        height: midH,
+        isOpen: isDoorZoneOpen(bay.door, `mid_${i}`),
+      });
+    }
+  }
+
+  // 3. Upper zone (above highest external drawer)
+  const topDrw = extDrawers[extDrawers.length - 1];
+  const upY0 = plinthH + T + topDrw.elevationY + topDrw.height + 3;
+  const upY1 = totalH - gap;
+  const upH = Math.round(upY1 - upY0);
+  if (upH >= 140) {
+    zones.push({
+      key: "upper",
+      label: "Üst Bölge",
+      y: upY0,
+      height: upH,
+      isOpen: isDoorZoneOpen(bay.door, "upper"),
+    });
+  }
+
+  // Return top-to-bottom so UI matches visual cabinet order
+  return zones.reverse();
+}
+
+export interface InternalDrawerBlindPlan {
+  solution: "auto_155_hinge" | "spacer_block_25mm" | "blind_panel_filler";
+  hasInternalDrawers: boolean;
+  isHingedDoor: boolean;
+  leftDeductionMm: number;
+  rightDeductionMm: number;
+  hasLeftBlindFiller: boolean;
+  hasRightBlindFiller: boolean;
+  blindWidthMm: number;
+  blindSetbackFromFrontMm: number;
+  blockBottomInnerYMm: number;
+  blockTopInnerYMm: number;
+  blockHeightMm: number;
+}
+
+/**
+ * Single Source of Truth (0.00 mm) for internal drawer hinge clearance behind hinged doors.
+ * Resolves blind-panel + front-filler zone dimensions along the entire internal drawer block,
+ * or legacy 25mm spacer deduction, automatically from hinge side (with optional symmetry).
+ */
+export function resolveInternalDrawerHingeClearance(
+  module: ModuleInstance,
+  bay: BayConfig | undefined
+): InternalDrawerBlindPlan {
+  const solution = module.carcass.internalDrawerHingeSolution || "auto_155_hinge";
+  const panelT = module.carcass.panelThickness || 18;
+  const plinthH = module.carcass.plinthHeight || 0;
+  const netInnerH = Math.max(100, module.dimensions.height - plinthH - 2 * panelT);
+  const blindWidthMm = Math.round(
+    Math.max(panelT + 14, Math.min(100, module.carcass.internalDrawerBlindWidthMm ?? 40))
+  );
+  const blindSetbackFromFrontMm = Math.round(
+    Math.max(0, Math.min(80, module.carcass.internalDrawerBlindSetbackFromFrontMm ?? 0))
+  );
+
+  const empty: InternalDrawerBlindPlan = {
+    solution,
+    hasInternalDrawers: false,
+    isHingedDoor: false,
+    leftDeductionMm: 0,
+    rightDeductionMm: 0,
+    hasLeftBlindFiller: false,
+    hasRightBlindFiller: false,
+    blindWidthMm,
+    blindSetbackFromFrontMm,
+    blockBottomInnerYMm: 0,
+    blockTopInnerYMm: 0,
+    blockHeightMm: 0,
+  };
+
+  if (!bay) return empty;
+  const internalDrawers = (bay.drawers || []).filter((d) => d.isInternal && !d.isHidden);
+  if (internalDrawers.length === 0) return empty;
+
+  const door = bay.door;
+  const dType = door?.type || "open";
+  const dSys = String(door?.doorSystemId || "");
+  const isHingedDoor =
+    Boolean(door) &&
+    !module.isOpenFront &&
+    dType !== "open" &&
+    dSys !== "open" &&
+    !dType.startsWith("sliding") &&
+    !dSys.startsWith("sliding") &&
+    dType !== "pocket" &&
+    dType !== "tambour" &&
+    dSys !== "pocket_retractable" &&
+    dSys !== "tambour_roller" &&
+    !dSys.startsWith("lift");
+
+  if (!isHingedDoor || solution === "auto_155_hinge") {
+    return {
+      ...empty,
+      hasInternalDrawers: true,
+      isHingedDoor,
+    };
+  }
+
+  const isDouble =
+    dType === "double" || dType === "inset_double" || dSys === "hinged_double";
+  const isRightOnly = dType === "single_right" || dType === "inset_right";
+  const isLeftOnly =
+    dType === "single_left" ||
+    dType === "inset_left" ||
+    (!isDouble && !isRightOnly && dSys.startsWith("hinged"));
+
+  const symmetric = Boolean(module.carcass.internalDrawerBlindSymmetric);
+  const activeLeft = isDouble || isLeftOnly || (symmetric && isRightOnly);
+  const activeRight = isDouble || isRightOnly || (symmetric && isLeftOnly);
+
+  const minDrwY = Math.min(...internalDrawers.map((d) => Math.max(0, d.elevationY || 0)));
+  const maxDrwTopY = Math.max(
+    ...internalDrawers.map((d) => (d.elevationY || 0) + (d.height || 160))
+  );
+
+  // Snap bottom of blind block to bottom carcass panel if lowest drawer starts near bottom,
+  // or to the top of a closely underlying shelf.
+  const visibleShelves = (bay.shelves || []).filter((s) => !s.isHidden);
+  let blockBottomInnerYMm = minDrwY <= 35 ? 0 : minDrwY;
+  if (blockBottomInnerYMm > 0) {
+    const supportingShelf = visibleShelves
+      .map((s) => (s.elevationY || 0) + (s.thickness || panelT))
+      .filter((topY) => topY <= minDrwY + 2 && minDrwY - topY <= 35)
+      .sort((a, b) => b - a)[0];
+    if (supportingShelf !== undefined) {
+      blockBottomInnerYMm = supportingShelf;
+    }
+  }
+
+  // Snap top of blind block to the underside of an immediately overlying shelf (within 45mm),
+  // otherwise match the top of the highest internal drawer.
+  let blockTopInnerYMm = Math.min(netInnerH, maxDrwTopY);
+  const cappingShelf = visibleShelves
+    .map((s) => s.elevationY || 0)
+    .filter((botY) => botY >= maxDrwTopY - 2 && botY - maxDrwTopY <= 45)
+    .sort((a, b) => a - b)[0];
+  if (cappingShelf !== undefined) {
+    blockTopInnerYMm = Math.min(netInnerH, cappingShelf);
+  }
+  const blockHeightMm = Math.max(80, Math.round(blockTopInnerYMm - blockBottomInnerYMm));
+
+  if (solution === "blind_panel_filler") {
+    return {
+      solution,
+      hasInternalDrawers: true,
+      isHingedDoor: true,
+      leftDeductionMm: activeLeft ? blindWidthMm : 0,
+      rightDeductionMm: activeRight ? blindWidthMm : 0,
+      hasLeftBlindFiller: activeLeft,
+      hasRightBlindFiller: activeRight,
+      blindWidthMm,
+      blindSetbackFromFrontMm,
+      blockBottomInnerYMm: Math.round(blockBottomInnerYMm),
+      blockTopInnerYMm: Math.round(blockTopInnerYMm),
+      blockHeightMm,
+    };
+  }
+
+  // Legacy spacer_block_25mm
+  const spacerW = 25;
+  return {
+    solution,
+    hasInternalDrawers: true,
+    isHingedDoor: true,
+    leftDeductionMm: activeLeft ? spacerW : 0,
+    rightDeductionMm: activeRight ? spacerW : 0,
+    hasLeftBlindFiller: false,
+    hasRightBlindFiller: false,
+    blindWidthMm: spacerW,
+    blindSetbackFromFrontMm: 0,
+    blockBottomInnerYMm: Math.round(blockBottomInnerYMm),
+    blockTopInnerYMm: Math.round(blockTopInnerYMm),
+    blockHeightMm,
+  };
 }

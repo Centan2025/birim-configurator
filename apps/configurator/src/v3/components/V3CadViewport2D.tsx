@@ -12118,6 +12118,12 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             } else if (isDrawerHandle) {
               fill = "#44403C";
               stroke = "#1C1917";
+            } else if (mode === "section" && el.role === "drawer_bottom") {
+              fill = "#D97706";
+              stroke = "#451A03";
+            } else if ((mode === "section" || mode === "plan") && el.role === "carcass_back") {
+              fill = "#94A3B8";
+              stroke = "#0F172A";
             } else if (mode === "section" && el.role === "drawer_back") {
               fill = "#FDBA74";
               stroke = "#7C2D12";
@@ -12257,8 +12263,10 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       ? 6
                       : isFixedShelf
                       ? 4.5
-                      : mode === "section" && el.role === "drawer_back"
-                      ? 4
+                      : mode === "section" && (el.role === "drawer_back" || el.role === "drawer_bottom")
+                      ? 3.8
+                      : (mode === "section" || mode === "plan") && el.role === "carcass_back"
+                      ? 3.5
                       : isHiddenLeg || (mode === "section" && sectionDirection2D === "Z" && el.role === "drawer_side_left")
                       ? 2
                       : 3

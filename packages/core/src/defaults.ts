@@ -1293,7 +1293,7 @@ export function createDefaultWardrobeModule(id = "module_1"): ModuleInstance {
           {
             id: `${pfx}shelf_1_drw_top`,
             bayIndex: 1,
-            elevationY: 365,
+            elevationY: 360,
             isAdjustable: false,
             isFixed: true,
             fixedConnectorType: "minifix_dowel",
@@ -1310,7 +1310,7 @@ export function createDefaultWardrobeModule(id = "module_1"): ModuleInstance {
         hangingRails: [{ id: `${pfx}rail_1_1`, bayIndex: 1, elevationY: 1730 }],
         drawers: [
           { id: `${pfx}drawer_1_1`, bayIndex: 1, elevationY: 0, height: 180, slideType: "soft_close" },
-          { id: `${pfx}drawer_1_2`, bayIndex: 1, elevationY: 185, height: 180, slideType: "soft_close" },
+          { id: `${pfx}drawer_1_2`, bayIndex: 1, elevationY: 180, height: 180, slideType: "soft_close" },
         ],
         specialFittings: [],
       },

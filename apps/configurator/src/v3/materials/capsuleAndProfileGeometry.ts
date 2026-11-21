@@ -191,7 +191,55 @@ export function getCachedContouredDoorSweepGeometry(
 }
 
 /**
- * Builds a precision handleless 45°-sloped integrated J-Pull top-channel door (`j_pull_bevel`).
+ * Canonical 12-vertex (y, z) cross-section polygon for a CNC milled J-Pull door/drawer (`j_pull_bevel`, TLD HL2).
+ * Shared identically by 3D door mesh extrusion AND 3D X-section cut caps (`0.00 mm` deviation).
+ * Local axes: y ∈ [-h/2, +h/2], z ∈ [-d/2 (cabinet back), +d/2 (room front)].
+ */
+export function buildJPullCrossSectionLoop(
+  h: number,
+  d: number,
+  edgePlacement: "top" | "bottom" = "top"
+): [number, number][] {
+  const hh = h / 2;
+  const hd = d / 2;
+  // Authentic 34mm CNC J-channel milled into 22mm (or 18mm) door front face:
+  // Full-height rear wall keeps 0mm gap into the cabinet while the front face scoops inward into a crisp J-hook!
+  const grooveDepthY = Math.min(34, Math.max(24, h * 0.25));
+  const backWallT = Math.min(d * 0.34, Math.max(5.5, d * 0.27));
+  const frontHookThick = Math.min(d * 0.26, Math.max(4.5, d * 0.22));
+  const yFloor = hh - grooveDepthY;
+  const hookRise = Math.min(11, grooveDepthY * 0.34);
+  const yHookTop = yFloor + hookRise;
+  const zBack = -hd;
+  const zFront = hd;
+  const zGrooveBack = zBack + backWallT;
+  const zHookInner = zFront - frontHookThick;
+  const zMid = (zGrooveBack + zHookInner) * 0.5;
+  const halfPocket = Math.max(1.5, (zHookInner - zGrooveBack) * 0.5);
+
+  const topLoop: [number, number][] = [
+    [-hh, zBack],
+    [-hh, zFront],
+    [yHookTop - 1.5, zFront],
+    [yHookTop, zFront - 1.2],
+    [yHookTop, zHookInner + 0.8],
+    [yHookTop - 1.5, zHookInner],
+    [yFloor + 3.0, zHookInner - halfPocket * 0.2],
+    [yFloor, zMid + halfPocket * 0.35],
+    [yFloor, zMid - halfPocket * 0.35],
+    [yFloor + 3.0, zGrooveBack],
+    [hh, zGrooveBack],
+    [hh, zBack],
+  ];
+
+  // Mirror across Y = 0 and reverse winding for bottom-edge J-Pull (upper wall cabinets) so CCW orientation stays consistent!
+  return edgePlacement === "bottom"
+    ? [...topLoop].reverse().map(([py, pz]) => [-py, pz] as [number, number])
+    : topLoop;
+}
+
+/**
+ * Builds a precision handleless CNC milled integrated J-Pull door (`j_pull_bevel`).
  */
 export function getCachedJPullBevelDoorGeometry(
   w: number,
@@ -200,45 +248,14 @@ export function getCachedJPullBevelDoorGeometry(
   isCrossGrain = false,
   edgePlacement: "top" | "bottom" = "top"
 ): { geo: THREE.BufferGeometry; edges: THREE.EdgesGeometry } {
-  const key = `jpull_v3_${edgePlacement}_${Math.round(w)}_${Math.round(h)}_${Math.round(d * 10)}_${isCrossGrain ? 1 : 0}`;
+  const key = `jpull_v4_${edgePlacement}_${Math.round(w)}_${Math.round(h)}_${Math.round(d * 10)}_${isCrossGrain ? 1 : 0}`;
   const hit = contouredDoorCache.get(key);
   if (hit) return hit;
 
   evictOldest(contouredDoorCache);
 
   const hw = w / 2;
-  const hh = h / 2;
-  const hd = d / 2;
-  // True TLD HL2 CNC J-Pull Profile milled into 21-22mm door:
-  // - Base/Drawer (`edgePlacement === "top"`): J-groove milled along TOP edge (+hh) for overhand downward pull.
-  // - Upper Wall (`edgePlacement === "bottom"`): J-groove milled along BOTTOM edge (-hh) for underhand upward pull!
-  const grooveDepthY = Math.min(35, Math.max(26, h * 0.05));
-  const backWallT = Math.max(4.5, d * 0.21);
-  const frontHookThick = Math.max(3.5, d * 0.17);
-  const yFloorTop = hh - grooveDepthY;
-  const yHookTipTop = yFloorTop + 5.5;
-  const zBack = -hd;
-  const zGrooveBack = -hd + backWallT;
-  const zHookInner = hd - frontHookThick;
-  const zFront = hd;
-
-  const topLoop: [number, number][] = [
-    [-hh, zBack],
-    [-hh, zFront],
-    [yHookTipTop - 1.5, zFront],
-    [yHookTipTop, zFront - 1.0],
-    [yHookTipTop, zHookInner + 0.8],
-    [yFloorTop + 1.8, zHookInner - 1.2],
-    [yFloorTop, (zGrooveBack + zHookInner) * 0.5],
-    [yFloorTop + 2.0, zGrooveBack + 1.2],
-    [hh, zGrooveBack],
-    [hh, zBack],
-  ];
-  // Mirror across Y = 0 and reverse winding for bottom-edge J-Pull so normals stay outward!
-  const yzLoop: [number, number][] =
-    edgePlacement === "bottom"
-      ? [...topLoop].reverse().map(([py, pz]) => [-py, pz] as [number, number])
-      : topLoop;
+  const yzLoop = buildJPullCrossSectionLoop(h, d, edgePlacement);
 
   const positions: number[] = [];
   const pushQuad = (
@@ -256,16 +273,17 @@ export function getCachedJPullBevelDoorGeometry(
     pushQuad([-hw, y0, z0], [hw, y0, z0], [hw, y1, z1], [-hw, y1, z1]);
   }
 
-  // Left (-hw) and Right (+hw) end caps via fan triangulation from centroid
-  const cyAvg = 0;
-  const czAvg = 0;
-  for (let i = 0; i < yzLoop.length; i++) {
-    const [y0, z0] = yzLoop[i];
-    const [y1, z1] = yzLoop[(i + 1) % yzLoop.length];
+  // Concave-safe triangulation for Left (-hw) and Right (+hw) end caps via earcut (`ShapeUtils.triangulateShape`)
+  const contour2D = yzLoop.map(([py, pz]) => new THREE.Vector2(py, pz));
+  const faces = THREE.ShapeUtils.triangulateShape(contour2D, []);
+  for (const [ia, ib, ic] of faces) {
+    const [ya, za] = yzLoop[ia];
+    const [yb, zb] = yzLoop[ib];
+    const [yc, zc] = yzLoop[ic];
     // Right cap (+X)
-    positions.push(hw, cyAvg, czAvg, hw, y0, z0, hw, y1, z1);
+    positions.push(hw, ya, za, hw, yb, zb, hw, yc, zc);
     // Left cap (-X)
-    positions.push(-hw, cyAvg, czAvg, -hw, y1, z1, -hw, y0, z0);
+    positions.push(-hw, ya, za, -hw, yc, zc, -hw, yb, zb);
   }
 
   let rawGeo = new THREE.BufferGeometry();

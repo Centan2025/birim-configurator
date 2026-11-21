@@ -327,7 +327,15 @@ export function generateCrossSection2D(
           }
         }
         const orderX = (r: string) =>
-          r === "carcass_back" ? 0 : r === "drawer_back" ? 1 : r.startsWith("drawer_side") ? 2 : 3;
+          r === "carcass_back"
+            ? 0
+            : r === "drawer_back"
+            ? 1
+            : r.startsWith("drawer_side")
+            ? 2
+            : r === "drawer_bottom"
+            ? 4
+            : 3;
         keptX.sort((a, b) => orderX(a.c.role) - orderX(b.c.role));
 
         const elements: Rect2D[] = keptX.map(({ c, bounds }) => ({
@@ -476,10 +484,12 @@ export function generateCrossSection2D(
           ? 0
           : r === "carcass_divider"
           ? 1
-          : r === "drawer_bottom"
-          ? 3
           : r === "drawer_back" || r === "drawer_front"
-          ? 4
+          ? 3
+          : r === "drawer_bottom" || r === "carcass_back"
+          ? 5
+          : r === "door_hinge" || r === "special_fitting"
+          ? 6
           : 2;
       keptZ.sort((a, b) => zLayer(a.role) - zLayer(b.role));
 

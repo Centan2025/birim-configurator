@@ -499,7 +499,7 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
             <button
               type="button"
               onClick={() => onChangeDoorAngle(doorOpenAngleDeg > 10 ? 0 : 82, true)}
-              title={doorOpenAngleDeg > 10 ? "Kapakları Kapat" : "Kapakları Aç"}
+              title={doorOpenAngleDeg > 10 ? "Kapak & Çekmeceleri Kapat" : "Kapak & Çekmeceleri Aç"}
               className={`h-8 px-2.5 rounded-full flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer ${
                 doorOpenAngleDeg > 10
                   ? "bg-[#141413] text-white"
@@ -512,7 +512,7 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
 
             <input
               type="range"
-              aria-label="Kapak Açılma Oranı"
+              aria-label="Kapak & Çekmece Açılma Oranı"
               min={0}
               max={85}
               step={1}

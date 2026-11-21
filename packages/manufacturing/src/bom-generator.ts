@@ -27,6 +27,7 @@ import {
   computeProjectStructuralSignature,
   resolveKlapaAndHingeBehavior,
   evaluateProjectHardwareProductionGate,
+  resolveInternalDrawerHingeClearance,
 } from "@birim/core";
 import { evaluateFreestandingTipOverRisk, evaluateUnifiedEngineeringModel } from "@birim/core";
 import {
@@ -1135,7 +1136,7 @@ export function generateBOMForProject(
 
       if (comp.role.includes("side") && !comp.role.includes("drawer")) {
         length = comp.dimensions.height;
-        width = comp.dimensions.depth;
+        width = comp.thicknessAxis === "z" ? comp.dimensions.width : comp.dimensions.depth;
         const isRightSide = comp.role === "carcass_side_right";
         mirrorInnerFaceX = isRightSide && module.category !== "complementary";
         hasPartBackGroove = hasGroovedBack;
@@ -1174,7 +1175,7 @@ export function generateBOMForProject(
         length = comp.dimensions.width;
         width = isVertStretcher ? comp.dimensions.height : comp.dimensions.depth;
         // Front or vertical kitchen stretchers NEVER receive a rear back-panel groove!
-        hasPartBackGroove = hasGroovedBack && !isStretcherStrip;
+        hasPartBackGroove = hasGroovedBack && (!isStretcherStrip || comp.id.includes("_top_stretcher_rear"));
         edgeBanding = {
           top: false,
           bottom: false,
@@ -1184,12 +1185,13 @@ export function generateBOMForProject(
         };
       } else if (comp.role === "carcass_divider" || comp.role === "carcass_sub_divider") {
         length = comp.dimensions.height;
-        width = comp.dimensions.depth;
+        width = comp.thicknessAxis === "z" ? comp.dimensions.width : comp.dimensions.depth;
+        const isBlindFrontFiller = comp.id.includes("_blind_front_");
         edgeBanding = {
           top: false,
           bottom: false,
           left: true,
-          right: false,
+          right: isBlindFrontFiller,
           thickness: defaultEbThickness,
         };
         if (comp.role === "carcass_divider" && typeof comp.bayIndex === "number") {
@@ -1214,7 +1216,7 @@ export function generateBOMForProject(
         }
       } else if (comp.role === "carcass_back") {
         length = comp.dimensions.height;
-        width = comp.dimensions.width;
+        width = comp.thicknessAxis === "x" ? comp.dimensions.depth : comp.dimensions.width;
         grain = "none";
         edgeBanding = { top: false, bottom: false, left: false, right: false, thickness: 0 };
       } else if (comp.role === "shelf") {
@@ -1706,9 +1708,11 @@ export function generateBOMForProject(
             : `Blum Antaro / Tandembox Çekmece Rayı Frenli ${optimalNl}mm`;
           const runnerPrice = drHw?.unitPriceEur || 28.0;
           addHardware(runnerSku, runnerName, "slide", 1, "takım", runnerPrice);
+          const effectiveBoxSys = drawerCfg?.boxSystemType || module.carcass.drawerBoxSystem;
           const isWoodenUndermountRunner =
-            drawerCfg?.boxSystemType === "wooden_undermount" ||
-            Boolean(drHw && (drHw.sku.startsWith("760H") || drHw.sku.startsWith("560H")));
+            effectiveBoxSys === "wooden_undermount" ||
+            (!effectiveBoxSys &&
+              Boolean(drHw && (drHw.sku.startsWith("760H") || drHw.sku.startsWith("560H"))));
           if (isWoodenUndermountRunner) {
             addHardware(
               "T51.1700",
@@ -1750,7 +1754,7 @@ export function generateBOMForProject(
           );
         }
         length =
-          comp.role === "drawer_bottom" || comp.role === "drawer_back"
+          comp.role === "drawer_bottom" || comp.role === "drawer_back" || comp.role === "drawer_box"
             ? comp.dimensions.width
             : comp.dimensions.depth;
         width = comp.role === "drawer_bottom" ? comp.dimensions.depth : comp.dimensions.height;
@@ -1966,13 +1970,37 @@ export function generateBOMForProject(
                 comp.role === "carcass_side_right"
                   ? module.bays[Math.max(0, module.bays.length - 1)]
                   : module.bays[0];
+              const adjBlindPlan = resolveInternalDrawerHingeClearance(module, adjBay);
+              const sideBlockedByBlind =
+                comp.role === "carcass_side_right"
+                  ? adjBlindPlan.hasRightBlindFiller
+                  : adjBlindPlan.hasLeftBlindFiller;
               const list: Array<{ y: number; runnerLengthMm: number; isInternal?: boolean; drawerId?: string }> = [];
               for (const d of adjBay?.drawers || []) {
                 if (d.isHidden) continue;
+                if (d.isInternal && sideBlockedByBlind) continue;
                 list.push({
                   y: roundMm(plinth_dr + panelT_dr + (d.elevationY || 0) + 22 - sideBaseY, 2),
                   runnerLengthMm: nominalRunnerNL,
                   isInternal: Boolean(d.isInternal),
+                  drawerId: d.id,
+                });
+              }
+              return list.length > 0 ? list : undefined;
+            })()
+          : comp.role === "carcass_sub_divider" &&
+            comp.id.includes("_blind_divider_") &&
+            typeof comp.bayIndex === "number"
+          ? (() => {
+              const targetBay = module.bays[comp.bayIndex];
+              const bPlan = resolveInternalDrawerHingeClearance(module, targetBay);
+              const list: Array<{ y: number; runnerLengthMm: number; isInternal?: boolean; drawerId?: string }> = [];
+              for (const d of targetBay?.drawers || []) {
+                if (d.isHidden || !d.isInternal) continue;
+                list.push({
+                  y: roundMm((d.elevationY || 0) + 22 - bPlan.blockBottomInnerYMm, 2),
+                  runnerLengthMm: nominalRunnerNL,
+                  isInternal: true,
                   drawerId: d.id,
                 });
               }
@@ -1984,8 +2012,10 @@ export function generateBOMForProject(
           ? (() => {
               const lb = module.bays[comp.bayIndex];
               const rb = module.bays[comp.bayIndex + 1];
+              const lbBlind = resolveInternalDrawerHingeClearance(module, lb);
+              const rbBlind = resolveInternalDrawerHingeClearance(module, rb);
               const leftList = (lb?.drawers || [])
-                .filter((d) => !d.isHidden)
+                .filter((d) => !d.isHidden && !(d.isInternal && lbBlind.hasRightBlindFiller))
                 .map((d) => ({
                   y: roundMm((d.elevationY || 0) + 22, 2),
                   runnerLengthMm: nominalRunnerNL,
@@ -1993,7 +2023,7 @@ export function generateBOMForProject(
                   drawerId: d.id,
                 }));
               const rightList = (rb?.drawers || [])
-                .filter((d) => !d.isHidden)
+                .filter((d) => !d.isHidden && !(d.isInternal && rbBlind.hasLeftBlindFiller))
                 .map((d) => ({
                   y: roundMm((d.elevationY || 0) + 22, 2),
                   runnerLengthMm: nominalRunnerNL,
@@ -2088,17 +2118,18 @@ export function generateBOMForProject(
 
       const resolvedHandleSpacingMm = canonicalHandleSpec?.spacingCcMm;
 
-      // Detect wooden drawer components (16mm wooden sides + 8mm grooved bottom)
+      // Detect wooden drawer components (16mm wooden sides + 16mm inner sub-front + 8mm grooved bottom)
       const isWoodenDrawerComponent = (() => {
         if (
           comp.role !== "drawer_side_left" &&
           comp.role !== "drawer_side_right" &&
           comp.role !== "drawer_back" &&
+          comp.role !== "drawer_box" &&
           comp.role !== "drawer_front"
         ) {
           return false;
         }
-        const prefix = comp.id.replace(/_(side_left|side_right|back|front)$/, "");
+        const prefix = comp.id.replace(/_(side_left|side_right|back|sub_front|front)$/, "");
         const botComp = geo.components.find((gc) => gc.id === `${prefix}_bottom`);
         return Boolean(botComp && Math.min(botComp.dimensions.height, botComp.dimensions.depth) <= 10);
       })();
@@ -2107,7 +2138,8 @@ export function generateBOMForProject(
         isWoodenDrawerComponent &&
         (comp.role === "drawer_side_left" ||
           comp.role === "drawer_side_right" ||
-          comp.role === "drawer_front");
+          comp.role === "drawer_back" ||
+          comp.role === "drawer_box");
 
       const wallHangerCornerNotches =
         isWallCab && comp.role === "carcass_back" && partBackMode === "grooved"
@@ -2194,19 +2226,27 @@ export function generateBOMForProject(
             const targetBIdx = comp.role === "carcass_side_right" ? Math.max(0, module.bays.length - 1) : 0;
             const targetBay = module.bays[targetBIdx];
             adjYs = (targetBay?.shelves || [])
-              .filter((s) => !s.isHidden && s.isAdjustable !== false)
+              .filter((s) => !s.isHidden && s.isAdjustable !== false && !s.isFixed)
               .map((s) => roundMm(bottomJointOffsetY + panelT_mh + s.elevationY, 2));
           } else if (comp.role === "carcass_divider" && typeof comp.bayIndex === "number") {
             const lb = module.bays[comp.bayIndex];
             const rb = module.bays[comp.bayIndex + 1];
             const rawYs = [
-              ...(lb?.shelves || []).filter((s) => !s.isHidden && s.isAdjustable !== false).map((s) => s.elevationY),
-              ...(rb?.shelves || []).filter((s) => !s.isHidden && s.isAdjustable !== false).map((s) => s.elevationY),
+              ...(lb?.shelves || []).filter((s) => !s.isHidden && s.isAdjustable !== false && !s.isFixed).map((s) => s.elevationY),
+              ...(rb?.shelves || []).filter((s) => !s.isHidden && s.isAdjustable !== false && !s.isFixed).map((s) => s.elevationY),
             ];
             adjYs = Array.from(new Set(rawYs.map((v) => roundMm(v, 2)))).sort((a, b) => a - b);
           }
+          const isSideOrDivMh =
+            comp.role === "carcass_side_left" ||
+            comp.role === "carcass_side_right" ||
+            comp.role === "carcass_divider";
+          const effectiveMhMode =
+            isSideOrDivMh && !module.carcass.multiHoleMode && adjYs.length === 0
+              ? ("none" as const)
+              : mhSpec.mode;
           return {
-            multiHoleMode: mhSpec.mode,
+            multiHoleMode: effectiveMhMode,
             multiHoleRowCount: mhSpec.rowCount,
             multiHoleFrontSetbackMm: module.carcass.multiHoleFrontSetbackMm,
             multiHoleEdgeMarginMm: mhSpec.edgeMarginMm,

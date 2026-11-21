@@ -5,7 +5,7 @@ import {
   ChevronDown,
   PaintBucket,
   Pipette,
-  Sparkles,
+  SwatchBook,
   Sun,
   Moon,
   Search,
@@ -520,16 +520,16 @@ export const QuickMaterialPopoverBar: React.FC<QuickMaterialPopoverBarProps> = R
             />
           </button>
 
-          {/* 5. HAZIR ÇİFT TON KOMBİNASYONLAR AÇILIR DÜĞME */}
+          {/* 5. HAZIR ÇİFT TON PALETLER AÇILIR DÜĞME */}
           <button
             type="button"
             data-testid="v23-quick-btn-moodboards"
             onClick={(e) => toggleMenuAt("moodboards", e, 420)}
-            title="Tek Tıkla Hazır Çift Ton Mimari Kombinasyon Uygula"
+            title="Tek Tıkla Hazır Çift Ton Mimari Palet Uygula"
             className={pillBtnClass(openMenu === "moodboards")}
           >
-            <Sparkles className="w-3.5 h-3.5 text-[#7DD3FC]" />
-            <span className="hidden sm:inline">Kombinler</span>
+            <SwatchBook className="w-3.5 h-3.5 text-[#7DD3FC]" />
+            <span className="hidden sm:inline">Paletler</span>
             <ChevronDown
               className={`w-3 h-3 opacity-70 transition-transform duration-200 ${
                 openMenu === "moodboards" ? "rotate-180" : ""

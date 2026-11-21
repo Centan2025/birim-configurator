@@ -549,6 +549,12 @@ export interface DoorConfig {
   direction?: "left" | "right";
   /** Optional legacy alias for slidingMountingType */
   slidingMountType?: SlidingMountingType;
+  /** Dış çekmece üstündeki bölgenin kapak durumu (varsayılan: auto/closed) */
+  upperZoneDoorState?: "auto" | "closed" | "open";
+  /** Dış çekmece altındaki bölgenin kapak durumu (varsayılan: auto/closed, >=140mm boşlukta alt kapak üretir) */
+  lowerZoneDoorState?: "auto" | "closed" | "open";
+  /** Çoklu dış çekmece aralıklarındaki her kapak bölgesinin bağımsız durumu ("lower" | "mid_0" | "mid_1" | ... | "upper") */
+  zoneDoorStates?: Record<string, "closed" | "open">;
 }
 
 export interface SubDividerConfig {
@@ -649,7 +655,13 @@ export interface CarcassConfig {
   hasUnderSinkAluminumTray?: boolean; // Waterproof aluminum drip tray inside sink base
   islandBackCladding?: boolean; // Decorative rear cladding for kitchen island
   islandOverhangRearMm?: UnitLength; // Seating bar overhang (250-350mm; >300mm steel bracket rule)
-  internalDrawerHingeSolution?: "auto_155_hinge" | "spacer_block_25mm";
+  internalDrawerHingeSolution?: "auto_155_hinge" | "spacer_block_25mm" | "blind_panel_filler";
+  /** Total blind zone width (mm) including inner divider thickness when internalDrawerHingeSolution === "blind_panel_filler" (default 40mm) */
+  internalDrawerBlindWidthMm?: UnitLength;
+  /** Recess of the blind front filler behind the internal drawer front face (0mm = flush with drawer front, 18mm = behind drawer front, max 80mm) */
+  internalDrawerBlindSetbackFromFrontMm?: UnitLength;
+  /** Force symmetric left + right blind zones even for single-leaf hinged doors */
+  internalDrawerBlindSymmetric?: boolean;
   wallSuspensionType?: "visible_bracket" | "concealed_camar_807";
   /** EN 14749 anti-tip wall anchor confirmation for tall/slender floor-standing units */
   wallAnchored?: boolean;

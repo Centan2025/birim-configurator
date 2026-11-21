@@ -402,7 +402,10 @@ export function computeGolaSidePanelNotches(
     if (
       bay.door?.handleCategory !== "gola_profile" ||
       bay.door?.handleProfileId === "hnd_gola_vertical" ||
-      bay.door?.handleProfileId === "hnd_overhang_recessed_lip"
+      bay.door?.handleProfileId === "hnd_overhang_recessed_lip" ||
+      bay.door?.handleProfileId === "hnd_bevel_30_backing" ||
+      bay.door?.handleProfileId === "hnd_gola_melamine_box" ||
+      bay.door?.handleProfileId === "hnd_gola_moulded_box"
     ) {
       return;
     }

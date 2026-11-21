@@ -42,6 +42,7 @@ import {
   evaluateHardwareMountPlacement,
 } from "@birim/core";
 import { getHardwareProductById } from "@birim/catalog";
+import { GEOMETRY_ENGINE_REV } from "@birim/geometry";
 import {
   computeElevationSnapTargets,
   resolveElevationSnap,
@@ -75,7 +76,10 @@ import {
   disposeWebGLRendererCleanly,
   type WebGL2CapabilityReport,
 } from "../materials/webglResourceGuard";
-import { buildCapsuleParametricModuleGroup } from "../materials/capsuleAndProfileGeometry";
+import {
+  buildCapsuleParametricModuleGroup,
+  buildJPullCrossSectionLoop,
+} from "../materials/capsuleAndProfileGeometry";
 import { Software3DFallbackViewport } from "./Software3DFallbackViewport";
 import {
   createSculptedHangingShirtGroup,
@@ -2497,6 +2501,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
     const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
     const controlsRef = useRef<OrbitControls | null>(null);
     const meshGroupRef = useRef<THREE.Group | null>(null);
+    const sectionCapGroupRef = useRef<THREE.Group | null>(null);
     const dimGroupRef = useRef<THREE.Group | null>(null);
     const ghostSnapGroupRef = useRef<THREE.Group | null>(null);
     const lastGhostKeyRef = useRef<string>("");
@@ -6261,10 +6266,29 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       requestRender();
     }, [cameraPreset, requestRender]);
 
-    // 2-Directional Interactive 3D Section Clipping Plane (X Boyuna Kesit & Z Enine Kesit)
+    // 2-Directional Interactive 3D Section Clipping Plane (X Boyuna Kesit & Z Enine Kesit) + Solid MDF Section Caps
     useEffect(() => {
       const curRenderer = rendererRef.current;
+      const curScene = sceneRef.current;
+      const curMeshGroup = meshGroupRef.current;
       if (!curRenderer) return;
+
+      // Clean up any previous section cap group
+      if (sectionCapGroupRef.current) {
+        if (curScene) curScene.remove(sectionCapGroupRef.current);
+        sectionCapGroupRef.current.clear();
+        sectionCapGroupRef.current = null;
+      }
+
+      // Hide fake dark fuga shadow backing plates while 3D section cut is active so doors/drawers show clean pure panels
+      if (curMeshGroup) {
+        traverseCabinetObjectsOnly(curMeshGroup, (obj) => {
+          if (obj.userData?.isFugaBacking) {
+            obj.visible = !section3DAxis;
+          }
+        });
+      }
+
       if (!section3DAxis) {
         curRenderer.localClippingEnabled = false;
         curRenderer.clippingPlanes = [];
@@ -6274,15 +6298,272 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       const mod = project.modules[activeModuleIndex] || project.modules[0];
       if (!mod) return;
       curRenderer.localClippingEnabled = true;
+      let cutVal = 0;
       if (section3DAxis === "X") {
-        const cutWorldX = mod.position.x + Math.round(mod.dimensions.width * section3DRatio);
-        curRenderer.clippingPlanes = [new THREE.Plane(new THREE.Vector3(-1, 0, 0), cutWorldX)];
+        cutVal = mod.position.x + Math.round(mod.dimensions.width * section3DRatio);
+        curRenderer.clippingPlanes = [new THREE.Plane(new THREE.Vector3(-1, 0, 0), cutVal)];
       } else {
-        const cutWorldZ = mod.position.z + Math.round(mod.dimensions.depth * section3DRatio);
-        curRenderer.clippingPlanes = [new THREE.Plane(new THREE.Vector3(0, 0, -1), cutWorldZ)];
+        cutVal = mod.position.z + Math.round(mod.dimensions.depth * section3DRatio);
+        curRenderer.clippingPlanes = [new THREE.Plane(new THREE.Vector3(0, 0, -1), cutVal)];
       }
-      requestRender();
-    }, [section3DAxis, section3DRatio, project, activeModuleIndex, requestRender]);
+
+      // Generate solid MDF / metal / LED section-cut caps AFTER main scene effect rebuilds meshes
+      let rafCapId = 0;
+      const buildSectionCaps = () => {
+        if (sectionCapGroupRef.current) {
+          if (curScene) curScene.remove(sectionCapGroupRef.current);
+          sectionCapGroupRef.current.clear();
+          sectionCapGroupRef.current = null;
+        }
+        if (!curScene || !curMeshGroup) return;
+
+        const capGroup = new THREE.Group();
+        capGroup.name = "birim_3d_section_caps";
+        const unitPlaneGeo = new THREE.PlaneGeometry(1, 1);
+        const unitEdgeGeo = new THREE.EdgesGeometry(unitPlaneGeo);
+        const mdfCoreMat = new THREE.MeshStandardMaterial({
+          color: 0xc29e70, // Natural raw MDF / particleboard core tone
+          roughness: 0.92,
+          metalness: 0.02,
+          side: THREE.DoubleSide,
+          polygonOffset: true,
+          polygonOffsetFactor: -1,
+          polygonOffsetUnits: -1,
+        });
+        const innerBoxCoreMat = new THREE.MeshStandardMaterial({
+          color: 0xb38b5c, // Slightly deeper core tone for inner drawer sub-front so 18mm klapa vs 16mm inner sub-front reads crisply in section
+          roughness: 0.92,
+          metalness: 0.02,
+          side: THREE.DoubleSide,
+          polygonOffset: true,
+          polygonOffsetFactor: -1,
+          polygonOffsetUnits: -1,
+        });
+        const dadoBoardCoreMat = new THREE.MeshStandardMaterial({
+          color: 0x9c7446, // Distinct deeper core tone so 8mm grooved back panel & drawer bottom dado slots stand out unmistakably inside 18mm panels
+          roughness: 0.9,
+          metalness: 0.02,
+          side: THREE.DoubleSide,
+          polygonOffset: true,
+          polygonOffsetFactor: -2,
+          polygonOffsetUnits: -2,
+        });
+        const metalCoreMat = new THREE.MeshStandardMaterial({
+          color: 0x475569,
+          roughness: 0.38,
+          metalness: 0.68,
+          side: THREE.DoubleSide,
+          polygonOffset: true,
+          polygonOffsetFactor: -1,
+          polygonOffsetUnits: -1,
+        });
+        const ledCoreMat = new THREE.MeshBasicMaterial({
+          color: 0xfff1c4,
+          side: THREE.DoubleSide,
+          polygonOffset: true,
+          polygonOffsetFactor: -3,
+          polygonOffsetUnits: -3,
+        });
+        const capOutlineMat = new THREE.LineBasicMaterial({
+          color: 0x2d1f10,
+          transparent: true,
+          opacity: 0.88,
+          polygonOffset: true,
+          polygonOffsetFactor: -3,
+          polygonOffsetUnits: -3,
+        });
+
+        const tmpBox = new THREE.Box3();
+        curMeshGroup.updateMatrixWorld(true);
+
+        traverseCabinetObjectsOnly(curMeshGroup, (obj) => {
+          if (obj.userData?.isFugaBacking) {
+            obj.visible = false;
+            return;
+          }
+          if (!(obj instanceof THREE.Mesh) || !obj.visible) return;
+          if (!obj.userData?.componentId) return;
+          if (obj.userData.isSelectionHelper || obj.userData.isInteriorAo) return;
+          const role = String(obj.userData.role || "");
+          if (role === "door_hinge" || role === "led_strip") return;
+
+          tmpBox.setFromObject(obj);
+          if (tmpBox.isEmpty()) return;
+
+          const compIdStr = String(obj.userData.componentId || "");
+          const isLedCap =
+            String(obj.userData.matDef?.id || "").startsWith("mat_led_") ||
+            compIdStr.includes("_recessed_led_");
+          const isWoodGolaBoxCap =
+            role === "gola_profile" &&
+            (compIdStr.includes("gola_moulded_box") ||
+              compIdStr.includes("gola_melamine_box") ||
+              compIdStr.includes("gola_bevel_backing"));
+          const isMetal =
+            !isLedCap &&
+            !isWoodGolaBoxCap &&
+            (role === "hanging_rail" ||
+              role === "drawer_slide" ||
+              role === "gola_profile" ||
+              role === "door_handle" ||
+              role === "drawer_handle" ||
+              role === "special_fitting" ||
+              String(obj.userData.matDef?.id || "").includes("metal"));
+          const isDadoBoard = role === "drawer_bottom" || role === "carcass_back";
+          const isInnerDrawerBox = role === "drawer_box" || isWoodGolaBoxCap;
+          const capMat = isLedCap
+            ? ledCoreMat
+            : isMetal
+            ? metalCoreMat
+            : isDadoBoard
+            ? dadoBoardCoreMat
+            : isInnerDrawerBox
+            ? innerBoxCoreMat
+            : mdfCoreMat;
+          const planeBias = isLedCap ? 0.12 : isDadoBoard ? 0.17 : 0.25;
+
+          if (section3DAxis === "X") {
+            if (tmpBox.min.x < cutVal - 0.3 && tmpBox.max.x > cutVal + 0.3) {
+              const capD = tmpBox.max.z - tmpBox.min.z;
+              const capH = tmpBox.max.y - tmpBox.min.y;
+              if (capD >= 2 && capH >= 2) {
+                const bevelEdge = obj.userData?.bevelPullEdge as "top" | "bottom" | undefined;
+                const isJPullCap = obj.userData?.crossSectionProfile === "j_pull_bevel";
+                if (isJPullCap && capH >= 60 && capD >= 12) {
+                  const xCap = cutVal - planeBias;
+                  const jEdge: "top" | "bottom" = obj.userData?.jPullEdge === "bottom" ? "bottom" : "top";
+                  const worldFrontDir = new THREE.Vector3(0, 0, 1).transformDirection(obj.matrixWorld);
+                  const zFlip = worldFrontDir.z >= 0 ? 1 : -1;
+                  const midY = (tmpBox.min.y + tmpBox.max.y) * 0.5;
+                  const midZ = (tmpBox.min.z + tmpBox.max.z) * 0.5;
+                  const yzLoop = buildJPullCrossSectionLoop(capH, capD, jEdge);
+                  const contour2D = yzLoop.map(([py, pz]) => new THREE.Vector2(py, pz));
+                  const faces = THREE.ShapeUtils.triangulateShape(contour2D, []);
+                  const triPositions: number[] = [];
+                  for (const [ia, ib, ic] of faces) {
+                    const [ya, za] = yzLoop[ia];
+                    const [yb, zb] = yzLoop[ib];
+                    const [yc, zc] = yzLoop[ic];
+                    triPositions.push(
+                      xCap, midY + ya, midZ + za * zFlip,
+                      xCap, midY + yb, midZ + zb * zFlip,
+                      xCap, midY + yc, midZ + zc * zFlip
+                    );
+                  }
+                  const jpCapGeo = new THREE.BufferGeometry();
+                  jpCapGeo.setAttribute("position", new THREE.Float32BufferAttribute(triPositions, 3));
+                  jpCapGeo.computeVertexNormals();
+                  const cap = new THREE.Mesh(jpCapGeo, capMat);
+                  cap.raycast = () => {};
+                  if (!isLedCap) {
+                    const xLine = xCap + 0.04;
+                    const linePositions: number[] = [];
+                    for (let i = 0; i < yzLoop.length; i++) {
+                      const [y0, z0] = yzLoop[i];
+                      const [y1, z1] = yzLoop[(i + 1) % yzLoop.length];
+                      linePositions.push(
+                        xLine, midY + y0, midZ + z0 * zFlip,
+                        xLine, midY + y1, midZ + z1 * zFlip
+                      );
+                    }
+                    const jpOutlineGeo = new THREE.BufferGeometry();
+                    jpOutlineGeo.setAttribute("position", new THREE.Float32BufferAttribute(linePositions, 3));
+                    cap.add(new THREE.LineSegments(jpOutlineGeo, capOutlineMat));
+                  }
+                  capGroup.add(cap);
+                } else if (bevelEdge === "top" || bevelEdge === "bottom") {
+                  const xCap = cutVal - planeBias;
+                  const worldFrontDir = new THREE.Vector3(0, 0, 1).transformDirection(obj.matrixWorld);
+                  const zFront = worldFrontDir.z >= 0 ? tmpBox.max.z : tmpBox.min.z;
+                  const zBack = worldFrontDir.z >= 0 ? tmpBox.min.z : tmpBox.max.z;
+                  const drop = Math.min(capH * 0.45, Number(obj.userData?.bevelDropMm) || capD);
+                  const y0 = tmpBox.min.y;
+                  const y1 = tmpBox.max.y;
+                  const yBackBot = bevelEdge === "bottom" ? y0 + drop : y0;
+                  const yBackTop = bevelEdge === "top" ? y1 - drop : y1;
+                  const p0: [number, number, number] = [xCap, y0, zFront];
+                  const p1: [number, number, number] = [xCap, y1, zFront];
+                  const p2: [number, number, number] = [xCap, yBackTop, zBack];
+                  const p3: [number, number, number] = [xCap, yBackBot, zBack];
+                  const trapGeo = new THREE.BufferGeometry();
+                  trapGeo.setAttribute(
+                    "position",
+                    new THREE.Float32BufferAttribute([...p0, ...p1, ...p2, ...p0, ...p2, ...p3], 3)
+                  );
+                  trapGeo.computeVertexNormals();
+                  const cap = new THREE.Mesh(trapGeo, capMat);
+                  cap.raycast = () => {};
+                  if (!isLedCap) {
+                    const xLine = xCap + 0.04;
+                    const l0: [number, number, number] = [xLine, y0, zFront];
+                    const l1: [number, number, number] = [xLine, y1, zFront];
+                    const l2: [number, number, number] = [xLine, yBackTop, zBack];
+                    const l3: [number, number, number] = [xLine, yBackBot, zBack];
+                    const trapOutlineGeo = new THREE.BufferGeometry();
+                    trapOutlineGeo.setAttribute(
+                      "position",
+                      new THREE.Float32BufferAttribute(
+                        [...l0, ...l1, ...l1, ...l2, ...l2, ...l3, ...l3, ...l0],
+                        3
+                      )
+                    );
+                    cap.add(new THREE.LineSegments(trapOutlineGeo, capOutlineMat));
+                  }
+                  capGroup.add(cap);
+                } else {
+                  const cap = new THREE.Mesh(unitPlaneGeo, capMat);
+                  cap.scale.set(capD, capH, 1);
+                  cap.rotation.y = Math.PI / 2;
+                  cap.position.set(
+                    cutVal - planeBias,
+                    (tmpBox.min.y + tmpBox.max.y) * 0.5,
+                    (tmpBox.min.z + tmpBox.max.z) * 0.5
+                  );
+                  cap.raycast = () => {};
+                  if (!isLedCap) {
+                    const outline = new THREE.LineSegments(unitEdgeGeo, capOutlineMat);
+                    outline.position.z = 0.04;
+                    cap.add(outline);
+                  }
+                  capGroup.add(cap);
+                }
+              }
+            }
+          } else {
+            if (tmpBox.min.z < cutVal - 0.3 && tmpBox.max.z > cutVal + 0.3) {
+              const capW = tmpBox.max.x - tmpBox.min.x;
+              const capH = tmpBox.max.y - tmpBox.min.y;
+              if (capW >= 2 && capH >= 2) {
+                const cap = new THREE.Mesh(unitPlaneGeo, capMat);
+                cap.scale.set(capW, capH, 1);
+                cap.position.set(
+                  (tmpBox.min.x + tmpBox.max.x) * 0.5,
+                  (tmpBox.min.y + tmpBox.max.y) * 0.5,
+                  cutVal - planeBias
+                );
+                cap.raycast = () => {};
+                if (!isLedCap) {
+                  const outline = new THREE.LineSegments(unitEdgeGeo, capOutlineMat);
+                  outline.position.z = 0.04;
+                  cap.add(outline);
+                }
+                capGroup.add(cap);
+              }
+            }
+          }
+        });
+
+        curScene.add(capGroup);
+        sectionCapGroupRef.current = capGroup;
+        requestRender();
+      };
+
+      buildSectionCaps();
+      rafCapId = window.requestAnimationFrame(buildSectionCaps);
+      return () => {
+        if (rafCapId) window.cancelAnimationFrame(rafCapId);
+      };
+    }, [section3DAxis, section3DRatio, project, activeModuleIndex, requestRender, GEOMETRY_ENGINE_REV]);
 
     // Fast Selection & Active Module Highlight & Selection Frame Synchronization
     const updateSelectionAndActiveFrames = useCallback(() => {
@@ -6383,8 +6664,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             modAnchor.add(baseOutline);
           }
 
-          // V96: SketchUp-style 3D Live Resize Handles (◀ Left, ▶ Right, ▲ Top) on active cabinet!
-          if (!activeMod.isFixedWidth) {
+          // V96: SketchUp-style 3D Live Resize Handles (◀ Left, ▶ Right, ▲ Top) — hidden while 3D Section Cut is active!
+          if (!activeMod.isFixedWidth && !section3DAxis) {
             const wM = activeMod.dimensions.width;
             const hM = activeMod.dimensions.height;
             const dM = activeMod.dimensions.depth;
@@ -6447,13 +6728,22 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           const isCapsuleHull =
             activeMod.carcass.hullShape === "capsule_stadium" ||
             activeMod.carcass.hullShape === "capsule_table";
+          const safeBayIdx = Math.max(0, Math.min(activeMod.bays.length - 1, activeBayIndex));
+          const activeBayObj = activeMod.bays[safeBayIdx];
+          const activeBayHasExternalDrawers = Boolean(
+            activeBayObj?.drawers?.some((d) => !d.isInternal && !d.isHidden)
+          );
+          const activeBayIsTrulyOpen =
+            !activeBayHasExternalDrawers &&
+            (Boolean(activeMod.isOpenFront) ||
+              activeBayObj?.door?.type === "open" ||
+              activeBayObj?.door?.doorSystemId === "open");
           const showBayOverlay =
             !isCapsuleHull &&
             (cutawayActiveBay ||
               doorsHiddenIn3D ||
-              doorOpenAngleDeg > 5 ||
-              Boolean(activeMod.isOpenFront) ||
-              activeMod.bays.some((b) => b.door.type === "open" || b.door.doorSystemId === "open"));
+              (Boolean(selectedComponentId) &&
+                (doorOpenAngleDeg > 5 || activeBayIsTrulyOpen)));
           if (showBayOverlay && activeMod.bays.length >= 1) {
             const T = activeMod.carcass.panelThickness || 18;
             const plinthH = activeMod.carcass.plinthHeight ?? 100;
@@ -6461,7 +6751,6 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             const innerH =
               fsAct.usableInternal.netInnerHeightMm ||
               Math.max(300, activeMod.dimensions.height - plinthH - 2 * T);
-            const safeBayIdx = Math.max(0, Math.min(activeMod.bays.length - 1, activeBayIndex));
             let curBayX = T;
             for (let bI = 0; bI < safeBayIdx; bI++) {
               curBayX += (fsAct.usableInternal.bayClearWidthsMm[bI] || 500) + T;
@@ -6643,7 +6932,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       }
 
       requestRender();
-    }, [activeModuleIndex, activeBayIndex, cutawayActiveBay, doorsHiddenIn3D, doorOpenAngleDeg, selectedComponentId, project, theme, renderEdgeMode, isXrayActive, requestRender]);
+    }, [activeModuleIndex, activeBayIndex, cutawayActiveBay, doorsHiddenIn3D, doorOpenAngleDeg, selectedComponentId, section3DAxis, project, theme, renderEdgeMode, isXrayActive, requestRender]);
 
     const updateSelectionFramesRef = useRef(updateSelectionAndActiveFrames);
     updateSelectionFramesRef.current = updateSelectionAndActiveFrames;
@@ -6658,7 +6947,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       restoreHoverPreviewMaterials();
 
       const needsActiveModInSig = cutawayActiveBay;
-      const baseViewSuffix = `|${effectiveDoorsHiddenIn3D ? 1 : 0}:${cutawayActiveBay ? 1 : 0}:${renderEdgeMode}:${isXrayActive ? 1 : 0}`;
+      const baseViewSuffix = `|REV:${GEOMETRY_ENGINE_REV}|${effectiveDoorsHiddenIn3D ? 1 : 0}:${cutawayActiveBay ? 1 : 0}:${renderEdgeMode}:${isXrayActive ? 1 : 0}`;
       const baseSigs = project.modules.map((mod, modIdx) =>
         `${computeModuleStructuralSignature(mod)}|ACT:${needsActiveModInSig && modIdx === activeModuleIndex ? activeBayIndex : -2}${baseViewSuffix}`
       );
@@ -7214,6 +7503,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               breakdown.bayWidths[bI] ||
               Math.round((mod.dimensions.width - (mod.bays.length + 1) * pT) / mod.bays.length);
             const bayVis =
+              Boolean(section3DAxis) ||
               doorsHiddenIn3D ||
               (isActiveMod && cutawayActiveBay && bI === activeBayIndex) ||
               doorOpenAngleDeg > 5 ||
@@ -7644,7 +7934,23 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               const depthMm = Math.max(8, Math.min(34, h.depth || 13));
               dummy.rotation.set(0, 0, 0);
               let holeWy = py + ch * 0.5;
-              if (isSidePanel) {
+              const isDrawerSide =
+                comp.role === "drawer_side_left" || comp.role === "drawer_side_right";
+              if (isDrawerSide) {
+                // Wooden drawer sides: local x = side height (3D Y), local y = box depth from front to back (3D Z)
+                const wy = py + Math.min(ch - 6, Math.max(6, h.x));
+                holeWy = wy;
+                const wz = pz + Math.min(cd - 6, Math.max(6, cd - h.y));
+                if (h.direction.startsWith("edge_")) {
+                  dummy.rotation.x = Math.PI / 2;
+                  dummy.position.set(px + cw * 0.5, wy, wz);
+                  dummy.scale.set(h.diameter, depthMm, h.diameter);
+                } else {
+                  dummy.rotation.z = Math.PI / 2;
+                  dummy.position.set(px + cw * 0.5, wy, wz);
+                  dummy.scale.set(h.diameter, depthMm, h.diameter);
+                }
+              } else if (isSidePanel) {
                 const wx =
                   comp.role === "carcass_divider"
                     ? h.direction === "face_back"
@@ -7683,8 +7989,12 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                   dummy.scale.set(h.diameter, depthMm, h.diameter);
                 }
               } else {
-                const wx = px + Math.min(cw - 8, Math.max(8, h.x));
-                const wy = py + Math.min(ch - 8, Math.max(8, h.y));
+                const isWideDrawerPanel =
+                  (comp.role === "drawer_back" || comp.role === "drawer_front") && cw > ch;
+                const rawX = isWideDrawerPanel ? h.y : h.x;
+                const rawY = isWideDrawerPanel ? h.x : h.y;
+                const wx = px + Math.min(cw - 6, Math.max(6, rawX));
+                const wy = py + Math.min(ch - 6, Math.max(6, rawY));
                 holeWy = wy;
                 dummy.rotation.x = Math.PI / 2;
                 dummy.position.set(wx, wy, pz + cd * 0.5);
@@ -8118,6 +8428,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       cutawayActiveBay ? activeModuleIndex : -1,
       cutawayActiveBay ? activeBayIndex : -1,
       doorsHiddenIn3D,
+      section3DAxis,
       effectiveDoorsHiddenIn3D,
       cutawayActiveBay,
       theme,
@@ -8127,6 +8438,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       paused,
       isXrayActive ? storeBom : null,
       requestRender,
+      GEOMETRY_ENGINE_REV,
     ]);
 
     // Dedicated O(1) Interior Wardrobe Styling Props Layer (`Eşyalar`) — Decoupled from Cabinet Mesh Rebuilds!
@@ -8450,9 +8762,20 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             const shoeRacks = (bayObj.specialFittings || []).filter(
               (f) => f.type === "shoe_rack" && !f.isHidden
             );
-            const maxShoeDepthMm = Math.max(200, frontSafeZ - backSafeZ - 24);
+            const rackDepthMm = Math.max(120, modD - 54);
+            const rackCenterZ = 24 + rackDepthMm * 0.5;
+            const maxShoeDepthMm = Math.min(
+              Math.max(200, frontSafeZ - backSafeZ - 24),
+              Math.max(190, rackDepthMm * 0.72)
+            );
+            const rackTiltRad = 0.22; // Matches componentMesh.ts _fitting_shoe_rack inclinedGroup.rotation.x
             shoeRacks.forEach((sr, srIdx) => {
-              const rackWorldY = plinthH + T + (sr.elevationY || 180) + 18;
+              const fitH = Math.max(65, sr.height || 85);
+              // componentMesh.ts places inclinedGroup at cy + 8, support chrome bars at local y = 4 with radius 5 -> local top y = fitH/2 + 17
+              // Shift shoe slightly back (-14mm along Z) so toes sit cleanly behind the raised front stop bar (+d*0.36)
+              const zBackShift = -14;
+              const slopeLiftY = -zBackShift * Math.sin(rackTiltRad);
+              const rackWorldY = plinthH + T + (sr.elevationY || 180) + fitH * 0.5 + 17 + slopeLiftY;
               const pairCount = isMultiModuleScene ? 1 : Math.max(1, Math.min(2, Math.floor((bw - 40) / 285)));
               const stepP = (bw - 50) / pairCount;
               for (let p = 0; p < pairCount; p++) {
@@ -8460,9 +8783,9 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                 shoePair.position.set(
                   bayStartX + 25 + stepP * (p + 0.5),
                   rackWorldY,
-                  centerZ
+                  rackCenterZ + zBackShift
                 );
-                shoePair.rotation.x = 0.24;
+                shoePair.rotation.x = rackTiltRad;
                 shoePair.userData = {
                   ...shoePair.userData,
                   propOwnerKind: "special_fitting",

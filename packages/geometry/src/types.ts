@@ -54,6 +54,8 @@ export interface ComponentGeometry {
   primitive?: "box" | "sphere" | "cylinder";
   parentComponentId?: string;
   handleCategory?: import("@birim/core").HandleCategory;
+  handleProfileId?: string;
+  bevelPullEdge?: "top" | "bottom";
   slidingMountingType?: import("@birim/core").SlidingMountingType;
   isInternalDrawer?: boolean;
   crossSectionProfile?: import("@birim/core").DoorCrossSectionProfile;

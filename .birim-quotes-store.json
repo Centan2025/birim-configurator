@@ -1755,5 +1755,449 @@
       "tenantId": "00000000-0000-0000-0000-000000000002"
     },
     "hmacSignature": "e3da060dfb3e5517b26cc9b5eacd2460e0eae4b3ad4f6ed44f134e9c12626fdc"
+  },
+  {
+    "code": "BRM-8N8HTL",
+    "tenantId": "00000000-0000-0000-0000-000000000001",
+    "projectId": "proj_demo_01",
+    "projectTitle": "Vadi İstanbul Villa - Ebeveyn Giyinme Odası",
+    "version": 1,
+    "createdAt": "2026-11-21T17:30:19.479Z",
+    "expiresAt": "2026-11-22T17:30:19.479Z",
+    "discountPercent": 0,
+    "installments": 1,
+    "serverVerifiedSubtotalEur": 2158.02,
+    "serverVerifiedTotalWithVatEur": 2589.62,
+    "serverVerifiedDiscountedTotalEur": 2589.62,
+    "serverVerifiedTotalWithVatTry": 108246.12,
+    "cutPiecesCount": 18,
+    "totalSheetsCount": 4,
+    "canApproveProduction": true,
+    "projectSnapshot": {
+      "id": "proj_demo_01",
+      "version": 1,
+      "schemaVersion": 4,
+      "catalogVersion": "lib_v4_0_0",
+      "revisionId": "rev_v1",
+      "libraryVersionId": "lib_v4_0_0",
+      "constructionProfileId": "profile_birim_factory_std",
+      "title": "Vadi İstanbul Villa - Ebeveyn Giyinme Odası",
+      "customerName": "Centan Mimarlık",
+      "branchId": "branch_vadistanbul",
+      "status": "draft",
+      "space": {
+        "id": "space_01",
+        "name": "Giyinme Odası",
+        "type": "wardrobe_zone",
+        "walls": [
+          {
+            "id": "wall_main",
+            "name": "Ana Duvar",
+            "length": 3600,
+            "height": 2800,
+            "thickness": 150,
+            "position": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "rotationY": 0,
+            "elements": []
+          },
+          {
+            "id": "wall_l_side",
+            "name": "Sol Köşe Duvarı",
+            "length": 2400,
+            "height": 2800,
+            "thickness": 150,
+            "position": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "rotationY": 90,
+            "elements": []
+          }
+        ],
+        "ceilingHeight": 2800,
+        "ceilingConfig": {
+          "enabled": true,
+          "ceilingType": "dropped_perimeter_cove",
+          "showIn3D": true,
+          "showInElevation2D": true,
+          "translucentCutawayIn3D": false,
+          "dropHeightMm": 100,
+          "soffitDepthMm": 620,
+          "hasHiddenLedCove": true,
+          "hasRecessedSpots": true
+        },
+        "elements": []
+      },
+      "modules": [
+        {
+          "id": "module_1",
+          "name": "Master Gardırop Modülü",
+          "category": "wardrobe",
+          "moduleFamilyId": "fam_wardrobe",
+          "templateId": "tpl_wardrobe_3door_drawers",
+          "position": {
+            "x": 50,
+            "y": 0,
+            "z": 0
+          },
+          "dimensions": {
+            "width": 1500,
+            "height": 2200,
+            "depth": 600
+          },
+          "carcass": {
+            "panelThickness": 18,
+            "backPanelThickness": 8,
+            "backPanelType": "grooved",
+            "plinthHeight": 80,
+            "doorPerimeterGap": 2,
+            "edgeBandThickness": 1,
+            "bodyMaterialId": "mat_melamine_white",
+            "doorMaterialId": "mat_veneer_oak",
+            "jointType": "minifix_dowel",
+            "grainContinuityMode": "module_4way"
+          },
+          "isOpenFront": false,
+          "bays": [
+            {
+              "index": 0,
+              "door": {
+                "id": "door_0",
+                "bayIndex": 0,
+                "type": "single_left",
+                "doorSystemId": "hinged_single",
+                "overlayType": "full_overlay",
+                "openingTechnology": "soft_close",
+                "handleCategory": "bar_handle",
+                "handleProfileId": "K019",
+                "handleMaterialId": "mat_handle_matte_black",
+                "hardwareProductId": "hw_blum_71b3550",
+                "softClose": true,
+                "hingeCount": 4
+              },
+              "shelves": [
+                {
+                  "id": "shelf_0_2",
+                  "bayIndex": 0,
+                  "elevationY": 352,
+                  "isAdjustable": true,
+                  "isFixed": false
+                },
+                {
+                  "id": "shelf_0_1",
+                  "bayIndex": 0,
+                  "elevationY": 1760,
+                  "isAdjustable": false,
+                  "isFixed": true,
+                  "fixedConnectorType": "minifix_dowel"
+                }
+              ],
+              "hangingRails": [
+                {
+                  "id": "rail_0_1",
+                  "bayIndex": 0,
+                  "elevationY": 1680
+                }
+              ],
+              "drawers": [],
+              "specialFittings": [],
+              "customWidth": 473
+            },
+            {
+              "index": 1,
+              "door": {
+                "id": "door_1",
+                "bayIndex": 1,
+                "type": "double",
+                "doorSystemId": "hinged_double",
+                "overlayType": "full_overlay",
+                "openingTechnology": "soft_close",
+                "handleCategory": "bar_handle",
+                "handleProfileId": "K019",
+                "handleMaterialId": "mat_handle_matte_black",
+                "hardwareProductId": "hw_blum_71b3550",
+                "softClose": true,
+                "hingeCount": 4
+              },
+              "shelves": [
+                {
+                  "id": "shelf_1_drw_top",
+                  "bayIndex": 1,
+                  "elevationY": 365,
+                  "isAdjustable": false,
+                  "isFixed": true,
+                  "fixedConnectorType": "minifix_dowel"
+                },
+                {
+                  "id": "shelf_1_top",
+                  "bayIndex": 1,
+                  "elevationY": 1792,
+                  "isAdjustable": false,
+                  "isFixed": true,
+                  "fixedConnectorType": "minifix_dowel"
+                }
+              ],
+              "hangingRails": [
+                {
+                  "id": "rail_1_1",
+                  "bayIndex": 1,
+                  "elevationY": 1730
+                }
+              ],
+              "drawers": [
+                {
+                  "id": "drawer_1_1",
+                  "bayIndex": 1,
+                  "elevationY": 0,
+                  "height": 180,
+                  "slideType": "soft_close"
+                },
+                {
+                  "id": "drawer_1_2",
+                  "bayIndex": 1,
+                  "elevationY": 180,
+                  "height": 180,
+                  "slideType": "soft_close"
+                }
+              ],
+              "specialFittings": []
+            }
+          ]
+        }
+      ],
+      "createdAt": "2026-11-21T17:30:19.478Z",
+      "updatedAt": "2026-11-21T17:30:19.478Z"
+    },
+    "hmacSignature": "ee13fccf44f17135e86a838c646ad80d5dbd18eb5fcc8ad3b7c1e267d20be99f"
+  },
+  {
+    "code": "ANK-H5D9RU",
+    "tenantId": "00000000-0000-0000-0000-000000000002",
+    "dealerNetTotalWithVatTry": 94418,
+    "projectId": "proj_demo_01",
+    "projectTitle": "Vadi İstanbul Villa - Ebeveyn Giyinme Odası",
+    "version": 1,
+    "createdAt": "2026-11-21T17:30:20.137Z",
+    "expiresAt": "2026-12-05T17:30:20.137Z",
+    "discountPercent": 0,
+    "installments": 1,
+    "serverVerifiedSubtotalEur": 2257.73,
+    "serverVerifiedTotalWithVatEur": 2709.27,
+    "serverVerifiedDiscountedTotalEur": 2709.27,
+    "serverVerifiedTotalWithVatTry": 115144,
+    "cutPiecesCount": 28,
+    "totalSheetsCount": 5,
+    "canApproveProduction": true,
+    "projectSnapshot": {
+      "id": "proj_demo_01",
+      "version": 1,
+      "schemaVersion": 4,
+      "catalogVersion": "lib_v4_0_0",
+      "revisionId": "rev_v1",
+      "libraryVersionId": "lib_v4_0_0",
+      "constructionProfileId": "profile_birim_factory_std",
+      "title": "Vadi İstanbul Villa - Ebeveyn Giyinme Odası",
+      "customerName": "Centan Mimarlık",
+      "branchId": "branch_vadistanbul",
+      "status": "draft",
+      "space": {
+        "ceilingConfig": {
+          "enabled": true,
+          "ceilingType": "dropped_perimeter_cove",
+          "showIn3D": true,
+          "showInElevation2D": true,
+          "translucentCutawayIn3D": false,
+          "dropHeightMm": 100,
+          "soffitDepthMm": 620,
+          "hasHiddenLedCove": true,
+          "hasRecessedSpots": true
+        },
+        "id": "space_01",
+        "name": "Giyinme Odası",
+        "type": "wardrobe_zone",
+        "walls": [
+          {
+            "id": "wall_main",
+            "name": "Ana Duvar",
+            "length": 3600,
+            "height": 2800,
+            "thickness": 150,
+            "position": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "rotationY": 0,
+            "elements": []
+          },
+          {
+            "id": "wall_l_side",
+            "name": "Sol Köşe Duvarı",
+            "length": 2400,
+            "height": 2800,
+            "thickness": 150,
+            "position": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "rotationY": 90,
+            "elements": []
+          }
+        ],
+        "ceilingHeight": 2800,
+        "elements": []
+      },
+      "modules": [
+        {
+          "id": "module_1",
+          "name": "Master Gardırop Modülü",
+          "category": "wardrobe",
+          "moduleFamilyId": "fam_wardrobe",
+          "templateId": "tpl_wardrobe_3door_drawers",
+          "position": {
+            "x": 50,
+            "y": 0,
+            "z": 0
+          },
+          "dimensions": {
+            "width": 1500,
+            "height": 2200,
+            "depth": 600
+          },
+          "bays": [
+            {
+              "index": 0,
+              "customWidth": 473,
+              "shelves": [
+                {
+                  "id": "shelf_0_2",
+                  "bayIndex": 0,
+                  "elevationY": 352,
+                  "isAdjustable": true,
+                  "isFixed": false
+                },
+                {
+                  "id": "shelf_0_1",
+                  "bayIndex": 0,
+                  "elevationY": 1760,
+                  "isAdjustable": false,
+                  "isFixed": true,
+                  "fixedConnectorType": "minifix_dowel"
+                }
+              ],
+              "hangingRails": [
+                {
+                  "id": "rail_0_1",
+                  "bayIndex": 0,
+                  "elevationY": 1680
+                }
+              ],
+              "drawers": [],
+              "specialFittings": [],
+              "door": {
+                "id": "door_0",
+                "bayIndex": 0,
+                "type": "single_left",
+                "doorSystemId": "hinged_single",
+                "overlayType": "full_overlay",
+                "openingTechnology": "soft_close",
+                "handleCategory": "bar_handle",
+                "handleProfileId": "K019",
+                "hardwareProductId": "hw_blum_71b3550",
+                "softClose": true,
+                "hingeCount": 4,
+                "handleMaterialId": "mat_handle_matte_black"
+              }
+            },
+            {
+              "index": 1,
+              "shelves": [
+                {
+                  "id": "shelf_1_drw_top",
+                  "bayIndex": 1,
+                  "elevationY": 365,
+                  "isAdjustable": false,
+                  "isFixed": true,
+                  "fixedConnectorType": "minifix_dowel"
+                },
+                {
+                  "id": "shelf_1_top",
+                  "bayIndex": 1,
+                  "elevationY": 1792,
+                  "isAdjustable": false,
+                  "isFixed": true,
+                  "fixedConnectorType": "minifix_dowel"
+                }
+              ],
+              "hangingRails": [
+                {
+                  "id": "rail_1_1",
+                  "bayIndex": 1,
+                  "elevationY": 1730
+                }
+              ],
+              "drawers": [
+                {
+                  "id": "drawer_1_1",
+                  "bayIndex": 1,
+                  "elevationY": 0,
+                  "height": 180,
+                  "slideType": "soft_close"
+                },
+                {
+                  "id": "drawer_1_2",
+                  "bayIndex": 1,
+                  "elevationY": 180,
+                  "height": 180,
+                  "slideType": "soft_close"
+                }
+              ],
+              "specialFittings": [],
+              "door": {
+                "id": "door_1",
+                "bayIndex": 1,
+                "type": "double",
+                "doorSystemId": "hinged_double",
+                "overlayType": "full_overlay",
+                "openingTechnology": "soft_close",
+                "handleCategory": "bar_handle",
+                "handleProfileId": "K019",
+                "hardwareProductId": "hw_blum_71b3550",
+                "softClose": true,
+                "hingeCount": 4,
+                "handleMaterialId": "mat_handle_matte_black"
+              }
+            }
+          ],
+          "carcass": {
+            "panelThickness": 18,
+            "backPanelThickness": 8,
+            "backPanelType": "grooved",
+            "plinthHeight": 80,
+            "doorPerimeterGap": 2,
+            "edgeBandThickness": 1,
+            "bodyMaterialId": "mat_melamine_white",
+            "doorMaterialId": "mat_veneer_oak",
+            "jointType": "minifix_dowel",
+            "grainContinuityMode": "module_4way",
+            "constructionProfileId": "profile_birim_factory_std",
+            "doorThickness": 18,
+            "system32FrontSetback": 37,
+            "ledLightingEnabled": false
+          },
+          "isOpenFront": false
+        }
+      ],
+      "createdAt": "2026-11-21T17:30:20.064Z",
+      "updatedAt": "2026-11-21T17:30:20.064Z",
+      "tenantId": "00000000-0000-0000-0000-000000000002"
+    },
+    "hmacSignature": "7ada1be977cd4ce4036e2aba688f2acb18b5035d3c83de685326aaedb00ad4ee"
   }
 ]

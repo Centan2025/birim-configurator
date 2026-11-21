@@ -626,7 +626,13 @@ function calculateFourSpaceDimensionsUncached(
       ? roundIntMm((baseDoorHeight - gap) / 2)
       : roundIntMm(baseDoorHeight);
 
-    const leafThicknessMm = bay.door.doorThicknessMm || T_door;
+    const isJPullDoorLeaf =
+      bay.door.handleCategory === "j_pull" ||
+      bay.door.handleProfileId === "hnd_j_pull" ||
+      bay.door.crossSectionProfile === "j_pull_bevel";
+    const leafThicknessMm = isJPullDoorLeaf
+      ? Math.max(22, bay.door.doorThicknessMm || T_door)
+      : bay.door.doorThicknessMm || T_door;
     const hCatWeight = bay.door.handleCategory;
     const isIntegratedHandleless =
       hCatWeight === "handleless_plain" ||

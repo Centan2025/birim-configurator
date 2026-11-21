@@ -91,11 +91,11 @@ export const WARDROBE_TEMPLATES: ModuleTemplate[] = [
         {
           index: 1,
           door: { id: `door_${id}_1`, bayIndex: 1, type: "double", doorSystemId: "hinged_double", hardwareProductId: "hw_blum_71b7550", softClose: true, hingeCount: 4 },
-          shelves: [{ id: `shelf_${id}_1_drw_top`, bayIndex: 1, elevationY: 365, isAdjustable: false, isFixed: true, thickness: 25 }, { id: `shelf_${id}_1_top`, bayIndex: 1, elevationY: 1800, isAdjustable: false, isFixed: true, thickness: 25 }],
+          shelves: [{ id: `shelf_${id}_1_drw_top`, bayIndex: 1, elevationY: 360, isAdjustable: false, isFixed: true, thickness: 25 }, { id: `shelf_${id}_1_top`, bayIndex: 1, elevationY: 1800, isAdjustable: false, isFixed: true, thickness: 25 }],
           hangingRails: [{ id: `rail_${id}_1`, bayIndex: 1, elevationY: 1730 }],
           drawers: [
             { id: `drw_${id}_1_1`, bayIndex: 1, elevationY: 0, height: 180, slideType: "soft_close", isInternal: true },
-            { id: `drw_${id}_1_2`, bayIndex: 1, elevationY: 185, height: 180, slideType: "soft_close", isInternal: true },
+            { id: `drw_${id}_1_2`, bayIndex: 1, elevationY: 180, height: 180, slideType: "soft_close", isInternal: true },
           ],
           specialFittings: [],
         },
@@ -334,8 +334,8 @@ export const KITCHEN_TEMPLATES: ModuleTemplate[] = [
           hangingRails: [],
           drawers: [
             { id: `drw_${id}_0_1`, bayIndex: 0, elevationY: 0, height: 180, slideType: "soft_close", isInternal: true },
-            { id: `drw_${id}_0_2`, bayIndex: 0, elevationY: 185, height: 180, slideType: "soft_close", isInternal: true },
-            { id: `drw_${id}_0_3`, bayIndex: 0, elevationY: 370, height: 180, slideType: "soft_close", isInternal: true },
+            { id: `drw_${id}_0_2`, bayIndex: 0, elevationY: 180, height: 180, slideType: "soft_close", isInternal: true },
+            { id: `drw_${id}_0_3`, bayIndex: 0, elevationY: 360, height: 180, slideType: "soft_close", isInternal: true },
           ],
           specialFittings: [],
         },

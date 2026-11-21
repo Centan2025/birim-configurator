@@ -19,10 +19,28 @@ import {
   Sparkles,
   Palette,
   ChevronDown,
+  ChevronRight,
   ArrowLeft,
   ArrowRight,
+  ArrowLeftRight,
+  ArrowUpDown,
+  Columns2,
+  Undo2,
+  Redo2,
+  Focus,
+  RefreshCw,
+  SlidersHorizontal,
+  Lock,
+  Unlock,
+  AlignVerticalSpaceAround,
 } from "lucide-react";
-import { DEFAULT_MATERIALS, type DesignProject, type ModuleInstance } from "@birim/core";
+import {
+  DEFAULT_MATERIALS,
+  computeBayDoorZones,
+  resolveDoorZoneKeyFromComponentId,
+  type DesignProject,
+  type ModuleInstance,
+} from "@birim/core";
 import { V4_MODULE_TEMPLATES } from "@birim/catalog";
 import { useConfiguratorStore } from "../../store/useConfiguratorStore";
 import {
@@ -103,7 +121,9 @@ export interface Viewport3DContextMenuProps {
     bayIdx: number,
     drawerId: string,
     elevationY: number,
-    height?: number
+    height?: number,
+    pushHistory?: boolean,
+    hardwareUpdates?: { isInternal?: boolean }
   ) => void;
   onSetHangingRailElevation: (bayIdx: number, railId: string, elevationY: number) => void;
   onMoveInteriorItemToBay: (
@@ -138,6 +158,50 @@ interface MenuItemProps {
   onClick: () => void;
 }
 
+function resolveContextMenuIcon(
+  label: string,
+  danger?: boolean,
+  active?: boolean
+): React.ReactNode {
+  const cls = `w-3.5 h-3.5 shrink-0 ${
+    danger ? "text-rose-300" : active ? "text-sky-300" : "opacity-80"
+  }`;
+  if (danger) return <Trash2 className={cls} />;
+  const l = label.toLowerCase();
+  if (l.includes("eşitle")) return <AlignVerticalSpaceAround className={cls} />;
+  if (l.includes("geri al")) return <Undo2 className={cls} />;
+  if (l.includes("ileri al")) return <Redo2 className={cls} />;
+  if (l.includes("çekmece") && (l.includes("aç") || l.includes("kapat"))) {
+    return <ArrowUpDown className={cls} />;
+  }
+  if (l.includes("kapat")) return <DoorClosed className={cls} />;
+  if (l.includes("aç")) return <DoorOpen className={cls} />;
+  if (l.includes("gizle")) return <EyeOff className={cls} />;
+  if (l.includes("göster")) return <Eye className={cls} />;
+  if (l.includes("iç → dış") || l.includes("dış → iç") || l.includes("çevir")) {
+    return <ArrowLeftRight className={cls} />;
+  }
+  if (l.includes("sol bölme") || l.startsWith("←")) return <ArrowLeft className={cls} />;
+  if (l.includes("sağ bölme") || l.startsWith("→")) return <ArrowRight className={cls} />;
+  if (l.includes("sabit") || l.includes("kilitle")) return <Lock className={cls} />;
+  if (l.includes("hareketli")) return <Unlock className={cls} />;
+  if (l.includes("ayna") || l.includes("simetri")) return <FlipHorizontal className={cls} />;
+  if (l.includes("döndür") || l.includes("90°")) return <RotateCw className={cls} />;
+  if (l.includes("çoğalt") || l.includes("kopyala")) return <Copy className={cls} />;
+  if (l.includes("yapıştır")) return <ClipboardPaste className={cls} />;
+  if (l.includes("ikiye") || l.includes("böl") || l.includes("dikme")) return <Columns2 className={cls} />;
+  if (l.includes("raf") || l.includes("çekmece") || l.includes("askı")) return <Layers className={cls} />;
+  if (l.includes("ekle") || l.startsWith("+")) return <Plus className={cls} />;
+  if (l.includes("odak") || l.includes("sığdır") || l.includes("kamera")) return <Focus className={cls} />;
+  if (l.includes("değiştir") || l.includes("şablon")) return <RefreshCw className={cls} />;
+  if (l.includes("renk") || l.includes("malzeme") || l.includes("boya")) return <Palette className={cls} />;
+  if (l.includes("led") || l.includes("ışık")) return <Lightbulb className={cls} />;
+  if (l.includes("kot") || l.includes("yükseklik") || l.includes("ölçü")) return <ArrowUpDown className={cls} />;
+  if (l.includes("ayar") || l.includes("panel") || l.includes("özellik")) return <SlidersHorizontal className={cls} />;
+  if (l.includes("hazır") || l.includes("düzen")) return <Sparkles className={cls} />;
+  return <ChevronRight className={cls} />;
+}
+
 const MenuItem: React.FC<MenuItemProps> = ({
   label,
   shortcut,
@@ -145,39 +209,101 @@ const MenuItem: React.FC<MenuItemProps> = ({
   danger,
   disabled,
   onClick,
-}) => (
-  <button
-    type="button"
-    disabled={disabled}
-    onClick={onClick}
-    className={`w-full flex items-center justify-between gap-3 px-2.5 py-1.5 rounded-lg text-[11.5px] font-medium text-left transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
-      danger
-        ? "text-rose-700 hover:bg-rose-500/12"
-        : active
-        ? "bg-[#141413] text-white"
-        : "text-[#1C1917] hover:bg-black/6"
-    }`}
-  >
-    <span className="leading-snug">{label}</span>
-    {shortcut && (
-      <span
-        className={`text-[10px] font-mono shrink-0 ${
-          active ? "text-stone-300" : "text-[#78716C]"
-        }`}
-      >
-        {shortcut}
+}) => {
+  const cleanLabel = label.replace(/^[←→]\s*/, "");
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={`w-full flex items-center justify-between gap-3 px-2.5 py-1.5 rounded-lg text-[11.5px] text-left transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+        danger
+          ? "mt-0.5 bg-rose-500/18 hover:bg-rose-500/32 border border-rose-400/35 text-rose-200 hover:text-white font-semibold"
+          : active
+          ? "bg-[#141413] text-white font-medium"
+          : "text-[#1C1917] hover:bg-black/6 font-medium"
+      }`}
+    >
+      <span className="leading-snug inline-flex items-center gap-2 min-w-0">
+        {resolveContextMenuIcon(label, danger, active)}
+        <span className="truncate">{cleanLabel}</span>
       </span>
-    )}
-  </button>
-);
+      {shortcut && (
+        <span
+          className={`text-[10px] font-mono shrink-0 ${
+            danger ? "text-rose-200/90" : active ? "text-stone-300" : "text-[#78716C]"
+          }`}
+        >
+          {shortcut}
+        </span>
+      )}
+    </button>
+  );
+};
 
-const MenuSectionTitle: React.FC<{ title: string }> = ({ title }) => (
-  <div className="px-2.5 pt-1.5 pb-0.5 text-[9.5px] font-bold uppercase tracking-wider text-[#78716C]">
-    {title}
-  </div>
-);
+const MenuSectionTitle: React.FC<{ title: string }> = ({ title }) => {
+  const t = title.toLowerCase();
+  const isBaySection = t.includes("bölme") || t.includes("ekle") || t.includes("iç düzen");
+  const isMatSection = t.includes("malzeme") || t.includes("renk") || t.includes("kaplama");
+  const isModuleSection = t.includes("modül") || t.includes("dolap") || t.includes("gövde");
+  const isSceneSection = t.includes("sahne") || t.includes("görünüm") || t.includes("kamera");
 
-const MenuDivider: React.FC = () => <div className="my-1 h-px bg-black/8" />;
+  const badgeStyle = isBaySection
+    ? "bg-amber-500/20 border-amber-400/40 border-l-amber-400 text-amber-100"
+    : isMatSection
+    ? "bg-emerald-500/20 border-emerald-400/40 border-l-emerald-400 text-emerald-100"
+    : isModuleSection
+    ? "bg-violet-500/20 border-violet-400/40 border-l-violet-400 text-violet-100"
+    : isSceneSection
+    ? "bg-slate-500/20 border-slate-400/35 border-l-slate-300 text-slate-100"
+    : "bg-sky-500/20 border-sky-400/40 border-l-sky-400 text-sky-100";
+
+  const pillTag = isBaySection
+    ? "BÖLME"
+    : isMatSection
+    ? "YÜZEY"
+    : isModuleSection
+    ? "MODÜL"
+    : isSceneSection
+    ? "SAHNE"
+    : "PARÇA";
+
+  const pillStyle = isBaySection
+    ? "bg-amber-400 text-[#141413]"
+    : isMatSection
+    ? "bg-emerald-400 text-[#141413]"
+    : isModuleSection
+    ? "bg-violet-400 text-[#141413]"
+    : isSceneSection
+    ? "bg-slate-300 text-[#141413]"
+    : "bg-sky-400 text-[#141413]";
+
+  const SectionIcon = isBaySection
+    ? Columns2
+    : isMatSection
+    ? Palette
+    : isModuleSection
+    ? Sparkles
+    : isSceneSection
+    ? Globe
+    : SlidersHorizontal;
+
+  return (
+    <div
+      className={`mt-2 mb-1.5 px-2 py-1.5 rounded-lg border border-l-[3px] flex items-center justify-between gap-1.5 text-[9.5px] font-bold uppercase tracking-wider ${badgeStyle}`}
+    >
+      <span className="inline-flex items-center gap-1.5 min-w-0">
+        <SectionIcon className="w-3.5 h-3.5 shrink-0" />
+        <span className="truncate">{title}</span>
+      </span>
+      <span className={`px-1.5 py-0.5 rounded text-[8px] font-extrabold tracking-widest shrink-0 ${pillStyle}`}>
+        {pillTag}
+      </span>
+    </div>
+  );
+};
+
+const MenuDivider: React.FC = () => <div className="my-2.5 h-px bg-white/20" />;
 
 function findBayItemByComponentId(mod: ModuleInstance | undefined, bayIdx: number, compId: string) {
   const bay = mod?.bays[bayIdx];
@@ -243,18 +369,35 @@ export const Viewport3DContextMenu: React.FC<Viewport3DContextMenuProps> = ({
 
   useLayoutEffect(() => {
     if (!target || !menuRef.current) return;
-    const rect = menuRef.current.getBoundingClientRect();
-    const pad = 10;
-    const left = Math.max(
-      pad,
-      Math.min(window.innerWidth - rect.width - pad, target.clientX)
-    );
-    const top = Math.max(
-      pad,
-      Math.min(window.innerHeight - rect.height - pad, target.clientY)
-    );
-    setPos({ left, top });
-  }, [target, showAllMaterials]);
+    const el = menuRef.current;
+    const pad = 12;
+
+    const recalcPosition = () => {
+      if (!menuRef.current) return;
+      // Use offsetWidth / offsetHeight instead of getBoundingClientRect so pop-in CSS scale animations never under-measure height!
+      const rawW = Math.max(menuRef.current.offsetWidth || 256, 220);
+      const maxAllowedH = Math.max(200, window.innerHeight - pad * 2);
+      const rawH = Math.min(menuRef.current.offsetHeight || 320, maxAllowedH);
+      const left = Math.max(
+        pad,
+        Math.min(window.innerWidth - rawW - pad, target.clientX)
+      );
+      const top = Math.max(
+        pad,
+        Math.min(window.innerHeight - rawH - pad, target.clientY)
+      );
+      setPos({ left, top });
+    };
+
+    recalcPosition();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(recalcPosition) : null;
+    ro?.observe(el);
+    window.addEventListener("resize", recalcPosition);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener("resize", recalcPosition);
+    };
+  }, [target, showAllMaterials, showReplaceTemplates, replaceQuery]);
 
   useEffect(() => {
     if (!target) return;
@@ -628,6 +771,54 @@ export const Viewport3DContextMenu: React.FC<Viewport3DContextMenuProps> = ({
                 ))}
               </div>
             )}
+            {bay.door.type !== "open" && (() => {
+              const zones = mod ? computeBayDoorZones(mod, bayIdx) : [];
+              const zKey = resolveDoorZoneKeyFromComponentId(target.componentId);
+              const delDoorLabel =
+                zones.length === 0
+                  ? "Bu Kapağı Sil"
+                  : zKey === "lower"
+                  ? "Alt Kapağı Sil"
+                  : zKey.startsWith("mid_")
+                  ? `Orta Kapak ${Number(zKey.slice(4)) + 1}'i Sil`
+                  : "Üst Kapağı Sil";
+              return (
+                <MenuItem
+                  label={delDoorLabel}
+                  shortcut="Del"
+                  danger
+                  onClick={() =>
+                    run(() => {
+                      const st = useConfiguratorStore.getState();
+                      if (zones.length > 0) {
+                        const nextStates: Record<string, "closed" | "open"> = {
+                          ...(bay.door.zoneDoorStates || {}),
+                          [zKey]: "open",
+                        };
+                        const anyRemainingClosed = zones.some(
+                          (z) => (z.key in nextStates ? nextStates[z.key] !== "open" : !z.isOpen)
+                        );
+                        if (!anyRemainingClosed) {
+                          onSetBayDoorType(bayIdx, "open");
+                        } else {
+                          st.applyBatchProjectUpdate((draft) => {
+                            const b = draft.modules[target.modIdx]?.bays[bayIdx];
+                            if (b?.door) {
+                              b.door.zoneDoorStates = nextStates;
+                              if (zKey === "upper") b.door.upperZoneDoorState = "open";
+                              if (zKey === "lower") b.door.lowerZoneDoorState = "open";
+                            }
+                          }, `${delDoorLabel}`);
+                        }
+                      } else {
+                        onSetBayDoorType(bayIdx, "open");
+                      }
+                      st.setSelectedComponentId(null);
+                    })
+                  }
+                />
+              );
+            })()}
           <MenuDivider />
         </>
         );
@@ -693,7 +884,8 @@ export const Viewport3DContextMenu: React.FC<Viewport3DContextMenuProps> = ({
       {isShelf && shelf && (
         <>
           <MenuSectionTitle title={`Raf (Kot: ${Math.round(shelf.elevationY)} mm)`} />
-          <div className="grid grid-cols-2 gap-1 px-1.5 py-1">
+          <div className="ml-2 pl-2 border-l-2 border-sky-400/50 space-y-0.5">
+          <div className="grid grid-cols-2 gap-1 py-0.5">
             <button
               type="button"
               onClick={() => run(() => onSetShelfElevation(bayIdx, shelf.id, shelf.elevationY + 32))}
@@ -755,6 +947,7 @@ export const Viewport3DContextMenu: React.FC<Viewport3DContextMenuProps> = ({
             danger
             onClick={() => run(() => onRemoveSelectedInteriorComponent(target.componentId))}
           />
+          </div>
           <MenuDivider />
         </>
       )}
@@ -764,11 +957,25 @@ export const Viewport3DContextMenu: React.FC<Viewport3DContextMenuProps> = ({
           <MenuSectionTitle
             title={`Çekmece (H:${Math.round(drawer.height)} • Y:${Math.round(drawer.elevationY)})`}
           />
+          <div className="ml-2 pl-2 border-l-2 border-sky-400/50 space-y-0.5">
           <MenuItem
             label={drawerOpenMm > 10 ? "Çekmeceyi Kapat" : "Çekmeceyi Aç"}
             active={drawerOpenMm > 10}
             onClick={() => run(onToggleDrawerOpen)}
           />
+          {bay?.door?.type !== "sliding" && !mod?.bays.some((b) => b.door?.type === "sliding") && (
+            <MenuItem
+              label={drawer.isInternal ? "Dış Çekmeceye Çevir (İç → Dış)" : "İç Çekmeceye Çevir (Dış → İç)"}
+              active={Boolean(drawer.isInternal)}
+              onClick={() =>
+                run(() =>
+                  onSetDrawerPlacement(bayIdx, drawer.id, drawer.elevationY, drawer.height, true, {
+                    isInternal: !drawer.isInternal,
+                  })
+                )
+              }
+            />
+          )}
           <div className="grid grid-cols-2 gap-1 px-1.5 py-1">
             <button
               type="button"
@@ -824,6 +1031,7 @@ export const Viewport3DContextMenu: React.FC<Viewport3DContextMenuProps> = ({
             danger
             onClick={() => run(() => onRemoveSelectedInteriorComponent(target.componentId))}
           />
+          </div>
           <MenuDivider />
         </>
       )}
@@ -831,7 +1039,8 @@ export const Viewport3DContextMenu: React.FC<Viewport3DContextMenuProps> = ({
       {isRail && rail && (
         <>
           <MenuSectionTitle title={`Askı Borusu (Kot: ${Math.round(rail.elevationY)} mm)`} />
-          <div className="grid grid-cols-2 gap-1 px-1.5 py-1">
+          <div className="ml-2 pl-2 border-l-2 border-sky-400/50 space-y-0.5">
+          <div className="grid grid-cols-2 gap-1 py-0.5">
             <button
               type="button"
               onClick={() =>
@@ -879,6 +1088,7 @@ export const Viewport3DContextMenu: React.FC<Viewport3DContextMenuProps> = ({
             danger
             onClick={() => run(() => onRemoveSelectedInteriorComponent(target.componentId))}
           />
+          </div>
           <MenuDivider />
         </>
       )}
@@ -886,7 +1096,8 @@ export const Viewport3DContextMenu: React.FC<Viewport3DContextMenuProps> = ({
       {(isBayInterior || isShelf || isDrawer || isRail) && (
         <>
           <MenuSectionTitle title={`Bölme ${bayIdx + 1} — Hızlı Ekle`} />
-          <div className="grid grid-cols-2 gap-1 px-1.5 py-1">
+          <div className="ml-2 pl-2 border-l-2 border-amber-400/50 space-y-0.5">
+          <div className="grid grid-cols-2 gap-1 py-0.5">
             <button
               type="button"
               onClick={() =>
@@ -962,14 +1173,16 @@ export const Viewport3DContextMenu: React.FC<Viewport3DContextMenuProps> = ({
               onClick={() => run(() => onRemoveBayAt(bayIdx))}
             />
           )}
+          </div>
           <MenuDivider />
         </>
       )}
 
-      <MenuSectionTitle title="Parçaya Malzeme Ata (Hover Önizlemeli)" />
+      <MenuSectionTitle title="Parçaya Malzeme Ata" />
+      <div className="ml-2 pl-2 border-l-2 border-emerald-400/50 space-y-1">
       <div
         onMouseLeave={() => dispatchLive3DMaterialPreview(null)}
-        className={`grid grid-cols-6 gap-1 px-2 py-1 ${
+        className={`grid grid-cols-6 gap-1 py-0.5 ${
           showAllMaterials ? "max-h-44 overflow-y-auto" : ""
         }`}
       >
@@ -1049,12 +1262,15 @@ export const Viewport3DContextMenu: React.FC<Viewport3DContextMenuProps> = ({
           <span>Projeye</span>
         </button>
       </div>
+      </div>
       <MenuDivider />
 
       {mod && (() => {
         const copiedStyle = getCopiedModuleStyleClipboard();
         return (
-          <div className="space-y-1.5 py-1">
+          <>
+          <MenuSectionTitle title={`Modül ${target.modIdx + 1} İşlemleri`} />
+          <div className="ml-2 pl-2 border-l-2 border-violet-400/50 space-y-1.5 py-0.5">
             <div className="grid grid-cols-5 gap-1">
               <button
                 type="button"
@@ -1168,6 +1384,7 @@ export const Viewport3DContextMenu: React.FC<Viewport3DContextMenuProps> = ({
               </div>
             )}
           </div>
+          </>
         );
       })()}
 

@@ -404,7 +404,9 @@ function buildTemplateFromSeed(seed: TemplateSeed): V4ModuleTemplateDefinition {
           ...(seed.h >= 1400 || seed.familyId === "fam_kitchen_wall" ? { wallAnchored: true } : {}),
           ...(seed.w > 2800 ? { allowJumboSheet3660: true } : {}),
         },
-        isOpenFront: seed.isOpenFront ?? seed.doorSystemId === "open",
+        isOpenFront:
+          seed.isOpenFront ??
+          (seed.doorSystemId === "open" && !(seed.drawersHeights?.length && !seed.isInternalDrawers)),
         isCorner: seed.isCorner,
         isFixedWidth: seed.isFixedWidth,
         requiresFactoryValidation: seed.requiresFactoryValidation,

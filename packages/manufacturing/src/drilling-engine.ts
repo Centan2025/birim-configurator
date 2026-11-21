@@ -525,7 +525,16 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
       panelThicknessMm: panelT,
       edgeMarginMm: part.multiHoleEdgeMarginMm ?? 96,
       adjustableShelfYsMm: part.adjustableShelfPositionsY ?? [],
-      blockedYsMm: [...(part.fixedShelfJointYs || []), ...(part.rafixShelfJointYs || [])].map((fsy) => ({ y: fsy, clearanceMm: 18 })),
+      blockedYsMm: [
+        ...[...(part.fixedShelfJointYs || []), ...(part.rafixShelfJointYs || [])].map((fsy) => ({
+          y: fsy,
+          clearanceMm: 18,
+        })),
+        ...(part.drawerRunnerSpecs || []).map((dr) => ({
+          y: dr.y + 36,
+          clearanceMm: 52,
+        })),
+      ],
     });
 
     // Column-grouped System 32 boring: front column first, then optional mid column, then rear column
@@ -1638,6 +1647,30 @@ export function generateDrillingForPart(part: ParametricPart): DrillingHole[] {
         );
       });
     }
+  }
+
+  // 7b. Internal Drawer Blind Divider (`carcass_sub_divider` with `drawerRunnerSpecs`): Euro Screw Runner Holes
+  else if (part.role === "carcass_sub_divider" && part.drawerRunnerSpecs && part.drawerRunnerSpecs.length > 0 && width >= 120 && height >= 80) {
+    const face: "face_front" | "face_back" = "face_front";
+    part.drawerRunnerSpecs.forEach((drw, dIdx) => {
+      if (drw.y < 12 || drw.y > height - 16) return;
+      // Blind divider starts directly behind the front filler strip (flush with internal drawer front),
+      // so the concealed runner front setback from the blind divider's front edge is standard 37mm.
+      const xs = getDrawerRunnerHoleXs(drw.runnerLengthMm, false, width);
+      const tag = drw.drawerId || `d${dIdx}`;
+      xs.forEach((rx, xIdx) => {
+        holes.push({
+          id: `H_${part.id}_blind_runner_${tag}_${xIdx}`,
+          diameter: 5,
+          depth: 12,
+          x: roundMm(rx, 2),
+          y: roundMm(drw.y, 2),
+          z: 0,
+          direction: face,
+          purpose: "drawer_runner" as DrillingHole["purpose"],
+        });
+      });
+    });
   }
 
   // 8. 18mm Structural Flush Back Panel (`carcass_back` with `backPanelMode === "flush"`): Minifix Cams + Edge Bolts!

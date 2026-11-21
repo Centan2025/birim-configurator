@@ -534,6 +534,7 @@ function evaluateUnifiedEngineeringModelUncached(
           bay.door.hardwareProductId === "hw_blum_71b7550" ||
           bay.door.hardwareProductId === "hw_hettich_9099540" ||
           mod.carcass.internalDrawerHingeSolution === "spacer_block_25mm" ||
+          mod.carcass.internalDrawerHingeSolution === "blind_panel_filler" ||
           String(mod.carcass.internalDrawerHingeSolution) === "zero_protrusion_155deg";
 
         bay.drawers.forEach((drw) => {
@@ -543,14 +544,55 @@ function evaluateUnifiedEngineeringModelUncached(
           const clashingHingeY = hingeInnerYs.find(
             (hy) =>
               Math.abs(runnerMountY - hy) < 42 ||
-              (hy >= drw.elevationY - 12 && hy <= drw.elevationY + Math.min(65, drw.height))
+              (hy >= drw.elevationY - 15 && hy <= drw.elevationY + drw.height + 15)
           );
+
+          const blindAndHingeProposals: RemediationProposal[] = [
+            {
+              id: `fix_int_drw_blind_${drw.id}`,
+              label: "Kör Dikme + Kapama (40mm)",
+              description:
+                "İç çekmece bloğu boyunca 18mm kör dikme ve 40mm ön kör kapama çıtası oluşturarak standart menteşe çıkıntısını güvenli şekilde aşar.",
+              requiresExplicitUserApproval: true,
+              targetModuleId: mod.id,
+              targetBayIndex: bayIdx,
+              targetComponentId: drw.id,
+              patchKind: "add_internal_drawer_spacer",
+              patchPayload: {
+                internalDrawerHingeSolution: "blind_panel_filler",
+                internalDrawerBlindWidthMm: 40,
+              },
+            },
+            {
+              id: `fix_int_drw_155_${drw.id}`,
+              label: "155° Sıfır Çıkıntı Menteşe",
+              description: "Kapak tam açıldığında iç açıklığı sıfır çıkıntıyla serbest bırakır (Blum 71B7550).",
+              requiresExplicitUserApproval: true,
+              targetModuleId: mod.id,
+              targetBayIndex: bayIdx,
+              targetComponentId: bay.door.id,
+              patchKind: "switch_hinge_155_zero",
+              patchPayload: { hardwareProductId: "hw_blum_71b7550" },
+            },
+            {
+              id: `fix_int_drw_spacer_${drw.id}`,
+              label: "25mm Menteşe Paspayı",
+              description:
+                "Gövde yanına 25mm besleme çıtası ekleyerek iç çekmece rayını menteşe gövdesinden kurtarır.",
+              requiresExplicitUserApproval: true,
+              targetModuleId: mod.id,
+              targetBayIndex: bayIdx,
+              targetComponentId: drw.id,
+              patchKind: "add_internal_drawer_spacer",
+              patchPayload: { internalDrawerHingeSolution: "spacer_block_25mm" },
+            },
+          ];
 
           if (clashingHingeY !== undefined && !hasZeroProtrusionOrSpacer) {
             addFinding({
               severity: "error",
               code: "ERR_INTERNAL_DRAWER_HINGE_BODY_CLASH",
-              message: `"${mod.name}" Bölme ${bayIdx + 1}: İç çekmece (Y=${drw.elevationY}mm) gerçek menteşe gövdesiyle (Y=${clashingHingeY}mm) fiziksel olarak çakışıyor; ray monte edilemez ve çekmece açılamaz.`,
+              message: `"${mod.name}" Bölme ${bayIdx + 1}: İç çekmece (Y=${drw.elevationY}..${drw.elevationY + drw.height}mm) menteşe gövdesiyle (Y=${clashingHingeY}mm) fiziksel olarak çakışıyor; Kör Dikme + Kapama (40mm) ekleyin veya 155° sıfır çıkıntılı menteşeye geçin.`,
               targetId: drw.id,
               targetModuleId: mod.id,
               targetComponentId: drw.id,
@@ -564,34 +606,33 @@ function evaluateUnifiedEngineeringModelUncached(
                 z: roundGeometryMm(mod.position.z + mod.dimensions.depth - 37),
               },
               suggestions: [
-                "Menteşeyi Blum 155° Sıfır Çıkıntılı (71B7550) modele yükseltin ve çekmece kotunu menteşeden 50mm uzaklaştırın.",
-                "İç çekmece yanına 25mm menteşe besleme çıtası (spacer_block_25mm) ekleyin.",
+                "İç çekmece bloğu boyunca 40mm Kör Dikme + Ön Kör Kapama (blind_panel_filler) ekleyin.",
+                "Menteşeyi Blum 155° Sıfır Çıkıntılı (71B7550) modele yükseltin.",
               ],
-              remediationProposals: [
-                {
-                  id: `fix_int_drw_spacer_${drw.id}`,
-                  label: "25mm İç Çekmece Besleme Çıtası Ekle",
-                  description:
-                    "Gövde yanına 25mm besleme çıtası ekleyerek iç çekmece rayını menteşe gövdesinden kurtarır.",
-                  requiresExplicitUserApproval: true,
-                  targetModuleId: mod.id,
-                  targetBayIndex: bayIdx,
-                  targetComponentId: drw.id,
-                  patchKind: "add_internal_drawer_spacer",
-                  patchPayload: { internalDrawerHingeSolution: "spacer_block_25mm" },
-                },
-                {
-                  id: `fix_int_drw_155_${drw.id}`,
-                  label: "Blum 155° Sıfır Çıkıntılı Menteşeye Geç (71B7550)",
-                  description: "Kapak tam açıldığında iç açıklığı sıfır çıkıntıyla serbest bırakır.",
-                  requiresExplicitUserApproval: true,
-                  targetModuleId: mod.id,
-                  targetBayIndex: bayIdx,
-                  targetComponentId: bay.door.id,
-                  patchKind: "switch_hinge_155_zero",
-                  patchPayload: { hardwareProductId: "hw_blum_71b7550" },
-                },
+              remediationProposals: blindAndHingeProposals,
+            });
+          } else if (!hasZeroProtrusionOrSpacer) {
+            addFinding({
+              severity: "warning",
+              code: "WARN_INTERNAL_DRAWER_HINGE_PROTRUSION",
+              message: `"${mod.name}" Bölme ${bayIdx + 1}: İç çekmece standart 110° menteşeli kapak arkasında; kapak iç çıkıntısını aşmak için Kör Dikme + Kapama (40mm) ekleyin veya 155° sıfır çıkıntılı menteşeye geçin.`,
+              targetId: drw.id,
+              targetModuleId: mod.id,
+              targetComponentId: drw.id,
+              blockingProduction: false,
+              compatibilityStatus: "COMPATIBLE_WITH_CONDITIONS",
+              sourceId: "SRC_BLUM_CAT_HINGE",
+              ruleNature: "ENGINEERING_VALIDITY",
+              worldPositionMm: {
+                x: roundGeometryMm(mod.position.x + bayCursorX + bayW / 2),
+                y: roundGeometryMm(mod.position.y + plinthH + T + drw.elevationY + drw.height / 2),
+                z: roundGeometryMm(mod.position.z + mod.dimensions.depth - 37),
+              },
+              suggestions: [
+                "İç çekmece bloğu boyunca 40mm Kör Dikme + Ön Kör Kapama (blind_panel_filler) ekleyin.",
+                "Menteşeyi Blum 155° Sıfır Çıkıntılı (71B7550) modele yükseltin.",
               ],
+              remediationProposals: blindAndHingeProposals,
             });
           }
         });
@@ -776,6 +817,7 @@ function evaluateUnifiedEngineeringModelUncached(
         bay.door?.hardwareProductId === "hw_blum_71b7550" ||
         bay.door?.hardwareProductId === "hw_hettich_9099540" ||
         mod.carcass.internalDrawerHingeSolution === "spacer_block_25mm" ||
+        mod.carcass.internalDrawerHingeSolution === "blind_panel_filler" ||
         String(mod.carcass.internalDrawerHingeSolution) === "zero_protrusion_155deg";
 
       (bay.specialFittings || []).forEach((fit) => {
@@ -945,7 +987,7 @@ function evaluateUnifiedEngineeringModelUncached(
       const visDrawersForClash = (bay.drawers || []).filter((d) => !d.isHidden);
       const visRailsForClash = (bay.hangingRails || []).filter((r) => !r.isHidden);
       const visFittingsForClash = (bay.specialFittings || []).filter((f) => f && !f.type.startsWith("led_"));
-      const visSubDivsForClash = bay.subDividers || [];
+      const visSubDivsForClash = (bay.subDividers || []).filter((sd) => !sd.isHidden);
 
       const fitLabelTr = (fitType: string): string => {
         const map: Record<string, string> = {
@@ -1068,6 +1110,47 @@ function evaluateUnifiedEngineeringModelUncached(
           }
         });
       });
+
+      // A2) Asansörlü Askı × Sabit Askı Borusu Çakışma / Yetersiz Sarkma Uyarısı
+      visFittingsForClash
+        .filter((fit) => fit.type === "wardrobe_lift")
+        .forEach((fit) => {
+          const liftBot = fit.elevationY || 0;
+          const liftTop = liftBot + Math.max(240, fit.height || 820);
+          visRailsForClash.forEach((rl) => {
+            if (rl.profileType === "lift_pantograph") return;
+            const rlY = rl.elevationY || 0;
+            const overlapsBody = rlY >= liftBot - 30 && rlY <= liftTop + 30;
+            const tooCloseBelow = !overlapsBody && rlY < liftBot - 30 && liftTop - rlY < 850;
+            if (overlapsBody || tooCloseBelow) {
+              addFinding({
+                severity: "warning",
+                code: overlapsBody
+                  ? "WARN_WARDROBE_LIFT_RAIL_INTERFERENCE"
+                  : "WARN_WARDROBE_LIFT_RAIL_CLEARANCE",
+                message: overlapsBody
+                  ? `"${mod.name}" Bölme ${bayIdx + 1}: Asansörlü askı (Y=${roundGeometryMm(liftBot)}–${roundGeometryMm(liftTop)}mm) ile sabit askı borusu (Y=${roundGeometryMm(rlY)}mm) çakışıyor — mekanizmanın inişini engelleyebilir.`
+                  : `"${mod.name}" Bölme ${bayIdx + 1}: Asansörlü askının hemen altında sabit askı borusu (Y=${roundGeometryMm(rlY)}mm) var — üstteki giysilerin sarkması için en az 850 mm dikey boşluk önerilir.`,
+                targetId: fit.id,
+                targetModuleId: mod.id,
+                targetComponentId: fit.id,
+                blockingProduction: false,
+                compatibilityStatus: "COMPATIBLE",
+                sourceId: "SRC_HAFELE_WARDROBE_ACC",
+                ruleNature: "ENGINEERING_VALIDITY",
+                worldPositionMm: {
+                  x: roundGeometryMm(mod.position.x + bayCursorX + bayW * 0.5),
+                  y: roundGeometryMm(mod.position.y + plinthH + T + rlY),
+                  z: roundGeometryMm(mod.position.z + mod.dimensions.depth * 0.55),
+                },
+                suggestions: [
+                  "Alttaki sabit askı borusunu daha aşağı alın veya kaldırın.",
+                  "Asansörlü askıyı sabit askı borusu bulunmayan üst bölmeye yerleştirin.",
+                ],
+              });
+            }
+          });
+        });
 
       // B) Raf × Pantolonluk / İç Aksesuar / Çekmece / Askı Borusu Çakışmaları
       visShelvesForClash.forEach((sh) => {
@@ -2446,7 +2529,15 @@ export function applyApprovedRemediationProposal(
       break;
     }
     case "add_internal_drawer_spacer": {
-      mod.carcass.internalDrawerHingeSolution = "spacer_block_25mm";
+      const requestedSol = String(proposal.patchPayload?.internalDrawerHingeSolution || "");
+      mod.carcass.internalDrawerHingeSolution =
+        requestedSol === "blind_panel_filler" ? "blind_panel_filler" : "spacer_block_25mm";
+      if (requestedSol === "blind_panel_filler") {
+        const reqW = Number(proposal.patchPayload?.internalDrawerBlindWidthMm);
+        if (Number.isFinite(reqW) && reqW >= 32 && reqW <= 100) {
+          mod.carcass.internalDrawerBlindWidthMm = Math.round(reqW);
+        }
+      }
       break;
     }
     case "switch_hinge_155_zero": {

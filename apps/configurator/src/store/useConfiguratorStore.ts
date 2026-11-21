@@ -19,6 +19,7 @@ import {
   getMaxSafeBayCount,
   roundIntMm,
   inferDoorSystemIdFromType,
+  computeBayDoorZones,
   HandleCategory,
   SUPPORTED_PROJECT_SCHEMA_VERSION,
   ArchitecturalElement,
@@ -1397,14 +1398,25 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
         : hw.id.includes("trouser")
         ? "trouser_rack"
         : "jewelry_tray";
+      const netInnerH = Math.max(
+        400,
+        mod.dimensions.height - (mod.carcass.plinthHeight ?? 100) - 2 * (mod.carcass.panelThickness || 18)
+      );
+      const liftH = Math.min(840, Math.max(480, Math.round(netInnerH * 0.42)));
+      const liftElevY = Math.max(200, Math.round(netInnerH - liftH - 60));
       bay.specialFittings = [
         ...(bay.specialFittings || []),
         {
           id: `sf_${mod.id}_b${safeBayIdx}_${Date.now().toString(36)}`,
           bayIndex: safeBayIdx,
-          elevationY: fittingType === "wardrobe_lift" ? Math.max(800, mod.dimensions.height - 350) : 220,
+          elevationY: fittingType === "wardrobe_lift" ? liftElevY : 220,
           type: fittingType,
-          height: fittingType === "pantry_pullout" ? Math.max(900, mod.dimensions.height - 200) : 160,
+          height:
+            fittingType === "pantry_pullout"
+              ? Math.max(900, mod.dimensions.height - 200)
+              : fittingType === "wardrobe_lift"
+              ? liftH
+              : 160,
           hardwareProductId: hw.id,
         },
       ];
@@ -1807,6 +1819,17 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
         if (type !== "open" && (!mod.bays[bayIdx].door.handleCategory || (mod.bays[bayIdx].door.handleCategory as string) === "none")) {
           mod.bays[bayIdx].door.handleCategory = "bar_handle";
         }
+        // Full-height external drawer cabinets (e.g. 2/3/4-drawer kitchen bases) have zero remaining >=140mm door zone;
+        // when the user explicitly selects a hinged door, convert those drawers to internal drawers so the door renders immediately.
+        if (type !== "open") {
+          const targetBay = mod.bays[bayIdx];
+          const hasExtDrawers = (targetBay.drawers || []).some((d) => !d.isInternal && !d.isHidden);
+          if (hasExtDrawers && computeBayDoorZones(mod, bayIdx).length === 0) {
+            targetBay.drawers = targetBay.drawers.map((dr) =>
+              !dr.isHidden ? { ...dr, isInternal: true } : dr
+            );
+          }
+        }
       }
       mod.isOpenFront = mod.bays.every((b) => !b.door || b.door.type === "open");
     }
@@ -2044,7 +2067,22 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
 
-    mod.bays[bayIdx].shelves = mod.bays[bayIdx].shelves.filter((s) => s.id !== shelfId);
+    const bay = mod.bays[bayIdx];
+    const removedShelf = bay.shelves.find((s) => s.id === shelfId);
+    bay.shelves = bay.shelves.filter((s) => s.id !== shelfId);
+    if (removedShelf && bay.subDividers && bay.subDividers.length > 0) {
+      const T_s = mod.carcass.panelThickness || 18;
+      const shelfY = removedShelf.elevationY;
+      bay.subDividers = bay.subDividers.filter((sd) => {
+        const sdBot = sd.elevationY || 0;
+        const sdTop = sdBot + Math.max(60, sd.height || 300);
+        const touchesBottom =
+          Math.abs(sdBot - shelfY) <= T_s + 8 ||
+          Math.abs(sdBot - (shelfY + T_s)) <= 8;
+        const touchesTop = Math.abs(sdTop - shelfY) <= T_s + 8;
+        return !(touchesBottom || touchesTop);
+      });
+    }
     if (batchStartProject) {
       set({
         project: updated,
@@ -2332,9 +2370,16 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
     const T_f = mod.carcass.panelThickness || 18;
     const plinth_f = mod.carcass.plinthHeight ?? 100;
     const netH_f = Math.max(200, mod.dimensions.height - plinth_f - 2 * T_f);
-    const fitH = Math.min(netH_f - 40, defaultHeights[type] ?? 120);
-    const rawFitY = defaultElevs[type] ?? (160 + existingCount * 180);
-    const clampedFitY = Math.max(32, Math.min(Math.max(48, netH_f - fitH - 16), rawFitY));
+    const fitH =
+      type === "wardrobe_lift"
+        ? Math.min(820, Math.max(420, netH_f - 80))
+        : Math.min(netH_f - 40, defaultHeights[type] ?? 120);
+    const topMargin = type === "wardrobe_lift" ? 48 : 16;
+    const rawFitY =
+      type === "wardrobe_lift"
+        ? Math.max(32, netH_f - fitH - topMargin)
+        : defaultElevs[type] ?? (160 + existingCount * 180);
+    const clampedFitY = Math.max(32, Math.min(Math.max(32, netH_f - fitH - topMargin), rawFitY));
     bay.specialFittings.push({
       id: `fit_${bayIdx}_${Date.now()}_${existingCount}`,
       bayIndex: bayIdx,

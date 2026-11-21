@@ -425,42 +425,100 @@ export function generateHandleGeometry(
         return parts;
       }
 
-      if (profId === "hnd_gola_melamine_box" && isTopFrontAtCountertop) {
-        addCarcassGola(
-          "gola_melamine_box",
-          bayX0,
-          modH - 60,
-          stationaryZ0 - 38,
-          baySpanW,
-          60,
-          38,
-          "Melamin Gömme Parmak Kutusu (60×38mm — Gövdeye Sabit)",
-          true
-        );
-      } else if (profId === "hnd_gola_moulded_box" && isTopFrontAtCountertop) {
-        addCarcassGola(
-          "gola_moulded_box",
-          bayX0,
-          modH - 60,
-          stationaryZ0 - 25,
-          baySpanW,
-          60,
-          25,
-          "Şekillendirilmiş Gömme Parmak Kutusu (60×25mm — Gövdeye Sabit)",
-          true
-        );
-      } else if (profId === "hnd_bevel_30_backing" && isTopFrontAtCountertop) {
-        addCarcassGola(
-          "gola_bevel_backing",
-          bayX0,
-          modH - 60,
-          stationaryZ0 - 18,
-          baySpanW,
-          60,
-          18,
-          "45° Pahlı Kapak Arka Kapama Bandı (60×18mm — Gövdeye Sabit)",
-          true
-        );
+      if (profId === "hnd_gola_melamine_box") {
+        if (isTopFrontAtCountertop) {
+          addCarcassGola(
+            "gola_melamine_box",
+            bayX0,
+            modH - 60,
+            stationaryZ0 - 38,
+            baySpanW,
+            60,
+            38,
+            "Melamin Gömme Parmak Kutusu (60×38mm — Gövdeye Sabit)",
+            true
+          );
+        } else {
+          if (drawer && context?.emitIntermediateCGola === false) {
+            return parts;
+          }
+          const upperBotY = context?.nextUpperDrawerBottomY ?? closedTopY + 30;
+          const gapMidY = (closedTopY + upperBotY) / 2;
+          addCarcassGola(
+            "gola_melamine_box_mid",
+            bayX0,
+            gapMidY - 33,
+            stationaryZ0 - 38,
+            baySpanW,
+            66,
+            38,
+            "Melamin Orta Gömme Parmak Kutusu (66×38mm — Gövdeye Sabit)",
+            true
+          );
+        }
+      } else if (profId === "hnd_gola_moulded_box") {
+        if (isTopFrontAtCountertop) {
+          addCarcassGola(
+            "gola_moulded_box",
+            bayX0,
+            modH - 60,
+            stationaryZ0 - 25,
+            baySpanW,
+            60,
+            25,
+            "Şekillendirilmiş Gömme Parmak Kutusu (60×25mm — Gövdeye Sabit)",
+            true
+          );
+        } else {
+          if (drawer && context?.emitIntermediateCGola === false) {
+            return parts;
+          }
+          const upperBotY = context?.nextUpperDrawerBottomY ?? closedTopY + 30;
+          const gapMidY = (closedTopY + upperBotY) / 2;
+          addCarcassGola(
+            "gola_moulded_box_mid",
+            bayX0,
+            gapMidY - 33,
+            stationaryZ0 - 25,
+            baySpanW,
+            66,
+            25,
+            "Şekillendirilmiş Orta Gömme Parmak Kutusu (66×25mm — Gövdeye Sabit)",
+            true
+          );
+        }
+      } else if (profId === "hnd_bevel_30_backing") {
+        if (isTopFrontAtCountertop) {
+          addCarcassGola(
+            "gola_bevel_backing",
+            bayX0,
+            modH - 60,
+            stationaryZ0 - 18,
+            baySpanW,
+            60,
+            18,
+            "45° Pahlı Kapak Üst Arka Kapama Bandı (60×18mm — Gövdeye Sabit)",
+            true
+          );
+        } else {
+          // Unpaired intermediate drawers (e.g. 1–2 in a 3-drawer unit) stay joined with 3mm fuga and ZERO backing strip!
+          if (drawer && context?.emitIntermediateCGola === false) {
+            return parts;
+          }
+          const upperBotY = context?.nextUpperDrawerBottomY ?? closedTopY + 30;
+          const gapMidY = (closedTopY + upperBotY) / 2;
+          addCarcassGola(
+            "gola_bevel_backing",
+            bayX0,
+            gapMidY - 33,
+            stationaryZ0 - 18,
+            baySpanW,
+            66,
+            18,
+            "45° Pahlı Çekmece Orta Arka Kapama Bandı (66×18mm — Gövdeye Sabit)",
+            true
+          );
+        }
       } else if (!isTopFrontAtCountertop) {
         // Unpaired intermediate drawers (e.g. gap 1–2 in a 3-drawer unit, gaps 1–2 & 3–4 in a 5-drawer unit)
         // use a crisp 3mm standard reveal with ZERO C-Gola profile (they pull from the paired C-Gola below or L-Gola above!)

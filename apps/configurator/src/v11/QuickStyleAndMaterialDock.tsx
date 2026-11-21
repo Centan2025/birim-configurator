@@ -5,7 +5,7 @@ import { PremiumSelect } from "./PremiumSelect";
 import {
   PaintBucket,
   Pipette,
-  Sparkles,
+  SwatchBook,
   Star,
   Search,
   X,
@@ -228,8 +228,8 @@ export const QuickStyleAndMaterialDock: React.FC<QuickStyleAndMaterialDockProps>
                     : "text-[#57534E] hover:text-[#141413]"
                 }`}
               >
-                <Sparkles className="w-4 h-4 text-[#38BDF8]" />
-                <span>Kombin</span>
+                <SwatchBook className="w-4 h-4 text-[#38BDF8]" />
+                <span>Paletler</span>
               </button>
             </div>
 

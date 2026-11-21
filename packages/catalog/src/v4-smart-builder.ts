@@ -521,7 +521,7 @@ export function applyWardrobeInteriorWizard(
           {
             id: `drw_${module.id}_${idx}_1`,
             bayIndex: idx,
-            elevationY: 185,
+            elevationY: 180,
             height: 140,
             slideType: "soft_close" as const,
             hardwareProductId: "hw_blum_legrabox_m40",
@@ -584,7 +584,7 @@ export function applyWardrobeInteriorWizard(
         {
           id: `drw_${module.id}_${idx}_1`,
           bayIndex: idx,
-          elevationY: 185,
+          elevationY: 180,
           height: 180,
           slideType: "soft_close" as const,
           isInternal: bay.door.type !== "open",

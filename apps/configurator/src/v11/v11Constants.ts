@@ -140,7 +140,7 @@ export const V11_DOOR_PROFILES: readonly V11DoorProfileOption[] = [
   { id: "glass_frame", label: "Füme Cam (Çerçeveli)", subtitle: "Alüminyum çerçeveli vitrin", isGlass: true },
   { id: "full_smoked_glass", label: "Tam Füme Cam", subtitle: "Kenardan kenara çerçevesiz füme cam", isGlass: true },
   { id: "center_glass_frame", label: "Ortası Camlı", subtitle: "4 kenar çerçeve + orta cam", isGlass: true },
-  { id: "u_glass_open_top", label: "Ortası Camlı (Üstü Açık)", subtitle: "Üstü açık U çerçeve + orta cam", isGlass: true },
+  { id: "u_glass_open_top", label: "Üstü Açık U-Cam", subtitle: "Üstü açık U çerçeve + orta cam", isGlass: true },
   { id: "mirror_door", label: "Aynalı (Çerçeveli)", subtitle: "İnce çerçeveli bronz/gümüş ayna" },
   { id: "mirror_frameless", label: "Aynalı (Çerçevesiz)", subtitle: "Kenardan kenara sıfır çerçeve ayna" },
 ] as const;

@@ -55,6 +55,7 @@ export interface StudioHeaderBarProps {
   onOpenCommandSearch: () => void;
   onOpenQuoteModal: () => void;
   onOpenBomModal: (tab?: "cutlist" | "nesting" | "cnc_mpr_cix" | "blum_bxf") => void;
+  onOpenProductionSheetModal: () => void;
   onOpenAssemblyModal: () => void;
   onOpenStudioRenderModal: () => void;
   onOpenArModal: () => void;
@@ -107,6 +108,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
     onOpenCommandSearch,
     onOpenQuoteModal,
     onOpenBomModal,
+    onOpenProductionSheetModal,
     onOpenAssemblyModal,
     onOpenStudioRenderModal,
     onOpenArModal,
@@ -213,7 +215,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
               }
               setVariantOpen((v) => !v);
             }}
-            title="Tasarım Varyantları (A / B / C) — Kaydet & Karşılaştır"
+            title="Tasarım Seçenekleri (A / B / C) — Kaydet & Karşılaştır"
             className={`h-9 px-2.5 rounded-full border text-xs font-bold inline-flex items-center gap-1.5 transition cursor-pointer shrink-0 ${
               activeVariantSlot
                 ? "bg-gradient-to-br from-[#0284C7]/90 via-[#1D4ED8]/90 to-[#1E3A8A]/90 border-[#38BDF8]/50 text-white shadow-[0_3px_12px_rgba(37,99,235,0.38)]"
@@ -223,7 +225,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
             <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-black/35 text-[10.5px] font-extrabold text-sky-300">
               {activeVariantSlot || "A"}
             </span>
-            <span className="hidden xl:inline text-[11px] font-semibold">Varyant</span>
+            <span className="hidden xl:inline text-[11px] font-semibold">Seçenek</span>
             {savedVariantCount > 0 && (
               <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-white/15 text-sky-200">
                 {savedVariantCount}/3
@@ -232,29 +234,27 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
             <ChevronDown className={`w-3.5 h-3.5 opacity-80 transition-transform ${variantOpen ? "rotate-180" : ""}`} />
           </button>
 
-          {variantOpen &&
-            typeof document !== "undefined" &&
+          {typeof document !== "undefined" &&
             createPortal(
-              <div
-                data-birim-portal-menu="true"
-                data-testid="v15-variant-portal-menu"
-                style={{
-                  position: "fixed",
-                  top: variantPos.top,
-                  left: variantPos.left,
-                  width: 284,
-                  zIndex: 9999,
-                  backgroundColor: "rgba(22, 27, 36, 0.94)",
-                  backdropFilter: "blur(36px) saturate(195%)",
-                  WebkitBackdropFilter: "blur(36px) saturate(195%)",
-                }}
-                className="rounded-2xl border border-white/[0.18] shadow-[0_24px_60px_rgba(0,0,0,0.62)] p-2.5 text-[#F8FAFC]"
+              <AnimatedPopoverPresence
+                isOpen={variantOpen}
+                origin="top-left"
+                style={{ top: variantPos.top, left: variantPos.left }}
+                className="fixed z-[9999]"
               >
-                <div className="flex items-center justify-between px-1.5 pb-2 mb-1.5 border-b border-white/10">
-                  <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-300">
-                    Tasarım Varyantları (A / B / C)
+                <div
+                  data-birim-portal-menu="true"
+                  data-testid="v15-variant-portal-menu"
+                  style={{ width: 284 }}
+                  className="rounded-3xl bg-[#2A313F]/68 backdrop-blur-2xl border border-white/[0.22] ring-1 ring-black/60 shadow-[0_26px_64px_rgba(0,0,0,0.62)] p-2.5 text-[#F8FAFC]"
+                >
+                <div className="flex items-center justify-between gap-2 px-1.5 pb-2 mb-1.5 border-b border-white/10">
+                  <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-300 truncate">
+                    Tasarım Seçenekleri
                   </span>
-                  <span className="text-[10px] font-mono text-sky-300">{savedVariantCount}/3 Kayıtlı</span>
+                  <span className="text-[10px] font-mono text-sky-300 shrink-0 whitespace-nowrap">
+                    {savedVariantCount}/3 Kayıtlı
+                  </span>
                 </div>
                 <div className="space-y-1.5">
                   {variantSlots.map((vs) => {
@@ -296,7 +296,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                           </span>
                           <div className="min-w-0">
                             <div className="text-xs font-bold text-white truncate">
-                              {vs.saved ? `Varyant ${vs.slot}` : `Varyant ${vs.slot} (Boş)`}
+                              {vs.saved ? `Seçenek ${vs.slot}` : `Seçenek ${vs.slot} (Boş)`}
                             </div>
                             <div className="text-[10px] text-slate-300 truncate">
                               {vs.saved
@@ -312,7 +312,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                               onSelectOrSaveVariantSlot(vs.slot, true);
                               setVariantOpen(false);
                             }}
-                            title={`Mevcut tasarımı Varyant ${vs.slot} üzerine yaz`}
+                            title={`Mevcut tasarımı Seçenek ${vs.slot} üzerine yaz`}
                             className="px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-[10px] font-bold text-slate-200 shrink-0 cursor-pointer"
                           >
                             Güncelle
@@ -322,7 +322,8 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                     );
                   })}
                 </div>
-              </div>,
+                </div>
+              </AnimatedPopoverPresence>,
               document.body
             )}
         </div>
@@ -801,6 +802,23 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                   <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[#8C7A6B]">
                     Üretim &amp; Yönetim
                   </div>
+                  <button
+                    type="button"
+                    data-testid="v11-open-production-sheet"
+                    onClick={() => {
+                      setOutputsOpen(false);
+                      onOpenProductionSheetModal();
+                    }}
+                    className="group w-full px-2.5 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
+                  >
+                    <span className="w-8 h-8 rounded-xl bg-sky-50 group-hover:bg-white flex items-center justify-center shrink-0 transition">
+                      <FileText className="w-4 h-4 text-sky-700" />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="font-semibold">Üretim Paftası</div>
+                      <div className="text-[11px] text-[#78716C] truncate">Plan, görünüş, kesit, 3B &amp; antet</div>
+                    </div>
+                  </button>
                   <button
                     type="button"
                     onClick={() => {

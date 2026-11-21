@@ -4,6 +4,8 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import {
   DEFAULT_MATERIALS,
   loadCustomStandardRules,
+  computeBayDoorZones,
+  resolveDoorZoneKeyFromComponentId,
   type CustomStandardMetric,
   type CustomStandardRule,
   type DesignProject,
@@ -67,6 +69,7 @@ import { GuidedSetupModal } from "./GuidedSetupModal";
 import { QuoteSummaryModal } from "./QuoteSummaryModal";
 import { SectionPlaneMiniMap } from "./SectionPlaneMiniMap";
 import { PanelCutoutModal } from "./PanelCutoutModal";
+import { ProductionSheetStudioModal } from "./ProductionSheetStudioModal";
 
 const EMPTY_SCENE_OBJECTS: NonNullable<DesignProject["sceneObjects"]> = [];
 const EMPTY_FINDINGS: EngineeringValidationFinding[] = [];
@@ -292,6 +295,7 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
     null | "cutlist" | "nesting" | "cnc_mpr_cix" | "blum_bxf"
   >(null);
   const [storeErpOpen, setStoreErpOpen] = useState(false);
+  const [productionSheetModalOpen, setProductionSheetModalOpen] = useState(false);
   const [assemblyModalOpen, setAssemblyModalOpen] = useState(false);
   const [studioRenderOpen, setStudioRenderOpen] = useState(false);
   const [arModalOpen, setArModalOpen] = useState(false);
@@ -731,13 +735,27 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
     if (Array.isArray(storeValidationIssues)) {
       storeValidationIssues.forEach((vi) => {
         const viCompat = vi as typeof vi & { moduleId?: string; bayId?: string; suggestion?: string };
+        const viCode = vi.code || "VALIDATION_ISSUE";
+        // Avoid duplicating legacy rule issues when unifiedEngineeringReport already emitted an actionable finding for the same drawer/issue
+        if (
+          (viCode === "ERR_INTERNAL_DRAWER_HINGE_COLLISION" ||
+            viCode === "WARN_INTERNAL_DRAWER_HINGE_PROTRUSION") &&
+          merged.some(
+            (m) =>
+              (m.code === "ERR_INTERNAL_DRAWER_HINGE_BODY_CLASH" ||
+                m.code === "WARN_INTERNAL_DRAWER_HINGE_PROTRUSION") &&
+              (!vi.targetId || !m.targetId || m.targetId === vi.targetId)
+          )
+        ) {
+          return;
+        }
         pushUnique({
-          code: vi.code || "VALIDATION_ISSUE",
+          code: viCode,
           severity: vi.severity === "error" ? "error" : "warning",
           category: "spatial_collision",
           message: vi.message,
           targetModuleId: viCompat.moduleId || project.modules[activeModuleIndex]?.id || "",
-          targetId: viCompat.bayId || viCompat.moduleId || "",
+          targetId: vi.targetId || viCompat.bayId || viCompat.moduleId || "",
           suggestions: viCompat.suggestion ? [viCompat.suggestion] : [],
         } as unknown as EngineeringValidationFinding);
       });
@@ -924,8 +942,8 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
         setActiveVariantSlot(slot);
         showToast(
           forceOverwrite
-            ? `Varyant ${slot} güncellendi (${doorMatName}).`
-            : `Varyant ${slot} kaydedildi — Farklı renk deneyip tek tıkla dönebilirsiniz.`
+            ? `Seçenek ${slot} güncellendi (${doorMatName}).`
+            : `Seçenek ${slot} kaydedildi — Farklı renk deneyip tek tıkla dönebilirsiniz.`
         );
         return;
       }
@@ -940,9 +958,9 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
           },
         }));
       }
-      st.restoreProjectVariantSnapshot(existing.project, `Varyant ${slot} yüklendi`);
+      st.restoreProjectVariantSnapshot(existing.project, `Seçenek ${slot} yüklendi`);
       setActiveVariantSlot(slot);
-      showToast(`Varyant ${slot} (${existing.summaryTr}) yüklendi.`);
+      showToast(`Seçenek ${slot} (${existing.summaryTr}) yüklendi.`);
     },
     [variantSnapshots, showToast]
   );
@@ -1011,6 +1029,13 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
         categoryTr: "Mühendislik",
         keywords: "kertme priz boru kolon kesim cnc",
         onExecute: () => setCutoutModalOpen(true),
+      },
+      {
+        id: "open_production_sheet",
+        labelTr: "Üretim Paftası & Teknik Çizim Düzeni (Plan, Görünüş, Kesit, 3B)",
+        categoryTr: "Üretim",
+        keywords: "pafta plan görünüş kesit perspektif antet pdf svg dxf üretim",
+        onExecute: () => setProductionSheetModalOpen(true),
       },
       {
         id: "open_bom",
@@ -1236,6 +1261,7 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
     toggleModuleLedLighting,
     rotateActiveModule90,
     setDoorOpenAngleDeg,
+    setDrawerOpenMm: (mm: number, animated?: boolean) => useConfiguratorStore.getState().setDrawerOpenMm(mm, animated),
   });
   latestRef.current = {
     project,
@@ -1267,6 +1293,7 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
     toggleModuleLedLighting,
     rotateActiveModule90,
     setDoorOpenAngleDeg,
+    setDrawerOpenMm: (mm: number, animated?: boolean) => useConfiguratorStore.getState().setDrawerOpenMm(mm, animated),
   };
 
   // Memoized callbacks so React.memo on StudioHeaderBar, LeftCatalogLauncher,
@@ -1297,6 +1324,7 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
     (tab?: "cutlist" | "nesting" | "cnc_mpr_cix" | "blum_bxf") => setBomModalTab(tab || "cutlist"),
     []
   );
+  const handleOpenProductionSheetModal = useCallback(() => setProductionSheetModalOpen(true), []);
   const handleOpenAssemblyModal = useCallback(() => setAssemblyModalOpen(true), []);
   const handleOpenStudioRenderModal = useCallback(() => setStudioRenderOpen(true), []);
   const handleOpenArModal = useCallback(() => setArModalOpen(true), []);
@@ -1634,7 +1662,12 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
   const handleOpenCustomHardwareModal = useCallback(() => setCustomHardwareOpen(true), []);
 
   const handleChangeDoorAngle = useCallback(
-    (deg: number, animated = false) => latestRef.current.setDoorOpenAngleDeg(deg, animated),
+    (deg: number, animated = false) => {
+      const clampedDeg = Math.max(0, Math.min(85, deg));
+      const targetDrawerMm = clampedDeg <= 2 ? 0 : Math.round((clampedDeg / 85) * 260);
+      latestRef.current.setDrawerOpenMm(targetDrawerMm, animated);
+      latestRef.current.setDoorOpenAngleDeg(clampedDeg, animated);
+    },
     []
   );
   const handleToggleDockDimensions = useCallback(() => {
@@ -1687,13 +1720,44 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
                 : addDrawer(bIdx)
             }
             onAddHangingRail={addHangingRail}
+            onToggleDrawerInternal={(bIdx, drId) => {
+              const dr = activeModule.bays[bIdx]?.drawers.find((d) => d.id === drId);
+              if (!dr) return;
+              setDrawerPlacement(bIdx, dr.id, dr.elevationY, dr.height, true, {
+                isInternal: !dr.isInternal,
+              });
+            }}
+            onUpdateCarcassConfig={updateCarcassConfig}
             onAddSubDivider={handleAddSubDivider}
             onCycleDoorType={handleCycleBayDoorType}
             onSetDoorProfile={(bIdx, profile, isGlass) =>
               setBayV4DoorConfig(bIdx, { crossSectionProfile: profile, isGlassFramed: isGlass })
             }
             onRemoveBayDoor={(bIdx) => {
-              setBayDoorType(bIdx, "open");
+              const targetBay = activeModule.bays[bIdx];
+              const zones = computeBayDoorZones(activeModule, bIdx);
+              const compId = selected3DCompId || selectedComponentId || "";
+              const zKey = resolveDoorZoneKeyFromComponentId(compId);
+              if (zones.length > 0 && targetBay?.door && targetBay.door.type !== "open") {
+                const nextStates: Record<string, "closed" | "open"> = {
+                  ...(targetBay.door.zoneDoorStates || {}),
+                  [zKey]: "open",
+                };
+                const anyRemainingClosed = zones.some(
+                  (z) => (z.key in nextStates ? nextStates[z.key] !== "open" : !z.isOpen)
+                );
+                if (!anyRemainingClosed) {
+                  setBayDoorType(bIdx, "open");
+                } else {
+                  setBayV4DoorConfig(bIdx, {
+                    zoneDoorStates: nextStates,
+                    ...(zKey === "upper" ? { upperZoneDoorState: "open" } : {}),
+                    ...(zKey === "lower" ? { lowerZoneDoorState: "open" } : {}),
+                  });
+                }
+              } else {
+                setBayDoorType(bIdx, "open");
+              }
               setSelected3DContextLabel(null);
             }}
             onQuickApplyDoorMaterial={(matId) => handleApplyMaterialScope("doors", matId)}
@@ -1771,6 +1835,7 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
         onOpenCommandSearch={handleOpenCommandSearch}
         onOpenQuoteModal={handleOpenQuoteModal}
         onOpenBomModal={handleOpenBomModal}
+        onOpenProductionSheetModal={handleOpenProductionSheetModal}
         onOpenAssemblyModal={handleOpenAssemblyModal}
         onOpenStudioRenderModal={handleOpenStudioRenderModal}
         onOpenArModal={handleOpenArModal}
@@ -2047,16 +2112,20 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
             `${f.code}-${f.message}` !== dismissedAutoFixKey
         );
         const actionable =
-          visibleFindings.find((f) => f.severity === "error") || visibleFindings[0];
+          visibleFindings.find((f) => f.severity === "error" && (f.remediationProposals?.length ?? 0) > 0) ||
+          visibleFindings.find((f) => f.severity === "error") ||
+          visibleFindings.find((f) => (f.remediationProposals?.length ?? 0) > 0) ||
+          visibleFindings[0];
         if (!actionable) return null;
         const findingKey = `${actionable.code}-${actionable.message}`;
         const isErr = actionable.severity === "error";
         const extraCount = Math.max(0, visibleFindings.length - 1);
+        const quickFixes = (actionable.remediationProposals || []).slice(0, 2);
         return (
           <div
             data-testid="v11-contextual-autofix-pill"
             style={{ left: leftDrawer ? "496px" : "84px" }}
-            className={`birim-dramatic-panel fixed bottom-[104px] max-w-[300px] z-40 pointer-events-auto transition-[left] duration-200 rounded-2xl border backdrop-blur-2xl shadow-[0_14px_34px_rgba(0,0,0,0.42)] px-3 py-2 flex items-start gap-2 max-lg:!left-3 max-lg:right-3 max-lg:max-w-none ${
+            className={`birim-dramatic-panel fixed bottom-[104px] max-w-[400px] z-40 pointer-events-auto transition-[left] duration-200 rounded-2xl border backdrop-blur-2xl shadow-[0_14px_34px_rgba(0,0,0,0.42)] px-3.5 py-2.5 flex items-start gap-2.5 max-lg:!left-3 max-lg:right-3 max-lg:max-w-none ${
               isErr
                 ? "border-red-400/55 ring-1 ring-red-500/25 text-slate-100"
                 : "border-sky-400/45 ring-1 ring-sky-400/20 text-slate-100"
@@ -2071,7 +2140,7 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
             />
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between gap-1.5">
-                <span className="text-[10.5px] font-bold tracking-tight text-white truncate">
+                <span className="text-[11px] font-bold tracking-tight text-white truncate">
                   {isErr ? "Çakışma / Hata" : "Tasarım Önerisi"}
                 </span>
                 {extraCount > 0 && (
@@ -2080,23 +2149,31 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
                   </span>
                 )}
               </div>
-              <p className="text-[10px] leading-snug text-slate-200 mt-0.5 line-clamp-2">
+              <p className="text-[11px] leading-relaxed text-slate-100 mt-1 break-words">
                 {actionable.message}
               </p>
-              <div className="flex items-center gap-1.5 mt-2">
-                {actionable.remediationProposals?.[0] && (
+              <div className="flex flex-wrap items-center gap-1.5 mt-2.5">
+                {quickFixes.map((proposal, pIdx) => (
                   <button
+                    key={proposal.id || pIdx}
                     type="button"
-                    onClick={() => handleApplyFindingFix(actionable.remediationProposals![0]!)}
-                    className="h-6 px-2.5 rounded-lg bg-[#141413] hover:bg-[#292524] text-white text-[11px] font-semibold transition cursor-pointer"
+                    title={proposal.description}
+                    onClick={() => handleApplyFindingFix(proposal)}
+                    className={`h-7 px-2.5 rounded-lg text-[11px] font-semibold transition cursor-pointer ${
+                      pIdx === 0
+                        ? isErr
+                          ? "bg-red-500 hover:bg-red-400 text-white shadow-sm"
+                          : "bg-sky-500 hover:bg-sky-400 text-white shadow-sm"
+                        : "bg-white/14 hover:bg-white/22 text-white border border-white/15"
+                    }`}
                   >
-                    Otomatik Düzelt
+                    {proposal.label || "Otomatik Düzelt"}
                   </button>
-                )}
+                ))}
                 <button
                   type="button"
                   onClick={() => handleFocusFinding(actionable)}
-                  className="h-6 px-2.5 rounded-lg bg-white hover:bg-[#F3EFE6] border border-[#DDD6C8] text-[#141413] text-[11px] font-semibold transition cursor-pointer"
+                  className="h-7 px-2.5 rounded-lg bg-white/95 hover:bg-white border border-white/20 text-[#141413] text-[11px] font-semibold transition cursor-pointer"
                 >
                   Parçaya Odaklan
                 </button>
@@ -2106,7 +2183,7 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
               type="button"
               aria-label="Uyarıyı gizle"
               onClick={() => setDismissedAutoFixKey(findingKey)}
-              className="w-6 h-6 rounded-lg hover:bg-black/5 text-[#78716C] hover:text-[#141413] inline-flex items-center justify-center text-xs font-bold cursor-pointer shrink-0"
+              className="w-6 h-6 rounded-lg hover:bg-white/12 text-slate-300 hover:text-white inline-flex items-center justify-center text-xs font-bold cursor-pointer shrink-0"
             >
               ×
             </button>
@@ -2286,6 +2363,17 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
           />
         )}
       </AnimatedModalPresence>
+
+      <ProductionSheetStudioModal
+        open={productionSheetModalOpen}
+        onClose={() => setProductionSheetModalOpen(false)}
+        project={project}
+        bom={bom}
+        spaceWalls={spaceWalls}
+        spaceObstacles={spaceObstacles}
+        initialUnit={displayUnit}
+        onOpenBomModal={(tab) => setBomModalTab(tab || "cutlist")}
+      />
 
       <AnimatedModalPresence isOpen={studioRenderOpen}>
         {(renderOpen) => (

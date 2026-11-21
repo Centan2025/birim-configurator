@@ -744,7 +744,7 @@ function optimizeGlbSceneFor60Fps(
       continue;
     }
 
-    if (rawTris >= 900) {
+    if (rawTris > 10000) {
       let dec = geoDecimateCache.get(obj.geometry);
       if (!dec) {
         dec = decimateHighPolyBufferGeometry(obj.geometry, targetGrid);
@@ -1141,10 +1141,10 @@ export async function ensureWardrobeGlbLoaded(
   const activeSource = getActiveWardrobeGlbUrl(category);
 
   const loadPromise = (async (): Promise<THREE.Group | null> => {
-    // Skip guaranteed-404 `/models/wardrobe/*.glb` probes unless user explicitly supplied a custom URL/file!
+    // Prefer local `/models/wardrobe/*.glb` assets before falling back to remote URLs.
     const candidateUrls = activeSource.isCustom
-      ? [activeSource.url, entry.remoteUrl]
-      : [entry.remoteUrl];
+      ? [activeSource.url, entry.localOverridePath, entry.remoteUrl]
+      : [entry.localOverridePath, entry.remoteUrl];
     let lastError: unknown = null;
     for (const url of candidateUrls) {
       if (!url) continue;
@@ -1624,11 +1624,13 @@ export function createReadyMadeHangingGarmentGroup(
       const rawSpanZ = sizeMm.w * sinA + sizeMm.d * cosA;
 
       const safeSlotW = Math.max(84, maxSlotWidthMm);
-      const safeDepthZ = Math.max(180, maxCabinetClearDepthMm);
-      const scaleXZ = Math.min(
-        1,
-        safeDepthZ / Math.max(1, rawSpanZ),
-        safeSlotW / Math.max(1, rawSpanX)
+      const safeDepthZ = Math.max(220, maxCabinetClearDepthMm);
+      // Preserve natural adult shoulder width along cabinet depth (local X -> rotated Z)
+      // while independently fitting torso thickness to side-by-side hanger spacing (local Z -> rotated X)
+      const scaleShoulder = Math.min(1, safeDepthZ / Math.max(1, rawSpanZ));
+      const scaleThick = Math.max(
+        0.52,
+        Math.min(scaleShoulder, safeSlotW / Math.max(1, rawSpanX))
       );
 
       const pinTopY =
@@ -1643,13 +1645,13 @@ export function createReadyMadeHangingGarmentGroup(
       const clearBelowCollar = Math.max(220, maxDropMm - Math.abs(pinTopY));
       const scaleY = Math.min(1, clearBelowCollar / Math.max(1, sizeMm.h));
 
-      cloned.scale.set(scaleXZ, scaleY, scaleXZ);
+      cloned.scale.set(scaleShoulder, scaleY, scaleThick);
       cloned.position.y = pinTopY * (1 - scaleY);
 
       const hangerGrp = createContouredCoatHangerGroup(
         rackAngleRad,
         variantIndex,
-        scaleXZ * hangerWidthFactor
+        scaleShoulder * hangerWidthFactor
       );
       anchor.add(hangerGrp);
     },

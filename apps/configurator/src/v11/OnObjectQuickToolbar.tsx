@@ -7,6 +7,7 @@ import { classifyModuleArchitecturalZone, dispatchLive3DMaterialPreview, type Qu
 import type { HardwareSwapGroup } from "./HardwareQuickSwapPopover";
 import {
   calculateFourSpaceDimensions,
+  resolveDoorZoneKeyFromComponentId,
   type DoorCrossSectionProfile,
   type MaterialDefinition,
   type ModuleInstance,
@@ -54,6 +55,8 @@ export interface OnObjectQuickToolbarProps {
   ) => void;
   onCenterSubDividerX: (bayIdx: number, subDividerId: string, bayClearWidthMm: number) => void;
   onShiftRailElevation: (bayIdx: number, railId: string, deltaMm: number) => void;
+  onToggleDrawerInternal?: (bayIdx: number, drawerId: string) => void;
+  onUpdateCarcassConfig?: (patch: Partial<ModuleInstance["carcass"]>) => void;
   onDeleteSelectedPart: () => void;
   onOpenHardwareSwap?: (group: HardwareSwapGroup, bayIdx: number) => void;
   onOpenQuickPaletteDock?: () => void;
@@ -91,6 +94,8 @@ export const OnObjectQuickToolbar: React.FC<OnObjectQuickToolbarProps> = React.m
     onMoveSubDividerToInterval,
     onCenterSubDividerX,
     onShiftRailElevation,
+    onToggleDrawerInternal,
+    onUpdateCarcassConfig,
     onDeleteSelectedPart,
     onOpenHardwareSwap,
     onOpenQuickPaletteDock,
@@ -182,6 +187,15 @@ export const OnObjectQuickToolbar: React.FC<OnObjectQuickToolbarProps> = React.m
           r.id === selectedComponentId ||
           `${activeModule.id}_bay_${safeBayIdx}_rail_${idx}` === selectedComponentId
       ) || bay.hangingRails[0];
+
+    const matchedDrawer =
+      bay.drawers.find(
+        (dr, idx) =>
+          (selectedComponentId && (selectedComponentId === dr.id || selectedComponentId.startsWith(`${dr.id}_`))) ||
+          `${activeModule.id}_bay_${safeBayIdx}_drawer_${idx}` === selectedComponentId
+      ) || bay.drawers[0];
+
+    const isSlidingBay = bay.door?.type === "sliding" || activeModule.bays.some((b) => b.door?.type === "sliding");
 
     const curDoorProfile =
       bay.door?.crossSectionProfile || activeModule.carcass.crossSectionProfile || "flat_slab";
@@ -387,15 +401,28 @@ export const OnObjectQuickToolbar: React.FC<OnObjectQuickToolbarProps> = React.m
                 )}
               </div>
 
-              {bay.door?.type !== "open" && (
-                <button
-                  type="button"
-                  onClick={() => onRemoveBayDoor(safeBayIdx)}
-                  className="h-7 px-2.5 rounded-xl bg-white hover:bg-red-50 border border-[#E5DFD3] hover:border-red-200 text-[11px] font-semibold text-[#78716C] hover:text-red-700 transition cursor-pointer"
-                >
-                  Kapağı Kaldır
-                </button>
-              )}
+              {bay.door?.type !== "open" && (() => {
+                const hasExtDrw = bay.drawers.some((d) => !d.isInternal && !d.isHidden);
+                const zKey = resolveDoorZoneKeyFromComponentId(selectedComponentId);
+                const removeLabel = !hasExtDrw
+                  ? "Kapağı Sil"
+                  : zKey === "lower"
+                  ? "Alt Kapağı Sil"
+                  : zKey.startsWith("mid_")
+                  ? `Orta Kapak ${Number(zKey.slice(4)) + 1}'i Sil`
+                  : "Üst Kapağı Sil";
+                return (
+                  <button
+                    type="button"
+                    onClick={() => onRemoveBayDoor(safeBayIdx)}
+                    title={`${removeLabel} (Del)`}
+                    className="h-7 px-2.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/28 border border-rose-400/40 text-[11px] font-semibold text-rose-200 hover:text-white inline-flex items-center gap-1 transition cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>{removeLabel}</span>
+                  </button>
+                );
+              })()}
             </>
           )}
 
@@ -577,14 +604,30 @@ export const OnObjectQuickToolbar: React.FC<OnObjectQuickToolbarProps> = React.m
           {(selectedPartKind === "drawer" || selectedPartKind === "rail") && (
             <>
               {selectedPartKind === "drawer" ? (
-                <button
-                  type="button"
-                  onClick={() => onAddDrawerOrInternal(safeBayIdx)}
-                  className="h-7 px-2.5 rounded-xl bg-white hover:bg-[#F3EFE6] border border-[#E5DFD3] text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer"
-                >
-                  <Plus className="w-3 h-3" />
-                  <span>Üstüne Çekmece</span>
-                </button>
+                <>
+                  {matchedDrawer && onToggleDrawerInternal && !isSlidingBay && (
+                    <button
+                      type="button"
+                      title="Dış Çekmece ↔ Gizli İç Çekmece Dönüştür"
+                      onClick={() => onToggleDrawerInternal(safeBayIdx, matchedDrawer.id)}
+                      className={`h-7 px-2.5 rounded-xl border text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer transition ${
+                        matchedDrawer.isInternal
+                          ? "bg-[#1C1917] text-white border-[#1C1917]"
+                          : "bg-white hover:bg-[#F3EFE6] border-[#E5DFD3] text-[#1C1917]"
+                      }`}
+                    >
+                      <span>{matchedDrawer.isInternal ? "İç → Dış" : "Dış → İç"}</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onAddDrawerOrInternal(safeBayIdx)}
+                    className="h-7 px-2.5 rounded-xl bg-white hover:bg-[#F3EFE6] border border-[#E5DFD3] text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>Üstüne Çekmece</span>
+                  </button>
+                </>
               ) : (
                 matchedRail && (
                   <>
@@ -613,6 +656,141 @@ export const OnObjectQuickToolbar: React.FC<OnObjectQuickToolbarProps> = React.m
               >
                 <Trash2 className="w-3.5 h-3.5" />
               </button>
+
+              {selectedPartKind === "drawer" &&
+                matchedDrawer?.isInternal &&
+                onUpdateCarcassConfig && (
+                  <div className="w-full mt-1.5 pt-2 border-t border-[#E8E2D5] space-y-1.5">
+                    <div className="flex items-center justify-between gap-1.5">
+                      <span className="text-[10.5px] font-bold text-[#141413]">
+                        Kör Dikme & Menteşe
+                      </span>
+                      <div className="flex items-center gap-1">
+                        {(
+                          [
+                            { id: "blind_panel_filler", label: "Kör Dikme" },
+                            { id: "auto_155_hinge", label: "155°" },
+                            { id: "spacer_block_25mm", label: "25mm" },
+                          ] as const
+                        ).map((opt) => {
+                          const curSol =
+                            activeModule.carcass.internalDrawerHingeSolution || "auto_155_hinge";
+                          const isSel = curSol === opt.id;
+                          return (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              onClick={() =>
+                                onUpdateCarcassConfig({
+                                  internalDrawerHingeSolution: opt.id,
+                                })
+                              }
+                              className={`h-6 px-2 rounded-lg text-[10px] font-semibold transition cursor-pointer ${
+                                isSel
+                                  ? "bg-[#1C1917] text-white"
+                                  : "bg-white hover:bg-[#F3EFE6] border border-[#E5DFD3] text-[#44403C]"
+                              }`}
+                            >
+                              {opt.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {activeModule.carcass.internalDrawerHingeSolution === "blind_panel_filler" && (
+                      <div className="flex flex-wrap items-center justify-between gap-1.5 rounded-xl bg-[#F5F2EA] px-2 py-1.5 border border-[#E5DFD3]">
+                        <div className="flex items-center gap-1">
+                          <span className="text-[10px] font-medium text-[#57534E]">Kör Alan:</span>
+                          {[36, 40, 50].map((w) => (
+                            <button
+                              key={w}
+                              type="button"
+                              onClick={() =>
+                                onUpdateCarcassConfig({ internalDrawerBlindWidthMm: w })
+                              }
+                              className={`px-1.5 py-0.5 rounded text-[9.5px] font-semibold cursor-pointer ${
+                                (activeModule.carcass.internalDrawerBlindWidthMm ?? 40) === w
+                                  ? "bg-[#141413] text-white"
+                                  : "bg-white text-[#57534E] hover:bg-[#EAE3D5]"
+                              }`}
+                            >
+                              {w}
+                            </button>
+                          ))}
+                          <input
+                            type="number"
+                            min={32}
+                            max={100}
+                            step={1}
+                            aria-label="Kör Alan Genişliği"
+                            value={activeModule.carcass.internalDrawerBlindWidthMm ?? 40}
+                            onChange={(e) => {
+                              const n = Number(e.target.value);
+                              if (Number.isFinite(n)) {
+                                onUpdateCarcassConfig({
+                                  internalDrawerBlindWidthMm: Math.max(32, Math.min(100, Math.round(n))),
+                                });
+                              }
+                            }}
+                            className="w-11 px-1 py-0.5 text-[10px] font-semibold text-right rounded border border-[#D6D3CD] bg-white text-[#141413]"
+                          />
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <span className="text-[10px] font-medium text-[#57534E]">Klapadan:</span>
+                          {[0, 18, 35].map((s) => (
+                            <button
+                              key={s}
+                              type="button"
+                              onClick={() =>
+                                onUpdateCarcassConfig({
+                                  internalDrawerBlindSetbackFromFrontMm: s,
+                                })
+                              }
+                              className={`px-1.5 py-0.5 rounded text-[9.5px] font-semibold cursor-pointer ${
+                                (activeModule.carcass.internalDrawerBlindSetbackFromFrontMm ?? 0) === s
+                                  ? "bg-[#141413] text-white"
+                                  : "bg-white text-[#57534E] hover:bg-[#EAE3D5]"
+                              }`}
+                            >
+                              {s}
+                            </button>
+                          ))}
+                          <input
+                            type="number"
+                            min={0}
+                            max={80}
+                            step={1}
+                            aria-label="Klapadan İçeri"
+                            value={activeModule.carcass.internalDrawerBlindSetbackFromFrontMm ?? 0}
+                            onChange={(e) => {
+                              const n = Number(e.target.value);
+                              if (Number.isFinite(n)) {
+                                onUpdateCarcassConfig({
+                                  internalDrawerBlindSetbackFromFrontMm: Math.max(0, Math.min(80, Math.round(n))),
+                                });
+                              }
+                            }}
+                            className="w-11 px-1 py-0.5 text-[10px] font-semibold text-right rounded border border-[#D6D3CD] bg-white text-[#141413]"
+                          />
+                        </div>
+                        <label className="flex items-center gap-1 text-[10px] text-[#57534E] cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(activeModule.carcass.internalDrawerBlindSymmetric)}
+                            onChange={(e) =>
+                              onUpdateCarcassConfig({
+                                internalDrawerBlindSymmetric: e.target.checked,
+                              })
+                            }
+                            className="h-3 w-3 accent-[#141413]"
+                          />
+                          <span>Simetrik</span>
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                )}
             </>
           )}
 

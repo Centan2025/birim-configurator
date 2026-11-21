@@ -194,17 +194,31 @@ export function build3DModuleMultiHoleInstancedMesh(
         .filter((s) => !isFixedShelf(s))
         .map((s) => baseOffset + s.elevationY);
 
-      // Sabit raf bloklaması rafın alt yüzü yerine gerçek gövde merkezine (elevationY + thickness/2) hizalanır;
-      // böylece raf altında asimetrik 32-42mm boşluk oluşmaz.
-      const blockedYsMm = visibleShelves
-        .filter((s) => isFixedShelf(s))
-        .map((s) => {
-          const st = s.thickness || panelT;
-          return {
-            y: baseOffset + s.elevationY + st / 2,
-            clearanceMm: st / 2 + 4,
-          };
-        });
+      // Raf-bazlı delik modlarında (cluster_5 / cluster_3 / single_pin) hareketli raf yoksa delik üretilmez;
+      // Tam Boy 32 / Bölge 32 modları ise UI seçimi (resolveMultiHoleSpec) ile birebir tutarlı çizilir.
+      const isShelfClusterMode =
+        spec.mode === "cluster_5" || spec.mode === "cluster_3" || spec.mode === "single_pin";
+      if (isShelfClusterMode && adjShelfYs.length === 0) {
+        continue;
+      }
+
+      // Sabit raf ve çekmece kasası bölgelerinde Sistem 32 raf pimi deliği açılmaz
+      const visibleDrawers = (bay?.drawers || []).filter((d) => !d.isHidden);
+      const blockedYsMm = [
+        ...visibleShelves
+          .filter((s) => isFixedShelf(s))
+          .map((s) => {
+            const st = s.thickness || panelT;
+            return {
+              y: baseOffset + s.elevationY + st / 2,
+              clearanceMm: st / 2 + 4,
+            };
+          }),
+        ...visibleDrawers.map((dr) => ({
+          y: baseOffset + dr.elevationY + dr.height / 2,
+          clearanceMm: dr.height / 2 + 16,
+        })),
+      ];
 
       const holeYs = computeSystem32MultiHoleYs({
         mode: spec.mode,
