@@ -76,11 +76,11 @@ describe("Birim V4.3 — Mağaza Müşterisi & Fabrika Üretim Planlamacısı B�
     }
   });
 
-  it("5. Katmanlı AutoCAD DXF ($INSUNITS=4), Toplu DXF, CSV ve 6 aşamalı üretim kapısını doğrular", () => {
+  it("5. Katmanlı AutoCAD DXF ($INSUNITS=4), Toplu DXF, CSV ve 7 aşamalı üretim kapısını doğrular", () => {
     const proj = createInitialProject();
     const bom = generateBOMForProject(proj);
     expect(bom.productionGate).toBeDefined();
-    expect(bom.productionGate!.checks.length).toBe(6);
+    expect(bom.productionGate!.checks.length).toBe(7);
     expect(bom.productionGate!.isReadyForErp).toBe(false);
 
     const sidePiece = bom.cutList.find((p) => p.componentRole === "carcass_side_left")!;
