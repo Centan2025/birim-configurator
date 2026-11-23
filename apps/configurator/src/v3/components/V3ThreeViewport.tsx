@@ -1594,13 +1594,31 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         const matLookup = new Map<string, MaterialDefinition>(
           [...DEFAULT_MATERIALS, ...(st.project.customMaterials || [])].map((m) => [m.id, m])
         );
+        const hasWallModules = st.project.modules.some(
+          (pm) => classifyModuleArchitecturalZone(pm) === "wall"
+        );
         mGrp.children.forEach((modContainer, mIdx) => {
           const mod = st.project.modules[mIdx];
           if (!mod) return;
           const zone = classifyModuleArchitecturalZone(mod);
-          const frontDef = matLookup.get(
+          const hasDoorsAndExtDrawers =
+            (zone === "tall_or_island" || !hasWallModules) &&
+            (mod.bays || []).some((b) => b.door && b.door.type !== "open") &&
+            (mod.bays || []).some((b) => (b.drawers || []).some((d) => !d.isInternal && !d.isHidden));
+          const doorFrontDef = matLookup.get(
             zone === "wall"
               ? mb.wallFrontMaterialId
+              : hasDoorsAndExtDrawers
+              ? mb.wallFrontMaterialId
+              : zone === "tall_or_island"
+              ? mb.tallFrontMaterialId
+              : mb.baseFrontMaterialId
+          );
+          const drawerFrontDef = matLookup.get(
+            zone === "wall"
+              ? mb.wallFrontMaterialId
+              : hasDoorsAndExtDrawers
+              ? mb.baseFrontMaterialId
               : zone === "tall_or_island"
               ? mb.tallFrontMaterialId
               : mb.baseFrontMaterialId
@@ -1615,12 +1633,12 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             if (!role) continue;
             const grainDir =
               (compGroup.userData?.grainDir as "lengthwise" | "crosswise" | "custom") || "lengthwise";
-            const isDoorOrDrawer =
+            const isDoor =
               role === "door" ||
               role.startsWith("door_left") ||
               role.startsWith("door_right") ||
-              role === "door_sliding" ||
-              role === "drawer_front";
+              role === "door_sliding";
+            const isDrawerFront = role === "drawer_front";
             const isCountertop = role === "countertop" || mod.complementaryRole === "countertop";
             const isPlinth = role === "plinth" || (mod.complementaryRole as string) === "plinth" || mod.complementaryRole === "plinth_strip";
             const isHandleOrGola =
@@ -1631,8 +1649,10 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
 
             if (isCountertop && stoneDef) {
               applyTempMatToCompGroup(compGroup, stoneDef, false, grainDir, mb.surfaceFinishOverride);
-            } else if (isDoorOrDrawer && frontDef) {
-              applyTempMatToCompGroup(compGroup, frontDef, false, grainDir, mb.surfaceFinishOverride);
+            } else if (isDoor && doorFrontDef) {
+              applyTempMatToCompGroup(compGroup, doorFrontDef, false, grainDir, mb.surfaceFinishOverride);
+            } else if (isDrawerFront && drawerFrontDef) {
+              applyTempMatToCompGroup(compGroup, drawerFrontDef, false, grainDir, mb.surfaceFinishOverride);
             } else if (isPlinth && plinthDef) {
               applyTempMatToCompGroup(compGroup, plinthDef, false, grainDir, mb.surfaceFinishOverride);
             } else if (isHandleOrGola && handleDef) {
@@ -4577,8 +4597,16 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             deltaX = dstCenterLocalX - srcCenterLocalX;
             deltaZ = 0;
           } else {
-            deltaX = (dstModObj.position.x + dstCenterLocalX) - (modForClamp.position.x + srcCenterLocalX);
-            deltaZ = dstModObj.position.z - modForClamp.position.z;
+            const srcRotRad = ((modForClamp.rotation?.y || 0) * Math.PI) / 180;
+            const dstRotRad = ((dstModObj.rotation?.y || 0) * Math.PI) / 180;
+            const srcWorldX = modForClamp.position.x + srcCenterLocalX * Math.cos(srcRotRad);
+            const srcWorldZ = modForClamp.position.z - srcCenterLocalX * Math.sin(srcRotRad);
+            const dstWorldX = dstModObj.position.x + dstCenterLocalX * Math.cos(dstRotRad);
+            const dstWorldZ = dstModObj.position.z - dstCenterLocalX * Math.sin(dstRotRad);
+            const wDx = dstWorldX - srcWorldX;
+            const wDz = dstWorldZ - srcWorldZ;
+            deltaX = wDx * Math.cos(srcRotRad) - wDz * Math.sin(srcRotRad);
+            deltaZ = wDx * Math.sin(srcRotRad) + wDz * Math.cos(srcRotRad);
           }
           if (destModIdxLive !== activeDrag3D.modIdx || destBayIdxLive !== activeDrag3D.bayIdx) {
             setSnapBannerDedup(
@@ -7998,8 +8026,11 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                   dummy.scale.set(h.diameter, depthMm, h.diameter);
                 }
               } else {
+                const isAlreadySwappedDrawerFront =
+                  comp.role === "drawer_front" && piece.widthMm > piece.lengthMm && cw > ch;
                 const isWideDrawerPanel =
-                  (comp.role === "drawer_back" || comp.role === "drawer_front") && cw > ch;
+                  (comp.role === "drawer_back" && cw > ch) ||
+                  (comp.role === "drawer_front" && cw > ch && !isAlreadySwappedDrawerFront);
                 const rawX = isWideDrawerPanel ? h.y : h.x;
                 const rawY = isWideDrawerPanel ? h.x : h.y;
                 const wx = px + Math.min(cw - 6, Math.max(6, rawX));
@@ -10017,6 +10048,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       woodEdges: THREE.LineSegments;
       handleBar: THREE.Mesh;
       metalRod: THREE.Mesh;
+      accessoryHolder: THREE.Group;
+      accessorySig: string;
     } | null>(null);
 
     useEffect(() => {
@@ -10047,13 +10080,32 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           handleBar.raycast = () => {};
           const metalRod = new THREE.Mesh(unitCyl, metalMat);
           metalRod.raycast = () => {};
+          const accessoryHolder = new THREE.Group();
+          accessoryHolder.name = "v12_live_accessory_preview";
+          accessoryHolder.visible = false;
 
           const group = new THREE.Group();
           group.name = "v12_live_real_3d_part_preview";
-          group.add(woodBox, handleBar, metalRod);
-          livePartPoolRef.current = { group, woodBox, woodEdges, handleBar, metalRod };
+          group.add(woodBox, handleBar, metalRod, accessoryHolder);
+          livePartPoolRef.current = {
+            group,
+            woodBox,
+            woodEdges,
+            handleBar,
+            metalRod,
+            accessoryHolder,
+            accessorySig: "",
+          };
         } else {
           livePartPoolRef.current.woodBox.material = woodMat;
+          if (!livePartPoolRef.current.accessoryHolder) {
+            const accessoryHolder = new THREE.Group();
+            accessoryHolder.name = "v12_live_accessory_preview";
+            accessoryHolder.visible = false;
+            livePartPoolRef.current.group.add(accessoryHolder);
+            livePartPoolRef.current.accessoryHolder = accessoryHolder;
+            livePartPoolRef.current.accessorySig = "";
+          }
         }
         const sceneRoot = gGroup.parent || gGroup;
         if (livePartPoolRef.current.group.parent !== sceneRoot) {
@@ -10272,48 +10324,120 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           );
         };
         const baseYLocal = plinthH + carcassT;
-        const partD = Math.max(180, mod.dimensions.depth - 30);
-        const centerZLocal = 10 + partD / 2;
+        const netInnerHLocal = Math.max(120, mod.dimensions.height - plinthH - 2 * carcassT);
+        const partD = Math.max(80, mod.dimensions.depth - carcassT - 24);
+        const centerZLocal = 14 + partD / 2;
         pool.group.rotation.y = pl.rotationYRad;
 
         pool.woodBox.visible = false;
         pool.handleBar.visible = false;
         pool.metalRod.visible = false;
+        pool.accessoryHolder.visible = false;
 
         pool.group.position.set(pl.origin.x, pl.origin.y, pl.origin.z);
         void placeLocalToWorld;
+        const specialFittingVisuals = new Set([
+          "wire_basket",
+          "trouser_rack",
+          "shoe_rack",
+          "jewelry_tray",
+          "tie_rack",
+          "waste_bin",
+          "spice_pullout",
+          "pantry_pullout",
+          "corner_lemans",
+        ]);
+        const fittingTypeFromId = detail.id.startsWith("lib_") ? detail.id.slice(4) : "";
+        const resolvedFittingType = specialFittingVisuals.has(detail.visual)
+          ? detail.visual
+          : specialFittingVisuals.has(fittingTypeFromId)
+          ? fittingTypeFromId
+          : detail.id === "lib_tie_belt"
+          ? "tie_rack"
+          : null;
+
         if (detail.visual === "sub_divider") {
           pool.woodBox.visible = true;
           pool.woodBox.scale.set(carcassT, subSpanH, partD);
           pool.woodBox.position.set(bayStartX + localBayX + carcassT / 2, baseYLocal + subBotY + subSpanH / 2, centerZLocal);
           setSnapBannerDedup(`📐 ${detail.title} • Bölme ${targetBayIdx + 1} (${ivLabel || "Raf Arası"}) • X: ${localBayX} mm`);
         } else if (detail.visual === "rail") {
+          const clampedRailY = Math.max(100, Math.min(Math.max(100, netInnerHLocal - 24), snappedElevY));
           pool.metalRod.visible = true;
           pool.metalRod.scale.set(curBayWidth - 6, 22, 22);
-          pool.metalRod.position.set(bayStartX + curBayWidth / 2, baseYLocal + snappedElevY, centerZLocal);
-          setSnapBannerDedup(`📐 ${detail.title} • Bölme ${targetBayIdx + 1} • Y: ${snappedElevY} mm`);
+          pool.metalRod.position.set(bayStartX + curBayWidth / 2, baseYLocal + clampedRailY, centerZLocal);
+          setSnapBannerDedup(`📐 ${detail.title} • Bölme ${targetBayIdx + 1} • Y: ${clampedRailY} mm`);
+        } else if (resolvedFittingType) {
+          const fitW = Math.max(80, Math.round(curBayWidth - 4));
+          const fitD = Math.max(120, Math.round(partD));
+          const fitH =
+            resolvedFittingType === "waste_bin"
+              ? Math.min(340, netInnerHLocal)
+              : resolvedFittingType === "pantry_pullout"
+              ? Math.min(Math.max(360, netInnerHLocal - 40), netInnerHLocal)
+              : resolvedFittingType === "spice_pullout"
+              ? Math.min(320, netInnerHLocal)
+              : resolvedFittingType === "wire_basket"
+              ? 85
+              : 80;
+          const clampedItemY = Math.max(0, Math.min(Math.max(0, netInnerHLocal - fitH), snappedElevY));
+          const nextSig = `${resolvedFittingType}|${fitW}|${fitH}|${fitD}`;
+          if (pool.accessorySig !== nextSig) {
+            disposeObject3DTree(pool.accessoryHolder);
+            pool.accessoryHolder.clear();
+            const chromeDef =
+              DEFAULT_MATERIALS.find((m) => m.id === "mat_metal_chrome") || DEFAULT_MATERIALS[0];
+            const chromeMat = getV3PbrMaterial(chromeDef, false, true, "lengthwise");
+            const edgeMat = markSharedMaterial(
+              new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.7 })
+            );
+            const previewComp = {
+              id: `live_preview_fitting_${resolvedFittingType}`,
+              role: "special_fitting" as const,
+              label: detail.title,
+              bayIndex: targetBayIdx,
+              dimensions: { width: fitW, height: fitH, depth: fitD },
+              position: { x: 0, y: 0, z: 0 },
+              materialId: "mat_metal_chrome",
+              isManufacturablePanel: false,
+            };
+            const built = createComponentMesh(previewComp, chromeMat, edgeMat, {
+              componentId: previewComp.id,
+              role: "special_fitting",
+              isSelectionHelper: true,
+            });
+            built.traverse((obj) => {
+              obj.raycast = () => {};
+            });
+            pool.accessoryHolder.add(built);
+            pool.accessorySig = nextSig;
+          }
+          pool.accessoryHolder.visible = true;
+          pool.accessoryHolder.position.set(bayStartX + 2, baseYLocal + clampedItemY, 24);
+          setSnapBannerDedup(`📐 ${detail.title} • Bölme ${targetBayIdx + 1} • Y: ${clampedItemY} mm`);
         } else if (detail.visual === "drawer" || detail.visual === "internal_drawer") {
+          const drwH = Math.min(180, Math.max(90, netInnerHLocal));
+          const clampedDrwY = Math.max(0, Math.min(Math.max(0, netInnerHLocal - drwH), snappedElevY));
           pool.woodBox.visible = true;
-          pool.woodBox.scale.set(curBayWidth - 6, 180, partD - 12);
-          pool.woodBox.position.set(bayStartX + curBayWidth / 2, baseYLocal + snappedElevY + 90, centerZLocal);
+          pool.woodBox.scale.set(curBayWidth - 6, drwH, partD - 12);
+          pool.woodBox.position.set(bayStartX + curBayWidth / 2, baseYLocal + clampedDrwY + drwH / 2, centerZLocal);
           if (detail.visual === "drawer") {
             pool.handleBar.visible = true;
             pool.handleBar.scale.set(Math.min(140, curBayWidth * 0.35), 10, 18);
-            pool.handleBar.position.set(bayStartX + curBayWidth / 2, baseYLocal + snappedElevY + 115, mod.dimensions.depth - 12);
+            pool.handleBar.position.set(bayStartX + curBayWidth / 2, baseYLocal + clampedDrwY + Math.min(drwH - 18, 115), mod.dimensions.depth - 12);
           }
-          setSnapBannerDedup(`📐 ${detail.title} • Bölme ${targetBayIdx + 1} • Y: ${snappedElevY} mm`);
+          setSnapBannerDedup(`📐 ${detail.title} • Bölme ${targetBayIdx + 1} • Y: ${clampedDrwY} mm`);
         } else {
           const shThick = detail.id === "lib_fixed_shelf" ? 25 : carcassT;
-          const isAccessoryTray =
-            detail.visual === "trouser_rack" || detail.visual === "shoe_rack" || detail.visual === "jewelry_tray";
+          const clampedItemY = Math.max(0, Math.min(Math.max(0, netInnerHLocal - shThick), snappedElevY));
           pool.woodBox.visible = true;
-          pool.woodBox.scale.set(curBayWidth - 3, isAccessoryTray ? 64 : shThick, partD);
+          pool.woodBox.scale.set(curBayWidth - 4, shThick, partD);
           pool.woodBox.position.set(
             bayStartX + curBayWidth / 2,
-            baseYLocal + snappedElevY + (isAccessoryTray ? 32 : shThick / 2),
+            baseYLocal + clampedItemY + shThick / 2,
             centerZLocal
           );
-          setSnapBannerDedup(`📐 ${detail.title} • Bölme ${targetBayIdx + 1} • Y: ${snappedElevY} mm`);
+          setSnapBannerDedup(`📐 ${detail.title} • Bölme ${targetBayIdx + 1} • Y: ${clampedItemY} mm`);
         }
 
         requestRender();
@@ -13673,23 +13797,15 @@ const clear3DGhostPreview = useCallback(() => {
         {isXrayActive && (
           <div
             data-testid="cnc-xray-legend-pill"
-            style={
-              stageSafeInsets
-                ? {
-                    top: `${(stageSafeInsets.topPx ?? 14) + 52}px`,
-                    right: `${stageSafeInsets.rightPx ?? 16}px`,
-                  }
-                : { top: "64px", right: "16px" }
-            }
-            className="absolute z-20 birim-ice-pill px-3 py-2 rounded-[20px] flex items-center gap-2.5 text-[11px] font-semibold text-[#141413]"
+            className="absolute bottom-[68px] left-1/2 -translate-x-1/2 z-20 max-w-[calc(100%-32px)] px-3 py-1.5 rounded-full bg-[#1C222E]/90 backdrop-blur-xl border border-white/15 shadow-[0_12px_32px_rgba(0,0,0,0.45)] flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[10.5px] font-semibold text-slate-100"
           >
-            <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-[#10b981]" />Ø5 Sistem32</span>
-            <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-[#3b82f6]" />Ø8 Kavela</span>
-            <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-[#ef4444]" />Ø15 Minifiks</span>
-            <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-[#f59e0b]" />Ø35 Menteşe</span>
-            <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-[#a855f7]" />Kanal</span>
-            <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-[#facc15]" />LED Kanal</span>
-            <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-[#06b6d4]" />Ray / Kablo</span>
+            <span className="inline-flex items-center gap-1 whitespace-nowrap"><span className="w-2 h-2 rounded-full bg-[#10b981]" />Ø5 Sistem32</span>
+            <span className="inline-flex items-center gap-1 whitespace-nowrap"><span className="w-2 h-2 rounded-full bg-[#3b82f6]" />Ø8 Kavela</span>
+            <span className="inline-flex items-center gap-1 whitespace-nowrap"><span className="w-2 h-2 rounded-full bg-[#ef4444]" />Ø15 Minifiks</span>
+            <span className="inline-flex items-center gap-1 whitespace-nowrap"><span className="w-2 h-2 rounded-full bg-[#f59e0b]" />Ø35 Menteşe</span>
+            <span className="inline-flex items-center gap-1 whitespace-nowrap"><span className="w-2 h-2 rounded-full bg-[#a855f7]" />Kanal</span>
+            <span className="inline-flex items-center gap-1 whitespace-nowrap"><span className="w-2 h-2 rounded-full bg-[#facc15]" />LED Kanal</span>
+            <span className="inline-flex items-center gap-1 whitespace-nowrap"><span className="w-2 h-2 rounded-full bg-[#06b6d4]" />Ray / Kablo</span>
             <button
               type="button"
               onClick={() => {
@@ -13697,7 +13813,7 @@ const clear3DGhostPreview = useCallback(() => {
                 setHardwareViewMode("normal");
                 setRenderEdgeMode("photoreal");
               }}
-              className="ml-1 w-5 h-5 rounded-full bg-black/10 hover:bg-black/20 flex items-center justify-center text-[10px] cursor-pointer"
+              className="ml-0.5 w-5 h-5 rounded-full bg-white/10 hover:bg-white/25 text-slate-200 flex items-center justify-center text-[10px] cursor-pointer"
               title="CNC X-Ray Görünümünü Kapat"
             >
               ✕

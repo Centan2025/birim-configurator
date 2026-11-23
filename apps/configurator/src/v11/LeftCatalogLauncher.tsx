@@ -798,23 +798,42 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
             {(openLeftSubmenu || latchedLeftSubmenu) === "room" && (
               <div className="space-y-2.5 text-[11px]">
                 <div className="grid grid-cols-2 gap-2">
-                  <label className="space-y-1">
-                    <span className="text-[10px] text-slate-400 block">Duvar (mm)</span>
-                    <input
-                      type="number"
-                      min={1200}
-                      max={12000}
-                      step={100}
-                      value={wallWidthMm}
-                      onChange={(e) =>
-                        onSetRoomDimensions(
-                          Math.max(1200, Number(e.target.value) || wallWidthMm),
-                          ceilingHeightMm
-                        )
-                      }
-                      className="w-full h-7 px-2 rounded-lg bg-black/40 border border-white/15 font-mono text-[11px] text-white"
-                    />
-                  </label>
+                  {effectiveWalls.map((w, idx) => {
+                    const isMain = idx === 0;
+                    const wallLbl = w.name || `Duvar ${idx + 1}`;
+                    return (
+                      <label key={w.id} className="space-y-1">
+                        <span className="text-[10px] text-slate-400 block truncate" title={`${wallLbl} Uzunluğu (mm)`}>
+                          {wallLbl} (mm)
+                        </span>
+                        <input
+                          type="number"
+                          min={600}
+                          max={12000}
+                          step={100}
+                          value={w.length}
+                          onChange={(e) => {
+                            const nextLen = Math.max(600, Math.min(12000, Number(e.target.value) || w.length));
+                            if (isMain) {
+                              onSetRoomDimensions(nextLen, ceilingHeightMm);
+                            } else {
+                              const st = useConfiguratorStore.getState();
+                              if (!st.project.space.walls.some((sw) => sw.id === w.id)) {
+                                st.applyBatchProjectUpdate((draft) => {
+                                  draft.space.walls = effectiveWalls.map((ew) => ({
+                                    ...ew,
+                                    position: { ...ew.position },
+                                  }));
+                                }, "Oda duvarları hazırlandı");
+                              }
+                              useConfiguratorStore.getState().updateWallSegment(w.id, { length: nextLen });
+                            }
+                          }}
+                          className="w-full h-7 px-2 rounded-lg bg-black/40 border border-white/15 font-mono text-[11px] text-white"
+                        />
+                      </label>
+                    );
+                  })}
                   <label className="space-y-1">
                     <span className="text-[10px] text-slate-400 block">Tavan (mm)</span>
                     <input
@@ -840,16 +859,81 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                       { id: "l", label: "L Tipi" },
                       { id: "u", label: "U Tipi" },
                     ] as const
-                  ).map((kp) => (
-                    <button
-                      key={kp.id}
-                      type="button"
-                      onClick={() => onLoadKitchenPreset(kp.id)}
-                      className="py-1.5 rounded-lg bg-white/[0.08] hover:bg-white/[0.16] text-[10.5px] font-semibold text-slate-200 cursor-pointer"
-                    >
-                      {kp.label}
-                    </button>
-                  ))}
+                  ).map((kp) => {
+                    const isActiveWallShape =
+                      (kp.id === "linear" && effectiveWalls.length === 1) ||
+                      (kp.id === "l" && effectiveWalls.length === 2) ||
+                      (kp.id === "u" && effectiveWalls.length >= 3);
+                    return (
+                      <button
+                        key={kp.id}
+                        type="button"
+                        onClick={() => {
+                          const st = useConfiguratorStore.getState();
+                          const mainW = effectiveWalls[0]?.length || wallWidthMm || 3600;
+                          const ceilH = ceilingHeightMm || st.project.space?.ceilingHeight || 2600;
+                          const thick = effectiveWalls[0]?.thickness || 150;
+                          const existingLeft = effectiveWalls.find(
+                            (w) => Math.abs((((w.rotationY || 0) % 180) + 180) % 180 - 90) <= 15 && w.position.x <= 80
+                          );
+                          const existingRight = effectiveWalls.find(
+                            (w) =>
+                              Math.abs((((w.rotationY || 0) % 180) + 180) % 180 - 90) <= 15 &&
+                              w.position.x > 80
+                          );
+                          const mainWall = {
+                            id: effectiveWalls[0]?.id || "wall_main",
+                            name: effectiveWalls[0]?.name || "Ana Duvar",
+                            length: mainW,
+                            height: ceilH,
+                            thickness: thick,
+                            position: { x: 0, y: 0, z: 0 },
+                            rotationY: 0,
+                            elements: effectiveWalls[0]?.elements || [],
+                          };
+                          const leftWall = {
+                            id: existingLeft?.id || "wall_left",
+                            name: existingLeft?.name || "Sol Yan Duvar",
+                            length: existingLeft?.length || 2400,
+                            height: ceilH,
+                            thickness: thick,
+                            position: { x: 0, y: 0, z: 0 },
+                            rotationY: 90,
+                            elements: existingLeft?.elements || [],
+                          };
+                          const rightWall = {
+                            id: existingRight?.id || "wall_right",
+                            name: existingRight?.name || "Sağ Yan Duvar",
+                            length: existingRight?.length || 2400,
+                            height: ceilH,
+                            thickness: thick,
+                            position: { x: mainW, y: 0, z: 0 },
+                            rotationY: 90,
+                            elements: existingRight?.elements || [],
+                          };
+                          const nextWalls =
+                            kp.id === "linear"
+                              ? [mainWall]
+                              : kp.id === "l"
+                              ? [mainWall, leftWall]
+                              : [mainWall, leftWall, rightWall];
+                          st.applyBatchProjectUpdate((draft) => {
+                            draft.space.walls = nextWalls;
+                          }, `Duvar tipi: ${kp.label}`);
+                          if (!nextWalls.some((w) => w.id === activeWallId)) {
+                            setActiveWallId(mainWall.id);
+                          }
+                        }}
+                        className={`py-1.5 rounded-lg text-[10.5px] font-semibold cursor-pointer transition border ${
+                          isActiveWallShape
+                            ? "bg-sky-500/25 border-sky-400/70 text-sky-200"
+                            : "bg-white/[0.08] hover:bg-white/[0.16] border-transparent text-slate-200"
+                        }`}
+                      >
+                        {kp.label}
+                      </button>
+                    );
+                  })}
                 </div>
                 <button
                   type="button"
@@ -2347,47 +2431,134 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                       {obstacles.map((obs) => (
                         <div
                           key={obs.id}
-                          className="flex items-center justify-between gap-1.5 px-2.5 py-1.5 rounded-xl bg-[#FAF8F4]"
+                          className="flex flex-col gap-1.5 px-2.5 py-2 rounded-xl bg-[#FAF8F4] border border-[#EAE4D8]"
                         >
-                          <span className="font-medium truncate">
-                            {obs.name || obs.type} ({fmtLen(obs.dimensions.width, false)}×{fmtLen(obs.dimensions.height)})
-                          </span>
-                          <div className="flex items-center gap-1 shrink-0">
-                            {(obs.type === "door" || obs.type === "window") && (
+                          <div className="flex items-center justify-between gap-1.5">
+                            <span className="font-semibold text-[#141413] truncate">
+                              {obs.name || obs.type} ({fmtLen(obs.dimensions.width, false)}×{fmtLen(obs.dimensions.height)})
+                            </span>
+                            <div className="flex items-center gap-1 shrink-0">
+                              {(obs.type === "door" || obs.type === "window") && (
+                                <button
+                                  type="button"
+                                  title="Kanat / Menteşe Yönünü Aynala (Sol ↔ Sağ)"
+                                  onClick={() =>
+                                    updateSpaceObstacleStore(obs.id, {
+                                      doorSwing: obs.doorSwing === "right" ? "left" : "right",
+                                    })
+                                  }
+                                  className="px-1.5 py-0.5 rounded-md bg-white border border-[#DED8CC] hover:bg-[#EFECE4] text-[10px] font-bold text-[#141413] cursor-pointer"
+                                >
+                                  ⇄ {obs.doorSwing === "right" ? "Sağ" : "Sol"}
+                                </button>
+                              )}
+                              {obs.type === "door" && (
+                                <button
+                                  type="button"
+                                  title="İçe / Dışa Açılımı Aynala"
+                                  onClick={() =>
+                                    updateSpaceObstacleStore(obs.id, {
+                                      doorOpenSide: obs.doorOpenSide === "outward" ? "inward" : "outward",
+                                    })
+                                  }
+                                  className="px-1.5 py-0.5 rounded-md bg-white border border-[#DED8CC] hover:bg-[#EFECE4] text-[10px] font-bold text-[#141413] cursor-pointer"
+                                >
+                                  ⇅ {obs.doorOpenSide === "outward" ? "Dışa" : "İçe"}
+                                </button>
+                              )}
                               <button
                                 type="button"
-                                title="Kanat / Menteşe Yönünü Aynala (Sol ↔ Sağ)"
-                                onClick={() =>
-                                  updateSpaceObstacleStore(obs.id, {
-                                    doorSwing: obs.doorSwing === "right" ? "left" : "right",
-                                  })
-                                }
-                                className="px-1.5 py-0.5 rounded-md bg-white border border-[#DED8CC] hover:bg-[#EFECE4] text-[10px] font-bold text-[#141413] cursor-pointer"
+                                onClick={() => onRemoveSpaceObstacle(obs.id)}
+                                className="w-6 h-6 rounded-full hover:bg-red-50 text-[#78716C] hover:text-red-600 flex items-center justify-center cursor-pointer"
                               >
-                                ⇄ {obs.doorSwing === "right" ? "Sağ" : "Sol"}
+                                ✕
                               </button>
-                            )}
-                            {obs.type === "door" && (
-                              <button
-                                type="button"
-                                title="İçe / Dışa Açılımı Aynala"
-                                onClick={() =>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-1.5 text-[10px]">
+                            <label className="space-y-0.5">
+                              <span className="text-[#78716C] block">En (mm)</span>
+                              <input
+                                type="number"
+                                min={40}
+                                max={6000}
+                                step={10}
+                                value={Math.round(obs.dimensions.width)}
+                                onChange={(e) => {
+                                  const w = Math.max(40, Math.min(6000, Number(e.target.value) || obs.dimensions.width));
                                   updateSpaceObstacleStore(obs.id, {
-                                    doorOpenSide: obs.doorOpenSide === "outward" ? "inward" : "outward",
-                                  })
-                                }
-                                className="px-1.5 py-0.5 rounded-md bg-white border border-[#DED8CC] hover:bg-[#EFECE4] text-[10px] font-bold text-[#141413] cursor-pointer"
-                              >
-                                ⇅ {obs.doorOpenSide === "outward" ? "Dışa" : "İçe"}
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => onRemoveSpaceObstacle(obs.id)}
-                              className="w-6 h-6 rounded-full hover:bg-red-50 text-[#78716C] hover:text-red-600 flex items-center justify-center cursor-pointer"
-                            >
-                              ✕
-                            </button>
+                                    dimensions: { ...obs.dimensions, width: w },
+                                  });
+                                }}
+                                className="w-full h-6 px-1.5 rounded-md bg-white border border-[#DED8CC] font-mono text-[10.5px] text-[#141413]"
+                              />
+                            </label>
+                            <label className="space-y-0.5">
+                              <span className="text-[#78716C] block">Boy (mm)</span>
+                              <input
+                                type="number"
+                                min={40}
+                                max={4000}
+                                step={10}
+                                value={Math.round(obs.dimensions.height)}
+                                onChange={(e) => {
+                                  const h = Math.max(40, Math.min(4000, Number(e.target.value) || obs.dimensions.height));
+                                  updateSpaceObstacleStore(obs.id, {
+                                    dimensions: { ...obs.dimensions, height: h },
+                                  });
+                                }}
+                                className="w-full h-6 px-1.5 rounded-md bg-white border border-[#DED8CC] font-mono text-[10.5px] text-[#141413]"
+                              />
+                            </label>
+                            <label className="space-y-0.5">
+                              <span className="text-[#78716C] block" title="Zeminden yükseklik (Kot)">Yerden (mm)</span>
+                              <input
+                                type="number"
+                                min={0}
+                                max={4000}
+                                step={10}
+                                value={Math.round(obs.position.y)}
+                                onChange={(e) => {
+                                  const y = Math.max(0, Math.min(4000, Number(e.target.value) || 0));
+                                  updateSpaceObstacleStore(obs.id, {
+                                    position: { ...obs.position, y },
+                                  });
+                                }}
+                                className="w-full h-6 px-1.5 rounded-md bg-white border border-[#DED8CC] font-mono text-[10.5px] text-[#141413]"
+                              />
+                            </label>
+                            {(() => {
+                              const isSideWall =
+                                Math.abs((((obs.rotationY || 0) % 180) + 180) % 180 - 90) <= 15;
+                              const alongVal = isSideWall ? obs.position.z : obs.position.x;
+                              return (
+                                <label className="space-y-0.5">
+                                  <span
+                                    className="text-[#78716C] block"
+                                    title={isSideWall ? "Duvar boyunca konum (Z ekseni)" : "Duvar boyunca konum (X ekseni)"}
+                                  >
+                                    Konum (mm)
+                                  </span>
+                                  <input
+                                    type="number"
+                                    min={-2000}
+                                    max={12000}
+                                    step={50}
+                                    value={Math.round(alongVal)}
+                                    onChange={(e) => {
+                                      const nextAlong = Number(e.target.value) || 0;
+                                      updateSpaceObstacleStore(obs.id, {
+                                        position: isSideWall
+                                          ? { ...obs.position, z: nextAlong }
+                                          : { ...obs.position, x: nextAlong },
+                                      });
+                                    }}
+                                    className="w-full h-6 px-1.5 rounded-md bg-white border border-[#DED8CC] font-mono text-[10.5px] text-[#141413]"
+                                  />
+                                </label>
+                              );
+                            })()}
                           </div>
                         </div>
                       ))}

@@ -44,6 +44,7 @@ export interface QuickStyleAndMaterialDockProps {
   onApplyZoneMaterial: (scope: QuickZoneScope, materialId: string) => void;
   onReplaceProjectMaterial: (fromMaterialId: string, toMaterialId: string) => void;
   onApplyCuratedMoodboard: (moodboard: CuratedBirimMoodboard) => void;
+  onSetSurfaceFinish?: (finish: "matte" | "satin" | "gloss", allModules: boolean) => void;
   onClose: () => void;
 }
 
@@ -71,6 +72,7 @@ export const QuickStyleAndMaterialDock: React.FC<QuickStyleAndMaterialDockProps>
     onApplyZoneMaterial,
     onReplaceProjectMaterial,
     onApplyCuratedMoodboard,
+    onSetSurfaceFinish,
     onClose,
   }) => {
     const [activeTab, setActiveTab] = useState<"swatches" | "moodboards">("swatches");
@@ -78,6 +80,31 @@ export const QuickStyleAndMaterialDock: React.FC<QuickStyleAndMaterialDockProps>
     const [categoryFilter, setCategoryFilter] = useState<CategoryFilterId>("all");
     const [searchQuery, setSearchQuery] = useState("");
     const [replaceSourceMatId, setReplaceSourceMatId] = useState<string | null>(null);
+    const [lightPreset, setLightPreset] = useState<"daylight" | "showroom_warm" | "night_led">(
+      "daylight"
+    );
+
+    const handleSelectScope = (nextScope: QuickZoneScope) => {
+      setReplaceSourceMatId(null);
+      setSelectedScope(nextScope);
+      if (paintToolState.mode !== "none") {
+        onChangePaintToolState({ ...paintToolState, zoneScope: nextScope });
+      }
+      if (nextScope === "countertops" && categoryFilter === "all") {
+        setCategoryFilter("stone");
+      } else if (nextScope === "handles_gola" && categoryFilter === "all") {
+        setCategoryFilter("metal");
+      } else if (
+        nextScope !== "countertops" &&
+        nextScope !== "handles_gola" &&
+        (categoryFilter === "stone" || categoryFilter === "metal")
+      ) {
+        setCategoryFilter("all");
+      }
+    };
+
+    const currentActiveFinish =
+      project.modules[activeModuleIndex]?.surfaceFinishOverride || "matte";
     const [favoriteIds, setFavoriteIds] = useState<string[]>(() => loadFavoriteMaterialIds());
     const [recentIds, setRecentIds] = useState<string[]>(() => loadRecentMaterialIds());
 
@@ -233,31 +260,14 @@ export const QuickStyleAndMaterialDock: React.FC<QuickStyleAndMaterialDockProps>
               <PremiumSelect
                 ariaLabel="Hedef Bölge"
                 title="Malzemenin uygulanacağı hedef bölge"
-                direction="up"
+                direction="down"
                 value={selectedScope}
                 options={QUICK_ZONE_SCOPE_OPTIONS.map((sc) => ({
                   value: sc.id,
                   label: sc.shortTr,
                   hint: sc.hintTr,
                 }))}
-                onChange={(nextScope) => {
-                  setReplaceSourceMatId(null);
-                  setSelectedScope(nextScope);
-                  if (paintToolState.mode !== "none") {
-                    onChangePaintToolState({ ...paintToolState, zoneScope: nextScope });
-                  }
-                  if (nextScope === "countertops" && categoryFilter === "all") {
-                    setCategoryFilter("stone");
-                  } else if (nextScope === "handles_gola" && categoryFilter === "all") {
-                    setCategoryFilter("metal");
-                  } else if (
-                    nextScope !== "countertops" &&
-                    nextScope !== "handles_gola" &&
-                    (categoryFilter === "stone" || categoryFilter === "metal")
-                  ) {
-                    setCategoryFilter("all");
-                  }
-                }}
+                onChange={handleSelectScope}
               />
             )}
 
@@ -313,7 +323,7 @@ export const QuickStyleAndMaterialDock: React.FC<QuickStyleAndMaterialDockProps>
             {paintToolState.mode === "paint" && (
               <PremiumSelect
                 ariaLabel="Fırça Modu"
-                direction="up"
+                direction="down"
                 value={paintToolState.clickBehavior}
                 options={[
                   { value: "active_scope", label: "Seçili Bölge" },
@@ -372,6 +382,37 @@ export const QuickStyleAndMaterialDock: React.FC<QuickStyleAndMaterialDockProps>
         {/* SEKME 1: KOMPAKT KATEGORİ + ARAMA (Tek Satır) */}
         {activeTab === "swatches" && (
           <div className="space-y-2">
+            {/* Gövde / Kapak / Tezgâh / Baza / Kulp Net Bölge Ayırımı */}
+            <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pb-0.5">
+              {(
+                [
+                  { id: "active_doors", label: "Kapak" },
+                  { id: "active_carcass", label: "Gövde" },
+                  { id: "all_fronts", label: "Tüm Kapak" },
+                  { id: "carcass_all", label: "Tüm Gövde" },
+                  { id: "countertops", label: "Tezgâh" },
+                  { id: "plinths", label: "Baza" },
+                  { id: "handles_gola", label: "Kulp" },
+                ] as const
+              ).map((z) => {
+                const isSel = selectedScope === z.id;
+                return (
+                  <button
+                    key={z.id}
+                    type="button"
+                    onClick={() => handleSelectScope(z.id)}
+                    className={`h-6 px-2.5 rounded-lg text-[10.5px] font-bold whitespace-nowrap border transition cursor-pointer ${
+                      isSel
+                        ? "bg-sky-500/25 border-sky-400/75 text-sky-200 shadow-2xs"
+                        : "bg-white/[0.06] hover:bg-white/[0.12] border-white/[0.12] text-slate-300"
+                    }`}
+                  >
+                    {z.label}
+                  </button>
+                );
+              })}
+            </div>
+
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
                 {(
@@ -612,6 +653,63 @@ export const QuickStyleAndMaterialDock: React.FC<QuickStyleAndMaterialDockProps>
             })}
           </div>
         )}
+        {/* Alt Kontrol Şeridi: Yüzey Parlaklığı (Mat / Saten / Parlak) + Sahne Işığı */}
+        <div className="pt-2 border-t border-white/[0.12] flex flex-wrap items-center justify-between gap-2">
+          {onSetSurfaceFinish && (
+            <div className="inline-flex items-center gap-1">
+              <span className="text-[10px] font-semibold text-slate-400 mr-0.5">Yüzey:</span>
+              {(
+                [
+                  { id: "matte", label: "Mat" },
+                  { id: "satin", label: "Saten" },
+                  { id: "gloss", label: "Parlak" },
+                ] as const
+              ).map((fin) => (
+                <button
+                  key={fin.id}
+                  type="button"
+                  onClick={() => onSetSurfaceFinish(fin.id, selectedScope === "all_fronts" || selectedScope === "carcass_all")}
+                  className={`h-6 px-2 rounded-md text-[10px] font-bold border transition cursor-pointer ${
+                    currentActiveFinish === fin.id
+                      ? "bg-white text-[#141413] border-white"
+                      : "bg-white/[0.06] hover:bg-white/[0.14] border-white/[0.12] text-slate-300"
+                  }`}
+                >
+                  {fin.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="inline-flex items-center gap-1">
+            <span className="text-[10px] font-semibold text-slate-400 mr-0.5">Işık:</span>
+            {(
+              [
+                { id: "daylight", label: "Gün" },
+                { id: "showroom_warm", label: "Sıcak" },
+                { id: "night_led", label: "Gece" },
+              ] as const
+            ).map((lp) => (
+              <button
+                key={lp.id}
+                type="button"
+                onClick={() => {
+                  setLightPreset(lp.id);
+                  if (typeof window !== "undefined") {
+                    window.dispatchEvent(new CustomEvent("birim:set-lighting-preset", { detail: lp.id }));
+                  }
+                }}
+                className={`h-6 px-2 rounded-md text-[10px] font-bold border transition cursor-pointer ${
+                  lightPreset === lp.id
+                    ? "bg-amber-400/25 border-amber-300/70 text-amber-200"
+                    : "bg-white/[0.06] hover:bg-white/[0.14] border-white/[0.12] text-slate-300"
+                }`}
+              >
+                {lp.label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
       </AnimatedPopoverPresence>
     );

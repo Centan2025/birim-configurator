@@ -2305,23 +2305,35 @@ export function createComponentMesh(
       group.add(railBody);
     });
 
-    // Cross Organizer Frame with Chrome Tie Pegs or Belt Compartments
+    // Rear Carrier Bar (mounted toward the back -Z) so tie/belt pegs project FORWARD (+Z) toward the user
+    const rearBarZ = cz - d * 0.30;
     const mainBar = new THREE.Mesh(box, chromeHardwareMat);
-    mainBar.scale.set(Math.max(60, w - 20), 26, 28);
-    mainBar.position.set(cx, cy + 6, cz + d * 0.28);
+    mainBar.scale.set(Math.max(60, w - 28), 26, 24);
+    mainBar.position.set(cx, cy + 6, rearBarZ);
     mainBar.add(new THREE.LineSegments(edges, revealShadowMat));
     tagSubMesh(mainBar, userData, comp);
     group.add(mainBar);
 
     const hookCount = isBelt ? 7 : 10;
     const stepX = (w - 64) / Math.max(1, hookCount - 1);
+    const pegLen = isBelt ? Math.max(80, d * 0.58) : Math.max(70, d * 0.54);
+    const pegCenterZ = rearBarZ + 12 + pegLen / 2;
+    const tipZ = rearBarZ + 12 + pegLen;
+
     for (let k = 0; k < hookCount; k++) {
       const kx = cx - (w - 64) / 2 + k * stepX;
       const peg = new THREE.Mesh(isBelt ? box : cylinder, isBelt ? handleAccentMat : chromeHardwareMat);
-      peg.scale.set(isBelt ? 8 : 7, isBelt ? 24 : 7, isBelt ? Math.max(80, d * 0.65) : Math.max(70, d * 0.55));
-      peg.position.set(kx, cy + 4, cz);
+      peg.scale.set(isBelt ? 8 : 7, isBelt ? 22 : 7, pegLen);
+      peg.position.set(kx, cy + 4, pegCenterZ);
       tagSubMesh(peg, userData, comp);
       group.add(peg);
+
+      // Front anti-slip upturned stop tip (+Z end)
+      const tip = new THREE.Mesh(sphere, handleAccentMat);
+      tip.scale.set(10, 10, 10);
+      tip.position.set(kx, cy + 7, tipZ);
+      tagSubMesh(tip, userData, comp);
+      group.add(tip);
     }
     return group;
   }
@@ -2505,7 +2517,7 @@ export function createComponentMesh(
   // 1I. REALISTIC 3D HÄFELE WIRE MESH BASKET [807.52.220] (True Open Chrome Wire Lattice + Soft-Close Side Runners)
   if (comp.id.includes("_fitting_wire_basket")) {
     const w = comp.dimensions.width;
-    const h = Math.min(180, Math.max(120, comp.dimensions.height));
+    const h = Math.min(180, Math.max(60, comp.dimensions.height));
     const d = comp.dimensions.depth;
     const bw = Math.max(80, w - 34);
     const bd = Math.max(100, d - 16);

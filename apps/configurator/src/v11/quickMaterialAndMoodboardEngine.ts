@@ -293,10 +293,16 @@ export function classifyModuleArchitecturalZone(
   mod: ModuleInstance
 ): "base" | "wall" | "tall_or_island" | "complementary" {
   if (mod.category === "complementary") return "complementary";
+  const famLower = String(mod.moduleFamilyId || "").toLowerCase();
+  const catLower = String(mod.category || "").toLowerCase();
   if (
-    mod.moduleFamilyId === "fam_kitchen_wall" ||
-    mod.category === "kitchen_wall" ||
-    (mod.position?.y ?? 0) >= 1050
+    famLower === "fam_kitchen_wall" ||
+    catLower === "kitchen_wall" ||
+    catLower.includes("wall") ||
+    famLower.includes("wall") ||
+    catLower.includes("upper") ||
+    famLower.includes("upper") ||
+    ((mod.position?.y ?? 0) >= 900 && mod.dimensions.height <= 1250)
   ) {
     return "wall";
   }
@@ -392,6 +398,12 @@ function applyHandleMetalToModule(mod: ModuleInstance, handleMaterialId: string)
       b.door.handleMaterialId = handleMaterialId;
       count++;
     }
+    (b.drawers || []).forEach((d) => {
+      if ("handleMaterialId" in d) {
+        (d as unknown as { handleMaterialId?: string }).handleMaterialId = handleMaterialId;
+        count++;
+      }
+    });
   });
   return count;
 }
@@ -573,6 +585,9 @@ export function applyCuratedMoodboardToProjectDraft(
 ): { affectedModules: number } {
   let affectedModules = 0;
   draft.facadeGrainContinuity = moodboard.enableGrainContinuity;
+  const hasWallModules = draft.modules.some(
+    (mod) => classifyModuleArchitecturalZone(mod) === "wall"
+  );
 
   draft.modules.forEach((m) => {
     const zone = classifyModuleArchitecturalZone(m);
@@ -591,22 +606,22 @@ export function applyCuratedMoodboardToProjectDraft(
     }
 
     const hasDoorsAndExtDrawers =
-      zone === "tall_or_island" &&
+      (zone === "tall_or_island" || !hasWallModules) &&
       (m.bays || []).some((b) => b.door && b.door.type !== "open") &&
       (m.bays || []).some((b) => (b.drawers || []).some((d) => !d.isInternal && !d.isHidden));
 
     const frontMat =
       zone === "wall"
         ? moodboard.wallFrontMaterialId
+        : hasDoorsAndExtDrawers
+        ? moodboard.wallFrontMaterialId
         : zone === "tall_or_island"
-        ? hasDoorsAndExtDrawers
-          ? moodboard.wallFrontMaterialId
-          : moodboard.tallFrontMaterialId
+        ? moodboard.tallFrontMaterialId
         : moodboard.baseFrontMaterialId;
 
     applyCarcassMaterialToModule(m, moodboard.carcassMaterialId);
     applyFrontMaterialToModule(m, frontMat);
-    // Palet kartındaki çift ton (Üst kapak + Alt çekmece) görünümünü boy gardıroplara birebir yansıt!
+    // Palet kartındaki çift ton (Üst kapak + Alt çekmece) görünümünü boy gardıroplara ve tek katlı ünitelere birebir yansıt!
     if (hasDoorsAndExtDrawers) {
       (m.bays || []).forEach((b) => {
         (b.drawers || []).forEach((d) => {

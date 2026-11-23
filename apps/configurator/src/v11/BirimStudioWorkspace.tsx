@@ -30,7 +30,6 @@ import { OnObjectQuickToolbar, type Selected3DPartKind } from "./OnObjectQuickTo
 import { HardwareQuickSwapPopover, type HardwareSwapGroup, type HardwareSwapTarget } from "./HardwareQuickSwapPopover";
 import { DoorSystemsShowcaseModal } from "./DoorSystemsShowcaseModal";
 import { QuickStyleAndMaterialDock } from "./QuickStyleAndMaterialDock";
-import { QuickMaterialPopoverBar } from "./QuickMaterialPopoverBar";
 import { resolveModuleHostWallId, wallIntervalToModulePosition, computeRoomDynamicCenter } from "../v3/engine/multiWallSnapAndBvhEngine";
 import { getEffectiveSpaceWalls, getModuleOrientedFootprint } from "../v3/engine/kitchenSpatialEngine";
 import { getWallRoomBasis } from "../v3/engine/angledWallSnapEngine";
@@ -2133,19 +2132,19 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
       {/* BAĞLAMSAL ÇAKIŞMA, HATALI TASARIM & TEK TIKLA OTOMATİK DÜZELT UYARI SİSTEMİ */}
             {/* Sol alt sabit Tasarım Önerisi kartı kaldırıldı — tüm öneriler üst bardaki Öneri rozeti ve sağ panelde yer alır */}
 
-      {/* 5AA. HIZLI MALZEME ŞERİDİ (Duvar, Kapak, Gövde, Tezgâh, Kulp, Mat/Saten/Parlak, Render) — Yalnızca Kartela açıkken görünür */}
-      {!isShowroom && quickPaletteOpen && (workspaceMode === "3d" || workspaceMode === "2d") && (
-        <QuickMaterialPopoverBar
-          project={project}
-          activeModule={activeModule}
-          activeModuleIndex={activeModuleIndex}
-          materials={allMaterials}
+      {/* 5A. YÜZEN HIZLI KARTELA, İMZA KOMBİNASYONLAR VE 3B BOYA PANELİ */}
+      {(workspaceMode === "3d" || workspaceMode === "showroom") && (
+        <QuickStyleAndMaterialDock
+          isOpen={quickPaletteOpen}
           leftSafePx={stageSafeInsets.leftPx}
           rightSafePx={stageSafeInsets.rightPx}
-          topOffsetPx={68}
+          project={project}
+          activeModuleIndex={activeModuleIndex}
+          materials={allMaterials}
           paintToolState={paintToolState}
           onChangePaintToolState={handleChangePaintToolState}
           onApplyZoneMaterial={handleApplyZoneMaterial}
+          onReplaceProjectMaterial={handleReplaceProjectMaterial}
           onApplyCuratedMoodboard={handleApplyCuratedMoodboard}
           onSetSurfaceFinish={(finish, allMods) => {
             useConfiguratorStore.getState().applyBatchProjectUpdate((draft) => {
@@ -2165,25 +2164,6 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
                 : "İpek Mat yüzey dokusu uygulandı."
             );
           }}
-          onOpenFullPaletteDock={() => setQuickPaletteOpen(true)}
-          onShowToast={showToast}
-        />
-      )}
-
-      {/* 5A. YÜZEN HIZLI KARTELA, İMZA KOMBİNASYONLAR VE 3B BOYA PANELİ */}
-      {(workspaceMode === "3d" || workspaceMode === "showroom") && (
-        <QuickStyleAndMaterialDock
-          isOpen={quickPaletteOpen}
-          leftSafePx={stageSafeInsets.leftPx}
-          rightSafePx={stageSafeInsets.rightPx}
-          project={project}
-          activeModuleIndex={activeModuleIndex}
-          materials={allMaterials}
-          paintToolState={paintToolState}
-          onChangePaintToolState={handleChangePaintToolState}
-          onApplyZoneMaterial={handleApplyZoneMaterial}
-          onReplaceProjectMaterial={handleReplaceProjectMaterial}
-          onApplyCuratedMoodboard={handleApplyCuratedMoodboard}
           onClose={() => setQuickPaletteOpen(false)}
         />
       )}

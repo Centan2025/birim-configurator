@@ -181,8 +181,12 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
           )}
         </AnimatedPopoverPresence>
 
-        {/* YÜZEN SAHNE, GÖRÜNÜM & IŞIK POPOVER (Animasyonlu + Dramatik Cam) */}
-        <AnimatedPopoverPresence isOpen={scenePopoverOpen} origin="bottom">
+        {/* YÜZEN SAHNE, GÖRÜNÜM & IŞIK POPOVER (Animasyonlu + Dramatik Cam — Ultra PBR düğmesinin tam üstüne hizalı) */}
+        <AnimatedPopoverPresence
+          isOpen={scenePopoverOpen}
+          origin="bottom"
+          className={`self-end ${!isShowroom && (onUndo || onRedo) ? "mr-[82px]" : "mr-1"}`}
+        >
           <div
             data-testid="v11-scene-settings-popover"
             className="birim-dramatic-panel mb-2.5 w-80 rounded-3xl bg-[#2A313F]/68 backdrop-blur-2xl border border-white/[0.22] ring-1 ring-black/60 shadow-[0_26px_64px_rgba(0,0,0,0.62)] p-4 space-y-3.5 text-xs text-[#F3F4F6]"

@@ -1023,7 +1023,28 @@ function startLive3DPartGrab(
         <rect x="6" y="20" width="84" height="36" rx="2" fill="${frontFill}" stroke="#2563EB" stroke-width="1.8"/>
         <rect x="34" y="35" width="28" height="4.5" rx="2" fill="#1E293B"/>
       </svg>`;
-    } else if (v === "trouser_rack" || v === "shoe_rack" || v === "jewelry_tray") {
+    } else if (v === "wire_basket") {
+      // 3D isometric chrome wire lattice basket
+      svgMarkup = `<svg width="124" height="58" viewBox="0 0 124 58" fill="none">
+        <polygon points="8,18 32,6 116,6 92,18" fill="rgba(226,232,240,0.28)" stroke="#2563EB" stroke-width="1.8"/>
+        <polygon points="8,18 92,18 92,48 8,48" fill="rgba(226,232,240,0.18)" stroke="#2563EB" stroke-width="1.8"/>
+        <polygon points="92,18 116,6 116,36 92,48" fill="rgba(148,163,184,0.24)" stroke="#2563EB" stroke-width="1.6"/>
+        <line x1="8" y1="33" x2="92" y2="33" stroke="#64748B" stroke-width="1.3"/>
+        <line x1="25" y1="18" x2="25" y2="48" stroke="#64748B" stroke-width="1.3"/>
+        <line x1="42" y1="18" x2="42" y2="48" stroke="#64748B" stroke-width="1.3"/>
+        <line x1="59" y1="18" x2="59" y2="48" stroke="#64748B" stroke-width="1.3"/>
+        <line x1="76" y1="18" x2="76" y2="48" stroke="#64748B" stroke-width="1.3"/>
+      </svg>`;
+    } else if (
+      v === "trouser_rack" ||
+      v === "shoe_rack" ||
+      v === "jewelry_tray" ||
+      v === "tie_rack" ||
+      v === "waste_bin" ||
+      v === "spice_pullout" ||
+      v === "pantry_pullout" ||
+      v === "corner_lemans"
+    ) {
       // 3D isometric pullout rack / tray
       svgMarkup = `<svg width="120" height="44" viewBox="0 0 120 44" fill="none">
         <polygon points="8,18 34,6 114,6 88,18" fill="#E2E8F0" stroke="#2563EB" stroke-width="1.6"/>
@@ -4121,7 +4142,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                         id: "lib_waste_bin",
                         label: "Raylı Çöp Sistemi",
                         visual: "waste_bin",
-                        dragVisual: "drawer",
+                        dragVisual: "waste_bin",
                         count:
                           activeBay?.specialFittings.filter((f) => f.type === "waste_bin")
                             .length || 0,
@@ -4132,7 +4153,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                         id: "lib_spice_pullout",
                         label: "Teleskopik Şişelik",
                         visual: "spice_pullout",
-                        dragVisual: "drawer",
+                        dragVisual: "spice_pullout",
                         count:
                           activeBay?.specialFittings.filter((f) => f.type === "spice_pullout")
                             .length || 0,
@@ -4143,7 +4164,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                         id: "lib_pantry_pullout",
                         label: "Boy Kiler Mekanizması",
                         visual: "pantry_pullout",
-                        dragVisual: "drawer",
+                        dragVisual: "pantry_pullout",
                         count:
                           activeBay?.specialFittings.filter((f) => f.type === "pantry_pullout")
                             .length || 0,
@@ -4154,7 +4175,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                         id: "lib_corner_lemans",
                         label: "Kör Köşe LeMans II",
                         visual: "corner_lemans",
-                        dragVisual: "shelf",
+                        dragVisual: "corner_lemans",
                         count:
                           activeBay?.specialFittings.filter((f) => f.type === "corner_lemans")
                             .length || 0,
@@ -4165,7 +4186,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                         id: "lib_wire_basket",
                         label: "Tel Sepet",
                         visual: "wire_basket",
-                        dragVisual: "drawer",
+                        dragVisual: "wire_basket",
                         count:
                           activeBay?.specialFittings.filter((f) => f.type === "wire_basket")
                             .length || 0,
@@ -4241,7 +4262,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                         id: "lib_tie_belt",
                         label: "Kemer & Kravatlık",
                         visual: "trouser_rack",
-                        dragVisual: "trouser_rack",
+                        dragVisual: "tie_rack",
                         count:
                           activeBay?.specialFittings.filter((f) => f.type === "tie_rack")
                             .length || 0,
@@ -4500,9 +4521,9 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                       .map((dr, i) => (
                       <div
                         key={dr.id}
-                        className="w-full flex items-center justify-between gap-1.5 px-2.5 py-1.5 rounded-xl bg-[#F5F2EA] text-[11px] font-medium"
+                        className="w-full flex flex-wrap items-center justify-between gap-1.5 px-2.5 py-1.5 rounded-xl bg-[#F5F2EA] text-[11px] font-medium"
                       >
-                        <span className="truncate font-semibold text-[#141413]">
+                        <span className="truncate font-semibold text-[#141413] min-w-0">
                           {dr.isInternal || isSlidingBay ? "İç Çekmece" : "Çekmece"} {i + 1}
                         </span>
                         <div className="flex items-center gap-1 shrink-0">
