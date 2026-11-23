@@ -819,53 +819,55 @@ export function renderIsometricViewport(
       }
     }
 
-    // D) SAĞ ALT İZOMETRİK DERİNLİK (Gerçek Gövde Derinliği D + varsa Kapak Kalınlığı)
-    const dFront = mapP(cMaxX, cMinY, cMaxZ);
-    const dBack = mapP(cMaxX, cMinY, cMinZ);
-    const dOffY = 22;
-    const df2 = { x: dFront.x, y: dFront.y + dOffY };
-    const db2 = { x: dBack.x, y: dBack.y + dOffY };
+    // D) ALT İZOMETRİK DERİNLİK (Kamera yönüne göre görünür yan yüzeyde, alt genişlik zinciriyle çakışmadan)
+    const depthX = cameraSide === "front_left" ? cMinX : cMaxX;
+    const depthOutDir = cameraSide === "front_left" ? -1 : 1;
+    const dFront = mapP(depthX, cMinY, cMaxZ);
+    const dBack = mapP(depthX, cMinY, cMinZ);
+    const dOffX = depthOutDir * 18;
+    const dOffY = 14;
+    const df2 = { x: dFront.x + dOffX, y: dFront.y + dOffY };
+    const db2 = { x: dBack.x + dOffX, y: dBack.y + dOffY };
     const dMidX = (df2.x + db2.x) / 2;
     const dMidY = (df2.y + db2.y) / 2;
-    const dAngle = (Math.atan2(db2.y - df2.y, db2.x - df2.x) * 180) / Math.PI;
+    let dAngle = (Math.atan2(db2.y - df2.y, db2.x - df2.x) * 180) / Math.PI;
+    if (dAngle > 90) dAngle -= 180;
+    if (dAngle < -90) dAngle += 180;
     const dLbl = formatSheetDim(dimD, options.unit);
-    const dPw = Math.max(26, dLbl.length * 6.6 + 10);
+    const dPw = Math.max(26, dLbl.length * 6.4 + 8);
 
     dimParts.push(`
-      <line x1="${dFront.x.toFixed(1)}" y1="${(dFront.y + 4).toFixed(1)}" x2="${df2.x.toFixed(1)}" y2="${(df2.y + 5).toFixed(1)}" stroke="${stroke}" stroke-width="0.55" opacity="0.75" />
-      <line x1="${dBack.x.toFixed(1)}" y1="${(dBack.y + 4).toFixed(1)}" x2="${db2.x.toFixed(1)}" y2="${(db2.y + 5).toFixed(1)}" stroke="${stroke}" stroke-width="0.55" opacity="0.75" />
+      <line x1="${(dFront.x + depthOutDir * 3).toFixed(1)}" y1="${(dFront.y + 3).toFixed(1)}" x2="${(df2.x + depthOutDir * 4).toFixed(1)}" y2="${(df2.y + 3).toFixed(1)}" stroke="${stroke}" stroke-width="0.55" opacity="0.75" />
+      <line x1="${(dBack.x + depthOutDir * 3).toFixed(1)}" y1="${(dBack.y + 3).toFixed(1)}" x2="${(db2.x + depthOutDir * 4).toFixed(1)}" y2="${(db2.y + 3).toFixed(1)}" stroke="${stroke}" stroke-width="0.55" opacity="0.75" />
       <line x1="${df2.x.toFixed(1)}" y1="${df2.y.toFixed(1)}" x2="${db2.x.toFixed(1)}" y2="${db2.y.toFixed(1)}" stroke="${stroke}" stroke-width="0.85" />
       ${drawTick(df2.x, df2.y)}
       ${drawTick(db2.x, db2.y)}
-      <g transform="translate(${dMidX.toFixed(1)}, ${(dMidY + 2).toFixed(1)}) rotate(${dAngle.toFixed(1)})">
-        <rect x="${(-dPw / 2).toFixed(1)}" y="-7.5" width="${dPw.toFixed(1)}" height="13" rx="2" fill="#FFFFFF" opacity="0.96" />
-        <text x="0" y="2.5" text-anchor="middle" font-family="ui-monospace, monospace" font-size="10" font-weight="800" fill="${stroke}">${escXml(dLbl)}</text>
+      <g transform="translate(${dMidX.toFixed(1)}, ${dMidY.toFixed(1)}) rotate(${dAngle.toFixed(1)})">
+        <rect x="${(-dPw / 2).toFixed(1)}" y="3" width="${dPw.toFixed(1)}" height="12.5" rx="2" fill="#FFFFFF" opacity="0.96" />
+        <text x="0" y="12.5" text-anchor="middle" font-family="ui-monospace, monospace" font-size="10" font-weight="800" fill="${stroke}">${escXml(dLbl)}</text>
       </g>
     `);
 
-    // Kapak gövde önüne taşıyorsa (+18mm vb.) üst-sağ derinlik kenarında Gövde + Kapak ayrımını göster
+    // Kapak gövde önüne taşıyorsa (+18mm vb.) üst derinlik kenarında Gövde + Kapak toplam ölçüsünü çizginin ÜSTÜNDE net göster (çift tık / köşe çakışması sıfır!)
     if (doorProtrusionMm >= 8 && doorProtrusionMm <= 40) {
-      const tdDoor = mapP(cMaxX, cMaxY, doorFrontZ);
-      const tdCarc = mapP(cMaxX, cMaxY, cMaxZ);
-      const tdBack = mapP(cMaxX, cMaxY, cMinZ);
-      const topOffY = -16;
+      const tdDoor = mapP(depthX, cMaxY, doorFrontZ);
+      const tdBack = mapP(depthX, cMaxY, cMinZ);
+      const topOffY = -24;
       const p1 = { x: tdDoor.x, y: tdDoor.y + topOffY };
-      const p2 = { x: tdCarc.x, y: tdCarc.y + topOffY };
       const p3 = { x: tdBack.x, y: tdBack.y + topOffY };
       const totDLbl = `${formatSheetDim(dimD, options.unit)}+${formatSheetDim(doorProtrusionMm, options.unit)}`;
-      const tPw = Math.max(38, totDLbl.length * 6.2 + 8);
+      const tPw = Math.max(40, totDLbl.length * 6.2 + 8);
       const tMidX = (p1.x + p3.x) / 2;
       const tMidY = (p1.y + p3.y) / 2;
       dimParts.push(`
-        <line x1="${tdDoor.x.toFixed(1)}" y1="${(tdDoor.y - 3).toFixed(1)}" x2="${p1.x.toFixed(1)}" y2="${(p1.y - 4).toFixed(1)}" stroke="${stroke}" stroke-width="0.55" opacity="0.75" />
-        <line x1="${tdBack.x.toFixed(1)}" y1="${(tdBack.y - 3).toFixed(1)}" x2="${p3.x.toFixed(1)}" y2="${(p3.y - 4).toFixed(1)}" stroke="${stroke}" stroke-width="0.55" opacity="0.75" />
+        <line x1="${tdDoor.x.toFixed(1)}" y1="${(tdDoor.y - 4).toFixed(1)}" x2="${p1.x.toFixed(1)}" y2="${(p1.y - 4).toFixed(1)}" stroke="${stroke}" stroke-width="0.55" opacity="0.75" />
+        <line x1="${tdBack.x.toFixed(1)}" y1="${(tdBack.y - 4).toFixed(1)}" x2="${p3.x.toFixed(1)}" y2="${(p3.y - 4).toFixed(1)}" stroke="${stroke}" stroke-width="0.55" opacity="0.75" />
         <line x1="${p1.x.toFixed(1)}" y1="${p1.y.toFixed(1)}" x2="${p3.x.toFixed(1)}" y2="${p3.y.toFixed(1)}" stroke="${stroke}" stroke-width="0.85" />
         ${drawTick(p1.x, p1.y)}
-        ${drawTick(p2.x, p2.y)}
         ${drawTick(p3.x, p3.y)}
-        <g transform="translate(${tMidX.toFixed(1)}, ${(tMidY - 2).toFixed(1)}) rotate(${dAngle.toFixed(1)})">
-          <rect x="${(-tPw / 2).toFixed(1)}" y="-7.5" width="${tPw.toFixed(1)}" height="13" rx="2" fill="#FFFFFF" opacity="0.96" />
-          <text x="0" y="2.5" text-anchor="middle" font-family="ui-monospace, monospace" font-size="9.5" font-weight="800" fill="${stroke}">${escXml(totDLbl)}</text>
+        <g transform="translate(${tMidX.toFixed(1)}, ${tMidY.toFixed(1)}) rotate(${dAngle.toFixed(1)})">
+          <rect x="${(-tPw / 2).toFixed(1)}" y="-15.5" width="${tPw.toFixed(1)}" height="12.5" rx="2" fill="#FFFFFF" opacity="0.96" />
+          <text x="0" y="-6" text-anchor="middle" font-family="ui-monospace, monospace" font-size="9.5" font-weight="800" fill="${stroke}">${escXml(totDLbl)}</text>
         </g>
       `);
     }

@@ -1730,6 +1730,11 @@ function BomModalInner({ isOpen, onClose, initialTab = "cutlist" }: BomModalProp
 
                                   const isLNotchPanel = /L-Köşe.*Tek Parça|İç Boşaltmalı/i.test(pl.part_label);
                                   const isDiagChamferPanel = !isLNotchPanel && /Diyagonal.*(Alt|Üst|Raf)|pentagon/i.test(`${pl.part_label} ${pl.part_id}`);
+                                  const isRoundedSlabPanel = !isLNotchPanel && !isDiagChamferPanel && /(Kapsül|Stadyum|R-Köşe|R-Köşeli).*(Alt Tabla|Üst Tabla|Masa Tablası|Mermer|Kuvars)/i.test(pl.part_label);
+                                  const rMatch = isRoundedSlabPanel ? pl.part_label.match(/R=(\d+)/i) : null;
+                                  const roundedSlabR = isRoundedSlabPanel
+                                    ? Math.min(Math.floor(Math.min(pw, ph) / 2), rMatch ? Number(rMatch[1]) : Math.floor(Math.min(pw, ph) * 0.48))
+                                    : 4;
                                   const matchedCut = isLNotchPanel
                                     ? bom.cutList.find((cp) => cp.pieceName === pl.part_label || pl.part_id.startsWith(cp.id))
                                     : undefined;
@@ -1821,6 +1826,32 @@ function BomModalInner({ isOpen, onClose, initialTab = "cutlist" }: BomModalProp
                                             stroke="#DC2626"
                                             strokeWidth="5"
                                             strokeDasharray="16 10"
+                                          />
+                                        </>
+                                      ) : isRoundedSlabPanel ? (
+                                        <>
+                                          <rect
+                                            x={pl.x}
+                                            y={pl.y}
+                                            width={pw}
+                                            height={ph}
+                                            fill="none"
+                                            stroke="#DC2626"
+                                            strokeWidth="3"
+                                            strokeDasharray="14 10"
+                                            strokeOpacity={0.55}
+                                          />
+                                          <rect
+                                            x={pl.x}
+                                            y={pl.y}
+                                            width={pw}
+                                            height={ph}
+                                            rx={roundedSlabR}
+                                            ry={roundedSlabR}
+                                            fill={pl.color || "#3B82F6"}
+                                            fillOpacity={0.84}
+                                            stroke="#0F172A"
+                                            strokeWidth="5"
                                           />
                                         </>
                                       ) : (

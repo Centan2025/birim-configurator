@@ -1239,17 +1239,19 @@ export function generateModuleGeometry(
       }
     );
 
-    // 3. Tek Parça CNC L-Kesim Alt & Üst Tablalar (Statik Süreklilik — BOM'da tek parça L-plaka olarak kesilir, dönüş kolu 3B görsel uzantısıdır)
+    // 3. Tek Parça CNC L-Kesim Alt & Üst Tablalar (3B'de tek parça eksiz ExtrudeGeometry `_lshape_wx<X>_wz<Z>`, BOM'da tek parça L-plaka!)
     const lBlankW = Math.max(200, width - 2 * T);
     const lBlankD = Math.max(200, depth - T);
-    const lNotchW = Math.max(80, width - T - wingD);
-    const lNotchD = Math.max(80, depth - T - wingD);
+    const lWingX = Math.max(120, wingD - T);
+    const lWingZ = Math.max(120, wingD);
+    const lNotchW = Math.max(80, lBlankW - lWingX);
+    const lNotchD = Math.max(80, lBlankD - lWingZ);
     components.push(
       {
-        id: `${module.id}_bottom_main`,
+        id: `${module.id}_bottom_lshape_wx${Math.round(lWingX)}_wz${Math.round(lWingZ)}`,
         role: "carcass_bottom",
         label: "L-Köşe Tek Parça CNC Alt Tabla (İç Boşaltmalı)",
-        dimensions: { width: lBlankW, height: T, depth: wingD },
+        dimensions: { width: lBlankW, height: T, depth: lBlankD },
         position: { x: T, y: plinthHeight, z: 0 },
         materialId: bodyMaterialId,
         isManufacturablePanel: true,
@@ -1257,34 +1259,14 @@ export function generateModuleGeometry(
         thicknessAxis: "y",
       },
       {
-        id: `${module.id}_bottom_return`,
-        role: "carcass_bottom",
-        label: "L-Köşe Alt Tabla (Tek Parça 3B Uzantı)",
-        dimensions: { width: wingD - T, height: T, depth: returnSpanZ - T },
-        position: { x: T, y: plinthHeight, z: wingD },
-        materialId: bodyMaterialId,
-        isManufacturablePanel: false,
-        thicknessAxis: "y",
-      },
-      {
-        id: `${module.id}_top_main`,
+        id: `${module.id}_top_lshape_wx${Math.round(lWingX)}_wz${Math.round(lWingZ)}`,
         role: "carcass_top",
         label: "L-Köşe Tek Parça CNC Üst Tabla (İç Boşaltmalı)",
-        dimensions: { width: lBlankW, height: T, depth: wingD },
+        dimensions: { width: lBlankW, height: T, depth: lBlankD },
         position: { x: T, y: height - T, z: 0 },
         materialId: bodyMaterialId,
         isManufacturablePanel: true,
         cncBlankOverride: { lengthMm: lBlankW, widthMm: lBlankD, notchWidthMm: lNotchW, notchDepthMm: lNotchD },
-        thicknessAxis: "y",
-      },
-      {
-        id: `${module.id}_top_return`,
-        role: "carcass_top",
-        label: "L-Köşe Üst Tabla (Tek Parça 3B Uzantı)",
-        dimensions: { width: wingD - T, height: T, depth: returnSpanZ - T },
-        position: { x: T, y: height - T, z: wingD },
-        materialId: bodyMaterialId,
-        isManufacturablePanel: false,
         thicknessAxis: "y",
       },
       {
@@ -1386,42 +1368,27 @@ export function generateModuleGeometry(
           const mainShelfD = Math.max(120, wingD - 18 - 14);
           const lShelfBlankW = Math.max(200, width - 2 * T - 4);
           const lShelfBlankD = Math.max(200, depth - T - 20);
-          const lShelfNotchW = Math.max(80, lShelfBlankW - Math.max(100, wingD - (T + 18) - 14));
-          const lShelfNotchD = Math.max(80, lShelfBlankD - mainShelfD);
-          components.push(
-            {
-              id: sh.id || `${module.id}_l_shelf_main_${sIdx}`,
-              role: "shelf",
-              label: `L-Köşe Tek Parça CNC Raf #${sIdx + 1} (İç Boşaltmalı)`,
-              bayIndex: 0,
-              dimensions: { width: lShelfBlankW, height: T, depth: mainShelfD },
-              position: { x: T + 2, y: sy, z: 18 },
-              materialId: bodyMaterialId,
-              isManufacturablePanel: true,
-              cncBlankOverride: {
-                lengthMm: lShelfBlankW,
-                widthMm: lShelfBlankD,
-                notchWidthMm: lShelfNotchW,
-                notchDepthMm: lShelfNotchD,
-              },
-              thicknessAxis: "y",
+          const lShelfWingX = Math.max(100, wingD - (T + 2) - 14);
+          const lShelfWingZ = Math.max(100, mainShelfD);
+          const lShelfNotchW = Math.max(80, lShelfBlankW - lShelfWingX);
+          const lShelfNotchD = Math.max(80, lShelfBlankD - lShelfWingZ);
+          components.push({
+            id: `${sh.id || `${module.id}_l_shelf_${sIdx}`}_lshape_wx${Math.round(lShelfWingX)}_wz${Math.round(lShelfWingZ)}`,
+            role: "shelf",
+            label: `L-Köşe Tek Parça CNC Raf #${sIdx + 1} (İç Boşaltmalı)`,
+            bayIndex: 0,
+            dimensions: { width: lShelfBlankW, height: T, depth: lShelfBlankD },
+            position: { x: T + 2, y: sy, z: 18 },
+            materialId: bodyMaterialId,
+            isManufacturablePanel: true,
+            cncBlankOverride: {
+              lengthMm: lShelfBlankW,
+              widthMm: lShelfBlankD,
+              notchWidthMm: lShelfNotchW,
+              notchDepthMm: lShelfNotchD,
             },
-            {
-              id: `${sh.id || module.id}_l_shelf_ret_${sIdx}`,
-              role: "shelf",
-              label: `L-Köşe Raf #${sIdx + 1} (Tek Parça 3B Uzantı)`,
-              bayIndex: 0,
-              dimensions: {
-                width: Math.max(100, wingD - (T + 18) - 14),
-                height: T,
-                depth: Math.max(100, depth - T - (18 + mainShelfD) - 2),
-              },
-              position: { x: T + 18, y: sy, z: 18 + mainShelfD },
-              materialId: bodyMaterialId,
-              isManufacturablePanel: false,
-              thicknessAxis: "y",
-            }
-          );
+            thicknessAxis: "y",
+          });
         });
       }
       firstBay.hangingRails.forEach((rl, rIdx) => {
@@ -1460,21 +1427,11 @@ export function generateModuleGeometry(
       const retCtopD = Math.max(60, depth - mainCtopD);
       components.push(
         {
-          id: `${module.id}_l_countertop_main`,
+          id: `${module.id}_l_countertop_lshape_wx${Math.round(retCtopW)}_wz${Math.round(mainCtopD)}`,
           role: "countertop",
-          label: "L-Köşe Kuvars Tezgâh Ana Kol (38mm, +40mm Damlalıklı)",
-          dimensions: { width, height: 38, depth: mainCtopD },
+          label: "L-Köşe Tek Parça Kuvars Tezgâh (38mm, +40mm Damlalıklı)",
+          dimensions: { width, height: 38, depth },
           position: { x: 0, y: height, z: 0 },
-          materialId: ctopMat,
-          isFrontFacing: true,
-          isManufacturablePanel: false,
-        },
-        {
-          id: `${module.id}_l_countertop_return`,
-          role: "countertop",
-          label: "L-Köşe Kuvars Tezgâh Dönüş Kolu (38mm, Sıfır Çakışmalı)",
-          dimensions: { width: retCtopW, height: 38, depth: retCtopD },
-          position: { x: 0, y: height, z: mainCtopD },
           materialId: ctopMat,
           isFrontFacing: true,
           isManufacturablePanel: false,

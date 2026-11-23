@@ -442,6 +442,89 @@ function getCachedPentagonCornerGeometry(
   return entry;
 }
 
+
+const lShapeCornerCache = new Map<string, { geo: THREE.BufferGeometry; edges: THREE.EdgesGeometry }>();
+
+function getCachedLShapeCornerGeometry(
+  w: number,
+  h: number,
+  d: number,
+  wingX: number,
+  wingZ: number,
+  grainCrosswise = false
+): { geo: THREE.BufferGeometry; edges: THREE.EdgesGeometry } {
+  const safeW = Math.max(20, Math.round(w));
+  const safeH = Math.max(4, Math.round(h));
+  const safeD = Math.max(20, Math.round(d));
+  const wx = Math.max(10, Math.min(safeW - 10, Math.round(wingX)));
+  const wz = Math.max(10, Math.min(safeD - 10, Math.round(wingZ)));
+  const key = `${safeW}_${safeH}_${safeD}_wx${wx}_wz${wz}_${grainCrosswise ? 1 : 0}`;
+  const cached = lShapeCornerCache.get(key);
+  if (cached) return cached;
+  if (lShapeCornerCache.size >= 160) {
+    const oldest = lShapeCornerCache.keys().next().value;
+    if (oldest) {
+      const ev = lShapeCornerCache.get(oldest);
+      if (ev) {
+        delete ev.geo.userData.__birimSharedResource;
+        delete ev.edges.userData.__birimSharedResource;
+        ev.geo.dispose();
+        ev.edges.dispose();
+      }
+      lShapeCornerCache.delete(oldest);
+    }
+  }
+
+  const hw = safeW / 2;
+  const hd = safeD / 2;
+  // Shape Y maps to -Z after rotateX(-PI/2):
+  // 6-sided seamless single-piece L-corner slab (ZERO seam between wings!)
+  const shape = new THREE.Shape();
+  shape.moveTo(-hw, hd);               // Back-Left  (x=0, z=0)
+  shape.lineTo(-hw, -hd);              // Front-Left (x=0, z=D)
+  shape.lineTo(-hw + wx, -hd);         // Return Front-Right (x=wx, z=D)
+  shape.lineTo(-hw + wx, hd - wz);     // Inner 90° L-Corner (x=wx, z=wz)
+  shape.lineTo(hw, hd - wz);           // Main-Wing Front-Right (x=W, z=wz)
+  shape.lineTo(hw, hd);                // Back-Right (x=W, z=0)
+  shape.closePath();
+
+  const extrudeGeo = new THREE.ExtrudeGeometry(shape, {
+    depth: safeH,
+    bevelEnabled: true,
+    bevelThickness: Math.min(1.4, safeH * 0.1),
+    bevelSize: 1.0,
+    bevelSegments: 2,
+  });
+  extrudeGeo.rotateX(-Math.PI / 2);
+  extrudeGeo.translate(0, -safeH / 2, 0);
+
+  const posAttr = extrudeGeo.getAttribute("position");
+  const normAttr = extrudeGeo.getAttribute("normal");
+  const uvArr = new Float32Array(posAttr.count * 2);
+  for (let i = 0; i < posAttr.count; i++) {
+    const vx = posAttr.getX(i);
+    const vy = posAttr.getY(i);
+    const vz = posAttr.getZ(i);
+    const ay = Math.abs(normAttr.getY(i));
+    let u = ay > 0.5 ? (vx + hw) / 900 : (vx + vz + hw) / 900;
+    let v = ay > 0.5 ? (vz + hd) / 900 : (vy + safeH / 2) / 900;
+    if (grainCrosswise) {
+      const tmp = u;
+      u = v;
+      v = tmp;
+    }
+    uvArr[i * 2] = u;
+    uvArr[i * 2 + 1] = v;
+  }
+  extrudeGeo.setAttribute("uv", new THREE.BufferAttribute(uvArr, 2));
+
+  const sharedGeo = markSharedGeometry(extrudeGeo);
+  const sharedEdges = markSharedGeometry(new THREE.EdgesGeometry(extrudeGeo, 18));
+  const entry = { geo: sharedGeo, edges: sharedEdges };
+  lShapeCornerCache.set(key, entry);
+  return entry;
+}
+
 const worldUvBoxCache = new Map<string, THREE.BufferGeometry>();
 
 function getCachedWorldUvBoxGeometry(
@@ -3368,6 +3451,31 @@ export function createComponentMesh(
     pentLines.position.set(cx, cy, cz);
     pentLines.userData.isPrimaryEdge = true;
     group.add(pentLines);
+    return group;
+  }
+
+  // 5.86 TRUE 3D SINGLE-PIECE 6-SIDED L-CORNER SLAB (_lshape_wx<X>_wz<Z>) — ZERO SEAM!
+  const lShapeMatch = comp.id.match(/_lshape_wx(\d+)_wz(\d+)/);
+  if (lShapeMatch) {
+    const isCrossL =
+      userData?.grainDir === "crosswise" || comp.grainDirection === "crosswise";
+    const { geo: lGeo, edges: lEdges } = getCachedLShapeCornerGeometry(
+      comp.dimensions.width,
+      comp.dimensions.height,
+      comp.dimensions.depth,
+      Number(lShapeMatch[1]),
+      Number(lShapeMatch[2]),
+      isCrossL
+    );
+    const lMesh = new THREE.Mesh(lGeo, material);
+    lMesh.position.set(cx, cy, cz);
+    tagSubMesh(lMesh, userData, comp);
+    group.add(lMesh);
+
+    const lLines = new THREE.LineSegments(lEdges, edgeMaterial);
+    lLines.position.set(cx, cy, cz);
+    lLines.userData.isPrimaryEdge = true;
+    group.add(lLines);
     return group;
   }
 

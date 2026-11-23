@@ -3544,12 +3544,24 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       scene.add(hoverOverlayGroup);
 
       const hoverBoxGeo = new THREE.BoxGeometry(1, 1, 1);
+      const hoverEdgesCache = new WeakMap<THREE.BufferGeometry, THREE.EdgesGeometry>();
+      const getHoverEdgesForGeometry = (geo: THREE.BufferGeometry): THREE.EdgesGeometry => {
+        let cached = hoverEdgesCache.get(geo);
+        if (!cached) {
+          cached = new THREE.EdgesGeometry(geo, 18);
+          hoverEdgesCache.set(geo, cached);
+        }
+        return cached;
+      };
       const hoverFillMat = new THREE.MeshBasicMaterial({
         color: 0x0ea5e9,
         transparent: true,
-        opacity: 0.28,
+        opacity: 0.24,
         depthTest: false,
         depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2,
       });
       const hoverOutlineMat = new THREE.LineBasicMaterial({
         color: 0x0284c7,
@@ -3559,7 +3571,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       const hoverFillMesh = new THREE.Mesh(hoverBoxGeo, hoverFillMat);
       hoverFillMesh.raycast = () => {};
       const hoverOutlineSegments = new THREE.LineSegments(
-        new THREE.EdgesGeometry(hoverBoxGeo),
+        getHoverEdgesForGeometry(hoverBoxGeo),
         hoverOutlineMat
       );
       hoverOutlineSegments.raycast = () => {};
@@ -3667,25 +3679,19 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             currentHoveredMesh = hitMesh;
             if (hitMesh) {
               hitMesh.updateWorldMatrix(true, false);
-              if (!hitMesh.geometry.boundingBox) {
-                hitMesh.geometry.computeBoundingBox();
-              }
-              const localBox = hitMesh.geometry.boundingBox;
-              if (localBox && !localBox.isEmpty()) {
-                const localCenter = new THREE.Vector3();
-                const localSize = new THREE.Vector3();
-                localBox.getCenter(localCenter);
-                localBox.getSize(localSize);
-                const worldCenter = localCenter.clone().applyMatrix4(hitMesh.matrixWorld);
-                const worldQuat = new THREE.Quaternion();
-                hitMesh.getWorldQuaternion(worldQuat);
-                hoverOverlayGroup.position.copy(worldCenter);
-                hoverOverlayGroup.quaternion.copy(worldQuat);
-                hoverOverlayGroup.scale.set(
-                  Math.max(12, localSize.x + 6),
-                  Math.max(12, localSize.y + 6),
-                  Math.max(12, localSize.z + 6)
-                );
+              // Her elemanı (L-köşe, 45° beşgen, kapsül, silindir, delikli tezgâh vb.) KENDİ GERÇEK 3B FORMUNDA vurgula!
+              if (hitMesh.geometry) {
+                const wPos = new THREE.Vector3();
+                const wQuat = new THREE.Quaternion();
+                const wScale = new THREE.Vector3();
+                hitMesh.matrixWorld.decompose(wPos, wQuat, wScale);
+                if (hoverFillMesh.geometry !== hitMesh.geometry) {
+                  hoverFillMesh.geometry = hitMesh.geometry;
+                  hoverOutlineSegments.geometry = getHoverEdgesForGeometry(hitMesh.geometry);
+                }
+                hoverOverlayGroup.position.copy(wPos);
+                hoverOverlayGroup.quaternion.copy(wQuat);
+                hoverOverlayGroup.scale.copy(wScale);
                 hoverOverlayGroup.visible = true;
               }
               const partLabel = String(hitMesh.userData?.label || hitMesh.userData?.role || "Parça");

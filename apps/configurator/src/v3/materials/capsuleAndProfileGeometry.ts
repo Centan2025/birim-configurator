@@ -863,10 +863,20 @@ export function buildCapsuleParametricModuleGroup(
       const shT = sh.thickness || (sh.isGlass ? 8 : T);
       const clampedElev = Math.max(32, Math.min(innerClearH - shT - 24, sh.elevationY));
       const shD = Math.max(100, netInnerD - 8);
+      const useCurvedInnerShelf = straightSpanW < 120 && bayCount === 1;
+      const shGeo = useCurvedInnerShelf
+        ? getCachedCapsuleStadiumSlabGeometry(
+            bClearW,
+            shD,
+            shT,
+            Math.max(24, Math.min(shD / 2 - 2, bClearW / 2 - 2, pocketOuterR - T - 4)),
+            0
+          ).geo
+        : sh.isGlass
+        ? new THREE.BoxGeometry(bClearW, shT, shD)
+        : applyWorldMillimeterBoxUVs(new THREE.BoxGeometry(bClearW, shT, shD), true);
       const shMesh = new THREE.Mesh(
-        sh.isGlass
-          ? new THREE.BoxGeometry(bClearW, shT, shD)
-          : applyWorldMillimeterBoxUVs(new THREE.BoxGeometry(bClearW, shT, shD), true),
+        shGeo,
         sh.isGlass ? sharedClearGlassShelfMat : bodyMat
       );
       const shY = yBot + T + clampedElev + shT / 2;

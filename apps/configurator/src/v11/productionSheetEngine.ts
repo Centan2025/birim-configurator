@@ -472,7 +472,7 @@ function buildModuleViewsSheet(
               `${doorMatDef?.name || ""} ${doorMatId || ""}`
             )
         );
-        const isHorizGrain = mod.carcass.grainDirection === "horizontal";
+        const isHorizGrain = mod.componentGrainOverrides?.__all__ === "crosswise";
 
         let kIdx = 1;
         let cIdx = 1;
@@ -590,7 +590,7 @@ function buildModuleViewsSheet(
       `);
       if (options.showDimensions) {
         parts.push(renderClosedHorizontalChain(xStops, mx, my(D) + 20, my(D), options.unit));
-        parts.push(renderDimLine(mx(0), my(0) - 18, mx(W), my(0) - 18, formatSheetDim(W, options.unit), "horizontal", my(0)));
+        parts.push(renderDimLine(mx(0), my(0) - 22, mx(W), my(0) - 22, formatSheetDim(W, options.unit), "horizontal", my(0)));
         parts.push(renderDimLine(mx(W) + 20, my(0), mx(W) + 20, my(D), formatSheetDim(D, options.unit), "vertical", mx(W)));
       }
       return parts.join("");
@@ -642,7 +642,7 @@ function buildModuleViewsSheet(
     renderOrthographic2D(secAData, secABox, "section", options, hatchId, secAPx, (mx, my) => {
       const parts: string[] = [];
       if (options.showDimensions) {
-        parts.push(renderDimLine(mx(0), my(0) - 18, mx(D), my(0) - 18, formatSheetDim(D, options.unit), "horizontal", my(0)));
+        parts.push(renderDimLine(mx(0), my(0) - 22, mx(D), my(0) - 22, formatSheetDim(D, options.unit), "horizontal", my(0)));
         parts.push(renderDimLine(mx(0) - 22, my(0), mx(0) - 22, my(H), formatSheetDim(H, options.unit), "vertical", mx(0)));
         parts.push(renderClosedVerticalChain(cutBayStops, my, mx(D) + 24, mx(D), options.unit));
         parts.push(renderDatumMarker(mx(D) + 86, my(H), "±0"));
@@ -883,8 +883,8 @@ function renderOverviewSheet(ctx: SheetBuildContext, area: ViewportBox): string 
     .join("");
 
   const planDims = options.showDimensions
-    ? renderDimLine(mx(minX), mz(minZ) - 20, mx(maxX), mz(minZ) - 20, formatSheetDim(maxX - minX, options.unit), "horizontal", mz(minZ)) +
-      renderDimLine(mx(minX) - 20, mz(minZ), mx(minX) - 20, mz(maxZ), formatSheetDim(maxZ - minZ, options.unit), "vertical", mx(minX))
+    ? renderDimLine(mx(minX), mz(minZ) - 28, mx(maxX), mz(minZ) - 28, formatSheetDim(maxX - minX, options.unit), "horizontal", mz(minZ)) +
+      renderDimLine(mx(minX) - 28, mz(minZ), mx(minX) - 28, mz(maxZ), formatSheetDim(maxZ - minZ, options.unit), "vertical", mx(minX))
     : "";
 
   // 2. Ön Cephe Görünüşü (Ana Duvar + varsa Sol/Sağ Yan Duvar cepheleri yan yana tam detayla çizilir)
@@ -963,9 +963,9 @@ function renderOverviewSheet(ctx: SheetBuildContext, area: ViewportBox): string 
       elevGroupDims.push(
         renderDimLine(
           gx(grp.minA),
-          ey(grp.maxH) - 21,
+          ey(grp.maxH) - 26,
           gx(grp.maxA),
-          ey(grp.maxH) - 21,
+          ey(grp.maxH) - 26,
           formatSheetDim(grpSpanMm, options.unit),
           "horizontal",
           ey(grp.maxH)
