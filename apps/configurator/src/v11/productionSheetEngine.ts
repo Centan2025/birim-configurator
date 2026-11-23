@@ -761,17 +761,39 @@ function renderOverviewSheet(ctx: SheetBuildContext, area: ViewportBox): string 
       const H = m.dimensions.height;
       const tplLc = (m.templateId || "").toLowerCase();
       const nameLc = (m.name || "").toLowerCase();
+      const hull = m.carcass.hullShape || "rectangular";
       const isBlind = tplLc.includes("blind") || nameLc.includes("kör köşe") || nameLc.includes("lemans");
-      const isLCorner = Boolean(m.isCorner) && !isBlind && W >= 620 && D >= 620;
+      const isDiagonal =
+        Boolean(m.isCorner) &&
+        (tplLc.includes("diagonal") || nameLc.includes("diyagonal") || nameLc.includes("45°")) &&
+        W >= 500 &&
+        D >= 500;
+      const isLCorner = Boolean(m.isCorner) && !isBlind && !isDiagonal && W >= 620 && D >= 620;
+      const minArm = Math.min(W, D);
+      const isWallL = m.category === "kitchen_wall" || m.moduleFamilyId === "fam_kitchen_wall" || (m.position?.y || 0) >= 1100;
+      const isWardrobe = m.category.startsWith("wardrobe") || m.moduleFamilyId === "fam_wardrobe" || H >= 1400;
+      const wingD = isWallL
+        ? (minArm >= 580 ? 350 : Math.min(350, Math.round(minArm * 0.56)))
+        : isWardrobe
+        ? (minArm >= 920 ? 600 : Math.min(600, Math.round(minArm * 0.58)))
+        : (minArm >= 780 ? 580 : Math.min(580, Math.round(minArm * 0.64)));
+
+      if (isDiagonal) {
+        // 5-kenarlı 45° Diyagonal Köşe poligonu
+        const pts = [toWorld(0, 0), toWorld(W, 0), toWorld(W, wingD), toWorld(wingD, D), toWorld(0, D)];
+        const polyPts = pts.map((p) => `${mx(p.x).toFixed(1)},${mz(p.z).toFixed(1)}`).join(" ");
+        const lblW = toWorld(W * 0.42, D * 0.42);
+        const cx = mx(lblW.x);
+        const cz = mz(lblW.z);
+        return `<g>
+          <polygon points="${polyPts}" fill="#E2E8F0" stroke="${CAD_COLORS.ink}" stroke-width="1.2" />
+          <line x1="${mx(pts[2].x).toFixed(1)}" y1="${mz(pts[2].z).toFixed(1)}" x2="${mx(pts[3].x).toFixed(1)}" y2="${mz(pts[3].z).toFixed(1)}" stroke="${CAD_COLORS.plane}" stroke-width="2.4" />
+          <text x="${cx.toFixed(1)}" y="${(cz - 2).toFixed(1)}" text-anchor="middle" font-family="ui-monospace, monospace" font-size="11" font-weight="800" fill="${CAD_COLORS.ink}">M${idx + 1}</text>
+          <text x="${cx.toFixed(1)}" y="${(cz + 10).toFixed(1)}" text-anchor="middle" font-family="ui-monospace, monospace" font-size="9.5" font-weight="700" fill="${CAD_COLORS.subInk}">${W}×${D} 45°</text>
+        </g>`;
+      }
+
       if (isLCorner) {
-        const minArm = Math.min(W, D);
-        const isWallL = m.category === "kitchen_wall" || m.moduleFamilyId === "fam_kitchen_wall" || (m.position?.y || 0) >= 1100;
-        const isWardrobe = m.category.startsWith("wardrobe") || m.moduleFamilyId === "fam_wardrobe" || H >= 1400;
-        const wingD = isWallL
-          ? (minArm >= 580 ? 350 : Math.min(350, Math.round(minArm * 0.56)))
-          : isWardrobe
-          ? (minArm >= 920 ? 600 : Math.min(600, Math.round(minArm * 0.58)))
-          : (minArm >= 780 ? 580 : Math.min(580, Math.round(minArm * 0.64)));
         const pts = [
           toWorld(0, 0),
           toWorld(W, 0),
@@ -792,6 +814,35 @@ function renderOverviewSheet(ctx: SheetBuildContext, area: ViewportBox): string 
           <text x="${cx.toFixed(1)}" y="${(cz + 10).toFixed(1)}" text-anchor="middle" font-family="ui-monospace, monospace" font-size="9.5" font-weight="700" fill="${CAD_COLORS.subInk}">${W}×${D} L</text>
         </g>`;
       }
+
+      if (hull === "capsule_table" || hull === "capsule_stadium" || hull === "rounded_corners") {
+        // Stadyum / Kapsül / R-Köşe gerçek yuvarlatılmış plan poligonu (24-noktalı yumuşak yay)
+        const rMm =
+          hull === "rounded_corners"
+            ? Math.max(40, Math.min(m.carcass.cornerRadiusMm || 100, D / 2 - 4, W / 4))
+            : Math.min(D / 2, W / 2);
+        const arcPts: { x: number; z: number }[] = [];
+        const addArc = (cxL: number, czL: number, a0: number, a1: number, steps = 6) => {
+          for (let s = 0; s <= steps; s++) {
+            const a = a0 + ((a1 - a0) * s) / steps;
+            arcPts.push(toWorld(cxL + Math.cos(a) * rMm, czL + Math.sin(a) * rMm));
+          }
+        };
+        addArc(W - rMm, rMm, -Math.PI / 2, 0);
+        addArc(W - rMm, D - rMm, 0, Math.PI / 2);
+        addArc(rMm, D - rMm, Math.PI / 2, Math.PI);
+        addArc(rMm, rMm, Math.PI, Math.PI * 1.5);
+        const polyPts = arcPts.map((p) => `${mx(p.x).toFixed(1)},${mz(p.z).toFixed(1)}`).join(" ");
+        const cW = toWorld(W * 0.5, D * 0.5);
+        const cx = mx(cW.x);
+        const cz = mz(cW.z);
+        return `<g>
+          <polygon points="${polyPts}" fill="#E2E8F0" stroke="${CAD_COLORS.ink}" stroke-width="1.2" />
+          <text x="${cx.toFixed(1)}" y="${(cz - 2).toFixed(1)}" text-anchor="middle" font-family="ui-monospace, monospace" font-size="11" font-weight="800" fill="${CAD_COLORS.ink}">M${idx + 1}</text>
+          <text x="${cx.toFixed(1)}" y="${(cz + 10).toFixed(1)}" text-anchor="middle" font-family="ui-monospace, monospace" font-size="9.5" font-weight="700" fill="${CAD_COLORS.subInk}">${W}×${D}</text>
+        </g>`;
+      }
+
       const pBL = toWorld(0, 0);
       const pBR = toWorld(W, 0);
       const pFR = toWorld(W, D);
@@ -799,11 +850,34 @@ function renderOverviewSheet(ctx: SheetBuildContext, area: ViewportBox): string 
       const polyPts = [pBL, pBR, pFR, pFL].map((p) => `${mx(p.x).toFixed(1)},${mz(p.z).toFixed(1)}`).join(" ");
       const cx = mx((pBL.x + pFR.x) * 0.5);
       const cz = mz((pBL.z + pFR.z) * 0.5);
+      const blindZoneSvg = isBlind
+        ? (() => {
+            const b1 = toWorld(0, 0);
+            const b2 = toWorld(W * 0.5, 0);
+            const b3 = toWorld(W * 0.5, D);
+            const b4 = toWorld(0, D);
+            const bp = [b1, b2, b3, b4].map((p) => `${mx(p.x).toFixed(1)},${mz(p.z).toFixed(1)}`).join(" ");
+            return `<polygon points="${bp}" fill="#CBD5E1" fill-opacity="0.55" stroke="${CAD_COLORS.muted}" stroke-width="0.8" stroke-dasharray="3 2" />`;
+          })()
+        : "";
+      const islandOutlineSvg =
+        m.category === "kitchen_island"
+          ? (() => {
+              const i1 = toWorld(-20, -20);
+              const i2 = toWorld(W + 20, -20);
+              const i3 = toWorld(W + 20, D + 20);
+              const i4 = toWorld(-20, D + 20);
+              const ip = [i1, i2, i3, i4].map((p) => `${mx(p.x).toFixed(1)},${mz(p.z).toFixed(1)}`).join(" ");
+              return `<polygon points="${ip}" fill="none" stroke="${CAD_COLORS.plane}" stroke-width="1" stroke-dasharray="4 3" />`;
+            })()
+          : "";
       return `<g>
+        ${islandOutlineSvg}
         <polygon points="${polyPts}" fill="#E2E8F0" stroke="${CAD_COLORS.ink}" stroke-width="1.2" />
+        ${blindZoneSvg}
         <line x1="${mx(pFL.x).toFixed(1)}" y1="${mz(pFL.z).toFixed(1)}" x2="${mx(pFR.x).toFixed(1)}" y2="${mz(pFR.z).toFixed(1)}" stroke="${CAD_COLORS.plane}" stroke-width="2.2" />
         <text x="${cx.toFixed(1)}" y="${(cz - 2).toFixed(1)}" text-anchor="middle" font-family="ui-monospace, monospace" font-size="11" font-weight="800" fill="${CAD_COLORS.ink}">M${idx + 1}</text>
-        <text x="${cx.toFixed(1)}" y="${(cz + 10).toFixed(1)}" text-anchor="middle" font-family="ui-monospace, monospace" font-size="10" font-weight="700" fill="${CAD_COLORS.subInk}">${W}×${D}</text>
+        <text x="${cx.toFixed(1)}" y="${(cz + 10).toFixed(1)}" text-anchor="middle" font-family="ui-monospace, monospace" font-size="10" font-weight="700" fill="${CAD_COLORS.subInk}">${W}×${D}${m.category === "kitchen_island" ? " ADA" : isBlind ? " KÖR" : ""}</text>
       </g>`;
     })
     .join("");

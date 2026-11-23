@@ -1729,8 +1729,9 @@ function BomModalInner({ isOpen, onClose, initialTab = "cutlist" }: BomModalProp
                                   const fontDim = Math.max(22, Math.min(38, Math.floor(pw / 8.5)));
 
                                   const isLNotchPanel = /L-Köşe.*Tek Parça|İç Boşaltmalı/i.test(pl.part_label);
+                                  const isDiagChamferPanel = !isLNotchPanel && /Diyagonal.*(Alt|Üst|Raf)|pentagon/i.test(`${pl.part_label} ${pl.part_id}`);
                                   const matchedCut = isLNotchPanel
-                                    ? bom.cutList.find((cp) => cp.label === pl.part_label || pl.part_id.startsWith(cp.id))
+                                    ? bom.cutList.find((cp) => cp.pieceName === pl.part_label || pl.part_id.startsWith(cp.id))
                                     : undefined;
                                   const rawNw = matchedCut?.cutoutWidthMm || Math.round(pw * 0.39);
                                   const rawNh = matchedCut?.cutoutDepthMm || Math.round(ph * 0.39);
@@ -1802,6 +1803,25 @@ function BomModalInner({ isOpen, onClose, initialTab = "cutlist" }: BomModalProp
                                           >
                                             {Math.round(notchW)}×{Math.round(notchH)}
                                           </text>
+                                        </>
+                                      ) : isDiagChamferPanel ? (
+                                        <>
+                                          <polygon
+                                            points={`${pl.x},${pl.y} ${pl.x + pw},${pl.y} ${pl.x + pw},${pl.y + Math.round(ph * 0.6)} ${pl.x + Math.round(pw * 0.6)},${pl.y + ph} ${pl.x},${pl.y + ph}`}
+                                            fill={pl.color || "#3B82F6"}
+                                            fillOpacity={0.84}
+                                            stroke="#0F172A"
+                                            strokeWidth="5"
+                                            strokeLinejoin="round"
+                                          />
+                                          <polygon
+                                            points={`${pl.x + pw},${pl.y + Math.round(ph * 0.6)} ${pl.x + pw},${pl.y + ph} ${pl.x + Math.round(pw * 0.6)},${pl.y + ph}`}
+                                            fill="#F8FAFC"
+                                            fillOpacity={0.92}
+                                            stroke="#DC2626"
+                                            strokeWidth="5"
+                                            strokeDasharray="16 10"
+                                          />
                                         </>
                                       ) : (
                                         <rect

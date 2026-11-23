@@ -632,16 +632,20 @@ export function buildExplodedIsoBoxes(
   // 2B. TRUE L-CORNER CABINET / WALK-IN L WARDROBE (`isCorner`, non-blind, non-diagonal)
   const tplLcCheck = (mod.templateId || "").toLowerCase();
   const nameLcCheck = (mod.name || "").toLowerCase();
+  const isDiagCorner =
+    Boolean(mod.isCorner) &&
+    (tplLcCheck.includes("diagonal") || nameLcCheck.includes("diyagonal") || nameLcCheck.includes("45°")) &&
+    W >= 500 &&
+    D >= 500;
   const isTrueLCorner =
     Boolean(mod.isCorner) &&
     !tplLcCheck.includes("blind") &&
     !nameLcCheck.includes("kör") &&
-    !tplLcCheck.includes("diagonal") &&
-    !nameLcCheck.includes("diyagonal") &&
+    !isDiagCorner &&
     W >= 600 &&
     D >= 600;
 
-  if (isTrueLCorner) {
+  if (isTrueLCorner || isDiagCorner) {
     const isWardrobeL =
       mod.category.startsWith("wardrobe") ||
       mod.moduleFamilyId === "fam_wardrobe" ||
@@ -1460,6 +1464,46 @@ export function buildExplodedIsoBoxes(
     }
   });
 
+  // Mutfak Adası: üstte patlatılmış 38mm Kuvars Tezgâh plakası
+  if (mod.category === "kitchen_island") {
+    boxes.push({
+      id: "island-countertop-slab",
+      code: "④",
+      x0: -25,
+      y0: H + explodeY * 1.15,
+      z0: -25,
+      x1: W + 25,
+      y1: H + 38 + explodeY * 1.15,
+      z1: D + 25,
+      frontFill: "#E2E8F0",
+      sideFill: "#CBD5E1",
+      topFill: "#F8FAFC",
+      stroke: "#334155",
+      strokeWidth: 1.5,
+      kind: "carcass",
+    });
+  }
+
+  // Kör Köşe Dolabı: kör tarafta sabit ön kapama paneli
+  if (tplLcCheck.includes("blind") || nameLcCheck.includes("kör köşe") || nameLcCheck.includes("lemans")) {
+    boxes.push({
+      id: "blind-corner-front-filler",
+      code: "⑤",
+      x0: 0,
+      y0: plinthH,
+      z0: D + explodeDoorZ * 0.45,
+      x1: Math.round(W * 0.48),
+      y1: H,
+      z1: D + explodeDoorZ * 0.45 + T,
+      frontFill: "#CBD5E1",
+      sideFill: "#94A3B8",
+      topFill: "#E2E8F0",
+      stroke: "#475569",
+      strokeWidth: 1.3,
+      kind: "carcass",
+    });
+  }
+
   boxes.sort((a, b) => {
     const da = ((a.z0 + a.z1) / 2) * 1.0 + ((a.x0 + a.x1) / 2) * 0.35 + ((a.y0 + a.y1) / 2) * 0.12;
     const db = ((b.z0 + b.z1) / 2) * 1.0 + ((b.x0 + b.x1) / 2) * 0.35 + ((b.y0 + b.y1) / 2) * 0.12;
@@ -1981,10 +2025,8 @@ export function buildExplodedIsoScene(
     Boolean(mod.isCorner) &&
     !(mod.templateId || "").toLowerCase().includes("blind") &&
     !(mod.name || "").toLowerCase().includes("kör") &&
-    !(mod.templateId || "").toLowerCase().includes("diagonal") &&
-    !(mod.name || "").toLowerCase().includes("diyagonal") &&
-    W >= 600 &&
-    D >= 600
+    W >= 500 &&
+    D >= 500
   ) {
     const exX = Math.round(explodeX * 0.55);
     const exY = Math.round(explodeY * 0.65);
