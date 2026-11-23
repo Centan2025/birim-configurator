@@ -1,4 +1,5 @@
 import {
+  ArchitecturalElement,
   DesignProject,
   Dimensions3D,
   ModuleCategory,
@@ -543,12 +544,19 @@ export function computeAutoFillersAndTrimForProject(project: DesignProject): {
  * Automatically notches cabinet carcasses (or steps back depth) around intersecting columns,
  * plumbing stacks, flues, or radiators so installers don't have to improvise jigsaw cuts on site.
  */
-export function autoNotchModulesAroundObstacles(project: DesignProject): {
+export function autoNotchModulesAroundObstacles(
+  project: DesignProject,
+  extraObstacles?: ArchitecturalElement[]
+): {
   updatedModules: ModuleInstance[];
   appliedNotches: string[];
 } {
+  const baseElements =
+    project.space.elements && project.space.elements.length > 0
+      ? project.space.elements
+      : extraObstacles || [];
   const obstacles = [
-    ...(project.space.elements || []),
+    ...baseElements,
     ...project.space.walls.flatMap((w) => w.elements || []),
   ].filter((el) =>
     ["column", "beam", "plumbing", "flue_duct", "gas_valve", "electrical", "protrusion"].includes(

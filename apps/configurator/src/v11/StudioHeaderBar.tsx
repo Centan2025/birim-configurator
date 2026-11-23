@@ -249,7 +249,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
             </span>
             <span className="hidden xl:inline text-[11px] font-semibold">Seçenek</span>
             {savedVariantCount > 0 && (
-              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-white/15 text-sky-200">
+              <span className="hidden sm:inline text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-white/15 text-sky-200">
                 {savedVariantCount}/3
               </span>
             )}
@@ -376,7 +376,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                 type="button"
                 data-testid="v11-open-project-btn"
                 onClick={onOpenProjectModal}
-                className="h-9 max-sm:h-8 max-sm:w-8 px-3 max-sm:px-0 rounded-full bg-white/[0.10] hover:bg-white/[0.18] border border-white/[0.15] text-[#F3F4F6] text-xs font-semibold flex items-center justify-center gap-2 max-w-[155px] xl:max-w-[220px] shadow-[0_4px_14px_rgba(0,0,0,0.44),inset_0_1px_0_rgba(255,255,255,0.16)] hover:shadow-[0_6px_18px_rgba(0,0,0,0.56),inset_0_1px_0_rgba(255,255,255,0.22)] shrink-0 sm:shrink min-w-0 transition cursor-pointer"
+                className={`${isShowroom ? "max-sm:hidden " : ""}h-9 max-sm:h-8 max-sm:w-8 px-3 max-sm:px-0 rounded-full bg-white/[0.10] hover:bg-white/[0.18] border border-white/[0.15] text-[#F3F4F6] text-xs font-semibold flex items-center justify-center gap-2 max-w-[155px] xl:max-w-[220px] shadow-[0_4px_14px_rgba(0,0,0,0.44),inset_0_1px_0_rgba(255,255,255,0.16)] hover:shadow-[0_6px_18px_rgba(0,0,0,0.56),inset_0_1px_0_rgba(255,255,255,0.22)] shrink-0 sm:shrink min-w-0 transition cursor-pointer`}
                 title="Proje Kaydet, Aç veya Bulut Bağlantısı Paylaş"
               >
                 <FolderOpen className="w-3.5 h-3.5 text-slate-300 shrink-0" />
@@ -460,22 +460,26 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
 
           {/* SAĞ BÖLGE */}
           {isShowroom ? (
-            <div className="flex items-center justify-end gap-2 min-w-0 flex-1">
+            <div className="flex items-center justify-end gap-1.5 max-sm:gap-1 xl:flex-1 shrink-0">
               <button
                 type="button"
+                data-testid="v11-showroom-quote-btn"
                 onClick={onOpenQuoteModal}
-                className="h-9 px-3.5 rounded-full bg-[#141413] hover:bg-[#292524] text-white text-xs font-semibold flex items-center gap-2 shadow-[0_4px_14px_rgba(0,0,0,0.44),inset_0_1px_0_rgba(255,255,255,0.16)] hover:shadow-[0_6px_18px_rgba(0,0,0,0.56),inset_0_1px_0_rgba(255,255,255,0.22)] transition cursor-pointer"
+                className="h-9 max-sm:h-8 px-3.5 max-sm:px-2.5 rounded-full bg-[#141413] hover:bg-[#292524] text-white text-xs max-sm:text-[11px] font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 shadow-[0_4px_14px_rgba(0,0,0,0.44),inset_0_1px_0_rgba(255,255,255,0.16)] hover:shadow-[0_6px_18px_rgba(0,0,0,0.56),inset_0_1px_0_rgba(255,255,255,0.22)] transition cursor-pointer"
               >
-                <span>Teklif Özeti</span>
+                <span className="hidden sm:inline">Teklif Özeti</span>
+                <span className="sm:hidden">Teklif</span>
                 <span className="font-mono text-[#E7E5E4]">{formattedPrice}</span>
               </button>
               {!isReadOnlyCustomer && (
                 <button
                   type="button"
+                  data-testid="v11-showroom-exit-btn"
                   onClick={() => onChangeWorkspaceMode("3d")}
-                  className="h-9 px-3.5 rounded-full bg-white/85 hover:bg-white border border-[#DFD9CE] text-[#141413] text-xs font-semibold shadow-[0_4px_14px_rgba(0,0,0,0.44),inset_0_1px_0_rgba(255,255,255,0.16)] hover:shadow-[0_6px_18px_rgba(0,0,0,0.56),inset_0_1px_0_rgba(255,255,255,0.22)] transition cursor-pointer"
+                  className="h-9 max-sm:h-8 px-3.5 max-sm:px-2.5 rounded-full bg-white/[0.12] hover:bg-white/[0.20] border border-white/[0.18] text-[#F3F4F6] text-xs max-sm:text-[11px] font-semibold whitespace-nowrap shrink-0 shadow-[0_4px_14px_rgba(0,0,0,0.44),inset_0_1px_0_rgba(255,255,255,0.16)] hover:shadow-[0_6px_18px_rgba(0,0,0,0.56),inset_0_1px_0_rgba(255,255,255,0.22)] transition cursor-pointer"
                 >
-                  Düzenlemeye Dön
+                  <span className="hidden sm:inline">Düzenlemeye Dön</span>
+                  <span className="sm:hidden">Düzenle</span>
                 </button>
               )}
             </div>

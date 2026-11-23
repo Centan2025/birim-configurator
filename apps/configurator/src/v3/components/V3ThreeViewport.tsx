@@ -12,7 +12,10 @@ import { CeilingAndEngineeringQuickPopover } from "./workspace/CeilingAndGrain2D
 import React, { useEffect, useRef, useCallback, useState, useMemo } from "react";
 import * as THREE from "three";
 import { getWallRoomBasis } from "../engine/angledWallSnapEngine";
-import { getEffectiveSpaceWalls } from "../engine/kitchenSpatialEngine";
+import {
+  buildSpatialEngineeringFindings,
+  getEffectiveSpaceWalls,
+} from "../engine/kitchenSpatialEngine";
 import {
   createComponentMesh,
   publishSceneDiagnostics,
@@ -918,8 +921,33 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       }
       if (paused) return null;
       const computed = getMemoizedUnifiedEngineering(project);
-      lastSettled3DEngRef.current = computed;
-      return computed;
+      const spatialFindings = buildSpatialEngineeringFindings(project);
+      if (spatialFindings.length === 0) {
+        lastSettled3DEngRef.current = computed;
+        return computed;
+      }
+      const existingKeys = new Set(
+        computed.findings.map((f) => `${f.code}_${f.targetModuleId || f.targetId || ""}`)
+      );
+      const newSpatial = spatialFindings.filter(
+        (sf) => !existingKeys.has(`${sf.code}_${sf.targetModuleId || sf.targetId || ""}`)
+      );
+      if (newSpatial.length === 0) {
+        lastSettled3DEngRef.current = computed;
+        return computed;
+      }
+      const mergedReport: ReturnType<typeof evaluateUnifiedEngineeringModel> = {
+        ...computed,
+        findings: [...newSpatial, ...computed.findings],
+        blockingSafetyAndEngineeringErrors: [
+          ...newSpatial.filter((sf) => sf.severity === "error" || sf.blockingProduction),
+          ...computed.blockingSafetyAndEngineeringErrors,
+        ],
+        canExportToCncAndSaw: false,
+        canApproveFinalErpRelease: false,
+      };
+      lastSettled3DEngRef.current = mergedReport;
+      return mergedReport;
     }, [project, paused, isStoreBatchDragging]);
 
     const experienceTier = useConfiguratorStore((s) => s.userExperienceTier);
@@ -8375,6 +8403,64 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           }
         }
 
+        // A2. Architectural Column / Beam 3D Red Highlight Volume when module intersects an un-notched structural obstacle
+        (spaceObstacles || []).forEach((obs) => {
+          if (obs.type !== "column" && obs.type !== "beam" && obs.type !== "protrusion" && obs.type !== "partition") {
+            return;
+          }
+          const rotNorm = (((obs.rotationY || 0) % 360) + 360) % 360;
+          const isRot90 = rotNorm === 90 || rotNorm === 270;
+          const effW = isRot90 ? obs.dimensions.depth || obs.dimensions.width : obs.dimensions.width;
+          const effD = isRot90 ? obs.dimensions.width : obs.dimensions.depth || obs.dimensions.width;
+          const ox1 = obs.position.x;
+          const ox2 = ox1 + effW;
+          const oy1 = obs.position.y;
+          const oy2 = oy1 + obs.dimensions.height;
+          const oz1 = obs.position.z;
+          const oz2 = oz1 + effD;
+
+          for (let mi = 0; mi < mods.length; mi++) {
+            const m = mods[mi];
+            if (!m || m.category === "complementary") continue;
+            const alreadyNotched = (m.utilityCutouts || []).some(
+              (co) => co.id === `auto_notch_${m.id}_${obs.id}`
+            );
+            if (alreadyNotched) continue;
+            const fp = getModuleOrientedFootprint(m, 0);
+            const xHit = fp.x < ox2 - 2 && fp.x + fp.planWidth > ox1 + 2;
+            const zHit = fp.z < oz2 - 2 && fp.z + fp.planDepth > oz1 + 2;
+            const yHit = fp.yBottom < oy2 - 2 && fp.yTop > oy1 + 2;
+            if (xHit && zHit && yHit) {
+              const colKey = `obs_col_${obs.id}_${mi}`;
+              seenBeacons.add(colKey);
+              beaconEntries.push({
+                code: "ERR_COLUMN_COLLISION",
+                severity: "error",
+                title: "Kolon Çakışması",
+                message: `"${m.name}" modülü "${obs.name}" ile çakışıyor.`,
+                suggestions: ["'Çentiğe Uyarla (CNC)' veya 'Kolon Önünde Dur' ile çözün."],
+                remediationProposals: [],
+                moduleIndex: mi,
+                bayIndex: 0,
+                wp: {
+                  x: (ox1 + ox2) * 0.5,
+                  y: Math.min(fp.yTop - 160, Math.max(fp.yBottom + 320, (oy1 + Math.min(fp.yTop, oy2)) * 0.65)),
+                  z: Math.max(oz2, fp.z + fp.planDepth) + 28,
+                },
+                overlapBox: {
+                  cx: (ox1 + ox2) * 0.5,
+                  cy: (oy1 + oy2) * 0.5,
+                  cz: (oz1 + oz2) * 0.5,
+                  w: effW + 8,
+                  h: obs.dimensions.height + 8,
+                  d: effD + 8,
+                },
+              });
+              break;
+            }
+          }
+        });
+
         // B. Unified Engineering Report findings (with exact worldPositionMm OR resolved from targetModuleId!)
         const engFindings = (live3DEngineeringReport?.findings || []).filter(
           (f) => f.severity === "error" || f.ruleNature === "VERIFICATION_REQUIRED" || f.severity === "warning"
@@ -14892,7 +14978,19 @@ const clear3DGhostPreview = useCallback(() => {
               </>
             );
           })()}
-        {!minimalChrome && live3DEngineeringReport && live3DEngineeringReport.blockingSafetyAndEngineeringErrors.length > 0 && (
+        {(() => {
+          const allBlocking = live3DEngineeringReport?.blockingSafetyAndEngineeringErrors || [];
+          const spatialBlocking = allBlocking.find(
+            (e) =>
+              e.code === "ERR_COLUMN_COLLISION" ||
+              e.code === "ERR_WINDOW_COLLISION" ||
+              e.code === "ERR_WALL_BOUNDARY_OVERFLOW"
+          );
+          const shouldShowAlertHud =
+            allBlocking.length > 0 && (!minimalChrome || (showInCanvasHud && Boolean(spatialBlocking)));
+          const activeAlertFinding = spatialBlocking || allBlocking[0];
+          if (!shouldShowAlertHud || !activeAlertFinding) return null;
+          return (
           <div
             data-testid="viewport-3d-engineering-alert-hud"
             style={{
@@ -14908,21 +15006,21 @@ const clear3DGhostPreview = useCallback(() => {
                 className="px-3 py-1.5 flex items-center gap-2 text-[11px] font-bold text-red-300 hover:text-white cursor-pointer"
                 title="Mühendislik engel detayını aç"
               >
-                <span>● Engel ({live3DEngineeringReport.blockingSafetyAndEngineeringErrors.length})</span>
+                <span>● Engel ({allBlocking.length})</span>
                 <span className="text-[10px] text-slate-400">▴ Aç</span>
               </button>
             ) : (
               <div className="p-3 space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-bold text-red-400">
-                    ● 3B Sahne Mühendislik Engeli ({live3DEngineeringReport.blockingSafetyAndEngineeringErrors.length})
+                    ● 3B Sahne Mühendislik Engeli ({allBlocking.length})
                   </span>
                   <div className="flex items-center gap-1.5 shrink-0">
                     <span
-                      title={`Teknik Kural: ${live3DEngineeringReport.blockingSafetyAndEngineeringErrors[0].code}`}
+                      title={`Teknik Kural: ${activeAlertFinding.code}`}
                       className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-red-950/80 border border-red-500/40 text-red-200 whitespace-nowrap"
                     >
-                      {formatEngineeringErrorCode(live3DEngineeringReport.blockingSafetyAndEngineeringErrors[0].code)}
+                      {formatEngineeringErrorCode(activeAlertFinding.code)}
                     </span>
                     <button
                       type="button"
@@ -14935,12 +15033,12 @@ const clear3DGhostPreview = useCallback(() => {
                   </div>
                 </div>
                 <div className="text-[11px] text-slate-200 leading-snug">
-                  {live3DEngineeringReport.blockingSafetyAndEngineeringErrors[0].message}
+                  {activeAlertFinding.message}
                 </div>
-                {live3DEngineeringReport.blockingSafetyAndEngineeringErrors[0].remediationProposals &&
-                  live3DEngineeringReport.blockingSafetyAndEngineeringErrors[0].remediationProposals.length > 0 && (
+                {activeAlertFinding.remediationProposals &&
+                  activeAlertFinding.remediationProposals.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 pt-0.5">
-                      {live3DEngineeringReport.blockingSafetyAndEngineeringErrors[0].remediationProposals.map((prop) => (
+                      {activeAlertFinding.remediationProposals.map((prop) => (
                         <button
                           key={prop.id}
                           type="button"
@@ -14955,7 +15053,8 @@ const clear3DGhostPreview = useCallback(() => {
               </div>
             )}
           </div>
-        )}
+          );
+        })()}
         {paintTool3D.mode !== "none" && (() => {
           const safeTop = Math.max(122, (stageSafeInsets?.topPx ?? 118) + 4);
           const safeLeft = stageSafeInsets?.leftPx ?? 76;

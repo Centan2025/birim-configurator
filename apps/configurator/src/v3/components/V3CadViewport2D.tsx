@@ -13861,19 +13861,39 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 onResizeModule={(modIdx, w, h, d) => resizeModuleParametric(modIdx, w, undefined, d, h)}
                 onSetModulePosition={(modIdx, x, z, wallId, y) => setModulePosition(modIdx, x, z, wallId, y)}
               />
-              {/* Unified Bottom Floating 2D Elevation Pill Toolbar (Controls + Zoom/Pan in one clean bar) */}
+              <ElevationBottomBar
+                activeModule={activeModule}
+                activeModuleIndex={activeModuleIndex}
+                selectedContext={selectedElevContext}
+                displayUnit={elevDisplayUnit}
+                statusText={elevStatus.text}
+                statusTone={elevStatus.tone}
+                studioSafeInsets={studioSafeInsets}
+                onSetModuleOffsetFromLeftWall={(modId, xMm) => setModuleOffsetFromLeftWall(modId, xMm)}
+                onResizeModuleWidth={(wMm) =>
+                  resizeModuleParametric(
+                    activeModuleIndex,
+                    wMm,
+                    undefined,
+                    activeModule.dimensions.depth,
+                    activeModule.dimensions.height
+                  )
+                }
+              />
+              {/* Unified Bottom Floating 2D Elevation Pill Dock (matches 3D BottomSceneDock glass capsule) */}
               <div
                 style={
                   studioSafeInsets
                     ? {
-                        paddingLeft: `${studioSafeInsets.leftPx ?? 84}px`,
-                        paddingRight: `${studioSafeInsets.rightPx ?? 20}px`,
+                        paddingLeft: `${Math.max(16, studioSafeInsets.leftPx ?? 84)}px`,
+                        paddingRight: `${Math.max(16, studioSafeInsets.rightPx ?? 20)}px`,
+                        paddingBottom: "max(0.9rem, env(safe-area-inset-bottom))",
                       }
                     : undefined
                 }
-                className="px-4 pb-1.5 flex items-center justify-center shrink-0 z-10 pointer-events-none transition-[padding] duration-300"
+                className="px-4 pb-3.5 flex items-center justify-center shrink-0 z-10 pointer-events-none transition-[padding] duration-300"
               >
-                <div className="pointer-events-auto max-w-full overflow-x-auto px-3 py-1.5 rounded-2xl bg-[#FBF9F5]/95 backdrop-blur-md border border-[#E6E0D3] shadow-[0_6px_22px_rgba(28,25,23,0.08)] flex flex-wrap items-center justify-center gap-1.5">
+                <div className="pointer-events-auto max-w-full overflow-x-auto no-scrollbar h-12 max-sm:h-11 px-2.5 rounded-full bg-[#1C222E]/88 backdrop-blur-2xl border border-white/[0.18] ring-1 ring-black/55 shadow-[0_20px_50px_rgba(0,0,0,0.52)] flex items-center gap-1.5 text-xs text-[#F3F4F6]">
                   <ElevationTopBar
                     project={project}
                     activeModule={activeModule}
@@ -13921,26 +13941,26 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     onSetFacadeGrainContinuity={setFacadeGrainContinuity}
                   />
 
-                  <span className="h-4 w-px bg-[#E6E0D3] mx-0.5 hidden sm:inline-block" />
+                  <span className="h-4 w-px bg-white/[0.14] mx-0.5 hidden sm:inline-block shrink-0" />
 
                   {/* Integrated Zoom & Pan Controls */}
-                  <div className="inline-flex items-center gap-0.5 rounded-full bg-[#F2EDE3] border border-[#E6E0D3] p-0.5 text-xs text-[#1C1917] shrink-0">
+                  <div className="inline-flex items-center gap-0.5 rounded-full bg-black/35 border border-white/[0.12] p-0.5 text-xs text-slate-200 shrink-0">
                     <button
                       type="button"
                       title="Uzaklaştır (−)"
                       onClick={() => setZoom((z) => Math.max(0.4, +(z - 0.15).toFixed(2)))}
-                      className="w-6 h-6 rounded-full hover:bg-[#1C1917] hover:text-[#FAF9F6] font-mono font-bold flex items-center justify-center transition cursor-pointer"
+                      className="w-7 h-7 rounded-full hover:bg-white/[0.14] hover:text-white font-mono font-bold flex items-center justify-center transition cursor-pointer"
                     >
                       −
                     </button>
-                    <span className="font-mono text-[11px] font-semibold min-w-[38px] text-center text-[#44403C]">
+                    <span className="font-mono text-[11px] font-semibold min-w-[38px] text-center text-slate-200">
                       {Math.round(zoom * 100)}%
                     </span>
                     <button
                       type="button"
                       title="Yakınlaştır (+)"
                       onClick={() => setZoom((z) => Math.min(3.5, +(z + 0.15).toFixed(2)))}
-                      className="w-6 h-6 rounded-full hover:bg-[#1C1917] hover:text-[#FAF9F6] font-mono font-bold flex items-center justify-center transition cursor-pointer"
+                      className="w-7 h-7 rounded-full hover:bg-white/[0.14] hover:text-white font-mono font-bold flex items-center justify-center transition cursor-pointer"
                     >
                       +
                     </button>
@@ -13948,7 +13968,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       type="button"
                       title="Yakınlaştırmayı ve Konumu Sıfırla"
                       onClick={() => { setZoom(1); setPanPx({ x: 0, y: 0 }); setElevPanMode(false); }}
-                      className="w-6 h-6 rounded-full hover:bg-[#EAE3D6] text-[#44403C] font-bold flex items-center justify-center transition cursor-pointer"
+                      className="w-7 h-7 rounded-full hover:bg-white/[0.14] text-slate-300 hover:text-white font-bold flex items-center justify-center transition cursor-pointer"
                     >
                       <span>↺</span>
                       <span className="sr-only">Sıfırla</span>
@@ -13956,25 +13976,6 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   </div>
                 </div>
               </div>
-              <ElevationBottomBar
-                activeModule={activeModule}
-                activeModuleIndex={activeModuleIndex}
-                selectedContext={selectedElevContext}
-                displayUnit={elevDisplayUnit}
-                statusText={elevStatus.text}
-                statusTone={elevStatus.tone}
-                studioSafeInsets={studioSafeInsets}
-                onSetModuleOffsetFromLeftWall={(modId, xMm) => setModuleOffsetFromLeftWall(modId, xMm)}
-                onResizeModuleWidth={(wMm) =>
-                  resizeModuleParametric(
-                    activeModuleIndex,
-                    wMm,
-                    undefined,
-                    activeModule.dimensions.depth,
-                    activeModule.dimensions.height
-                  )
-                }
-              />
             </>
           );
         })()}
@@ -13983,11 +13984,11 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         {mode !== "elevation" && activeModule && (
           <div
             data-testid="v5-2d-live-dimension-chain-bar"
-            className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 px-3 py-1.5 rounded-2xl bg-white/92 backdrop-blur-md border border-slate-300 shadow-md flex items-center gap-2.5 text-[11px] text-[#141413]"
+            className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 max-w-[calc(100vw-24px)] overflow-x-auto no-scrollbar px-3.5 py-1.5 rounded-full bg-[#1C222E]/88 backdrop-blur-2xl border border-white/[0.18] ring-1 ring-black/55 shadow-[0_20px_50px_rgba(0,0,0,0.52)] flex items-center gap-3 text-[11px] text-slate-200 whitespace-nowrap"
           >
-            <span className="font-bold truncate max-w-[150px]">{activeModule.name}</span>
+            <span className="font-bold text-white truncate max-w-[160px]">{activeModule.name}</span>
             <label className="inline-flex items-center gap-1.5">
-              <span className="text-slate-600 font-semibold">Sol Duvara Mesafe:</span>
+              <span className="text-slate-400 font-medium">Sol Mesafe:</span>
               <input
                 type="number" inputMode="decimal"
                 step={elevDisplayUnit === "cm" ? 1 : 10}
@@ -13998,12 +13999,12 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     toCanonicalMm(Number(e.target.value) || 0, elevDisplayUnit)
                   )
                 }
-                className="w-18 px-1.5 py-0.5 rounded-lg bg-slate-100 border border-slate-300 font-mono font-bold text-[#141413]"
+                className="w-16 px-1.5 py-0.5 rounded-full bg-white/[0.08] border border-white/[0.16] font-mono font-bold text-white text-center focus:outline-none focus:border-sky-400"
               />
-              <span className="font-mono text-slate-500">{elevDisplayUnit}</span>
+              <span className="font-mono text-[10px] text-slate-400">{elevDisplayUnit}</span>
             </label>
             <label className="inline-flex items-center gap-1.5">
-              <span className="text-slate-600 font-semibold">Modül Genişliği:</span>
+              <span className="text-slate-400 font-medium">Genişlik:</span>
               <input
                 type="number" inputMode="decimal"
                 step={elevDisplayUnit === "cm" ? 1 : 10}
@@ -14019,9 +14020,9 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     activeModule.dimensions.height
                   )
                 }
-                className="w-18 px-1.5 py-0.5 rounded-lg bg-slate-100 border border-slate-300 font-mono font-bold text-[#141413]"
+                className="w-16 px-1.5 py-0.5 rounded-full bg-white/[0.08] border border-white/[0.16] font-mono font-bold text-white text-center focus:outline-none focus:border-sky-400"
               />
-              <span className="font-mono text-slate-500">{elevDisplayUnit}</span>
+              <span className="font-mono text-[10px] text-slate-400">{elevDisplayUnit}</span>
             </label>
           </div>
         )}

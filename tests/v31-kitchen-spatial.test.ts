@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { createInitialProject } from "@birim/core";
+import { applyApprovedRemediationProposal, createInitialProject } from "@birim/core";
 import { createKitchenLProject, createKitchenUProject, createKitchenLinearProject } from "@birim/catalog";
 import {
+  buildSpatialEngineeringFindings,
+  getEffectiveSpaceObstacles,
   getModuleOrientedFootprint,
   validateSpatialAndKitchenEngineering,
   KITCHEN_ENGINEERING_RULE_REGISTRY,
@@ -77,5 +79,33 @@ describe("BİRİM CONFIGURATOR V3.1 — Kitchen & Spatial Engineering Engine", (
     const issues = validateSpatialAndKitchenEngineering(proj);
     const overlaps = issues.filter((i) => i.code === "ERR_SPATIAL_MODULE_OVERLAP");
     expect(overlaps).toHaveLength(0);
+  });
+
+  it("7. Keeps default corner column anchored at wall corner (3350mm) when wardrobe is stretched to 3600mm", () => {
+    const proj = createInitialProject();
+    proj.modules[0].dimensions.width = 3600;
+    const obstacles = getEffectiveSpaceObstacles(proj);
+    const col = obstacles.find((o) => o.id === "arch_wardrobe_column");
+    expect(col).toBeDefined();
+    expect(col?.position.x).toBe(3350);
+
+    const issues = validateSpatialAndKitchenEngineering(proj);
+    const colErr = issues.find((i) => i.code === "ERR_COLUMN_COLLISION");
+    expect(colErr).toBeDefined();
+
+    // Also verifies unified 3D + Header engineering findings & 1-click notch resolution
+    const engFindings = buildSpatialEngineeringFindings(proj);
+    const colFinding = engFindings.find((f) => f.code === "ERR_COLUMN_COLLISION");
+    expect(colFinding).toBeDefined();
+    expect(colFinding?.remediationProposals?.some((p) => p.patchKind === "auto_notch_obstacles")).toBe(true);
+    expect(colFinding?.remediationProposals?.some((p) => p.patchKind === "resize_before_obstacle")).toBe(true);
+
+    const notchProp = colFinding!.remediationProposals!.find((p) => p.patchKind === "auto_notch_obstacles")!;
+    const notchedProj = applyApprovedRemediationProposal(proj, notchProp);
+    expect(notchedProj.modules[0].utilityCutouts?.length).toBeGreaterThan(0);
+    const remainingColIssues = buildSpatialEngineeringFindings(notchedProj).filter(
+      (f) => f.code === "ERR_COLUMN_COLLISION"
+    );
+    expect(remainingColIssues).toHaveLength(0);
   });
 });

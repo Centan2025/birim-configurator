@@ -1105,7 +1105,11 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
   const duplicateSceneObject = useConfiguratorStore((s) => s.duplicateSceneObject);
   const removeSceneObject = useConfiguratorStore((s) => s.removeSceneObject);
   const runAutoFillersAndCrown = useConfiguratorStore((s) => s.runAutoFillersAndCrown);
-  const runAutoNotchObstacles = useConfiguratorStore((s) => s.runAutoNotchObstacles);
+  const runAutoNotchObstaclesRaw = useConfiguratorStore((s) => s.runAutoNotchObstacles);
+  const runAutoNotchObstacles = useCallback(() => {
+    ensureObstaclesSeeded();
+    return runAutoNotchObstaclesRaw();
+  }, [ensureObstaclesSeeded, runAutoNotchObstaclesRaw]);
   const importRoomPlanLiDARJson = useConfiguratorStore((s) => s.importRoomPlanLiDARJson);
   const setModuleOffsetFromLeftWall = useConfiguratorStore((s) => s.setModuleOffsetFromLeftWall);
 
@@ -1202,12 +1206,29 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
     [project]
   );
 
+  const resizeModuleParametricRef = useRef<
+    ((modIdx: number, w: number, x?: number) => unknown) | null
+  >(null);
+
   const applyApprovedEngineeringFix = useCallback(
     (proposal: RemediationProposal) => {
-      const nextProj = applyApprovedRemediationProposal(project, proposal);
+      const curProj = useConfiguratorStore.getState().project;
+      if (proposal.patchKind === "resize_before_obstacle") {
+        const modIdx = curProj.modules.findIndex((m) => m.id === proposal.targetModuleId);
+        const reqW = Number(proposal.patchPayload?.width);
+        const reqX =
+          typeof proposal.patchPayload?.positionX === "number"
+            ? Number(proposal.patchPayload.positionX)
+            : undefined;
+        if (modIdx >= 0 && Number.isFinite(reqW)) {
+          resizeModuleParametricRef.current?.(modIdx, reqW, reqX);
+          return;
+        }
+      }
+      const nextProj = applyApprovedRemediationProposal(curProj, proposal);
       commitAdapterState({ project: nextProj });
     },
-    [project]
+    []
   );
 
   // Spatial obstacles & walls memoized by spaceSignature so cabinet drags never rebuild 3D room architecture
@@ -2163,6 +2184,8 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
     },
     []
   );
+
+  resizeModuleParametricRef.current = resizeModuleParametric;
 
   const swapModuleWithNeighbor = useCallback(
     (modIdx: number, direction: "left" | "right"): { swappedWithName: string } | null => {

@@ -32,7 +32,11 @@ import { OnObjectQuickToolbar, type Selected3DPartKind } from "./OnObjectQuickTo
 import { HardwareQuickSwapPopover, type HardwareSwapGroup, type HardwareSwapTarget } from "./HardwareQuickSwapPopover";
 import { QuickStyleAndMaterialDock } from "./QuickStyleAndMaterialDock";
 import { resolveModuleHostWallId, wallIntervalToModulePosition, computeRoomDynamicCenter } from "../v3/engine/multiWallSnapAndBvhEngine";
-import { getEffectiveSpaceWalls, getModuleOrientedFootprint } from "../v3/engine/kitchenSpatialEngine";
+import {
+  buildSpatialEngineeringFindings,
+  getEffectiveSpaceWalls,
+  getModuleOrientedFootprint,
+} from "../v3/engine/kitchenSpatialEngine";
 import { getWallRoomBasis } from "../v3/engine/angledWallSnapEngine";
 import { AnimatedModalPresence, AnimatedValuePresence } from "./AnimatedWindowPresence";
 import {
@@ -732,6 +736,7 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
       seenKeys.add(k);
       merged.push(f);
     };
+    buildSpatialEngineeringFindings(project).forEach(pushUnique);
     if (unifiedEngineeringReport) {
       if (Array.isArray(unifiedEngineeringReport.findings)) {
         unifiedEngineeringReport.findings.forEach(pushUnique);
@@ -777,8 +782,10 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
         } as unknown as EngineeringValidationFinding);
       });
     }
+    const sevRank = (s?: string) => (s === "error" ? 0 : s === "warning" ? 1 : 2);
+    merged.sort((a, b) => sevRank(a.severity) - sevRank(b.severity));
     return merged;
-  }, [unifiedEngineeringReport, storeValidationIssues, project.modules, activeModuleIndex]);
+  }, [unifiedEngineeringReport, storeValidationIssues, project, activeModuleIndex]);
 
   const blockingCount = useMemo(
     () => allFindings.filter((f) => f.severity === "error").length,

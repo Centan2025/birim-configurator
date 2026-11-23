@@ -6,6 +6,7 @@ import {
   ValidationIssue,
 } from "./types";
 import { DEFAULT_MATERIALS } from "./defaults";
+import { autoNotchModulesAroundObstacles } from "./scene-objects-engine";
 import {
   calculateBayWidths,
   calculateModulePlacement,
@@ -83,7 +84,9 @@ export interface RemediationProposal {
     | "switch_topology_sides_through"
     | "convert_mid_shelf_to_fixed"
     | "convert_high_drawers_to_shelves"
-    | "switch_high_drawers_to_push_open";
+    | "switch_high_drawers_to_push_open"
+    | "auto_notch_obstacles"
+    | "resize_before_obstacle";
   patchPayload: Record<string, number | string | boolean>;
 }
 
@@ -2765,6 +2768,33 @@ export function applyApprovedRemediationProposal(
         bay.drawers.forEach((d) => {
           d.slideType = "push_to_open";
         });
+      }
+      break;
+    }
+    case "auto_notch_obstacles": {
+      let seedEls: import("./types").ArchitecturalElement[] | undefined;
+      if (typeof proposal.patchPayload?.obstaclesJson === "string") {
+        try {
+          seedEls = JSON.parse(proposal.patchPayload.obstaclesJson);
+        } catch {
+          seedEls = undefined;
+        }
+      }
+      if ((!next.space.elements || next.space.elements.length === 0) && seedEls && seedEls.length > 0) {
+        next.space.elements = seedEls;
+      }
+      const { updatedModules } = autoNotchModulesAroundObstacles(next, seedEls);
+      next.modules = updatedModules;
+      break;
+    }
+    case "resize_before_obstacle": {
+      const reqW = Number(proposal.patchPayload?.width);
+      if (Number.isFinite(reqW) && reqW >= 250) {
+        mod.dimensions.width = Math.round(reqW);
+      }
+      const reqX = Number(proposal.patchPayload?.positionX);
+      if (Number.isFinite(reqX) && reqX >= 0) {
+        mod.position.x = Math.round(reqX);
       }
       break;
     }

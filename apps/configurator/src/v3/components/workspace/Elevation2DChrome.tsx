@@ -80,9 +80,9 @@ export const ElevationTopBar: React.FC<ElevationTopBarProps> = ({
     : { label: "Seçim & Düzenleme", cls: "bg-[#F2EDE3] text-[#44403C] border-[#E6E0D3] hover:bg-[#EAE3D6]" };
 
   return (
-    <div className="flex flex-wrap items-center justify-center gap-1.5">
+    <div className="flex items-center gap-1.5 shrink-0">
       {/* Sol Grup: Etkileşim Modu (Seçim/İç Taşıma + Kaydır/Pan) */}
-      <div className="inline-flex items-center gap-0.5 p-0.5 rounded-full bg-[#F2EDE3] border border-[#E6E0D3]">
+      <div className="inline-flex items-center gap-0.5 p-0.5 rounded-full bg-black/35 border border-white/[0.12]">
         <button
           type="button"
           data-testid="elev-interior-move-mode-btn"
@@ -91,12 +91,12 @@ export const ElevationTopBar: React.FC<ElevationTopBarProps> = ({
             onToggleInteriorMoveMode();
           }}
           title="İç Parça Taşıma Modu (Kısayol: Ctrl basılı tutun)"
-          className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold transition cursor-pointer flex items-center gap-1 ${
+          className={`h-7 px-2.5 rounded-full text-[11px] font-semibold transition cursor-pointer flex items-center gap-1 whitespace-nowrap ${
             !elevPanMode
               ? interiorMoveMode
-                ? "bg-[#1C1917] text-[#FAF9F6] shadow-2xs"
-                : "bg-white text-[#1C1917] shadow-2xs"
-              : "text-[#57534E] hover:text-[#1C1917]"
+                ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white shadow-[0_0_14px_rgba(29,78,216,0.48)]"
+                : "bg-white/[0.14] text-white border border-white/[0.16]"
+              : "text-slate-300 hover:text-white"
           }`}
         >
           <span>{interiorMoveMode ? "↕" : "⌖"}</span>
@@ -108,10 +108,10 @@ export const ElevationTopBar: React.FC<ElevationTopBarProps> = ({
             data-testid="elev-pan-mode-toggle"
             onClick={onToggleElevPanMode}
             title="Çalışma Alanını Sürükle (Pan Modu)"
-            className={`px-2 py-0.5 rounded-full text-[11px] font-semibold transition cursor-pointer flex items-center gap-1 ${
+            className={`h-7 px-2.5 rounded-full text-[11px] font-semibold transition cursor-pointer flex items-center gap-1 whitespace-nowrap ${
               elevPanMode
-                ? "bg-[#1C1917] text-[#FAF9F6] shadow-2xs"
-                : "text-[#57534E] hover:text-[#1C1917]"
+                ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white shadow-[0_0_14px_rgba(29,78,216,0.48)]"
+                : "text-slate-300 hover:text-white"
             }`}
           >
             <span>🖐️</span>
@@ -120,10 +120,10 @@ export const ElevationTopBar: React.FC<ElevationTopBarProps> = ({
         )}
       </div>
 
-      <span className="h-4 w-px bg-[#E6E0D3] mx-0.5 hidden sm:inline-block" />
+      <span className="h-4 w-px bg-white/[0.14] mx-0.5 hidden sm:inline-block" />
 
       {/* Orta & Sağ Grup: Modül Sırası, Kot, Tavan/Delik, Görünüm Seviyesi & Birim */}
-      <div className="flex items-center gap-1.5 flex-wrap">
+      <div className="flex items-center gap-1.5 shrink-0">
         {selectedObstacle && (
           <div
             data-testid="elev-selected-obstacle-controls"
@@ -217,13 +217,13 @@ export const ElevationTopBar: React.FC<ElevationTopBarProps> = ({
 
         {/* Grup 1: Modül Sıra & Kot */}
         {project.modules.length > 1 && (
-          <div className="flex items-center gap-0.5 bg-[#F2EDE3] px-1.5 py-0.5 rounded-full border border-[#E6E0D3] text-[11px]">
-            <span className="font-semibold text-[#57534E] mr-0.5">Sıra:</span>
+          <div className="flex items-center gap-0.5 bg-black/35 px-1.5 py-0.5 rounded-full border border-white/[0.12] text-[11px]">
+            <span className="font-semibold text-slate-300 mr-0.5">Sıra:</span>
             <button
               type="button"
               data-testid="elev-swap-mod-left-btn"
               onClick={() => onSwapModule(activeModuleIndex, "left")}
-              className="px-1.5 py-0.5 rounded-full bg-white hover:bg-[#1C1917] hover:text-white text-[#1C1917] font-bold cursor-pointer transition"
+              className="px-1.5 py-0.5 rounded-full bg-white/[0.10] hover:bg-white/[0.22] text-white font-bold cursor-pointer transition"
               title="Seçili modülü solundaki modülle yer değiştir"
             >
               ⇤
@@ -232,7 +232,7 @@ export const ElevationTopBar: React.FC<ElevationTopBarProps> = ({
               type="button"
               data-testid="elev-swap-mod-right-btn"
               onClick={() => onSwapModule(activeModuleIndex, "right")}
-              className="px-1.5 py-0.5 rounded-full bg-white hover:bg-[#1C1917] hover:text-white text-[#1C1917] font-bold cursor-pointer transition"
+              className="px-1.5 py-0.5 rounded-full bg-white/[0.10] hover:bg-white/[0.22] text-white font-bold cursor-pointer transition"
               title="Seçili modülü sağındaki modülle yer değiştir"
             >
               ⇥
@@ -241,8 +241,8 @@ export const ElevationTopBar: React.FC<ElevationTopBarProps> = ({
         )}
 
         {hasSceneModules && (
-          <div className="flex items-center gap-1 bg-[#F2EDE3] px-2.5 py-0.5 rounded-full border border-[#E6E0D3] text-[11px]">
-            <span className="font-semibold text-[#57534E]">Kot:</span>
+          <div className="flex items-center gap-1 bg-black/35 px-2.5 py-0.5 rounded-full border border-white/[0.12] text-[11px] h-8">
+            <span className="font-semibold text-slate-300">Kot:</span>
             <input
               type="number" inputMode="decimal"
               step={displayUnit === "cm" ? 5 : 50}
@@ -257,9 +257,9 @@ export const ElevationTopBar: React.FC<ElevationTopBarProps> = ({
                   newY
                 );
               }}
-              className="w-12 px-1.5 py-0.5 rounded-full bg-white border border-[#DED8CC] text-[#1C1917] font-mono text-[11px] font-bold text-center"
+              className="w-12 px-1.5 py-0.5 rounded-full bg-white/[0.10] border border-white/[0.16] text-white font-mono text-[11px] font-bold text-center focus:outline-none focus:border-sky-400"
             />
-            <span className="text-[10px] text-[#78716C]">{displayUnit}</span>
+            <span className="text-[10px] text-slate-400 font-mono">{displayUnit}</span>
             {activeModule.position.y > 0 && (
               <button
                 type="button"
@@ -273,7 +273,7 @@ export const ElevationTopBar: React.FC<ElevationTopBarProps> = ({
                     0
                   )
                 }
-                className="px-2 py-0.5 rounded-full bg-white hover:bg-[#1C1917] hover:text-white text-[#1C1917] border border-[#DED8CC] text-[10px] font-semibold cursor-pointer transition"
+                className="px-2 py-0.5 rounded-full bg-white/[0.10] hover:bg-white/[0.20] text-slate-100 border border-white/[0.14] text-[10px] font-semibold cursor-pointer transition"
                 title="Zemine İndir (Kot Y = 0)"
               >
                 ⬇ Zemine
@@ -298,7 +298,7 @@ export const ElevationTopBar: React.FC<ElevationTopBarProps> = ({
         {/* Grup 3: 3 Seviyeli Görünüm Sistemi */}
         <div
           data-testid="elev-detail-level-switcher"
-          className="inline-flex items-center rounded-full bg-[#F2EDE3] p-0.5 border border-[#E6E0D3] text-[11px]"
+          className="inline-flex items-center rounded-full bg-black/35 p-0.5 border border-white/[0.12] text-[11px]"
           title="2D Cephe Detay Seviyesi"
         >
           {(
@@ -313,10 +313,10 @@ export const ElevationTopBar: React.FC<ElevationTopBarProps> = ({
               type="button"
               data-testid={`elev-detail-${lvl.id}-btn`}
               onClick={() => onChangeDetailLevel(lvl.id)}
-              className={`px-2.5 py-0.5 rounded-full font-semibold transition cursor-pointer ${
+              className={`h-7 px-2.5 rounded-full font-semibold transition cursor-pointer ${
                 detailLevel === lvl.id
-                  ? "bg-[#1C1917] text-[#FAF9F6] shadow-2xs"
-                  : "text-[#57534E] hover:text-[#1C1917]"
+                  ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white shadow-[0_0_12px_rgba(29,78,216,0.48)]"
+                  : "text-slate-300 hover:text-white"
               }`}
             >
               {lvl.label}
@@ -327,7 +327,7 @@ export const ElevationTopBar: React.FC<ElevationTopBarProps> = ({
         {/* Grup 4: Ölçü Birimi (mm / cm) */}
         <div
           data-testid="elev-unit-switcher"
-          className="inline-flex items-center rounded-full bg-[#F2EDE3] p-0.5 border border-[#E6E0D3] text-[11px]"
+          className="inline-flex items-center rounded-full bg-black/35 p-0.5 border border-white/[0.12] text-[11px]"
           title="Gösterim Ölçü Birimi (BOM ve üretim verisi her zaman mm kalır)"
         >
           {(["mm", "cm"] as const).map((u) => (
@@ -336,10 +336,10 @@ export const ElevationTopBar: React.FC<ElevationTopBarProps> = ({
               type="button"
               data-testid={`elev-unit-${u}-btn`}
               onClick={() => onChangeDisplayUnit(u)}
-              className={`px-2 py-0.5 rounded-full font-mono font-semibold transition cursor-pointer ${
+              className={`h-7 px-2 py-0.5 rounded-full font-mono font-semibold transition cursor-pointer ${
                 displayUnit === u
-                  ? "bg-[#1C1917] text-[#FAF9F6] shadow-2xs"
-                  : "text-[#57534E] hover:text-[#1C1917]"
+                  ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white shadow-[0_0_12px_rgba(29,78,216,0.48)]"
+                  : "text-slate-300 hover:text-white"
               }`}
             >
               {u}
@@ -352,10 +352,10 @@ export const ElevationTopBar: React.FC<ElevationTopBarProps> = ({
           type="button"
           data-testid="cad-elevation-toggle-room"
           onClick={onToggleRoomContext}
-          className={`h-7 px-2.5 rounded-full text-[11px] font-semibold flex items-center gap-1 border transition cursor-pointer ${
+          className={`h-8 px-2.5 rounded-full text-[11px] font-semibold flex items-center gap-1 border transition cursor-pointer ${
             showRoomContextInElev
-              ? "bg-[#1C1917] text-[#FAF9F6] border-[#1C1917]"
-              : "bg-[#F2EDE3] text-[#44403C] border-[#E6E0D3] hover:bg-[#EAE3D6] hover:text-[#1C1917]"
+              ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white border-sky-400/50 shadow-[0_0_12px_rgba(29,78,216,0.45)]"
+              : "bg-white/[0.08] hover:bg-white/[0.16] text-slate-200 border-white/[0.12]"
           }`}
           title={
             showRoomContextInElev
@@ -374,10 +374,10 @@ export const ElevationTopBar: React.FC<ElevationTopBarProps> = ({
           data-testid="cad-elevation-toggle-doors"
           onClick={onToggleDoorsIn2D}
           title={showDoorsIn2D ? "Kapak Çizgisini Gizle (İç Düzeni Gör)" : "Kapak Çizgisini Göster"}
-          className={`h-7 px-2.5 rounded-full text-[11px] font-semibold flex items-center gap-1 border transition cursor-pointer ${
+          className={`h-8 px-2.5 rounded-full text-[11px] font-semibold flex items-center gap-1 border transition cursor-pointer ${
             showDoorsIn2D
-              ? "bg-[#1C1917] text-[#FAF9F6] border-[#1C1917]"
-              : "bg-[#F2EDE3] text-[#44403C] border-[#E6E0D3] hover:bg-[#EAE3D6] hover:text-[#1C1917]"
+              ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white border-sky-400/50 shadow-[0_0_12px_rgba(29,78,216,0.45)]"
+              : "bg-white/[0.08] hover:bg-white/[0.16] text-slate-200 border-white/[0.12]"
           }`}
         >
           <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -753,14 +753,14 @@ export const ElevationBottomBar: React.FC<ElevationBottomBarProps> = ({
 }) => {
   const toneCls =
     statusTone === "orange"
-      ? "bg-amber-100 text-amber-900 border-amber-300"
+      ? "bg-amber-500/20 text-amber-200 border-amber-400/40"
       : statusTone === "green"
-      ? "bg-emerald-100 text-emerald-900 border-emerald-300"
+      ? "bg-emerald-500/20 text-emerald-200 border-emerald-400/40"
       : statusTone === "red"
-      ? "bg-red-100 text-red-900 border-red-300"
+      ? "bg-red-500/20 text-red-200 border-red-400/40"
       : statusTone === "blue"
-      ? "bg-blue-100 text-blue-900 border-blue-300"
-      : "bg-stone-100 text-stone-700 border-stone-300";
+      ? "bg-sky-500/20 text-sky-200 border-sky-400/40"
+      : "bg-white/[0.08] text-slate-200 border-white/[0.16]";
 
   const selectedLabel =
     selectedContext && selectedContext.kind !== "module"
@@ -769,69 +769,71 @@ export const ElevationBottomBar: React.FC<ElevationBottomBarProps> = ({
 
   return (
     <div
-      data-testid="v5-2d-live-dimension-chain-bar"
       style={
         studioSafeInsets
           ? {
-              marginBottom: `${(studioSafeInsets.bottomPx ?? 66) + 6}px`,
-              paddingLeft: `${studioSafeInsets.leftPx ?? 84}px`,
-              paddingRight: `${studioSafeInsets.rightPx ?? 20}px`,
+              paddingLeft: `${Math.max(16, studioSafeInsets.leftPx ?? 84)}px`,
+              paddingRight: `${Math.max(16, studioSafeInsets.rightPx ?? 20)}px`,
             }
           : undefined
       }
-      className="shrink-0 z-10 px-4 py-1.5 bg-[#FAF9F6]/95 border-t border-[#DED8CC] flex items-center justify-between gap-3 text-[11px] text-[#141413] overflow-x-auto whitespace-nowrap"
+      className="px-4 pb-1 flex items-center justify-center shrink-0 z-10 pointer-events-none transition-[padding] duration-300"
     >
-      <div className="flex items-center gap-2 min-w-0">
-        <span className="font-bold truncate max-w-[180px]" title={selectedLabel}>
-          {selectedLabel}
-        </span>
-        <span className="font-mono text-stone-600 hidden sm:inline">
-          {formatElevationValue(activeModule.dimensions.width, displayUnit, false)}×
-          {formatElevationValue(activeModule.dimensions.height, displayUnit, false)}×
-          {formatElevationValue(activeModule.dimensions.depth, displayUnit, false)} {displayUnit}
-        </span>
-        <span className="font-mono text-stone-500 hidden md:inline">
-          Kot: {formatElevationValue(activeModule.position.y, displayUnit)}
-        </span>
-        <span className={`px-2 py-0.5 rounded-full border text-[10px] font-bold shrink-0 ${toneCls}`}>
-          {statusText}
-        </span>
-      </div>
+      <div
+        data-testid="v5-2d-live-dimension-chain-bar"
+        className="pointer-events-auto max-w-full overflow-x-auto no-scrollbar px-3.5 py-1 rounded-full bg-[#181D27]/86 backdrop-blur-xl border border-white/[0.14] ring-1 ring-black/45 shadow-[0_10px_26px_rgba(0,0,0,0.40)] flex items-center justify-between gap-3 text-[11px] text-slate-200 whitespace-nowrap"
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="font-bold text-white truncate max-w-[180px]" title={selectedLabel}>
+            {selectedLabel}
+          </span>
+          <span className="font-mono text-slate-400 hidden sm:inline">
+            {formatElevationValue(activeModule.dimensions.width, displayUnit, false)}×
+            {formatElevationValue(activeModule.dimensions.height, displayUnit, false)}×
+            {formatElevationValue(activeModule.dimensions.depth, displayUnit, false)} {displayUnit}
+          </span>
+          <span className={`px-2 py-0.5 rounded-full border text-[10px] font-bold shrink-0 ${toneCls}`}>
+            {statusText}
+          </span>
+        </div>
 
-      <div className="flex items-center gap-3 shrink-0">
-        <label className="inline-flex items-center gap-1.5" title="Modülün sol kenarının sol duvara olan uzaklığı">
-          <span className="text-stone-600 font-semibold">Sol Duvara Mesafe:</span>
-          <input
-            type="number" inputMode="decimal"
-            step={displayUnit === "cm" ? 1 : 10}
-            value={toDisplayUnitNumber(activeModule.position.x, displayUnit)}
-            onChange={(e) =>
-              onSetModuleOffsetFromLeftWall(
-                activeModule.id,
-                toCanonicalMm(Number(e.target.value) || 0, displayUnit)
-              )
-            }
-            className="w-16 px-1.5 py-0.5 rounded-lg bg-white border border-stone-300 font-mono font-bold text-[#141413]"
-          />
-          <span className="font-mono text-stone-500">{displayUnit}</span>
-        </label>
-        <label className="inline-flex items-center gap-1.5" title="Seçili modülün dıştan dışa toplam genişliği (konumu sabit kalır)">
-          <span className="text-stone-600 font-semibold">Modül Genişliği:</span>
-          <input
-            type="number" inputMode="decimal"
-            step={displayUnit === "cm" ? 1 : 10}
-            min={displayUnit === "cm" ? 15 : 150}
-            max={displayUnit === "cm" ? 360 : 3600}
-            value={toDisplayUnitNumber(activeModule.dimensions.width, displayUnit)}
-            onChange={(e) =>
-              onResizeModuleWidth(
-                toCanonicalMm(Number(e.target.value) || activeModule.dimensions.width, displayUnit)
-              )
-            }
-            className="w-16 px-1.5 py-0.5 rounded-lg bg-white border border-stone-300 font-mono font-bold text-[#141413]"
-          />
-          <span className="font-mono text-stone-500">{displayUnit}</span>
-        </label>
+        <span className="h-3.5 w-px bg-white/[0.14] hidden sm:inline-block" />
+
+        <div className="flex items-center gap-2.5 shrink-0">
+          <label className="inline-flex items-center gap-1" title="Modülün sol kenarının sol duvara olan uzaklığı">
+            <span className="text-slate-400 font-medium">Sol Mesafe:</span>
+            <input
+              type="number" inputMode="decimal"
+              step={displayUnit === "cm" ? 1 : 10}
+              value={toDisplayUnitNumber(activeModule.position.x, displayUnit)}
+              onChange={(e) =>
+                onSetModuleOffsetFromLeftWall(
+                  activeModule.id,
+                  toCanonicalMm(Number(e.target.value) || 0, displayUnit)
+                )
+              }
+              className="w-14 px-1.5 py-0.5 rounded-full bg-white/[0.08] border border-white/[0.16] font-mono font-bold text-white text-center focus:outline-none focus:border-sky-400"
+            />
+            <span className="font-mono text-[10px] text-slate-400">{displayUnit}</span>
+          </label>
+          <label className="inline-flex items-center gap-1" title="Seçili modülün dıştan dışa toplam genişliği (konumu sabit kalır)">
+            <span className="text-slate-400 font-medium">Genişlik:</span>
+            <input
+              type="number" inputMode="decimal"
+              step={displayUnit === "cm" ? 1 : 10}
+              min={displayUnit === "cm" ? 15 : 150}
+              max={displayUnit === "cm" ? 360 : 3600}
+              value={toDisplayUnitNumber(activeModule.dimensions.width, displayUnit)}
+              onChange={(e) =>
+                onResizeModuleWidth(
+                  toCanonicalMm(Number(e.target.value) || activeModule.dimensions.width, displayUnit)
+                )
+              }
+              className="w-14 px-1.5 py-0.5 rounded-full bg-white/[0.08] border border-white/[0.16] font-mono font-bold text-white text-center focus:outline-none focus:border-sky-400"
+            />
+            <span className="font-mono text-[10px] text-slate-400">{displayUnit}</span>
+          </label>
+        </div>
       </div>
     </div>
   );

@@ -676,7 +676,7 @@ export const CeilingAndEngineeringQuickPopover: React.FC<{
         data-testid={`quick-ceiling-grain-holes-btn-${surface}`}
         onClick={() => setOpen((v) => !v)}
         title="Tavan Tipleri, Çoklu Delik Sistemi (System 32) ve Desen Takibi Ayarları"
-        className={`h-8 px-2.5 rounded-xl text-[11px] font-bold flex items-center gap-1.5 transition cursor-pointer ${
+        className={`h-8 px-2.5 rounded-full text-[11px] font-bold flex items-center gap-1.5 transition cursor-pointer ${
           ceilCfg.enabled || grainMode !== "none"
             ? "birim-ice-btn-active"
             : "birim-ice-btn text-[#141413]"

@@ -6,6 +6,8 @@ import {
   ArchitecturalElement,
   WallDefinition,
   ValidationIssue,
+  type EngineeringValidationFinding,
+  type RemediationProposal,
 } from "@birim/core";
 
 let activeDraggedTemplateIdState: string | null = null;
@@ -317,13 +319,11 @@ export function getEffectiveSpaceObstacles(project: DesignProject): Architectura
     return project.space.elements;
   }
 
-  const maxModRightX = (project.modules || []).reduce(
-    (maxX, m) => Math.max(maxX, (m.position?.x || 0) + (m.dimensions?.width || 0)),
-    0
-  );
+  const mainWallLen = project.space.walls[0]?.length || 3600;
 
-  // Provide realistic architectural fixtures for kitchen layouts
+  // Provide realistic architectural fixtures for kitchen layouts (anchored strictly to wall geometry, never shifted by modules)
   if (project.space.type.startsWith("kitchen")) {
+    const kitchenColX = mainWallLen <= 3250 ? 2950 : Math.max(3350, mainWallLen - 250);
     return [
       {
         id: "arch_plumbing_main",
@@ -343,19 +343,19 @@ export function getEffectiveSpaceObstacles(project: DesignProject): Architectura
         id: "arch_column_right",
         type: "column",
         name: "Taşıyıcı Köşe Kolonu",
-        position: { x: (project.space.walls[0]?.length || 3600) <= 3250 ? 2950 : Math.max(3650, maxModRightX + 40), y: 0, z: 0 },
+        position: { x: kitchenColX, y: 0, z: 0 },
         dimensions: { width: 250, height: 2600, depth: 300 },
       },
     ];
   }
 
-  // Wardrobe room default architectural element placed safely beyond active module span
+  // Wardrobe room default structural corner column anchored to the right wall corner
   return [
     {
       id: "arch_wardrobe_column",
       type: "column",
       name: "Oda Köşe Kolonu",
-      position: { x: Math.max(3350, maxModRightX + 40), y: 0, z: 0 },
+      position: { x: Math.max(0, mainWallLen - 250), y: 0, z: 0 },
       dimensions: { width: 250, height: 2700, depth: 250 },
     },
   ];
@@ -517,11 +517,17 @@ export function validateSpatialAndKitchenEngineering(
     const oz1 = obs.position.z;
     const oz2 = obs.position.z + obs.dimensions.depth;
 
-    if (obs.type === "column") {
+    if (obs.type === "column" || obs.type === "beam" || obs.type === "protrusion") {
       footprints.forEach((fp) => {
+        const hostMod = project.modules.find((m) => m.id === fp.moduleId);
+        const alreadyNotched = (hostMod?.utilityCutouts || []).some(
+          (co) => co.id === `auto_notch_${fp.moduleId}_${obs.id}`
+        );
+        if (alreadyNotched) return;
         const xHit = fp.x < ox2 && fp.x + fp.planWidth > ox1;
         const zHit = fp.z < oz2 && fp.z + fp.planDepth > oz1;
-        if (xHit && zHit) {
+        const yHit = fp.yBottom < oy2 && fp.yTop > oy1;
+        if (xHit && zHit && yHit) {
           issues.push({
             severity: "error",
             code: "ERR_COLUMN_COLLISION",
@@ -590,4 +596,161 @@ export function validateSpatialAndKitchenEngineering(
   }
 
   return issues;
+}
+
+/**
+ * Builds unified `EngineeringValidationFinding` items (complete with 3D beacon coordinates
+ * and 1-click user-approved remediation proposals such as CNC notch or stop-before-column)
+ * so 3D Viewport HUD, Header Alert Badge, and Plan View share the exact same live obstacle alerts.
+ */
+export function buildSpatialEngineeringFindings(
+  project: DesignProject
+): EngineeringValidationFinding[] {
+  const footprints = project.modules.map((m, idx) => getModuleOrientedFootprint(m, idx));
+  const obstacles = getEffectiveSpaceObstacles(project);
+  const mainWallLength = project.space.walls[0]?.length || 3600;
+  const findings: EngineeringValidationFinding[] = [];
+
+  obstacles.forEach((obs) => {
+    const rotNorm = (((obs.rotationY || 0) % 360) + 360) % 360;
+    const isRot90 = rotNorm === 90 || rotNorm === 270;
+    const effW = isRot90 ? obs.dimensions.depth || obs.dimensions.width : obs.dimensions.width;
+    const effD = isRot90 ? obs.dimensions.width : obs.dimensions.depth || obs.dimensions.width;
+    const ox1 = obs.position.x;
+    const ox2 = obs.position.x + effW;
+    const oy1 = obs.position.y;
+    const oy2 = obs.position.y + obs.dimensions.height;
+    const oz1 = obs.position.z;
+    const oz2 = obs.position.z + effD;
+
+    if (obs.type === "column" || obs.type === "beam" || obs.type === "protrusion") {
+      footprints.forEach((fp) => {
+        const hostMod = project.modules.find((m) => m.id === fp.moduleId);
+        if (!hostMod) return;
+        const alreadyNotched = (hostMod.utilityCutouts || []).some(
+          (co) => co.id === `auto_notch_${hostMod.id}_${obs.id}`
+        );
+        if (alreadyNotched) return;
+
+        const xHit = fp.x < ox2 && fp.x + fp.planWidth > ox1;
+        const zHit = fp.z < oz2 && fp.z + fp.planDepth > oz1;
+        const yHit = fp.yBottom < oy2 && fp.yTop > oy1;
+        if (!xHit || !zHit || !yHit) return;
+
+        const overlapX = Math.round(Math.min(fp.x + fp.planWidth, ox2) - Math.max(fp.x, ox1));
+        const overlapZ = Math.round(Math.min(fp.z + fp.planDepth, oz2) - Math.max(fp.z, oz1));
+        const proposals: RemediationProposal[] = [
+          {
+            id: `prop_notch_${hostMod.id}_${obs.id}`,
+            label: "Çentiğe Uyarla (CNC)",
+            description: `${obs.name} (${effW}×${effD}mm) için karkas arka/yan köşe kertmesi uygula.`,
+            requiresExplicitUserApproval: true,
+            targetModuleId: hostMod.id,
+            patchKind: "auto_notch_obstacles",
+            patchPayload: { obstaclesJson: JSON.stringify(obstacles) },
+          },
+        ];
+
+        const stopBeforeW = Math.floor((ox1 - fp.x) / 10) * 10;
+        if (fp.rotationY === 0 && stopBeforeW >= 250 && stopBeforeW < hostMod.dimensions.width) {
+          proposals.push({
+            id: `prop_stop_before_${hostMod.id}_${obs.id}`,
+            label: `Kolon Önünde Dur (${Math.round(stopBeforeW / 10)} cm)`,
+            description: `Modül genişliğini ${Math.round(stopBeforeW / 10)} cm yapıp kolona çarpmadan hizala.`,
+            requiresExplicitUserApproval: true,
+            targetModuleId: hostMod.id,
+            patchKind: "resize_before_obstacle",
+            patchPayload: { width: stopBeforeW },
+          });
+        }
+
+        findings.push({
+          code: "ERR_COLUMN_COLLISION",
+          severity: "error",
+          ruleNature: "ENGINEERING_VALIDITY",
+          sourceId: "SRC_BIRIM_SPATIAL_V3",
+          targetId: `${hostMod.id}_${obs.id}`,
+          targetModuleId: hostMod.id,
+          blockingProduction: true,
+          message: `"${fp.name}" modülü "${obs.name}" ile ${overlapX}×${overlapZ} mm çakışıyor (${Math.round(ox1 / 10)}–${Math.round(ox2 / 10)} cm).`,
+          suggestions: [
+            "Tek tıkla 'Çentiğe Uyarla (CNC)' ile kolon kertmesi açabilirsiniz.",
+            stopBeforeW >= 250
+              ? `Veya 'Kolon Önünde Dur (${Math.round(stopBeforeW / 10)} cm)' ile modülü kolon sınırına çekebilirsiniz.`
+              : "Modülü kolon önünden kaydırın.",
+          ],
+          remediationProposals: proposals,
+          worldPositionMm: {
+            x: Math.round((ox1 + ox2) * 0.5),
+            y: Math.round(Math.min(fp.yTop - 160, Math.max(fp.yBottom + 320, (oy1 + Math.min(fp.yTop, oy2)) * 0.65))),
+            z: Math.round(Math.max(oz2, fp.z + fp.planDepth) + 28),
+          },
+        });
+      });
+    } else if (obs.type === "window") {
+      footprints.forEach((fp) => {
+        const xHit = fp.x < ox2 && fp.x + fp.planWidth > ox1;
+        const zHit = fp.z < oz2 + 400;
+        const yHit = fp.yBottom < oy2 && fp.yTop > oy1;
+        if (!xHit || !zHit || !yHit) return;
+        findings.push({
+          code: "ERR_WINDOW_COLLISION",
+          severity: "error",
+          ruleNature: "ENGINEERING_VALIDITY",
+          sourceId: "SRC_BIRIM_SPATIAL_V3",
+          targetId: `${fp.moduleId}_${obs.id}`,
+          targetModuleId: fp.moduleId,
+          blockingProduction: true,
+          message: `"${fp.name}" üst kotu (${fp.yTop}mm), "${obs.name}" (${oy1}–${oy2}mm) açıklığını kapatıyor.`,
+          suggestions: ["Modülü pencere yanına kaydırın veya yüksekliğini pencere altı kotuna düşürün."],
+          worldPositionMm: {
+            x: Math.round((ox1 + ox2) * 0.5),
+            y: Math.round(Math.min(fp.yTop, oy2) - 120),
+            z: Math.round(fp.z + fp.planDepth + 28),
+          },
+        });
+      });
+    }
+  });
+
+  footprints.forEach((fp) => {
+    if (fp.rotationY === 0 && fp.x + fp.planWidth > mainWallLength) {
+      const overflow = Math.round(fp.x + fp.planWidth - mainWallLength);
+      const fitWidth = Math.floor((mainWallLength - fp.x) / 10) * 10;
+      const hostMod = project.modules.find((m) => m.id === fp.moduleId);
+      const proposals: RemediationProposal[] =
+        hostMod && fitWidth >= 250 && fitWidth < hostMod.dimensions.width
+          ? [
+              {
+                id: `prop_fit_wall_${hostMod.id}`,
+                label: `Duvar Sınırına Çek (${Math.round(fitWidth / 10)} cm)`,
+                description: `Modül genişliğini ${Math.round(mainWallLength / 10)} cm duvar bitişine sığdır.`,
+                requiresExplicitUserApproval: true,
+                targetModuleId: hostMod.id,
+                patchKind: "resize_before_obstacle",
+                patchPayload: { width: fitWidth },
+              },
+            ]
+          : [];
+      findings.push({
+        code: "ERR_WALL_BOUNDARY_OVERFLOW",
+        severity: "error",
+        ruleNature: "ENGINEERING_VALIDITY",
+        sourceId: "SRC_BIRIM_SPATIAL_V3",
+        targetId: fp.moduleId,
+        targetModuleId: fp.moduleId,
+        blockingProduction: true,
+        message: `"${fp.name}" ana duvar sınırını (${Math.round(mainWallLength / 10)} cm) ${Math.round(overflow / 10)} cm aşıyor.`,
+        suggestions: ["Modül genişliğini duvar bitişine uyarlayın veya sola kaydırın."],
+        remediationProposals: proposals,
+        worldPositionMm: {
+          x: Math.round(fp.x + fp.planWidth),
+          y: Math.round((fp.yBottom + fp.yTop) * 0.55),
+          z: Math.round(fp.z + fp.planDepth + 28),
+        },
+      });
+    }
+  });
+
+  return findings;
 }
