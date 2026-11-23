@@ -3568,7 +3568,10 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         linewidth: 2,
         depthTest: false,
       });
-      const hoverFillMesh = new THREE.Mesh(hoverBoxGeo, hoverFillMat);
+      const hoverFillMesh = new THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>(
+        hoverBoxGeo,
+        hoverFillMat
+      );
       hoverFillMesh.raycast = () => {};
       const hoverOutlineSegments = new THREE.LineSegments(
         getHoverEdgesForGeometry(hoverBoxGeo),

@@ -2031,6 +2031,7 @@ export function buildExplodedIsoScene(
     const exX = Math.round(explodeX * 0.55);
     const exY = Math.round(explodeY * 0.65);
     const exZ = Math.round(explodeZ * 0.55);
+    const backT = mod.carcass.backPanelThickness || 8;
     arrows = [
       { code: "①", stepNo: 2, from: toSvg(-exX * 0.58 + 20, midY, D * 0.5), to: toSvg(0, midY, D * 0.5) },
       { code: "②", stepNo: 2, from: toSvg(W + exX * 0.62 - 20, midY, D * 0.3), to: toSvg(W, midY, D * 0.3) },
