@@ -84,6 +84,13 @@ export interface ComponentGeometry {
   isFrontFacing?: boolean;
   /** True only if this component represents a cuttable sheet/panel piece in BOM (false for UI hardware/handles/profiles) */
   isManufacturablePanel?: boolean;
+  /** Tek parça CNC L-kesim (alt/üst tabla, L-raf) için gerçek tek parça plaka ölçüsü ve iç boşaltma çentiği */
+  cncBlankOverride?: {
+    lengthMm: number;
+    widthMm: number;
+    notchWidthMm: number;
+    notchDepthMm: number;
+  };
   /** Explicit axis along which panel thickness lies ("x" for vertical sides/dividers, "y" for horizontal shelves/top/bottom, "z" for fronts/backs) */
   thicknessAxis?: PanelThicknessAxis;
   /** True 2D CNC outer polygon vertices [xMm, yMm][] for non-rectangular panels (sloped ceiling, capsule stadium) */

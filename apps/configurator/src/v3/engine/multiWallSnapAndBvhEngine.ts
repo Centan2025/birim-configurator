@@ -347,8 +347,15 @@ export function computeMultiWallModuleSnap(
     roomCenter
   );
 
+  // L-köşe modülün iki kapalı sırtı zaten x=0 (Sol Duvar) ve z=0 (Ana Duvar) eksenlerindedir;
+  // Sol Duvar seçiliyken (90°) eklense bile 0° oturmalı ki açık L ağzı duvara değil odaya (+X, +Z) baksın!
+  const finalRotY =
+    newMod.isCorner && Math.round(placed.rotationYDeg) === 90
+      ? 0
+      : placed.rotationYDeg;
+
   newMod.position = { x: placed.x, y: targetY, z: placed.z };
-  newMod.rotation = { x: 0, y: placed.rotationYDeg, z: 0 };
+  newMod.rotation = { x: 0, y: finalRotY, z: 0 };
 
   return {
     moduleInstance: newMod,
@@ -356,7 +363,7 @@ export function computeMultiWallModuleSnap(
       wallId: chosenWall.id,
       wallName: chosenWall.name,
       position: { ...newMod.position },
-      rotationYDeg: placed.rotationYDeg,
+      rotationYDeg: finalRotY,
       insertBetweenShift,
       snapLabel,
     },

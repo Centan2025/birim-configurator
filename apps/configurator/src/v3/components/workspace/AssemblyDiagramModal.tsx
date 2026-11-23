@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import React, { useState, useMemo, useRef } from "react";
+import React, { useState, useMemo, useRef, useEffect } from "react";
 import {
   computeProjectGrainNeighborMap,
   evaluateUnifiedEngineeringModel,
@@ -37,6 +37,12 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
   onClose,
 }) => {
   const [selectedModIdx, setSelectedModIdx] = useState<number>(activeModuleIndex);
+  useEffect(() => {
+    if (isOpen) {
+      setSelectedModIdx(activeModuleIndex);
+      setActiveStep(0);
+    }
+  }, [isOpen, activeModuleIndex]);
   const [activeStep, setActiveStep] = useState<number>(0);
   const [hideDoorsInDiagram, setHideDoorsInDiagram] = useState<boolean>(false);
   const [showGrainArrows, setShowGrainArrows] = useState<boolean>(false);
@@ -500,6 +506,46 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Çoklu Modül (L / U Sistem) Ayrı Modül Montaj Şeması Sekme Çubuğu */}
+        {mainModules.length > 1 && (
+          <div
+            data-testid="assembly-multi-module-tabs"
+            className="px-5 py-2 border-b border-[#E5DFD3] bg-[#F4F0E8] flex items-center gap-1.5 overflow-x-auto shrink-0"
+          >
+            <span className="text-[10px] font-bold uppercase tracking-wider text-[#78716C] pr-1 shrink-0">
+              Modüller ({mainModules.length}):
+            </span>
+            {mainModules.map((m, idx) => {
+              const isSel = idx === Math.min(selectedModIdx, Math.max(0, mainModules.length - 1));
+              const r = (((m.rotation?.y || 0) % 360) + 360) % 360;
+              const wallTag = r < 45 || r > 315 ? "Ana" : r >= 45 && r < 135 ? "Sol" : r >= 225 && r <= 315 ? "Sağ" : "Karşı";
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedModIdx(idx);
+                    setActiveStep(0);
+                  }}
+                  className={`h-8 px-3 rounded-xl text-[11px] font-bold transition cursor-pointer shrink-0 inline-flex items-center gap-1.5 border ${
+                    isSel
+                      ? "bg-[#141413] text-white border-[#141413] shadow-xs"
+                      : "bg-white hover:bg-[#FAF8F4] text-[#44403C] border-[#DFD9CE]"
+                  }`}
+                >
+                  <span className={`font-mono text-[10px] px-1.5 py-0.5 rounded-md ${isSel ? "bg-sky-500 text-white" : "bg-[#EFECE4] text-[#57534E]"}`}>
+                    M{idx + 1}
+                  </span>
+                  <span className="max-w-[140px] truncate">{m.name}</span>
+                  <span className={`text-[9.5px] font-mono ${isSel ? "text-slate-300" : "text-[#78716C]"}`}>
+                    {m.dimensions.width}×{m.dimensions.height} • {wallTag}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {/* Body: Left Exploded Isometric CAD Diagram + Full-Height Hardware Bag | Right Step-by-Step Sequence */}
         <div className="flex-1 min-h-0 overflow-y-auto p-5 grid grid-cols-1 lg:grid-cols-12 items-stretch gap-4 text-xs">

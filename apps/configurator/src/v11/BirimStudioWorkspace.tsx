@@ -32,7 +32,7 @@ import { DoorSystemsShowcaseModal } from "./DoorSystemsShowcaseModal";
 import { QuickStyleAndMaterialDock } from "./QuickStyleAndMaterialDock";
 import { QuickMaterialPopoverBar } from "./QuickMaterialPopoverBar";
 import { resolveModuleHostWallId, wallIntervalToModulePosition, computeRoomDynamicCenter } from "../v3/engine/multiWallSnapAndBvhEngine";
-import { getEffectiveSpaceWalls } from "../v3/engine/kitchenSpatialEngine";
+import { getEffectiveSpaceWalls, getModuleOrientedFootprint } from "../v3/engine/kitchenSpatialEngine";
 import { getWallRoomBasis } from "../v3/engine/angledWallSnapEngine";
 import { AnimatedModalPresence, AnimatedValuePresence } from "./AnimatedWindowPresence";
 import {
@@ -1211,7 +1211,7 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
 
   const stageSafeInsets = useMemo(
     () => ({
-      topPx: hasSecondHeaderStrip ? 158 : 118,
+      topPx: hasSecondHeaderStrip ? 116 : 74,
       bottomPx: quickPaletteOpen ? 330 : 76,
       leftPx: leftDrawer ? 492 : 76,
       rightPx: workspaceMode === "showroom" ? 24 : isInspectorOpen ? 444 : 68,
@@ -1416,11 +1416,29 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
       if (selWall && curMod && selWallId === curModWallId) {
         const roomCenter = computeRoomDynamicCenter(effWalls);
         const wb = getWallRoomBasis(selWall, roomCenter);
-        const curAlong = Math.max(
-          0,
-          (curMod.position.x - wb.p0.x) * wb.rawTangent.x +
-            (curMod.position.z - wb.p0.z) * wb.rawTangent.z
-        );
+        const projectAlongInterval = (m: typeof curMod) => {
+          const fp = getModuleOrientedFootprint(m, 0);
+          const xs = [fp.x, fp.x + fp.planWidth];
+          const zs = [fp.z, fp.z + fp.planDepth];
+          let mn = Infinity;
+          let mx = -Infinity;
+          for (const px of xs) {
+            for (const pz of zs) {
+              const v = (px - wb.p0.x) * wb.rawTangent.x + (pz - wb.p0.z) * wb.rawTangent.z;
+              if (v < mn) mn = v;
+              if (v > mx) mx = v;
+            }
+          }
+          return { min: Math.max(0, Math.round(mn)), max: Math.max(0, Math.round(mx)) };
+        };
+        const curInterval = projectAlongInterval(curMod);
+        const curAlong = curInterval.min;
+        const dotModuleVsWall =
+          wb.moduleTangent.x * wb.rawTangent.x + wb.moduleTangent.z * wb.rawTangent.z;
+        // İzleyici dolaba karşıdan bakarken: moduleTangent (+X) SAĞ, -moduleTangent SOL yöndür.
+        // Sol duvar gibi moduleTangent ile rawTangent zıt yönlü olduğunda SOL = +rawTangent (büyük along), SAĞ = -rawTangent (küçük along) olur!
+        const moveTowardSmallerAlong = dotModuleVsWall >= 0 ? side === "left" : side === "right";
+
         const placed = st.appendModuleWithMultiWallSnap(tplId, { wallId: selWallId });
         if (placed) {
           const stNow = useConfiguratorStore.getState();
@@ -1448,8 +1466,8 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
               latestRef.current.showToast(`Üst dolap "${curMod.name}" üstüne yerleştirildi.`);
               return;
             }
-            if (side === "left") {
-              const desiredAlong = curAlong - newW;
+            if (moveTowardSmallerAlong) {
+              const desiredAlong = curInterval.min - newW;
               const shiftRightMm = desiredAlong < 0 ? -desiredAlong : 0;
               const finalAlong = Math.max(0, desiredAlong);
               const targetPos = wallIntervalToModulePosition(
@@ -1464,13 +1482,11 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
                   draft.modules.forEach((m, idx) => {
                     if (idx === newIdx || m.category === "complementary" || m.category === "kitchen_island") return;
                     if (resolveModuleHostWallId(draft, m) !== selWallId) return;
-                    const mAlong =
-                      (m.position.x - wb.p0.x) * wb.rawTangent.x +
-                      (m.position.z - wb.p0.z) * wb.rawTangent.z;
-                    if (mAlong >= curAlong - 5) {
+                    const mInt = projectAlongInterval(m);
+                    if (mInt.min >= curInterval.min - 5) {
                       const shifted = wallIntervalToModulePosition(
                         selWall,
-                        mAlong + shiftRightMm,
+                        mInt.min + shiftRightMm,
                         m.dimensions.width,
                         m.dimensions.depth,
                         roomCenter
@@ -1486,15 +1502,19 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
                   dm.position.z = targetPos.z;
                   dm.rotation = { x: 0, y: targetPos.rotationYDeg, z: 0 };
                 }
-              }, "Yeni modül sol tarafa yerleştirildi");
-              latestRef.current.showToast(`Yeni modül "${curMod.name}" soluna eklendi.`);
+              }, side === "left" ? "Yeni modül sol tarafa yerleştirildi" : "Yeni modül sağ tarafa yerleştirildi");
+              latestRef.current.showToast(
+                side === "left"
+                  ? `Yeni modül "${curMod.name}" soluna eklendi.`
+                  : `Yeni modül "${curMod.name}" sağına eklendi.`
+              );
               return;
             }
-            // side === "right"
-            const rightAlong = curAlong + curMod.dimensions.width;
+            // moveTowardLargerAlong (+rawTangent yönü)
+            const largerAlong = curInterval.max;
             const targetPos = wallIntervalToModulePosition(
               selWall,
-              rightAlong,
+              largerAlong,
               newW,
               newD,
               roomCenter
@@ -1506,8 +1526,12 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
                 dm.position.z = targetPos.z;
                 dm.rotation = { x: 0, y: targetPos.rotationYDeg, z: 0 };
               }
-            }, "Yeni modül sağ tarafa yerleştirildi");
-            latestRef.current.showToast(`Yeni modül "${curMod.name}" sağına eklendi.`);
+            }, side === "left" ? "Yeni modül sol tarafa yerleştirildi" : "Yeni modül sağ tarafa yerleştirildi");
+            latestRef.current.showToast(
+              side === "left"
+                ? `Yeni modül "${curMod.name}" soluna eklendi.`
+                : `Yeni modül "${curMod.name}" sağına eklendi.`
+            );
             return;
           }
         }
@@ -2025,6 +2049,8 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
           onOpenWizardModal={handleOpenWizardModal}
           onOpenKitchenIslandModal={handleOpenKitchenIslandModal}
           onOpenCapsuleAndGlbHub={setSceneHubTab}
+          isQuickPaletteOpen={quickPaletteOpen}
+          onToggleQuickPalette={handleToggleQuickPalette}
         />
       )}
 
@@ -2105,94 +2131,10 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
       {!isInspectorOpen && selectedPartQuickToolbar}
 
       {/* BAĞLAMSAL ÇAKIŞMA, HATALI TASARIM & TEK TIKLA OTOMATİK DÜZELT UYARI SİSTEMİ */}
-      {!isShowroom && (() => {
-        const visibleFindings = allFindings.filter(
-          (f) =>
-            (f.severity === "error" || f.severity === "warning") &&
-            `${f.code}-${f.message}` !== dismissedAutoFixKey
-        );
-        const actionable =
-          visibleFindings.find((f) => f.severity === "error" && (f.remediationProposals?.length ?? 0) > 0) ||
-          visibleFindings.find((f) => f.severity === "error") ||
-          visibleFindings.find((f) => (f.remediationProposals?.length ?? 0) > 0) ||
-          visibleFindings[0];
-        if (!actionable) return null;
-        const findingKey = `${actionable.code}-${actionable.message}`;
-        const isErr = actionable.severity === "error";
-        const extraCount = Math.max(0, visibleFindings.length - 1);
-        const quickFixes = (actionable.remediationProposals || []).slice(0, 2);
-        return (
-          <div
-            data-testid="v11-contextual-autofix-pill"
-            style={{ left: leftDrawer ? "496px" : "84px" }}
-            className={`birim-dramatic-panel fixed bottom-[104px] max-w-[400px] z-40 pointer-events-auto transition-[left] duration-200 rounded-2xl border backdrop-blur-2xl shadow-[0_14px_34px_rgba(0,0,0,0.42)] px-3.5 py-2.5 flex items-start gap-2.5 max-lg:!left-3 max-lg:right-3 max-lg:max-w-none ${
-              isErr
-                ? "border-red-400/55 ring-1 ring-red-500/25 text-slate-100"
-                : "border-sky-400/45 ring-1 ring-sky-400/20 text-slate-100"
-            }`}
-          >
-            <span
-              className={`mt-1 w-2 h-2 rounded-full shrink-0 ${
-                isErr
-                  ? "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.9)] animate-pulse"
-                  : "bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.8)]"
-              }`}
-            />
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center justify-between gap-1.5">
-                <span className="text-[11px] font-bold tracking-tight text-white truncate">
-                  {isErr ? "Çakışma / Hata" : "Tasarım Önerisi"}
-                </span>
-                {extraCount > 0 && (
-                  <span className="px-1.5 py-0.5 rounded-full bg-white/12 text-[9.5px] font-mono font-bold text-slate-200 shrink-0">
-                    +{extraCount}
-                  </span>
-                )}
-              </div>
-              <p className="text-[11px] leading-relaxed text-slate-100 mt-1 break-words">
-                {actionable.message}
-              </p>
-              <div className="flex flex-wrap items-center gap-1.5 mt-2.5">
-                {quickFixes.map((proposal, pIdx) => (
-                  <button
-                    key={proposal.id || pIdx}
-                    type="button"
-                    title={proposal.description}
-                    onClick={() => handleApplyFindingFix(proposal)}
-                    className={`h-7 px-2.5 rounded-lg text-[11px] font-semibold transition cursor-pointer ${
-                      pIdx === 0
-                        ? isErr
-                          ? "bg-red-500 hover:bg-red-400 text-white shadow-sm"
-                          : "bg-sky-500 hover:bg-sky-400 text-white shadow-sm"
-                        : "bg-white/14 hover:bg-white/22 text-white border border-white/15"
-                    }`}
-                  >
-                    {proposal.label || "Otomatik Düzelt"}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => handleFocusFinding(actionable)}
-                  className="h-7 px-2.5 rounded-lg bg-white/95 hover:bg-white border border-white/20 text-[#141413] text-[11px] font-semibold transition cursor-pointer"
-                >
-                  Parçaya Odaklan
-                </button>
-              </div>
-            </div>
-            <button
-              type="button"
-              aria-label="Uyarıyı gizle"
-              onClick={() => setDismissedAutoFixKey(findingKey)}
-              className="w-6 h-6 rounded-lg hover:bg-white/12 text-slate-300 hover:text-white inline-flex items-center justify-center text-xs font-bold cursor-pointer shrink-0"
-            >
-              ×
-            </button>
-          </div>
-        );
-      })()}
+            {/* Sol alt sabit Tasarım Önerisi kartı kaldırıldı — tüm öneriler üst bardaki Öneri rozeti ve sağ panelde yer alır */}
 
-      {/* 5AA. ÜST AÇILIR KOLAY MALZEME SEÇİM VE STÜDYO RENDER ÇUBUĞU */}
-      {!isShowroom && (workspaceMode === "3d" || workspaceMode === "2d") && (
+      {/* 5AA. HIZLI MALZEME ŞERİDİ (Duvar, Kapak, Gövde, Tezgâh, Kulp, Mat/Saten/Parlak, Render) — Yalnızca Kartela açıkken görünür */}
+      {!isShowroom && quickPaletteOpen && (workspaceMode === "3d" || workspaceMode === "2d") && (
         <QuickMaterialPopoverBar
           project={project}
           activeModule={activeModule}
@@ -2200,7 +2142,7 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
           materials={allMaterials}
           leftSafePx={stageSafeInsets.leftPx}
           rightSafePx={stageSafeInsets.rightPx}
-          topOffsetPx={workspaceMode === "2d" || workspaceMode === "3d" ? 114 : 70}
+          topOffsetPx={68}
           paintToolState={paintToolState}
           onChangePaintToolState={handleChangePaintToolState}
           onApplyZoneMaterial={handleApplyZoneMaterial}
@@ -2271,6 +2213,10 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
           onToggleQuickPalette={handleToggleQuickPalette}
           paintToolMode={paintToolState.mode}
           onTogglePaintBucket={handleTogglePaintBucketBtn}
+          canUndo={canUndo}
+          canRedo={canRedo}
+          onUndo={undo}
+          onRedo={redo}
         />
       )}
 

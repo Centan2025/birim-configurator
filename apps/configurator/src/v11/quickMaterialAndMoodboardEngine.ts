@@ -590,15 +590,32 @@ export function applyCuratedMoodboardToProjectDraft(
       return;
     }
 
+    const hasDoorsAndExtDrawers =
+      zone === "tall_or_island" &&
+      (m.bays || []).some((b) => b.door && b.door.type !== "open") &&
+      (m.bays || []).some((b) => (b.drawers || []).some((d) => !d.isInternal && !d.isHidden));
+
     const frontMat =
       zone === "wall"
         ? moodboard.wallFrontMaterialId
         : zone === "tall_or_island"
-        ? moodboard.tallFrontMaterialId
+        ? hasDoorsAndExtDrawers
+          ? moodboard.wallFrontMaterialId
+          : moodboard.tallFrontMaterialId
         : moodboard.baseFrontMaterialId;
 
     applyCarcassMaterialToModule(m, moodboard.carcassMaterialId);
     applyFrontMaterialToModule(m, frontMat);
+    // Palet kartındaki çift ton (Üst kapak + Alt çekmece) görünümünü boy gardıroplara birebir yansıt!
+    if (hasDoorsAndExtDrawers) {
+      (m.bays || []).forEach((b) => {
+        (b.drawers || []).forEach((d) => {
+          if (!d.isInternal && !d.isHidden) {
+            d.frontMaterialId = moodboard.baseFrontMaterialId;
+          }
+        });
+      });
+    }
     if (zone !== "wall") {
       applyPlinthMaterialToModule(m, moodboard.plinthMaterialId);
     }

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useMemo, useEffect, useRef } from "react";
+import { AnimatedPopoverPresence } from "./AnimatedWindowPresence";
 import {
   Plus,
   Sparkles,
@@ -21,6 +22,10 @@ import {
   Tv,
   Armchair,
   Box,
+  Palette,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import type {
   ArchitecturalElement,
@@ -223,6 +228,8 @@ export interface LeftCatalogLauncherProps {
   onOpenWizardModal: () => void;
   onOpenKitchenIslandModal: () => void;
   onOpenCapsuleAndGlbHub: (tab: "modules" | "capsule_curved" | "custom_glb" | "automation") => void;
+  isQuickPaletteOpen?: boolean;
+  onToggleQuickPalette?: () => void;
 }
 
 export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.memo(
@@ -254,6 +261,8 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
     onOpenWizardModal,
     onOpenKitchenIslandModal,
     onOpenCapsuleAndGlbHub,
+    isQuickPaletteOpen = false,
+    onToggleQuickPalette,
   }) => {
     const [activeGroup, setActiveGroup] = useState<V11CatalogGroup["id"]>("wardrobe");
     const [kitchenSubFilter, setKitchenSubFilter] = useState<KitchenSubFilterId>("all");
@@ -567,6 +576,19 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
       });
     }, [searchQuery, objectFilter, discoveredTick]);
 
+    const [openLeftSubmenu, setOpenLeftSubmenu] = useState<null | "add" | "modules" | "room">(null);
+    const [latchedLeftSubmenu, setLatchedLeftSubmenu] = useState<"add" | "modules" | "room">("add");
+    useEffect(() => {
+      if (openLeftSubmenu) setLatchedLeftSubmenu(openLeftSubmenu);
+    }, [openLeftSubmenu]);
+    useEffect(() => {
+      if (isQuickPaletteOpen) setOpenLeftSubmenu(null);
+    }, [isQuickPaletteOpen]);
+    const closeQuickPaletteIfOpen = () => {
+      if (isQuickPaletteOpen && onToggleQuickPalette) {
+        onToggleQuickPalette();
+      }
+    };
     const toggleDrawer = (tab: Exclude<V11LeftDrawerTab, null>) => {
       onChangeDrawer(activeDrawer === tab ? null : tab);
     };
@@ -575,90 +597,343 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
 
     return (
       <>
-        {/* SOL DİKEY DRAMATİK FÜME OBSİDYEN KAPSÜL BAŞLATICI (Gölgeli + Kayarak Giden Bronz Seçici) */}
+        {/* SOL İNCE DİKEY YÜZEN İKON ÇUBUĞU — Düğmelere Tıklayınca Yanından Alt Menü Açılır */}
         <aside
           aria-label="Modül ve Mekân Araçları"
           data-testid="v11-left-launcher"
-          className="fixed left-4 top-1/2 -translate-y-1/2 z-30 p-1.5 rounded-full bg-[#2C3341]/66 backdrop-blur-2xl border border-white/[0.22] ring-1 ring-black/50 shadow-[0_20px_50px_rgba(0,0,0,0.48)] flex flex-col items-center gap-1.5"
+          className="fixed left-4 top-1/2 -translate-y-1/2 z-30 p-1.5 rounded-full bg-[#1C222E]/84 backdrop-blur-2xl border border-white/[0.18] ring-1 ring-black/50 shadow-[0_20px_50px_rgba(0,0,0,0.52)] flex flex-col items-center gap-1.5"
         >
-          <div className="relative flex flex-col items-center gap-1.5">
-            {/* Seçimden seçime kayarak giden dramatik bronz aktif kapsül */}
-            <span
-              aria-hidden="true"
-              style={{
-                transform: `translate3d(0, ${
-                  activeDrawer === "modules" ? 46 : activeDrawer === "space" ? 92 : 0
-                }px, 0) scale(${activeDrawer ? 1 : 0.75})`,
-                opacity: activeDrawer ? 1 : 0,
-              }}
-              className="pointer-events-none absolute top-0 left-0 w-10 h-10 rounded-full bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] shadow-[0_0_20px_rgba(29,78,216,0.58),0_4px_14px_rgba(37,99,235,0.45)] transition-[transform,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
-            />
+          <button
+            type="button"
+            data-testid="v11-launcher-catalog"
+            onClick={() => {
+              closeQuickPaletteIfOpen();
+              if (activeDrawer === "catalog") {
+                onChangeDrawer(null);
+                setOpenLeftSubmenu(null);
+              } else {
+                onChangeDrawer(null);
+                setOpenLeftSubmenu((cur) => (cur === "add" ? null : "add"));
+              }
+            }}
+            title="Modül Ekle — Katalog Alt Menüsü"
+            className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-200 cursor-pointer ${
+              activeDrawer === "catalog" || openLeftSubmenu === "add"
+                ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white shadow-[0_0_18px_rgba(29,78,216,0.55)] scale-105"
+                : "bg-white/[0.10] hover:bg-white/[0.18] text-[#F3F4F6] border border-white/[0.14]"
+            }`}
+          >
+            <Plus className={`w-5 h-5 transition-transform duration-200 ${openLeftSubmenu === "add" || activeDrawer === "catalog" ? "rotate-45" : ""}`} />
+          </button>
 
-            <button
-              type="button"
-              data-testid="v11-launcher-catalog"
-              onClick={() => toggleDrawer("catalog")}
-              title="Ürün, Modül, TV Ünitesi, Ada & Masa Kataloğu"
-              className={`relative z-10 w-10 h-10 rounded-full flex items-center justify-center transition-all duration-250 cursor-pointer ${
-                activeDrawer === "catalog"
-                  ? "text-[#111318] scale-105"
-                  : "bg-white/[0.10] hover:bg-white/[0.18] text-[#F3F4F6] border border-white/[0.14] shadow-[0_4px_12px_rgba(0,0,0,0.36)] hover:shadow-[0_6px_16px_rgba(0,0,0,0.45)]"
-              }`}
-            >
-              <Plus className={`w-5 h-5 transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${activeDrawer === "catalog" ? "rotate-45" : "rotate-0"}`} />
-            </button>
+          <button
+            type="button"
+            data-testid="v11-launcher-modules"
+            onClick={() => {
+              closeQuickPaletteIfOpen();
+              if (activeDrawer === "modules") {
+                onChangeDrawer(null);
+                setOpenLeftSubmenu(null);
+              } else {
+                onChangeDrawer(null);
+                setOpenLeftSubmenu((cur) => (cur === "modules" ? null : "modules"));
+              }
+            }}
+            title="Modül Listesi — Sahnedeki Modüller"
+            className={`relative w-10 h-10 rounded-full flex items-center justify-center transition-all duration-200 cursor-pointer ${
+              activeDrawer === "modules" || openLeftSubmenu === "modules"
+                ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white shadow-[0_0_18px_rgba(29,78,216,0.55)] scale-105"
+                : "bg-white/[0.10] hover:bg-white/[0.18] text-[#F3F4F6] border border-white/[0.14]"
+            }`}
+          >
+            <LayoutList className="w-4 h-4" />
+            <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-[16px] px-1 rounded-full bg-[#0284C7] text-white text-[9.5px] font-bold flex items-center justify-center shadow-sm">
+              {totalItemsBadge}
+            </span>
+          </button>
 
-            <button
-              type="button"
-              data-testid="v11-launcher-modules"
-              onClick={() => toggleDrawer("modules")}
-              title="Sahnedeki Modüller ve 3B Eşyalar"
-              className={`relative z-10 w-10 h-10 rounded-full flex items-center justify-center transition-all duration-250 cursor-pointer ${
-                activeDrawer === "modules"
-                  ? "text-[#111318] scale-105"
-                  : "bg-white/[0.10] hover:bg-white/[0.18] text-[#F3F4F6] border border-white/[0.14] shadow-[0_4px_12px_rgba(0,0,0,0.36)] hover:shadow-[0_6px_16px_rgba(0,0,0,0.45)]"
-              }`}
-            >
-              <LayoutList className="w-4 h-4" />
-              <span className="absolute -top-0.5 -right-0.5 min-w-[17px] h-[17px] px-1 rounded-full bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white text-[10px] font-extrabold shadow-sm flex items-center justify-center">
-                {totalItemsBadge}
-              </span>
-            </button>
+          <button
+            type="button"
+            data-testid="v11-launcher-space"
+            onClick={() => {
+              closeQuickPaletteIfOpen();
+              if (activeDrawer === "space") {
+                onChangeDrawer(null);
+                setOpenLeftSubmenu(null);
+              } else {
+                onChangeDrawer(null);
+                setOpenLeftSubmenu((cur) => (cur === "room" ? null : "room"));
+              }
+            }}
+            title="Oda / Duvar Ayarları"
+            className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-200 cursor-pointer ${
+              activeDrawer === "space" || openLeftSubmenu === "room"
+                ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white shadow-[0_0_18px_rgba(29,78,216,0.55)] scale-105"
+                : "bg-white/[0.10] hover:bg-white/[0.18] text-[#F3F4F6] border border-white/[0.14]"
+            }`}
+          >
+            <Home className="w-4 h-4" />
+          </button>
 
-            <button
-              type="button"
-              data-testid="v11-launcher-space"
-              onClick={() => toggleDrawer("space")}
-              title="Oda Ölçüleri, Hazır Mutfak Planları ve Ada/Masa"
-              className={`relative z-10 w-10 h-10 rounded-full flex items-center justify-center transition-all duration-250 cursor-pointer ${
-                activeDrawer === "space"
-                  ? "text-[#111318] scale-105"
-                  : "bg-white/[0.10] hover:bg-white/[0.18] text-[#F3F4F6] border border-white/[0.14] shadow-[0_4px_12px_rgba(0,0,0,0.36)] hover:shadow-[0_6px_16px_rgba(0,0,0,0.45)]"
-              }`}
-            >
-              <Home className="w-4 h-4" />
-            </button>
-          </div>
+          {onToggleQuickPalette && (
+            <>
+              <span className="w-5 h-px bg-white/15 my-0.5" />
+              <button
+                type="button"
+                data-testid="v11-launcher-palette"
+                onClick={() => {
+                  setOpenLeftSubmenu(null);
+                  onChangeDrawer(null);
+                  onToggleQuickPalette();
+                }}
+                title="Kartela — Hızlı Malzeme & Yüzey Seçimi (M)"
+                className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-200 cursor-pointer ${
+                  isQuickPaletteOpen
+                    ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white shadow-[0_0_18px_rgba(29,78,216,0.55)] scale-105"
+                    : "bg-white/[0.10] hover:bg-white/[0.18] text-[#F3F4F6] border border-white/[0.14]"
+                }`}
+              >
+                <Palette className="w-4 h-4" />
+              </button>
+            </>
+          )}
 
-          <div className="w-5 h-px bg-white/15 my-0.5" />
+          <span className="w-5 h-px bg-white/15 my-0.5" />
 
           <button
             type="button"
             data-testid="v11-launcher-wizard"
             onClick={() => {
+              closeQuickPaletteIfOpen();
+              setOpenLeftSubmenu(null);
               onChangeDrawer(null);
               onOpenWizardModal();
             }}
-            title="Hızlı Dolap ve Mekân Kurulum Sihirbazı"
-            className="w-10 h-10 rounded-full bg-white/[0.10] hover:bg-white/[0.18] border border-white/[0.14] shadow-[0_4px_12px_rgba(0,0,0,0.36)] hover:shadow-[0_6px_16px_rgba(0,0,0,0.45)] flex items-center justify-center text-[#7DD3FC] hover:text-white transition-all duration-200 cursor-pointer"
+            title="Akıllı Kurulum Sihirbazı"
+            className="w-10 h-10 rounded-full bg-white/[0.10] hover:bg-white/[0.18] text-sky-300 border border-white/[0.14] flex items-center justify-center transition cursor-pointer"
           >
             <Sparkles className="w-4 h-4" />
           </button>
         </aside>
 
+        {/* İNCE DİKEY ÇUBUKTAN ANİMASYONLA AÇILAN YAN ALT MENÜ POPOVER'I */}
+        <AnimatedPopoverPresence
+          isOpen={Boolean(openLeftSubmenu && !activeDrawer)}
+          origin="left"
+          durationMs={220}
+          className="fixed left-[72px] top-1/2 -translate-y-1/2 z-40 pointer-events-none"
+        >
+          <div
+            data-testid={`v11-left-submenu-${openLeftSubmenu || latchedLeftSubmenu}`}
+            className="pointer-events-auto w-[240px] p-3 rounded-2xl bg-[#1C222E]/94 backdrop-blur-2xl border border-white/[0.18] ring-1 ring-black/55 shadow-[0_24px_60px_rgba(0,0,0,0.62)] text-xs text-slate-100 space-y-2"
+          >
+            <div className="flex items-center justify-between gap-2 pb-1.5 border-b border-white/10">
+              <span className="text-[11.5px] font-bold text-white">
+                {(openLeftSubmenu || latchedLeftSubmenu) === "add"
+                  ? "Modül Ekle"
+                  : (openLeftSubmenu || latchedLeftSubmenu) === "modules"
+                  ? `Modül Listesi (${totalItemsBadge})`
+                  : "Oda / Duvar Ayarları"}
+              </span>
+              <button
+                type="button"
+                aria-label="Alt Menüyü Kapat"
+                onClick={() => setOpenLeftSubmenu(null)}
+                className="w-6 h-6 rounded-full bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white flex items-center justify-center cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {(openLeftSubmenu || latchedLeftSubmenu) === "add" && (
+              <div className="space-y-1 text-[11.5px]">
+                {(
+                  [
+                    { id: "wardrobe", label: "Gardırop & Dolap" },
+                    { id: "kitchen", label: "Mutfak Modülleri" },
+                    { id: "living", label: "TV Ünitesi & Salon" },
+                    { id: "objects", label: "3B Eşya & Aksesuar" },
+                  ] as const
+                ).map((grp) => (
+                  <button
+                    key={grp.id}
+                    type="button"
+                    onClick={() => {
+                      setActiveGroup(grp.id);
+                      setOpenLeftSubmenu(null);
+                      onChangeDrawer("catalog");
+                    }}
+                    className="w-full px-2.5 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.12] text-left text-slate-100 font-semibold flex items-center justify-between cursor-pointer transition"
+                  >
+                    <span>{grp.label}</span>
+                    <ChevronRight className="w-3.5 h-3.5 text-sky-300" />
+                  </button>
+                ))}
+                <div className="pt-1.5 mt-1 border-t border-white/10 grid grid-cols-2 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpenLeftSubmenu(null);
+                      onOpenWizardModal();
+                    }}
+                    className="py-1.5 px-2 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 text-sky-200 font-semibold text-[11px] flex items-center justify-center gap-1 cursor-pointer"
+                  >
+                    <Sparkles className="w-3 h-3" />
+                    <span>Sihirbaz</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpenLeftSubmenu(null);
+                      onOpenKitchenIslandModal();
+                    }}
+                    className="py-1.5 px-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.16] text-slate-200 font-semibold text-[11px] text-center cursor-pointer"
+                  >
+                    Ada / Masa
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {(openLeftSubmenu || latchedLeftSubmenu) === "room" && (
+              <div className="space-y-2.5 text-[11px]">
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="space-y-1">
+                    <span className="text-[10px] text-slate-400 block">Duvar (mm)</span>
+                    <input
+                      type="number"
+                      min={1200}
+                      max={12000}
+                      step={100}
+                      value={wallWidthMm}
+                      onChange={(e) =>
+                        onSetRoomDimensions(
+                          Math.max(1200, Number(e.target.value) || wallWidthMm),
+                          ceilingHeightMm
+                        )
+                      }
+                      className="w-full h-7 px-2 rounded-lg bg-black/40 border border-white/15 font-mono text-[11px] text-white"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-[10px] text-slate-400 block">Tavan (mm)</span>
+                    <input
+                      type="number"
+                      min={2000}
+                      max={4500}
+                      step={50}
+                      value={ceilingHeightMm}
+                      onChange={(e) =>
+                        onSetRoomDimensions(
+                          wallWidthMm,
+                          Math.max(2000, Number(e.target.value) || ceilingHeightMm)
+                        )
+                      }
+                      className="w-full h-7 px-2 rounded-lg bg-black/40 border border-white/15 font-mono text-[11px] text-white"
+                    />
+                  </label>
+                </div>
+                <div className="grid grid-cols-3 gap-1">
+                  {(
+                    [
+                      { id: "linear", label: "Düz" },
+                      { id: "l", label: "L Tipi" },
+                      { id: "u", label: "U Tipi" },
+                    ] as const
+                  ).map((kp) => (
+                    <button
+                      key={kp.id}
+                      type="button"
+                      onClick={() => onLoadKitchenPreset(kp.id)}
+                      className="py-1.5 rounded-lg bg-white/[0.08] hover:bg-white/[0.16] text-[10.5px] font-semibold text-slate-200 cursor-pointer"
+                    >
+                      {kp.label}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpenLeftSubmenu(null);
+                    onChangeDrawer("space");
+                  }}
+                  className="w-full py-1.5 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 text-sky-200 font-semibold text-[11px] cursor-pointer"
+                >
+                  Tüm Engel &amp; Duvar Ayarları →
+                </button>
+              </div>
+            )}
+
+            {(openLeftSubmenu || latchedLeftSubmenu) === "modules" && (
+              <div className="space-y-2">
+                <div className="space-y-1 max-h-[220px] overflow-y-auto pr-0.5">
+                  {mainModules.map(({ mod, idx }) => {
+                    const isSel = idx === activeModuleIndex;
+                    return (
+                      <button
+                        key={mod.id}
+                        type="button"
+                        onClick={() => onSelectModuleIndex(idx)}
+                        className={`w-full px-2.5 py-1.5 rounded-xl text-left border flex items-center justify-between gap-2 transition cursor-pointer ${
+                          isSel
+                            ? "bg-[#0284C7]/25 border-sky-400/50 text-white"
+                            : "bg-white/[0.04] hover:bg-white/[0.10] border-transparent text-slate-300"
+                        }`}
+                      >
+                        <div className="min-w-0">
+                          <div className="text-[11px] font-semibold truncate">{mod.name}</div>
+                          <div className="text-[9.5px] font-mono text-slate-400">
+                            {mod.dimensions.width}×{mod.dimensions.height}×{mod.dimensions.depth}
+                          </div>
+                        </div>
+                        <ChevronRight className="w-3.5 h-3.5 shrink-0 text-slate-400" />
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="pt-1.5 border-t border-white/10 grid grid-cols-2 gap-1 text-[10.5px]">
+                  <button
+                    type="button"
+                    onClick={onDuplicateActiveModule}
+                    className="py-1.5 px-2 rounded-lg bg-white/[0.08] hover:bg-white/[0.16] text-slate-200 font-semibold flex items-center justify-center gap-1 cursor-pointer"
+                  >
+                    <Copy className="w-3 h-3 text-sky-300" />
+                    <span>Çoğalt</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onAddStackedTopModule}
+                    className="py-1.5 px-2 rounded-lg bg-white/[0.08] hover:bg-white/[0.16] text-slate-200 font-semibold flex items-center justify-center gap-1 cursor-pointer"
+                  >
+                    <ArrowUpFromLine className="w-3 h-3 text-sky-300" />
+                    <span>Üst Modül</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onFillRemainingWallGap}
+                    className="py-1.5 px-2 rounded-lg bg-white/[0.08] hover:bg-white/[0.16] text-slate-200 font-semibold text-center cursor-pointer"
+                  >
+                    Boşluk Doldur
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpenLeftSubmenu(null);
+                      onChangeDrawer("modules");
+                    }}
+                    className="py-1.5 px-2 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 text-sky-200 font-semibold text-center cursor-pointer"
+                  >
+                    Tüm Liste →
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </AnimatedPopoverPresence>
+
         {/* YÜZEN KÜTÜPHANE / DİZİLİM / MEKÂN ÇEKMECESİ (Dramatik Füme Arduvaz Buzlu Cam + Yay Animasyonlu Açılış/Kapanış) */}
           <section
-            aria-hidden={!isDrawerOpen}
+            inert={!isDrawerOpen ? true : undefined}
             data-testid={activeDrawer ? `v11-left-popover-${activeDrawer}` : "v11-left-popover-closed"}
             className={`birim-dramatic-panel fixed left-[76px] top-[72px] bottom-[84px] w-[408px] max-w-[calc(100vw-96px)] z-30 rounded-3xl bg-[#2A313F]/66 backdrop-blur-2xl border border-white/[0.22] ring-1 ring-black/60 shadow-[0_28px_68px_rgba(0,0,0,0.62)] flex flex-col overflow-hidden text-[#F3F4F6] origin-left will-change-[transform,opacity] transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
               !isDrawerOpen

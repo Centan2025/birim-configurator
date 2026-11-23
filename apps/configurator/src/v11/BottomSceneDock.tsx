@@ -17,6 +17,11 @@ import {
   Move,
   Palette,
   PaintBucket,
+  Camera,
+  ChevronDown,
+  Undo2,
+  Redo2,
+  Scan,
 } from "lucide-react";
 import type { ModuleInstance } from "@birim/core";
 import type { ViewportRenderStyle } from "../store/useConfiguratorStore";
@@ -46,6 +51,10 @@ export interface BottomSceneDockProps {
   onToggleQuickPalette?: () => void;
   paintToolMode?: "none" | "paint" | "eyedropper";
   onTogglePaintBucket?: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
 }
 
 export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
@@ -72,8 +81,13 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
     onToggleQuickPalette,
     paintToolMode = "none",
     onTogglePaintBucket,
+    canUndo = false,
+    canRedo = false,
+    onUndo,
+    onRedo,
   }) => {
     const [scenePopoverOpen, setScenePopoverOpen] = useState(false);
+    const [cameraMenuOpen, setCameraMenuOpen] = useState(false);
     const [sectionPopoverOpen, setSectionPopoverOpen] = useState(false);
     const [activeCam, setActiveCam] = useState<"hero" | "room_front_persp" | "focus_module" | "front" | "side">("hero");
     const [lightMode, setLightMode] = useState<"daylight" | "showroom_warm" | "night_led">(
@@ -388,8 +402,80 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
           </div>
         </AnimatedPopoverPresence>
 
-        {/* TEK BİRLEŞİK DRAMATİK FÜME OBSİDYEN ALT SAHNE KAPSÜLÜ */}
-        <div className="h-12 px-2.5 rounded-full bg-[#2C3341]/66 backdrop-blur-2xl border border-white/[0.22] ring-1 ring-black/50 shadow-[0_20px_50px_rgba(0,0,0,0.48)] flex items-center gap-1.5 text-xs text-[#F3F4F6]">
+        {/* TEK BİRLEŞİK KOYU CAM (GLASSMORPHISM) ALT SAHNE KAPSÜLÜ */}
+        <div className="relative h-12 px-2.5 rounded-full bg-[#1C222E]/82 backdrop-blur-2xl border border-white/[0.18] ring-1 ring-black/55 shadow-[0_20px_50px_rgba(0,0,0,0.52)] flex items-center gap-1.5 text-xs text-[#F3F4F6]">
+          {/* Kamera Açıları Tek Dropdown Menü */}
+          {!isShowroom && (
+            <div className="relative">
+              <button
+                type="button"
+                data-testid="v11-bottom-camera-dropdown-btn"
+                onClick={() => {
+                  setCameraMenuOpen((v) => !v);
+                  setScenePopoverOpen(false);
+                  setSectionPopoverOpen(false);
+                }}
+                title="Kamera Açıları (Genel 3B, Mekân Karşıdan, Yan, Modüle Odaklan)"
+                className={`h-8 px-2.5 rounded-full flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer ${
+                  cameraMenuOpen
+                    ? "bg-[#0284C7] text-white"
+                    : "bg-white/[0.08] hover:bg-white/[0.16] text-slate-100 border border-white/[0.12]"
+                }`}
+              >
+                <Camera className="w-3.5 h-3.5 text-sky-300" />
+                <span className="inline whitespace-nowrap">
+                  {activeCam === "room_front_persp"
+                    ? "Karşıdan"
+                    : activeCam === "focus_module"
+                    ? "Odaklan"
+                    : activeCam === "side"
+                    ? "Yan"
+                    : "Genel 3B"}
+                </span>
+                <ChevronDown className="w-3 h-3 opacity-80" />
+              </button>
+              {cameraMenuOpen && (
+                <div className="absolute bottom-11 left-0 w-44 p-1.5 rounded-2xl bg-[#1C222E]/95 backdrop-blur-2xl border border-white/[0.18] shadow-[0_18px_40px_rgba(0,0,0,0.6)] space-y-0.5 z-50">
+                  {(
+                    [
+                      { id: "hero", label: "Genel 3B" },
+                      { id: "room_front_persp", label: "Mekân Karşıdan" },
+                      { id: "side", label: "Yan Görünüş" },
+                      { id: "focus_module", label: "Modüle Odaklan" },
+                    ] as const
+                  ).map((cam) => (
+                    <button
+                      key={cam.id}
+                      type="button"
+                      onClick={() => {
+                        triggerCamera(cam.id);
+                        setCameraMenuOpen(false);
+                      }}
+                      className={`w-full text-left px-2.5 py-1.5 rounded-xl text-[11px] font-semibold transition cursor-pointer ${
+                        activeCam === cam.id
+                          ? "bg-[#0284C7] text-white"
+                          : "text-slate-200 hover:bg-white/[0.10]"
+                      }`}
+                    >
+                      {cam.label}
+                    </button>
+                  ))}
+                  <div className="my-1 border-t border-white/10" />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      triggerCamera("hero");
+                      setCameraMenuOpen(false);
+                    }}
+                    className="w-full text-left px-2.5 py-1.5 rounded-xl text-[11px] font-semibold text-sky-300 hover:bg-white/[0.10] flex items-center gap-1.5 transition cursor-pointer"
+                  >
+                    <Maximize2 className="w-3 h-3" />
+                    <span>Sahneyi Ortala</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
           {isShowroom && (
             <div className="flex items-center gap-0.5 p-0.5 rounded-full bg-black/40 border border-white/[0.12]">
               {(
@@ -468,7 +554,7 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
                   }`}
                 >
                   <Palette className="w-3.5 h-3.5 text-[#8C6D46]" />
-                  <span className="hidden 2xl:inline">Kartela</span>
+                  <span className="hidden md:inline whitespace-nowrap">Kartela</span>
                 </button>
               )}
 
@@ -507,7 +593,7 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
               }`}
             >
               <DoorOpen className="w-3.5 h-3.5" />
-              
+              <span className="hidden lg:inline whitespace-nowrap">{doorOpenAngleDeg > 10 ? "Kapat" : "Kapak Aç"}</span>
             </button>
 
             <input
@@ -584,8 +670,24 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
             }`}
           >
             <Ruler className="w-3.5 h-3.5" />
-            
+            <span className="hidden lg:inline whitespace-nowrap">Ölçüler</span>
           </button>
+
+          {!isShowroom && (
+            <button
+              type="button"
+              data-testid="v11-bottom-wireframe-btn"
+              onClick={() => onChangeRenderStyle(renderStyle === "wireframe" ? "solid" : "wireframe")}
+              title="Tel Çerçeve (Wireframe) Görünümünü Aç / Kapat"
+              className={`h-8 px-2.5 rounded-full flex items-center gap-1 text-[11px] font-semibold transition cursor-pointer ${
+                renderStyle === "wireframe"
+                  ? "bg-[#0284C7] text-white shadow-sm"
+                  : "hover:bg-white/[0.14] text-slate-200"
+              }`}
+            >
+              <span>Tel</span>
+            </button>
+          )}
 
           <button
             type="button"
@@ -604,21 +706,71 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
           {!isShowroom && (
             <button
               type="button"
+              data-testid="v11-bottom-xray-btn"
+              onClick={() =>
+                onChangeRenderStyle(renderStyle === "transparent" ? "solid" : "transparent")
+              }
+              title="Şeffaf X-Ray Görünümünü Aç / Kapat"
+              className={`h-8 px-2.5 rounded-full flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer ${
+                renderStyle === "transparent"
+                  ? "bg-[#0284C7] text-white shadow-sm"
+                  : "hover:bg-white/[0.14] text-slate-200"
+              }`}
+            >
+              <Scan className="w-3.5 h-3.5" />
+              <span className="inline whitespace-nowrap">X-Ray</span>
+            </button>
+          )}
+
+          {!isShowroom && (
+            <button
+              type="button"
               data-testid="v11-open-scene-settings-btn"
               onClick={() => {
                 setScenePopoverOpen((v) => !v);
                 setSectionPopoverOpen(false);
+                setCameraMenuOpen(false);
               }}
-              title="Sahne Işığı, Zemin Dokusu ve Render Ayarları"
-              className={`h-8 px-3 rounded-full flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer ${
-                scenePopoverOpen || cncXrayMode || renderStyle !== "solid"
-                  ? "bg-[#141413] text-white"
+              title="Ultra PBR Render, Sahne Işığı ve Zemin Ayarları"
+              className={`h-8 px-2.5 rounded-full flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer ${
+                scenePopoverOpen || renderStyle !== "solid"
+                  ? "bg-[#0284C7] text-white"
                   : "hover:bg-white/[0.14] text-slate-200"
               }`}
             >
               <SlidersHorizontal className="w-3.5 h-3.5" />
-              
+              <span className="inline whitespace-nowrap">Ultra PBR</span>
             </button>
+          )}
+
+          {!isShowroom && (onUndo || onRedo) && (
+            <>
+              <span className="h-5 w-px bg-white/15" />
+              <div className="flex items-center gap-0.5">
+                {onUndo && (
+                  <button
+                    type="button"
+                    disabled={!canUndo}
+                    onClick={onUndo}
+                    title="Geri Al (Ctrl+Z)"
+                    className="w-8 h-8 rounded-full flex items-center justify-center text-slate-200 hover:bg-white/[0.14] disabled:opacity-35 transition cursor-pointer"
+                  >
+                    <Undo2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                {onRedo && (
+                  <button
+                    type="button"
+                    disabled={!canRedo}
+                    onClick={onRedo}
+                    title="İleri Al (Ctrl+Y)"
+                    className="w-8 h-8 rounded-full flex items-center justify-center text-slate-200 hover:bg-white/[0.14] disabled:opacity-35 transition cursor-pointer"
+                  >
+                    <Redo2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            </>
           )}
         </div>
       </div>

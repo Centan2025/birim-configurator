@@ -3447,8 +3447,8 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
           });
         }
         let didDiscreteAutoRotate = false;
-        // Smart L/U Wall Auto-Rotate on Side-Wall Snap (Automatically rotates 0° <-> 90° when dragged onto a side wall or back to main wall)
-        if (dragMod && useMagnet) {
+        // Smart L/U Wall Auto-Rotate on Side-Wall Snap (Never auto-flip L-corner cabinets while dragging!)
+        if (dragMod && useMagnet && !dragMod.isCorner) {
           const curRot = (((dragMod.rotation?.y || 0) % 360) + 360) % 360;
           const hasSideWallLeft =
             spaceWalls.some((w) => (((w.rotationY || 0) % 360) + 360) % 360 === 90 && w.position.x <= 80) ||
@@ -3484,7 +3484,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         }
 
         // Automatic Parallel Alignment & Flush Back-Snap to ANY Angled Wall (`30°`, `45°`, `135°`, freehand)!
-        if (dragMod && useMagnet && spaceWalls.some((w) => ((w.rotationY || 0) % 90 + 90) % 90 !== 0)) {
+        if (dragMod && useMagnet && !dragMod.isCorner && spaceWalls.some((w) => ((w.rotationY || 0) % 90 + 90) % 90 !== 0)) {
           const angledSol = solveAngledWallSnapForModule({
             mod: dragMod,
             modIdx: draggingModIdx,
@@ -9375,16 +9375,86 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
     const breakdown = activeModuleBreakdown;
     const data = activeModule2DData;
 
-    const mainWallLen = spaceWalls[0]?.length || 3600;
+    type ElevWallKey = "main" | "left" | "right" | "front";
+    const getModElevWallKey = (m: typeof activeModule): ElevWallKey => {
+      const r = (((m.rotation?.y || 0) % 360) + 360) % 360;
+      if (r < 45 || r > 315) return "main";
+      if (r >= 45 && r < 135) return "left";
+      if (r >= 225 && r <= 315) return "right";
+      return "front";
+    };
+    const activeElevWallKey: ElevWallKey = getModElevWallKey(activeModule);
+    const elevWallMeta: Record<ElevWallKey, { label: string; length: number; indices: number[] }> = {
+      main: { label: "Ana Duvar", length: spaceWalls[0]?.length || 3600, indices: [] },
+      left: {
+        label: "Sol Duvar",
+        length:
+          spaceWalls.find((w) => {
+            const wr = (((w.rotationY || 0) % 360) + 360) % 360;
+            return wr >= 45 && wr < 135 && (w.position?.x || 0) <= 200;
+          })?.length || 2500,
+        indices: [],
+      },
+      right: {
+        label: "Sağ Duvar",
+        length:
+          spaceWalls.find((w) => {
+            const wr = (((w.rotationY || 0) % 360) + 360) % 360;
+            return (wr >= 45 && wr < 135 && (w.position?.x || 0) > 200) || (wr >= 225 && wr <= 315);
+          })?.length || 2500,
+        indices: [],
+      },
+      front: {
+        label: "Karşı Duvar",
+        length: spaceWalls[0]?.length || 3600,
+        indices: [],
+      },
+    };
+    project.modules.forEach((m, idx) => {
+      elevWallMeta[getModElevWallKey(m)].indices.push(idx);
+    });
+    const activeElevWallTabs = (["main", "left", "right", "front"] as ElevWallKey[]).filter(
+      (k) => elevWallMeta[k].indices.length > 0
+    );
+    const leftMaxExtentZ = Math.max(
+      elevWallMeta.left.length,
+      ...elevWallMeta.left.indices.map((i) => {
+        const mm = project.modules[i];
+        const f = getModuleOrientedFootprint(mm, i);
+        return (mm.position.z || 0) + f.planDepth;
+      })
+    );
+    const frontMaxExtentX = Math.max(
+      elevWallMeta.front.length,
+      ...elevWallMeta.front.indices.map((i) => {
+        const mm = project.modules[i];
+        const f = getModuleOrientedFootprint(mm, i);
+        return (mm.position.x || 0) + f.planWidth;
+      })
+    );
+    elevWallMeta.left.length = leftMaxExtentZ;
+    elevWallMeta.front.length = frontMaxExtentX;
+    const getModWallAlongX = (m: typeof activeModule, wk: ElevWallKey): number => {
+      const fp = getModuleOrientedFootprint(m, 0);
+      if (wk === "main") return m.position.x;
+      if (wk === "left") return Math.max(0, leftMaxExtentZ - ((m.position.z || 0) + fp.planDepth));
+      if (wk === "right") return m.position.z || 0;
+      return Math.max(0, frontMaxExtentX - ((m.position.x || 0) + fp.planWidth));
+    };
+    const sameWallModules = project.modules.filter((m) => getModElevWallKey(m) === activeElevWallKey);
+    const mainWallLen = elevWallMeta[activeElevWallKey].length;
     const ceilingH = project.space.ceilingHeight || 2600;
-    const activeModOffX = mode === "elevation" && showRoomContextInElev ? activeModule.position.x : 0;
+    const activeModOffX =
+      mode === "elevation" && showRoomContextInElev
+        ? getModWallAlongX(activeModule, activeElevWallKey)
+        : 0;
     const activeModOffY = mode === "elevation" && showRoomContextInElev ? activeModule.position.y : 0;
     const padX = mode === "elevation" ? 340 : 260;
     const padY = mode === "elevation" ? 280 : 220;
     const maxWallSpanX = Math.max(
       mainWallLen,
-      ...project.modules.map((m) => m.position.x + m.dimensions.width),
-      ...spaceObstacles.map((o) => o.position.x + o.dimensions.width)
+      ...sameWallModules.map((m) => getModWallAlongX(m, activeElevWallKey) + m.dimensions.width),
+      ...(activeElevWallKey === "main" ? spaceObstacles.map((o) => o.position.x + o.dimensions.width) : [])
     );
     const floorSvgY = breakdown.overall.height + activeModOffY;
     const maxWorldTopY = Math.max(
@@ -11000,6 +11070,41 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         </div>
         )}
 
+        {/* 2B TEKNİK ÇALIŞMA EKRANI — SADE DUVAR SEÇİCİ */}
+        {mode === "elevation" && activeElevWallTabs.length > 1 && (
+          <div
+            data-testid="v11-2d-wall-switcher"
+            className="fixed top-[116px] left-1/2 -translate-x-1/2 z-30 inline-flex items-center gap-0.5 p-0.5 rounded-full bg-[#1C222E]/80 backdrop-blur-xl border border-white/12 shadow-md"
+          >
+            {activeElevWallTabs.map((wk) => {
+              const meta = elevWallMeta[wk];
+              const isAct = wk === activeElevWallKey;
+              const modTags = meta.indices.map((i) => `M${i + 1}`).join(", ");
+              const shortLbl = wk === "main" ? "Ana" : wk === "left" ? "Sol" : wk === "right" ? "Sağ" : "Karşı";
+              return (
+                <button
+                  key={wk}
+                  type="button"
+                  title={`${meta.label} (${modTags})`}
+                  onClick={() => {
+                    const targetIdx = meta.indices[0];
+                    if (typeof targetIdx === "number") {
+                      setActiveModuleIndex(targetIdx);
+                    }
+                  }}
+                  className={`h-6 px-2.5 rounded-full text-[11px] font-semibold transition cursor-pointer ${
+                    isAct
+                      ? "bg-white/20 text-white"
+                      : "text-slate-400 hover:text-white hover:bg-white/10"
+                  }`}
+                >
+                  {shortLbl}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         <svg
           data-birim-elev-svg="true"
           viewBox={`${vb.x} ${vb.y} ${vb.width} ${vb.height}`}
@@ -11119,7 +11224,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             <ElevationCeilingSectionSvg
               project={project}
               activeModule={activeModule}
-              wallLeftSvgX={-activeModule.position.x}
+              wallLeftSvgX={-activeModOffX}
               floorSvgY={breakdown.overall.height}
               mainWallLen={Math.max(spaceWalls?.[0]?.length || 3600, activeModule.position.x + activeModule.dimensions.width + 200)}
             />
@@ -11159,7 +11264,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   fontWeight="800"
                   fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
                 >
-                  {`🏠 DUVAR CEPHESİ: ${formatElevationValue(mainWallLen, elevDisplayUnit)} × Tavan ${formatElevationValue(ceilingH, elevDisplayUnit)} (Zemin Y: 0)`}
+                  {`🏠 ${elevWallMeta[activeElevWallKey].label.toUpperCase()} CEPHESİ: ${formatElevationValue(mainWallLen, elevDisplayUnit)} × Tavan ${formatElevationValue(ceilingH, elevDisplayUnit)} (Zemin Y: 0)`}
                 </text>
                 {activeModule && (
                   <ElevationCeilingSectionSvg
@@ -11172,7 +11277,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 )}
 
                 {/* Architectural Obstacles in Elevation (Window, Plumbing, Door, Column, Beam) */}
-                {spaceObstacles.map((obs) => {
+                {(activeElevWallKey === "main" ? spaceObstacles : []).map((obs) => {
                   const ox = wallLeftSvgX + obs.position.x;
                   const ow = obs.dimensions.width;
                   const oh = obs.dimensions.height;
@@ -11717,10 +11822,11 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   );
                 })()}
 
-                {/* ALL Modules Simultaneous Interior Elevation (Every cabinet stays open & directly interactive!) */}
+                {/* ALL Modules Simultaneous Interior Elevation (Filtered to Active Wall — zero L/U overlap!) */}
                 {project.modules.map((m, mIdx) => {
                   if (mIdx === activeModuleIndex) return null;
-                  const mx = wallLeftSvgX + m.position.x;
+                  if (getModElevWallKey(m) !== activeElevWallKey) return null;
+                  const mx = wallLeftSvgX + getModWallAlongX(m, activeElevWallKey);
                   const my = floorSvgY - (m.position.y + m.dimensions.height);
                   return (
                     <NeighborElevationModule

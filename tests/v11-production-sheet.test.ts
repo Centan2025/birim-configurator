@@ -14,7 +14,7 @@ describe("v11 Production Sheet (Pafta Düzeni) Engine", () => {
     const bom = generateBOMForProject(project);
     const pages = buildSheetPages(project);
 
-    expect(pages.length).toBe(1 + project.modules.length * 5);
+    expect(pages.length).toBe(1 + project.modules.length * 6);
     expect(pages[0].kind).toBe("overview");
     expect(pages[0].sheetNo).toBe(`01/${String(pages.length).padStart(2, "0")}`);
 
@@ -108,6 +108,12 @@ describe("v11 Production Sheet (Pafta Düzeni) Engine", () => {
       expect(cuttingSvg).toContain("TAM NET KESİM LİSTESİ");
       expect(cuttingSvg).toContain("HIRDAVAT &amp; AKSESUAR LİSTESİ");
       expect(cuttingSvg).toContain("SUYOLU (GRAIN) &amp; KENAR BANTLAMA ŞEMASI");
+
+      const isoDimsSvg = buildProductionSheetSvgDocument(ctx, pages[6]);
+      expect(isoDimsSvg).toContain("3B İZOMETRİK DIŞ ÖLÇÜLENDİRME");
+      expect(isoDimsSvg).toContain("3B İZOMETRİK İÇ DETAY ÖLÇÜLENDİRME");
+      expect(isoDimsSvg).toContain("cad-iso-dimensions");
+      expect(isoDimsSvg).toContain("cad-iso-interior-dimensions");
     }
   });
 
@@ -148,5 +154,52 @@ describe("v11 Production Sheet (Pafta Düzeni) Engine", () => {
     expect(html).toContain("@page { size: A2 landscape;");
     expect(html).toContain("PATLATILMIŞ MONTAJ PERSPEKTİFİ");
     expect(html).toContain("window.print()");
+  });
+
+  it("renders manufacturer-accurate hinge technical drawings for selected hinge SKUs", () => {
+    const project = createInitialProject();
+    const cases = [
+      { hwId: "hw_hettich_9071205", expectD4: ["9071205", "Hettich Sensys 8645i", "12.8"], expectP5: ["9071205", ">52<"] },
+      { hwId: "hw_blum_71b7550", expectD4: ["71B7550", "155°", "cad-hinge-wide-scissor-arm"], expectP5: ["71B7550", "11.7"] },
+      { hwId: "hw_blum_cristallo", expectD4: ["71B4500C", "CRISTALLO", "30.2 (UV)"], expectP5: ["71B4500C", "DELİKSİZ UV PLAKA"] },
+      { hwId: "hw_blum_expando_t", expectD4: ["71B3550T", "EXPANDO T", "Ø10"], expectP5: ["71B3550T", "2×Ø10×6.0"] },
+      { hwId: "hw_salice_c7p6ae9", expectD4: ["C7P6AE9", "Salice Silentia+", "12 mm"], expectP5: ["C7P6AE9", ">48<"] },
+      { hwId: "hw_grass_tiomos_110", expectD4: ["F045138470", "Grass Tiomos", "12.6"], expectP5: ["F045138470", "12.6"] },
+    ];
+
+    for (const c of cases) {
+      project.modules[0].bays[0].door.hardwareProductId = c.hwId;
+      const bom = generateBOMForProject(project);
+      const pages = buildSheetPages(project);
+      const ctx: SheetBuildContext = {
+        project,
+        bom,
+        spaceWalls: [],
+        spaceObstacles: [],
+        options: {
+          paperFormat: "A3_LANDSCAPE",
+          scale: "auto",
+          unit: "mm",
+          showDimensions: true,
+          showSectionHatch: true,
+          showXrayInterior: false,
+          showBomTable: true,
+          showGridTicks: true,
+        },
+        meta: {
+          companyName: "BİRİM®",
+          projectTitle: project.title,
+          customerOrOrderNo: "ORD-HINGE",
+          drawnBy: "CAD",
+          approvedBy: "Onay",
+          revisionNote: "v1",
+          sheetCodePrefix: "PAFTA",
+        },
+      };
+      const joinerySvg = buildProductionSheetSvgDocument(ctx, pages[2]);
+      const drillingSvg = buildProductionSheetSvgDocument(ctx, pages[4]);
+      for (const token of c.expectD4) expect(joinerySvg).toContain(token);
+      for (const token of c.expectP5) expect(drillingSvg).toContain(token);
+    }
   });
 });

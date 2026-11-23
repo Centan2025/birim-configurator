@@ -79,6 +79,7 @@ export const ProductionSheetStudioModal: React.FC<ProductionSheetStudioModalProp
     showXrayInterior: false,
     showBomTable: true,
     showGridTicks: true,
+    isoCameraSide: "front_right",
   });
 
   const [meta, setMeta] = useState<SheetTitleBlockMeta>(() => ({
@@ -216,6 +217,26 @@ export const ProductionSheetStudioModal: React.FC<ProductionSheetStudioModalProp
             ))}
           </div>
 
+          <div className="flex items-center rounded-lg bg-slate-800 border border-white/10 p-0.5" title="L / U Sistemler için 3B İzometrik Bakış Açısı">
+            {([
+              { id: "front_right", label: "3B Sağ" },
+              { id: "front_left", label: "3B Sol" },
+            ] as const).map((cam) => (
+              <button
+                key={cam.id}
+                type="button"
+                onClick={() => setOptions((prev) => ({ ...prev, isoCameraSide: cam.id }))}
+                className={`px-2 py-1 rounded-md text-[11px] font-bold transition cursor-pointer ${
+                  (options.isoCameraSide || "front_right") === cam.id
+                    ? "bg-sky-600 text-white"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                {cam.label}
+              </button>
+            ))}
+          </div>
+
           <div className="flex items-center gap-1 rounded-lg bg-slate-800 border border-white/10 px-1.5 h-8">
             <button
               type="button"
@@ -337,6 +358,8 @@ export const ProductionSheetStudioModal: React.FC<ProductionSheetStudioModalProp
                           ? "Montaj"
                           : p.kind === "panel_drilling"
                           ? "Delik"
+                          : p.kind === "isometric_dimensions"
+                          ? "3B Ölçü"
                           : "Kesim"}
                       </span>
                     </div>

@@ -12,6 +12,12 @@ import {
   type SheetBuildContext,
   type ViewportBox,
 } from "./productionSheetTypes";
+import {
+  getDetailD4Title,
+  renderHingeDrillingDetail1to1Svg,
+  renderHingeSectionDetailSvg,
+  resolveModuleHingeProfile,
+} from "./hingeTechnicalDrawings";
 
 function formatEdgeBandLabel(c: CutPiece): string {
   const edges: string[] = [];
@@ -39,7 +45,7 @@ function renderLeaderLabel(
     <g>
       <circle cx="${x1.toFixed(1)}" cy="${y1.toFixed(1)}" r="2.2" fill="${CAD_COLORS.ink}" />
       <polyline points="${x1.toFixed(1)},${y1.toFixed(1)} ${x2.toFixed(1)},${y2.toFixed(1)} ${elbowX.toFixed(1)},${y2.toFixed(1)}" fill="none" stroke="${CAD_COLORS.ink}" stroke-width="0.85" />
-      <text x="${tx.toFixed(1)}" y="${(y2 + 3).toFixed(1)}" text-anchor="${align}" font-family="Segoe UI, sans-serif" font-size="9.5" font-weight="700" fill="${CAD_COLORS.ink}">${escXml(label)}</text>
+      <text x="${tx.toFixed(1)}" y="${(y2 + 3).toFixed(1)}" text-anchor="${align}" font-family="Segoe UI, sans-serif" font-size="10.5" font-weight="700" fill="${CAD_COLORS.ink}">${escXml(label)}</text>
     </g>
   `;
 }
@@ -62,9 +68,8 @@ export function renderJoineryDetailsSheet(
   const doorT = mod.carcass.doorThickness || 18;
   const modPieces = ctx.bom.cutList.filter((p) => p.moduleId === mod.id);
   const sampleHinge = modPieces.flatMap((p) => p.holes || []).find((h) => h.purpose === "hinge_cup");
-  const hingeSetback = sampleHinge ? Math.round(sampleHinge.x) : 22;
-  const hingeDia = sampleHinge ? sampleHinge.diameter : 35;
-  const hingeDepth = sampleHinge ? sampleHinge.depth : 12.5;
+  const hingeProfile = resolveModuleHingeProfile(mod, ctx.bom.hardwareList);
+  const hingeSetback = sampleHinge ? Math.round(sampleHinge.x * 10) / 10 : 21.5;
 
   const colW = Math.round(area.w / 2) - 16;
   const rowH = Math.round(area.h / 2) - 16;
@@ -74,7 +79,7 @@ export function renderJoineryDetailsSheet(
     { x: area.x + colW * 0.5, y: area.y + rowH * 0.45, code: "DETAY D1", title: "MİNİFİKS + KAVELA GÖVDE BİRLEŞİMİ (ÖLÇEK 1:2)" },
     { x: area.x + colW * 1.54, y: area.y + rowH * 0.45, code: "DETAY D2", title: "KANALLI ARKALIK BİRLEŞİMİ (ÖLÇEK 1:2)" },
     { x: area.x + colW * 0.5, y: area.y + rowH * 1.49, code: "DETAY D3", title: "BAZA, ALT TABLA & AYARLI AYAK DETAYI (ÖLÇEK 1:2)" },
-    { x: area.x + colW * 1.54, y: area.y + rowH * 1.49, code: "DETAY D4", title: `Ø${hingeDia} MENTEŞE TAS & KAPAK BİNDİRME (ÖLÇEK 1:2)` },
+    { x: area.x + colW * 1.54, y: area.y + rowH * 1.49, code: "DETAY D4", title: getDetailD4Title(hingeProfile) },
   ];
 
   const circleFrame = (idx: number, body: string) => {
@@ -178,94 +183,17 @@ export function renderJoineryDetailsSheet(
     `;
   })();
 
-  // D4: Real Mechanical Cup Hinge Drawing driven by actual module hinge SKU & overlayType
-  const d4 = (() => {
-    const { x, y } = centers[3];
-    const hingeHw = ctx.bom.hardwareList.find(
-      (h) => h.category === "hinge" || h.name.toLowerCase().includes("menteşe")
-    );
-    const firstHingedBay = mod.bays.find(
-      (b) =>
-        b.door?.overlayType ||
-        b.door?.type === "single_left" ||
-        b.door?.type === "single_right" ||
-        b.door?.type === "double" ||
-        b.door?.type?.startsWith("inset_") ||
-        b.door?.type?.startsWith("half_overlay_")
-    );
-    const doorTypeStr = firstHingedBay?.door?.type || "";
-    const overlayType =
-      firstHingedBay?.door?.overlayType ||
-      (doorTypeStr.startsWith("inset_")
-        ? "inset"
-        : doorTypeStr.startsWith("half_overlay_")
-        ? "half_overlay"
-        : "full_overlay");
-    const hwNameLower = (hingeHw?.name || "").toLowerCase();
-    const isInset = overlayType === "inset" || hwNameLower.includes("hemzemin") || hwNameLower.includes("içte");
-    const isHalf = overlayType === "half_overlay" || hwNameLower.includes("yarı");
-    const is155 = hwNameLower.includes("155");
-    const openAngle = is155 ? 155 : 110;
-    const crankLabel = isInset ? "İçte (18mm Krank)" : isHalf ? "Yarı Bini (9.5mm)" : "Tam Bini (0mm Düz)";
-
-    const s = 2.4; // 2.4 px/mm
-    const pT = T * s;
-    const dT = doorT * s;
-    const gap = 2.5 * s;
-    const cupW = hingeDia * s; // 35mm -> 84px
-    const cupD = hingeDepth * s; // 12.5mm -> 30px
-    const tbMm = Math.max(3, Math.round((hingeSetback - hingeDia / 2) * 10) / 10); // K/TB edge distance (~4.5mm)
-
-    const sideX = x - 74;
-    const sideFrontY = isInset ? y - dT - gap : y + 12;
-    const overlayMm = isInset ? 0 : isHalf ? Math.round(T / 2 - 2) : Math.max(0, T - 2);
-    const doorLeftX = isInset
-      ? sideX + pT + 2.5 * s
-      : sideX + pT - overlayMm * s;
-    const doorTopY = isInset ? sideFrontY : sideFrontY - gap - dT;
-    const doorBotY = doorTopY + dT;
-    const cupCx = doorLeftX + hingeSetback * s;
-
-    // Hinge arm path based on real crank type (0mm straight / 9.5mm half / 18mm inset)
-    const plateY = sideFrontY + 37 * s;
-    const armCrankPath = isInset
-      ? `M ${cupCx},${doorBotY - 2} L ${cupCx},${sideFrontY + 14 * s} L ${sideX + pT + 3 * s},${sideFrontY + 14 * s} L ${sideX + pT + 3 * s},${plateY + 12}`
-      : isHalf
-      ? `M ${cupCx},${doorBotY - 2} L ${cupCx},${sideFrontY + 6 * s} L ${sideX + pT + 3 * s},${sideFrontY + 16 * s} L ${sideX + pT + 3 * s},${plateY + 12}`
-      : `M ${cupCx},${doorBotY - 2} L ${cupCx},${sideFrontY + 12 * s} L ${sideX + pT + 3 * s},${plateY + 12}`;
-
-    return `
-      <!-- Side Panel (18mm cross-section) -->
-      <rect x="${sideX}" y="${sideFrontY}" width="${pT}" height="${R + 10}" fill="url(#${hatchId})" stroke="${CAD_COLORS.ink}" stroke-width="1.6" />
-      <!-- Door Panel positioned per overlayType -->
-      <rect x="${doorLeftX}" y="${doorTopY}" width="155" height="${dT}" fill="url(#${hatchId})" stroke="${CAD_COLORS.ink}" stroke-width="1.6" />
-      <!-- Ø35 Hinge Cup Pocket milled into door inner face -->
-      <rect x="${cupCx - cupW / 2}" y="${doorBotY - cupD}" width="${cupW}" height="${cupD}" fill="#FFFFFF" stroke="${CAD_COLORS.ink}" stroke-width="1.3" />
-      <!-- Hinge Cup Lip (Ø40, 2mm) -->
-      <rect x="${cupCx - cupW / 2 - 5}" y="${doorBotY - 3.5}" width="${cupW + 10}" height="3.5" fill="#94A3B8" stroke="${CAD_COLORS.ink}" stroke-width="0.9" />
-      <!-- Hinge Cup Centerline -->
-      <line x1="${cupCx}" y1="${doorTopY - 14}" x2="${cupCx}" y2="${doorBotY + 28}" stroke="${CAD_COLORS.plane}" stroke-width="0.85" stroke-dasharray="5 2 1.5 2" />
-      <!-- Cruciform Mounting Plate on inner face of side panel (37mm setback, 32mm hole pitch) -->
-      <rect x="${sideX + pT}" y="${plateY - 16 * s}" width="${6 * s}" height="${32 * s}" fill="#CBD5E1" stroke="${CAD_COLORS.ink}" stroke-width="1.1" />
-      <circle cx="${sideX + pT + 3 * s}" cy="${plateY - 8 * s}" r="2.6" fill="#FFFFFF" stroke="${CAD_COLORS.ink}" stroke-width="0.9" />
-      <circle cx="${sideX + pT + 3 * s}" cy="${plateY + 8 * s}" r="2.6" fill="#FFFFFF" stroke="${CAD_COLORS.ink}" stroke-width="0.9" />
-      <!-- Articulated Hinge Arm -->
-      <path d="${armCrankPath}" fill="none" stroke="${CAD_COLORS.ink}" stroke-width="5" stroke-linejoin="round" stroke-linecap="round" />
-      <path d="${armCrankPath}" fill="none" stroke="#E2E8F0" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
-      <!-- Hinge Dimensions -->
-      ${renderDimLine(doorLeftX, doorTopY - 22, cupCx - cupW / 2, doorTopY - 22, `K=${tbMm}`, "horizontal", doorTopY)}
-      ${renderDimLine(cupCx - cupW / 2, doorBotY + 22, cupCx + cupW / 2, doorBotY + 22, `Ø${hingeDia}`, "horizontal", doorBotY)}
-      ${renderDimLine(sideX, sideFrontY + 124, sideX + pT, sideFrontY + 124, `${T}`, "horizontal", sideFrontY + 105)}
-      ${renderDimLine(cupCx + cupW / 2 + 16, sideFrontY, cupCx + cupW / 2 + 16, plateY, "37", "vertical", sideX + pT)}
-      ${
-        overlayMm > 0
-          ? renderDimLine(doorLeftX, doorTopY - 46, sideX + pT, doorTopY - 46, `Bini ${overlayMm}`, "horizontal", doorTopY)
-          : ""
-      }
-      <text x="${x}" y="${y - R + 36}" text-anchor="middle" font-family="ui-monospace, monospace" font-size="7.8" font-weight="800" fill="${CAD_COLORS.plane}">${escXml((hingeHw?.sku || "71B3550") + " • " + openAngle + "° • " + crankLabel)}</text>
-      ${renderLeaderLabel(cupCx + cupW * 0.25, doorBotY - cupD * 0.5, cupCx + 42, doorTopY - 28, `Derinlik ${hingeDepth} mm`, "start")}
-    `;
-  })();
+  // D4: Seçili menteşe modeli için gerçek üretici teknik kesit çizimi (Blum / Hettich / Salice / Grass)
+  const d4 = renderHingeSectionDetailSvg({
+    cx: centers[3].x,
+    cy: centers[3].y,
+    R,
+    panelT: T,
+    doorT,
+    hingeSetbackMm: hingeSetback,
+    hatchId,
+    profile: hingeProfile,
+  });
 
   return circleFrame(0, d1) + circleFrame(1, d2) + circleFrame(2, d3) + circleFrame(3, d4);
 }
@@ -422,7 +350,7 @@ export function renderExplodedBomSheet(
       return `
         <line x1="${arr.from.x}" y1="${arr.from.y}" x2="${arr.to.x}" y2="${arr.to.y}" stroke="${CAD_COLORS.plane}" stroke-width="1.1" stroke-dasharray="4.5 2.5" marker-end="url(#${markerId})" />
         <circle cx="${mx.toFixed(1)}" cy="${my.toFixed(1)}" r="7.5" fill="${CAD_COLORS.plane}" stroke="#FFFFFF" stroke-width="1.1" />
-        <text x="${mx.toFixed(1)}" y="${(my + 2.8).toFixed(1)}" text-anchor="middle" font-family="ui-monospace, monospace" font-size="8.2" font-weight="800" fill="#FFFFFF">${arr.stepNo}</text>
+        <text x="${mx.toFixed(1)}" y="${(my + 2.8).toFixed(1)}" text-anchor="middle" font-family="ui-monospace, monospace" font-size="9.5" font-weight="800" fill="#FFFFFF">${arr.stepNo}</text>
       `;
     })
     .join("");
@@ -469,8 +397,8 @@ export function renderExplodedBomSheet(
           <circle cx="${ax.toFixed(1)}" cy="${ay.toFixed(1)}" r="2.6" fill="${CAD_COLORS.ink}" stroke="#FFFFFF" stroke-width="0.9" />
           <rect x="${pillX}" y="${(ly - pillH / 2).toFixed(1)}" width="${pillW}" height="${pillH}" rx="4" fill="#FFFFFF" stroke="${CAD_COLORS.ink}" stroke-width="0.9" />
           <rect x="${pillX + 2}" y="${(ly - pillH / 2 + 2).toFixed(1)}" width="36" height="${pillH - 4}" rx="2.5" fill="${CAD_COLORS.ink}" />
-          <text x="${pillX + 20}" y="${(ly + 2.8).toFixed(1)}" text-anchor="middle" font-family="ui-monospace, monospace" font-size="7.4" font-weight="800" fill="#FFFFFF">${escXml(badgeText.slice(0, 8))}</text>
-          <text x="${pillX + 42}" y="${(ly + 3).toFixed(1)}" font-family="Segoe UI, sans-serif" font-size="7.6" font-weight="700" fill="${CAD_COLORS.ink}">${escXml(c.label.slice(0, 15))}</text>
+          <text x="${pillX + 20}" y="${(ly + 2.8).toFixed(1)}" text-anchor="middle" font-family="ui-monospace, monospace" font-size="9.5" font-weight="800" fill="#FFFFFF">${escXml(badgeText.slice(0, 8))}</text>
+          <text x="${pillX + 42}" y="${(ly + 3).toFixed(1)}" font-family="Segoe UI, sans-serif" font-size="9.5" font-weight="700" fill="${CAD_COLORS.ink}">${escXml(c.label.slice(0, 15))}</text>
         `;
       })
       .join("");
@@ -486,10 +414,10 @@ export function renderExplodedBomSheet(
   const tblHeader = `
     <text x="${rightX}" y="${area.y + 14}" font-family="Segoe UI, sans-serif" font-size="11" font-weight="800" fill="${CAD_COLORS.ink}">PARÇA POZ LİSTESİ (BOM — ${modPieces.length} KALEM)</text>
     <rect x="${rightX}" y="${tblY}" width="${rightW}" height="17" fill="#E2E8F0" stroke="${CAD_COLORS.ink}" stroke-width="0.9" />
-    <text x="${rightX + 6}" y="${tblY + 12}" font-family="ui-monospace, monospace" font-size="8.5" font-weight="800" fill="${CAD_COLORS.ink}">POZ</text>
-    <text x="${rightX + 38}" y="${tblY + 12}" font-family="Segoe UI, sans-serif" font-size="8.5" font-weight="800" fill="${CAD_COLORS.ink}">PARÇA ADI</text>
-    <text x="${rightX + rightW - 38}" y="${tblY + 12}" text-anchor="end" font-family="ui-monospace, monospace" font-size="8.5" font-weight="800" fill="${CAD_COLORS.ink}">ÖLÇÜ (mm)</text>
-    <text x="${rightX + rightW - 6}" y="${tblY + 12}" text-anchor="end" font-family="ui-monospace, monospace" font-size="8.5" font-weight="800" fill="${CAD_COLORS.ink}">AD</text>
+    <text x="${rightX + 6}" y="${tblY + 12}" font-family="ui-monospace, monospace" font-size="9.5" font-weight="800" fill="${CAD_COLORS.ink}">POZ</text>
+    <text x="${rightX + 38}" y="${tblY + 12}" font-family="Segoe UI, sans-serif" font-size="9.5" font-weight="800" fill="${CAD_COLORS.ink}">PARÇA ADI</text>
+    <text x="${rightX + rightW - 38}" y="${tblY + 12}" text-anchor="end" font-family="ui-monospace, monospace" font-size="9.5" font-weight="800" fill="${CAD_COLORS.ink}">ÖLÇÜ (mm)</text>
+    <text x="${rightX + rightW - 6}" y="${tblY + 12}" text-anchor="end" font-family="ui-monospace, monospace" font-size="9.5" font-weight="800" fill="${CAD_COLORS.ink}">AD</text>
   `;
   const rows = modPieces
     .map((p, i) => {
@@ -524,13 +452,13 @@ export function renderExplodedBomSheet(
     ${steps
       .map(
         (st, idx) =>
-          `<text x="${rightX}" y="${stepsY + 14.5 + idx * 13.5}" font-family="Segoe UI, sans-serif" font-size="8.6" fill="${CAD_COLORS.subInk}">${escXml(st)}</text>`
+          `<text x="${rightX}" y="${stepsY + 14.5 + idx * 13.5}" font-family="Segoe UI, sans-serif" font-size="9.5" fill="${CAD_COLORS.subInk}">${escXml(st)}</text>`
       )
       .join("")}
     ${
       hwSummary
         ? `<rect x="${rightX}" y="${stepsY + 99}" width="${rightW}" height="18" rx="3" fill="#F1F5F9" stroke="#CBD5E1" stroke-width="0.7" />
-           <text x="${rightX + 6}" y="${stepsY + 111}" font-family="ui-monospace, monospace" font-size="8" font-weight="700" fill="${CAD_COLORS.ink}">HIRDAVAT: ${escXml(hwSummary)}</text>`
+           <text x="${rightX + 6}" y="${stepsY + 111}" font-family="ui-monospace, monospace" font-size="9.5" font-weight="700" fill="${CAD_COLORS.ink}">HIRDAVAT: ${escXml(hwSummary)}</text>`
         : ""
     }
   `;
@@ -600,7 +528,7 @@ export function renderPanelDrillingSheet(
           const gx = rx + rw - (gOff + gWmm) * s;
           return `<rect x="${gx.toFixed(1)}" y="${ry.toFixed(1)}" width="${Math.max(2, gW).toFixed(1)}" height="${rh.toFixed(1)}" fill="#E2E8F0" stroke="${CAD_COLORS.ink}" stroke-width="0.9" />
                   <line x1="${(gx + gW / 2).toFixed(1)}" y1="${(ry + rh).toFixed(1)}" x2="${(gx + gW / 2).toFixed(1)}" y2="${(ry + rh + 16).toFixed(1)}" stroke="${CAD_COLORS.ink}" stroke-width="0.7" />
-                  <text x="${(rx + rw).toFixed(1)}" y="${(ry + rh + 26).toFixed(1)}" text-anchor="end" font-family="ui-monospace, monospace" font-size="8" font-weight="700" fill="${CAD_COLORS.ink}">Kanal ${gWmm} (${gOff}mm)</text>`;
+                  <text x="${(rx + rw).toFixed(1)}" y="${(ry + rh + 26).toFixed(1)}" text-anchor="end" font-family="ui-monospace, monospace" font-size="9.5" font-weight="700" fill="${CAD_COLORS.ink}">Kanal ${gWmm} (${gOff}mm)</text>`;
         })()
       : "";
 
@@ -669,7 +597,7 @@ export function renderPanelDrillingSheet(
 
     const originSvg = `
       <circle cx="${rx.toFixed(1)}" cy="${(ry + rh).toFixed(1)}" r="4.5" fill="none" stroke="${CAD_COLORS.dim}" stroke-width="1.2" />
-      <text x="${(rx - 8).toFixed(1)}" y="${(ry + rh + 14).toFixed(1)}" text-anchor="end" font-family="ui-monospace, monospace" font-size="8" font-weight="800" fill="${CAD_COLORS.dim}">(0,0)</text>
+      <text x="${(rx - 8).toFixed(1)}" y="${(ry + rh + 14).toFixed(1)}" text-anchor="end" font-family="ui-monospace, monospace" font-size="9.5" font-weight="800" fill="${CAD_COLORS.dim}">(0,0)</text>
     `;
 
     return `
@@ -713,38 +641,20 @@ export function renderPanelDrillingSheet(
   const hCx = rightX + rightW * 0.5;
   const hCy = area.y + 98;
   const hR = 78;
-  const ds = 1.65;
-  const doorEdgeX = hCx - 42;
-  const cupSvgCx = doorEdgeX + cupSetbackMm * ds;
-  const dowelSvgCx = cupSvgCx + dowelOffsetMm * ds;
-  const dowelHalfY = (dowelPitchMm / 2) * ds;
-  const cupRadiusPx = (cupDiaMm / 2) * ds;
-  const hingeClipId = `hinge-1to1-clip-${mod.id}`;
-  const hingeDetailSvg = `
-    <defs><clipPath id="${hingeClipId}"><circle cx="${hCx}" cy="${hCy}" r="${hR - 1}" /></clipPath></defs>
-    <circle cx="${hCx}" cy="${hCy}" r="${hR}" fill="#F8FAFC" stroke="${CAD_COLORS.ink}" stroke-width="1.3" />
-    <g clip-path="url(#${hingeClipId})">
-      <!-- Door interior panel body -->
-      <rect x="${doorEdgeX}" y="${hCy - hR}" width="${hR * 2}" height="${hR * 2}" fill="#FFFFFF" />
-      <!-- Thick Vertical Door Edge Line + 1mm PVC Edgeband Highlight -->
-      <rect x="${doorEdgeX - 3}" y="${hCy - hR}" width="3" height="${hR * 2}" fill="#CBD5E1" />
-      <line x1="${doorEdgeX}" y1="${hCy - hR}" x2="${doorEdgeX}" y2="${hCy + hR}" stroke="${CAD_COLORS.ink}" stroke-width="2" />
-      <!-- Centerlines -->
-      <line x1="${doorEdgeX - 8}" y1="${hCy}" x2="${dowelSvgCx + 22}" y2="${hCy}" stroke="${CAD_COLORS.plane}" stroke-width="0.75" stroke-dasharray="5 1.5 1.5 1.5" />
-      <line x1="${cupSvgCx}" y1="${hCy - cupRadiusPx - 16}" x2="${cupSvgCx}" y2="${hCy + cupRadiusPx + 14}" stroke="${CAD_COLORS.plane}" stroke-width="0.75" stroke-dasharray="5 1.5 1.5 1.5" />
-      <line x1="${dowelSvgCx}" y1="${hCy - dowelHalfY - 12}" x2="${dowelSvgCx}" y2="${hCy + dowelHalfY + 12}" stroke="${CAD_COLORS.plane}" stroke-width="0.65" stroke-dasharray="4 1.5 1 1.5" />
-      <!-- Ø35 Cup Pocket & 2×Ø8 Dowel Holes -->
-      <circle cx="${cupSvgCx}" cy="${hCy}" r="${cupRadiusPx}" fill="#FFFFFF" stroke="${CAD_COLORS.dim}" stroke-width="1.5" />
-      <circle cx="${dowelSvgCx}" cy="${hCy - dowelHalfY}" r="${4 * ds}" fill="#FFFFFF" stroke="${CAD_COLORS.ink}" stroke-width="1.2" />
-      <circle cx="${dowelSvgCx}" cy="${hCy + dowelHalfY}" r="${4 * ds}" fill="#FFFFFF" stroke="${CAD_COLORS.ink}" stroke-width="1.2" />
-      <!-- Clear Labels & Dimensions -->
-      ${renderDimLine(doorEdgeX, hCy - cupRadiusPx - 14, cupSvgCx, hCy - cupRadiusPx - 14, `${cupSetbackMm}`, "horizontal", hCy - cupRadiusPx)}
-      ${renderDimLine(dowelSvgCx + 18, hCy - dowelHalfY, dowelSvgCx + 18, hCy + dowelHalfY, `${dowelPitchMm}`, "vertical", dowelSvgCx)}
-      ${renderDimLine(doorEdgeX, hCy + cupRadiusPx + 14, cupSvgCx - cupRadiusPx, hCy + cupRadiusPx + 14, `K=${kMarginMm}`, "horizontal", hCy)}
-      <text x="${cupSvgCx}" y="${hCy - 10}" text-anchor="middle" font-family="ui-monospace, monospace" font-size="9.5" font-weight="800" fill="${CAD_COLORS.dim}">Ø${cupDiaMm}</text>
-    </g>
-    ${renderViewCaption(hCx, hCy + hR + 16, "MENTEŞE TAS DELİĞİ (1:1)", `Derinlik: ${cupDepthMm} mm • ${dowelPitchMm}×${dowelOffsetMm} mm • K=${kMarginMm}`)}
-  `;
+  const hingeProfile = resolveModuleHingeProfile(mod, ctx.bom.hardwareList);
+  const hingeDetailSvg = renderHingeDrillingDetail1to1Svg({
+    hCx,
+    hCy,
+    hR,
+    modId: mod.id,
+    cupDiaMm,
+    cupDepthMm,
+    cupSetbackMm,
+    dowelPitchMm,
+    dowelOffsetMm,
+    kMarginMm,
+    profile: hingeProfile,
+  });
 
   // Structured Non-Truncated Hole Coordinate Rows (All Hinge Cups + Key Carcass Joinery)
   interface CoordRow {
@@ -822,28 +732,28 @@ export function renderPanelDrillingSheet(
   }
 
   const tblY = area.y + 232;
-  const maxRows = Math.min(coordRows.length, Math.max(8, Math.floor((area.h - 252) / 17)));
-  const rowH = 17;
+  const maxRows = Math.min(coordRows.length, Math.max(8, Math.floor((area.h - 252) / 19)));
+  const rowH = 19;
   const coordTbl = `
     <text x="${rightX}" y="${tblY - 8}" font-family="Segoe UI, sans-serif" font-size="11" font-weight="800" fill="${CAD_COLORS.ink}">DELİK KOORDİNAT TABLOSU (ELLE &amp; CNC)</text>
-    <rect x="${rightX}" y="${tblY}" width="${rightW}" height="18" fill="#E2E8F0" stroke="${CAD_COLORS.ink}" stroke-width="0.9" />
-    <text x="${rightX + 6}" y="${tblY + 13}" font-size="8.5" font-weight="800" fill="${CAD_COLORS.ink}">PARÇA</text>
-    <text x="${rightX + 104}" y="${tblY + 13}" font-size="8.5" font-weight="800" fill="${CAD_COLORS.ink}">AMAÇ</text>
-    <text x="${rightX + 196}" y="${tblY + 13}" font-family="ui-monospace, monospace" font-size="8.5" font-weight="800" fill="${CAD_COLORS.ink}">X (mm)</text>
-    <text x="${rightX + 270}" y="${tblY + 13}" font-family="ui-monospace, monospace" font-size="8.5" font-weight="800" fill="${CAD_COLORS.ink}">Y (mm)</text>
-    <text x="${rightX + rightW - 6}" y="${tblY + 13}" text-anchor="end" font-family="ui-monospace, monospace" font-size="8.5" font-weight="800" fill="${CAD_COLORS.ink}">Ø / DER.</text>
+    <rect x="${rightX}" y="${tblY}" width="${rightW}" height="20" fill="#E2E8F0" stroke="${CAD_COLORS.ink}" stroke-width="0.9" />
+    <text x="${rightX + 6}" y="${tblY + 14.5}" font-size="9.5" font-weight="800" fill="${CAD_COLORS.ink}">PARÇA</text>
+    <text x="${rightX + 104}" y="${tblY + 14.5}" font-size="9.5" font-weight="800" fill="${CAD_COLORS.ink}">AMAÇ</text>
+    <text x="${rightX + 196}" y="${tblY + 14.5}" font-family="ui-monospace, monospace" font-size="9.5" font-weight="800" fill="${CAD_COLORS.ink}">X (mm)</text>
+    <text x="${rightX + 270}" y="${tblY + 14.5}" font-family="ui-monospace, monospace" font-size="9.5" font-weight="800" fill="${CAD_COLORS.ink}">Y (mm)</text>
+    <text x="${rightX + rightW - 6}" y="${tblY + 14.5}" text-anchor="end" font-family="ui-monospace, monospace" font-size="9.5" font-weight="800" fill="${CAD_COLORS.ink}">Ø / DER.</text>
     ${coordRows
       .slice(0, maxRows)
       .map((h, i) => {
-        const y = tblY + 18 + i * rowH;
+        const y = tblY + 20 + i * rowH;
         const isCup = h.piece.startsWith("Kapak Tas #");
         return `
           <rect x="${rightX}" y="${y}" width="${rightW}" height="${rowH}" fill="${isCup ? "#FEF2F2" : i % 2 ? "#F8FAFC" : "#FFFFFF"}" stroke="#CBD5E1" stroke-width="0.6" />
-          <text x="${rightX + 6}" y="${y + 12.5}" font-size="8.2" font-weight="${isCup ? "800" : "700"}" fill="${CAD_COLORS.ink}">${escXml(h.piece)}</text>
-          <text x="${rightX + 104}" y="${y + 12.5}" font-size="8.2" fill="${CAD_COLORS.subInk}">${escXml(h.purpose)}</text>
-          <text x="${rightX + 196}" y="${y + 12.5}" font-family="ui-monospace, monospace" font-size="8.2" fill="${CAD_COLORS.ink}">${escXml(h.xLabel)}</text>
-          <text x="${rightX + 270}" y="${y + 12.5}" font-family="ui-monospace, monospace" font-size="8.2" fill="${CAD_COLORS.ink}">${escXml(h.yLabel)}</text>
-          <text x="${rightX + rightW - 6}" y="${y + 12.5}" text-anchor="end" font-family="ui-monospace, monospace" font-size="8.2" font-weight="800" fill="${isCup ? CAD_COLORS.dim : CAD_COLORS.ink}">${escXml(h.spec)}</text>
+          <text x="${rightX + 6}" y="${y + 13.8}" font-size="9.5" font-weight="${isCup ? "800" : "700"}" fill="${CAD_COLORS.ink}">${escXml(h.piece)}</text>
+          <text x="${rightX + 104}" y="${y + 13.8}" font-size="9.5" fill="${CAD_COLORS.subInk}">${escXml(h.purpose)}</text>
+          <text x="${rightX + 196}" y="${y + 13.8}" font-family="ui-monospace, monospace" font-size="9.5" fill="${CAD_COLORS.ink}">${escXml(h.xLabel)}</text>
+          <text x="${rightX + 270}" y="${y + 13.8}" font-family="ui-monospace, monospace" font-size="9.5" fill="${CAD_COLORS.ink}">${escXml(h.yLabel)}</text>
+          <text x="${rightX + rightW - 6}" y="${y + 13.8}" text-anchor="end" font-family="ui-monospace, monospace" font-size="9.5" font-weight="800" fill="${isCup ? CAD_COLORS.dim : CAD_COLORS.ink}">${escXml(h.spec)}</text>
         `;
       })
       .join("")}
@@ -885,12 +795,12 @@ export function renderCuttingEdgebandSheet(
   const cutHeader = `
     <text x="${area.x}" y="${area.y + 16}" font-family="Segoe UI, sans-serif" font-size="11.5" font-weight="800" fill="${CAD_COLORS.ink}">TAM NET KESİM LİSTESİ (${modPieces.length} KALEM — TESTERE ÖLÇÜSÜ mm)</text>
     <rect x="${area.x}" y="${tblY}" width="${leftW}" height="20" fill="#E2E8F0" stroke="${CAD_COLORS.ink}" stroke-width="0.9" />
-    <text x="${col.no}" y="${tblY + 14}" font-family="ui-monospace, monospace" font-size="9" font-weight="800" fill="${CAD_COLORS.ink}">#</text>
-    <text x="${col.name}" y="${tblY + 14}" font-family="Segoe UI, sans-serif" font-size="9" font-weight="800" fill="${CAD_COLORS.ink}">PARÇA ADI</text>
-    <text x="${col.dim}" y="${tblY + 14}" text-anchor="end" font-family="ui-monospace, monospace" font-size="9" font-weight="800" fill="${CAD_COLORS.ink}">KESİM (mm)*</text>
-    <text x="${col.qty}" y="${tblY + 14}" text-anchor="end" font-family="ui-monospace, monospace" font-size="9" font-weight="800" fill="${CAD_COLORS.ink}">AD</text>
-    <text x="${col.mat}" y="${tblY + 14}" font-family="Segoe UI, sans-serif" font-size="9" font-weight="800" fill="${CAD_COLORS.ink}">MALZEME</text>
-    <text x="${col.pvc}" y="${tblY + 14}" text-anchor="end" font-family="ui-monospace, monospace" font-size="9" font-weight="800" fill="${CAD_COLORS.ink}">KENAR BANDI</text>
+    <text x="${col.no}" y="${tblY + 14}" font-family="ui-monospace, monospace" font-size="10" font-weight="800" fill="${CAD_COLORS.ink}">#</text>
+    <text x="${col.name}" y="${tblY + 14}" font-family="Segoe UI, sans-serif" font-size="10" font-weight="800" fill="${CAD_COLORS.ink}">PARÇA ADI</text>
+    <text x="${col.dim}" y="${tblY + 14}" text-anchor="end" font-family="ui-monospace, monospace" font-size="10" font-weight="800" fill="${CAD_COLORS.ink}">KESİM (mm)*</text>
+    <text x="${col.qty}" y="${tblY + 14}" text-anchor="end" font-family="ui-monospace, monospace" font-size="10" font-weight="800" fill="${CAD_COLORS.ink}">AD</text>
+    <text x="${col.mat}" y="${tblY + 14}" font-family="Segoe UI, sans-serif" font-size="10" font-weight="800" fill="${CAD_COLORS.ink}">MALZEME</text>
+    <text x="${col.pvc}" y="${tblY + 14}" text-anchor="end" font-family="ui-monospace, monospace" font-size="10" font-weight="800" fill="${CAD_COLORS.ink}">KENAR BANDI</text>
   `;
 
   const cutRows = modPieces
@@ -917,8 +827,8 @@ export function renderCuttingEdgebandSheet(
       const y = tblY + 20 + i * hwRowH;
       return `
         <rect x="${rightX}" y="${y}" width="${rightW}" height="${hwRowH}" fill="${i % 2 ? "#F8FAFC" : "#FFFFFF"}" stroke="#CBD5E1" stroke-width="0.6" />
-        <text x="${rightX + 8}" y="${y + 13}" font-family="Segoe UI, sans-serif" font-size="9" font-weight="600" fill="${CAD_COLORS.ink}">${escXml(h.name.slice(0, 34))}</text>
-        <text x="${rightX + rightW - 8}" y="${y + 13}" text-anchor="end" font-family="ui-monospace, monospace" font-size="9" font-weight="800" fill="${CAD_COLORS.ink}">${h.quantity} ${escXml(h.unit)}</text>
+        <text x="${rightX + 8}" y="${y + 13}" font-family="Segoe UI, sans-serif" font-size="10" font-weight="600" fill="${CAD_COLORS.ink}">${escXml(h.name.slice(0, 34))}</text>
+        <text x="${rightX + rightW - 8}" y="${y + 13}" text-anchor="end" font-family="ui-monospace, monospace" font-size="10" font-weight="800" fill="${CAD_COLORS.ink}">${h.quantity} ${escXml(h.unit)}</text>
       `;
     })
     .join("");
@@ -926,8 +836,8 @@ export function renderCuttingEdgebandSheet(
   const hwSvg = `
     <text x="${rightX}" y="${area.y + 16}" font-family="Segoe UI, sans-serif" font-size="11.5" font-weight="800" fill="${CAD_COLORS.ink}">HIRDAVAT &amp; AKSESUAR LİSTESİ</text>
     <rect x="${rightX}" y="${tblY}" width="${rightW}" height="20" fill="#E2E8F0" stroke="${CAD_COLORS.ink}" stroke-width="0.9" />
-    <text x="${rightX + 8}" y="${tblY + 14}" font-size="9" font-weight="800" fill="${CAD_COLORS.ink}">DONANIM</text>
-    <text x="${rightX + rightW - 8}" y="${tblY + 14}" text-anchor="end" font-size="9" font-weight="800" fill="${CAD_COLORS.ink}">MİKTAR</text>
+    <text x="${rightX + 8}" y="${tblY + 14}" font-size="10" font-weight="800" fill="${CAD_COLORS.ink}">DONANIM</text>
+    <text x="${rightX + rightW - 8}" y="${tblY + 14}" text-anchor="end" font-size="10" font-weight="800" fill="${CAD_COLORS.ink}">MİKTAR</text>
     ${hwRows}
   `;
 
@@ -942,15 +852,15 @@ export function renderCuttingEdgebandSheet(
     <text x="${rightX}" y="${diagY}" font-family="Segoe UI, sans-serif" font-size="11" font-weight="800" fill="${CAD_COLORS.ink}">SUYOLU (GRAIN) &amp; KENAR BANTLAMA ŞEMASI</text>
     <line x1="${rightX + 8}" y1="${diagY + 20}" x2="${rightX + 42}" y2="${diagY + 20}" stroke="${CAD_COLORS.ink}" stroke-width="1" />
     <polygon points="${rightX + 42},${diagY + 20} ${rightX + 36},${diagY + 17} ${rightX + 36},${diagY + 23}" fill="${CAD_COLORS.ink}" />
-    <text x="${rightX + 52}" y="${diagY + 23}" font-size="9" fill="${CAD_COLORS.subInk}">Doku (Suyolu) Yönü (${escXml(bodyMat.slice(0, 20))})</text>
+    <text x="${rightX + 52}" y="${diagY + 23}" font-size="10" fill="${CAD_COLORS.subInk}">Doku (Suyolu) Yönü (${escXml(bodyMat.slice(0, 20))})</text>
     <line x1="${rightX + 8}" y1="${diagY + 38}" x2="${rightX + 42}" y2="${diagY + 38}" stroke="${CAD_COLORS.plane}" stroke-width="3" />
-    <text x="${rightX + 52}" y="${diagY + 41}" font-size="9" fill="${CAD_COLORS.subInk}">PVC Kenar Bandı Uygulanacak Kenar (${mod.carcass.edgeBandThickness || 1} mm)</text>
+    <text x="${rightX + 52}" y="${diagY + 41}" font-size="10" fill="${CAD_COLORS.subInk}">PVC Kenar Bandı Uygulanacak Kenar (${mod.carcass.edgeBandThickness || 1} mm)</text>
     ${
       doorSample
         ? `<rect x="${rightX + 20}" y="${diagY + 58}" width="74" height="120" fill="#FFFFFF" stroke="${CAD_COLORS.plane}" stroke-width="3" />
            <line x1="${rightX + 57}" y1="${diagY + 80}" x2="${rightX + 57}" y2="${diagY + 156}" stroke="${CAD_COLORS.ink}" stroke-width="1.2" />
            <polygon points="${rightX + 57},${diagY + 76} ${rightX + 54},${diagY + 84} ${rightX + 60},${diagY + 84}" fill="${CAD_COLORS.ink}" />
-           <text x="${rightX + 57}" y="${diagY + 194}" text-anchor="middle" font-size="9" font-weight="700" fill="${CAD_COLORS.ink}">Kapak (4 Kenar PVC)</text>`
+           <text x="${rightX + 57}" y="${diagY + 194}" text-anchor="middle" font-size="10" font-weight="700" fill="${CAD_COLORS.ink}">Kapak (4 Kenar PVC)</text>`
         : ""
     }
     ${
@@ -958,7 +868,7 @@ export function renderCuttingEdgebandSheet(
         ? `<rect x="${rightX + 150}" y="${diagY + 76}" width="110" height="72" fill="#FFFFFF" stroke="${CAD_COLORS.ink}" stroke-width="0.9" stroke-dasharray="3 2" />
            <line x1="${rightX + 150}" y1="${diagY + 148}" x2="${rightX + 260}" y2="${diagY + 148}" stroke="${CAD_COLORS.plane}" stroke-width="3.2" />
            <line x1="${rightX + 170}" y1="${diagY + 112}" x2="${rightX + 240}" y2="${diagY + 112}" stroke="${CAD_COLORS.ink}" stroke-width="1.2" />
-           <text x="${rightX + 205}" y="${diagY + 170}" text-anchor="middle" font-size="9" font-weight="700" fill="${CAD_COLORS.ink}">Raf / Dikme (Ön PVC)</text>`
+           <text x="${rightX + 205}" y="${diagY + 170}" text-anchor="middle" font-size="10" font-weight="700" fill="${CAD_COLORS.ink}">Raf / Dikme (Ön PVC)</text>`
         : ""
     }
   `;

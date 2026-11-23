@@ -21,6 +21,8 @@ import {
   BookmarkPlus,
   Lock,
   ArrowUpDown,
+  Columns2,
+  FlipHorizontal2,
 } from "lucide-react";
 import {
   calculateFourSpaceDimensions,
@@ -2287,7 +2289,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
 
         <aside
           aria-label="Modül Parametreleri"
-          aria-hidden={!isOpen}
+          inert={!isOpen ? true : undefined}
           data-testid="v11-right-inspector"
           style={{ width: `${panelWidthPx}px` }}
           className={`birim-dramatic-panel fixed right-4 top-[72px] bottom-[84px] max-w-[calc(100vw-32px)] max-lg:!w-auto max-lg:left-2.5 max-lg:right-2.5 max-lg:top-auto max-lg:bottom-2.5 max-lg:h-[58vh] max-lg:max-w-none max-lg:rounded-t-3xl max-lg:rounded-b-2xl max-lg:origin-bottom z-30 rounded-3xl bg-[#2A313F]/66 backdrop-blur-2xl border border-white/[0.22] ring-1 ring-black/60 shadow-[0_28px_68px_rgba(0,0,0,0.62)] flex flex-col overflow-hidden text-[#F3F4F6] origin-right transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
@@ -3778,36 +3780,31 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                 </div>
 
                 {activeModule.bays.length > 1 && (
-                  <div className="flex items-center gap-2 pt-1 border-t border-[#F0ECE3]">
+                  <div
+                    data-testid="v12-bay-micro-toolbar"
+                    className="flex items-center justify-between gap-1.5 pt-1.5 border-t border-white/10"
+                  >
                     <button
                       type="button"
                       onClick={onEqualizeBaysAndShelves}
-                      className="flex-1 py-1.5 rounded-xl bg-[#F5F2EA] hover:bg-[#EAE3D5] text-[11px] font-semibold text-[#44403C] cursor-pointer"
+                      title="Genişlikleri Eşitle — Tüm bölmeleri eşit genişliğe getirir"
+                      aria-label="Genişlikleri Eşitle"
+                      className="flex-1 h-8 rounded-xl bg-slate-800/85 hover:bg-slate-700 border border-white/15 text-slate-100 hover:text-white flex items-center justify-center gap-1 text-[10.5px] font-semibold transition cursor-pointer"
                     >
-                      Genişlikleri Eşitle
+                      <Columns2 className="w-3.5 h-3.5 text-sky-300 shrink-0" />
+                      <span className="sr-only">Genişlikleri Eşitle</span>
                     </button>
-                    {!(isSlidingBay && activeModule.bays.length <= 2) && (
-                      <button
-                        type="button"
-                        onClick={() => onRemoveBayAt(safeBayIdx)}
-                        className="py-1.5 px-3 rounded-xl hover:bg-red-50 text-[11px] font-semibold text-red-600 cursor-pointer"
-                      >
-                        {safeBayIdx + 1}. Bölmeyi Kaldır
-                      </button>
-                    )}
-                  </div>
-                )}
-                {activeModule.bays.length > 1 && (onCopyBayInteriorToAllBays || onMirrorModuleBays) && (
-                  <div className="flex items-center gap-1.5 pt-1">
                     {onCopyBayInteriorToAllBays && (
                       <button
                         type="button"
                         data-testid="v12-copy-bay-interior-btn"
                         onClick={() => onCopyBayInteriorToAllBays(safeBayIdx)}
-                        className="flex-1 py-1.5 px-2 rounded-xl bg-[#EFECE4] hover:bg-[#E5DFD3] text-[10.5px] font-semibold text-[#141413] cursor-pointer"
-                        title="Bu bölmedeki raf, çekmece ve askı düzenini diğer tüm bölmelere kopyala"
+                        title="İç Düzeni Tüm Bölmelere Kopyala — Bu bölmedeki raf, çekmece ve askı düzenini diğer tüm bölmelere uygular"
+                        aria-label="İç Düzeni Tüm Bölmelere Kopyala"
+                        className="flex-1 h-8 rounded-xl bg-slate-800/85 hover:bg-slate-700 border border-white/15 text-slate-100 hover:text-white flex items-center justify-center gap-1 text-[10.5px] font-semibold transition cursor-pointer"
                       >
-                        İç Düzeni Tüm Bölmelere Kopyala
+                        <Copy className="w-3.5 h-3.5 text-sky-300 shrink-0" />
+                        <span className="sr-only">İç Düzeni Tüm Bölmelere Kopyala</span>
                       </button>
                     )}
                     {onMirrorModuleBays && (
@@ -3815,10 +3812,24 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                         type="button"
                         data-testid="v12-mirror-bays-btn"
                         onClick={onMirrorModuleBays}
-                        className="py-1.5 px-2.5 rounded-xl bg-[#F5F2EA] hover:bg-[#EAE3D5] text-[10.5px] font-semibold text-[#44403C] cursor-pointer"
-                        title="Sol ve sağ bölmelerin dizilimini ve kapak yönlerini aynala"
+                        title="Simetri — Sol ve sağ bölmelerin dizilimini ve kapak yönlerini aynalar"
+                        aria-label="Simetri"
+                        className="flex-1 h-8 rounded-xl bg-slate-800/85 hover:bg-slate-700 border border-white/15 text-slate-100 hover:text-white flex items-center justify-center gap-1 text-[10.5px] font-semibold transition cursor-pointer"
                       >
-                        Simetri ⇄
+                        <FlipHorizontal2 className="w-3.5 h-3.5 text-sky-300 shrink-0" />
+                        <span className="sr-only">Simetri</span>
+                      </button>
+                    )}
+                    {!(isSlidingBay && activeModule.bays.length <= 2) && (
+                      <button
+                        type="button"
+                        onClick={() => onRemoveBayAt(safeBayIdx)}
+                        title={`${safeBayIdx + 1}. Bölmeyi Kaldır`}
+                        aria-label={`${safeBayIdx + 1}. Bölmeyi Kaldır`}
+                        className="flex-1 h-8 rounded-xl bg-red-500/12 hover:bg-red-500/25 border border-red-400/25 text-red-300 hover:text-red-200 flex items-center justify-center gap-1 text-[10.5px] font-semibold transition cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                        <span className="sr-only">{safeBayIdx + 1}. Bölmeyi Kaldır</span>
                       </button>
                     )}
                   </div>

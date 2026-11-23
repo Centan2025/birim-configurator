@@ -57,7 +57,7 @@ export const AnimatedModalPresence: React.FC<AnimatedModalPresenceProps> = ({
 
 export interface AnimatedPopoverPresenceProps {
   isOpen: boolean;
-  origin?: "top" | "bottom" | "top-right" | "top-left" | "bottom-center";
+  origin?: "top" | "bottom" | "top-right" | "top-left" | "bottom-center" | "left";
   durationMs?: number;
   className?: string;
   style?: React.CSSProperties;
@@ -110,7 +110,9 @@ export const AnimatedPopoverPresence: React.FC<AnimatedPopoverPresenceProps> = (
   if (!mounted) return null;
 
   const originClass =
-    origin === "bottom" || origin === "bottom-center"
+    origin === "left"
+      ? "origin-left"
+      : origin === "bottom" || origin === "bottom-center"
       ? "origin-bottom"
       : origin === "top-right"
       ? "origin-top-right"
@@ -119,16 +121,23 @@ export const AnimatedPopoverPresence: React.FC<AnimatedPopoverPresenceProps> = (
       : "origin-top";
 
   const hiddenTransform =
-    origin === "bottom" || origin === "bottom-center"
+    origin === "left"
+      ? "opacity-0 scale-[0.96] -translate-x-4 pointer-events-none"
+      : origin === "bottom" || origin === "bottom-center"
       ? "opacity-0 scale-y-[0.94] translate-y-1.5 pointer-events-none"
       : "opacity-0 scale-y-[0.94] -translate-y-1.5 pointer-events-none";
+
+  const visibleTransform =
+    origin === "left"
+      ? "opacity-100 scale-100 translate-x-0"
+      : "opacity-100 scale-y-100 translate-y-0";
 
   // V92: Calm, overshoot-free unfold (zero upward bounce/jump), dropping transform once settled for true frosted glass!
   const animClasses =
     visible && settled
       ? ""
-      : `${originClass} transition-[opacity,transform] duration-[190ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
-          visible ? "opacity-100 scale-y-100 translate-y-0" : hiddenTransform
+      : `${originClass} transition-[opacity,transform] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
+          visible ? visibleTransform : hiddenTransform
         }`;
 
   return (

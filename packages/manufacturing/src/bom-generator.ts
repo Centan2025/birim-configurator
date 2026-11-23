@@ -1172,8 +1172,16 @@ export function generateBOMForProject(
       } else if (comp.role === "carcass_bottom" || comp.role === "carcass_top") {
         const isVertStretcher = comp.thicknessAxis === "z";
         const isStretcherStrip = comp.id.includes("_top_stretcher_");
-        length = comp.dimensions.width;
-        width = isVertStretcher ? comp.dimensions.height : comp.dimensions.depth;
+        if (comp.cncBlankOverride) {
+          length = comp.cncBlankOverride.lengthMm;
+          width = comp.cncBlankOverride.widthMm;
+          cutoutWidthMm = comp.cncBlankOverride.notchWidthMm;
+          cutoutDepthMm = comp.cncBlankOverride.notchDepthMm;
+          hasSinkOrHobCutout = true;
+        } else {
+          length = comp.dimensions.width;
+          width = isVertStretcher ? comp.dimensions.height : comp.dimensions.depth;
+        }
         // Front or vertical kitchen stretchers NEVER receive a rear back-panel groove!
         hasPartBackGroove = hasGroovedBack && (!isStretcherStrip || comp.id.includes("_top_stretcher_rear"));
         edgeBanding = {
@@ -1220,8 +1228,16 @@ export function generateBOMForProject(
         grain = "none";
         edgeBanding = { top: false, bottom: false, left: false, right: false, thickness: 0 };
       } else if (comp.role === "shelf") {
-        length = comp.dimensions.width;
-        width = comp.dimensions.depth;
+        if (comp.cncBlankOverride) {
+          length = comp.cncBlankOverride.lengthMm;
+          width = comp.cncBlankOverride.widthMm;
+          cutoutWidthMm = comp.cncBlankOverride.notchWidthMm;
+          cutoutDepthMm = comp.cncBlankOverride.notchDepthMm;
+          hasSinkOrHobCutout = true;
+        } else {
+          length = comp.dimensions.width;
+          width = comp.dimensions.depth;
+        }
         edgeBanding = {
           top: false,
           bottom: false,

@@ -180,21 +180,17 @@ export const QuickStyleAndMaterialDock: React.FC<QuickStyleAndMaterialDockProps>
     const activeBrushMat = matById.get(paintToolState.materialId) || materials[0];
 
     return (
-      <AnimatedPopoverPresence isOpen={isOpen} origin="bottom" className="fixed bottom-[72px] left-0 right-0 z-30 pointer-events-none">
+      <AnimatedPopoverPresence isOpen={isOpen} origin="left" className="fixed left-[72px] top-1/2 -translate-y-1/2 z-40 pointer-events-none max-lg:left-3 max-lg:right-3 max-lg:top-auto max-lg:bottom-[72px] max-lg:translate-y-0">
       <div
         data-testid="v15-quick-style-material-dock"
         onMouseLeave={() => {
           dispatchLive3DMaterialPreview(null);
           dispatchLive3DMoodboardPreview(null);
         }}
-        style={{
-          marginLeft: `${leftSafePx}px`,
-          marginRight: `${rightSafePx}px`,
-        }}
-        className="birim-dramatic-panel mx-auto max-w-[880px] rounded-3xl bg-[#252A34]/88 backdrop-blur-2xl border border-white/[0.22] ring-1 ring-black/60 shadow-[0_28px_68px_rgba(0,0,0,0.62)] p-3.5 text-xs text-[#F3F4F6] space-y-2.5 pointer-events-auto transition-[margin] duration-200 max-lg:!mx-3"
+        className="birim-dramatic-panel relative w-[500px] max-w-[calc(100vw-96px)] max-h-[78vh] overflow-y-auto rounded-3xl bg-[#1C222E]/94 backdrop-blur-2xl border border-white/[0.18] ring-1 ring-black/60 shadow-[0_28px_68px_rgba(0,0,0,0.65)] p-4 text-xs text-[#F3F4F6] space-y-3 pointer-events-auto transition-all duration-200 max-lg:w-auto max-lg:max-w-none"
       >
         {/* V49 KOMPAKT ÜST BAR: Sekmeler + Gruplu Hedef Seçici + İkon Araçları + Sahne Renk Noktaları */}
-        <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2 pr-9">
           <div className="flex items-center gap-1.5 flex-wrap">
             <div className="inline-flex items-center p-0.5 rounded-full bg-[#ECE7DD] border border-[#DFD9CE]">
               <button
@@ -365,8 +361,9 @@ export const QuickStyleAndMaterialDock: React.FC<QuickStyleAndMaterialDockProps>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Kapat"
-            className="w-7 h-7 rounded-full hover:bg-[#EFECE4] text-[#57534E] hover:text-[#141413] flex items-center justify-center cursor-pointer shrink-0"
+            aria-label="Kartela Panelini Kapat"
+            title="Kapat"
+            className="absolute top-3 right-3 w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 border border-white/15 text-slate-200 hover:text-white flex items-center justify-center transition cursor-pointer z-10"
           >
             <X className="w-4 h-4" />
           </button>
@@ -426,7 +423,7 @@ export const QuickStyleAndMaterialDock: React.FC<QuickStyleAndMaterialDockProps>
             </div>
 
             {/* Satır D: Canlı 3B Önizlemeli Kartela Izgarası */}
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2 max-h-[200px] overflow-y-auto pr-1">
+            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-[300px] overflow-y-auto pr-1">
               {filteredMaterials.map((mat) => {
                 const isFav = favoriteIds.includes(mat.id);
                 const isUsed = inModelUsages.some((u) => u.material.id === mat.id);
@@ -511,7 +508,7 @@ export const QuickStyleAndMaterialDock: React.FC<QuickStyleAndMaterialDockProps>
 
         {/* SEKME 2: 8 MİMARİ BİRİM İMZA KOMBİNASYONU (TEK TIKLA ÇİFT TON PALET + HOVER 3B ÖNİZLEME) */}
         {activeTab === "moodboards" && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 max-h-[220px] overflow-y-auto pr-1">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[340px] overflow-y-auto pr-1">
             {BIRIM_CURATED_MOODBOARDS.map((mb) => {
               const baseMat = matById.get(mb.baseFrontMaterialId);
               const wallMat = matById.get(mb.wallFrontMaterialId);
@@ -528,39 +525,87 @@ export const QuickStyleAndMaterialDock: React.FC<QuickStyleAndMaterialDockProps>
                     dispatchLive3DMoodboardPreview(null);
                     onApplyCuratedMoodboard(mb);
                   }}
-                  className="rounded-2xl bg-white hover:bg-[#F5F1E8] border border-[#E5DFD3] hover:border-[#141413] p-2.5 text-left transition cursor-pointer flex flex-col justify-between gap-2 shadow-2xs"
+                  className="group rounded-2xl overflow-hidden bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.14] hover:border-sky-400/70 text-left transition cursor-pointer flex flex-col shadow-sm"
                 >
-                  <div className="flex items-start justify-between gap-2">
+                  {/* Mimari Mini Dolap Cephesi & Gerçek Yüzey Önizlemesi */}
+                  <div className="relative w-full h-[104px] bg-gradient-to-b from-[#0F141D] via-[#151B26] to-[#0B0F17] px-3 pt-6 pb-2 flex items-end justify-between gap-2.5 overflow-hidden">
+                    <span className="absolute top-1.5 left-2 px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-md border border-white/15 text-[8.5px] font-bold text-white/95 tracking-wide z-10">
+                      {mb.badgeTr}
+                    </span>
+
+                    {/* Sol: Mini İki Katlı Mimari Dolap Cephe Maketi (Üst Kapak + Tezgâh/Taş + Alt Kapak/Çekmece + Kulp) */}
+                    <div className="flex-1 h-[74px] flex flex-col justify-end rounded-lg overflow-hidden border border-white/15 shadow-[0_8px_20px_rgba(0,0,0,0.55)] bg-black/40">
+                      {/* Üst Dolap Kapakları */}
+                      <div className="h-[34%] w-full grid grid-cols-2 gap-[1px] bg-black/45">
+                        <div className="relative h-full w-full" style={getMaterialSwatchStyle(wallMat)} title={`Üst Cephe: ${wallMat?.name || ""}`}>
+                          <span className="absolute bottom-1 right-1 w-[2.5px] h-3 rounded-full shadow-xs" style={getMaterialSwatchStyle(handleMat)} />
+                        </div>
+                        <div className="relative h-full w-full" style={getMaterialSwatchStyle(wallMat)} title={`Üst Cephe: ${wallMat?.name || ""}`}>
+                          <span className="absolute bottom-1 left-1 w-[2.5px] h-3 rounded-full shadow-xs" style={getMaterialSwatchStyle(handleMat)} />
+                        </div>
+                      </div>
+                      {/* Orta Tezgâh / Taş Şeridi */}
+                      <div
+                        className="h-[18%] w-full relative border-y border-black/45 shadow-inner"
+                        style={getMaterialSwatchStyle(stoneMat)}
+                        title={`Tezgâh / Taş: ${stoneMat?.name || ""}`}
+                      >
+                        <div className="absolute inset-x-0 top-0 h-[1px] bg-white/30" />
+                      </div>
+                      {/* Alt Dolap & Çekmece Cepheleri */}
+                      <div className="h-[42%] w-full grid grid-cols-2 gap-[1px] bg-black/45">
+                        <div className="relative h-full w-full" style={getMaterialSwatchStyle(baseMat)} title={`Alt Cephe: ${baseMat?.name || ""}`}>
+                          <span className="absolute top-1.5 right-1 w-[2.5px] h-3.5 rounded-full shadow-xs" style={getMaterialSwatchStyle(handleMat)} />
+                        </div>
+                        <div className="flex flex-col gap-[1px] bg-black/45 h-full">
+                          <div className="relative flex-1 w-full" style={getMaterialSwatchStyle(baseMat)} title={`Alt Çekmece: ${baseMat?.name || ""}`}>
+                            <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-[2px] rounded-full shadow-xs" style={getMaterialSwatchStyle(handleMat)} />
+                          </div>
+                          <div className="relative flex-1 w-full" style={getMaterialSwatchStyle(baseMat)} title={`Alt Çekmece: ${baseMat?.name || ""}`}>
+                            <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-[2px] rounded-full shadow-xs" style={getMaterialSwatchStyle(handleMat)} />
+                          </div>
+                        </div>
+                      </div>
+                      {/* Alt Baza Gölgesi */}
+                      <div className="h-[6%] w-full bg-black/75" />
+                    </div>
+
+                    {/* Sağ: 4 Yuvarlak Malzeme Numune Pul Dizisi */}
+                    <div className="flex flex-col items-center justify-center gap-1 shrink-0 pb-0.5">
+                      {[
+                        { mat: wallMat, lbl: "Üst" },
+                        { mat: stoneMat, lbl: "Taş" },
+                        { mat: baseMat, lbl: "Alt" },
+                        { mat: handleMat, lbl: "Kulp" },
+                      ].map((chip) => (
+                        <div key={chip.lbl} className="flex items-center gap-1" title={`${chip.lbl}: ${chip.mat?.name || ""}`}>
+                          <span
+                            className="w-3.5 h-3.5 rounded-full border border-white/30 shadow-xs shrink-0"
+                            style={getMaterialSwatchStyle(chip.mat)}
+                          />
+                          <span className="text-[8px] font-semibold text-slate-300 w-5 leading-none">
+                            {chip.lbl}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Alt Başlık & Uygula */}
+                  <div className="p-2.5 flex flex-col justify-between gap-1.5 flex-1">
                     <div className="min-w-0">
-                      <div className="text-[11.5px] font-bold text-[#141413] truncate">
+                      <div className="text-[11.5px] font-bold text-white leading-snug truncate">
                         {mb.titleTr}
                       </div>
-                      <div className="text-[10px] text-[#57534E] leading-snug line-clamp-2 mt-0.5">
+                      <div className="text-[10px] text-slate-300 leading-snug line-clamp-1 mt-0.5">
                         {mb.subtitleTr}
                       </div>
                     </div>
-                    <span className="px-2 py-0.5 rounded-full bg-[#EFEAE0] text-[#6B5E4C] text-[9.5px] font-bold shrink-0">
-                      {mb.badgeTr}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between pt-1 border-t border-[#EFECE4]">
-                    <div className="flex items-center -space-x-1.5">
-                      {[
-                        { m: baseMat, tip: "Alt Cephe" },
-                        { m: wallMat, tip: "Üst Cephe" },
-                        { m: stoneMat, tip: "Tezgâh" },
-                        { m: handleMat, tip: "Kulp/Gola" },
-                      ].map((item, idx) => (
-                        <span
-                          key={idx}
-                          title={`${item.tip}: ${item.m?.name || ""}`}
-                          className="w-6 h-6 rounded-full border-2 border-white shadow-2xs inline-block"
-                          style={getMaterialSwatchStyle(item.m)}
-                        />
-                      ))}
+                    <div className="flex items-center justify-end pt-1 border-t border-white/10">
+                      <span className="text-[10.5px] font-bold text-sky-300 group-hover:text-sky-200 transition">
+                        Paleti Uygula →
+                      </span>
                     </div>
-                    <span className="text-[10px] font-bold text-[#141413]">Uygula →</span>
                   </div>
                 </button>
               );

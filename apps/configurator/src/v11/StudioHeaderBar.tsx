@@ -160,21 +160,25 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
     const issuesRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-      if (!outputsOpen && !issuesOpen) return;
+      if (!outputsOpen && !issuesOpen && !variantOpen) return;
       const onDown = (e: MouseEvent) => {
-        if ((e.target as HTMLElement | null)?.closest?.("[data-birim-portal-menu]")) return;
-        if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        const target = e.target as HTMLElement | null;
+        if (target?.closest?.("[data-birim-portal-menu]")) return;
+        if (menuRef.current && !menuRef.current.contains(target as Node)) {
           setOutputsOpen(false);
-        setVariantOpen(false);
         }
-        if (issuesRef.current && !issuesRef.current.contains(e.target as Node)) {
+        if (issuesRef.current && !issuesRef.current.contains(target as Node)) {
           setIssuesOpen(false);
+        }
+        if (variantBtnRef.current && !variantBtnRef.current.contains(target as Node)) {
+          setVariantOpen(false);
         }
       };
       const onKey = (e: KeyboardEvent) => {
         if (e.key === "Escape") {
           setOutputsOpen(false);
           setIssuesOpen(false);
+          setVariantOpen(false);
         }
       };
       document.addEventListener("mousedown", onDown);
@@ -183,7 +187,13 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
         document.removeEventListener("mousedown", onDown);
         window.removeEventListener("keydown", onKey);
       };
-    }, [outputsOpen, issuesOpen]);
+    }, [outputsOpen, issuesOpen, variantOpen]);
+
+    useEffect(() => {
+      setOutputsOpen(false);
+      setIssuesOpen(false);
+      setVariantOpen(false);
+    }, [workspaceMode]);
 
     const formattedPrice = new Intl.NumberFormat("tr-TR", {
       style: "currency",
@@ -213,6 +223,8 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                   left: Math.max(12, Math.min(window.innerWidth - 296, Math.round(r.left))),
                 });
               }
+              setOutputsOpen(false);
+              setIssuesOpen(false);
               setVariantOpen((v) => !v);
             }}
             title="Tasarım Seçenekleri (A / B / C) — Kaydet & Karşılaştır"
@@ -378,7 +390,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
               </button>
             )}
 
-            {!isShowroom && variantSwitcherNode}
+            {variantSwitcherNode}
           </div>
 
           {/* ORTA BÖLGE — Konumu sabit kilitli */}
@@ -433,7 +445,6 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
           {/* SAĞ BÖLGE */}
           {isShowroom ? (
             <div className="flex items-center justify-end gap-2 min-w-0 flex-1">
-              {variantSwitcherNode}
               <button
                 type="button"
                 onClick={onOpenQuoteModal}
@@ -557,7 +568,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                 <button
                   type="button"
                   data-testid="v11-header-issues-btn"
-                  onClick={() => setIssuesOpen((v) => !v)}
+                  onClick={() => { setOutputsOpen(false); setVariantOpen(false); setIssuesOpen((v) => !v); }}
                   className={`h-9 px-3 rounded-full border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
                     blockingIssueCount > 0
                       ? "bg-red-50 hover:bg-red-100 border-red-300 text-red-800"
@@ -667,7 +678,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
               <button
                 type="button"
                 data-testid="v11-outputs-menu-btn"
-                onClick={() => setOutputsOpen((v) => !v)}
+                onClick={() => { setIssuesOpen(false); setVariantOpen(false); setOutputsOpen((v) => !v); }}
                 className="h-9 px-3.5 rounded-full bg-white/[0.10] hover:bg-white/[0.18] border border-white/[0.15] text-[#F3F4F6] text-xs font-semibold flex items-center gap-1.5 shadow-[0_3px_10px_rgba(0,0,0,0.28)] transition cursor-pointer"
               >
                 <span>Çıktılar</span>
@@ -910,7 +921,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
               type="button"
               data-testid="v11-open-quote-cta"
               onClick={onOpenQuoteModal}
-              className="h-9 px-4 rounded-full bg-[#141413] hover:bg-[#292524] text-white text-xs font-semibold flex items-center gap-2 shadow-sm transition cursor-pointer"
+              className="h-9 px-4 rounded-full bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] hover:from-[#0369A1] hover:to-[#1D4ED8] text-white text-xs font-bold flex items-center gap-2 shadow-[0_0_20px_rgba(29,78,216,0.45)] transition cursor-pointer"
             >
               <span className="font-mono font-bold tracking-tight">{formattedPrice}</span>
               <span className="opacity-45">•</span>
@@ -921,70 +932,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
           )}
         </div>
 
-        {workspaceMode === "3d" && !isReadOnlyCustomer && (
-          <div
-            data-testid="v11-header-3d-camera-subbar"
-            className="pointer-events-auto px-1.5 py-1 rounded-full bg-[#2A313F]/72 backdrop-blur-2xl border border-white/[0.22] ring-1 ring-black/50 shadow-[0_14px_36px_rgba(0,0,0,0.45)] flex items-center gap-1 text-xs text-[#F3F4F6]"
-          >
-            {(
-              [
-                { id: "hero", label: "Genel 3B" },
-                { id: "room_front_persp", label: "Mekân Karşıdan" },
-                { id: "focus_module", label: "Modüle Odaklan" },
-                { id: "side", label: "Yan" },
-              ] as const
-            ).map((cam) => {
-              const active = activeCam3D === cam.id;
-              return (
-                <button
-                  key={cam.id}
-                  type="button"
-                  onClick={() => triggerCamera3D(cam.id)}
-                  className={`h-7 px-3 rounded-full font-semibold transition cursor-pointer ${
-                    active
-                      ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white font-bold shadow-[0_0_16px_rgba(29,78,216,0.52)]"
-                      : "text-slate-200 hover:text-white hover:bg-white/[0.10]"
-                  }`}
-                >
-                  {cam.label}
-                </button>
-              );
-            })}
-            <button
-              type="button"
-              onClick={() => triggerCamera3D("hero")}
-              title="Sahneyi Ekrana Ortala"
-              className="w-7 h-7 rounded-full flex items-center justify-center text-slate-200 hover:text-white hover:bg-white/[0.12] transition cursor-pointer"
-            >
-              <Maximize2 className="w-3.5 h-3.5" />
-            </button>
-            <span className="h-4 w-px bg-white/15 mx-0.5" />
-            <button
-              type="button"
-              onClick={() => setViewportRenderStyle(viewportRenderStyle === "wireframe" ? "solid" : "wireframe")}
-              title="Tel Çerçeve (Wireframe) Görünümünü Aç/Kapat"
-              className={`h-7 px-2.5 rounded-full text-[11px] font-semibold transition cursor-pointer ${
-                viewportRenderStyle === "wireframe"
-                  ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white font-bold shadow-xs"
-                  : "text-slate-200 hover:text-white hover:bg-white/[0.10]"
-              }`}
-            >
-              Tel
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewportRenderStyle(viewportRenderStyle === "transparent" ? "solid" : "transparent")}
-              title="Şeffaf CNC X-Ray Görünümünü Aç/Kapat"
-              className={`h-7 px-2.5 rounded-full text-[11px] font-semibold transition cursor-pointer ${
-                viewportRenderStyle === "transparent"
-                  ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white font-bold shadow-xs"
-                  : "text-slate-200 hover:text-white hover:bg-white/[0.10]"
-              }`}
-            >
-              X-Ray
-            </button>
-          </div>
-        )}
+        {/* 3B kamera ve görünüm kontrolleri artık Alt Orta Yüzen Dock içinde birleştirildi */}
 
         {workspaceMode === "2d" && (
           <div className="pointer-events-auto px-1.5 py-1 rounded-full bg-[#2A313F]/66 backdrop-blur-2xl border border-white/[0.22] ring-1 ring-black/50 shadow-[0_14px_36px_rgba(0,0,0,0.45)] flex items-center gap-1 text-xs text-[#F3F4F6]">

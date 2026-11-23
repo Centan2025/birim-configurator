@@ -1728,19 +1728,94 @@ function BomModalInner({ isOpen, onClose, initialTab = "cutlist" }: BomModalProp
                                   );
                                   const fontDim = Math.max(22, Math.min(38, Math.floor(pw / 8.5)));
 
+                                  const isLNotchPanel = /L-Köşe.*Tek Parça|İç Boşaltmalı/i.test(pl.part_label);
+                                  const matchedCut = isLNotchPanel
+                                    ? bom.cutList.find((cp) => cp.label === pl.part_label || pl.part_id.startsWith(cp.id))
+                                    : undefined;
+                                  const rawNw = matchedCut?.cutoutWidthMm || Math.round(pw * 0.39);
+                                  const rawNh = matchedCut?.cutoutDepthMm || Math.round(ph * 0.39);
+                                  const notchW = Math.min(Math.round(pw * 0.65), Math.max(80, rot === 90 || rot === 270 ? rawNh : rawNw));
+                                  const notchH = Math.min(Math.round(ph * 0.65), Math.max(80, rot === 90 || rot === 270 ? rawNw : rawNh));
+                                  const lPolyPoints = isLNotchPanel
+                                    ? `${pl.x},${pl.y} ${pl.x + pw},${pl.y} ${pl.x + pw},${pl.y + ph - notchH} ${pl.x + pw - notchW},${pl.y + ph - notchH} ${pl.x + pw - notchW},${pl.y + ph} ${pl.x},${pl.y + ph}`
+                                    : "";
+
                                   return (
                                     <g key={pl.part_id}>
-                                      <rect
-                                        x={pl.x}
-                                        y={pl.y}
-                                        width={pw}
-                                        height={ph}
-                                        rx={4}
-                                        fill={pl.color || "#3B82F6"}
-                                        fillOpacity={0.82}
-                                        stroke="#0F172A"
-                                        strokeWidth="4"
-                                      />
+                                      {isLNotchPanel ? (
+                                        <>
+                                          <polygon
+                                            points={lPolyPoints}
+                                            fill={pl.color || "#3B82F6"}
+                                            fillOpacity={0.84}
+                                            stroke="#0F172A"
+                                            strokeWidth="5"
+                                            strokeLinejoin="round"
+                                          />
+                                          <rect
+                                            x={pl.x + pw - notchW}
+                                            y={pl.y + ph - notchH}
+                                            width={notchW}
+                                            height={notchH}
+                                            fill="#F8FAFC"
+                                            fillOpacity={0.92}
+                                            stroke="#DC2626"
+                                            strokeWidth="5"
+                                            strokeDasharray="18 10"
+                                          />
+                                          <line
+                                            x1={pl.x + pw - notchW}
+                                            y1={pl.y + ph - notchH}
+                                            x2={pl.x + pw}
+                                            y2={pl.y + ph}
+                                            stroke="#DC2626"
+                                            strokeOpacity={0.35}
+                                            strokeWidth="3"
+                                          />
+                                          <line
+                                            x1={pl.x + pw}
+                                            y1={pl.y + ph - notchH}
+                                            x2={pl.x + pw - notchW}
+                                            y2={pl.y + ph}
+                                            stroke="#DC2626"
+                                            strokeOpacity={0.35}
+                                            strokeWidth="3"
+                                          />
+                                          <text
+                                            x={pl.x + pw - notchW / 2}
+                                            y={pl.y + ph - notchH / 2 - 12}
+                                            textAnchor="middle"
+                                            fontSize={Math.max(20, Math.min(30, Math.floor(notchW / 12)))}
+                                            fontWeight="800"
+                                            fill="#B91C1C"
+                                          >
+                                            CNC L-BOŞALTMA
+                                          </text>
+                                          <text
+                                            x={pl.x + pw - notchW / 2}
+                                            y={pl.y + ph - notchH / 2 + 20}
+                                            textAnchor="middle"
+                                            fontSize={Math.max(18, Math.min(28, Math.floor(notchW / 11)))}
+                                            fontWeight="700"
+                                            fontFamily="ui-monospace, monospace"
+                                            fill="#991B1B"
+                                          >
+                                            {Math.round(notchW)}×{Math.round(notchH)}
+                                          </text>
+                                        </>
+                                      ) : (
+                                        <rect
+                                          x={pl.x}
+                                          y={pl.y}
+                                          width={pw}
+                                          height={ph}
+                                          rx={4}
+                                          fill={pl.color || "#3B82F6"}
+                                          fillOpacity={0.82}
+                                          stroke="#0F172A"
+                                          strokeWidth="4"
+                                        />
+                                      )}
                                       {visEdges.top && (
                                         <line
                                           x1={pl.x + 3}

@@ -1,5 +1,5 @@
 import { create, type StoreApi, type UseBoundStore } from "zustand";
-import { harmonizeModuleWithProjectContext } from "../v3/adapter/moduleHarmonizer";
+import { harmonizeModuleWithProjectContext, rescaleBayInteriorForHeightChange } from "../v3/adapter/moduleHarmonizer";
 import {
   DesignProject,
   createInitialProject,
@@ -1245,15 +1245,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
     const oldInner = Math.max(1, mod.dimensions.height - mod.carcass.plinthHeight - 2 * mod.carcass.panelThickness);
     const newInner = Math.max(1, next.height - mod.carcass.plinthHeight - 2 * mod.carcass.panelThickness);
     if (next.height !== mod.dimensions.height) mod.bays.forEach((b) => {
-      b.shelves.forEach((s) => {
-        s.elevationY = roundIntMm(clamp((s.elevationY * newInner) / oldInner, 0, Math.max(0, newInner - (s.thickness ?? mod.carcass.panelThickness))));
-      });
-      b.drawers.forEach((d) => {
-        d.elevationY = roundIntMm(clamp((d.elevationY * newInner) / oldInner, 0, Math.max(0, newInner - d.height)));
-      });
-      b.hangingRails.forEach((r) => {
-        r.elevationY = roundIntMm(clamp((r.elevationY * newInner) / oldInner, 0, Math.max(0, newInner - 25)));
-      });
+      rescaleBayInteriorForHeightChange(b, oldInner, newInner, mod.carcass.panelThickness);
     });
     mod.dimensions = next;
     updated.updatedAt = new Date().toISOString();

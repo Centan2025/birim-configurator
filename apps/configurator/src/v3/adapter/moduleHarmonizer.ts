@@ -11,6 +11,119 @@ export type ModuleHeightClass =
   | "wardrobe"
   | "living_or_special";
 
+
+/**
+ * Yükseklik (H) değiştiğinde bölme içindeki çekmecelerin aralıklarının açılmasını önler:
+ * - Altta istifli gardırop/boy dolap çekmecelerini (örn. 4x180mm) kendi yüksekliğinde ve 5mm derzinde sabit tutar,
+ *   sadece dolap çekmece bloğundan daha kısa hale gelirse orantılı daraltır.
+ * - Gövdenin tamamını dolduran çekmeceli alt dolap/şifonyerlerde (>=%82 doluluk) çekmece yüksekliklerini
+ *   orantılı ölçekleyip 5mm sabit derzle yeniden dizer.
+ * - Üstte tek çekmece (topDrawerCombo) varsa üst sınıra yaslar.
+ * - Çekmece üstündeki bölme rafını çekmece üst kotunda sabit tutup üstteki rafları/askıları kalan boşlukta ölçekler.
+ */
+export function rescaleBayInteriorForHeightChange(
+  bay: ModuleInstance["bays"][number],
+  oldInner: number,
+  newInner: number,
+  panelThickness = 18
+): void {
+  const safeOldInner = Math.max(1, oldInner);
+  const safeNewInner = Math.max(1, newInner);
+  const roundInt = (n: number) => Math.round(n);
+  const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
+  const GAP = 5;
+
+  const drawers = bay.drawers || [];
+  let oldDrawerTop = 0;
+  let newDrawerTop = 0;
+
+  if (drawers.length > 0) {
+    const sorted = [...drawers].sort((a, b) => a.elevationY - b.elevationY);
+    const oldMinY = sorted[0].elevationY;
+    oldDrawerTop = Math.max(...sorted.map((d) => d.elevationY + d.height));
+    const oldSpan = Math.max(1, oldDrawerTop - oldMinY);
+    const isTopAnchoredSingle =
+      sorted.length === 1 && oldMinY > safeOldInner * 0.55 && safeOldInner - oldDrawerTop <= 35;
+    const isFullHeightBank = oldMinY <= 40 && oldSpan >= safeOldInner * 0.82;
+
+    if (isTopAnchoredSingle) {
+      const d = sorted[0];
+      d.elevationY = roundInt(clamp(safeNewInner - d.height, 0, Math.max(0, safeNewInner - d.height)));
+      newDrawerTop = 0; // üstte olduğu için alt raf bölgesini etkilemez
+    } else if (isFullHeightBank) {
+      const totalGap = GAP * Math.max(0, sorted.length - 1);
+      const oldSumH = Math.max(1, sorted.reduce((s, d) => s + d.height, 0));
+      const availH = Math.max(sorted.length * 60, safeNewInner - totalGap);
+      let cursor = 0;
+      sorted.forEach((d, idx) => {
+        const nextH =
+          idx === sorted.length - 1
+            ? Math.max(60, roundInt(safeNewInner - cursor))
+            : Math.max(60, roundInt((d.height / oldSumH) * availH));
+        d.height = nextH;
+        d.elevationY = roundInt(cursor);
+        cursor += nextH + GAP;
+      });
+      newDrawerTop = Math.max(...sorted.map((d) => d.elevationY + d.height));
+    } else {
+      // Altta istifli çekmece bloğu: yükseklik artınca araları AÇMA, sabit derzle altta tut
+      if (oldDrawerTop <= safeNewInner) {
+        let cursor = Math.max(0, roundInt(oldMinY));
+        sorted.forEach((d, idx) => {
+          if (idx === 0) {
+            d.elevationY = cursor;
+          } else {
+            const origGap = sorted[idx].elevationY - (sorted[idx - 1].elevationY + sorted[idx - 1].height);
+            const keepGap = origGap >= 0 && origGap <= 25 ? roundInt(origGap) : GAP;
+            d.elevationY = roundInt(cursor + keepGap);
+          }
+          cursor = d.elevationY + d.height;
+        });
+      } else {
+        // Gövde çekmece bloğundan daha kısa olduysa orantılı daralt ve 5mm derzle istifle
+        const totalGap = GAP * Math.max(0, sorted.length - 1);
+        const oldSumH = Math.max(1, sorted.reduce((s, d) => s + d.height, 0));
+        const availH = Math.max(sorted.length * 60, safeNewInner - totalGap);
+        let cursor = 0;
+        sorted.forEach((d) => {
+          const nextH = Math.max(60, roundInt((d.height / oldSumH) * availH));
+          d.height = nextH;
+          d.elevationY = roundInt(clamp(cursor, 0, Math.max(0, safeNewInner - nextH)));
+          cursor = d.elevationY + nextH + GAP;
+        });
+      }
+      newDrawerTop = Math.max(...sorted.map((d) => d.elevationY + d.height));
+    }
+  }
+
+  // Rafları ölçekle: çekmece üstündeki bölme rafını çekmece üst kotunda tut, üstündekileri üst bölgede orantıla
+  const oldUpperZone = Math.max(1, safeOldInner - oldDrawerTop);
+  const newUpperZone = Math.max(1, safeNewInner - newDrawerTop);
+  (bay.shelves || []).forEach((s) => {
+    const shT = s.thickness ?? panelThickness;
+    const maxY = Math.max(0, safeNewInner - shT);
+    if (oldDrawerTop > 0 && Math.abs(s.elevationY - oldDrawerTop) <= 28) {
+      s.elevationY = roundInt(clamp(newDrawerTop, 0, maxY));
+    } else if (oldDrawerTop > 0 && s.elevationY > oldDrawerTop) {
+      const rel = (s.elevationY - oldDrawerTop) / oldUpperZone;
+      s.elevationY = roundInt(clamp(newDrawerTop + rel * newUpperZone, newDrawerTop, maxY));
+    } else {
+      s.elevationY = roundInt(clamp((s.elevationY * safeNewInner) / safeOldInner, 0, maxY));
+    }
+  });
+
+  // Askı borularını ölçekle
+  (bay.hangingRails || []).forEach((r) => {
+    const maxY = Math.max(0, safeNewInner - 25);
+    if (oldDrawerTop > 0 && r.elevationY > oldDrawerTop) {
+      const rel = (r.elevationY - oldDrawerTop) / oldUpperZone;
+      r.elevationY = roundInt(clamp(newDrawerTop + rel * newUpperZone, Math.min(maxY, newDrawerTop + 100), maxY));
+    } else {
+      r.elevationY = roundInt(clamp((r.elevationY * safeNewInner) / safeOldInner, 0, maxY));
+    }
+  });
+}
+
 export function classifyModuleHeightClass(mod: ModuleInstance): ModuleHeightClass {
   const tpl = (mod.templateId || "").toLowerCase();
   if (
@@ -142,8 +255,22 @@ export function harmonizeModuleWithProjectContext(
       newMod.surfaceFinishOverride = styleRef.surfaceFinishOverride;
     }
 
-    const refDoor =
-      styleRef.bays.find((b) => b.door && b.door.type !== "open")?.door || styleRef.bays[0]?.door;
+    const isBayHandleSource = (b: ModuleInstance["bays"][number]) =>
+      Boolean(
+        b.door &&
+          (b.door.type !== "open" ||
+            (b.drawers || []).some((d) => !d.isInternal && !d.isHidden))
+      );
+    const refDoorFromStyle = styleRef.bays.find(isBayHandleSource)?.door || null;
+    const refDoorFromAny =
+      refDoorFromStyle ||
+      mainExisting
+        .filter((m) => classifyModuleHeightClass(m).startsWith("kitchen_") === isNewKitchen)
+        .flatMap((m) => m.bays || [])
+        .find(isBayHandleSource)?.door ||
+      null;
+    const refDoor = refDoorFromAny || styleRef.bays[0]?.door;
+    const allowHandleTransfer = Boolean(refDoorFromAny);
     if (refDoor) {
       let needs22mmForJPull = false;
       newMod.bays = (newMod.bays || []).map((bay, bIdx) => {
@@ -155,7 +282,7 @@ export function harmonizeModuleWithProjectContext(
         const isOpenNoDrawers = bay.door.type === "open" && !hasExtDrawers;
 
         const adaptedHandle =
-          !isOpenNoDrawers && refDoor.handleCategory
+          allowHandleTransfer && !isOpenNoDrawers && refDoor.handleCategory
             ? resolveSmartCompatibleDoorPatchForModuleBay(
                 {
                   handleProfileId: refDoor.handleProfileId,
@@ -245,6 +372,29 @@ export function harmonizeModuleWithProjectContext(
       newMod.position = {
         ...newMod.position,
         y: dimRef.position.y,
+      };
+    }
+
+    // Gardırop / giyinme odası diziliminde yeni eklenen boy dolabı mevcut boy dolap yüksekliğine hizala (ada/şifonyer hariç)
+    if (
+      newClass === "wardrobe" &&
+      options.mode === "append" &&
+      !options.customDimensions?.height &&
+      newMod.dimensions.height >= 1800 &&
+      dimRef.dimensions.height >= 1800 &&
+      newMod.dimensions.height !== dimRef.dimensions.height
+    ) {
+      const panelT = newMod.carcass.panelThickness || 18;
+      const plinthH = newMod.carcass.plinthHeight ?? 80;
+      const oldInner = Math.max(1, newMod.dimensions.height - plinthH - 2 * panelT);
+      const nextH = dimRef.dimensions.height;
+      const newInner = Math.max(1, nextH - plinthH - 2 * panelT);
+      (newMod.bays || []).forEach((b) => {
+        rescaleBayInteriorForHeightChange(b, oldInner, newInner, panelT);
+      });
+      newMod.dimensions = {
+        ...newMod.dimensions,
+        height: nextH,
       };
     }
   }

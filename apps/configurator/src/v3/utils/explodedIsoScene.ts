@@ -629,6 +629,352 @@ export function buildExplodedIsoBoxes(
     return { boxes, explodeX, explodeY, explodeZ, explodeDrawerZ, explodeDoorZ, bayRanges };
   }
 
+  // 2B. TRUE L-CORNER CABINET / WALK-IN L WARDROBE (`isCorner`, non-blind, non-diagonal)
+  const tplLcCheck = (mod.templateId || "").toLowerCase();
+  const nameLcCheck = (mod.name || "").toLowerCase();
+  const isTrueLCorner =
+    Boolean(mod.isCorner) &&
+    !tplLcCheck.includes("blind") &&
+    !nameLcCheck.includes("kör") &&
+    !tplLcCheck.includes("diagonal") &&
+    !nameLcCheck.includes("diyagonal") &&
+    W >= 600 &&
+    D >= 600;
+
+  if (isTrueLCorner) {
+    const isWardrobeL =
+      mod.category.startsWith("wardrobe") ||
+      mod.moduleFamilyId === "fam_wardrobe" ||
+      H >= 1400;
+    const minArm = Math.min(W, D);
+    const wingD = isWallCab
+      ? minArm >= 580
+        ? 350
+        : Math.min(350, Math.round(minArm * 0.56))
+      : isWardrobeL
+      ? minArm >= 920
+        ? 600
+        : Math.min(600, Math.round(minArm * 0.58))
+      : minArm >= 780
+      ? 580
+      : Math.min(580, Math.round(minArm * 0.64));
+    const retZ0 = wingD;
+    const retZ1 = D - T;
+    const exX = Math.round(explodeX * 0.55);
+    const exY = Math.round(explodeY * 0.65);
+    const exZ = Math.round(explodeZ * 0.55);
+
+    // ⑥ L-Arkalık (Ana Kol X + Dönüş Kolu Z)
+    if (mod.carcass.backPanelType !== "none") {
+      boxes.push({
+        id: "l-back-main",
+        code: "⑥",
+        x0: T,
+        y0: plinthH + T,
+        z0: -exZ,
+        x1: W - T,
+        y1: H - T,
+        z1: -exZ + backT,
+        frontFill: "#E7E2D8",
+        sideFill: "#D6CFC2",
+        topFill: "#F2EFE9",
+        stroke: "#57534E",
+        strokeWidth: 1.2,
+        kind: "back",
+      });
+      boxes.push({
+        id: "l-back-return",
+        code: "⑥",
+        x0: -exX * 1.15,
+        y0: plinthH + T,
+        z0: T,
+        x1: -exX * 1.15 + backT,
+        y1: H - T,
+        z1: D - T,
+        frontFill: "#DDD7CB",
+        sideFill: "#CFC8BA",
+        topFill: "#EAE6DD",
+        stroke: "#57534E",
+        strokeWidth: 1.2,
+        kind: "back",
+      });
+    }
+
+    // ⑦ L-Köşe Baza (Ana X Kolu + Dönüş Z Kolu)
+    if (!isWallCab && plinthH > 0) {
+      const pSet = 35;
+      boxes.push(
+        {
+          id: "l-plinth-x",
+          code: "⑦",
+          x0: 0,
+          y0: -exY * 0.85,
+          z0: 0,
+          x1: W,
+          y1: plinthH - exY * 0.85,
+          z1: Math.max(120, wingD - pSet),
+          frontFill: "#CBD5E1",
+          sideFill: "#94A3B8",
+          topFill: "#E2E8F0",
+          stroke: "#334155",
+          strokeWidth: 1.3,
+          kind: "plinth",
+        },
+        {
+          id: "l-plinth-z",
+          code: "⑦",
+          x0: 0,
+          y0: -exY * 0.85,
+          z0: Math.max(120, wingD - pSet),
+          x1: Math.max(120, wingD - pSet),
+          y1: plinthH - exY * 0.85,
+          z1: D,
+          frontFill: "#CBD5E1",
+          sideFill: "#94A3B8",
+          topFill: "#E2E8F0",
+          stroke: "#334155",
+          strokeWidth: 1.3,
+          kind: "plinth",
+        }
+      );
+    }
+
+    // ③ L-Köşe Alt Tabla (Ana Kol + Dönüş Kolu)
+    boxes.push(
+      {
+        id: "l-bottom-main",
+        code: "③",
+        x0: T,
+        y0: plinthH - exY * 0.35,
+        z0: 0,
+        x1: W - T,
+        y1: plinthH + T - exY * 0.35,
+        z1: wingD,
+        frontFill: "#D6B792",
+        sideFill: "#BE9B72",
+        topFill: "#E7CFAF",
+        stroke: "#44403C",
+        strokeWidth: 1.4,
+        kind: "carcass",
+      },
+      {
+        id: "l-bottom-return",
+        code: "③",
+        x0: T,
+        y0: plinthH - exY * 0.35,
+        z0: retZ0,
+        x1: wingD,
+        y1: plinthH + T - exY * 0.35,
+        z1: retZ1,
+        frontFill: "#D6B792",
+        sideFill: "#BE9B72",
+        topFill: "#E7CFAF",
+        stroke: "#44403C",
+        strokeWidth: 1.4,
+        kind: "carcass",
+      }
+    );
+
+    // ④ L-Köşe Üst Tabla (Ana Kol + Dönüş Kolu)
+    boxes.push(
+      {
+        id: "l-top-main",
+        code: "④",
+        x0: T,
+        y0: H - T + exY * 0.55,
+        z0: 0,
+        x1: W - T,
+        y1: H + exY * 0.55,
+        z1: wingD,
+        frontFill: "#D6B792",
+        sideFill: "#BE9B72",
+        topFill: "#E7CFAF",
+        stroke: "#44403C",
+        strokeWidth: 1.4,
+        kind: "carcass",
+      },
+      {
+        id: "l-top-return",
+        code: "④",
+        x0: T,
+        y0: H - T + exY * 0.55,
+        z0: retZ0,
+        x1: wingD,
+        y1: H + exY * 0.55,
+        z1: retZ1,
+        frontFill: "#D6B792",
+        sideFill: "#BE9B72",
+        topFill: "#E7CFAF",
+        stroke: "#44403C",
+        strokeWidth: 1.4,
+        kind: "carcass",
+      }
+    );
+
+    // ① Köşe Sol Dış Boy Dikme (tam derinlik D)
+    boxes.push({
+      id: "l-side-left-outer",
+      code: "①",
+      x0: -exX * 0.58,
+      y0: plinthH,
+      z0: 0,
+      x1: T - exX * 0.58,
+      y1: H,
+      z1: D,
+      frontFill: "#C9A276",
+      sideFill: "#B2885A",
+      topFill: "#DFC19C",
+      stroke: "#44403C",
+      strokeWidth: 1.5,
+      kind: "carcass",
+    });
+
+    // ② Köşe Sağ Bitiş Dikmesi (X Kolu)
+    boxes.push({
+      id: "l-side-right-end",
+      code: "②",
+      x0: W - T + exX * 0.62,
+      y0: plinthH,
+      z0: 0,
+      x1: W + exX * 0.62,
+      y1: H,
+      z1: wingD,
+      frontFill: "#C9A276",
+      sideFill: "#B2885A",
+      topFill: "#DFC19C",
+      stroke: "#44403C",
+      strokeWidth: 1.5,
+      kind: "carcass",
+    });
+
+    // ⑤ Köşe Ön Dönüş Bitiş Dikmesi (Z Kolu)
+    boxes.push({
+      id: "l-side-front-return",
+      code: "⑤",
+      x0: T,
+      y0: plinthH,
+      z0: D - T + exZ * 0.65,
+      x1: wingD,
+      y1: H,
+      z1: D + exZ * 0.65,
+      frontFill: "#C9A276",
+      sideFill: "#B2885A",
+      topFill: "#DFC19C",
+      stroke: "#44403C",
+      strokeWidth: 1.5,
+      kind: "carcass",
+    });
+
+    // ⑧ L-Köşe Rafları & Askı Boruları
+    const b0 = mod.bays[0];
+    (b0?.shelves || []).forEach((sh, sIdx) => {
+      const sy = plinthH + T + sh.elevationY;
+      const shT = sh.thickness || T;
+      boxes.push(
+        {
+          id: `l-shelf-main-${sIdx}`,
+          code: "⑧",
+          x0: T + 2,
+          y0: sy,
+          z0: 14,
+          x1: W - T - 2,
+          y1: sy + shT,
+          z1: wingD - 14,
+          frontFill: "#E2E8F0",
+          sideFill: "#CBD5E1",
+          topFill: "#F8FAFC",
+          stroke: "#475569",
+          strokeWidth: 1.2,
+          kind: "shelf",
+        },
+        {
+          id: `l-shelf-return-${sIdx}`,
+          code: "⑧",
+          x0: T + 14,
+          y0: sy,
+          z0: wingD - 14,
+          x1: wingD - 14,
+          y1: sy + shT,
+          z1: D - T - 2,
+          frontFill: "#E2E8F0",
+          sideFill: "#CBD5E1",
+          topFill: "#F8FAFC",
+          stroke: "#475569",
+          strokeWidth: 1.2,
+          kind: "shelf",
+        }
+      );
+    });
+    (b0?.hangingRails || []).forEach((rl, rIdx) => {
+      const ry = plinthH + T + rl.elevationY;
+      boxes.push({
+        id: `l-rail-${rIdx}`,
+        code: "⑧",
+        x0: T + 16,
+        y0: ry,
+        z0: wingD * 0.5 - 12,
+        x1: W - T - 16,
+        y1: ry + 26,
+        z1: wingD * 0.5 + 12,
+        frontFill: "#94A3B8",
+        sideFill: "#64748B",
+        topFill: "#CBD5E1",
+        stroke: "#334155",
+        strokeWidth: 1.2,
+        kind: "rail",
+      });
+    });
+
+    // ⑩ L-Köşe Kapaklar (açık giyinme değilse)
+    const hasCornerDoors = !mod.isOpenFront && b0?.door?.type !== "open" && b0?.door?.doorSystemId !== "open";
+    if (hasCornerDoors) {
+      boxes.push(
+        {
+          id: "l-door-x",
+          code: "⑩",
+          x0: wingD,
+          y0: plinthH + 2,
+          z0: wingD + exZ * 0.85,
+          x1: W - 2,
+          y1: H - 2,
+          z1: wingD + exZ * 0.85 + 18,
+          frontFill: "#F8FAFC",
+          sideFill: "#E2E8F0",
+          topFill: "#FFFFFF",
+          stroke: "#0284C7",
+          strokeWidth: 1.3,
+          opacity: 0.46,
+          kind: "door",
+        },
+        {
+          id: "l-door-z",
+          code: "⑩",
+          x0: wingD + exX * 0.85,
+          y0: plinthH + 2,
+          z0: wingD,
+          x1: wingD + exX * 0.85 + 18,
+          y1: H - 2,
+          z1: D - 2,
+          frontFill: "#F8FAFC",
+          sideFill: "#E2E8F0",
+          topFill: "#FFFFFF",
+          stroke: "#0284C7",
+          strokeWidth: 1.3,
+          opacity: 0.46,
+          kind: "door",
+        }
+      );
+    }
+
+    boxes.sort((a, b) => {
+      const da = ((a.z0 + a.z1) / 2) * 1.0 + ((a.y0 + a.y1) / 2) * 0.35 + ((a.x0 + a.x1) / 2) * 0.12;
+      const db = ((b.z0 + b.z1) / 2) * 1.0 + ((b.y0 + b.y1) / 2) * 0.35 + ((b.x0 + b.x1) / 2) * 0.12;
+      return da - db;
+    });
+
+    return { boxes, explodeX, explodeY, explodeZ, explodeDrawerZ, explodeDoorZ, bayRanges };
+  }
+
   // 3. STANDARD RECTANGULAR CABINET (WITH HINGED, SLIDING, LIFT OR TAMBOUR DOORS)
   boxes.push({
     id: "back-panel",
@@ -1629,6 +1975,47 @@ export function buildExplodedIsoScene(
         : []),
       ...(hasTray
         ? [{ code: "⑪", num: "11", label: "20mm Mermer Üst Tabla", ...toSvg(W * 0.54, H + explodeY * 1.82, D * 0.45) }]
+        : []),
+    ];
+  } else if (
+    Boolean(mod.isCorner) &&
+    !(mod.templateId || "").toLowerCase().includes("blind") &&
+    !(mod.name || "").toLowerCase().includes("kör") &&
+    !(mod.templateId || "").toLowerCase().includes("diagonal") &&
+    !(mod.name || "").toLowerCase().includes("diyagonal") &&
+    W >= 600 &&
+    D >= 600
+  ) {
+    const exX = Math.round(explodeX * 0.55);
+    const exY = Math.round(explodeY * 0.65);
+    const exZ = Math.round(explodeZ * 0.55);
+    arrows = [
+      { code: "①", stepNo: 2, from: toSvg(-exX * 0.58 + 20, midY, D * 0.5), to: toSvg(0, midY, D * 0.5) },
+      { code: "②", stepNo: 2, from: toSvg(W + exX * 0.62 - 20, midY, D * 0.3), to: toSvg(W, midY, D * 0.3) },
+      { code: "⑤", stepNo: 2, from: toSvg(W * 0.3, midY, D + exZ * 0.65 - 20), to: toSvg(W * 0.3, midY, D) },
+      { code: "④", stepNo: 2, from: toSvg(W * 0.45, H + exY * 0.55 - 15, D * 0.3), to: toSvg(W * 0.45, H, D * 0.3) },
+      { code: "⑥", stepNo: 3, from: toSvg(W * 0.5, midY, -exZ + 20), to: toSvg(W * 0.5, midY, 0) },
+      ...(!isWallCab && plinthH > 0
+        ? [{ code: "⑦", stepNo: 1, from: toSvg(W * 0.4, plinthH - exY * 0.85 + 15, D * 0.3), to: toSvg(W * 0.4, plinthH, D * 0.3) }]
+        : []),
+    ];
+    callouts = [
+      { code: "①", num: "1", label: `Sol Dış Boy Dikme (${T}mm)`, ...toSvg(-exX * 0.58 - 25, H * 0.78, D * 0.45) },
+      { code: "②", num: "2", label: `Sağ X Bitiş Dikmesi`, ...toSvg(W + exX * 0.62 + 25, H * 0.76, D * 0.25) },
+      { code: "③", num: "3", label: "L-Alt Tabla (Tek Parça CNC)", ...toSvg(W * 0.2, plinthH - exY * 0.35, D * 0.75) },
+      { code: "④", num: "4", label: "L-Üst Tabla (Tek Parça CNC)", ...toSvg(W * 0.3, H + exY * 0.55 + 45, D * 0.3) },
+      { code: "⑤", num: "5", label: "Ön Z Dönüş Dikmesi", ...toSvg(W * 0.35, H * 0.36, D + exZ * 0.65) },
+      ...(mod.carcass.backPanelType !== "none"
+        ? [{ code: "⑥", num: "6", label: `${backT}mm L-Arkalık (2x)`, ...toSvg(W * 0.65, H * 0.88, -exZ) }]
+        : []),
+      ...(!isWallCab && plinthH > 0
+        ? [{ code: "⑦", num: "7", label: `L-Köşe Baza (${plinthH}mm)`, ...toSvg(W * 0.35, -exY * 0.85, D * 0.4) }]
+        : []),
+      ...(shelfCount > 0
+        ? [{ code: "⑧", num: "8", label: `L-Raf Tek Parça CNC (${shelfCount}x)`, ...toSvg(W * 0.42, H * 0.56, D * 0.42) }]
+        : []),
+      ...(hasDoors
+        ? [{ code: "⑩", num: "10", label: "L-Köşe Kapak (2x)", ...toSvg(W * 0.72, H * 0.42, D + exZ * 0.85) }]
         : []),
     ];
   } else {
