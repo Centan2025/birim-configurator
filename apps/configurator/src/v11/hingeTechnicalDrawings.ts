@@ -1,5 +1,5 @@
 import type { ModuleInstance } from "@birim/core";
-import type { HardwareItem } from "@birim/manufacturing";
+import type { HardwareBOMItem } from "@birim/manufacturing";
 import { CAD_COLORS, escXml, renderDimLine, renderViewCaption } from "./productionSheetTypes";
 
 export type HingeVisualVariant =
@@ -483,7 +483,7 @@ function findProfileBySkuOrName(sku?: string, name?: string): HingeTechnicalProf
  */
 export function resolveModuleHingeProfile(
   mod: ModuleInstance,
-  bomHardwareList: HardwareItem[]
+  bomHardwareList: HardwareBOMItem[]
 ): HingeTechnicalProfile {
   const firstHingedBay =
     mod.bays.find(

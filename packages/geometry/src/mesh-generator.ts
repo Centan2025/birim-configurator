@@ -408,17 +408,53 @@ export function generateModuleGeometry(
     if (pH > 0) {
       const recess = Math.min(65, Math.max(35, Math.round(capR * 0.35)));
       const plinthW = Math.max(160, width - 2 * recess);
-      capComponents.push({
-        id: `${module.id}_capsule_plinth`,
-        role: "plinth",
-        label: `${shapeTitle} Alt Taşıyıcı Baza / Ayak Kasası (${plinthW}×${pH}mm)`,
-        dimensions: { width: plinthW, height: pH, depth: T },
-        position: { x: recess, y: 0, z: Math.max(T, depth - recess - T) },
-        materialId: module.carcass.plinthMaterialId || doorMaterialId || bodyMaterialId,
-        isFrontFacing: true,
-        isManufacturablePanel: true,
-        thicknessAxis: "z",
-      });
+      const capPlinthMat = module.carcass.plinthMaterialId || doorMaterialId || bodyMaterialId;
+      const capFrontZ = Math.max(T + 40, depth - recess - T);
+      const capRearZ = Math.min(recess, Math.max(20, capFrontZ - 60));
+      const capSideD = Math.max(40, capFrontZ - capRearZ);
+      capComponents.push(
+        {
+          id: `${module.id}_capsule_plinth`,
+          role: "plinth",
+          label: `${shapeTitle} Ön Baza Bandı (${plinthW}×${pH}mm)`,
+          dimensions: { width: plinthW, height: pH, depth: T },
+          position: { x: recess, y: 0, z: capFrontZ },
+          materialId: capPlinthMat,
+          isFrontFacing: true,
+          isManufacturablePanel: true,
+          thicknessAxis: "z",
+        },
+        {
+          id: `${module.id}_capsule_plinth_rear`,
+          role: "plinth",
+          label: `${shapeTitle} Arka Baza Kayıtı`,
+          dimensions: { width: Math.max(80, plinthW - 2 * T), height: pH, depth: T },
+          position: { x: recess + T, y: 0, z: capRearZ },
+          materialId: bodyMaterialId,
+          isManufacturablePanel: true,
+          thicknessAxis: "z",
+        },
+        {
+          id: `${module.id}_capsule_plinth_left`,
+          role: "plinth",
+          label: `${shapeTitle} Sol Dönüş Baza Bandı`,
+          dimensions: { width: T, height: pH, depth: capSideD },
+          position: { x: recess, y: 0, z: capRearZ },
+          materialId: capPlinthMat,
+          isManufacturablePanel: true,
+          thicknessAxis: "x",
+        },
+        {
+          id: `${module.id}_capsule_plinth_right`,
+          role: "plinth",
+          label: `${shapeTitle} Sağ Dönüş Baza Bandı`,
+          dimensions: { width: T, height: pH, depth: capSideD },
+          position: { x: recess + plinthW - T, y: 0, z: capRearZ },
+          materialId: capPlinthMat,
+          isManufacturablePanel: true,
+          thicknessAxis: "x",
+        }
+      );
     }
 
     // Contoured Bottom & Top Slabs with 8.5×7.5mm CNC Tambour Guide Track Groove
@@ -1099,7 +1135,51 @@ export function generateModuleGeometry(
           position: { x: cornerJuncX - 2, y: 0, z: cornerJuncZ - 2 },
           materialId: "mat_anodized_metal",
           isManufacturablePanel: false,
-        }
+        },
+        {
+          id: `${module.id}_plinth_rear_x`,
+          role: "plinth",
+          label: "L-Köşe Arka Baza Taşıyıcı Kayıt (X Duvarı)",
+          dimensions: { width: Math.max(120, width - (cornerSideRunsToFloor ? 2 * T : 40)), height: lBoardH, depth: T },
+          position: { x: cornerSideRunsToFloor ? T : 20, y: lSealH, z: 20 },
+          materialId: bodyMaterialId,
+          isManufacturablePanel: true,
+          thicknessAxis: "z",
+        },
+        {
+          id: `${module.id}_plinth_rear_z`,
+          role: "plinth",
+          label: "L-Köşe Arka Baza Taşıyıcı Kayıt (Z Duvarı)",
+          dimensions: { width: T, height: lBoardH, depth: Math.max(120, depth - 20 - T - (cornerSideRunsToFloor ? T : 20)) },
+          position: { x: cornerSideRunsToFloor ? T : 20, y: lSealH, z: 20 + T },
+          materialId: bodyMaterialId,
+          isManufacturablePanel: true,
+          thicknessAxis: "x",
+        },
+        ...(!cornerSideRunsToFloor
+          ? [
+              {
+                id: `${module.id}_plinth_end_right`,
+                role: "plinth" as const,
+                label: "L-Köşe Sağ Bitiş Dönüş Baza Bandı",
+                dimensions: { width: T, height: lBoardH, depth: Math.max(80, cornerJuncZ - 20) },
+                position: { x: width - T - 3, y: lSealH, z: 20 },
+                materialId: lPlinthMat,
+                isManufacturablePanel: true,
+                thicknessAxis: "x" as const,
+              },
+              {
+                id: `${module.id}_plinth_end_front`,
+                role: "plinth" as const,
+                label: "L-Köşe Ön Dönüş Bitiş Baza Bandı",
+                dimensions: { width: Math.max(80, cornerJuncX - 20), height: lBoardH, depth: T },
+                position: { x: 20, y: lSealH, z: depth - T - 3 },
+                materialId: lPlinthMat,
+                isManufacturablePanel: true,
+                thicknessAxis: "z" as const,
+              },
+            ]
+          : [])
       );
       if (lSealH > 0) {
         components.push(
@@ -1792,19 +1872,66 @@ export function generateModuleGeometry(
     if (plinthHeight > 0) {
       const pSetback = 42;
       const pShift = Math.round(pSetback * 0.707);
-      components.push({
-        id: `${module.id}_diag_plinth`,
-        role: "plinth",
-        label: "45° Diyagonal Köşe Ön Baza Bandı",
-        dimensions: { width: Math.max(120, diagLen), height: plinthHeight, depth: T },
-        position: { x: wingD - pShift, y: 0, z: depth - pShift - T },
-        rotation: [0, diagAngle, 0],
-        pivot: { x: wingD - pShift, y: 0, z: depth - pShift },
-        materialId: module.carcass.plinthMaterialId || doorMaterialId || bodyMaterialId,
-        isFrontFacing: true,
-        isManufacturablePanel: true,
-        thicknessAxis: "z",
-      });
+      const diagPlinthMat = module.carcass.plinthMaterialId || doorMaterialId || bodyMaterialId;
+      components.push(
+        {
+          id: `${module.id}_diag_plinth`,
+          role: "plinth",
+          label: "45° Diyagonal Köşe Ön Baza Bandı",
+          dimensions: { width: Math.max(120, diagLen), height: plinthHeight, depth: T },
+          position: { x: wingD - pShift, y: 0, z: depth - pShift - T },
+          rotation: [0, diagAngle, 0],
+          pivot: { x: wingD - pShift, y: 0, z: depth - pShift },
+          materialId: diagPlinthMat,
+          isFrontFacing: true,
+          isManufacturablePanel: true,
+          thicknessAxis: "z",
+        },
+        {
+          id: `${module.id}_diag_plinth_rear_x`,
+          role: "plinth",
+          label: "45° Diyagonal Köşe Arka Baza Kayıtı (X Duvarı)",
+          dimensions: { width: Math.max(120, width - 40), height: plinthHeight, depth: T },
+          position: { x: 20, y: 0, z: 20 },
+          materialId: bodyMaterialId,
+          isManufacturablePanel: true,
+          thicknessAxis: "z",
+        },
+        {
+          id: `${module.id}_diag_plinth_rear_z`,
+          role: "plinth",
+          label: "45° Diyagonal Köşe Arka Baza Kayıtı (Z Duvarı)",
+          dimensions: { width: T, height: plinthHeight, depth: Math.max(120, depth - 40 - T) },
+          position: { x: 20, y: 0, z: 20 + T },
+          materialId: bodyMaterialId,
+          isManufacturablePanel: true,
+          thicknessAxis: "x",
+        },
+        ...(!diagSideRunsToFloor
+          ? [
+              {
+                id: `${module.id}_diag_plinth_side_right`,
+                role: "plinth" as const,
+                label: "45° Diyagonal Köşe Sağ Dönüş Baza Bandı",
+                dimensions: { width: T, height: plinthHeight, depth: Math.max(80, wingD - pShift - 20) },
+                position: { x: width - T - 3, y: 0, z: 20 },
+                materialId: diagPlinthMat,
+                isManufacturablePanel: true,
+                thicknessAxis: "x" as const,
+              },
+              {
+                id: `${module.id}_diag_plinth_side_front`,
+                role: "plinth" as const,
+                label: "45° Diyagonal Köşe Ön Dönüş Baza Bandı",
+                dimensions: { width: Math.max(80, wingD - pShift - 20), height: plinthHeight, depth: T },
+                position: { x: 20, y: 0, z: depth - T - 3 },
+                materialId: diagPlinthMat,
+                isManufacturablePanel: true,
+                thicknessAxis: "z" as const,
+              },
+            ]
+          : [])
+      );
       if (effDiagPlinthType === "adjustable_legs_clip") {
         [
           { id: "bl", x: 64, z: 64 },
@@ -2471,6 +2598,21 @@ export function generateModuleGeometry(
           materialId: plinthMatId,
           isManufacturablePanel: true,
           thicknessAxis: "x",
+        },
+        {
+          id: `${module.id}_plinth_rear`,
+          role: "plinth",
+          label: module.category === "kitchen_island" ? "Ada Arka Baza Bandı (4 Yüz Görünür)" : "Klipsli Arka Baza Denge Kayıtı",
+          dimensions: { width: Math.max(80, width - 2 * sideReturnInset - 2 * T), height: boardH, depth: T },
+          position: {
+            x: sideReturnInset + T,
+            y: baseExpY + sealH,
+            z: rearRailZ - explodeZ * 0.35,
+          },
+          materialId: module.category === "kitchen_island" ? plinthMatId : bodyMaterialId,
+          isFrontFacing: module.category === "kitchen_island",
+          isManufacturablePanel: true,
+          thicknessAxis: "z",
         }
       );
 
