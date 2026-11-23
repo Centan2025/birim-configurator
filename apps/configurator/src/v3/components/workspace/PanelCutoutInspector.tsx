@@ -267,7 +267,7 @@ export const PanelCutoutInspector: React.FC<PanelCutoutInspectorProps> = ({
                   <label className="block">
                     <span className="text-[9px] text-[#78716C] block">Merkez X (mm)</span>
                     <input
-                      type="number"
+                      type="number" inputMode="decimal"
                       value={co.centerXMm}
                       onChange={(e) => {
                         const updated = [...cutouts];
@@ -281,7 +281,7 @@ export const PanelCutoutInspector: React.FC<PanelCutoutInspectorProps> = ({
                   <label className="block">
                     <span className="text-[9px] text-[#78716C] block">Merkez Y (mm)</span>
                     <input
-                      type="number"
+                      type="number" inputMode="decimal"
                       value={co.centerYMm}
                       onChange={(e) => {
                         const updated = [...cutouts];

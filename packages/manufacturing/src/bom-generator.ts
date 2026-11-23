@@ -401,6 +401,7 @@ export function generateBOMForProject(
   const spaceWallsCount = project.space?.walls?.length || 0;
 
   project.modules.forEach((module: ModuleInstance) => {
+    if (module.includeInProduction === false) return;
     const isCountertopMod = module.category === "complementary" && module.complementaryRole === "countertop";
     const hasBelowSupport =
       (module.position?.y || 0) >= 150 &&
@@ -734,7 +735,8 @@ export function generateBOMForProject(
       const perJointDowel = module.dimensions.depth < 250 ? 0 : perJointMinifix;
       const minifixCount = 4 * perJointMinifix + numDividers * 2 * perJointMinifix;
       const dowelCount = 4 * perJointDowel + numDividers * 2 * perJointDowel;
-      if (modJoinery === "miter_45") {
+      const effJointType = module.carcass.jointType || "minifix_dowel";
+      if (modJoinery === "miter_45" || effJointType === "miter_45") {
         addHardware(
           "HW_LAMELLO_CLAMEX_P14",
           "Lamello Clamex P-14 Sökülebilir 45° Gönye Bağlantı Elemanı",
@@ -742,6 +744,24 @@ export function generateBOMForProject(
           8 + numDividers * 4,
           "adet",
           2.1
+        );
+      } else if (effJointType === "confirmat") {
+        addHardware(
+          "HW_CONFIRMAT_7X50",
+          "Konfirmat Gövde Vidası 7×50mm + Renkli Tapa",
+          "connector",
+          minifixCount,
+          "adet",
+          0.14
+        );
+      } else if (effJointType === "dowel_only") {
+        addHardware(
+          "HW_DOWEL_8X35_GLUED",
+          "Ahşap Kavela 8×35mm (Tutkallı Çift Kavela Birleşim)",
+          "fastener",
+          Math.max(8, minifixCount * 2),
+          "adet",
+          0.06
         );
       } else {
         addHardware(
@@ -1887,22 +1907,37 @@ export function generateBOMForProject(
             }
           : undefined;
 
+      const bbCfg = module.carcass.baseboardNotch;
+      const isRearNotchedVertical =
+        Boolean(bbCfg?.enabled) &&
+        (comp.role === "carcass_side_left" ||
+          comp.role === "carcass_side_right" ||
+          comp.role === "carcass_divider" ||
+          (comp.role === "plinth" && (comp.id.includes("side_left") || comp.id.includes("side_right"))));
+      const bbEffectiveH =
+        comp.role === "plinth"
+          ? Math.min(rawLengthMm, bbCfg?.heightMm || 80)
+          : Math.min(rawLengthMm, bbCfg?.heightMm || 80);
+      const bbEffectiveD = Math.min(rawWidthMm - 20, bbCfg?.depthMm || 15);
       const baseboardCutouts =
-        module.carcass.baseboardNotch?.enabled &&
-        (comp.role === "carcass_side_left" || comp.role === "carcass_side_right")
+        isRearNotchedVertical && bbCfg && bbEffectiveD > 0 && bbEffectiveH > 0
           ? [
               {
                 id: `bb_${comp.id}`,
-                targetPanel: (comp.role === "carcass_side_left" ? "left_side" : "right_side") as "left_side" | "right_side",
+                targetPanel: (comp.role === "carcass_side_left"
+                  ? "left_side"
+                  : comp.role === "carcass_side_right"
+                  ? "right_side"
+                  : "back") as import("@birim/core").CutoutTargetPanel,
                 kind: "baseboard_notch" as const,
                 shape: "corner_notch" as const,
                 centerXMm: mirrorInnerFaceX
-                  ? module.carcass.baseboardNotch.depthMm / 2
-                  : rawWidthMm - module.carcass.baseboardNotch.depthMm / 2,
-                centerYMm: module.carcass.baseboardNotch.heightMm / 2,
-                widthMm: module.carcass.baseboardNotch.depthMm,
-                heightMm: module.carcass.baseboardNotch.heightMm,
-                label: "Süpürgelik Kertmesi",
+                  ? bbEffectiveD / 2
+                  : rawWidthMm - bbEffectiveD / 2,
+                centerYMm: bbEffectiveH / 2,
+                widthMm: bbEffectiveD,
+                heightMm: bbEffectiveH,
+                label: `Süpürgelik Kertmesi (${bbCfg.heightMm}×${bbCfg.depthMm}mm)`,
               },
             ]
           : [];
@@ -2414,6 +2449,15 @@ export function generateBOMForProject(
           }
           if (scribeR > 0 && (comp.role === "carcass_side_right" || comp.id.endsWith("_klapa_right"))) {
             noteParts.push(`Sağ Yamuk Duvar Tıraş Payı: +${scribeR}mm`);
+          }
+          if (bbCfg?.enabled && comp.role === "plinth" && comp.id.includes("rear")) {
+            noteParts.push(`Süpürgelik geri çekmesi: +${bbCfg.depthMm}mm öne konumlandırılır`);
+          } else if (bbCfg?.enabled && comp.role === "carcass_back" && bbCfg.heightMm > (module.carcass.plinthHeight ?? 80)) {
+            noteParts.push(
+              `Arka süpürgelik boşluğu: alt ${Math.round(bbCfg.heightMm - (module.carcass.plinthHeight ?? 80))}mm kertme/yükseltme (${bbCfg.heightMm}×${bbCfg.depthMm}mm)`
+            );
+          } else if (bbCfg?.enabled && isRearNotchedVertical) {
+            noteParts.push(`CNC Arka Süpürgelik Çentiği: ${bbCfg.heightMm}×${bbCfg.depthMm}mm`);
           }
           return noteParts.length > 0 ? noteParts.join(" • ") : undefined;
         })(),

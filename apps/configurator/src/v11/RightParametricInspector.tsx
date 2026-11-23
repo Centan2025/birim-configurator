@@ -5,6 +5,7 @@ import React, { useState, useMemo, useRef, useEffect } from "react";
 import {
   ChevronLeft,
   ChevronRight,
+  X,
   ChevronDown,
   SlidersHorizontal,
   Plus,
@@ -192,7 +193,7 @@ export interface RightParametricInspectorProps {
   onCopyDoorToAllBays: (sourceBayIdx: number) => void;
   onCopyBayInteriorToAllBays?: (sourceBayIdx: number) => void;
   onMirrorModuleBays?: () => void;
-  onUpdateCarcassConfig: (patch: Partial<ModuleInstance["carcass"]>) => void;
+  onUpdateCarcassConfig: (patch: Partial<ModuleInstance["carcass"]>, applyToAllModules?: boolean) => void;
   onApplyMaterialScope: (
     scope: "doors" | "carcass" | "all_module",
     materialId: string
@@ -216,6 +217,7 @@ export interface RightParametricInspectorProps {
   onRotateActiveModule90: () => void;
   onRemoveActiveModule: () => void;
   onOpenCustomHardwareModal: () => void;
+  hideExpandTabOnCompact?: boolean;
 }
 
 function renderPresetSvg(kind: "double_hang" | "shelves" | "hang_drawers" | "combo") {
@@ -1857,12 +1859,71 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
       onRotateActiveModule90,
       onRemoveActiveModule,
       onOpenCustomHardwareModal,
+    hideExpandTabOnCompact = false,
     } = props;
 
     const unitMode = useConfiguratorStore((st) => st.displayUnit);
     const setUnitMode = useConfiguratorStore((st) => st.setDisplayUnit);
     const [moduleMenuOpen, setModuleMenuOpen] = useState(false);
+    const [moduleMenuPos, setModuleMenuPos] = useState<{ top: number; right: number }>({
+      top: 126,
+      right: 28,
+    });
+    const moduleMenuBtnRef = useRef<HTMLButtonElement | null>(null);
+    const moduleMenuPortalRef = useRef<HTMLDivElement | null>(null);
+
+    useEffect(() => {
+      if (!isOpen) setModuleMenuOpen(false);
+    }, [isOpen]);
+
+    useEffect(() => {
+      if (!moduleMenuOpen) return;
+      const onDown = (e: PointerEvent) => {
+        const t = e.target as Node | null;
+        if (moduleMenuPortalRef.current?.contains(t)) return;
+        if (moduleMenuBtnRef.current?.contains(t)) return;
+        setModuleMenuOpen(false);
+      };
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key === "Escape") setModuleMenuOpen(false);
+      };
+      window.addEventListener("pointerdown", onDown, true);
+      window.addEventListener("keydown", onKey);
+      return () => {
+        window.removeEventListener("pointerdown", onDown, true);
+        window.removeEventListener("keydown", onKey);
+      };
+    }, [moduleMenuOpen]);
   const [interiorSubTab, setInteriorSubTab] = useState<"layout" | "hardware">("layout");
+  const [appliedAllKey, setAppliedAllKey] = useState<string | null>(null);
+  const mainModuleCount = useConfiguratorStore(
+    (st) => (st.project?.modules || []).filter((m) => m.category !== "complementary").length
+  );
+  const renderApplyCarcassToAllBtn = (
+    key: string,
+    label: string,
+    patch: Partial<ModuleInstance["carcass"]>
+  ) => {
+    if (mainModuleCount < 2) return null;
+    const done = appliedAllKey === key;
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          onUpdateCarcassConfig(patch, true);
+          setAppliedAllKey(key);
+          window.setTimeout(() => setAppliedAllKey((cur) => (cur === key ? null : cur)), 1800);
+        }}
+        className={`w-full mt-1.5 py-1.5 px-2.5 rounded-xl border text-[10.5px] font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer ${
+          done
+            ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-700"
+            : "bg-[#F5F2EA] hover:bg-[#EAE3D5] border-[#DED8CC] text-[#44403C]"
+        }`}
+      >
+        <span>{done ? `✓ Tüm Modüllere Uygulandı (${mainModuleCount} Modül)` : `${label} (${mainModuleCount} Modül)`}</span>
+      </button>
+    );
+  };
   useEffect(() => {
     if (activeTab === "hardware") {
       setInteriorSubTab("hardware");
@@ -1949,6 +2010,8 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
     });
     const [selectedCustomDoorId, setSelectedCustomDoorId] = useState<string | null>(null);
     const [customDoorOpen, setCustomDoorOpen] = useState(false);
+    const [mobileSheetDvh, setMobileSheetDvh] = useState<38 | 62 | 86>(62);
+    const sheetDragStartYRef = useRef<number | null>(null);
     const [multiShelfOpen, setMultiShelfOpen] = useState(false);
     const [multiShelfCount, setMultiShelfCount] = useState(5);
     const [multiShelfMount, setMultiShelfMount] = useState<
@@ -2186,7 +2249,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                   );
                 })}
                 <input
-                  type="number"
+                  type="number" inputMode="decimal"
                   min={32}
                   max={100}
                   step={1}
@@ -2244,7 +2307,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                   );
                 })}
                 <input
-                  type="number"
+                  type="number" inputMode="decimal"
                   min={0}
                   max={80}
                   step={1}
@@ -2291,12 +2354,15 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
         <button
           type="button"
           data-testid="v11-expand-inspector-btn"
-          aria-hidden={isOpen}
+          inert={isOpen ? true : undefined}
           tabIndex={isOpen ? -1 : 0}
-          onClick={onToggleOpen}
+          onClick={(e) => {
+            e.currentTarget.blur();
+            onToggleOpen();
+          }}
           title="Modül Özellikleri Panelini Aç"
-          className={`fixed right-4 top-1/2 -translate-y-1/2 z-30 py-3.5 px-2.5 rounded-full bg-[#2C3341]/66 backdrop-blur-2xl border border-white/[0.22] ring-1 ring-black/50 shadow-[0_18px_46px_rgba(0,0,0,0.46)] text-xs font-semibold text-[#F3F4F6] flex flex-col items-center gap-2 hover:bg-[#222631] cursor-pointer origin-right transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
-            isOpen
+          className={`fixed right-4 max-md:right-2 top-1/2 -translate-y-1/2 z-30 py-3.5 px-2.5 max-md:py-2.5 max-md:px-1.5 rounded-full bg-[#2C3341]/66 backdrop-blur-2xl border border-white/[0.22] ring-1 ring-black/50 shadow-[0_18px_46px_rgba(0,0,0,0.46)] text-xs font-semibold text-[#F3F4F6] flex flex-col items-center gap-2 max-md:gap-1 hover:bg-[#222631] cursor-pointer origin-right transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+            isOpen || hideExpandTabOnCompact
               ? "opacity-0 scale-90 translate-x-4 pointer-events-none"
               : "opacity-100 scale-100 translate-x-0 pointer-events-auto"
           }`}
@@ -2308,20 +2374,54 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
           </span>
         </button>
 
+        {/* MOBİL / TABLET SAĞ ÇEKMECE ARKA PLAN KARARTMASI (<1024px — dışa dokunarak kapat) */}
+        <div
+          aria-hidden="true"
+          onClick={() => {
+            if (isOpen) onToggleOpen();
+          }}
+          className={`lg:hidden fixed inset-0 z-[58] bg-black/45 transition-opacity duration-300 ease-out ${
+            isOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+          }`}
+        />
+
         <aside
           aria-label="Modül Parametreleri"
           inert={!isOpen ? true : undefined}
           data-testid="v11-right-inspector"
-          style={{ width: `${panelWidthPx}px` }}
-          className={`birim-dramatic-panel fixed right-4 top-[72px] bottom-[84px] max-w-[calc(100vw-32px)] max-lg:!w-auto max-lg:left-2.5 max-lg:right-2.5 max-lg:top-auto max-lg:bottom-2.5 max-lg:h-[58vh] max-lg:max-w-none max-lg:rounded-t-3xl max-lg:rounded-b-2xl max-lg:origin-bottom z-30 rounded-3xl bg-[#2A313F]/66 backdrop-blur-2xl border border-white/[0.22] ring-1 ring-black/60 shadow-[0_28px_68px_rgba(0,0,0,0.62)] flex flex-col overflow-hidden text-[#F3F4F6] origin-right transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
-            isOpen
-              ? "opacity-100 scale-100 translate-x-0 pointer-events-auto"
-              : "opacity-0 scale-95 translate-x-6 pointer-events-none"
+          style={
+            {
+              width: `${panelWidthPx}px`,
+              paddingTop: "env(safe-area-inset-top)",
+              paddingBottom: "env(safe-area-inset-bottom)",
+              transform: isOpen ? "translate3d(0, 0, 0)" : "translate3d(calc(100% + 28px), 0, 0)",
+              transition:
+                "transform 380ms cubic-bezier(0.16, 1, 0.3, 1), opacity 260ms ease",
+            } as React.CSSProperties
+          }
+          className={`birim-dramatic-panel fixed right-4 top-[72px] bottom-[84px] max-w-[calc(100vw-32px)] max-lg:!w-[min(88vw,390px)] max-lg:left-auto max-lg:right-0 max-lg:top-0 max-lg:bottom-0 max-lg:h-dvh max-lg:max-w-none max-lg:rounded-none max-lg:rounded-l-[28px] max-lg:z-[65] z-30 rounded-3xl bg-[#2A313F]/66 backdrop-blur-2xl border border-white/[0.22] max-lg:border-r-0 ring-1 ring-black/60 shadow-[0_28px_68px_rgba(0,0,0,0.62)] flex flex-col overflow-hidden text-[#F3F4F6] will-change-[transform,opacity] ${
+            isOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
           }`}
         >
-        {/* MOBİL / TABLET ALT ÇEKMECE TUTAMAÇ GÖSTERGESİ (<1024px) */}
-        <div className="lg:hidden w-full pt-2 pb-1 flex justify-center shrink-0">
-          <span className="w-10 h-1 rounded-full bg-[#CFC7B9]" />
+        {/* MOBİL / TABLET SAĞA KAYDIRARAK KAPATMA KENAR TUTAMACI (<1024px) */}
+        <div
+          aria-label="Paneli sağa kaydırarak kapat"
+          onPointerDown={(e) => {
+            sheetDragStartYRef.current = e.clientX;
+            try {
+              (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+            } catch {}
+          }}
+          onPointerUp={(e) => {
+            const startX = sheetDragStartYRef.current;
+            sheetDragStartYRef.current = null;
+            if (startX !== null && e.clientX - startX > 48 && isOpen) {
+              onToggleOpen();
+            }
+          }}
+          className="lg:hidden absolute left-0 top-1/2 -translate-y-1/2 w-3.5 h-24 z-40 flex items-center justify-center touch-none cursor-ew-resize"
+        >
+          <span className="w-1 h-12 rounded-full bg-white/30" />
         </div>
         {/* SOL KENAR YENİDEN BOYUTLANDIRMA TUTAMACI (340–680px) */}
         <div
@@ -2382,12 +2482,58 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                   : `${Math.round(wMm)} × ${Math.round(hMm)} × ${Math.round(dMm)} mm`} •{" "}
                 {activeModule.bays.length} Bölme
               </p>
+              <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                <button
+                  type="button"
+                  data-testid="v11-toggle-module-production"
+                  onClick={() =>
+                    useConfiguratorStore.getState().setModuleProductionAndPricingFlags(activeModuleIndex, {
+                      includeInProduction: activeModule.includeInProduction === false,
+                    })
+                  }
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold border transition cursor-pointer ${
+                    activeModule.includeInProduction !== false
+                      ? "bg-emerald-500/15 text-emerald-300 border-emerald-400/35"
+                      : "bg-slate-500/15 text-slate-400 border-slate-400/30 line-through"
+                  }`}
+                  title="Bu modülün Kesim Listesi, CNC ve 2D Nesting üretimine dahil edilip edilmeyeceğini seçin"
+                >
+                  {activeModule.includeInProduction !== false ? "✓ Üretime Dahil" : "✕ Üretim Dışı"}
+                </button>
+                <button
+                  type="button"
+                  data-testid="v11-toggle-module-pricing"
+                  onClick={() =>
+                    useConfiguratorStore.getState().setModuleProductionAndPricingFlags(activeModuleIndex, {
+                      includeInPricing: activeModule.includeInPricing === false,
+                    })
+                  }
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold border transition cursor-pointer ${
+                    activeModule.includeInPricing !== false
+                      ? "bg-sky-500/15 text-sky-300 border-sky-400/35"
+                      : "bg-amber-500/15 text-amber-300 border-amber-400/35 line-through"
+                  }`}
+                  title="Bu modülün müşteri teklif fiyatına dahil edilip edilmeyeceğini seçin"
+                >
+                  {activeModule.includeInPricing !== false ? "✓ Fiyata Dahil" : "✕ Fiyat Dışı"}
+                </button>
+              </div>
             </div>
 
             <div className="relative flex items-center gap-1 shrink-0">
               <button
+                ref={moduleMenuBtnRef}
                 type="button"
-                onClick={() => setModuleMenuOpen((v) => !v)}
+                onClick={(e) => {
+                  const r = e.currentTarget.getBoundingClientRect();
+                  const nextTop = Math.min(
+                    Math.max(16, window.innerHeight - 280),
+                    Math.max(16, Math.round(r.bottom + 8))
+                  );
+                  const nextRight = Math.max(12, Math.round(window.innerWidth - r.right));
+                  setModuleMenuPos({ top: nextTop, right: nextRight });
+                  setModuleMenuOpen((v) => !v);
+                }}
                 title="Modül İşlemleri"
                 className="w-8 h-8 rounded-full hover:bg-[#EFECE4] text-[#57534E] hover:text-[#141413] flex items-center justify-center transition cursor-pointer"
               >
@@ -2395,27 +2541,32 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
               </button>
               <button
                 type="button"
-                onClick={onToggleOpen}
-                title="Paneli Daralt"
+                onClick={() => {
+                  setModuleMenuOpen(false);
+                  onToggleOpen();
+                }}
+                aria-label="Paneli Kapat"
+                title="Paneli Kapat"
                 className="w-8 h-8 rounded-full hover:bg-[#EFECE4] text-[#57534E] hover:text-[#141413] flex items-center justify-center transition cursor-pointer"
               >
-                <ChevronRight className="w-4 h-4" />
+                <X className="w-4 h-4" />
               </button>
 
-              {moduleMenuOpen && typeof document !== "undefined" && createPortal(
+              {isOpen && moduleMenuOpen && typeof document !== "undefined" && createPortal(
                 <div
+                  ref={moduleMenuPortalRef}
                   data-birim-portal-menu="true"
-                  onMouseDown={(e) => e.stopPropagation()}
+                  onPointerDown={(e) => e.stopPropagation()}
                   style={{
                     position: "fixed",
-                    top: "126px",
-                    right: "28px",
+                    top: `${moduleMenuPos.top}px`,
+                    right: `${moduleMenuPos.right}px`,
                     zIndex: 90,
-                    background: "rgba(30, 36, 48, 0.72)",
-                    backdropFilter: "blur(36px) saturate(195%)",
-                    WebkitBackdropFilter: "blur(36px) saturate(195%)",
+                    background: "rgba(30, 36, 48, 0.94)",
+                    backdropFilter: "blur(32px) saturate(185%)",
+                    WebkitBackdropFilter: "blur(32px) saturate(185%)",
                   }}
-                  className="w-60 rounded-2xl border border-white/[0.22] ring-1 ring-black/50 shadow-[0_24px_60px_rgba(0,0,0,0.62)] p-1.5 text-xs text-slate-100"
+                  className="w-60 max-w-[calc(100vw-24px)] rounded-2xl border border-white/[0.22] ring-1 ring-black/50 shadow-[0_24px_60px_rgba(0,0,0,0.62)] p-1.5 text-xs text-slate-100"
                 >
                   <button
                     type="button"
@@ -2472,7 +2623,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                     <BookmarkPlus className="w-3.5 h-3.5 text-slate-300" />
                     <span>Özel Şablon Olarak Kaydet</span>
                   </button>
-                  {mainModuleIndices.length > 1 && (
+                  {(modules.length > 1 && (activeModule.category === "complementary" || mainModuleIndices.length > 1)) && (
                     <button
                       type="button"
                       onClick={() => {
@@ -2701,7 +2852,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                         </button>
                         <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-xl bg-[#FAF8F4] border border-[#DED8CC] focus-within:border-[#141413]">
                           <input
-                            type="number"
+                            type="number" inputMode="decimal"
                             key={`${dim.key}-${unitMode}-${dim.valMm}`}
                             defaultValue={displayNum}
                             step={unitMode === "cm" ? 1 : 10}
@@ -3068,6 +3219,11 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                     />
                   </div>
                 )}
+                {renderApplyCarcassToAllBtn("plinth", "Baza Ayarını Tüm Modüllere Uygula", {
+                  plinthHeight: activeModule.carcass.plinthHeight,
+                  plinthConstruction: activeModule.carcass.plinthConstruction,
+                  plinthSetbackMm: activeModule.carcass.plinthSetbackMm,
+                })}
               </div>
 
               {/* Gövde Çoklu Delik & Karkas Yapısı (Yalnızca Pro / Üretim) */}
@@ -3146,7 +3302,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                             <label className="space-y-1">
                               <span className="text-[11px] text-[#57534E]">Ön Mesafe (mm)</span>
                               <input
-                                type="number"
+                                type="number" inputMode="decimal"
                                 min={28}
                                 max={120}
                                 step={1}
@@ -3168,7 +3324,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                             <label className="space-y-1">
                               <span className="text-[11px] text-[#57534E]">Kenar Payı (mm)</span>
                               <input
-                                type="number"
+                                type="number" inputMode="decimal"
                                 min={48}
                                 max={192}
                                 step={8}
@@ -3202,6 +3358,12 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                           )}
                         </div>
                       )}
+                      {renderApplyCarcassToAllBtn("multihole", "32mm Delik Ayarını Tüm Modüllere Uygula", {
+                        multiHoleMode: activeModule.carcass.multiHoleMode,
+                        multiHoleRowCount: activeModule.carcass.multiHoleRowCount,
+                        showMultiHolesIn3D: activeModule.carcass.showMultiHolesIn3D,
+                        multiHoleDividerThroughBore: activeModule.carcass.multiHoleDividerThroughBore,
+                      })}
                     </div>
                   );
                 })()}
@@ -3252,9 +3414,21 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                         <StudioSelect
                           ariaLabel="Birleşim Tipi"
                           value={activeModule.carcass.jointType || "minifix_dowel"}
-                          onChange={(val) =>
-                            onUpdateCarcassConfig({ jointType: val as JointType })
-                          }
+                          onChange={(val) => {
+                            const nextJoint = val as JointType;
+                            const fallbackTopo: CarcassJoineryTopology =
+                              activeModule.category === "kitchen_base" || activeModule.category === "kitchen_island"
+                                ? "kitchen_stretchers"
+                                : "sides_through";
+                            onUpdateCarcassConfig({
+                              jointType: nextJoint,
+                              ...(nextJoint === "miter_45"
+                                ? { carcassJoineryTopology: "miter_45" as CarcassJoineryTopology }
+                                : activeModule.carcass.carcassJoineryTopology === "miter_45"
+                                ? { carcassJoineryTopology: fallbackTopo }
+                                : {}),
+                            });
+                          }}
                           options={[
                             { value: "minifix_dowel", label: "Minifiks + Kavela" },
                             { value: "dowel_only", label: "Kavela" },
@@ -3292,7 +3466,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                         <div className="px-2.5 py-2 rounded-xl bg-[#F5F2EA] flex items-center justify-between">
                           <StudioToggleSwitch
                             size="sm"
-                            label="�?elale Sol"
+                            label="Şelale Sol"
                             checked={Boolean(activeModule.carcass.hasWaterfallLeft)}
                             onChange={(next) => onUpdateCarcassConfig({ hasWaterfallLeft: next })}
                           />
@@ -3300,7 +3474,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                         <div className="px-2.5 py-2 rounded-xl bg-[#F5F2EA] flex items-center justify-between">
                           <StudioToggleSwitch
                             size="sm"
-                            label="�?elale Sağ"
+                            label="Şelale Sağ"
                             checked={Boolean(activeModule.carcass.hasWaterfallRight)}
                             onChange={(next) => onUpdateCarcassConfig({ hasWaterfallRight: next })}
                           />
@@ -3309,7 +3483,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-[11px] text-[#57534E]">CNC Ön Freze (mm)</span>
                         <input
-                          type="number"
+                          type="number" inputMode="decimal"
                           min={0}
                           max={5}
                           step={0.5}
@@ -3329,11 +3503,17 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                           <StudioSelect
                             ariaLabel="Karkas Topolojisi"
                             value={activeModule.carcass.carcassJoineryTopology || "sides_through"}
-                            onChange={(val) =>
+                            onChange={(val) => {
+                              const nextTopo = val as CarcassJoineryTopology;
                               onUpdateCarcassConfig({
-                                carcassJoineryTopology: val as CarcassJoineryTopology,
-                              })
-                            }
+                                carcassJoineryTopology: nextTopo,
+                                ...(nextTopo === "miter_45"
+                                  ? { jointType: "miter_45" as JointType }
+                                  : activeModule.carcass.jointType === "miter_45"
+                                  ? { jointType: "minifix_dowel" as JointType }
+                                  : {}),
+                              });
+                            }}
                             options={[
                               { value: "sides_through", label: "Tip A: Yan Dikmeler" },
                               { value: "top_bottom_through", label: "Tip B: Alt/Üst Boyda" },
@@ -3345,7 +3525,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                         <label className="space-y-1">
                           <span className="text-[11px] text-[#57534E]">Baza Geri Çekme (mm)</span>
                           <input
-                            type="number"
+                            type="number" inputMode="decimal"
                             min={0}
                             max={120}
                             step={5}
@@ -3359,6 +3539,14 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                           />
                         </label>
                       </div>
+                      {renderApplyCarcassToAllBtn("joinery", "Birleşim, Topoloji & Kenar Bandını Tüm Modüllere Uygula", {
+                        jointType: activeModule.carcass.jointType,
+                        carcassJoineryTopology: activeModule.carcass.carcassJoineryTopology,
+                        backPanelType: activeModule.carcass.backPanelType,
+                        edgeBandThickness: activeModule.carcass.edgeBandThickness,
+                        preMillingMm: activeModule.carcass.preMillingMm,
+                        plinthSetbackMm: activeModule.carcass.plinthSetbackMm,
+                      })}
 
                       <div className="grid grid-cols-2 gap-2">
                         <div className="space-y-1">
@@ -3400,8 +3588,9 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                                   crownMolding: {
                                     enabled: true,
                                     style: v as "modern_flat" | "stepped" | "classic_coving" | "led_channel",
-                                    heightMm: activeModule.carcass.crownMolding?.heightMm || 60,
-                                    projectionMm: activeModule.carcass.crownMolding?.projectionMm || 20,
+                                    heightMm: activeModule.carcass.crownMolding?.heightMm ?? 60,
+                                    projectionMm: activeModule.carcass.crownMolding?.projectionMm ?? 25,
+                                    materialId: activeModule.carcass.crownMolding?.materialId,
                                   },
                                 });
                               }
@@ -3416,6 +3605,133 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                           />
                         </div>
                       </div>
+
+                      {activeModule.carcass.crownMolding?.enabled && (() => {
+                        const cm = activeModule.carcass.crownMolding!;
+                        const curH = cm.heightMm ?? 60;
+                        const curProj = cm.projectionMm ?? 25;
+                        const ceilH = useConfiguratorStore.getState().project.space?.ceilingHeight || 2600;
+                        const gapToCeiling = Math.round(ceilH - ((activeModule.position?.y || 0) + activeModule.dimensions.height));
+                        return (
+                          <div className="p-2.5 rounded-xl bg-[#F5F2EA] border border-[#E5DFD3] space-y-2.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[11px] font-bold text-[#141413]">Taç Profili Ayarları</span>
+                              {gapToCeiling >= 25 && gapToCeiling <= 200 && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    onUpdateCarcassConfig({
+                                      crownMolding: { ...cm, enabled: true, heightMm: gapToCeiling },
+                                    })
+                                  }
+                                  className="px-2 py-0.5 rounded-lg bg-[#141413] text-white text-[10px] font-bold cursor-pointer hover:opacity-90 transition"
+                                  title="Taç yüksekliğini tavan boşluğuna tam eşitle"
+                                >
+                                  Tavana Eşitle ({gapToCeiling}mm)
+                                </button>
+                              )}
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2">
+                              <label className="space-y-1 block">
+                                <span className="text-[10.5px] text-[#57534E] flex items-center justify-between">
+                                  <span>Taç Yüksekliği</span>
+                                  <span className="font-mono font-bold text-[#141413]">{curH} mm</span>
+                                </span>
+                                <input
+                                  type="range"
+                                  min={25}
+                                  max={200}
+                                  step={5}
+                                  value={curH}
+                                  onChange={(e) =>
+                                    onUpdateCarcassConfig({
+                                      crownMolding: {
+                                        ...cm,
+                                        enabled: true,
+                                        heightMm: Math.max(25, Math.min(200, Number(e.target.value) || 60)),
+                                      },
+                                    })
+                                  }
+                                  className="w-full accent-[#141413] cursor-pointer"
+                                />
+                              </label>
+
+                              <label className="space-y-1 block">
+                                <span className="text-[10.5px] text-[#57534E] flex items-center justify-between">
+                                  <span>Ön Taşma / Çıkıntı</span>
+                                  <span className="font-mono font-bold text-[#141413]">{curProj} mm</span>
+                                </span>
+                                <input
+                                  type="range"
+                                  min={0}
+                                  max={120}
+                                  step={5}
+                                  value={curProj}
+                                  onChange={(e) =>
+                                    onUpdateCarcassConfig({
+                                      crownMolding: {
+                                        ...cm,
+                                        enabled: true,
+                                        projectionMm: Math.max(0, Math.min(120, Number(e.target.value) || 0)),
+                                      },
+                                    })
+                                  }
+                                  className="w-full accent-[#141413] cursor-pointer"
+                                />
+                              </label>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-1">
+                              {[45, 60, 80, 100, 120].map((presetH) => (
+                                <button
+                                  key={presetH}
+                                  type="button"
+                                  onClick={() =>
+                                    onUpdateCarcassConfig({
+                                      crownMolding: { ...cm, enabled: true, heightMm: presetH },
+                                    })
+                                  }
+                                  className={`px-2 py-0.5 rounded-lg font-mono text-[10px] font-bold cursor-pointer transition ${
+                                    curH === presetH
+                                      ? "bg-[#141413] text-white"
+                                      : "bg-white text-[#57534E] border border-[#DED8CC] hover:text-[#141413]"
+                                  }`}
+                                >
+                                  H:{presetH}
+                                </button>
+                              ))}
+                            </div>
+
+                            <div className="space-y-1">
+                              <span className="text-[10.5px] text-[#57534E] block">Taç Yüzey Malzemesi</span>
+                              <StudioSelect
+                                ariaLabel="Taç Yüzey Malzemesi"
+                                value={cm.materialId || "__door__"}
+                                onChange={(matVal) =>
+                                  onUpdateCarcassConfig({
+                                    crownMolding: {
+                                      ...cm,
+                                      enabled: true,
+                                      materialId: matVal === "__door__" ? undefined : matVal,
+                                    },
+                                  })
+                                }
+                                options={[
+                                  { value: "__door__", label: "Kapak Malzemesiyle Aynı" },
+                                  ...materials.slice(0, 24).map((m) => ({
+                                    value: m.id,
+                                    label: m.name,
+                                  })),
+                                ]}
+                              />
+                            </div>
+                            {renderApplyCarcassToAllBtn("crown", "Taç Profilini Tüm Modüllere Uygula", {
+                              crownMolding: activeModule.carcass.crownMolding,
+                            })}
+                          </div>
+                        );
+                      })()}
 
                       <label className="space-y-1 block">
                         <span className="text-[10.5px] text-[#57534E]">CNC Üretim Notu</span>
@@ -3452,29 +3768,111 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                   />
                 </div>
 
-                {!isSimple && (
-                <div className="flex items-center justify-between py-1 border-t border-[#F0ECE3]">
-                  <div>
-                    <div className="font-semibold text-[11.5px]">Arka Süpürgelik Çentiği</div>
-                    <div className="text-[10px] text-[#78716C]">
-                      Duvara sıfır yanaşma için yan dikme alt çentiği (80×15 mm)
+                {!isSimple && (() => {
+                  const skCfg = useConfiguratorStore.getState().project.space?.skirtingConfig;
+                  const roomSkH = Math.max(20, Math.round(skCfg?.heightMm ?? 114));
+                  const roomSkD = Math.max(8, Math.round(skCfg?.thicknessMm ?? 16));
+                  const curBbH = activeModule.carcass.baseboardNotch?.heightMm ?? roomSkH;
+                  const curBbD = activeModule.carcass.baseboardNotch?.depthMm ?? roomSkD;
+                  return (
+                    <div className="py-1.5 border-t border-[#F0ECE3] space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <div className="font-semibold text-[11.5px]">Arka Süpürgelik Çentiği</div>
+                          <div className="text-[10px] text-[#78716C]">
+                            Yan/ara dikme, baza ve arka sistem çentiği ({curBbH}×{curBbD} mm)
+                          </div>
+                        </div>
+                        <StudioToggleSwitch
+                          testId="v11-toggle-baseboard-notch"
+                          checked={hasBaseboardNotch}
+                          onChange={(next) =>
+                            onUpdateCarcassConfig({
+                              baseboardNotch: {
+                                enabled: next,
+                                heightMm: next
+                                  ? Math.max(roomSkH, activeModule.carcass.baseboardNotch?.heightMm || roomSkH)
+                                  : curBbH,
+                                depthMm: next
+                                  ? Math.max(roomSkD, activeModule.carcass.baseboardNotch?.depthMm || roomSkD)
+                                  : curBbD,
+                              },
+                            })
+                          }
+                        />
+                      </div>
+
+                      {hasBaseboardNotch && (
+                        <div className="p-2.5 rounded-xl bg-[#F5F2EA] border border-[#E5DFD3] space-y-2">
+                          <div className="grid grid-cols-2 gap-2">
+                            <label className="space-y-0.5 block">
+                              <span className="text-[10px] text-[#57534E] font-semibold">Yükseklik (mm)</span>
+                              <input
+                                type="number"
+                                inputMode="decimal"
+                                min={20}
+                                max={260}
+                                step={2}
+                                value={curBbH}
+                                onChange={(e) =>
+                                  onUpdateCarcassConfig({
+                                    baseboardNotch: {
+                                      enabled: true,
+                                      heightMm: Math.max(20, Math.min(260, Number(e.target.value) || roomSkH)),
+                                      depthMm: curBbD,
+                                    },
+                                  })
+                                }
+                                className="w-full h-8 px-2.5 rounded-lg bg-white border border-[#DED8CC] font-mono text-xs font-bold"
+                              />
+                            </label>
+                            <label className="space-y-0.5 block">
+                              <span className="text-[10px] text-[#57534E] font-semibold">Derinlik (mm)</span>
+                              <input
+                                type="number"
+                                inputMode="decimal"
+                                min={8}
+                                max={80}
+                                step={1}
+                                value={curBbD}
+                                onChange={(e) =>
+                                  onUpdateCarcassConfig({
+                                    baseboardNotch: {
+                                      enabled: true,
+                                      heightMm: curBbH,
+                                      depthMm: Math.max(8, Math.min(80, Number(e.target.value) || roomSkD)),
+                                    },
+                                  })
+                                }
+                                className="w-full h-8 px-2.5 rounded-lg bg-white border border-[#DED8CC] font-mono text-xs font-bold"
+                              />
+                            </label>
+                          </div>
+                          {(curBbH < roomSkH || curBbD < roomSkD) && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onUpdateCarcassConfig({
+                                  baseboardNotch: {
+                                    enabled: true,
+                                    heightMm: roomSkH,
+                                    depthMm: roomSkD,
+                                  },
+                                })
+                              }
+                              className="w-full py-1 px-2 rounded-lg bg-[#141413] text-white text-[10.5px] font-bold cursor-pointer"
+                            >
+                              Duvar Süpürgeliğine Eşitle ({roomSkH}×{roomSkD} mm)
+                            </button>
+                          )}
+                          {renderApplyCarcassToAllBtn("baseboard", "Süpürgelik Çentiğini Tüm Modüllere Uygula", {
+                            baseboardNotch: activeModule.carcass.baseboardNotch,
+                          })}
+                        </div>
+                      )}
                     </div>
-                  </div>
-                  <StudioToggleSwitch
-                    testId="v11-toggle-baseboard-notch"
-                    checked={hasBaseboardNotch}
-                    onChange={(next) =>
-                      onUpdateCarcassConfig({
-                        baseboardNotch: {
-                          enabled: next,
-                          heightMm: 80,
-                          depthMm: 15,
-                        },
-                      })
-                    }
-                  />
-                </div>
-                )}
+                  );
+                })()}
 
                 <div className={`grid ${isSimple ? "grid-cols-1" : "grid-cols-2"} gap-1.5 pt-1 border-t border-[#F0ECE3]`}>
                   <button
@@ -3561,7 +3959,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                           <label className="text-[10px] text-[#57534E] space-y-1">
                             <span>Düşük Kenar ({unitMode})</span>
                             <input
-                              type="number"
+                              type="number" inputMode="decimal"
                               min={unitMode === "cm" ? 50 : 500}
                               max={unitMode === "cm" ? Math.round((activeModule.dimensions.height - 150) / 10) : activeModule.dimensions.height - 150}
                               value={unitMode === "cm" ? Math.round(slopeSpec.kneeWallHeightMm / 10) : slopeSpec.kneeWallHeightMm}
@@ -3575,7 +3973,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                           <label className="text-[10px] text-[#57534E] space-y-1">
                             <span>Eğim Mesafesi ({unitMode})</span>
                             <input
-                              type="number"
+                              type="number" inputMode="decimal"
                               min={unitMode === "cm" ? 20 : 200}
                               max={unitMode === "cm" ? Math.round(activeModule.dimensions.width / 10) : activeModule.dimensions.width}
                               value={unitMode === "cm" ? Math.round(slopeSpec.slopeRunMm / 10) : slopeSpec.slopeRunMm}
@@ -4377,6 +4775,9 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                       );
                     })}
                   </div>
+                  {renderApplyCarcassToAllBtn("drawerbox", "Çekmece Sistemini Tüm Modüllere Uygula", {
+                    drawerBoxSystem: activeModule.carcass.drawerBoxSystem,
+                  })}
                 </div>
               )}
 
@@ -4477,7 +4878,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                               {!isSimple ? (
                                 <>
                                   <input
-                                    type="number"
+                                    type="number" inputMode="decimal"
                                     step={isFixedSh ? 1 : 32}
                                     value={Math.round(sh.elevationY)}
                                     onChange={(e) =>
@@ -4744,7 +5145,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                                   )}
                                   {!isSimple && onSetSubDividerPlacement && (
                                     <input
-                                      type="number"
+                                      type="number" inputMode="decimal"
                                       step={unitMode === "cm" ? 1 : 10}
                                       value={unitMode === "cm" ? Number((sd.offsetX / 10).toFixed(1)) : Math.round(sd.offsetX)}
                                       onChange={(e) => {
@@ -5012,7 +5413,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                           <label className="space-y-0.5">
                             <span className="text-[9.5px] text-[#57534E] block">Genişlik (mm)</span>
                             <input
-                              type="number"
+                              type="number" inputMode="decimal"
                               min={6}
                               max={32}
                               step={1}
@@ -5028,7 +5429,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                           <label className="space-y-0.5">
                             <span className="text-[9.5px] text-[#57534E] block">Derinlik (mm)</span>
                             <input
-                              type="number"
+                              type="number" inputMode="decimal"
                               min={4}
                               max={15}
                               step={1}
@@ -5044,7 +5445,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                           <label className="space-y-0.5">
                             <span className="text-[9.5px] text-[#57534E] block">Önden (mm)</span>
                             <input
-                              type="number"
+                              type="number" inputMode="decimal"
                               min={25}
                               max={200}
                               step={5}
@@ -5078,7 +5479,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                               Raf LED Önden Uzaklık (mm)
                             </span>
                             <input
-                              type="number"
+                              type="number" inputMode="decimal"
                               min={25}
                               max={200}
                               step={5}
@@ -6060,7 +6461,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                     <label className="space-y-1">
                       <span className="text-[10.5px] text-[#57534E]">Sol Kör Klapa (mm)</span>
                       <input
-                        type="number"
+                        type="number" inputMode="decimal"
                         min={0}
                         max={250}
                         step={5}
@@ -6083,7 +6484,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                     <label className="space-y-1">
                       <span className="text-[10.5px] text-[#57534E]">Sağ Kör Klapa (mm)</span>
                       <input
-                        type="number"
+                        type="number" inputMode="decimal"
                         min={0}
                         max={250}
                         step={5}
@@ -6144,7 +6545,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                     <label className="space-y-1">
                       <span className="text-[10.5px] text-[#57534E]">Sol Duvar Tıraş Payı (mm)</span>
                       <input
-                        type="number"
+                        type="number" inputMode="decimal"
                         min={0}
                         max={80}
                         step={5}
@@ -6160,7 +6561,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                     <label className="space-y-1">
                       <span className="text-[10.5px] text-[#57534E]">Sağ Duvar Tıraş Payı (mm)</span>
                       <input
-                        type="number"
+                        type="number" inputMode="decimal"
                         min={0}
                         max={80}
                         step={5}

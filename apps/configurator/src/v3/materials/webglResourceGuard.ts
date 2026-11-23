@@ -373,3 +373,53 @@ export function disposeWebGLRendererCleanly(renderer: THREE.WebGLRenderer | null
     // Ignore
   }
 }
+
+
+export interface AdaptiveWebglRenderBudget {
+  isTouchMobile: boolean;
+  restSharpDpr: number;
+  motionFastDpr: number;
+  shadowMapSize: number;
+  maxAnisotropyCap: number;
+}
+
+/**
+ * Mobil/tablet dokunmatik ekranları tespit eder (masaüstü cihazlarda false döner).
+ */
+export function isCompactTouchMobileDevice(): boolean {
+  if (typeof window === "undefined") return false;
+  const coarse =
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(pointer: coarse)").matches;
+  const smallSide = Math.min(window.innerWidth || 1440, window.innerHeight || 900);
+  return coarse && smallSide < 900;
+}
+
+/**
+ * iOS Safari / Android Chrome WebGL VRAM limitlerini (~300MB Jetsam eşiği) aşmamak için
+ * mobil cihazlarda DPR, gölge haritası ve anizotropi üst sınırlarını dinamik olarak daraltır.
+ * Masaüstü cihazlarda mevcut yüksek kaliteli değerleri aynen korur.
+ */
+export function getAdaptiveWebglRenderBudget(
+  isLegacyGpu: boolean,
+  maxTextureSize: number
+): AdaptiveWebglRenderBudget {
+  const nativeDpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+  const isTouchMobile = isCompactTouchMobileDevice();
+  if (isTouchMobile) {
+    return {
+      isTouchMobile: true,
+      restSharpDpr: isLegacyGpu ? 1 : Math.min(nativeDpr, 1.5),
+      motionFastDpr: 1,
+      shadowMapSize: 1024,
+      maxAnisotropyCap: 4,
+    };
+  }
+  return {
+    isTouchMobile: false,
+    restSharpDpr: isLegacyGpu ? 1 : Math.min(Math.max(nativeDpr, 1.5), 2.5),
+    motionFastDpr: isLegacyGpu ? 1 : Math.min(nativeDpr, 1.35),
+    shadowMapSize: isLegacyGpu ? 1024 : maxTextureSize >= 4096 ? 4096 : 2048,
+    maxAnisotropyCap: 16,
+  };
+}

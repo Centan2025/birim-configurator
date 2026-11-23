@@ -69,6 +69,7 @@ export const ProductionSheetStudioModal: React.FC<ProductionSheetStudioModalProp
   const pages = useMemo(() => buildSheetPages(project), [project]);
   const [activePageId, setActivePageId] = useState<string>("overview");
   const [zoom, setZoom] = useState<number>(1);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState<boolean>(false);
 
   const [options, setOptions] = useState<SheetDisplayOptions>({
     paperFormat: "A3_LANDSCAPE",
@@ -147,7 +148,7 @@ export const ProductionSheetStudioModal: React.FC<ProductionSheetStudioModalProp
       data-testid="production-sheet-studio-modal"
     >
       {/* Top Toolbar */}
-      <header className="h-14 px-4 border-b border-white/10 bg-[#0F172A] flex items-center justify-between gap-3 shrink-0">
+      <header className="min-h-[54px] py-2 flex-wrap px-4 border-b border-white/10 bg-[#0F172A] flex items-center justify-between gap-3 shrink-0">
         <div className="flex items-center gap-3 min-w-0">
           <div className="w-8 h-8 rounded-xl bg-sky-500/20 border border-sky-400/30 flex items-center justify-center text-sky-300 shrink-0">
             <FileText className="w-4 h-4" />
@@ -182,6 +183,14 @@ export const ProductionSheetStudioModal: React.FC<ProductionSheetStudioModalProp
             ))}
           </select>
 
+          <button
+            type="button"
+            onClick={() => setMobileSidebarOpen((v) => !v)}
+            className="lg:hidden h-8 px-2.5 rounded-lg bg-sky-600/20 border border-sky-400/40 text-sky-200 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+          >
+            <Layers className="w-3.5 h-3.5" />
+            <span>Paftalar ({activePage.sheetNo})</span>
+          </button>
           <select
             aria-label="Ölçek"
             value={options.scale}
@@ -320,9 +329,19 @@ export const ProductionSheetStudioModal: React.FC<ProductionSheetStudioModalProp
       </header>
 
       {/* Main Body */}
-      <div className="flex-1 min-h-0 flex">
-        {/* Left Sidebar */}
-        <aside className="w-72 shrink-0 border-r border-white/10 bg-[#0F172A]/95 overflow-y-auto p-3.5 space-y-4">
+      <div className="flex-1 min-h-0 flex relative overflow-hidden">
+        {mobileSidebarOpen && (
+          <div
+            onClick={() => setMobileSidebarOpen(false)}
+            className="lg:hidden fixed inset-0 bg-black/60 z-30"
+          />
+        )}
+        {/* Left Sidebar (Slide-over drawer on <1024px, fixed 288px rail on desktop) */}
+        <aside
+          className={`${
+            mobileSidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
+          } fixed lg:static inset-y-0 left-0 z-40 w-[84vw] max-w-[300px] lg:w-72 shrink-0 border-r border-white/10 bg-[#0F172A] lg:bg-[#0F172A]/95 overflow-y-auto p-3.5 space-y-4 transition-transform duration-200`}
+        >
           {/* Page List */}
           <div>
             <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2 flex items-center gap-1.5">
@@ -336,7 +355,7 @@ export const ProductionSheetStudioModal: React.FC<ProductionSheetStudioModalProp
                   <button
                     key={p.id}
                     type="button"
-                    onClick={() => setActivePageId(p.id)}
+                    onClick={() => { setActivePageId(p.id); setMobileSidebarOpen(false); }}
                     className={`w-full px-2.5 py-2 rounded-xl text-left transition border cursor-pointer ${
                       isActive
                         ? "bg-sky-600/20 border-sky-400/50 text-white"
@@ -471,7 +490,7 @@ export const ProductionSheetStudioModal: React.FC<ProductionSheetStudioModalProp
         </aside>
 
         {/* Sheet Canvas */}
-        <main className="flex-1 min-w-0 min-h-0 overflow-auto bg-[#1E293B] relative flex flex-col items-center justify-center p-6">
+        <main className="flex-1 min-w-0 min-h-0 overflow-auto bg-[#1E293B] relative flex flex-col items-center justify-start md:justify-center p-2.5 sm:p-6">
           <div
             style={{
               transform: `scale(${zoom})`,

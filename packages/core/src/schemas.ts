@@ -535,6 +535,8 @@ export const ModuleInstanceSchema = z.object({
   cornerAngleDeg: z.number().optional(),
   isFixedWidth: z.boolean().optional(),
   isFreestandingDishwasher: z.boolean().optional(),
+  includeInProduction: z.boolean().optional(),
+  includeInPricing: z.boolean().optional(),
   complementaryRole: z
     .enum([
       "plinth_strip",

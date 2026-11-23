@@ -743,6 +743,8 @@ export interface ModuleInstance {
   cornerAngleDeg?: number; // 90 for standard L-corner
   isFixedWidth?: boolean;
   isFreestandingDishwasher?: boolean;
+  includeInProduction?: boolean;
+  includeInPricing?: boolean;
   complementaryRole?:
     | "plinth_strip"
     | "leveling_feet"

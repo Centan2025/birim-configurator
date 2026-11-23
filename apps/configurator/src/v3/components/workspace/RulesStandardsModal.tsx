@@ -99,12 +99,12 @@ export const RulesStandardsModal: React.FC<RulesStandardsModalProps> = ({
     <div
       data-testid="v3-engineering-modal"
       onClick={onClose}
-      className="fixed inset-0 z-[153] flex items-center justify-center bg-[#141413]/50 backdrop-blur-xs p-3 sm:p-5"
+      className="fixed inset-0 z-[153] flex items-center justify-center bg-[#141413]/50 backdrop-blur-xs p-0 md:p-5"
     >
       <div
         data-draggable-shell="rules"
         onClick={(e) => e.stopPropagation()}
-        className="birim-ice-modal rounded-[28px] max-w-3xl w-full overflow-hidden text-stone-900"
+        className="birim-ice-modal rounded-[28px] max-md:rounded-none max-md:h-[100dvh] max-md:max-h-[100dvh] max-w-3xl w-full overflow-hidden text-stone-900"
       >
         <div
           onPointerDown={(e) => startZeroLagModalDrag(e)}
@@ -170,10 +170,10 @@ export const RulesStandardsModal: React.FC<RulesStandardsModalProps> = ({
           ))}
         </div>
 
-        <div className="p-5 space-y-4 max-h-[72vh] overflow-y-auto text-xs">
+        <div className="p-5 space-y-4 max-h-[72dvh] overflow-y-auto text-xs">
           {rulesModalTab === "audit" && (
             <>
-              <div className="p-3 rounded-xl bg-stone-50 border border-stone-200 flex items-center justify-between gap-3">
+              <div className="p-3 rounded-xl bg-stone-50 border border-stone-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <div className="font-bold text-stone-900 text-[11px] uppercase tracking-wider">
                     Bölgesel Ergonomi ve Erişilebilirlik Profili
@@ -427,7 +427,7 @@ export const RulesStandardsModal: React.FC<RulesStandardsModalProps> = ({
                 <label className="space-y-1 block">
                   <span className="font-bold text-[11px] text-stone-700">Sınır Değer (mm)</span>
                   <input
-                    type="number"
+                    type="number" inputMode="decimal"
                     data-testid="custom-std-threshold-input"
                     min={10}
                     max={3600}

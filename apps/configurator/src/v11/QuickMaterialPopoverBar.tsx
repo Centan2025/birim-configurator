@@ -407,10 +407,10 @@ export const QuickMaterialPopoverBar: React.FC<QuickMaterialPopoverBarProps> = R
           dispatchLive3DMaterialPreview(null);
           dispatchLive3DMoodboardPreview(null);
         }}
-        className="fixed z-30 pointer-events-auto transition-[left,top] duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] max-md:!left-3 max-md:!max-w-[calc(100vw-24px)]"
+        className="fixed z-30 pointer-events-auto transition-[left,top] duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] max-xl:!top-[104px] max-lg:!left-2.5 max-lg:!right-2.5 max-lg:!max-w-none"
       >
         {/* DRAMATİK FÜME OBSİDYEN YARI ŞEFFAF BUZLU CAM ÇUBUK */}
-        <div className="inline-flex flex-wrap items-center gap-1.5 p-1.5 rounded-2xl bg-[#151A24]/92 backdrop-blur-2xl border border-white/[0.22] ring-1 ring-black/65 shadow-[0_18px_48px_rgba(0,0,0,0.58)] text-xs text-white">
+        <div className="inline-flex flex-wrap max-lg:flex-nowrap max-lg:w-full max-lg:overflow-x-auto max-lg:no-scrollbar items-center gap-1.5 p-1.5 rounded-2xl bg-[#151A24]/92 backdrop-blur-2xl border border-white/[0.22] ring-1 ring-black/65 shadow-[0_18px_48px_rgba(0,0,0,0.58)] text-xs text-white">
           {/* 0. HEDEF YERLEŞTİRME DUVARI SEÇİCİ */}
           <button
             type="button"

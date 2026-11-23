@@ -1,0 +1,19 @@
+{
+  "name": "BİRİM® Studio — Parametrik Dolap ve Mutfak Platformu",
+  "short_name": "BİRİM Studio",
+  "description": "Birim Mağaza & Üretim Entegre Parametrik Tasarım ve Konfigürasyon Stüdyosu",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#1A1E26",
+  "theme_color": "#1A1E26",
+  "lang": "tr",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

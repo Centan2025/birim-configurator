@@ -9,6 +9,7 @@ import {
   Redo2,
   Search,
   ChevronDown,
+  SlidersHorizontal,
   Sparkles,
   FileSpreadsheet,
   Camera,
@@ -23,6 +24,11 @@ import {
   Zap,
   Scissors,
   Box,
+  Ruler,
+  LayoutGrid,
+  Eye,
+  Download,
+  Columns2,
   AlertTriangle,
 } from "lucide-react";
 import type { EngineeringValidationFinding, RemediationProposal } from "@birim/core";
@@ -132,6 +138,8 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
   }) => {
     const isShowroom = workspaceMode === "showroom";
     const [outputsOpen, setOutputsOpen] = useState(false);
+    const [settingsOpen, setSettingsOpen] = useState(false);
+    const [settingsPos, setSettingsPos] = useState<{ top: number; left: number }>({ top: 68, left: 12 });
     const [variantOpen, setVariantOpen] = useState(false);
     const variantBtnRef = useRef<HTMLButtonElement | null>(null);
     const [variantPos, setVariantPos] = useState<{ top: number; left: number }>({ top: 72, left: 260 });
@@ -157,6 +165,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
     }, []);
     const [issuesOpen, setIssuesOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
+    const settingsRef = useRef<HTMLDivElement>(null);
     const issuesRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -192,6 +201,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
     useEffect(() => {
       setOutputsOpen(false);
       setIssuesOpen(false);
+      setSettingsOpen(false);
       setVariantOpen(false);
     }, [workspaceMode]);
 
@@ -228,7 +238,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
               setVariantOpen((v) => !v);
             }}
             title="Tasarım Seçenekleri (A / B / C) — Kaydet & Karşılaştır"
-            className={`h-9 px-2.5 rounded-full border text-xs font-bold inline-flex items-center gap-1.5 transition cursor-pointer shrink-0 ${
+            className={`h-9 max-sm:h-8 px-2.5 max-sm:px-1.5 rounded-full border text-xs font-bold inline-flex items-center gap-1.5 max-sm:gap-0.5 shadow-[0_4px_14px_rgba(0,0,0,0.44),inset_0_1px_0_rgba(255,255,255,0.16)] hover:shadow-[0_6px_18px_rgba(0,0,0,0.56),inset_0_1px_0_rgba(255,255,255,0.22)] transition cursor-pointer shrink-0 ${
               activeVariantSlot
                 ? "bg-gradient-to-br from-[#0284C7]/90 via-[#1D4ED8]/90 to-[#1E3A8A]/90 border-[#38BDF8]/50 text-white shadow-[0_3px_12px_rgba(37,99,235,0.38)]"
                 : "bg-white/[0.10] hover:bg-white/[0.18] border-white/[0.16] text-[#F3F4F6]"
@@ -344,18 +354,19 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
     return (
       <header
         data-testid="v11-studio-header"
-        className="pointer-events-none fixed top-0 left-0 right-0 z-40 px-4 pt-3 flex flex-col items-center gap-2"
+        style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top))" }}
+        className="pointer-events-none fixed top-0 left-0 right-0 z-40 px-2 sm:px-4 pt-3 flex flex-col items-center gap-2"
       >
-        <div className="relative pointer-events-auto w-full max-w-[1920px] h-[54px] px-3.5 rounded-full flex items-center justify-between gap-3 text-[#F3F4F6]">
+        <div className="relative pointer-events-auto w-full max-w-[1920px] h-[54px] max-xl:h-auto max-xl:py-1.5 px-3.5 max-xl:px-2.5 rounded-full max-xl:rounded-2xl flex max-xl:flex-wrap items-center justify-between gap-3 max-xl:gap-x-2 max-xl:gap-y-1.5 text-[#F3F4F6]">
           {/* Sibling frosted glass layer so child dropdowns (issuesOpen / outputsOpen) do NOT inherit a Chromium Backdrop Root */}
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute inset-0 rounded-full bg-[#2C3341]/66 backdrop-blur-2xl border border-white/[0.22] ring-1 ring-black/50 shadow-[0_18px_48px_rgba(0,0,0,0.46)] -z-10"
+            className="pointer-events-none absolute inset-0 rounded-full max-xl:rounded-2xl bg-[#2C3341]/66 backdrop-blur-2xl border border-white/[0.22] ring-1 ring-black/50 shadow-[0_18px_48px_rgba(0,0,0,0.46)] -z-10"
           />
           {/* SOL BÖLGE */}
-          <div className="flex items-center gap-2 min-w-0 flex-1">
+          <div className="flex items-center gap-2 max-sm:gap-1.5 min-w-0 flex-1">
             <div className="pl-1.5 pr-1 flex items-center select-none brightness-0 invert opacity-95">
-              <BirimLogo className="h-[19px] w-auto" />
+              <BirimLogo className="h-[19px] max-sm:h-[15px] w-auto" />
             </div>
 
             <span className="h-4 w-px bg-white/15 shrink-0" />
@@ -365,12 +376,12 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                 type="button"
                 data-testid="v11-open-project-btn"
                 onClick={onOpenProjectModal}
-                className="h-9 px-3 rounded-full bg-white/[0.10] hover:bg-white/[0.18] border border-white/[0.15] text-[#F3F4F6] text-xs font-semibold flex items-center gap-2 max-w-[155px] xl:max-w-[220px] shadow-[0_3px_10px_rgba(0,0,0,0.28)] shrink min-w-0 transition cursor-pointer"
+                className="h-9 max-sm:h-8 max-sm:w-8 px-3 max-sm:px-0 rounded-full bg-white/[0.10] hover:bg-white/[0.18] border border-white/[0.15] text-[#F3F4F6] text-xs font-semibold flex items-center justify-center gap-2 max-w-[155px] xl:max-w-[220px] shadow-[0_4px_14px_rgba(0,0,0,0.44),inset_0_1px_0_rgba(255,255,255,0.16)] hover:shadow-[0_6px_18px_rgba(0,0,0,0.56),inset_0_1px_0_rgba(255,255,255,0.22)] shrink-0 sm:shrink min-w-0 transition cursor-pointer"
                 title="Proje Kaydet, Aç veya Bulut Bağlantısı Paylaş"
               >
-                <FolderOpen className="w-3.5 h-3.5 text-[#78716C] shrink-0" />
-                <span className="truncate">{projectTitle || "Yeni Dolap Projesi"}</span>
-                <ChevronDown className="w-3.5 h-3.5 text-[#78716C] shrink-0" />
+                <FolderOpen className="w-3.5 h-3.5 text-slate-300 shrink-0" />
+                <span className="truncate hidden sm:inline">{projectTitle || "Yeni Dolap Projesi"}</span>
+                <ChevronDown className="w-3.5 h-3.5 text-[#78716C] shrink-0 hidden sm:inline" />
               </button>
             ) : (
               <div className="h-9 px-3 rounded-full bg-white/80 border border-[#E5DFD3] text-[#141413] text-xs font-semibold flex items-center gap-2 max-w-[240px]">
@@ -383,12 +394,13 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                 type="button"
                 data-testid="v11-open-wizard-btn"
                 onClick={onOpenWizardModal}
-                className="inline-flex h-9 px-2.5 sm:px-3.5 rounded-full bg-gradient-to-r from-[#38BDF8]/22 to-[#2563EB]/20 hover:from-[#38BDF8]/34 hover:to-[#2563EB]/30 border border-[#38BDF8]/45 text-[#E0F2FE] text-xs font-semibold items-center gap-1.5 shadow-[0_3px_12px_rgba(0,0,0,0.28)] transition cursor-pointer shrink-0"
+                className="hidden md:inline-flex h-9 px-2.5 sm:px-3.5 rounded-full bg-gradient-to-r from-[#38BDF8]/22 to-[#2563EB]/20 hover:from-[#38BDF8]/34 hover:to-[#2563EB]/30 border border-[#38BDF8]/45 text-[#E0F2FE] text-xs font-semibold items-center gap-1.5 shadow-[0_4px_14px_rgba(0,0,0,0.44),inset_0_1px_0_rgba(255,255,255,0.16)] hover:shadow-[0_6px_18px_rgba(0,0,0,0.56),inset_0_1px_0_rgba(255,255,255,0.22)] transition cursor-pointer shrink-0"
               >
                 <Sparkles className="w-3.5 h-3.5 text-[#7DD3FC]" />
                 <span className="hidden sm:inline">Kurulum</span><span className="sm:hidden">Kur</span>
               </button>
             )}
+
 
             {variantSwitcherNode}
           </div>
@@ -397,7 +409,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
           {!isReadOnlyCustomer ? (
             <nav
               aria-label="Çalışma Modu"
-              className="relative z-20 grid grid-cols-4 gap-1 p-1 rounded-full bg-black/40 border border-white/[0.12] shrink-0"
+              className="relative z-20 grid grid-cols-4 gap-1 p-1 rounded-full bg-black/40 border border-white/[0.14] shadow-[0_4px_14px_rgba(0,0,0,0.42),inset_0_1px_2px_rgba(0,0,0,0.45)] shrink-0 max-xl:order-3 max-xl:w-full"
             >
               <span
                 aria-hidden="true"
@@ -412,26 +424,30 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
               />
               {(
                 [
-                  { id: "3d", label: "3B Tasarım" },
-                  { id: "2d", label: "2B Teknik" },
-                  { id: "plan", label: "Mekân Planı" },
-                  { id: "showroom", label: "Sunum" },
+                  { id: "3d", label: "3B", fullLabel: "3B Tasarım", Icon: Box },
+                  { id: "2d", label: "2B", fullLabel: "2B Teknik", Icon: Ruler },
+                  { id: "plan", label: "Plan", fullLabel: "Mekân Planı", Icon: LayoutGrid },
+                  { id: "showroom", label: "Sunum", fullLabel: "Sunum", Icon: Eye },
                 ] as const
               ).map((item) => {
                 const active = workspaceMode === item.id;
+                const ModeIcon = item.Icon;
                 return (
                   <button
                     key={item.id}
                     type="button"
                     data-testid={`v11-mode-${item.id}`}
+                    title={item.fullLabel}
                     onClick={() => onChangeWorkspaceMode(item.id)}
-                    className={`relative z-10 h-8 w-[90px] sm:w-[100px] whitespace-nowrap rounded-full text-xs font-bold text-center transition-colors duration-200 cursor-pointer ${
+                    className={`relative z-10 h-8 max-xl:h-7 px-2 xl:px-2.5 max-xl:w-full xl:w-[104px] whitespace-nowrap rounded-full text-[11px] sm:text-xs font-bold flex items-center justify-center gap-1.5 transition-colors duration-200 cursor-pointer ${
                       active
                         ? "text-white"
                         : "text-slate-300 hover:text-white"
                     }`}
                   >
-                    {item.label}
+                    <ModeIcon className="w-3.5 h-3.5 shrink-0" />
+                    <span className="hidden 2xl:inline">{item.fullLabel}</span>
+                    <span className="2xl:hidden">{item.label}</span>
                   </button>
                 );
               })}
@@ -448,7 +464,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
               <button
                 type="button"
                 onClick={onOpenQuoteModal}
-                className="h-9 px-3.5 rounded-full bg-[#141413] hover:bg-[#292524] text-white text-xs font-semibold flex items-center gap-2 transition cursor-pointer"
+                className="h-9 px-3.5 rounded-full bg-[#141413] hover:bg-[#292524] text-white text-xs font-semibold flex items-center gap-2 shadow-[0_4px_14px_rgba(0,0,0,0.44),inset_0_1px_0_rgba(255,255,255,0.16)] hover:shadow-[0_6px_18px_rgba(0,0,0,0.56),inset_0_1px_0_rgba(255,255,255,0.22)] transition cursor-pointer"
               >
                 <span>Teklif Özeti</span>
                 <span className="font-mono text-[#E7E5E4]">{formattedPrice}</span>
@@ -457,109 +473,191 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                 <button
                   type="button"
                   onClick={() => onChangeWorkspaceMode("3d")}
-                  className="h-9 px-3.5 rounded-full bg-white/85 hover:bg-white border border-[#DFD9CE] text-[#141413] text-xs font-semibold transition cursor-pointer"
+                  className="h-9 px-3.5 rounded-full bg-white/85 hover:bg-white border border-[#DFD9CE] text-[#141413] text-xs font-semibold shadow-[0_4px_14px_rgba(0,0,0,0.44),inset_0_1px_0_rgba(255,255,255,0.16)] hover:shadow-[0_6px_18px_rgba(0,0,0,0.56),inset_0_1px_0_rgba(255,255,255,0.22)] transition cursor-pointer"
                 >
                   Düzenlemeye Dön
                 </button>
               )}
             </div>
           ) : (
-          <div className="flex items-center justify-end gap-1.5 min-w-0 flex-1">
-            {/* Küresel cm / mm Ölçü Birimi Seçici (Kolay modda üst çubuk sade tutulur) */}
-            {onOpenDoorShowcase && (
+          <div className="flex items-center justify-end gap-1.5 max-sm:gap-1 min-w-0 xl:flex-1 shrink-0">
+            {/* Kompakt Arama + Gruplanmış Görünüm/Ölçü Ayarları Popover'ı (Asla orta menüyle çakışmaz) */}
+            <button
+              type="button"
+              onClick={onOpenCommandSearch}
+              title="Hızlı Komut ve Özellik Arama (Ctrl+K)"
+              className="hidden xl:flex w-9 h-9 rounded-full bg-white/[0.10] hover:bg-white/[0.18] border border-white/[0.14] text-[#F3F4F6] items-center justify-center shadow-[0_4px_14px_rgba(0,0,0,0.44),inset_0_1px_0_rgba(255,255,255,0.16)] hover:shadow-[0_6px_18px_rgba(0,0,0,0.56),inset_0_1px_0_rgba(255,255,255,0.22)] transition cursor-pointer shrink-0"
+            >
+              <Search className="w-3.5 h-3.5" />
+            </button>
+
+            <div ref={settingsRef} className="relative hidden md:block">
               <button
                 type="button"
-                data-testid="v11-open-door-showcase"
-                onClick={onOpenDoorShowcase}
-                title="Tüm kapak çeşitleri ve kulpsuz açma kesitlerini paralel karşılaştır"
-                className="hidden 2xl:inline-flex items-center h-8 px-2.5 rounded-full bg-white/[0.10] hover:bg-white/[0.18] border border-white/[0.14] text-[#F3F4F6] text-[11px] font-semibold transition cursor-pointer shrink-0"
+                data-testid="v11-header-settings-btn"
+                onClick={(e) => {
+                  const r = e.currentTarget.getBoundingClientRect();
+                  const popW = 256;
+                  const nextLeft = Math.max(12, Math.min(window.innerWidth - popW - 12, Math.round(r.right - popW)));
+                  const nextTop = Math.round(r.bottom + 8);
+                  setSettingsPos({ top: nextTop, left: nextLeft });
+                  setIssuesOpen(false);
+                  setOutputsOpen(false);
+                  setVariantOpen(false);
+                  setSettingsOpen((v) => !v);
+                }}
+                title="Ölçü Birimi (cm/mm), Yazı Boyutu, Kapak Çeşitleri ve Geçmiş"
+                className={`h-9 px-2.5 rounded-full border text-xs font-semibold flex items-center gap-1.5 shadow-[0_4px_14px_rgba(0,0,0,0.44),inset_0_1px_0_rgba(255,255,255,0.16)] hover:shadow-[0_6px_18px_rgba(0,0,0,0.56),inset_0_1px_0_rgba(255,255,255,0.22)] transition cursor-pointer shrink-0 ${
+                  settingsOpen
+                    ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] border-[#38BDF8]/50 text-white"
+                    : "bg-white/[0.10] hover:bg-white/[0.18] border-white/[0.15] text-[#F3F4F6]"
+                }`}
               >
-                Kapaklar
+                <SlidersHorizontal className="w-3.5 h-3.5 text-sky-300" />
+                {onChangeDisplayUnit && (
+                  <span className="font-mono text-[11px] font-bold uppercase">{displayUnit}</span>
+                )}
+                <ChevronDown className={`w-3 h-3 opacity-75 transition-transform ${settingsOpen ? "rotate-180" : ""}`} />
               </button>
-            )}
-            {onChangeDisplayUnit && (
-              <div
-                data-testid="v11-global-unit-switcher"
-                title="Ölçü Birimi: Tüm 3B, 2B ve Panel ölçülerini cm / mm arasında değiştirir"
-                className="hidden lg:inline-flex items-center p-0.5 rounded-full bg-black/40 border border-white/[0.14]"
-              >
-                {(["cm", "mm"] as const).map((u) => (
-                  <button
-                    key={u}
-                    type="button"
-                    onClick={() => onChangeDisplayUnit(u)}
-                    className={`h-7 px-2.5 rounded-full text-[11px] font-mono font-bold transition cursor-pointer ${
-                      displayUnit === u
-                        ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white shadow-xs"
-                        : "text-slate-300 hover:text-white"
-                    }`}
+
+              {settingsOpen && typeof document !== "undefined" &&
+                createPortal(
+                  <div
+                    style={{
+                      position: "fixed",
+                      top: `${settingsPos.top}px`,
+                      left: `${settingsPos.left}px`,
+                      zIndex: 90,
+                    }}
                   >
-                    {u}
-                  </button>
-                ))}
-              </div>
-            )}
-            {onChangeUiFontScale && (
-              <div
-                data-testid="v11-font-scale-switcher"
-                title="Sahne Ölçü & Etiket Boyutu"
-                className="hidden 2xl:inline-flex items-center p-0.5 rounded-full bg-black/40 border border-white/[0.14]"
-              >
-                <button
-                  type="button"
-                  onClick={() => onChangeUiFontScale(Math.max(0.75, Number((uiFontScale - 0.15).toFixed(2))))}
-                  disabled={uiFontScale <= 0.75}
-                  className="h-7 px-2 rounded-full text-[11px] font-bold text-[#44403C] hover:bg-white hover:text-[#141413] disabled:opacity-35 transition cursor-pointer"
-                  title="Yazıları Küçült"
-                >
-                  A-
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onChangeUiFontScale(1)}
-                  className="h-7 px-1.5 rounded-full text-[10px] font-mono font-semibold text-[#57534E] hover:text-[#141413] cursor-pointer"
-                  title="Varsayılan Boyut (%100)"
-                >
-                  %{Math.round(uiFontScale * 100)}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onChangeUiFontScale(Math.min(1.6, Number((uiFontScale + 0.15).toFixed(2))))}
-                  disabled={uiFontScale >= 1.6}
-                  className="h-7 px-2 rounded-full text-[11px] font-bold text-[#44403C] hover:bg-white hover:text-[#141413] disabled:opacity-35 transition cursor-pointer"
-                  title="Yazıları Büyüt"
-                >
-                  A+
-                </button>
-              </div>
-            )}
-            <div className="hidden sm:flex items-center p-0.5 rounded-full bg-[#ECE7DD]/75 border border-[#DFD9CE]">
-              <button
-                type="button"
-                onClick={onUndo}
-                disabled={!canUndo}
-                title="Geri Al (Ctrl+Z)"
-                className="w-8 h-8 rounded-full flex items-center justify-center text-[#44403C] hover:bg-white hover:text-[#141413] disabled:opacity-35 transition cursor-pointer"
-              >
-                <Undo2 className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={onRedo}
-                disabled={!canRedo}
-                title="İleri Al (Ctrl+Y)"
-                className="w-8 h-8 rounded-full flex items-center justify-center text-[#44403C] hover:bg-white hover:text-[#141413] disabled:opacity-35 transition cursor-pointer"
-              >
-                <Redo2 className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={onOpenCommandSearch}
-                title="Hızlı Komut ve Özellik Arama (Ctrl+K)"
-                className="w-8 h-8 rounded-full flex items-center justify-center text-[#44403C] hover:bg-white hover:text-[#141413] transition cursor-pointer"
-              >
-                <Search className="w-3.5 h-3.5" />
-              </button>
+                  <AnimatedPopoverPresence
+                    isOpen={settingsOpen}
+                    origin="top-right"
+                  >
+                    <div
+                      data-testid="v11-header-settings-popover"
+                      data-birim-portal-menu="true"
+                      style={{
+                        background: "rgba(30, 36, 48, 0.92)",
+                        backdropFilter: "blur(32px) saturate(180%)",
+                        WebkitBackdropFilter: "blur(32px) saturate(180%)",
+                      }}
+                      className="mt-1.5 w-64 max-w-[calc(100vw-24px)] rounded-3xl border border-white/[0.22] ring-1 ring-black/50 shadow-[0_26px_64px_rgba(0,0,0,0.62)] p-3 text-xs text-[#F3F4F6] space-y-3"
+                    >
+                      <div className="flex items-center justify-between pb-1.5 border-b border-white/15">
+                        <span className="font-bold text-[12.5px]">Görünüm &amp; Birim Ayarları</span>
+                        <button
+                          type="button"
+                          onClick={() => setSettingsOpen(false)}
+                          className="w-6 h-6 rounded-full hover:bg-white/10 flex items-center justify-center cursor-pointer"
+                        >
+                          ✕
+                        </button>
+                      </div>
+
+                      {onChangeDisplayUnit && (
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[11px] font-semibold text-slate-300">Ölçü Birimi</span>
+                          <div
+                            data-testid="v11-global-unit-switcher"
+                            className="inline-flex items-center p-0.5 rounded-full bg-black/40 border border-white/[0.14]"
+                          >
+                            {(["cm", "mm"] as const).map((u) => (
+                              <button
+                                key={u}
+                                type="button"
+                                onClick={() => onChangeDisplayUnit(u)}
+                                className={`h-7 px-3 rounded-full text-[11px] font-mono font-bold transition cursor-pointer ${
+                                  displayUnit === u
+                                    ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white"
+                                    : "text-slate-300 hover:text-white"
+                                }`}
+                              >
+                                {u}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {onChangeUiFontScale && (
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[11px] font-semibold text-slate-300">Etiket Boyutu</span>
+                          <div
+                            data-testid="v11-font-scale-switcher"
+                            className="inline-flex items-center p-0.5 rounded-full bg-black/40 border border-white/[0.14]"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => onChangeUiFontScale(Math.max(0.75, Number((uiFontScale - 0.15).toFixed(2))))}
+                              disabled={uiFontScale <= 0.75}
+                              className="h-7 px-2.5 rounded-full text-[11px] font-bold text-slate-200 hover:bg-white/15 disabled:opacity-35 transition cursor-pointer"
+                            >
+                              A-
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onChangeUiFontScale(1)}
+                              className="h-7 px-2 rounded-full text-[10.5px] font-mono font-semibold text-sky-300 cursor-pointer"
+                            >
+                              %{Math.round(uiFontScale * 100)}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onChangeUiFontScale(Math.min(1.6, Number((uiFontScale + 0.15).toFixed(2))))}
+                              disabled={uiFontScale >= 1.6}
+                              className="h-7 px-2.5 rounded-full text-[11px] font-bold text-slate-200 hover:bg-white/15 disabled:opacity-35 transition cursor-pointer"
+                            >
+                              A+
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[11px] font-semibold text-slate-300">Geçmiş</span>
+                        <div className="inline-flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={onUndo}
+                            disabled={!canUndo}
+                            title="Geri Al (Ctrl+Z)"
+                            className="h-7 px-2.5 rounded-full bg-white/[0.08] hover:bg-white/[0.16] border border-white/[0.12] text-slate-200 disabled:opacity-35 flex items-center gap-1 text-[11px] font-semibold cursor-pointer"
+                          >
+                            <Undo2 className="w-3 h-3" />
+                            <span>Geri</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={onRedo}
+                            disabled={!canRedo}
+                            title="İleri Al (Ctrl+Y)"
+                            className="h-7 px-2.5 rounded-full bg-white/[0.08] hover:bg-white/[0.16] border border-white/[0.12] text-slate-200 disabled:opacity-35 flex items-center gap-1 text-[11px] font-semibold cursor-pointer"
+                          >
+                            <Redo2 className="w-3 h-3" />
+                            <span>İleri</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {onOpenDoorShowcase && (
+                        <button
+                          type="button"
+                          data-testid="v11-open-door-showcase"
+                          onClick={() => {
+                            setSettingsOpen(false);
+                            onOpenDoorShowcase();
+                          }}
+                          className="w-full h-8 px-3 rounded-xl bg-white/[0.09] hover:bg-white/[0.18] border border-white/[0.14] text-[#F3F4F6] text-[11.5px] font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer"
+                        >
+                          <span>Kapak Çeşitlerini Karşılaştır</span>
+                        </button>
+                      )}
+                    </div>
+                  </AnimatedPopoverPresence>
+                  </div>,
+                  document.body
+                )}
             </div>
 
             {/* Aktif Mühendislik Hata / Uyarı Açıklama Menüsü */}
@@ -568,8 +666,8 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                 <button
                   type="button"
                   data-testid="v11-header-issues-btn"
-                  onClick={() => { setOutputsOpen(false); setVariantOpen(false); setIssuesOpen((v) => !v); }}
-                  className={`h-9 px-3 rounded-full border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                  onClick={() => { setOutputsOpen(false); setVariantOpen(false); setSettingsOpen(false); setIssuesOpen((v) => !v); }}
+                  className={`h-9 max-sm:h-8 px-3 max-sm:px-2 rounded-full border text-xs max-sm:text-[11px] font-semibold whitespace-nowrap flex items-center gap-1.5 max-sm:gap-1 shadow-[0_4px_14px_rgba(0,0,0,0.44),inset_0_1px_0_rgba(255,255,255,0.16)] hover:shadow-[0_6px_18px_rgba(0,0,0,0.56),inset_0_1px_0_rgba(255,255,255,0.22)] transition cursor-pointer shrink-0 ${
                     blockingIssueCount > 0
                       ? "bg-red-50 hover:bg-red-100 border-red-300 text-red-800"
                       : "bg-amber-50 hover:bg-amber-100 border-amber-300 text-amber-900"
@@ -577,15 +675,18 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                   title="Projede tespit edilen hata ve önerilerin açıklamalarını gör"
                 >
                   <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                  <span>
+                  <span className="hidden sm:inline">
                     {blockingIssueCount > 0
                       ? `${blockingIssueCount} Hata`
                       : `${engineeringFindings.length} Öneri`}
                   </span>
+                  <span className="sm:hidden font-mono">
+                    {blockingIssueCount > 0 ? blockingIssueCount : engineeringFindings.length}
+                  </span>
                 </button>
 
                 {typeof document !== "undefined" && createPortal(
-                <AnimatedPopoverPresence isOpen={issuesOpen} origin="top-right" className="fixed right-28 top-[68px] z-[90]">
+                <AnimatedPopoverPresence isOpen={issuesOpen} origin="top-right" className="fixed right-28 top-[68px] max-xl:right-3 max-sm:left-3 max-xl:top-[104px] z-[90]">
                   <div
                     data-testid="v11-header-issues-popover"
                     data-birim-portal-menu="true"
@@ -678,18 +779,19 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
               <button
                 type="button"
                 data-testid="v11-outputs-menu-btn"
-                onClick={() => { setIssuesOpen(false); setVariantOpen(false); setOutputsOpen((v) => !v); }}
-                className="h-9 px-3.5 rounded-full bg-white/[0.10] hover:bg-white/[0.18] border border-white/[0.15] text-[#F3F4F6] text-xs font-semibold flex items-center gap-1.5 shadow-[0_3px_10px_rgba(0,0,0,0.28)] transition cursor-pointer"
+                onClick={() => { setIssuesOpen(false); setVariantOpen(false); setSettingsOpen(false); setOutputsOpen((v) => !v); }}
+                className="h-9 max-sm:h-8 px-3.5 max-sm:px-2 rounded-full bg-white/[0.10] hover:bg-white/[0.18] border border-white/[0.15] text-[#F3F4F6] text-xs max-sm:text-[11px] font-semibold flex items-center gap-1.5 max-sm:gap-0.5 shadow-[0_4px_14px_rgba(0,0,0,0.44),inset_0_1px_0_rgba(255,255,255,0.16)] hover:shadow-[0_6px_18px_rgba(0,0,0,0.56),inset_0_1px_0_rgba(255,255,255,0.22)] transition cursor-pointer shrink-0"
               >
-                <span>Çıktılar</span>
+                <Download className="w-3.5 h-3.5 text-sky-300 shrink-0" />
+                <span className="hidden sm:inline">Çıktılar</span>
                 {blockingIssueCount > 0 && (
-                  <span className="w-2 h-2 rounded-full bg-amber-500" />
+                  <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
                 )}
-                <ChevronDown className="w-3.5 h-3.5 text-[#78716C]" />
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400 hidden sm:inline shrink-0" />
               </button>
 
               {typeof document !== "undefined" && createPortal(
-              <AnimatedPopoverPresence isOpen={outputsOpen} origin="top-right" className="fixed right-4 top-[68px] z-[90]">
+              <AnimatedPopoverPresence isOpen={outputsOpen} origin="top-right" className="fixed right-4 top-[68px] max-xl:right-3 max-xl:top-[104px] z-[90]">
                 <div
                   data-testid="v11-outputs-dropdown"
                   data-birim-portal-menu="true"
@@ -698,28 +800,12 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                     backdropFilter: "blur(36px) saturate(195%)",
                     WebkitBackdropFilter: "blur(36px) saturate(195%)",
                   }}
-                  className="mt-1.5 w-76 max-h-[82vh] overflow-y-auto rounded-3xl border border-white/[0.22] ring-1 ring-black/50 shadow-[0_26px_64px_rgba(0,0,0,0.62)] p-2 text-xs text-[#F3F4F6]"
+                  className="mt-1.5 w-76 max-w-[calc(100vw-24px)] max-h-[76dvh] overflow-y-auto rounded-3xl border border-white/[0.22] ring-1 ring-black/50 shadow-[0_26px_64px_rgba(0,0,0,0.62)] p-2 text-xs text-[#F3F4F6]"
                 >
-                  <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[#8C7A6B]">
-                    Tasarım &amp; Sahne
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setOutputsOpen(false);
-                      onOpenSceneHubModal();
-                    }}
-                    className="group w-full px-2.5 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
-                  >
-                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-white flex items-center justify-center shrink-0 transition">
-                      <Box className="w-4 h-4 text-[#44403C]" />
-                    </span>
-                    <div className="min-w-0">
-                      <div className="font-semibold">3B Nesne &amp; Masa</div>
-                      <div className="text-[11px] text-[#78716C] truncate">Hazır eşyalar ve özel üniteler</div>
-                    </div>
-                  </button>
                   {experienceTier !== "simple" && (<>
+                  <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[#8C7A6B]">
+                    Teknik Planlama
+                  </div>
                   <button
                     type="button"
                     onClick={() => {
@@ -921,12 +1007,12 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
               type="button"
               data-testid="v11-open-quote-cta"
               onClick={onOpenQuoteModal}
-              className="h-9 px-4 rounded-full bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] hover:from-[#0369A1] hover:to-[#1D4ED8] text-white text-xs font-bold flex items-center gap-2 shadow-[0_0_20px_rgba(29,78,216,0.45)] transition cursor-pointer"
+              className="h-9 max-sm:h-8 px-4 max-sm:px-2.5 rounded-full bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] hover:from-[#0369A1] hover:to-[#1D4ED8] text-white text-xs max-sm:text-[11px] font-bold flex items-center gap-2 max-sm:gap-1 shadow-[0_0_20px_rgba(29,78,216,0.45)] transition cursor-pointer shrink-0"
             >
               <span className="font-mono font-bold tracking-tight">{formattedPrice}</span>
-              <span className="opacity-45">•</span>
-              <FileText className="w-3.5 h-3.5 text-[#7DD3FC]" />
-              <span>Teklif</span>
+              <span className="opacity-45 hidden sm:inline">•</span>
+              <FileText className="w-3.5 h-3.5 text-[#7DD3FC] shrink-0" />
+              <span className="hidden sm:inline">Teklif</span>
             </button>
           </div>
           )}
@@ -935,27 +1021,31 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
         {/* 3B kamera ve görünüm kontrolleri artık Alt Orta Yüzen Dock içinde birleştirildi */}
 
         {workspaceMode === "2d" && (
-          <div className="pointer-events-auto px-1.5 py-1 rounded-full bg-[#2A313F]/66 backdrop-blur-2xl border border-white/[0.22] ring-1 ring-black/50 shadow-[0_14px_36px_rgba(0,0,0,0.45)] flex items-center gap-1 text-xs text-[#F3F4F6]">
+          <div className="pointer-events-auto max-w-[calc(100vw-16px)] overflow-x-auto no-scrollbar px-1.5 py-1 rounded-full bg-[#2A313F]/66 backdrop-blur-2xl border border-white/[0.22] ring-1 ring-black/50 shadow-[0_14px_36px_rgba(0,0,0,0.45)] flex items-center gap-1 text-xs text-[#F3F4F6] whitespace-nowrap">
             {(
               [
-                { id: "elevation", label: "Ön Cephe Görünüşü" },
-                { id: "section", label: "A-A Yan Kesit" },
-                { id: "split", label: "3B + 2B Bölünmüş Ekran" },
+                { id: "elevation", label: "Ön Cephe", fullLabel: "Ön Cephe Görünüşü", Icon: Eye },
+                { id: "section", label: "Kesit", fullLabel: "A-A Yan Kesit", Icon: Scissors },
+                { id: "split", label: "3B+2B", fullLabel: "3B + 2B Bölünmüş Ekran", Icon: Columns2 },
               ] as const
             ).map((sub) => {
               const active = cadSubMode === sub.id;
+              const SubIcon = sub.Icon;
               return (
                 <button
                   key={sub.id}
                   type="button"
+                  title={sub.fullLabel}
                   onClick={() => onChangeCadSubMode(sub.id)}
-                  className={`h-7 px-3 rounded-full font-semibold transition cursor-pointer ${
+                  className={`h-7 px-2.5 rounded-full font-semibold flex items-center gap-1.5 transition cursor-pointer ${
                     active
                       ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white font-bold shadow-xs"
                       : "text-slate-300 hover:text-white hover:bg-white/[0.08]"
                   }`}
                 >
-                  {sub.label}
+                  <SubIcon className="w-3.5 h-3.5 shrink-0" />
+                  <span className="hidden md:inline">{sub.fullLabel}</span>
+                  <span className="md:hidden">{sub.label}</span>
                 </button>
               );
             })}

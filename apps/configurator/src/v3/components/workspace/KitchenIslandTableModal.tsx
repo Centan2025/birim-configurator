@@ -92,12 +92,12 @@ export const KitchenIslandTableModal: React.FC<KitchenIslandTableModalProps> = (
     <div
       data-testid="kitchen-island-table-modal"
       onClick={onClose}
-      className="fixed inset-0 z-[158] flex items-center justify-center bg-slate-950/50 backdrop-blur-xs p-3 sm:p-5"
+      className="fixed inset-0 z-[158] flex items-center justify-center bg-slate-950/50 backdrop-blur-xs p-0 md:p-5"
     >
       <div
         data-draggable-shell="island-table-modal"
         onClick={(e) => e.stopPropagation()}
-        className="birim-ice-modal rounded-[28px] max-w-3xl w-full max-h-[92vh] flex flex-col overflow-hidden text-[#141413]"
+        className="birim-ice-modal rounded-[28px] max-md:rounded-none max-md:h-[100dvh] max-md:max-h-[100dvh] max-w-3xl w-full max-h-[92dvh] flex flex-col overflow-hidden text-[#141413]"
       >
         {/* Header with Official Birim Logo */}
         <div
@@ -308,7 +308,7 @@ export const KitchenIslandTableModal: React.FC<KitchenIslandTableModalProps> = (
                     <label className="space-y-1 block">
                       <span className="font-bold text-slate-700">Masa Boyu (mm)</span>
                       <input
-                        type="number"
+                        type="number" inputMode="decimal"
                         min={700}
                         max={2800}
                         step={50}
@@ -320,7 +320,7 @@ export const KitchenIslandTableModal: React.FC<KitchenIslandTableModalProps> = (
                     <label className="space-y-1 block">
                       <span className="font-bold text-slate-700">Genişlik (mm)</span>
                       <input
-                        type="number"
+                        type="number" inputMode="decimal"
                         min={550}
                         max={1200}
                         step={50}
@@ -423,7 +423,7 @@ export const KitchenIslandTableModal: React.FC<KitchenIslandTableModalProps> = (
                 <label className="space-y-1 block">
                   <span className="font-bold text-slate-700">Ada Genişliği (mm)</span>
                   <input
-                    type="number"
+                    type="number" inputMode="decimal"
                     min={900}
                     max={3200}
                     step={100}
@@ -435,7 +435,7 @@ export const KitchenIslandTableModal: React.FC<KitchenIslandTableModalProps> = (
                 <label className="space-y-1 block">
                   <span className="font-bold text-slate-700">Ada Derinliği (mm)</span>
                   <input
-                    type="number"
+                    type="number" inputMode="decimal"
                     min={700}
                     max={1300}
                     step={50}
@@ -447,7 +447,7 @@ export const KitchenIslandTableModal: React.FC<KitchenIslandTableModalProps> = (
                 <label className="space-y-1 block">
                   <span className="font-bold text-slate-700">Koridor Boşluğu (mm)</span>
                   <input
-                    type="number"
+                    type="number" inputMode="decimal"
                     min={850}
                     max={1800}
                     step={50}
@@ -459,7 +459,7 @@ export const KitchenIslandTableModal: React.FC<KitchenIslandTableModalProps> = (
                 <label className="space-y-1 block">
                   <span className="font-bold text-slate-700">Bar Çıkıntısı (mm)</span>
                   <input
-                    type="number"
+                    type="number" inputMode="decimal"
                     min={0}
                     max={400}
                     step={20}

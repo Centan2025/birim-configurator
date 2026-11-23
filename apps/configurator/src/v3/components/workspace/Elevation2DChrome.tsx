@@ -145,7 +145,7 @@ export const ElevationTopBar: React.FC<ElevationTopBarProps> = ({
             <label className="flex items-center gap-0.5">
               <span>Genişlik:</span>
               <input
-                type="number"
+                type="number" inputMode="decimal"
                 step={50}
                 value={selectedObstacle.dimensions.width}
                 onChange={(e) =>
@@ -162,7 +162,7 @@ export const ElevationTopBar: React.FC<ElevationTopBarProps> = ({
             <label className="flex items-center gap-0.5">
               <span>Yükseklik:</span>
               <input
-                type="number"
+                type="number" inputMode="decimal"
                 step={50}
                 value={selectedObstacle.dimensions.height}
                 onChange={(e) =>
@@ -179,7 +179,7 @@ export const ElevationTopBar: React.FC<ElevationTopBarProps> = ({
             <label className="flex items-center gap-0.5">
               <span>Yerden Kot:</span>
               <input
-                type="number"
+                type="number" inputMode="decimal"
                 step={50}
                 value={selectedObstacle.position.y}
                 onChange={(e) =>
@@ -196,7 +196,7 @@ export const ElevationTopBar: React.FC<ElevationTopBarProps> = ({
             <label className="flex items-center gap-0.5">
               <span>Sol Duvara Mesafe:</span>
               <input
-                type="number"
+                type="number" inputMode="decimal"
                 step={50}
                 value={selectedObstacle.position.x}
                 onChange={(e) =>
@@ -244,7 +244,7 @@ export const ElevationTopBar: React.FC<ElevationTopBarProps> = ({
           <div className="flex items-center gap-1 bg-[#F2EDE3] px-2.5 py-0.5 rounded-full border border-[#E6E0D3] text-[11px]">
             <span className="font-semibold text-[#57534E]">Kot:</span>
             <input
-              type="number"
+              type="number" inputMode="decimal"
               step={displayUnit === "cm" ? 5 : 50}
               value={toDisplayUnitNumber(activeModule.position.y, displayUnit)}
               onChange={(e) => {
@@ -477,7 +477,7 @@ export const ElevationContextualPanel: React.FC<ElevationContextualPanelProps> =
               <span className="font-semibold text-stone-700">Kot (Y):</span>
               <div className="flex items-center gap-1">
                 <input
-                  type="number"
+                  type="number" inputMode="decimal"
                   step={unitStep}
                   value={toDisplayUnitNumber(context.elevationYMm, displayUnit)}
                   onChange={(e) =>
@@ -552,7 +552,7 @@ export const ElevationContextualPanel: React.FC<ElevationContextualPanelProps> =
               <span className="font-semibold text-stone-700">Kot (Y):</span>
               <div className="flex items-center gap-1">
                 <input
-                  type="number"
+                  type="number" inputMode="decimal"
                   step={unitStep}
                   value={toDisplayUnitNumber(context.elevationYMm, displayUnit)}
                   onChange={(e) =>
@@ -579,7 +579,7 @@ export const ElevationContextualPanel: React.FC<ElevationContextualPanelProps> =
             <span className="font-semibold text-stone-700">Askı Kotu (Y):</span>
             <div className="flex items-center gap-1">
               <input
-                type="number"
+                type="number" inputMode="decimal"
                 step={unitStep}
                 value={toDisplayUnitNumber(context.elevationYMm, displayUnit)}
                 onChange={(e) =>
@@ -605,7 +605,7 @@ export const ElevationContextualPanel: React.FC<ElevationContextualPanelProps> =
             <span className="font-semibold text-stone-700">Donanım Yüksekliği:</span>
             <div className="flex items-center gap-1">
               <input
-                type="number"
+                type="number" inputMode="decimal"
                 step={unitStep}
                 value={toDisplayUnitNumber(context.elevationYMm, displayUnit)}
                 onChange={(e) =>
@@ -673,7 +673,7 @@ export const ElevationContextualPanel: React.FC<ElevationContextualPanelProps> =
                   <span className="font-semibold text-stone-700">Bölme Solundan Mesafe:</span>
                   <div className="flex items-center gap-1">
                     <input
-                      type="number"
+                      type="number" inputMode="decimal"
                       step={unitStep}
                       value={toDisplayUnitNumber(sdObj.offsetX, displayUnit)}
                       onChange={(e) =>
@@ -802,7 +802,7 @@ export const ElevationBottomBar: React.FC<ElevationBottomBarProps> = ({
         <label className="inline-flex items-center gap-1.5" title="Modülün sol kenarının sol duvara olan uzaklığı">
           <span className="text-stone-600 font-semibold">Sol Duvara Mesafe:</span>
           <input
-            type="number"
+            type="number" inputMode="decimal"
             step={displayUnit === "cm" ? 1 : 10}
             value={toDisplayUnitNumber(activeModule.position.x, displayUnit)}
             onChange={(e) =>
@@ -818,7 +818,7 @@ export const ElevationBottomBar: React.FC<ElevationBottomBarProps> = ({
         <label className="inline-flex items-center gap-1.5" title="Seçili modülün dıştan dışa toplam genişliği (konumu sabit kalır)">
           <span className="text-stone-600 font-semibold">Modül Genişliği:</span>
           <input
-            type="number"
+            type="number" inputMode="decimal"
             step={displayUnit === "cm" ? 1 : 10}
             min={displayUnit === "cm" ? 15 : 150}
             max={displayUnit === "cm" ? 360 : 3600}

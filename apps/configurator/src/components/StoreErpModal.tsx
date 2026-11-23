@@ -397,12 +397,12 @@ function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
   return (
     <div
       onClick={onClose}
-      className="fixed inset-0 z-[156] flex items-center justify-center bg-[#141413]/52 backdrop-blur-xs p-3 sm:p-5"
+      className="fixed inset-0 z-[156] flex items-center justify-center bg-[#141413]/52 backdrop-blur-xs p-0 md:p-5"
     >
       <div
         data-draggable-shell="store-erp"
         onClick={(e) => e.stopPropagation()}
-        className="flex flex-col w-full max-w-4xl max-h-[90vh] birim-ice-modal rounded-[28px] overflow-hidden text-[#141413]"
+        className="flex flex-col w-full max-w-4xl max-h-[90dvh] birim-ice-modal rounded-[28px] max-md:rounded-none max-md:h-[100dvh] max-md:max-h-[100dvh] overflow-hidden text-[#141413]"
       >
         {/* Header */}
         <div
@@ -417,7 +417,7 @@ function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
               <div className="flex items-center gap-2 flex-wrap">
                 <Database className="w-4 h-4 text-emerald-700 shrink-0" />
                 <h2 className="text-sm sm:text-base font-bold text-[#141413] truncate">
-                  Mağaza &amp; ERP Aktarımı
+                  <span className="hidden sm:inline">Mağaza &amp; ERP Aktarımı</span><span className="sm:hidden">Mağaza &amp; ERP</span>
                 </h2>
               </div>
               <div className="text-[11px] text-[#57534E] truncate">
@@ -435,7 +435,7 @@ function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
               }`}
             >
               {isLiveRpcConfigured
-                ? "Canlı Supabase RPC Aktif"
+                ? (<><span className="hidden sm:inline">Canlı Supabase RPC Aktif</span><span className="sm:hidden">RPC Aktif</span></>)
                 : "Yerel / Ortam Anahtarı Bekleniyor"}
             </span>
             <button
@@ -521,7 +521,7 @@ function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
           {/* 1. Birim Store CPQ Teklif Akışı */}
           <div className="p-5 rounded-2xl bg-white border border-[#E5DFD3] shadow-2xs space-y-3.5">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2.5 min-w-0 flex-1">
                 <div className="p-2.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-700">
                   <Store className="w-5 h-5" />
                 </div>
@@ -570,7 +570,7 @@ function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
                   Satır İskonto Oranı (%)
                 </label>
                 <input
-                  type="number"
+                  type="number" inputMode="decimal"
                   min={0}
                   max={40}
                   step={1}

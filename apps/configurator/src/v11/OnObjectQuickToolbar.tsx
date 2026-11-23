@@ -719,7 +719,7 @@ export const OnObjectQuickToolbar: React.FC<OnObjectQuickToolbarProps> = React.m
                             </button>
                           ))}
                           <input
-                            type="number"
+                            type="number" inputMode="decimal"
                             min={32}
                             max={100}
                             step={1}
@@ -757,7 +757,7 @@ export const OnObjectQuickToolbar: React.FC<OnObjectQuickToolbarProps> = React.m
                             </button>
                           ))}
                           <input
-                            type="number"
+                            type="number" inputMode="decimal"
                             min={0}
                             max={80}
                             step={1}

@@ -1,5 +1,6 @@
 "use client";
 
+import { createLongPressController, createTwoFingerPinchTracker } from "../design-system/touchGestureHelpers";
 import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import {
   ArchitecturalElement,
@@ -173,6 +174,23 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
 
     const lastAccessoryDropTarget2DRef = useRef<{ bayIndex: number; elevationY: number; offsetX?: number; accessory: any } | null>(null);
     const [zoom, setZoom] = useState(1);
+  const zoomRef = useRef(1);
+  zoomRef.current = zoom;
+  const pinchTrackerRef = useRef(createTwoFingerPinchTracker());
+  const longPress2DRef = useRef(
+    createLongPressController((cx, cy, tgt) => {
+      const targetEl = tgt instanceof Element ? tgt : null;
+      if (!targetEl) return;
+      targetEl.dispatchEvent(
+        new MouseEvent("contextmenu", {
+          clientX: cx,
+          clientY: cy,
+          bubbles: true,
+          cancelable: true,
+        })
+      );
+    })
+  );
     const [panPx, setPanPx] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
     const panPxRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
     const lastPointerMoveTsRef = useRef<number>(0);
@@ -4036,7 +4054,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             >
               <span className="font-bold text-[#111827]">Duvar Ölçüsü ({elevDisplayUnit}):</span>
               <input
-                type="number"
+                type="number" inputMode="decimal"
                 data-testid="plan-inline-wall-dim-input"
                 min={elevDisplayUnit === "cm" ? 50 : 500}
                 max={elevDisplayUnit === "cm" ? 1500 : 15000}
@@ -4201,7 +4219,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     <label className="inline-flex items-center gap-1 bg-slate-50 px-2 py-1 rounded-xl border border-slate-200/90 text-[11px] shrink-0 whitespace-nowrap">
                       <span className="font-bold text-slate-500">↔</span>
                       <input
-                        type="number"
+                        type="number" inputMode="decimal"
                         step={50}
                         min={200}
                         value={selectedWallObj.length}
@@ -4217,7 +4235,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     <label className="inline-flex items-center gap-1 bg-slate-50 px-2 py-1 rounded-xl border border-slate-200/90 text-[11px] shrink-0 whitespace-nowrap">
                       <span className="font-bold text-slate-500">🔄</span>
                       <input
-                        type="number"
+                        type="number" inputMode="decimal"
                         step={45}
                         value={selectedWallObj.rotationY}
                         onChange={(e) =>
@@ -4246,7 +4264,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       <div className="inline-flex items-center gap-1 bg-slate-50 px-2 py-1 rounded-xl border border-slate-200/90 text-[11px] shrink-0 whitespace-nowrap">
                         <span className="font-semibold text-slate-600">Yatay:</span>
                         <input
-                          type="number"
+                          type="number" inputMode="decimal"
                           step={50}
                           value={selectedWallObj.position.x}
                           onChange={(e) =>
@@ -4258,7 +4276,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         />
                         <span className="font-semibold text-slate-600">Derinlik:</span>
                         <input
-                          type="number"
+                          type="number" inputMode="decimal"
                           step={50}
                           value={selectedWallObj.position.z}
                           onChange={(e) =>
@@ -4417,7 +4435,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       <label className="inline-flex items-center gap-0.5" title="Genişlik (W mm)">
                         <span className="font-bold text-slate-500">En:</span>
                         <input
-                          type="number"
+                          type="number" inputMode="decimal"
                           step={50}
                           value={selectedObstacleObj.dimensions.width}
                           onChange={(e) =>
@@ -4434,7 +4452,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       <label className="inline-flex items-center gap-0.5" title="Yükseklik (H mm)">
                         <span className="font-bold text-slate-500">Boy:</span>
                         <input
-                          type="number"
+                          type="number" inputMode="decimal"
                           step={50}
                           value={selectedObstacleObj.dimensions.height}
                           onChange={(e) =>
@@ -4451,7 +4469,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       <label className="inline-flex items-center gap-0.5" title="Yerden Kot (Y mm)">
                         <span className="font-bold text-slate-500">Kot:</span>
                         <input
-                          type="number"
+                          type="number" inputMode="decimal"
                           step={50}
                           value={selectedObstacleObj.position.y}
                           onChange={(e) =>
@@ -4605,7 +4623,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   <span className="font-bold text-slate-600">↔ Duvar Boyu:</span>
                   <input
                     data-testid="plan-wall-length-input"
-                    type="number"
+                    type="number" inputMode="decimal"
                     min={800}
                     max={12000}
                     step={100}
@@ -4623,7 +4641,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   <span className="font-bold text-slate-600">↕ Tavan:</span>
                   <input
                     data-testid="plan-ceiling-height-input"
-                    type="number"
+                    type="number" inputMode="decimal"
                     min={1800}
                     max={5000}
                     step={50}
@@ -4833,7 +4851,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
 
                 <input
                   data-testid="plan-obstacle-x-input"
-                  type="number"
+                  type="number" inputMode="decimal"
                   step={50}
                   value={newObstacleX}
                   onChange={(e) => setNewObstacleX(Number(e.target.value) || 0)}
@@ -4842,7 +4860,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 {obstacleTargetWallId === "custom_xz" && (
                   <input
                     data-testid="plan-obstacle-z-input"
-                    type="number"
+                    type="number" inputMode="decimal"
                     step={50}
                     value={newObstacleZ}
                     onChange={(e) => setNewObstacleZ(Number(e.target.value) || 0)}
@@ -4854,7 +4872,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   <span className="font-bold text-slate-500">En:</span>
                   <input
                     data-testid="plan-obstacle-width-input"
-                    type="number"
+                    type="number" inputMode="decimal"
                     step={50}
                     value={newObstacleW}
                     onChange={(e) => setNewObstacleW(Number(e.target.value) || 250)}
@@ -4865,7 +4883,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   <span className="font-bold text-slate-500">Boy:</span>
                   <input
                     data-testid="plan-obstacle-height-input"
-                    type="number"
+                    type="number" inputMode="decimal"
                     step={50}
                     value={newObstacleH}
                     onChange={(e) => setNewObstacleH(Number(e.target.value) || 1000)}
@@ -4876,7 +4894,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   <span className="font-bold text-slate-500">Kot:</span>
                   <input
                     data-testid="plan-obstacle-elevation-input"
-                    type="number"
+                    type="number" inputMode="decimal"
                     step={50}
                     value={newObstacleY}
                     onChange={(e) => setNewObstacleY(Math.max(0, Number(e.target.value) || 0))}
@@ -4973,19 +4991,19 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 <div data-testid="plan-selected-object-bar" className="hidden">
                   {selectedWallObj && (
                     <>
-                      <input data-testid="plan-selected-wall-x-input" type="number" value={selectedWallObj.position.x} onChange={(e) => updateWallSegment(selectedWallObj.id, { position: { x: Number(e.target.value) || 0 } })} />
-                      <input data-testid="plan-selected-wall-z-input" type="number" value={selectedWallObj.position.z} onChange={(e) => updateWallSegment(selectedWallObj.id, { position: { z: Number(e.target.value) || 0 } })} />
-                      <input data-testid="plan-selected-wall-length-input" type="number" value={selectedWallObj.length} onChange={(e) => updateWallSegment(selectedWallObj.id, { length: Number(e.target.value) || 500 })} />
-                      <input data-testid="plan-selected-wall-angle-input" type="number" value={selectedWallObj.rotationY} onChange={(e) => updateWallSegment(selectedWallObj.id, { rotationY: Number(e.target.value) || 0 })} />
+                      <input data-testid="plan-selected-wall-x-input" type="number" inputMode="decimal" value={selectedWallObj.position.x} onChange={(e) => updateWallSegment(selectedWallObj.id, { position: { x: Number(e.target.value) || 0 } })} />
+                      <input data-testid="plan-selected-wall-z-input" type="number" inputMode="decimal" value={selectedWallObj.position.z} onChange={(e) => updateWallSegment(selectedWallObj.id, { position: { z: Number(e.target.value) || 0 } })} />
+                      <input data-testid="plan-selected-wall-length-input" type="number" inputMode="decimal" value={selectedWallObj.length} onChange={(e) => updateWallSegment(selectedWallObj.id, { length: Number(e.target.value) || 500 })} />
+                      <input data-testid="plan-selected-wall-angle-input" type="number" inputMode="decimal" value={selectedWallObj.rotationY} onChange={(e) => updateWallSegment(selectedWallObj.id, { rotationY: Number(e.target.value) || 0 })} />
                     </>
                   )}
                   {selectedObstacleObj && (
                     <>
                       <button type="button" data-testid="plan-rotate-obstacle-btn" onClick={() => updateSpaceObstacle(selectedObstacleObj.id, { rotationY: ((selectedObstacleObj.rotationY || 0) + 90) % 360 })} />
                       <button type="button" data-testid="plan-flip-door-swing-btn" onClick={() => updateSpaceObstacle(selectedObstacleObj.id, { doorSwing: selectedObstacleObj.doorSwing === "right" ? "left" : "right" })} />
-                      <input data-testid="plan-selected-obs-width-input" type="number" value={selectedObstacleObj.dimensions.width} onChange={(e) => updateSpaceObstacle(selectedObstacleObj.id, { dimensions: { ...selectedObstacleObj.dimensions, width: Math.max(100, Number(e.target.value) || 300) } })} />
-                      <input data-testid="plan-selected-obs-height-input" type="number" value={selectedObstacleObj.dimensions.height} onChange={(e) => updateSpaceObstacle(selectedObstacleObj.id, { dimensions: { ...selectedObstacleObj.dimensions, height: Math.max(50, Number(e.target.value) || 200) } })} />
-                      <input data-testid="plan-selected-obs-elevation-input" type="number" value={selectedObstacleObj.position.y} onChange={(e) => updateSpaceObstacle(selectedObstacleObj.id, { position: { ...selectedObstacleObj.position, y: Math.max(0, Number(e.target.value) || 0) } })} />
+                      <input data-testid="plan-selected-obs-width-input" type="number" inputMode="decimal" value={selectedObstacleObj.dimensions.width} onChange={(e) => updateSpaceObstacle(selectedObstacleObj.id, { dimensions: { ...selectedObstacleObj.dimensions, width: Math.max(100, Number(e.target.value) || 300) } })} />
+                      <input data-testid="plan-selected-obs-height-input" type="number" inputMode="decimal" value={selectedObstacleObj.dimensions.height} onChange={(e) => updateSpaceObstacle(selectedObstacleObj.id, { dimensions: { ...selectedObstacleObj.dimensions, height: Math.max(50, Number(e.target.value) || 200) } })} />
+                      <input data-testid="plan-selected-obs-elevation-input" type="number" inputMode="decimal" value={selectedObstacleObj.position.y} onChange={(e) => updateSpaceObstacle(selectedObstacleObj.id, { position: { ...selectedObstacleObj.position, y: Math.max(0, Number(e.target.value) || 0) } })} />
                     </>
                   )}
                   <button type="button" data-testid="plan-delete-selected-object-btn" onClick={handleDeleteSelectedObject} />
@@ -5178,7 +5196,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
           <svg
             data-testid="v3-cad-plan-svg"
             viewBox={`${vb.x} ${vb.y} ${vb.width} ${vb.height}`}
-            className={`w-full flex-1 min-h-0 ${
+            className={`w-full flex-1 min-h-0 touch-none ${
               panning2D
                 ? "cursor-grabbing"
                 : isDrawingWall || isPlacingObstacle
@@ -5187,7 +5205,20 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             }`}
             onClick={handleSvgClick}
             onContextMenu={handleSvgContextMenu}
-            onMouseDown={(e) => {
+            onPointerDownCapture={(e) => {
+              if (e.pointerType === "touch") {
+                pinchTrackerRef.current.pointerDown(e.pointerId, e.clientX, e.clientY);
+                if (pinchTrackerRef.current.isPinching()) {
+                  longPress2DRef.current.cancel();
+                  setPanning2D(null);
+                }
+              }
+            }}
+            onPointerDown={(e) => {
+              if (e.pointerType === "touch") {
+                if (pinchTrackerRef.current.isPinching()) return;
+                longPress2DRef.current.start(e);
+              }
               const isBgClick =
                 e.target === e.currentTarget ||
                 (e.target as Element).getAttribute?.("data-plan-bg") === "true";
@@ -5206,7 +5237,21 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 });
               }
             }}
-            onMouseMove={(e) => {
+            onPointerMove={(e) => {
+              if (e.pointerType === "touch") {
+                longPress2DRef.current.move(e);
+                const pinch = pinchTrackerRef.current.pointerMove(e.pointerId, e.clientX, e.clientY);
+                if (pinch) {
+                  const nextZ = Math.max(0.35, Math.min(5, zoomRef.current * pinch.scaleRatio));
+                  zoomRef.current = nextZ;
+                  const nx = panPxRef.current.x + pinch.panDx;
+                  const ny = panPxRef.current.y + pinch.panDy;
+                  panPxRef.current = { x: nx, y: ny };
+                  e.currentTarget.style.transform = `translate(${nx}px, ${ny}px) scale(${nextZ})`;
+                  return;
+                }
+                if (pinchTrackerRef.current.isPinching()) return;
+              }
               if (panning2D) {
                 const nx = panning2D.startPanX + (e.clientX - panning2D.startClientX);
                 const ny = panning2D.startPanY + (e.clientY - panning2D.startClientY);
@@ -5216,7 +5261,27 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
               }
               handleSvgPointerMove(e);
             }}
-            onMouseUp={() => {
+            onPointerUp={(e) => {
+              if (e.pointerType === "touch") {
+                const wasPinch = pinchTrackerRef.current.isPinching();
+                pinchTrackerRef.current.pointerUp(e.pointerId);
+                longPress2DRef.current.cancel();
+                if (wasPinch && !pinchTrackerRef.current.isPinching()) {
+                  setZoom(Number(zoomRef.current.toFixed(3)));
+                  setPanPx(panPxRef.current);
+                }
+              }
+              if (panning2D) {
+                setPanPx(panPxRef.current);
+                setPanning2D(null);
+              }
+              handleSvgPointerUp();
+            }}
+            onPointerCancel={(e) => {
+              if (e.pointerType === "touch") {
+                pinchTrackerRef.current.pointerUp(e.pointerId);
+                longPress2DRef.current.cancel();
+              }
               if (panning2D) {
                 setPanPx(panPxRef.current);
                 setPanning2D(null);
@@ -5380,7 +5445,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   <g
                     key={wall.id}
                     data-testid={`plan-wall-${wall.id}`}
-                    onMouseDown={(e) => handleWallPointerDown(e, wall)}
+                    onPointerDown={(e) => handleWallPointerDown(e, wall)}
                     onContextMenu={(e) =>
                       openPlanContextMenu(e, {
                         kind: "wall",
@@ -5446,7 +5511,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     {isSelectedWall && (
                       <g
                         data-testid={`plan-wall-resize-end-${wall.id}`}
-                        onMouseDown={(e) => {
+                        onPointerDown={(e) => {
                           e.stopPropagation();
                           const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
                           beginHistoryTransaction();
@@ -5503,7 +5568,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   <g
                     key={wall.id}
                     data-testid={`plan-wall-${wall.id}`}
-                    onMouseDown={(e) => handleWallPointerDown(e, wall)}
+                    onPointerDown={(e) => handleWallPointerDown(e, wall)}
                     onContextMenu={(e) =>
                       openPlanContextMenu(e, {
                         kind: "wall",
@@ -5572,7 +5637,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         {/* On-Canvas 90° Wall Rotate Button */}
                         <g
                           data-testid={`plan-oncanvas-rotate-wall-${wall.id}`}
-                          onMouseDown={(e) => e.stopPropagation()}
+                          onPointerDown={(e) => e.stopPropagation()}
                           onClick={(e) => {
                             e.stopPropagation();
                             updateWallSegment(wall.id, {
@@ -5603,7 +5668,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         {/* Wall Length End-Point Drag Handle */}
                         <g
                           data-testid={`plan-wall-resize-end-${wall.id}`}
-                          onMouseDown={(e) => {
+                          onPointerDown={(e) => {
                             e.stopPropagation();
                             const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
                             beginHistoryTransaction();
@@ -5654,7 +5719,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 <g
                   key={wall.id}
                   data-testid={`plan-wall-${wall.id}`}
-                  onMouseDown={(e) => handleWallPointerDown(e, wall)}
+                  onPointerDown={(e) => handleWallPointerDown(e, wall)}
                   onContextMenu={(e) =>
                     openPlanContextMenu(e, {
                       kind: "wall",
@@ -5763,7 +5828,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       {/* On-Canvas 90° Main Wall Rotate Button */}
                       <g
                         data-testid={`plan-oncanvas-rotate-wall-${wall.id}`}
-                        onMouseDown={(e) => e.stopPropagation()}
+                        onPointerDown={(e) => e.stopPropagation()}
                         onClick={(e) => {
                           e.stopPropagation();
                           updateWallSegment(wall.id, {
@@ -5794,7 +5859,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       {/* Main Wall Right-End Length Resize Handle */}
                       <g
                         data-testid={`plan-wall-resize-end-${wall.id}`}
-                        onMouseDown={(e) => {
+                        onPointerDown={(e) => {
                           e.stopPropagation();
                           const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
                           beginHistoryTransaction();
@@ -6024,7 +6089,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     <g
                       key={obs.id}
                       data-testid={`plan-obstacle-${obs.id}`}
-                      onMouseDown={(e) => handleObstaclePointerDown(e, obs)}
+                      onPointerDown={(e) => handleObstaclePointerDown(e, obs)}
                       onContextMenu={(e) =>
                         openPlanContextMenu(e, {
                           kind: "obstacle",
@@ -6093,7 +6158,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                           {/* 1. On-Canvas Mirror Hinge/Leaf Button (⇄) */}
                           <g
                             data-testid={`plan-oncanvas-mirror-swing-obs-${obs.id}`}
-                            onMouseDown={(e) => e.stopPropagation()}
+                            onPointerDown={(e) => e.stopPropagation()}
                             onClick={handleMirrorSwingClick}
                             className="cursor-pointer"
                           >
@@ -6104,7 +6169,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                           {isDoor && (
                             <g
                               data-testid={`plan-oncanvas-mirror-side-obs-${obs.id}`}
-                              onMouseDown={(e) => e.stopPropagation()}
+                              onPointerDown={(e) => e.stopPropagation()}
                               onClick={handleMirrorOpenSideClick}
                               className="cursor-pointer"
                             >
@@ -6115,7 +6180,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                           {/* 3. On-Canvas 90° Rotate Button (🔄) */}
                           <g
                             data-testid={`plan-oncanvas-rotate-obs-${obs.id}`}
-                            onMouseDown={(e) => e.stopPropagation()}
+                            onPointerDown={(e) => e.stopPropagation()}
                             onClick={(e) => {
                               e.stopPropagation();
                               updateSpaceObstacle(obs.id, {
@@ -6137,7 +6202,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                           {/* Top/Start Edge Resize Handle (▲) */}
                           <g
                             data-testid={`plan-obs-resize-start-${obs.id}`}
-                            onMouseDown={(e) => {
+                            onPointerDown={(e) => {
                               e.stopPropagation();
                               const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
                               beginHistoryTransaction();
@@ -6161,7 +6226,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                           {/* Bottom/End Edge Resize Handle (▼) */}
                           <g
                             data-testid={`plan-obs-resize-end-${obs.id}`}
-                            onMouseDown={(e) => {
+                            onPointerDown={(e) => {
                               e.stopPropagation();
                               const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
                               beginHistoryTransaction();
@@ -6213,7 +6278,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     <g
                       key={obs.id}
                       data-testid={`plan-obstacle-${obs.id}`}
-                      onMouseDown={(e) => handleObstaclePointerDown(e, obs)}
+                      onPointerDown={(e) => handleObstaclePointerDown(e, obs)}
                       onContextMenu={(e) =>
                         openPlanContextMenu(e, {
                           kind: "obstacle",
@@ -6261,19 +6326,19 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       </g>
                       {isSelectedObs && (
                         <g>
-                          <g data-testid={`plan-oncanvas-mirror-swing-obs-${obs.id}`} onMouseDown={(e) => e.stopPropagation()} onClick={handleMirrorSwingClick} className="cursor-pointer">
+                          <g data-testid={`plan-oncanvas-mirror-swing-obs-${obs.id}`} onPointerDown={(e) => e.stopPropagation()} onClick={handleMirrorSwingClick} className="cursor-pointer">
                             <circle cx={obs.position.x + ow / 2 - (isDoor ? 64 : 32)} cy={locY - 46} r={26} fill="#2563EB" stroke="#FFFFFF" strokeWidth="3.5" />
                             <text x={obs.position.x + ow / 2 - (isDoor ? 64 : 32)} y={locY - 38} textAnchor="middle" fill="#FFFFFF" fontSize="22" fontWeight="900">⇄</text>
                           </g>
                           {isDoor && (
-                            <g data-testid={`plan-oncanvas-mirror-side-obs-${obs.id}`} onMouseDown={(e) => e.stopPropagation()} onClick={handleMirrorOpenSideClick} className="cursor-pointer">
+                            <g data-testid={`plan-oncanvas-mirror-side-obs-${obs.id}`} onPointerDown={(e) => e.stopPropagation()} onClick={handleMirrorOpenSideClick} className="cursor-pointer">
                               <circle cx={obs.position.x + ow / 2} cy={locY - 46} r={26} fill="#059669" stroke="#FFFFFF" strokeWidth="3.5" />
                               <text x={obs.position.x + ow / 2} y={locY - 38} textAnchor="middle" fill="#FFFFFF" fontSize="22" fontWeight="900">⇅</text>
                             </g>
                           )}
                           <g
                             data-testid={`plan-oncanvas-rotate-obs-${obs.id}`}
-                            onMouseDown={(e) => e.stopPropagation()}
+                            onPointerDown={(e) => e.stopPropagation()}
                             onClick={(e) => {
                               e.stopPropagation();
                               updateSpaceObstacle(obs.id, { rotationY: (rotY + 45) % 360 });
@@ -6300,7 +6365,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   <g
                     key={obs.id}
                     data-testid={`plan-obstacle-${obs.id}`}
-                    onMouseDown={(e) => handleObstaclePointerDown(e, obs)}
+                    onPointerDown={(e) => handleObstaclePointerDown(e, obs)}
                     onContextMenu={(e) =>
                       openPlanContextMenu(e, {
                         kind: "obstacle",
@@ -6389,7 +6454,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         {/* 1. On-Canvas Mirror Hinge/Leaf Button (⇄) */}
                         <g
                           data-testid={`plan-oncanvas-mirror-swing-obs-${obs.id}`}
-                          onMouseDown={(e) => e.stopPropagation()}
+                          onPointerDown={(e) => e.stopPropagation()}
                           onClick={handleMirrorSwingClick}
                           className="cursor-pointer"
                         >
@@ -6416,7 +6481,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         {isDoor && (
                           <g
                             data-testid={`plan-oncanvas-mirror-side-obs-${obs.id}`}
-                            onMouseDown={(e) => e.stopPropagation()}
+                            onPointerDown={(e) => e.stopPropagation()}
                             onClick={handleMirrorOpenSideClick}
                             className="cursor-pointer"
                           >
@@ -6443,7 +6508,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         {/* 3. On-Canvas In-Place 0° <-> 90° Rotate Button on Back-Wall Window/Door */}
                         <g
                           data-testid={`plan-oncanvas-rotate-obs-${obs.id}`}
-                          onMouseDown={(e) => e.stopPropagation()}
+                          onPointerDown={(e) => e.stopPropagation()}
                           onClick={(e) => {
                             e.stopPropagation();
                             const nextRot = 90;
@@ -6487,7 +6552,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         {/* Left Edge Resize Handle (◀) */}
                         <g
                           data-testid={`plan-obs-resize-start-${obs.id}`}
-                          onMouseDown={(e) => {
+                          onPointerDown={(e) => {
                             e.stopPropagation();
                             const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
                             beginHistoryTransaction();
@@ -6529,7 +6594,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         {/* Right Edge Resize Handle (▶) */}
                         <g
                           data-testid={`plan-obs-resize-end-${obs.id}`}
-                          onMouseDown={(e) => {
+                          onPointerDown={(e) => {
                             e.stopPropagation();
                             const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
                             beginHistoryTransaction();
@@ -6582,7 +6647,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   <g
                     key={obs.id}
                     data-testid={`plan-obstacle-${obs.id}`}
-                    onMouseDown={(e) => handleObstaclePointerDown(e, obs)}
+                    onPointerDown={(e) => handleObstaclePointerDown(e, obs)}
                     onContextMenu={(e) =>
                       openPlanContextMenu(e, {
                         kind: "obstacle",
@@ -6629,7 +6694,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   <g
                     key={obs.id}
                     data-testid={`plan-obstacle-${obs.id}`}
-                    onMouseDown={(e) => handleObstaclePointerDown(e, obs)}
+                    onPointerDown={(e) => handleObstaclePointerDown(e, obs)}
                     onContextMenu={(e) =>
                       openPlanContextMenu(e, {
                         kind: "obstacle",
@@ -6672,7 +6737,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   <g
                     key={obs.id}
                     data-testid={`plan-obstacle-${obs.id}`}
-                    onMouseDown={(e) => handleObstaclePointerDown(e, obs)}
+                    onPointerDown={(e) => handleObstaclePointerDown(e, obs)}
                     onContextMenu={(e) =>
                       openPlanContextMenu(e, {
                         kind: "obstacle",
@@ -6769,7 +6834,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 <g
                   key={fp.moduleId}
                   data-testid={`plan-module-${idx}`}
-                  onMouseDown={(e) => handleModPointerDown(e, idx)}
+                  onPointerDown={(e) => handleModPointerDown(e, idx)}
                   onContextMenu={(e) => openPlanContextMenu(e, { kind: "module", modIdx: idx })}
                   className="cursor-move"
                 >
@@ -7728,7 +7793,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
 
                           {/* Floating Upright Selection & Angle Control Bar (-45°, -15°, SEÇİLİ, +15°, +45°) */}
                           <g
-                            onMouseDown={(e) => e.stopPropagation()}
+                            onPointerDown={(e) => e.stopPropagation()}
                             onClick={(e) => {
                               e.stopPropagation();
                               rotateActiveModule90(15);
@@ -7757,7 +7822,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
 
                           <g
                             data-testid={`plan-oncanvas-rotate-ccw-mod-${idx}`}
-                            onMouseDown={(e) => e.stopPropagation()}
+                            onPointerDown={(e) => e.stopPropagation()}
                             onClick={(e) => {
                               e.stopPropagation();
                               rotateActiveModule90(45);
@@ -7810,7 +7875,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
 
                           <g
                             data-testid={`plan-oncanvas-rotate-mod-${idx}`}
-                            onMouseDown={(e) => e.stopPropagation()}
+                            onPointerDown={(e) => e.stopPropagation()}
                             onClick={(e) => {
                               e.stopPropagation();
                               rotateActiveModule90(-45);
@@ -7838,7 +7903,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                           </g>
 
                           <g
-                            onMouseDown={(e) => e.stopPropagation()}
+                            onPointerDown={(e) => e.stopPropagation()}
                             onClick={(e) => {
                               e.stopPropagation();
                               rotateActiveModule90(-15);
@@ -7868,7 +7933,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                           {/* Angled End-Tip Length Resize Handle (Lengthens/Shortens along exact table angle!) */}
                           <g
                             data-testid={`plan-mod-resize-right-${idx}`}
-                            onMouseDown={(e) => {
+                            onPointerDown={(e) => {
                               e.stopPropagation();
                               const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
                               beginHistoryTransaction();
@@ -7954,7 +8019,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         {/* On-Canvas Clickable -90° (↺) & +90° (↻) Proportional Rotate Gizmo Buttons */}
                         <g
                           data-testid={`plan-oncanvas-rotate-ccw-mod-${idx}`}
-                          onMouseDown={(e) => e.stopPropagation()}
+                          onPointerDown={(e) => e.stopPropagation()}
                           onClick={(e) => {
                             e.stopPropagation();
                             if (idx !== activeModuleIndex) setActiveModuleIndex(idx);
@@ -7983,7 +8048,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         </g>
                         <g
                           data-testid={`plan-oncanvas-rotate-mod-${idx}`}
-                          onMouseDown={(e) => e.stopPropagation()}
+                          onPointerDown={(e) => e.stopPropagation()}
                           onClick={(e) => {
                             e.stopPropagation();
                             if (idx !== activeModuleIndex) setActiveModuleIndex(idx);
@@ -8014,7 +8079,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         {/* Left Edge Resize Handle (◀) */}
                         <g
                           data-testid={`plan-mod-resize-left-${idx}`}
-                          onMouseDown={(e) => {
+                          onPointerDown={(e) => {
                             e.stopPropagation();
                             if (idx !== activeModuleIndex) setActiveModuleIndex(idx);
                             const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
@@ -8060,7 +8125,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         {/* Right Edge Resize Handle (▶) */}
                         <g
                           data-testid={`plan-mod-resize-right-${idx}`}
-                          onMouseDown={(e) => {
+                          onPointerDown={(e) => {
                             e.stopPropagation();
                             if (idx !== activeModuleIndex) setActiveModuleIndex(idx);
                             const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
@@ -8106,7 +8171,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         {/* Top Edge Resize Handle (▲) */}
                         <g
                           data-testid={`plan-mod-resize-top-${idx}`}
-                          onMouseDown={(e) => {
+                          onPointerDown={(e) => {
                             e.stopPropagation();
                             if (idx !== activeModuleIndex) setActiveModuleIndex(idx);
                             const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
@@ -8152,7 +8217,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         {/* Bottom Edge Resize Handle (▼) */}
                         <g
                           data-testid={`plan-mod-resize-depth-${idx}`}
-                          onMouseDown={(e) => {
+                          onPointerDown={(e) => {
                             e.stopPropagation();
                             if (idx !== activeModuleIndex) setActiveModuleIndex(idx);
                             const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
@@ -9035,7 +9100,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     key={`plan_so_${so.id}`}
                     data-testid={`plan-scene-object-${so.id}`}
                     transform={`rotate(${-rotY}, ${cx}, ${cz})`}
-                    onMouseDown={(ev) => handleSceneObjectPointerDown(ev, so)}
+                    onPointerDown={(ev) => handleSceneObjectPointerDown(ev, so)}
                     onContextMenu={(ev) =>
                       openPlanContextMenu(ev, {
                         kind: "sceneObject",
@@ -9220,7 +9285,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   <g
                     key={`fg_col_${obs.id}`}
                     data-testid={`plan-column-foreground-${obs.id}`}
-                    onMouseDown={(e) => handleObstaclePointerDown(e, obs)}
+                    onPointerDown={(e) => handleObstaclePointerDown(e, obs)}
                     onContextMenu={(e) =>
                       openPlanContextMenu(e, {
                         kind: "obstacle",
@@ -11108,9 +11173,17 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         <svg
           data-birim-elev-svg="true"
           viewBox={`${vb.x} ${vb.y} ${vb.width} ${vb.height}`}
-          className={`w-full h-full ${panning2D ? "cursor-grabbing" : "cursor-grab"}`}
+          className={`w-full h-full touch-none ${panning2D ? "cursor-grabbing" : "cursor-grab"}`}
           onContextMenu={(e) => openElevationContextMenu(e, { kind: "canvas" })}
-          onMouseDownCapture={(e) => {
+          onPointerDownCapture={(e) => {
+            if (e.pointerType === "touch") {
+              pinchTrackerRef.current.pointerDown(e.pointerId, e.clientX, e.clientY);
+              if (pinchTrackerRef.current.isPinching()) {
+                longPress2DRef.current.cancel();
+                setPanning2D(null);
+                return;
+              }
+            }
             if (elevPanMode && e.button === 0) {
               e.preventDefault();
               e.stopPropagation();
@@ -11122,7 +11195,11 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
               });
             }
           }}
-          onMouseDown={(e) => {
+          onPointerDown={(e) => {
+            if (e.pointerType === "touch") {
+              if (pinchTrackerRef.current.isPinching()) return;
+              longPress2DRef.current.start(e);
+            }
             const isBgClick =
               e.target === e.currentTarget ||
               (e.target as Element).getAttribute?.("data-elev-bg") === "true";
@@ -11142,7 +11219,21 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
               });
             }
           }}
-          onMouseMove={(e) => {
+          onPointerMove={(e) => {
+            if (e.pointerType === "touch") {
+              longPress2DRef.current.move(e);
+              const pinch = pinchTrackerRef.current.pointerMove(e.pointerId, e.clientX, e.clientY);
+              if (pinch) {
+                const nextZ = Math.max(0.35, Math.min(5, zoomRef.current * pinch.scaleRatio));
+                zoomRef.current = nextZ;
+                const nx = panPxRef.current.x + pinch.panDx;
+                const ny = panPxRef.current.y + pinch.panDy;
+                panPxRef.current = { x: nx, y: ny };
+                e.currentTarget.style.transform = `translate(${nx}px, ${ny}px) scale(${nextZ})`;
+                return;
+              }
+              if (pinchTrackerRef.current.isPinching()) return;
+            }
             if (panning2D) {
               const nx = panning2D.startPanX + (e.clientX - panning2D.startClientX);
               const ny = panning2D.startPanY + (e.clientY - panning2D.startClientY);
@@ -11152,7 +11243,26 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             }
             handleElevationPointerMove(e);
           }}
-          onMouseUp={() => {
+          onPointerCancel={(e) => {
+            if (e.pointerType === "touch") {
+              pinchTrackerRef.current.pointerUp(e.pointerId);
+              longPress2DRef.current.cancel();
+            }
+            if (panning2D) {
+              setPanPx(panPxRef.current);
+              setPanning2D(null);
+            }
+          }}
+          onPointerUp={(e) => {
+            if (e.pointerType === "touch") {
+              const wasPinch = pinchTrackerRef.current.isPinching();
+              pinchTrackerRef.current.pointerUp(e.pointerId);
+              longPress2DRef.current.cancel();
+              if (wasPinch && !pinchTrackerRef.current.isPinching()) {
+                setZoom(Number(zoomRef.current.toFixed(3)));
+                setPanPx(panPxRef.current);
+              }
+            }
             if (panning2D) {
               setPanPx(panPxRef.current);
               setPanning2D(null);
@@ -11311,7 +11421,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       <g
                         key={obs.id}
                         data-testid={`elev-obs-${obs.id}`}
-                        onMouseDown={onElevObsMouseDown}
+                        onPointerDown={onElevObsMouseDown}
                         className="cursor-move"
                       >
                         {/* 4-Sided Dark Anthracite Outer Window Casing Frame (Doğrama Kasa Çerçevesi) */}
@@ -11429,7 +11539,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     const cx = ox + ow / 2;
                     const cy = oySvg + oh / 2;
                     return (
-                      <g key={obs.id} data-testid={`elev-obs-${obs.id}`} onMouseDown={onElevObsMouseDown} className="cursor-move">
+                      <g key={obs.id} data-testid={`elev-obs-${obs.id}`} onPointerDown={onElevObsMouseDown} className="cursor-move">
                         {/* Vertical Plumbing Axis Line from Floor to Ceiling */}
                         <line
                           x1={cx}
@@ -11482,7 +11592,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     const cx = ox + ow / 2;
                     const cy = oySvg + oh / 2;
                     return (
-                      <g key={obs.id} data-testid={`elev-obs-${obs.id}`} onMouseDown={onElevObsMouseDown} className="cursor-move">
+                      <g key={obs.id} data-testid={`elev-obs-${obs.id}`} onPointerDown={onElevObsMouseDown} className="cursor-move">
                         <rect
                           x={ox}
                           y={oySvg}
@@ -11528,7 +11638,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       <g
                         key={obs.id}
                         data-testid={`elev-obs-${obs.id}`}
-                        onMouseDown={onElevObsMouseDown}
+                        onPointerDown={onElevObsMouseDown}
                         onDoubleClick={(e) => {
                           e.stopPropagation();
                           updateSpaceObstacle(obs.id, { doorSwing: isRightSwing ? "left" : "right" });
@@ -11689,7 +11799,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
 
                   // Column or Beam
                   return (
-                    <g key={obs.id} data-testid={`elev-obs-${obs.id}`} onMouseDown={onElevObsMouseDown} className="cursor-move">
+                    <g key={obs.id} data-testid={`elev-obs-${obs.id}`} onPointerDown={onElevObsMouseDown} className="cursor-move">
                       <rect
                         x={ox}
                         y={oySvg}
@@ -11776,7 +11886,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   return (
                   <g ref={activeHaloGroupRef} data-testid="elev-active-mod-selection-halo" transform={activeModTransform || ""}>
                     <g
-                      onMouseDown={(e) => {
+                      onPointerDown={(e) => {
                         if (effectiveInteriorMoveMode) return;
                         e.stopPropagation();
                         const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
@@ -12117,7 +12227,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   ? "cursor-default"
                   : "cursor-grab active:cursor-grabbing"
               }
-              onMouseDown={(e) => {
+              onPointerDown={(e) => {
                 if (elevPanMode || effectiveInteriorMoveMode || e.button !== 0 || e.altKey) {
                   if (e.button === 0 && !elevPanMode) setSelectedComponentId(null);
                   return;
@@ -12285,7 +12395,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     openElevationContextMenu(e, { kind: "module" });
                   }
                 }}
-                onMouseDown={(e) => {
+                onPointerDown={(e) => {
                   if (dragMeta && !elevPanMode && e.button === 0 && !e.altKey) {
                     e.stopPropagation();
                     const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
@@ -12876,7 +12986,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     railId: rail.id,
                   })
                 }
-                onMouseDown={(e) => {
+                onPointerDown={(e) => {
                   e.stopPropagation();
                   const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
                   const scale = svgEl ? getElevScaleMmPerPx(svgEl) : { x: 4, y: 4 };
@@ -13313,7 +13423,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
               {/* 1. Top Edge Parametric Height Resize Handle (▲ Üstten Boy Uzat/Kısalt) */}
               <g
                 data-testid="elev-mod-resize-height-handle"
-                onMouseDown={(e) => {
+                onPointerDown={(e) => {
                   e.stopPropagation();
                   const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
                   const scale = svgEl ? getElevScaleMmPerPx(svgEl) : { x: 4, y: 4 };
@@ -13369,7 +13479,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
               {/* 2. Bottom Edge Parametric Height/Elevation Resize Handle (▼ Alttan Boy/Kot Değiştir) */}
               <g
                 data-testid="elev-mod-resize-bottom-handle"
-                onMouseDown={(e) => {
+                onPointerDown={(e) => {
                   e.stopPropagation();
                   const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
                   const scale = svgEl ? getElevScaleMmPerPx(svgEl) : { x: 4, y: 4 };
@@ -13425,7 +13535,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
               {/* 3. Left Edge Parametric Width Resize Handle (◀ Soldan Genişlet/Daralt) */}
               <g
                 data-testid="elev-mod-resize-left-handle"
-                onMouseDown={(e) => {
+                onPointerDown={(e) => {
                   e.stopPropagation();
                   const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
                   const scale = svgEl ? getElevScaleMmPerPx(svgEl) : { x: 4, y: 4 };
@@ -13471,7 +13581,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
               {/* 4. Right Edge Parametric Width Resize Handle (▶ Sağdan Genişlet/Daralt) */}
               <g
                 data-testid="elev-mod-resize-width-handle"
-                onMouseDown={(e) => {
+                onPointerDown={(e) => {
                   e.stopPropagation();
                   const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
                   const scale = svgEl ? getElevScaleMmPerPx(svgEl) : { x: 4, y: 4 };
@@ -13527,7 +13637,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
               <g
                 key={so.id}
                 data-testid={`elev-scene-object-${so.id}`}
-                onMouseDown={(ev) => {
+                onPointerDown={(ev) => {
                   if (ev.button !== 0 || elevPanMode) return;
                   ev.stopPropagation();
                   setSelectedSceneObjectId(so.id);
@@ -13879,7 +13989,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             <label className="inline-flex items-center gap-1.5">
               <span className="text-slate-600 font-semibold">Sol Duvara Mesafe:</span>
               <input
-                type="number"
+                type="number" inputMode="decimal"
                 step={elevDisplayUnit === "cm" ? 1 : 10}
                 value={toDisplayUnitNumber(activeModule.position.x, elevDisplayUnit)}
                 onChange={(e) =>
@@ -13895,7 +14005,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
             <label className="inline-flex items-center gap-1.5">
               <span className="text-slate-600 font-semibold">Modül Genişliği:</span>
               <input
-                type="number"
+                type="number" inputMode="decimal"
                 step={elevDisplayUnit === "cm" ? 1 : 10}
                 min={elevDisplayUnit === "cm" ? 15 : 150}
                 max={elevDisplayUnit === "cm" ? 360 : 3600}

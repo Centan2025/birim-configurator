@@ -227,13 +227,13 @@ export const V3ProjectModal: React.FC<{
   return (
     <div
       data-testid="v3-project-modal"
-      className="fixed inset-0 z-[152] flex items-center justify-center bg-[#141413]/50 backdrop-blur-xs p-3 sm:p-5 select-none"
+      className="fixed inset-0 z-[152] flex items-center justify-center bg-[#141413]/50 backdrop-blur-xs p-0 md:p-5 select-none"
       onClick={onClose}
     >
       <div
         data-draggable-shell="project"
         onClick={(e) => e.stopPropagation()}
-        className="birim-ice-modal rounded-[28px] max-w-xl w-full overflow-hidden text-stone-900"
+        className="birim-ice-modal rounded-[28px] max-md:rounded-none max-md:h-[100dvh] max-md:max-h-[100dvh] max-w-xl w-full overflow-hidden text-stone-900"
       >
         <div
           onPointerDown={(e) => startZeroLagModalDrag(e)}
@@ -268,7 +268,7 @@ export const V3ProjectModal: React.FC<{
           </div>
         )}
 
-        <div className="p-5 space-y-4 max-h-[78vh] overflow-y-auto">
+        <div className="p-5 space-y-4 max-h-[78dvh] overflow-y-auto">
           {/* 1. Canlı Taşınabilir Link & Mobil QR Paylaşım */}
           {shareBundle && (
             <div className="p-3.5 rounded-2xl bg-white/90 border border-stone-200/90 flex flex-col sm:flex-row items-center gap-3.5 shadow-2xs">

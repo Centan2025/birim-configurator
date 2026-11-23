@@ -55,6 +55,8 @@ export interface BottomSceneDockProps {
   canRedo?: boolean;
   onUndo?: () => void;
   onRedo?: () => void;
+  /** Mobil/tablet alt çekmece açıkken dock'u çakışmayı önlemek için gizler. */
+  isHiddenOnCompactSheet?: boolean;
 }
 
 export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
@@ -85,9 +87,12 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
     canRedo = false,
     onUndo,
     onRedo,
+    isHiddenOnCompactSheet = false,
   }) => {
     const [scenePopoverOpen, setScenePopoverOpen] = useState(false);
     const [cameraMenuOpen, setCameraMenuOpen] = useState(false);
+    const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+    const [viewMenuOpen, setViewMenuOpen] = useState(false);
     const [sectionPopoverOpen, setSectionPopoverOpen] = useState(false);
     const [activeCam, setActiveCam] = useState<"hero" | "room_front_persp" | "focus_module" | "front" | "side">("hero");
     const [lightMode, setLightMode] = useState<"daylight" | "showroom_warm" | "night_led">(
@@ -101,17 +106,23 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
     const popRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-      if (!scenePopoverOpen && !sectionPopoverOpen) return;
+      if (!scenePopoverOpen && !sectionPopoverOpen && !cameraMenuOpen && !mobileMoreOpen && !viewMenuOpen) return;
       const onDown = (e: MouseEvent) => {
         if (popRef.current && !popRef.current.contains(e.target as Node)) {
           setScenePopoverOpen(false);
           setSectionPopoverOpen(false);
+          setCameraMenuOpen(false);
+          setMobileMoreOpen(false);
+          setViewMenuOpen(false);
         }
       };
       const onKey = (e: KeyboardEvent) => {
         if (e.key === "Escape") {
           setScenePopoverOpen(false);
           setSectionPopoverOpen(false);
+          setCameraMenuOpen(false);
+          setMobileMoreOpen(false);
+          setViewMenuOpen(false);
         }
       };
       document.addEventListener("mousedown", onDown);
@@ -120,7 +131,7 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
         document.removeEventListener("mousedown", onDown);
         window.removeEventListener("keydown", onKey);
       };
-    }, [scenePopoverOpen, sectionPopoverOpen]);
+    }, [scenePopoverOpen, sectionPopoverOpen, cameraMenuOpen, mobileMoreOpen, viewMenuOpen]);
 
     const triggerCamera = (preset: "hero" | "room_front_persp" | "focus_module" | "front" | "side") => {
       setActiveCam(preset);
@@ -159,12 +170,15 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
       <div
         ref={popRef}
         data-testid="v11-bottom-scene-dock"
-        className="fixed bottom-4 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center"
+        style={{ bottom: "max(1rem, env(safe-area-inset-bottom))" }}
+        className={`fixed bottom-4 left-1/2 -translate-x-1/2 z-30 max-w-[calc(100vw-24px)] flex flex-col items-center transition-all duration-200 ${
+          isHiddenOnCompactSheet ? "opacity-0 translate-y-6 pointer-events-none" : "opacity-100 translate-y-0"
+        }`}
       >
         {/* ETKİLEŞİMLİ 3B GÖRSEL KESİT MİNİ PLAN PENCERESİ (Animasyonlu) */}
         <AnimatedPopoverPresence isOpen={Boolean(sectionPopoverOpen && activeModule)} origin="bottom">
           {activeModule && (
-            <div className="mb-2.5 w-80">
+            <div className="mb-2.5 w-80 max-w-[calc(100vw-24px)]">
               <SectionPlaneMiniMap
                 activeModule={activeModule}
                 axis={sectionAxis || "X"}
@@ -185,11 +199,11 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
         <AnimatedPopoverPresence
           isOpen={scenePopoverOpen}
           origin="bottom"
-          className={`self-end ${!isShowroom && (onUndo || onRedo) ? "mr-[82px]" : "mr-1"}`}
+          className={`self-end max-sm:self-center ${!isShowroom && (onUndo || onRedo) ? "mr-[82px] max-sm:mr-0" : "mr-1 max-sm:mr-0"}`}
         >
           <div
             data-testid="v11-scene-settings-popover"
-            className="birim-dramatic-panel mb-2.5 w-80 rounded-3xl bg-[#2A313F]/68 backdrop-blur-2xl border border-white/[0.22] ring-1 ring-black/60 shadow-[0_26px_64px_rgba(0,0,0,0.62)] p-4 space-y-3.5 text-xs text-[#F3F4F6]"
+            className="birim-dramatic-panel mb-2.5 w-80 max-w-[calc(100vw-24px)] rounded-3xl bg-[#2A313F]/68 backdrop-blur-2xl border border-white/[0.22] ring-1 ring-black/60 shadow-[0_26px_64px_rgba(0,0,0,0.62)] p-4 space-y-3.5 text-xs text-[#F3F4F6]"
           >
             <div className="flex items-center justify-between">
               <span className="font-bold text-[13px]">Sahne, Işık ve Görünüm</span>
@@ -406,8 +420,289 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
           </div>
         </AnimatedPopoverPresence>
 
-        {/* TEK BİRLEŞİK KOYU CAM (GLASSMORPHISM) ALT SAHNE KAPSÜLÜ */}
-        <div className="relative h-12 px-2.5 rounded-full bg-[#1C222E]/82 backdrop-blur-2xl border border-white/[0.18] ring-1 ring-black/55 shadow-[0_20px_50px_rgba(0,0,0,0.52)] flex items-center gap-1.5 text-xs text-[#F3F4F6]">
+        {/* KAMERA AÇILARI POPOVER (Overflow kapsülünden bağımsız, asla kırpılmaz) */}
+        <AnimatedPopoverPresence
+          isOpen={Boolean(cameraMenuOpen && !isShowroom)}
+          origin="bottom"
+          className="self-start max-sm:self-center"
+        >
+          <div className="birim-dramatic-panel mb-2.5 w-48 max-w-[calc(100vw-24px)] p-1.5 rounded-2xl bg-[#1C222E]/95 backdrop-blur-2xl border border-white/[0.18] ring-1 ring-black/55 shadow-[0_18px_40px_rgba(0,0,0,0.6)] space-y-0.5 text-xs text-[#F3F4F6]">
+            {(
+              [
+                { id: "hero", label: "Genel 3B" },
+                { id: "room_front_persp", label: "Mekân Karşıdan" },
+                { id: "side", label: "Yan Görünüş" },
+                { id: "focus_module", label: "Modüle Odaklan" },
+              ] as const
+            ).map((cam) => (
+              <button
+                key={cam.id}
+                type="button"
+                onClick={() => {
+                  triggerCamera(cam.id);
+                  setCameraMenuOpen(false);
+                }}
+                className={`w-full text-left px-3 py-2 rounded-xl text-[11px] font-semibold transition cursor-pointer ${
+                  activeCam === cam.id
+                    ? "bg-[#0284C7] text-white"
+                    : "text-slate-200 hover:bg-white/[0.10]"
+                }`}
+              >
+                {cam.label}
+              </button>
+            ))}
+            <div className="my-1 border-t border-white/10" />
+            <button
+              type="button"
+              onClick={() => {
+                triggerCamera("hero");
+                setCameraMenuOpen(false);
+              }}
+              className="w-full text-left px-3 py-2 rounded-xl text-[11px] font-semibold text-sky-300 hover:bg-white/[0.10] flex items-center gap-1.5 transition cursor-pointer"
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+              <span>Sahneyi Ortala</span>
+            </button>
+          </div>
+        </AnimatedPopoverPresence>
+
+        {/* MOBİL GRUPLANMIŞ GÖRÜNÜM & ARAÇLAR POPOVER (<768px) */}
+        <AnimatedPopoverPresence
+          isOpen={Boolean(mobileMoreOpen && !isShowroom)}
+          origin="bottom"
+          className="md:hidden w-[min(340px,calc(100vw-24px))]"
+        >
+          <div className="birim-dramatic-panel mb-2.5 w-full rounded-3xl bg-[#1C222E]/96 border border-white/[0.20] ring-1 ring-black/60 shadow-[0_24px_60px_rgba(0,0,0,0.65)] p-3.5 space-y-3 text-xs text-[#F3F4F6]">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-[12.5px] text-white">Görünüm &amp; Sahne Araçları</span>
+              <button
+                type="button"
+                onClick={() => setMobileMoreOpen(false)}
+                className="w-7 h-7 rounded-full bg-white/[0.08] text-slate-300 flex items-center justify-center cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+            {/* Kapak açılma kaydırıcısı */}
+            <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-2xl bg-white/[0.06] border border-white/[0.10]">
+              <DoorOpen className="w-4 h-4 text-sky-300 shrink-0" />
+              <span className="text-[11px] font-semibold text-slate-200 whitespace-nowrap">Kapak</span>
+              <input
+                type="range"
+                min={0}
+                max={85}
+                value={doorOpenAngleDeg}
+                onChange={(e) => onChangeDoorAngle(Number(e.target.value), false)}
+                className="flex-1 accent-[#0284C7] h-1.5 rounded-full cursor-pointer"
+              />
+              <span className="font-mono text-[11px] text-sky-300 w-9 text-right">%{doorOpenPct}</span>
+            </div>
+            {/* 3 sütunlu temiz araç ızgarası */}
+            <div className="grid grid-cols-3 gap-1.5">
+              {onTogglePaintBucket && (
+                <button
+                  type="button"
+                  onClick={() => { onTogglePaintBucket(); setMobileMoreOpen(false); }}
+                  className={`py-2 px-2 rounded-2xl border text-[11px] font-semibold flex flex-col items-center gap-1 cursor-pointer ${
+                    paintToolMode !== "none"
+                      ? "bg-[#C2410C] border-orange-400/50 text-white"
+                      : "bg-white/[0.07] border-white/[0.10] text-slate-200"
+                  }`}
+                >
+                  <PaintBucket className="w-4 h-4" />
+                  <span>Boya</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => { onToggleDoorsHidden(); setMobileMoreOpen(false); }}
+                className={`py-2 px-2 rounded-2xl border text-[11px] font-semibold flex flex-col items-center gap-1 cursor-pointer ${
+                  doorsHidden
+                    ? "bg-[#0284C7] border-sky-400/50 text-white"
+                    : "bg-white/[0.07] border-white/[0.10] text-slate-200"
+                }`}
+              >
+                {doorsHidden ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                <span>{doorsHidden ? "Göster" : "Gizle"}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => { onToggleDimensions(); setMobileMoreOpen(false); }}
+                className={`py-2 px-2 rounded-2xl border text-[11px] font-semibold flex flex-col items-center gap-1 cursor-pointer ${
+                  showDimensions
+                    ? "bg-[#0284C7] border-sky-400/50 text-white"
+                    : "bg-white/[0.07] border-white/[0.10] text-slate-200"
+                }`}
+              >
+                <Ruler className="w-4 h-4" />
+                <span>Ölçüler</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMoreOpen(false);
+                  setSectionPopoverOpen((v) => !v);
+                }}
+                className={`py-2 px-2 rounded-2xl border text-[11px] font-semibold flex flex-col items-center gap-1 cursor-pointer ${
+                  sectionPopoverOpen || sectionAxis
+                    ? "bg-[#0284C7] border-sky-400/50 text-white"
+                    : "bg-white/[0.07] border-white/[0.10] text-slate-200"
+                }`}
+              >
+                <Scissors className="w-4 h-4" />
+                <span>Kesit</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => { onToggleInteriorProps(); setMobileMoreOpen(false); }}
+                className={`py-2 px-2 rounded-2xl border text-[11px] font-semibold flex flex-col items-center gap-1 cursor-pointer ${
+                  showInteriorProps
+                    ? "bg-[#0284C7] border-sky-400/50 text-white"
+                    : "bg-white/[0.07] border-white/[0.10] text-slate-200"
+                }`}
+              >
+                <Shirt className="w-4 h-4" />
+                <span>Eşyalar</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => { onToggleCncXray(); setMobileMoreOpen(false); }}
+                className={`py-2 px-2 rounded-2xl border text-[11px] font-semibold flex flex-col items-center gap-1 cursor-pointer ${
+                  cncXrayMode
+                    ? "bg-[#0284C7] border-sky-400/50 text-white"
+                    : "bg-white/[0.07] border-white/[0.10] text-slate-200"
+                }`}
+              >
+                <Scan className="w-4 h-4" />
+                <span>X-Ray</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onChangeRenderStyle(renderStyle === "wireframe" ? "solid" : "wireframe");
+                  setMobileMoreOpen(false);
+                }}
+                className={`py-2 px-2 rounded-2xl border text-[11px] font-semibold flex flex-col items-center gap-1 cursor-pointer ${
+                  renderStyle === "wireframe"
+                    ? "bg-[#0284C7] border-sky-400/50 text-white"
+                    : "bg-white/[0.07] border-white/[0.10] text-slate-200"
+                }`}
+              >
+                <Box className="w-4 h-4" />
+                <span>Tel</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMoreOpen(false);
+                  setScenePopoverOpen(true);
+                }}
+                className={`col-span-2 py-2 px-2 rounded-2xl border text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer ${
+                  scenePopoverOpen
+                    ? "bg-[#0284C7] border-sky-400/50 text-white"
+                    : "bg-white/[0.07] border-white/[0.10] text-slate-200"
+                }`}
+              >
+                <SlidersHorizontal className="w-4 h-4 text-sky-300" />
+                <span>Ultra PBR &amp; Işık Ayarları</span>
+              </button>
+            </div>
+          </div>
+        </AnimatedPopoverPresence>
+
+        {/* MASAÜSTÜ & TABLET KATEGORİZE GÖRÜNÜM / TEKNİK MODLAR POPOVER'I */}
+        <AnimatedPopoverPresence
+          isOpen={Boolean(viewMenuOpen && !isShowroom)}
+          origin="bottom"
+          className="hidden md:block self-end mr-[130px]"
+        >
+          <div
+            data-testid="v11-bottom-view-modes-popover"
+            className="birim-dramatic-panel mb-2.5 w-64 rounded-3xl bg-[#1C222E]/95 backdrop-blur-2xl border border-white/[0.20] ring-1 ring-black/60 shadow-[0_24px_60px_rgba(0,0,0,0.62)] p-3 space-y-2 text-xs text-[#F3F4F6]"
+          >
+            <div className="flex items-center justify-between pb-1 border-b border-white/12">
+              <span className="font-bold text-[12px] text-white">Teknik Görünüm Modları</span>
+              <button
+                type="button"
+                onClick={() => setViewMenuOpen(false)}
+                className="w-6 h-6 rounded-full hover:bg-white/10 text-slate-300 flex items-center justify-center cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
+              <button
+                type="button"
+                data-testid="v11-bottom-section-btn"
+                onClick={() => {
+                  setViewMenuOpen(false);
+                  setScenePopoverOpen(false);
+                  const next = !sectionPopoverOpen;
+                  setSectionPopoverOpen(next);
+                  if (next && !sectionAxis) syncSection3D("X", sectionRatio);
+                }}
+                className={`py-2 px-2.5 rounded-2xl border text-[11px] font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                  sectionPopoverOpen || sectionAxis
+                    ? "bg-[#0284C7] border-sky-400/50 text-white"
+                    : "bg-white/[0.07] hover:bg-white/[0.14] border-white/[0.10] text-slate-200"
+                }`}
+              >
+                <Scissors className="w-3.5 h-3.5 shrink-0" />
+                <span>3B Kesit</span>
+              </button>
+              <button
+                type="button"
+                data-testid="v11-bottom-wireframe-btn"
+                onClick={() => {
+                  onChangeRenderStyle(renderStyle === "wireframe" ? "solid" : "wireframe");
+                  setViewMenuOpen(false);
+                }}
+                className={`py-2 px-2.5 rounded-2xl border text-[11px] font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                  renderStyle === "wireframe"
+                    ? "bg-[#0284C7] border-sky-400/50 text-white"
+                    : "bg-white/[0.07] hover:bg-white/[0.14] border-white/[0.10] text-slate-200"
+                }`}
+              >
+                <Box className="w-3.5 h-3.5 shrink-0" />
+                <span>Tel Çerçeve</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onToggleInteriorProps();
+                  setViewMenuOpen(false);
+                }}
+                className={`py-2 px-2.5 rounded-2xl border text-[11px] font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                  showInteriorProps
+                    ? "bg-[#0284C7] border-sky-400/50 text-white"
+                    : "bg-white/[0.07] hover:bg-white/[0.14] border-white/[0.10] text-slate-200"
+                }`}
+              >
+                <Shirt className="w-3.5 h-3.5 shrink-0" />
+                <span>İç Eşyalar</span>
+              </button>
+              <button
+                type="button"
+                data-testid="v11-bottom-xray-btn"
+                onClick={() => {
+                  onToggleCncXray();
+                  setViewMenuOpen(false);
+                }}
+                className={`py-2 px-2.5 rounded-2xl border text-[11px] font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                  cncXrayMode
+                    ? "bg-[#0284C7] border-sky-400/50 text-white"
+                    : "bg-white/[0.07] hover:bg-white/[0.14] border-white/[0.10] text-slate-200"
+                }`}
+              >
+                <Scan className="w-3.5 h-3.5 shrink-0" />
+                <span>X-Ray</span>
+              </button>
+            </div>
+          </div>
+        </AnimatedPopoverPresence>
+
+        {/* TEK BİRLEŞİK GRUPLANMIŞ KOYU CAM (GLASSMORPHISM) ALT SAHNE KAPSÜLÜ */}
+        <div className="relative max-w-full overflow-x-auto no-scrollbar h-12 max-sm:h-11 px-2 max-sm:px-1.5 rounded-full bg-[#1C222E]/88 backdrop-blur-2xl border border-white/[0.18] ring-1 ring-black/55 shadow-[0_20px_50px_rgba(0,0,0,0.52)] flex items-center gap-1.5 max-sm:gap-1 text-xs text-[#F3F4F6]">
           {/* Kamera Açıları Tek Dropdown Menü */}
           {!isShowroom && (
             <div className="relative">
@@ -418,16 +713,17 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
                   setCameraMenuOpen((v) => !v);
                   setScenePopoverOpen(false);
                   setSectionPopoverOpen(false);
+                  setMobileMoreOpen(false);
                 }}
                 title="Kamera Açıları (Genel 3B, Mekân Karşıdan, Yan, Modüle Odaklan)"
-                className={`h-8 px-2.5 rounded-full flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer ${
+                className={`h-8 px-2.5 max-sm:px-2 rounded-full flex items-center gap-1.5 max-sm:gap-0.5 text-[11px] font-semibold transition cursor-pointer shrink-0 ${
                   cameraMenuOpen
                     ? "bg-[#0284C7] text-white"
                     : "bg-white/[0.08] hover:bg-white/[0.16] text-slate-100 border border-white/[0.12]"
                 }`}
               >
-                <Camera className="w-3.5 h-3.5 text-sky-300" />
-                <span className="inline whitespace-nowrap">
+                <Camera className="w-3.5 h-3.5 text-sky-300 shrink-0" />
+                <span className="hidden sm:inline whitespace-nowrap">
                   {activeCam === "room_front_persp"
                     ? "Karşıdan"
                     : activeCam === "focus_module"
@@ -438,46 +734,7 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
                 </span>
                 <ChevronDown className="w-3 h-3 opacity-80" />
               </button>
-              {cameraMenuOpen && (
-                <div className="absolute bottom-11 left-0 w-44 p-1.5 rounded-2xl bg-[#1C222E]/95 backdrop-blur-2xl border border-white/[0.18] shadow-[0_18px_40px_rgba(0,0,0,0.6)] space-y-0.5 z-50">
-                  {(
-                    [
-                      { id: "hero", label: "Genel 3B" },
-                      { id: "room_front_persp", label: "Mekân Karşıdan" },
-                      { id: "side", label: "Yan Görünüş" },
-                      { id: "focus_module", label: "Modüle Odaklan" },
-                    ] as const
-                  ).map((cam) => (
-                    <button
-                      key={cam.id}
-                      type="button"
-                      onClick={() => {
-                        triggerCamera(cam.id);
-                        setCameraMenuOpen(false);
-                      }}
-                      className={`w-full text-left px-2.5 py-1.5 rounded-xl text-[11px] font-semibold transition cursor-pointer ${
-                        activeCam === cam.id
-                          ? "bg-[#0284C7] text-white"
-                          : "text-slate-200 hover:bg-white/[0.10]"
-                      }`}
-                    >
-                      {cam.label}
-                    </button>
-                  ))}
-                  <div className="my-1 border-t border-white/10" />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      triggerCamera("hero");
-                      setCameraMenuOpen(false);
-                    }}
-                    className="w-full text-left px-2.5 py-1.5 rounded-xl text-[11px] font-semibold text-sky-300 hover:bg-white/[0.10] flex items-center gap-1.5 transition cursor-pointer"
-                  >
-                    <Maximize2 className="w-3 h-3" />
-                    <span>Sahneyi Ortala</span>
-                  </button>
-                </div>
-              )}
+
             </div>
           )}
           {isShowroom && (
@@ -531,7 +788,7 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
                     ? "Modül Taşıma Açık — Ekranı sol tuşla döndürmek için kapatın"
                     : "Sol Tuş: Ekranı Döndür • Dolabı duvarda kaydırmak için tıklayın (veya Shift basılı tutun)"
                 }
-                className={`h-8 px-2.5 rounded-full flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer ${
+                className={`h-8 px-2.5 max-sm:w-8 max-sm:px-0 max-sm:justify-center rounded-full flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer shrink-0 ${
                   moveMode3D
                     ? "bg-[#C2410C] text-white"
                     : "hover:bg-white/[0.14] text-slate-200"
@@ -551,14 +808,14 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
                     onToggleQuickPalette();
                   }}
                   title="Bölgesel Hızlı Kartela ve 8 Hazır İmza Kombinasyonu (Kısayol: M)"
-                  className={`h-8 px-2.5 rounded-full flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer ${
+                  className={`h-8 px-2.5 max-sm:w-8 max-sm:px-0 max-sm:justify-center rounded-full flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer shrink-0 ${
                     isQuickPaletteOpen
                       ? "bg-[#141413] text-white shadow-2xs"
                       : "bg-white/[0.10] hover:bg-white/[0.18] text-[#F3F4F6] border border-white/[0.14]"
                   }`}
                 >
                   <Palette className="w-3.5 h-3.5 text-[#8C6D46]" />
-                  <span className="hidden md:inline whitespace-nowrap">Kartela</span>
+                  <span className="hidden xl:inline whitespace-nowrap">Kartela</span>
                 </button>
               )}
 
@@ -568,7 +825,7 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
                   data-testid="v15-bottom-paint-bucket-btn"
                   onClick={onTogglePaintBucket}
                   title="3B Boya Kovası (Kısayol: B) • Alt+Tık: 3B Yüzeyden Malzeme Örnekle"
-                  className={`h-8 px-2.5 rounded-full flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer ${
+                  className={`h-8 px-2.5 rounded-full hidden md:flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer ${
                     paintToolMode === "paint"
                       ? "bg-[#C2410C] text-white"
                       : paintToolMode === "eyedropper"
@@ -581,16 +838,16 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
                 </button>
               )}
 
-              <span className="h-5 w-px bg-[#DFD9CE]" />
+              <span className="hidden md:inline-block h-5 w-px bg-white/15 shrink-0" />
             </>
           )}
 
-          <div className="flex items-center gap-2 px-1.5">
+          <div className="flex items-center gap-1.5 max-sm:gap-0 px-2 max-sm:px-0.5 py-0.5 rounded-full bg-white/[0.06] border border-white/[0.09] shrink-0">
             <button
               type="button"
               onClick={() => onChangeDoorAngle(doorOpenAngleDeg > 10 ? 0 : 82, true)}
               title={doorOpenAngleDeg > 10 ? "Kapak & Çekmeceleri Kapat" : "Kapak & Çekmeceleri Aç"}
-              className={`h-8 px-2.5 rounded-full flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer ${
+              className={`h-8 px-2.5 max-sm:w-8 max-sm:px-0 max-sm:justify-center rounded-full flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer shrink-0 ${
                 doorOpenAngleDeg > 10
                   ? "bg-[#141413] text-white"
                   : "hover:bg-white/[0.14] text-slate-200"
@@ -618,7 +875,7 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
               type="button"
               onClick={onToggleDoorsHidden}
                   title={doorsHidden ? "Kapakları Yeniden Göster" : "İç Düzeni Görmek İçin Kapakları Gizle"}
-                  className={`h-7 rounded-full flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                  className={`h-7 rounded-full hidden md:flex items-center justify-center gap-1.5 transition cursor-pointer ${
                     doorsHidden
                       ? "px-2.5 bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white text-[11px] font-bold shadow-[0_0_14px_rgba(29,78,216,0.55)]"
                       : "w-7 hover:bg-white/[0.14] text-slate-200"
@@ -636,94 +893,51 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
             </button>
           </div>
 
-          <span className="h-5 w-px bg-[#DFD9CE]" />
+          <span className="hidden md:inline-block h-5 w-px bg-white/15 shrink-0" />
 
-          {/* Canlı Görsel Kesit Planı Düğmesi */}
+          {/* Ölçüler ve Kategorize Görünüm Modları */}
           {!isShowroom && (
-            <button
-              type="button"
-              data-testid="v11-bottom-section-btn"
-              onClick={() => {
-                const nextOpen = !sectionPopoverOpen;
-                setSectionPopoverOpen(nextOpen);
-                setScenePopoverOpen(false);
-                if (nextOpen && !sectionAxis) {
-                  syncSection3D("X", sectionRatio);
-                } else if (!nextOpen && sectionAxis) {
-                  syncSection3D(null, sectionRatio);
-                }
-              }}
-              title="Görsel Plan Üzerinden Canlı 3B Kesit Al"
-              className={`h-8 px-3 rounded-full flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer ${
-                sectionAxis
-                  ? "bg-[#C2410C] text-white"
-                  : "hover:bg-white/[0.14] text-slate-200"
-              }`}
-            >
-              <Scissors className="w-3.5 h-3.5" />
-              
-            </button>
-          )}
+            <>
+              <button
+                type="button"
+                onClick={onToggleDimensions}
+                title="3B Ölçü Etiketlerini Göster / Gizle"
+                className={`hidden md:flex h-8 px-2.5 rounded-full items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer shrink-0 ${
+                  showDimensions
+                    ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white shadow-[0_0_16px_rgba(29,78,216,0.45)]"
+                    : "hover:bg-white/[0.14] text-slate-200"
+                }`}
+              >
+                <Ruler className="w-3.5 h-3.5" />
+                <span className="hidden xl:inline whitespace-nowrap">Ölçüler</span>
+              </button>
 
-          <button
-            type="button"
-            onClick={onToggleDimensions}
-            title="3B Ölçü Etiketlerini Göster / Gizle"
-            className={`h-8 px-3 rounded-full flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer ${
-              showDimensions ? "bg-[#141413] text-white" : "hover:bg-white/[0.14] text-slate-200"
-            }`}
-          >
-            <Ruler className="w-3.5 h-3.5" />
-            <span className="hidden lg:inline whitespace-nowrap">Ölçüler</span>
-          </button>
-
-          {!isShowroom && (
-            <button
-              type="button"
-              data-testid="v11-bottom-wireframe-btn"
-              onClick={() => onChangeRenderStyle(renderStyle === "wireframe" ? "solid" : "wireframe")}
-              title="Tel Çerçeve (Wireframe) Görünümünü Aç / Kapat"
-              className={`h-8 px-2.5 rounded-full flex items-center gap-1 text-[11px] font-semibold transition cursor-pointer ${
-                renderStyle === "wireframe"
-                  ? "bg-[#0284C7] text-white shadow-sm"
-                  : "hover:bg-white/[0.14] text-slate-200"
-              }`}
-            >
-              <span>Tel</span>
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={onToggleInteriorProps}
-            title="Dolap İçi Giysi ve Aksesuar Önizlemesi"
-            className={`h-8 px-3 rounded-full flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer ${
-              showInteriorProps
-                ? "bg-[#EFECE4] text-[#141413] border border-[#DED8CC]"
-                : "hover:bg-[#EFECE4] text-[#57534E]"
-            }`}
-          >
-            <Shirt className="w-3.5 h-3.5" />
-            
-          </button>
-
-          {!isShowroom && (
-            <button
-              type="button"
-              data-testid="v11-bottom-xray-btn"
-              onClick={() =>
-                onChangeRenderStyle(renderStyle === "transparent" ? "solid" : "transparent")
-              }
-              title="Şeffaf X-Ray Görünümünü Aç / Kapat"
-              className={`h-8 px-2.5 rounded-full flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer ${
-                renderStyle === "transparent"
-                  ? "bg-[#0284C7] text-white shadow-sm"
-                  : "hover:bg-white/[0.14] text-slate-200"
-              }`}
-            >
-              <Scan className="w-3.5 h-3.5" />
-              <span className="inline whitespace-nowrap">X-Ray</span>
-            </button>
+              <button
+                type="button"
+                data-testid="v11-bottom-view-modes-btn"
+                onClick={() => {
+                  setCameraMenuOpen(false);
+                  setScenePopoverOpen(false);
+                  setSectionPopoverOpen(false);
+                  setViewMenuOpen((v) => !v);
+                }}
+                title="Teknik Görünüm Modları (3B Kesit, Tel Çerçeve, İç Eşyalar, X-Ray)"
+                className={`hidden md:flex h-8 px-2.5 rounded-full items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer shrink-0 ${
+                  viewMenuOpen || Boolean(sectionAxis) || renderStyle === "wireframe" || showInteriorProps || cncXrayMode
+                    ? "bg-white/[0.18] text-white border border-sky-400/45"
+                    : "bg-white/[0.07] hover:bg-white/[0.15] text-slate-200 border border-white/[0.10]"
+                }`}
+              >
+                <Eye className="w-3.5 h-3.5 text-sky-300" />
+                <span className="hidden xl:inline whitespace-nowrap">Görünüm</span>
+                {([Boolean(sectionAxis), renderStyle === "wireframe", showInteriorProps, cncXrayMode].filter(Boolean).length > 0) && (
+                  <span className="w-4 h-4 rounded-full bg-[#0284C7] text-white text-[10px] font-mono font-bold flex items-center justify-center">
+                    {[Boolean(sectionAxis), renderStyle === "wireframe", showInteriorProps, cncXrayMode].filter(Boolean).length}
+                  </span>
+                )}
+                <ChevronDown className={`w-3 h-3 opacity-75 transition-transform ${viewMenuOpen ? "rotate-180" : ""}`} />
+              </button>
+            </>
           )}
 
           {!isShowroom && (
@@ -736,20 +950,41 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
                 setCameraMenuOpen(false);
               }}
               title="Ultra PBR Render, Sahne Işığı ve Zemin Ayarları"
-              className={`h-8 px-2.5 rounded-full flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer ${
+              className={`h-8 px-2.5 rounded-full hidden md:flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer ${
                 scenePopoverOpen || renderStyle !== "solid"
                   ? "bg-[#0284C7] text-white"
                   : "hover:bg-white/[0.14] text-slate-200"
               }`}
             >
               <SlidersHorizontal className="w-3.5 h-3.5" />
-              <span className="inline whitespace-nowrap">Ultra PBR</span>
+              <span className="hidden xl:inline whitespace-nowrap">Ultra PBR</span>
             </button>
           )}
 
           {!isShowroom && (onUndo || onRedo) && (
             <>
-              <span className="h-5 w-px bg-white/15" />
+              {!isShowroom && (
+                <button
+                  type="button"
+                  data-testid="v11-bottom-mobile-more-btn"
+                  onClick={() => {
+                    setCameraMenuOpen(false);
+                    setScenePopoverOpen(false);
+                    setSectionPopoverOpen(false);
+                    setMobileMoreOpen((v) => !v);
+                  }}
+                  title="Görünüm, Kesit, Ölçü ve Ultra PBR Araçları"
+                  className={`md:hidden h-8 px-2.5 max-sm:w-8 max-sm:px-0 max-sm:justify-center rounded-full flex items-center gap-1 text-[11px] font-semibold transition cursor-pointer shrink-0 ${
+                    mobileMoreOpen || cncXrayMode || sectionPopoverOpen || scenePopoverOpen
+                      ? "bg-[#0284C7] text-white"
+                      : "bg-white/[0.10] text-slate-100 border border-white/[0.14]"
+                  }`}
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5 text-sky-300" />
+                  <span className="hidden sm:inline">Araçlar</span>
+                </button>
+              )}
+              <span className="h-5 w-px bg-white/15 shrink-0" />
               <div className="flex items-center gap-0.5">
                 {onUndo && (
                   <button

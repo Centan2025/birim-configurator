@@ -975,6 +975,104 @@ function disableLineRaycast(obj: THREE.Object3D) {
   });
 }
 
+const MITER_45_CARCASS_GEO_CACHE = new Map<string, { geo: THREE.BufferGeometry; edges: THREE.EdgesGeometry }>();
+
+function getCachedMiter45CarcassGeometry(
+  role: "carcass_top" | "carcass_bottom" | "carcass_side_left" | "carcass_side_right",
+  w: number,
+  h: number,
+  d: number
+): { geo: THREE.BufferGeometry; edges: THREE.EdgesGeometry } {
+  const key = `${role}_${Math.round(w * 10)}_${Math.round(h * 10)}_${Math.round(d * 10)}`;
+  const cached = MITER_45_CARCASS_GEO_CACHE.get(key);
+  if (cached) return cached;
+
+  const hw = w / 2;
+  const hh = h / 2;
+  const shape = new THREE.Shape();
+
+  const gap = 0.35; // 0.35mm physical shadow-gap relief so 45° miter seam catches light cleanly without Z-fighting
+  if (role === "carcass_top") {
+    const inset = Math.min(h, Math.max(0, hw - 1));
+    shape.moveTo(-hw + gap, hh);
+    shape.lineTo(hw - gap, hh);
+    shape.lineTo(hw - inset - gap, -hh);
+    shape.lineTo(-hw + inset + gap, -hh);
+    shape.closePath();
+  } else if (role === "carcass_bottom") {
+    const inset = Math.min(h, Math.max(0, hw - 1));
+    shape.moveTo(-hw + gap, -hh);
+    shape.lineTo(hw - gap, -hh);
+    shape.lineTo(hw - inset - gap, hh);
+    shape.lineTo(-hw + inset + gap, hh);
+    shape.closePath();
+  } else if (role === "carcass_side_left") {
+    const inset = Math.min(w, Math.max(0, hh - 1));
+    shape.moveTo(-hw, -hh + gap);
+    shape.lineTo(-hw, hh - gap);
+    shape.lineTo(hw, hh - inset - gap);
+    shape.lineTo(hw, -hh + inset + gap);
+    shape.closePath();
+  } else {
+    // carcass_side_right
+    const inset = Math.min(w, Math.max(0, hh - 1));
+    shape.moveTo(hw, -hh + gap);
+    shape.lineTo(hw, hh - gap);
+    shape.lineTo(-hw, hh - inset - gap);
+    shape.lineTo(-hw, -hh + inset + gap);
+    shape.closePath();
+  }
+
+  const rawGeo = new THREE.ExtrudeGeometry(shape, {
+    depth: d,
+    bevelEnabled: false,
+    curveSegments: 1,
+    steps: 1,
+  });
+  rawGeo.translate(0, 0, -d / 2);
+  const geo = rawGeo.index ? rawGeo.toNonIndexed() : rawGeo;
+  if (geo !== rawGeo) rawGeo.dispose();
+  geo.computeVertexNormals();
+
+  // Tri-planar world-mm UVs so woodgrain / melamine textures match adjacent panels cleanly
+  const pos = geo.getAttribute("position");
+  const norm = geo.getAttribute("normal");
+  const uvArr = new Float32Array(pos.count * 2);
+  const uvScale = 1 / 600;
+  for (let i = 0; i < pos.count; i++) {
+    const px = pos.getX(i);
+    const py = pos.getY(i);
+    const pz = pos.getZ(i);
+    const nx = Math.abs(norm.getX(i));
+    const ny = Math.abs(norm.getY(i));
+    const nz = Math.abs(norm.getZ(i));
+    if (nz >= nx && nz >= ny) {
+      uvArr[i * 2] = (px + hw) * uvScale;
+      uvArr[i * 2 + 1] = (py + hh) * uvScale;
+    } else if (nx >= ny) {
+      uvArr[i * 2] = (pz + d / 2) * uvScale;
+      uvArr[i * 2 + 1] = (py + hh) * uvScale;
+    } else {
+      uvArr[i * 2] = (px + hw) * uvScale;
+      uvArr[i * 2 + 1] = (pz + d / 2) * uvScale;
+    }
+  }
+  geo.setAttribute("uv", new THREE.BufferAttribute(uvArr, 2));
+  geo.computeBoundingBox();
+  geo.computeBoundingSphere();
+
+  const edges = new THREE.EdgesGeometry(geo, 20);
+  markSharedGeometry(geo);
+  markSharedGeometry(edges);
+
+  if (MITER_45_CARCASS_GEO_CACHE.size > 120) {
+    MITER_45_CARCASS_GEO_CACHE.clear();
+  }
+  const entry = { geo, edges };
+  MITER_45_CARCASS_GEO_CACHE.set(key, entry);
+  return entry;
+}
+
 export function createComponentMesh(
   comp: ComponentGeometry,
   material: THREE.Material,
@@ -1570,18 +1668,21 @@ export function createComponentMesh(
       return group;
     }
 
-    // 5. Kesseböhmer LeMans II Corner Kidney Trays (Zero floating parts: pole + swing arms + trays + connected railing posts)
+    // 5. Kesseböhmer LeMans II Corner Kidney Trays (Strictly anchored to pivot-relative local origin ox/oy/oz so closed trays stay 100% inside cabinet!)
     if (idLower.includes("lemans") || lblLower.includes("lemans") || lblLower.includes("köşe")) {
-      const poleX = w * 0.2;
-      const poleZ = d * 0.25;
+      const ox = cx - w / 2;
+      const oy = cy - h / 2;
+      const oz = cz - d / 2;
+      const poleX = ox + w * 0.22;
+      const poleZ = oz + d * 0.28;
       const pole = new THREE.Mesh(cylinderY, chromeMetalMat);
-      pole.scale.set(24, Math.max(360, h), 24);
+      pole.scale.set(24, Math.max(240, h), 24);
       pole.position.set(poleX, cy, poleZ);
       tagSubMesh(pole, userData, comp);
       group.add(pole);
 
       // Top & bottom pole mounting flanges
-      [8, h - 8].forEach((fy) => {
+      [oy + 8, oy + h - 8].forEach((fy) => {
         const flange = new THREE.Mesh(cylinderY, darkAnodizedMat);
         flange.scale.set(44, 12, 44);
         flange.position.set(poleX, fy, poleZ);
@@ -1589,34 +1690,34 @@ export function createComponentMesh(
         group.add(flange);
       });
 
-      [h * 0.28, h * 0.72].forEach((ty) => {
+      [oy + h * 0.28, oy + h * 0.72].forEach((ty) => {
         // Swing arm bracket connecting pole to tray underside
         const arm = new THREE.Mesh(box, brushedSteelMat);
-        arm.scale.set(w * 0.45, 10, 26);
-        arm.position.set(poleX + w * 0.2, ty - 10, poleZ + d * 0.16);
+        arm.scale.set(w * 0.42, 10, 24);
+        arm.position.set(poleX + w * 0.18, ty - 10, poleZ + d * 0.14);
         tagSubMesh(arm, userData, comp);
         group.add(arm);
 
         const trayLobe1 = new THREE.Mesh(cylinderY, traySurfaceMat);
-        trayLobe1.scale.set(w * 0.52, 16, d * 0.54);
-        trayLobe1.position.set(w * 0.34, ty, d * 0.44);
+        trayLobe1.scale.set(w * 0.48, 14, d * 0.52);
+        trayLobe1.position.set(ox + w * 0.34, ty, oz + d * 0.45);
         tagSubMesh(trayLobe1, userData, comp);
         group.add(trayLobe1);
 
         const trayLobe2 = new THREE.Mesh(cylinderY, traySurfaceMat);
-        trayLobe2.scale.set(w * 0.46, 16, d * 0.48);
-        trayLobe2.position.set(w * 0.66, ty, d * 0.56);
+        trayLobe2.scale.set(w * 0.44, 14, d * 0.46);
+        trayLobe2.position.set(ox + w * 0.65, ty, oz + d * 0.54);
         tagSubMesh(trayLobe2, userData, comp);
         group.add(trayLobe2);
 
         // Connected vertical chrome posts + perimeter top rim bars
         const postCoords: [number, number][] = [
-          [w * 0.14, d * 0.44],
-          [w * 0.34, d * 0.22],
-          [w * 0.56, d * 0.36],
-          [w * 0.84, d * 0.56],
-          [w * 0.66, d * 0.76],
-          [w * 0.34, d * 0.68],
+          [ox + w * 0.15, oz + d * 0.45],
+          [ox + w * 0.34, oz + d * 0.24],
+          [ox + w * 0.56, oz + d * 0.36],
+          [ox + w * 0.82, oz + d * 0.54],
+          [ox + w * 0.65, oz + d * 0.74],
+          [ox + w * 0.34, oz + d * 0.67],
         ];
         postCoords.forEach(([px, pz]) => {
           const post = new THREE.Mesh(cylinderY, chromeMetalMat);
@@ -1626,40 +1727,40 @@ export function createComponentMesh(
           group.add(post);
         });
         const rimBand1 = new THREE.Mesh(box, chromeMetalMat);
-        rimBand1.scale.set(w * 0.48, 5, 5);
-        rimBand1.position.set(w * 0.42, ty + 38, d * 0.24);
+        rimBand1.scale.set(w * 0.46, 5, 5);
+        rimBand1.position.set(ox + w * 0.42, ty + 38, oz + d * 0.25);
         tagSubMesh(rimBand1, userData, comp);
         group.add(rimBand1);
 
         const rimBand2 = new THREE.Mesh(box, chromeMetalMat);
-        rimBand2.scale.set(w * 0.52, 5, 5);
-        rimBand2.position.set(w * 0.52, ty + 38, d * 0.72);
+        rimBand2.scale.set(w * 0.50, 5, 5);
+        rimBand2.position.set(ox + w * 0.52, ty + 38, oz + d * 0.71);
         tagSubMesh(rimBand2, userData, comp);
         group.add(rimBand2);
 
         // Showroom Kitchenware Props: Stainless Steel Stockpot + Ceramic Bowl sitting flush on tray
         const potBody = new THREE.Mesh(cylinderY, chromeMetalMat);
-        potBody.scale.set(Math.min(185, w * 0.24), 105, Math.min(185, w * 0.24));
-        potBody.position.set(w * 0.36, ty + 8 + 52.5, d * 0.44);
+        potBody.scale.set(Math.min(175, w * 0.22), 95, Math.min(175, w * 0.22));
+        potBody.position.set(ox + w * 0.36, ty + 8 + 47.5, oz + d * 0.45);
         tagSubMesh(potBody, userData, comp);
         group.add(potBody);
 
         const potLid = new THREE.Mesh(cylinderY, brushedSteelMat);
-        potLid.scale.set(Math.min(190, w * 0.245), 8, Math.min(190, w * 0.245));
-        potLid.position.set(w * 0.36, ty + 8 + 108, d * 0.44);
+        potLid.scale.set(Math.min(180, w * 0.23), 8, Math.min(180, w * 0.23));
+        potLid.position.set(ox + w * 0.36, ty + 8 + 98, oz + d * 0.45);
         tagSubMesh(potLid, userData, comp);
         group.add(potLid);
 
         const potKnob = new THREE.Mesh(cylinderY, darkAnodizedMat);
-        potKnob.scale.set(28, 14, 28);
-        potKnob.position.set(w * 0.36, ty + 8 + 118, d * 0.44);
+        potKnob.scale.set(26, 14, 26);
+        potKnob.position.set(ox + w * 0.36, ty + 8 + 108, oz + d * 0.45);
         tagSubMesh(potKnob, userData, comp);
         group.add(potKnob);
 
         const ceramicMat = new THREE.MeshStandardMaterial({ color: 0xe6dfd5, roughness: 0.35, metalness: 0.04 });
         const bowl = new THREE.Mesh(cylinderY, ceramicMat);
-        bowl.scale.set(Math.min(140, w * 0.18), 64, Math.min(140, w * 0.18));
-        bowl.position.set(w * 0.66, ty + 8 + 32, d * 0.56);
+        bowl.scale.set(Math.min(135, w * 0.17), 60, Math.min(135, w * 0.17));
+        bowl.position.set(ox + w * 0.65, ty + 8 + 30, oz + d * 0.54);
         tagSubMesh(bowl, userData, comp);
         group.add(bowl);
       });
@@ -3538,7 +3639,27 @@ export function createComponentMesh(
       ? 2.0
       : 0.9;
 
+  const isMiter45CarcassPanel =
+    (!comp.primitive || comp.primitive === "box") &&
+    (comp.role === "carcass_top" ||
+      comp.role === "carcass_bottom" ||
+      comp.role === "carcass_side_left" ||
+      comp.role === "carcass_side_right") &&
+    (Boolean(userData?.isMiter45Carcass) || (typeof comp.label === "string" && comp.label.includes("45° Gönye"))) &&
+    comp.dimensions.width >= 12 &&
+    comp.dimensions.height >= 12 &&
+    comp.dimensions.depth >= 8;
+  const miter45Entry = isMiter45CarcassPanel
+    ? getCachedMiter45CarcassGeometry(
+        comp.role as "carcass_top" | "carcass_bottom" | "carcass_side_left" | "carcass_side_right",
+        comp.dimensions.width,
+        comp.dimensions.height,
+        comp.dimensions.depth
+      )
+    : null;
+
   const useTrueBevelGeo =
+    !isMiter45CarcassPanel &&
     isBeveledFrontRole &&
     comp.dimensions.width >= 12 &&
     comp.dimensions.height >= 12 &&
@@ -3567,6 +3688,8 @@ export function createComponentMesh(
       ? sphere
       : comp.primitive === "cylinder"
       ? cylinder
+      : miter45Entry
+      ? miter45Entry.geo
       : useTrueBevelGeo
       ? getCachedBeveledPanelGeometry(
           comp.dimensions.width,
@@ -3588,7 +3711,15 @@ export function createComponentMesh(
       : box,
     material
   );
-  if (!useTrueBevelGeo && !useWorldUvFlatBox) {
+  if (miter45Entry) {
+    const miterEdgeMat = new THREE.LineBasicMaterial({ color: 0x1E293B, transparent: true, opacity: 0.58 });
+    markSharedMaterial(miterEdgeMat);
+    const miterLines = new THREE.LineSegments(miter45Entry.edges, miterEdgeMat);
+    miterLines.userData.isRevealSeam = true;
+    miterLines.raycast = () => {};
+    mesh.add(miterLines);
+  }
+  if (!useTrueBevelGeo && !useWorldUvFlatBox && !isMiter45CarcassPanel) {
     mesh.scale.set(comp.dimensions.width, comp.dimensions.height, comp.dimensions.depth);
   }
   mesh.position.set(cx, cy, cz);
@@ -3597,11 +3728,16 @@ export function createComponentMesh(
   if (!comp.primitive || comp.primitive === "box") {
     const cadFrameHolder = new THREE.Group();
     cadFrameHolder.position.set(cx, cy, cz);
-    cadFrameHolder.scale.set(comp.dimensions.width, comp.dimensions.height, comp.dimensions.depth);
-
-    const primaryEdgeLines = new THREE.LineSegments(edges, edgeMaterial);
-    primaryEdgeLines.userData.isPrimaryEdge = true;
-    cadFrameHolder.add(primaryEdgeLines);
+    if (miter45Entry) {
+      const primaryEdgeLines = new THREE.LineSegments(miter45Entry.edges, edgeMaterial);
+      primaryEdgeLines.userData.isPrimaryEdge = true;
+      cadFrameHolder.add(primaryEdgeLines);
+    } else {
+      cadFrameHolder.scale.set(comp.dimensions.width, comp.dimensions.height, comp.dimensions.depth);
+      const primaryEdgeLines = new THREE.LineSegments(edges, edgeMaterial);
+      primaryEdgeLines.userData.isPrimaryEdge = true;
+      cadFrameHolder.add(primaryEdgeLines);
+    }
 
     // Physical dark recessed shadow backing behind doors & drawer fronts for authentic 2-3mm joinery reveal depth!
     const isTranslucentGlassFront =
@@ -3610,7 +3746,14 @@ export function createComponentMesh(
       comp.crossSectionProfile === "center_glass_frame" ||
       comp.crossSectionProfile === "u_glass_open_top" ||
       String(comp.materialId || "").includes("glass");
+    const isStandardZFacingDoor =
+      comp.thicknessAxis !== "x" &&
+      comp.dimensions.depth <= 36 &&
+      Math.abs(comp.rotation?.[1] || 0) < 0.04 && Math.abs(comp.rotation?.[0] || 0) < 0.04 &&
+      !String(comp.id || "").includes("_l_door") &&
+      !String(comp.id || "").includes("_corner_");
     if (
+      isStandardZFacingDoor &&
       !isTranslucentGlassFront &&
       !(material as THREE.MeshPhysicalMaterial)?.transparent &&
       (comp.role === "door_left" ||

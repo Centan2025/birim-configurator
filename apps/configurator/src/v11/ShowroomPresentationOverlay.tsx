@@ -2,8 +2,11 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Box,
   Camera,
   ChevronDown,
+  Eye,
+  PanelRight,
   ChevronUp,
   DoorOpen,
   FileText,
@@ -51,6 +54,7 @@ export const ShowroomPresentationOverlay: React.FC<ShowroomPresentationOverlayPr
     }) => {
       const [summaryOpen, setSummaryOpen] = useState(true);
       const [lighting, setLighting] = useState<LightingPreset>("daylight");
+    const [activeCamPreset, setActiveCamPreset] = useState<"hero" | "front" | "side">("hero");
       const [isFullscreen, setIsFullscreen] = useState(false);
       const [matScope, setMatScope] = useState<"doors" | "carcass" | "all_module">("doors");
 
@@ -298,97 +302,145 @@ export const ShowroomPresentationOverlay: React.FC<ShowroomPresentationOverlayPr
             )}
           </aside>
 
-          {/* SAĞ ÜST: Kamera Durakları, Atmosfer ve Tam Ekran Sunum Kontrolleri */}
+          {/* ALT ORTA: Tekil, İkon Ağırlıklı Sunum Kamera, Kapak & Atmosfer Çubuğu */}
           <div
             data-testid="v11-showroom-camera-bar"
-            className="fixed right-4 top-[74px] z-30 flex flex-col items-end gap-2"
+            style={{ bottom: "max(1rem, env(safe-area-inset-bottom))" }}
+            className="fixed left-1/2 -translate-x-1/2 bottom-4 z-30 max-w-[calc(100vw-16px)] flex justify-center pointer-events-none"
           >
-            <div className="p-1.5 rounded-2xl bg-[#FAF8F4]/92 backdrop-blur-xl border border-[#DFD9CE] shadow-[0_12px_32px_rgba(20,20,19,0.08)] flex flex-wrap items-center gap-1">
-              <button
-                type="button"
-                onClick={() => {
-                  onChangeDoorAngle(0, true);
-                  fitCamera("hero");
-                }}
-                className="h-8 px-2.5 rounded-xl hover:bg-white text-[11px] font-semibold text-[#141413] cursor-pointer transition"
-              >
-                Genel Bakış
-              </button>
-              <button
-                type="button"
-                onClick={() => fitCamera("front")}
-                className="h-8 px-2.5 rounded-xl hover:bg-white text-[11px] font-semibold text-[#44403C] cursor-pointer transition"
-              >
-                Ön Cephe
-              </button>
-              <button
-                type="button"
-                onClick={() => fitCamera("side")}
-                className="h-8 px-2.5 rounded-xl hover:bg-white text-[11px] font-semibold text-[#44403C] cursor-pointer transition"
-              >
-                Yan Açı
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  onChangeDoorAngle(doorOpenAngleDeg > 20 ? 0 : 82, true);
-                  fitCamera("hero");
-                }}
-                className={`h-8 px-2.5 rounded-xl text-[11px] font-semibold flex items-center gap-1 cursor-pointer transition ${
-                  doorOpenAngleDeg > 20
-                    ? "bg-[#141413] text-white"
-                    : "hover:bg-white text-[#44403C]"
-                }`}
-              >
-                <DoorOpen className="w-3.5 h-3.5" />
-                <span>İç Düzen</span>
-              </button>
+            <div className="pointer-events-auto p-1.5 max-sm:p-1 rounded-full bg-[#1C222E]/88 backdrop-blur-2xl border border-white/[0.18] ring-1 ring-black/55 shadow-[0_18px_46px_rgba(0,0,0,0.48)] flex items-center gap-1.5 max-sm:gap-1 text-[#F3F4F6]">
+              {/* Grup 1: Kamera Açıları & İç Düzen */}
+              <div className="flex items-center gap-0.5 p-0.5 rounded-full bg-white/[0.06] border border-white/[0.09]">
+                <button
+                  type="button"
+                  title="Genel Bakış (3B)"
+                  onClick={() => {
+                    setActiveCamPreset("hero");
+                    onChangeDoorAngle(0, true);
+                    fitCamera("hero");
+                  }}
+                  className={`h-8 px-2.5 max-xl:w-8 max-xl:px-0 rounded-full text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition ${
+                    activeCamPreset === "hero" && doorOpenAngleDeg <= 20
+                      ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white shadow-xs"
+                      : "text-slate-200 hover:bg-white/[0.12]"
+                  }`}
+                >
+                  <Box className="w-3.5 h-3.5 shrink-0" />
+                  <span className="hidden xl:inline whitespace-nowrap">Genel</span>
+                </button>
+                <button
+                  type="button"
+                  title="Ön Cephe"
+                  onClick={() => {
+                    setActiveCamPreset("front");
+                    fitCamera("front");
+                  }}
+                  className={`h-8 px-2.5 max-xl:w-8 max-xl:px-0 rounded-full text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition ${
+                    activeCamPreset === "front"
+                      ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white shadow-xs"
+                      : "text-slate-200 hover:bg-white/[0.12]"
+                  }`}
+                >
+                  <Eye className="w-3.5 h-3.5 shrink-0" />
+                  <span className="hidden xl:inline whitespace-nowrap">Ön</span>
+                </button>
+                <button
+                  type="button"
+                  title="Yan Açı"
+                  onClick={() => {
+                    setActiveCamPreset("side");
+                    fitCamera("side");
+                  }}
+                  className={`h-8 px-2.5 max-xl:w-8 max-xl:px-0 rounded-full text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition ${
+                    activeCamPreset === "side"
+                      ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white shadow-xs"
+                      : "text-slate-200 hover:bg-white/[0.12]"
+                  }`}
+                >
+                  <PanelRight className="w-3.5 h-3.5 shrink-0" />
+                  <span className="hidden xl:inline whitespace-nowrap">Yan</span>
+                </button>
+                <button
+                  type="button"
+                  title="İç Düzen (Kapakları Aç / Kapat)"
+                  onClick={() => {
+                    onChangeDoorAngle(doorOpenAngleDeg > 20 ? 0 : 82, true);
+                    fitCamera("hero");
+                  }}
+                  className={`h-8 px-2.5 max-xl:w-8 max-xl:px-0 rounded-full text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition ${
+                    doorOpenAngleDeg > 20
+                      ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white shadow-xs"
+                      : "text-slate-200 hover:bg-white/[0.12]"
+                  }`}
+                >
+                  <DoorOpen className="w-3.5 h-3.5 shrink-0" />
+                  <span className="hidden xl:inline whitespace-nowrap">İç Düzen</span>
+                </button>
+                <div className="hidden lg:flex items-center gap-1.5 pl-1 pr-2">
+                  <input
+                    type="range"
+                    min={0}
+                    max={85}
+                    value={doorOpenAngleDeg}
+                    onChange={(e) => onChangeDoorAngle(Number(e.target.value), false)}
+                    aria-label="Kapak açılma açısı"
+                    className="w-16 accent-[#0284C7] h-1.5 rounded-full cursor-pointer"
+                  />
+                  <span className="font-mono text-[10.5px] text-slate-300 w-7">
+                    %{Math.round(Math.min(100, Math.max(0, (doorOpenAngleDeg / 85) * 100)))}
+                  </span>
+                </div>
+              </div>
 
-              <span className="h-5 w-px bg-[#DFD9CE] mx-0.5" />
+              {/* Grup 2: Atmosfer Aydınlatma */}
+              <div className="flex items-center gap-0.5 p-0.5 rounded-full bg-white/[0.06] border border-white/[0.09]">
+                <button
+                  type="button"
+                  onClick={() => applyLighting("daylight")}
+                  title="Gün Işığı"
+                  className={`h-8 px-2.5 max-xl:w-8 max-xl:px-0 rounded-full text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition ${
+                    lighting === "daylight"
+                      ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white shadow-xs"
+                      : "text-slate-200 hover:bg-white/[0.12]"
+                  }`}
+                >
+                  <Sun className="w-3.5 h-3.5 shrink-0" />
+                  <span className="hidden xl:inline whitespace-nowrap">Gün</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyLighting("showroom_warm")}
+                  title="3000K Sıcak Showroom Işığı"
+                  className={`h-8 px-2.5 max-xl:w-8 max-xl:px-0 rounded-full text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition ${
+                    lighting === "showroom_warm"
+                      ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white shadow-xs"
+                      : "text-slate-200 hover:bg-white/[0.12]"
+                  }`}
+                >
+                  <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                  <span className="hidden xl:inline whitespace-nowrap">3000K</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyLighting("night_led")}
+                  title="Gece & Dolap İçi LED"
+                  className={`h-8 px-2.5 max-xl:w-8 max-xl:px-0 rounded-full text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition ${
+                    lighting === "night_led"
+                      ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white shadow-xs"
+                      : "text-slate-200 hover:bg-white/[0.12]"
+                  }`}
+                >
+                  <Moon className="w-3.5 h-3.5 shrink-0" />
+                  <span className="hidden xl:inline whitespace-nowrap">Gece</span>
+                </button>
+              </div>
 
-              <button
-                type="button"
-                onClick={() => applyLighting("daylight")}
-                title="Gün Işığı"
-                className={`h-8 px-2 rounded-xl text-[11px] font-semibold flex items-center gap-1 cursor-pointer transition ${
-                  lighting === "daylight" ? "bg-[#141413] text-white" : "hover:bg-white text-[#57534E]"
-                }`}
-              >
-                <Sun className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Gün</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => applyLighting("showroom_warm")}
-                title="3000K Sıcak Showroom Işığı"
-                className={`h-8 px-2 rounded-xl text-[11px] font-semibold flex items-center gap-1 cursor-pointer transition ${
-                  lighting === "showroom_warm"
-                    ? "bg-[#141413] text-white"
-                    : "hover:bg-white text-[#57534E]"
-                }`}
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">3000K</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => applyLighting("night_led")}
-                title="Gece & Dolap İçi LED"
-                className={`h-8 px-2 rounded-xl text-[11px] font-semibold flex items-center gap-1 cursor-pointer transition ${
-                  lighting === "night_led" ? "bg-[#141413] text-white" : "hover:bg-white text-[#57534E]"
-                }`}
-              >
-                <Moon className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Gece</span>
-              </button>
-
-              <span className="h-5 w-px bg-[#DFD9CE] mx-0.5" />
-
+              {/* Grup 3: Tam Ekran */}
               <button
                 type="button"
                 onClick={toggleFullscreen}
                 title={isFullscreen ? "Tam Ekrandan Çık" : "Tam Ekran Sunum"}
-                className="h-8 w-8 rounded-xl hover:bg-white text-[#141413] flex items-center justify-center cursor-pointer transition"
+                className="h-8 w-8 rounded-full bg-white/[0.08] hover:bg-white/[0.18] border border-white/[0.12] text-slate-100 flex items-center justify-center cursor-pointer transition shrink-0"
               >
                 {isFullscreen ? (
                   <Minimize2 className="w-3.5 h-3.5" />

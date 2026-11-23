@@ -84,12 +84,12 @@ export const SaasTenantStudioModal: React.FC<SaasTenantStudioModalProps> = ({
   return (
     <div
       data-testid="saas-tenant-studio-modal"
-      className="fixed inset-0 z-[155] bg-[#141413]/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 select-none"
+      className="fixed inset-0 z-[155] bg-[#141413]/50 backdrop-blur-xs flex items-center justify-center p-0 md:p-5 select-none"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full max-w-4xl max-h-[90vh] birim-ice-modal rounded-[28px] flex flex-col overflow-hidden text-[#141413]">
+      <div className="w-full max-w-4xl max-h-[90dvh] birim-ice-modal rounded-[28px] max-md:rounded-none max-md:h-[100dvh] max-md:max-h-[100dvh] flex flex-col overflow-hidden text-[#141413]">
         {/* Header */}
         <div className="px-6 py-4 bg-white border-b border-[#EFECE5] flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
@@ -386,7 +386,7 @@ export const SaasTenantStudioModal: React.FC<SaasTenantStudioModalProps> = ({
                 <label className="space-y-1">
                   <span className="font-semibold text-[#44403C]">Testere Ağız Payı / Kerf (mm)</span>
                   <input
-                    type="number"
+                    type="number" inputMode="decimal"
                     step="0.2"
                     min="2.0"
                     max="6.0"
@@ -450,7 +450,7 @@ export const SaasTenantStudioModal: React.FC<SaasTenantStudioModalProps> = ({
                 <label className="space-y-1">
                   <span className="font-semibold text-[#44403C]">Hedef Marj (%)</span>
                   <input
-                    type="number"
+                    type="number" inputMode="decimal"
                     min="5"
                     max="120"
                     disabled={!canManageSettings}
@@ -470,7 +470,7 @@ export const SaasTenantStudioModal: React.FC<SaasTenantStudioModalProps> = ({
                 <label className="space-y-1">
                   <span className="font-semibold text-[#44403C]">B2B Bayi İskontosu (%)</span>
                   <input
-                    type="number"
+                    type="number" inputMode="decimal"
                     min="0"
                     max="60"
                     disabled={!canManageSettings}
@@ -490,7 +490,7 @@ export const SaasTenantStudioModal: React.FC<SaasTenantStudioModalProps> = ({
                 <label className="space-y-1">
                   <span className="font-semibold text-[#44403C]">EUR / TRY Kur Çarpanı</span>
                   <input
-                    type="number"
+                    type="number" inputMode="decimal"
                     step="0.1"
                     min="1"
                     disabled={!canManageSettings}

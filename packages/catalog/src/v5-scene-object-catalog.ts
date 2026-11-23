@@ -616,7 +616,6 @@ export const V5_SCENE_OBJECT_CATALOG: SceneObjectCatalogItem[] = [
   },
   {
     catalogId: "obj_wall_tv_65",
-    glbUrl: "/models/scene-objects/obj_wall_tv_65.glb",
     sku: "ELC-TV-65",
     name: "Duvara Askılı 65\" Çerçevesiz OLED TV (145×83cm)",
     brand: "Samsung / LG Gallery",
@@ -1516,24 +1515,25 @@ export const V5_COMPOSITE_ASSEMBLIES: MultiModuleCompositePreset[] = [
             shelves: [
               { id: `sh_ov1_${ts}`, bayIndex: 0, elevationY: 720, isAdjustable: false },
               { id: `sh_ov2_${ts}`, bayIndex: 0, elevationY: 1330, isAdjustable: false },
-              { id: `sh_ov3_${ts}`, bayIndex: 0, elevationY: 1730, isAdjustable: false },
+              { id: `sh_ov3_${ts}`, bayIndex: 0, elevationY: 1742, isAdjustable: false },
             ],
             hangingRails: [],
             drawers: [
-              { id: `drw_ov1_${ts}`, bayIndex: 0, elevationY: 0, height: 340, slideType: "soft_close" },
-              { id: `drw_ov2_${ts}`, bayIndex: 0, elevationY: 350, height: 340, slideType: "soft_close" },
+              { id: `drw_ov1_${ts}`, bayIndex: 0, elevationY: 0, height: 350, slideType: "soft_close" },
+              { id: `drw_ov2_${ts}`, bayIndex: 0, elevationY: 354, height: 350, slideType: "soft_close" },
             ],
             specialFittings: [],
           },
         ],
       };
+      // Flush with 600mm carcass + 18mm drawer front plane (front Z = 618mm), seated cleanly on Shelf 1 (Y=856) & Shelf 2 (Y=1466)
       const ovenObj = createSceneObjectInstanceFromCatalog("obj_oven_builtin_600", {
         hostModuleId: ovenTower.id,
-        position: { x: ovenTowerX + 3, y: 838, z: 26 },
+        position: { x: ovenTowerX + 3, y: 856, z: 106 },
       })!;
       const mwObj = createSceneObjectInstanceFromCatalog("obj_microwave_builtin_600", {
         hostModuleId: ovenTower.id,
-        position: { x: ovenTowerX + 3, y: 1448, z: 80 },
+        position: { x: ovenTowerX + 3, y: 1466, z: 266 },
       })!;
       const pantryX = ovenTowerX + 600;
       const pantryTower: ModuleInstance = {
@@ -1621,7 +1621,7 @@ export const V5_COMPOSITE_ASSEMBLIES: MultiModuleCompositePreset[] = [
       };
       const hob = createSceneObjectInstanceFromCatalog("obj_cooktop_ind_800", {
         hostModuleId: islandMod.id,
-        position: { x: islX + 500, y: 900, z: islZ + 160 },
+        position: { x: islX + 500, y: 908, z: islZ + 160 },
       })!;
       const pendant = createSceneObjectInstanceFromCatalog("obj_pendant_linear_1200", {
         position: { x: islX + 300, y: 1850, z: islZ + 435 },

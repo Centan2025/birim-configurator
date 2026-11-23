@@ -890,7 +890,7 @@ export const CustomDoorSketchEditor: React.FC<CustomDoorSketchEditorProps> = ({
                   <div className="flex items-center gap-1.5 bg-[#F5F2EA] px-2.5 py-1 rounded-xl text-[11px]">
                     <span className="font-bold text-[#141413]">N{selectedIdx + 1}:</span>
                     <input
-                      type="number"
+                      type="number" inputMode="decimal"
                       step={0.5}
                       min={0}
                       max={MAX_PROF_W_MM}
@@ -906,7 +906,7 @@ export const CustomDoorSketchEditor: React.FC<CustomDoorSketchEditorProps> = ({
                     />
                     <span className="text-[#78716C]">×</span>
                     <input
-                      type="number"
+                      type="number" inputMode="decimal"
                       step={0.5}
                       min={2}
                       max={thicknessMm}
@@ -1014,7 +1014,7 @@ export const CustomDoorSketchEditor: React.FC<CustomDoorSketchEditorProps> = ({
                 <label className="space-y-1">
                   <span className="text-[11px] text-[#57534E]">Pah (mm)</span>
                   <input
-                    type="number"
+                    type="number" inputMode="decimal"
                     min={1}
                     max={15}
                     step={0.5}
@@ -1026,7 +1026,7 @@ export const CustomDoorSketchEditor: React.FC<CustomDoorSketchEditorProps> = ({
                 <label className="space-y-1">
                   <span className="text-[11px] text-[#57534E]">Radyüs (R)</span>
                   <input
-                    type="number"
+                    type="number" inputMode="decimal"
                     min={1}
                     max={12}
                     step={0.5}

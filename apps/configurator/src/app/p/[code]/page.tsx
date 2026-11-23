@@ -114,7 +114,7 @@ function SharedProjectQuotePageInner() {
 
   if (status === "loading") {
     return (
-      <div className="flex flex-col items-center justify-center h-screen w-screen bg-[#F5F3EE] text-[#141413] gap-3">
+      <div className="flex flex-col items-center justify-center h-dvh w-screen bg-[#F5F3EE] text-[#141413] gap-3">
         <V3BrandBadge subtitle="PAYLAŞIM" />
         <p className="text-xs text-[#57534E]">Paylaşılan 3D tasarım ve imzalı teklif yükleniyor...</p>
       </div>
@@ -123,7 +123,7 @@ function SharedProjectQuotePageInner() {
 
   if (status === "error") {
     return (
-      <div className="flex flex-col items-center justify-center h-screen w-screen bg-[#F5F3EE] text-[#141413] p-6">
+      <div className="flex flex-col items-center justify-center h-dvh w-screen bg-[#F5F3EE] text-[#141413] p-6">
         <div className="max-w-md w-full bg-white border border-[#E4DFD5] rounded-2xl p-6 text-center space-y-3">
           <AlertCircle className="w-7 h-7 text-[#9E2A2B] mx-auto" />
           <div className="text-sm font-bold">{errorText}</div>
@@ -139,7 +139,7 @@ function SharedProjectQuotePageInner() {
   }
 
   return (
-    <div className="relative h-screen w-screen overflow-hidden flex flex-col">
+    <div className="relative h-dvh w-screen overflow-hidden flex flex-col">
       {verifiedBadge && (
         <div className="h-8 bg-[#141413] text-white px-4 flex items-center justify-between text-[11px] shrink-0 z-40">
           <div className="flex items-center gap-2">

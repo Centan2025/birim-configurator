@@ -17,6 +17,22 @@ export default defineConfig({
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
     },
+    {
+      name: "ipad-landscape",
+      use: { ...devices["iPad Pro 11 landscape"] },
+    },
+    {
+      name: "ipad-portrait",
+      use: { ...devices["iPad Pro 11"] },
+    },
+    {
+      name: "iphone-14",
+      use: { ...devices["iPhone 14"] },
+    },
+    {
+      name: "pixel-7",
+      use: { ...devices["Pixel 7"] },
+    },
   ],
   webServer: {
     command: "npm run start",

@@ -111,7 +111,7 @@ export const WardrobeGlbLibraryModal: React.FC<WardrobeGlbLibraryModalProps> = (
           </a>
         </div>
 
-        <div className="max-h-[60vh] overflow-y-auto divide-y divide-stone-200/80 px-6 py-2">
+        <div className="max-h-[60dvh] overflow-y-auto divide-y divide-stone-200/80 px-6 py-2">
           {ORDERED_CATEGORIES.map((cat) => {
             const meta = DEFAULT_WARDROBE_GLB_CATALOG[cat];
             const activeInfo = getActiveWardrobeGlbUrl(cat);

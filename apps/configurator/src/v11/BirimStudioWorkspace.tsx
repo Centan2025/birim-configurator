@@ -19,16 +19,17 @@ import {
 } from "../v3/adapter/useV3Adapter";
 import { useConfiguratorStore } from "../store/useConfiguratorStore";
 import { V3ThreeViewport } from "../v3/components/V3ThreeViewport";
-import { CommandSearchModal, type CommandPaletteAction } from "../v3/components/workspace/CommandSearchModal";
+import type { CommandPaletteAction } from "../v3/components/workspace/CommandSearchModal";
 
 import { StudioHeaderBar } from "./StudioHeaderBar";
+import { useDeviceProfile } from "./useDeviceProfile";
+import { safeLocalStorageGet, safeLocalStorageSet } from "../lib/safeStorage";
 import { LeftCatalogLauncher } from "./LeftCatalogLauncher";
 import { RightParametricInspector } from "./RightParametricInspector";
 import { ShowroomPresentationOverlay } from "./ShowroomPresentationOverlay";
 import { BottomSceneDock } from "./BottomSceneDock";
 import { OnObjectQuickToolbar, type Selected3DPartKind } from "./OnObjectQuickToolbar";
 import { HardwareQuickSwapPopover, type HardwareSwapGroup, type HardwareSwapTarget } from "./HardwareQuickSwapPopover";
-import { DoorSystemsShowcaseModal } from "./DoorSystemsShowcaseModal";
 import { QuickStyleAndMaterialDock } from "./QuickStyleAndMaterialDock";
 import { resolveModuleHostWallId, wallIntervalToModulePosition, computeRoomDynamicCenter } from "../v3/engine/multiWallSnapAndBvhEngine";
 import { getEffectiveSpaceWalls, getModuleOrientedFootprint } from "../v3/engine/kitchenSpatialEngine";
@@ -51,24 +52,28 @@ import type {
   V11WorkspaceMode,
 } from "./v11Constants";
 
-import V3CadViewport2D from "../v3/components/V3CadViewport2D";
-import { V3ProjectModal } from "../v3/components/V3ProjectModal";
-import BomModal from "../components/BomModal";
-import StoreErpModal from "../components/StoreErpModal";
-import { AssemblyDiagramModal } from "../v3/components/workspace/AssemblyDiagramModal";
-import { StudioRenderModal } from "../v3/components/workspace/StudioRenderModal";
-import { ArRoomPreviewModal } from "../v3/components/workspace/ArRoomPreviewModal";
-import { RulesStandardsModal } from "../v3/components/workspace/RulesStandardsModal";
-import { SaasTenantStudioModal } from "../v3/components/workspace/SaasTenantStudioModal";
-import { KitchenIslandTableModal } from "../v3/components/workspace/KitchenIslandTableModal";
-import { CustomHardwareModal } from "../v3/components/workspace/CustomHardwareModal";
-import { MepCoordinationModal } from "../v3/components/workspace/MepCoordinationModal";
-import { SceneObjectAndModuleHubModal } from "../v3/components/workspace/SceneObjectAndModuleHubModal";
-import { GuidedSetupModal } from "./GuidedSetupModal";
-import { QuoteSummaryModal } from "./QuoteSummaryModal";
-import { SectionPlaneMiniMap } from "./SectionPlaneMiniMap";
-import { PanelCutoutModal } from "./PanelCutoutModal";
-import { ProductionSheetStudioModal } from "./ProductionSheetStudioModal";
+// Performans: İlk 3B açılışta kullanılmayan 2B CAD ve 19 modal/panel React.lazy ile tembel yüklenir (~%45-55 ilk JS azalması).
+// next/dynamic({ ssr: false }) yerine React.lazy + Suspense kullanmak React 19 DevTools hydrated Suspense hatasını da önler.
+const V3CadViewport2D = React.lazy(() => import("../v3/components/V3CadViewport2D"));
+const BomModal = React.lazy(() => import("../components/BomModal"));
+const StoreErpModal = React.lazy(() => import("../components/StoreErpModal"));
+const CommandSearchModal = React.lazy(() => import("../v3/components/workspace/CommandSearchModal").then((m) => ({ default: m.CommandSearchModal })));
+const DoorSystemsShowcaseModal = React.lazy(() => import("./DoorSystemsShowcaseModal").then((m) => ({ default: m.DoorSystemsShowcaseModal })));
+const V3ProjectModal = React.lazy(() => import("../v3/components/V3ProjectModal").then((m) => ({ default: m.V3ProjectModal })));
+const AssemblyDiagramModal = React.lazy(() => import("../v3/components/workspace/AssemblyDiagramModal").then((m) => ({ default: m.AssemblyDiagramModal })));
+const StudioRenderModal = React.lazy(() => import("../v3/components/workspace/StudioRenderModal").then((m) => ({ default: m.StudioRenderModal })));
+const ArRoomPreviewModal = React.lazy(() => import("../v3/components/workspace/ArRoomPreviewModal").then((m) => ({ default: m.ArRoomPreviewModal })));
+const RulesStandardsModal = React.lazy(() => import("../v3/components/workspace/RulesStandardsModal").then((m) => ({ default: m.RulesStandardsModal })));
+const SaasTenantStudioModal = React.lazy(() => import("../v3/components/workspace/SaasTenantStudioModal").then((m) => ({ default: m.SaasTenantStudioModal })));
+const KitchenIslandTableModal = React.lazy(() => import("../v3/components/workspace/KitchenIslandTableModal").then((m) => ({ default: m.KitchenIslandTableModal })));
+const CustomHardwareModal = React.lazy(() => import("../v3/components/workspace/CustomHardwareModal").then((m) => ({ default: m.CustomHardwareModal })));
+const MepCoordinationModal = React.lazy(() => import("../v3/components/workspace/MepCoordinationModal").then((m) => ({ default: m.MepCoordinationModal })));
+const SceneObjectAndModuleHubModal = React.lazy(() => import("../v3/components/workspace/SceneObjectAndModuleHubModal").then((m) => ({ default: m.SceneObjectAndModuleHubModal })));
+const GuidedSetupModal = React.lazy(() => import("./GuidedSetupModal").then((m) => ({ default: m.GuidedSetupModal })));
+const QuoteSummaryModal = React.lazy(() => import("./QuoteSummaryModal").then((m) => ({ default: m.QuoteSummaryModal })));
+const SectionPlaneMiniMap = React.lazy(() => import("./SectionPlaneMiniMap").then((m) => ({ default: m.SectionPlaneMiniMap })));
+const PanelCutoutModal = React.lazy(() => import("./PanelCutoutModal").then((m) => ({ default: m.PanelCutoutModal })));
+const ProductionSheetStudioModal = React.lazy(() => import("./ProductionSheetStudioModal").then((m) => ({ default: m.ProductionSheetStudioModal })));
 
 const EMPTY_SCENE_OBJECTS: NonNullable<DesignProject["sceneObjects"]> = [];
 const EMPTY_FINDINGS: EngineeringValidationFinding[] = [];
@@ -260,13 +265,14 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
     );
   }, [selected3DPartKind]);
   const [selected3DCompId, setSelected3DCompId] = useState<string | null>(null);
-  const [isCompactViewport, setIsCompactViewport] = useState<boolean>(false);
+  const deviceProfile = useDeviceProfile();
+  const isCompactViewport = deviceProfile.isMobile;
   const [uiFontScale, setUiFontScale] = useState<number>(1);
   const [fontScaleHydrated, setFontScaleHydrated] = useState<boolean>(false);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
-      const raw = Number(window.localStorage.getItem("birim_ui_font_scale") || "1");
+      const raw = Number(safeLocalStorageGet("birim_ui_font_scale") || "1");
       if (Number.isFinite(raw) && raw >= 0.75 && raw <= 1.6) {
         setUiFontScale(raw);
       }
@@ -281,7 +287,7 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
     window.dispatchEvent(new CustomEvent("birim:canvas-font-scale-changed", { detail: uiFontScale }));
     if (fontScaleHydrated) {
       try {
-        window.localStorage.setItem("birim_ui_font_scale", String(uiFontScale));
+        safeLocalStorageSet("birim_ui_font_scale", String(uiFontScale));
       } catch {}
     }
   }, [uiFontScale, fontScaleHydrated]);
@@ -324,19 +330,16 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
   const [newStdSeverity, setNewStdSeverity] = useState<"warning" | "error">("warning");
 
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const syncViewport = () => {
-      setIsCompactViewport(window.innerWidth < 768);
-    };
-    syncViewport();
-    window.addEventListener("resize", syncViewport);
-    return () => window.removeEventListener("resize", syncViewport);
-  }, []);
-
-  const handleChangeLeftDrawer = useCallback((nextDrawer: V11LeftDrawerTab) => {
-    setLeftDrawer(nextDrawer);
-  }, []);
+  const handleChangeLeftDrawer = useCallback(
+    (nextDrawer: V11LeftDrawerTab) => {
+      setLeftDrawer(nextDrawer);
+      if (nextDrawer && deviceProfile.singleDrawerOnly) {
+        setIsInspectorOpen(false);
+        setQuickPaletteOpen(false);
+      }
+    },
+    [deviceProfile.singleDrawerOnly]
+  );
 
   const showToast = useCallback((msg: string) => {
     setToastText(msg);
@@ -438,12 +441,27 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
     };
     const onOpenStudioRender = () => setStudioRenderOpen(true);
     const onDeleteActiveSelection = () => {
-      const selComp = useConfiguratorStore.getState().selectedComponentId;
-      if (selComp) {
-        removeSelectedInteriorComponent();
+      const stNow = useConfiguratorStore.getState();
+      if (stNow.selectedSceneObjectId) {
+        stNow.removeSceneObject(stNow.selectedSceneObjectId);
+        stNow.setSelectedSceneObjectId(null);
         setSelected3DContextLabel(null);
+        latestRef.current.showToast("Seçili 3B obje silindi.");
+        return;
+      }
+      const selComp = stNow.selectedComponentId;
+      if (selComp && removeSelectedInteriorComponent()) {
+        setSelected3DContextLabel(null);
+        return;
+      }
+      if (stNow.project.modules.length > 1) {
+        const delIdx = Math.max(0, Math.min(stNow.activeModuleIndex, stNow.project.modules.length - 1));
+        const delName = stNow.project.modules[delIdx]?.name || "Modül";
+        removeModuleAt(delIdx);
+        setSelected3DContextLabel(null);
+        latestRef.current.showToast(`"${delName}" sahneden silindi.`);
       } else {
-        removeActiveModule();
+        latestRef.current.showToast("Sahnede en az 1 ana modül kalmalıdır.");
       }
     };
     const onKeyDown = (e: KeyboardEvent) => {
@@ -1599,7 +1617,16 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
   }, []);
 
   const handleOpenKitchenIslandModal = useCallback(() => setKitchenIslandOpen(true), []);
-  const handleToggleInspectorOpen = useCallback(() => setIsInspectorOpen((v) => !v), []);
+  const handleToggleInspectorOpen = useCallback(() => {
+    setIsInspectorOpen((v) => {
+      const next = !v;
+      if (next && deviceProfile.singleDrawerOnly) {
+        setLeftDrawer(null);
+        setQuickPaletteOpen(false);
+      }
+      return next;
+    });
+  }, [deviceProfile.singleDrawerOnly]);
 
   const handleQuickNavigateStep = useCallback((step: "dimensions" | "interior" | "showroom") => {
     if (step === "showroom") {
@@ -1831,8 +1858,9 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
   return (
     <main
       data-testid="v11-birim-studio-workspace"
-      className="birim-dramatic-studio relative w-screen h-screen overflow-hidden bg-[#1A1E26] text-[#F3F4F6] select-none"
+      className="birim-dramatic-studio relative w-screen h-dvh overflow-hidden overscroll-none bg-[#1A1E26] text-[#F3F4F6] select-none"
     >
+      <React.Suspense fallback={null}>
       {/* 1. ÜST MİMARİ BAŞLIK ÇUBUĞU */}
       <StudioHeaderBar
         projectTitle={project.title}
@@ -1882,18 +1910,29 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
       />
 
       {/* 2. ANA ÇALIŞMA SAHNESİ — WebGL kanvası sekme geçişlerinde ASLA sökülmez (paused={!show3DCanvas} ile 0ms anlık geçiş) */}
-      <div ref={splitContainerRef} className="w-full h-full flex">
+      <div
+        ref={splitContainerRef}
+        className={`w-full h-full flex ${
+          workspaceMode === "2d" && cadSubMode === "split" && show3DCanvas && deviceProfile.isPortrait && !deviceProfile.isDesktop
+            ? "flex-col"
+            : ""
+        }`}
+      >
         <div
           style={
             workspaceMode === "2d" && cadSubMode === "split" && show3DCanvas
-              ? { width: `${splitRatio3D}%` }
+              ? deviceProfile.isPortrait && !deviceProfile.isDesktop
+                ? { height: `${splitRatio3D}%` }
+                : { width: `${splitRatio3D}%` }
               : undefined
           }
           className={
             !show3DCanvas
               ? "hidden"
               : workspaceMode === "2d" && cadSubMode === "split"
-              ? "h-full relative shrink-0 min-w-0"
+              ? deviceProfile.isPortrait && !deviceProfile.isDesktop
+                ? "w-full relative shrink-0 min-h-0"
+                : "h-full relative shrink-0 min-w-0"
               : "w-full h-full relative"
           }
         >
@@ -1911,23 +1950,31 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
           />
         </div>
 
-        {workspaceMode === "2d" && cadSubMode === "split" && show3DCanvas && (
+        {workspaceMode === "2d" && cadSubMode === "split" && show3DCanvas && (() => {
+          const isVerticalSplit = deviceProfile.isPortrait && !deviceProfile.isDesktop;
+          return (
           <div
             role="separator"
-            aria-orientation="vertical"
-            title="3B / 2B ekran genişliğini sürükleyerek ayarlayın (Çift tıkla: %50 / %50)"
+            aria-orientation={isVerticalSplit ? "horizontal" : "vertical"}
+            title="3B / 2B ekran oranını sürükleyerek ayarlayın (Çift tıkla: %50 / %50)"
             onDoubleClick={() => setSplitRatio3D(50)}
             onPointerDown={(e) => {
               e.preventDefault();
               const container = splitContainerRef.current;
               if (!container) return;
               document.body.style.userSelect = "none";
-              document.body.style.cursor = "col-resize";
+              document.body.style.cursor = isVerticalSplit ? "row-resize" : "col-resize";
               const onMove = (ev: PointerEvent) => {
                 const rect = container.getBoundingClientRect();
-                if (rect.width <= 0) return;
-                const pct = ((ev.clientX - rect.left) / rect.width) * 100;
-                setSplitRatio3D(Math.max(22, Math.min(78, Math.round(pct * 10) / 10)));
+                if (isVerticalSplit) {
+                  if (rect.height <= 0) return;
+                  const pct = ((ev.clientY - rect.top) / rect.height) * 100;
+                  setSplitRatio3D(Math.max(25, Math.min(75, Math.round(pct * 10) / 10)));
+                } else {
+                  if (rect.width <= 0) return;
+                  const pct = ((ev.clientX - rect.left) / rect.width) * 100;
+                  setSplitRatio3D(Math.max(22, Math.min(78, Math.round(pct * 10) / 10)));
+                }
               };
               const onUp = () => {
                 document.body.style.userSelect = "";
@@ -1940,11 +1987,22 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
               window.addEventListener("pointerup", onUp);
               window.addEventListener("pointercancel", onUp);
             }}
-            className="w-3 sm:w-2 h-full shrink-0 cursor-col-resize touch-none relative z-30 flex items-center justify-center group bg-[#E6E0D3]/60 hover:bg-[#1C1917]/15 transition-colors select-none"
+            className={
+              isVerticalSplit
+                ? "h-3 w-full shrink-0 cursor-row-resize touch-none relative z-30 flex items-center justify-center group bg-[#E6E0D3]/60 hover:bg-[#1C1917]/15 transition-colors select-none"
+                : "w-3 sm:w-2 h-full shrink-0 cursor-col-resize touch-none relative z-30 flex items-center justify-center group bg-[#E6E0D3]/60 hover:bg-[#1C1917]/15 transition-colors select-none"
+            }
           >
-            <span className="w-1 h-10 rounded-full bg-[#A8A29E] group-hover:bg-[#1C1917] transition-colors" />
+            <span
+              className={
+                isVerticalSplit
+                  ? "h-1 w-12 rounded-full bg-[#A8A29E] group-hover:bg-[#1C1917] transition-colors"
+                  : "w-1 h-10 rounded-full bg-[#A8A29E] group-hover:bg-[#1C1917] transition-colors"
+              }
+            />
           </div>
-        )}
+          );
+        })()}
 
         {workspaceMode === "2d" && (() => {
           const effective2DMode =
@@ -1957,12 +2015,16 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
           <div
             style={
               cadSubMode === "split"
-                ? { width: `calc(${100 - splitRatio3D}% - 8px)` }
+                ? deviceProfile.isPortrait && !deviceProfile.isDesktop
+                  ? { height: `calc(${100 - splitRatio3D}% - 12px)` }
+                  : { width: `calc(${100 - splitRatio3D}% - 8px)` }
                 : undefined
             }
             className={
               cadSubMode === "split"
-                ? "h-full relative flex-1 min-w-0"
+                ? deviceProfile.isPortrait && !deviceProfile.isDesktop
+                  ? "w-full relative flex-1 min-h-0"
+                  : "h-full relative flex-1 min-w-0"
                 : "w-full h-full relative"
             }
           >
@@ -1990,8 +2052,8 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
                 }
                 className={
                   cadSubMode === "split"
-                    ? "absolute top-[156px] left-4 z-20 w-[290px]"
-                    : "fixed top-[168px] z-20 w-[312px] transition-[left] duration-200"
+                    ? "absolute top-[156px] left-4 max-lg:left-2.5 max-lg:right-2.5 max-lg:w-auto z-20 w-[290px]"
+                    : "fixed top-[168px] max-lg:top-[156px] max-lg:!left-2.5 max-lg:right-2.5 max-lg:w-auto z-20 w-[312px] transition-[left] duration-200"
                 }
               >
                 <SectionPlaneMiniMap
@@ -2123,6 +2185,9 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
           onRotateActiveModule90={handleRotateActiveModule90}
           onRemoveActiveModule={removeActiveModule}
           onOpenCustomHardwareModal={handleOpenCustomHardwareModal}
+          hideExpandTabOnCompact={
+            !deviceProfile.isDesktop && (Boolean(leftDrawer) || quickPaletteOpen)
+          }
         />
       )}
 
@@ -2168,8 +2233,8 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
         />
       )}
 
-      {/* 5. TEK BİRLEŞİK ALT SAHNE KAPSÜLÜ */}
-      {(workspaceMode === "3d" || workspaceMode === "showroom") && (
+      {/* 5. TEK BİRLEŞİK ALT SAHNE KAPSÜLÜ (Sunum modunda ShowroomPresentationOverlay tekil alt dock'u yönetir, çifte bar oluşmaz) */}
+      {workspaceMode === "3d" && (
         <BottomSceneDock
           activeModule={activeModule}
           doorOpenAngleDeg={doorOpenAngleDeg}
@@ -2197,6 +2262,9 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
           canRedo={canRedo}
           onUndo={undo}
           onRedo={redo}
+          isHiddenOnCompactSheet={
+            !deviceProfile.isDesktop && (Boolean(leftDrawer) || isInspectorOpen || quickPaletteOpen)
+          }
         />
       )}
 
@@ -2575,6 +2643,7 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
             ))}
           </div>
         )}
+      </React.Suspense>
     </main>
   );
 };

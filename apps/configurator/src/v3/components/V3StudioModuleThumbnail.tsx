@@ -24,8 +24,8 @@ let sharedKeyLight: THREE.DirectionalLight | null = null;
 let sharedEdgeMat: THREE.LineBasicMaterial | null = null;
 let webglUnavailable = false;
 
-const THUMB_W = 320;
-const THUMB_H = 280;
+const THUMB_W = 440;
+const THUMB_H = 250;
 
 function getOrInitStudioThumbStage(): boolean {
   if (webglUnavailable || typeof document === "undefined") return false;
@@ -222,21 +222,36 @@ function renderTemplateThumbnailSync(template: V4ModuleTemplateDefinition): stri
 
     sharedModHolder.add(innerGrp);
 
-    // Frame camera at elegant 3/4 architectural showroom angle (slightly from left-front!)
-    const targetY = inst.position.y + h * 0.52;
-    const targetZ = d * 0.45;
+    // Frame camera using true 3D bounding box at 3/4 architectural showroom angle with clean studio margin
+    const bounds = new THREE.Box3().setFromObject(innerGrp);
+    const bSize = new THREE.Vector3();
+    const bCenter = new THREE.Vector3();
+    bounds.getSize(bSize);
+    bounds.getCenter(bCenter);
+
+    const effW = Math.max(w, bSize.x || w);
+    const effH = Math.max(h, bSize.y || h);
+    const effD = Math.max(d, bSize.z || d);
+    const targetX = Number.isFinite(bCenter.x) ? bCenter.x : 0;
+    const targetY = Number.isFinite(bCenter.y) ? bCenter.y : inst.position.y + effH * 0.5;
+    const targetZ = Number.isFinite(bCenter.z) ? bCenter.z : effD * 0.45;
+
     const tanHalfV = Math.tan(THREE.MathUtils.degToRad(sharedCamera.fov) / 2);
     const tanHalfH = tanHalfV * (THUMB_W / THUMB_H);
-    const distV = (h * 0.50) / (tanHalfV * 0.86);
-    const distH = (w * 0.54 + d * 0.28) / (tanHalfH * 0.86);
-    const dist = Math.max(920, distV, distH) + d * 0.50;
+    const distV = (effH * 0.54) / (tanHalfV * 0.72);
+    const distH = (effW * 0.56 + effD * 0.34) / (tanHalfH * 0.74);
+    const dist = Math.max(1060, distV, distH) + effD * 0.62;
 
-    sharedCamera.position.set(-dist * 0.26, targetY + Math.min(260, h * 0.08), targetZ + dist * 0.96);
-    sharedCamera.lookAt(0, targetY, targetZ);
+    sharedCamera.position.set(
+      targetX - dist * 0.24,
+      targetY + Math.min(240, effH * 0.07),
+      targetZ + dist * 0.97
+    );
+    sharedCamera.lookAt(targetX, targetY, targetZ);
     sharedCamera.updateProjectionMatrix();
 
     if (sharedKeyLight) {
-      sharedKeyLight.target.position.set(0, targetY, targetZ);
+      sharedKeyLight.target.position.set(targetX, targetY, targetZ);
       sharedKeyLight.target.updateMatrixWorld();
     }
 
@@ -337,7 +352,7 @@ export const V3StudioModuleThumbnail: React.FC<V3StudioModuleThumbnailProps> = R
             src={imgUrl}
             alt={template.name}
             draggable={false}
-            className="w-full h-full object-cover transition-transform duration-300 ease-out group-hover:scale-[1.06]"
+            className="w-full h-full object-contain transition-transform duration-300 ease-out group-hover:scale-[1.05]"
           />
         ) : (
           <div className="transition-transform duration-300 ease-out group-hover:scale-[1.05] drop-shadow-[0_12px_14px_rgba(0,0,0,0.68)]">

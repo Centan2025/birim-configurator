@@ -803,9 +803,42 @@ function validateProjectUncached(project: DesignProject): ValidationIssue[] {
   }
 
   const ceiling = project.space.ceilingHeight || 2600;
+  const scenePropObstacles = (project.sceneObjects || [])
+    .filter((so) => !so.isHidden && so.category === "architectural_prop")
+    .map((so) => {
+      const vk = String(so.visualKind || "").toLowerCase();
+      const nm = String(so.name || "").toLowerCase();
+      const mappedType: "column" | "door" | "window" | "radiator" | "protrusion" =
+        vk.includes("column") || nm.includes("kolon")
+          ? "column"
+          : vk.includes("door") || nm.includes("kapı")
+          ? "door"
+          : vk.includes("window") || nm.includes("pencere")
+          ? "window"
+          : vk.includes("radiator") || nm.includes("petek") || nm.includes("radyatör")
+          ? "radiator"
+          : "protrusion";
+      const w = Math.max(40, (so.dimensions?.width || 300) * (so.scaleFactor || 1));
+      const h = Math.max(40, (so.dimensions?.height || 2600) * (so.scaleFactor || 1));
+      const d = Math.max(40, (so.dimensions?.depth || 300) * (so.scaleFactor || 1));
+      return {
+        id: so.id,
+        name: so.name,
+        type: mappedType,
+        position: {
+          x: Math.round(so.position?.x || 0),
+          y: Math.round(so.position?.y || 0),
+          z: Math.round(so.position?.z || 0),
+        },
+        dimensions: { width: w, height: h, depth: d },
+        rotationY: so.rotation?.y || 0,
+      };
+    });
+
   const allObstacles = [
     ...(project.space.elements || []),
     ...(project.space.walls || []).flatMap((w) => w.elements || []),
+    ...scenePropObstacles,
   ];
 
   // Continuous kitchen countertop seam & island overhang checks (MD Spec Section 7.3 & 8.1)

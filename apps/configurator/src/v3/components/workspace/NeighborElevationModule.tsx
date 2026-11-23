@@ -138,7 +138,7 @@ export const NeighborElevationModule: React.FC<NeighborElevationModuleProps> = R
           fill="#FAF9F6"
           stroke="#292524"
           strokeWidth="3"
-          onMouseDown={(e) => {
+          onPointerDown={(e) => {
             onSelectModule(mIdx);
             onSelectComponent(null);
             startNeighborModMove(e);
@@ -212,7 +212,7 @@ export const NeighborElevationModule: React.FC<NeighborElevationModuleProps> = R
             <g
               key={el.id}
               data-testid={`cad-el-${el.id}`}
-              onMouseDown={(e) => {
+              onPointerDown={(e) => {
                 if (elevPanMode || e.button !== 0 || e.altKey) return;
                 e.stopPropagation();
                 onSelectModule(mIdx);
@@ -349,7 +349,7 @@ export const NeighborElevationModule: React.FC<NeighborElevationModuleProps> = R
             <g
               key={rail.id}
               data-testid={`cad-el-${rail.id}`}
-              onMouseDown={(e) => {
+              onPointerDown={(e) => {
                 if (elevPanMode || e.button !== 0 || e.altKey) return;
                 e.stopPropagation();
                 const svgEl = (e.currentTarget as Element).closest("svg") as SVGSVGElement | null;
@@ -433,7 +433,7 @@ export const NeighborElevationModule: React.FC<NeighborElevationModuleProps> = R
           </>
         )}
         <g
-          onMouseDown={startNeighborModMove}
+          onPointerDown={startNeighborModMove}
           className={`${effectiveInteriorMoveMode ? "cursor-pointer" : "cursor-grab active:cursor-grabbing"} ${
             isTech ? "opacity-100" : isSelectedMode ? "opacity-0 group-hover/mod:opacity-100 transition-opacity duration-75" : "opacity-0 pointer-events-none"
           }`}

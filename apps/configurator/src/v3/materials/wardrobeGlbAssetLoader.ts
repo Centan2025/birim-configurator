@@ -479,6 +479,7 @@ function getGltfLoader(): GLTFLoader | null {
   if (typeof window === "undefined") return null;
   if (sharedGltfLoader) return sharedGltfLoader;
   const loader = new GLTFLoader();
+  loader.register(() => ({ name: "KHR_materials_variants" }));
   loader.setCrossOrigin("anonymous");
   const draco = new DRACOLoader();
   draco.setDecoderPath("https://www.gstatic.com/draco/versioned/decoders/1.5.7/");

@@ -188,12 +188,12 @@ export const CustomHardwareModal: React.FC<CustomHardwareModalProps> = ({
     <div
       data-testid="custom-hardware-studio-modal"
       onClick={onClose}
-      className="fixed inset-0 z-[155] flex items-center justify-center bg-slate-950/50 backdrop-blur-xs p-3 sm:p-5"
+      className="fixed inset-0 z-[155] flex items-center justify-center bg-slate-950/50 backdrop-blur-xs p-0 md:p-5"
     >
       <div
         data-draggable-shell="custom-hardware-modal"
         onClick={(e) => e.stopPropagation()}
-        className="birim-ice-modal rounded-[28px] max-w-3xl w-full max-h-[90vh] flex flex-col overflow-hidden text-[#141413]"
+        className="birim-ice-modal rounded-[28px] max-md:rounded-none max-md:h-[100dvh] max-md:max-h-[100dvh] max-w-3xl w-full max-h-[90dvh] flex flex-col overflow-hidden text-[#141413]"
       >
         {/* Header with Official Birim Logo */}
         <div
@@ -374,7 +374,7 @@ export const CustomHardwareModal: React.FC<CustomHardwareModalProps> = ({
                     <label className="space-y-1 block">
                       <span className="font-bold text-slate-700">Toplam Boy (mm)</span>
                       <input
-                        type="number"
+                        type="number" inputMode="decimal"
                         min={24}
                         max={2200}
                         step={16}
@@ -386,7 +386,7 @@ export const CustomHardwareModal: React.FC<CustomHardwareModalProps> = ({
                     <label className="space-y-1 block">
                       <span className="font-bold text-slate-700">Delik Aksı C-C (mm)</span>
                       <input
-                        type="number"
+                        type="number" inputMode="decimal"
                         disabled={hCategory === "knob" || hSingleScrew}
                         min={32}
                         max={1600}
@@ -403,7 +403,7 @@ export const CustomHardwareModal: React.FC<CustomHardwareModalProps> = ({
                     <label className="space-y-1 block">
                       <span className="font-bold text-slate-700">Birim Fiyat (€)</span>
                       <input
-                        type="number"
+                        type="number" inputMode="decimal"
                         min={0}
                         step={0.5}
                         value={hPriceEur}
@@ -605,7 +605,7 @@ export const CustomHardwareModal: React.FC<CustomHardwareModalProps> = ({
                 <label className="space-y-1 block">
                   <span className="font-bold text-slate-700">Taşıma Kapasitesi (kg)</span>
                   <input
-                    type="number"
+                    type="number" inputMode="decimal"
                     min={5}
                     max={120}
                     value={hwLoadKg}
@@ -616,7 +616,7 @@ export const CustomHardwareModal: React.FC<CustomHardwareModalProps> = ({
                 <label className="space-y-1 block">
                   <span className="font-bold text-slate-700">Birim / Takım Fiyatı (€)</span>
                   <input
-                    type="number"
+                    type="number" inputMode="decimal"
                     min={0}
                     step={0.5}
                     value={hwPriceEur}

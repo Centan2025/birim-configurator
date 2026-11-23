@@ -146,14 +146,14 @@ export const QuoteSummaryModal: React.FC<QuoteSummaryModalProps> = React.memo(
     return (
       <div
         data-testid="v11-quote-summary-modal"
-        className="fixed inset-0 z-[154] bg-[#141413]/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5"
+        className="fixed inset-0 z-[154] bg-[#141413]/50 backdrop-blur-xs flex items-center justify-center p-0 md:p-5"
         onClick={onClose}
       >
         <div
           onClick={(e) => e.stopPropagation()}
-          className="w-full max-w-2xl max-h-[90vh] flex flex-col birim-ice-modal rounded-[28px] overflow-hidden text-[#141413]"
+          className="w-full max-w-2xl max-h-[90dvh] flex flex-col birim-ice-modal rounded-[28px] max-md:rounded-none max-md:h-[100dvh] max-md:max-h-[100dvh] overflow-hidden text-[#141413]"
         >
-          <div className="px-6 py-4 birim-ice-shell-header flex items-center justify-between shrink-0">
+          <div className="px-3.5 sm:px-6 py-3 sm:py-4 birim-ice-shell-header flex items-center justify-between shrink-0">
             <div className="flex items-center gap-3">
               <BirimLogo className="h-[18px] w-auto" />
               <span className="h-4 w-px bg-[#DFD9CE]" />
@@ -168,7 +168,7 @@ export const QuoteSummaryModal: React.FC<QuoteSummaryModalProps> = React.memo(
             </button>
           </div>
 
-          <div className="p-6 space-y-5 max-h-[75vh] overflow-y-auto text-xs">
+          <div className="p-6 space-y-5 max-h-[75dvh] overflow-y-auto text-xs">
             {/* Sahne Görseli + Toplam Fiyat Kartı */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="rounded-2xl bg-[#EFECE4] border border-[#DFD9CE] h-44 flex items-center justify-center overflow-hidden">
@@ -205,7 +205,7 @@ export const QuoteSummaryModal: React.FC<QuoteSummaryModalProps> = React.memo(
                   <div className="flex items-center justify-between pt-1">
                     <span className="text-[#57534E]">Özel İskonto (%)</span>
                     <input
-                      type="number"
+                      type="number" inputMode="decimal"
                       min={0}
                       max={40}
                       value={discountPct}
@@ -361,7 +361,7 @@ export const QuoteSummaryModal: React.FC<QuoteSummaryModalProps> = React.memo(
             </div>
           </div>
 
-          <div className="px-6 py-4 bg-[#F3EFE6] border-t border-[#E6E1D6] flex flex-wrap items-center justify-between gap-2">
+          <div className="px-3.5 sm:px-6 py-3 sm:py-4 bg-[#F3EFE6] border-t border-[#E6E1D6] flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <button
                 type="button"

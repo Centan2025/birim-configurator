@@ -19,6 +19,8 @@ import {
   createModuleGroup,
 } from "../../components/componentMesh";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { createLongPressController } from "../design-system/touchGestureHelpers";
+import { batchStaticModuleCarcassMeshes } from "./staticCarcassBatcher";
 import {
   useV3Adapter,
   getMemoizedUnifiedEngineering,
@@ -74,6 +76,7 @@ import {
   attachWebGLContextRecovery,
   createSafeWebGL2Renderer,
   disposeWebGLRendererCleanly,
+  getAdaptiveWebglRenderBudget,
   type WebGL2CapabilityReport,
 } from "../materials/webglResourceGuard";
 import {
@@ -2823,8 +2826,12 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
 
       const renderer = safeGl.bundle.renderer;
       const isLegacyGpu = safeGl.bundle.capability.isLegacyOrLowSpecGpu;
-      let restSharpDpr = isLegacyGpu ? 1 : Math.min(Math.max(window.devicePixelRatio || 1, 1.5), 2.5);
-      let motionFastDpr = isLegacyGpu ? 1 : Math.min(window.devicePixelRatio || 1, 1.35);
+      const adaptiveBudget = getAdaptiveWebglRenderBudget(
+        isLegacyGpu,
+        renderer.capabilities?.maxTextureSize || 2048
+      );
+      let restSharpDpr = adaptiveBudget.restSharpDpr;
+      let motionFastDpr = adaptiveBudget.motionFastDpr;
       let currentAppliedDpr = restSharpDpr;
       const onRenderQualityChange = (ev: Event) => {
         const qTier = (ev as CustomEvent<"performance" | "hd" | "ultra">).detail || "ultra";
@@ -2834,14 +2841,22 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           motionFastDpr = 1;
           applyMaxAnisotropyToCachedTextures(2);
         } else if (qTier === "hd") {
-          restSharpDpr = Math.min(Math.max(nativeDpr, 1.35), 1.85);
-          motionFastDpr = Math.min(nativeDpr, 1.25);
-          applyMaxAnisotropyToCachedTextures(8);
+          restSharpDpr = adaptiveBudget.isTouchMobile
+            ? Math.min(nativeDpr, 1.35)
+            : Math.min(Math.max(nativeDpr, 1.35), 1.85);
+          motionFastDpr = adaptiveBudget.isTouchMobile ? 1 : Math.min(nativeDpr, 1.25);
+          applyMaxAnisotropyToCachedTextures(Math.min(8, adaptiveBudget.maxAnisotropyCap));
         } else {
-          restSharpDpr = Math.min(Math.max(nativeDpr, 1.65), 2.5);
-          motionFastDpr = Math.min(Math.max(nativeDpr, 1.25), 1.5);
+          restSharpDpr = adaptiveBudget.isTouchMobile
+            ? adaptiveBudget.restSharpDpr
+            : Math.min(Math.max(nativeDpr, 1.65), 2.5);
+          motionFastDpr = adaptiveBudget.isTouchMobile
+            ? adaptiveBudget.motionFastDpr
+            : Math.min(Math.max(nativeDpr, 1.25), 1.5);
           if (renderer.capabilities?.getMaxAnisotropy) {
-            applyMaxAnisotropyToCachedTextures(renderer.capabilities.getMaxAnisotropy());
+            applyMaxAnisotropyToCachedTextures(
+              Math.min(renderer.capabilities.getMaxAnisotropy(), adaptiveBudget.maxAnisotropyCap)
+            );
           }
         }
         renderer.setPixelRatio(restSharpDpr);
@@ -2856,6 +2871,10 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         needsRenderRef.current = true;
       };
       window.addEventListener("birim:set-render-quality", onRenderQualityChange);
+      const onPbrTextureReady = () => {
+        needsRenderRef.current = true;
+      };
+      window.addEventListener("birim:pbr-texture-ready", onPbrTextureReady);
       let settleSharpTimer: ReturnType<typeof setTimeout> | null = null;
       const setAdaptiveDpr = (dprVal: number) => {
         if (Math.abs(currentAppliedDpr - dprVal) < 0.02) return;
@@ -2873,7 +2892,9 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       renderer.toneMapping = agxToneMapping ?? THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = 0.94;
       if (!isLegacyGpu && renderer.capabilities?.getMaxAnisotropy) {
-        applyMaxAnisotropyToCachedTextures(renderer.capabilities.getMaxAnisotropy());
+        applyMaxAnisotropyToCachedTextures(
+          Math.min(renderer.capabilities.getMaxAnisotropy(), adaptiveBudget.maxAnisotropyCap)
+        );
       }
       rendererRef.current = renderer;
       container.appendChild(renderer.domElement);
@@ -2904,6 +2925,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       controls.addEventListener("start", () => {
         cameraFlightRef.current = null;
         isOrbitingRef.current = true;
+        document.body.dataset.birimOrbiting = "true";
         if (settleSharpTimer) {
           clearTimeout(settleSharpTimer);
           settleSharpTimer = null;
@@ -2912,6 +2934,9 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       });
       controls.addEventListener("end", () => {
         isOrbitingRef.current = false;
+        delete document.body.dataset.birimOrbiting;
+        touchLongPress.cancel();
+        activeTouchPointerIds.clear();
         if (settleSharpTimer) clearTimeout(settleSharpTimer);
         settleSharpTimer = setTimeout(() => {
           settleSharpTimer = null;
@@ -2959,8 +2984,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       hemiLightRef.current = hemiLight;
 
       // Dramatic Chiaroscuro 3/4 Key Light (warm sunlit architectural beam casting deep crisp 4K soft shadows)
-      const maxTexSize = renderer.capabilities?.maxTextureSize || 2048;
-      const hiResShadowSize = isLegacyGpu ? 1024 : maxTexSize >= 4096 ? 4096 : 2048;
+      const hiResShadowSize = adaptiveBudget.shadowMapSize;
       const keyLight = new THREE.DirectionalLight(0xfff0da, 1.98);
       keyLight.position.set(-2750, 3450, 2700);
       keyLight.target.position.set(1600, 900, 700);
@@ -3119,7 +3143,36 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       } | null = null;
 
       let rightDownPos: { x: number; y: number } | null = null;
+      const activeTouchPointerIds = new Set<number>();
+      const touchLongPress = createLongPressController((cx, cy) => {
+        const el = rendererRef.current?.domElement;
+        if (!el || activeDrag3D) return;
+        el.dispatchEvent(
+          new MouseEvent("contextmenu", {
+            clientX: cx,
+            clientY: cy,
+            bubbles: true,
+            cancelable: true,
+          })
+        );
+      });
+
       const handlePointerDown = (e: PointerEvent) => {
+        if (e.pointerType === "touch") {
+          activeTouchPointerIds.add(e.pointerId);
+          if (activeTouchPointerIds.size > 1 || !e.isPrimary) {
+            touchLongPress.cancel();
+            if (activeDrag3D) {
+              activeDrag3D = null;
+              latestStateRef.current.commitHistoryTransaction();
+            }
+            if (controlsRef.current) {
+              controlsRef.current.enabled = true;
+            }
+            return;
+          }
+          touchLongPress.start(e);
+        }
         if (e.button === 2) {
           rightDownPos = { x: e.clientX, y: e.clientY };
           return;
@@ -3197,7 +3250,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                 bayIdx: activeBayIndex,
                 kind: "resize_3d",
                 targetId: rAxis,
-                startValueMm: rAxis === "height_top" ? rMod.dimensions.height : rMod.dimensions.width,
+                startValueMm: rAxis === "height_top" ? rMod.dimensions.height : rAxis === "depth_front" ? rMod.dimensions.depth : rMod.dimensions.width,
                 startSecondValueMm: rMod.position.x,
                 startThirdValueMm: rMod.position.z,
                 dragPlane,
@@ -4274,9 +4327,24 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               }
             });
             if (nextH !== rMod.dimensions.height) {
-              useConfiguratorStore.getState().setDimensions(rMod.dimensions.width, nextH, rMod.dimensions.depth);
+              state.resizeModuleParametric(activeDrag3D.modIdx, rMod.dimensions.width, undefined, undefined, nextH);
             }
             setSnapBannerDedup(`↕ Yükseklik: ${nextH} mm`);
+          } else if (rAxis === "depth_front") {
+            const localFront = new THREE.Vector3(Math.sin(rotRad), 0, Math.cos(rotRad));
+            const deltaAlongZ = worldDelta.dot(localFront);
+            let nextD = Math.max(240, Math.min(1200, Math.round((activeDrag3D.startValueMm + deltaAlongZ) / 10) * 10));
+            state.project.modules.forEach((other, oi) => {
+              if (oi === activeDrag3D?.modIdx || other.category === "complementary") return;
+              if (Math.abs((other.rotation?.y || 0) - (rMod.rotation?.y || 0)) > 5) return;
+              if (Math.abs(nextD - other.dimensions.depth) <= 30) {
+                nextD = Math.max(240, Math.min(1200, other.dimensions.depth));
+              }
+            });
+            if (nextD !== rMod.dimensions.depth) {
+              state.resizeModuleParametric(activeDrag3D.modIdx, rMod.dimensions.width, undefined, nextD);
+            }
+            setSnapBannerDedup(`↔ Derinlik: ${nextD} mm`);
           } else if (rAxis === "width_right") {
             let nextW = Math.max(250, Math.min(3600, Math.round((activeDrag3D.startValueMm + deltaAlongX) / 10) * 10));
             // Magnetic snap right edge to adjacent module left edge
@@ -4757,6 +4825,10 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       };
 
       const handlePointerMove = (e: PointerEvent) => {
+        if (e.pointerType === "touch") {
+          touchLongPress.move(e);
+          if (activeTouchPointerIds.size > 1) return;
+        }
         if (!activeDrag3D) {
           processPointerMoveImmediate(e);
           return;
@@ -4773,6 +4845,10 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       };
 
       const handlePointerUp = (e: PointerEvent) => {
+        if (e.pointerType === "touch") {
+          activeTouchPointerIds.delete(e.pointerId);
+          touchLongPress.cancel();
+        }
         if (dragMoveRafId) {
           window.cancelAnimationFrame(dragMoveRafId);
           dragMoveRafId = 0;
@@ -5142,7 +5218,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         const hits = raycaster.intersectObjects(solidMeshes, false);
         for (const h of hits) {
           const hitObj = h.object;
-          if (hitObj?.userData?.componentId) {
+          if (hitObj?.userData?.componentId || typeof hitObj?.userData?.moduleIndex === "number") {
             const hitModIdx =
               typeof hitObj.userData.moduleIndex === "number"
                 ? hitObj.userData.moduleIndex
@@ -5282,10 +5358,11 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
 
             // Single atomic Zustand update (instead of 3 sequential setState calls!)
             setWallFocusHighlight(false);
+            useConfiguratorStore.getState().setSelectedSceneObjectId(null);
             selectModuleBayComponentSafe({
               activeModuleIndex: hitModIdx,
               ...(resolvedBayIdx >= 0 ? { activeBayIndex: resolvedBayIdx } : {}),
-              selectedComponentId: resolvedCompId,
+              selectedComponentId: resolvedCompId || null,
             });
 
             const safeBay = Math.max(0, resolvedBayIdx);
@@ -5458,6 +5535,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               Math.round((hits[0].point.y - ((mod?.position.y || 0) + plinthH + T)) / 32) * 32
             );
 
+            useConfiguratorStore.getState().setSelectedSceneObjectId(null);
             state.setActiveModuleIndex(modIdx);
             state.setActiveBayIndex(bayIndex);
             (state.setSelectedComponentId as (id: string | null, mIdx?: number) => void)(
@@ -5531,6 +5609,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           activeDrag3D = null;
           latestStateRef.current.commitHistoryTransaction();
         }
+        activeTouchPointerIds.clear();
+        touchLongPress.cancel();
         if (controlsRef.current) {
           controlsRef.current.enabled = true;
         }
@@ -5643,7 +5723,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         width?: number;
         height?: number;
         samples?: number;
-        onProgress?: (pct: number) => void;
+        onProgress?: (pct: number, previewDataUrl?: string) => void;
       }): Promise<string> => {
         const curRenderer = rendererRef.current;
         const curScene = sceneRef.current;
@@ -5789,8 +5869,18 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             }
 
             const pct = Math.round(((s + 1) / totalSamples) * 100);
-            if (opts?.onProgress) opts.onProgress(pct);
-            if (s % 2 === 1 && s < totalSamples - 1) {
+            const shouldEmitPreview = s === 0 || s === 1 || s === 3 || s === 7 || s === 11 || s === totalSamples - 1;
+            let previewUrl: string | undefined;
+            if (opts?.onProgress && shouldEmitPreview) {
+              const activeTier = s >= 7 ? tiers[3] : s >= 3 ? tiers[2] : s >= 1 ? tiers[1] : tiers[0];
+              try {
+                previewUrl = activeTier.canvas.toDataURL("image/jpeg", 0.78);
+              } catch {
+                previewUrl = undefined;
+              }
+            }
+            if (opts?.onProgress) opts.onProgress(pct, previewUrl);
+            if ((shouldEmitPreview || s % 2 === 1) && s < totalSamples - 1) {
               await new Promise<void>((r) => requestAnimationFrame(() => r()));
             }
           }
@@ -5926,7 +6016,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             samples: totalSamples,
             bounces,
             isDark: isDarkBg,
-            onProgress: (pct) => opts?.onProgress?.(pct),
+            onProgress: (pct: number) => opts?.onProgress?.(pct),
             shouldCancel: opts?.shouldCancel,
           });
 
@@ -6105,11 +6195,13 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       resizeObserver.observe(container);
 
       return () => {
+        delete document.body.dataset.birimOrbiting;
         delete (window as unknown as { __birimRenderUltraStudioPhoto?: unknown }).__birimRenderUltraStudioPhoto;
         if (settleSharpTimer) clearTimeout(settleSharpTimer);
         cancelAnimationFrame(animId);
         resizeObserver.disconnect();
         window.removeEventListener("birim:set-render-quality", onRenderQualityChange);
+        window.removeEventListener("birim:pbr-texture-ready", onPbrTextureReady);
         detachContextRecovery();
         delete (window as unknown as { __birimCapture3DSnapshot?: unknown }).__birimCapture3DSnapshot;
         renderer.domElement.removeEventListener("pointerdown", handlePointerDown, { capture: true });
@@ -6707,7 +6799,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             const hM = activeMod.dimensions.height;
             const dM = activeMod.dimensions.depth;
             const add3DResizePill = (
-              axis: "width_left" | "width_right" | "height_top",
+              axis: "width_left" | "width_right" | "height_top" | "depth_front",
               px: number,
               py: number,
               pz: number,
@@ -6759,6 +6851,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             add3DResizePill("width_left", -28, hM * 0.5, dM * 0.85, 0x10b981, true);
             add3DResizePill("width_right", wM + 28, hM * 0.5, dM * 0.85, 0x10b981, true);
             add3DResizePill("height_top", wM * 0.5, hM + 30, dM * 0.85, 0x0ea5e9, false);
+            add3DResizePill("depth_front", wM * 0.5, Math.min(hM * 0.5, 420), dM + 34, 0xf59e0b, false);
           }
 
           // Lightweight Active Bay Highlight Frame in actModGroup (0ms update on bay/module click!)
@@ -7382,8 +7475,12 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             return;
           }
           const grainMatch = grainContinuityMap3D.get(comp.id);
+          const isMiter45Mod =
+            mod.carcass.carcassJoineryTopology === "miter_45" ||
+            mod.carcass.jointType === "miter_45";
           const compGroup = createComponentMesh(comp, material, edgeMat, {
             componentId: comp.id,
+            isMiter45Carcass: isMiter45Mod,
             label: comp.label || comp.role,
             dimsText: `${comp.dimensions.width}×${comp.dimensions.height} mm`,
             role: comp.role,
@@ -7458,6 +7555,12 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         const aoTex = renderEdgeMode === "cad" ? null : getContactAoShadowTexture();
         if (aoTex) {
           const { groundAoMat, wallAoMat } = getCachedContactAoMaterials(aoTex);
+          if (!isActiveMod && !isXrayActive) {
+            if (mod.carcass.carcassJoineryTopology !== "miter_45" && mod.carcass.jointType !== "miter_45") {
+              batchStaticModuleCarcassMeshes(modContainer, modIdx);
+            }
+          }
+
           if (mod.position.y <= 80) {
             const aoMesh = new THREE.Mesh(SHARED_UNIT_AO_PLANE_GEO, groundAoMat);
             aoMesh.scale.set(mod.dimensions.width + 150, mod.dimensions.depth + 150, 1);
@@ -8310,8 +8413,9 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         // C. Store validationIssues fallback (e.g., wall overflow, obstacle clash)
         const storeIssues = useConfiguratorStore.getState().validationIssues || [];
         storeIssues.forEach((vi) => {
-          const viCompat = vi as typeof vi & { moduleId?: string; suggestion?: string };
-          const modIdxFound = project.modules.findIndex((m) => m.id === viCompat.moduleId);
+          const viCompat = vi as typeof vi & { moduleId?: string; targetId?: string; suggestion?: string };
+          const matchModId = viCompat.moduleId || viCompat.targetId;
+          const modIdxFound = project.modules.findIndex((m) => m.id === matchModId);
           const safeModIdx = modIdxFound >= 0 ? modIdxFound : activeModuleIndex;
           const hostMod = project.modules[safeModIdx] || project.modules[0];
           if (!hostMod) return;
@@ -8534,6 +8638,33 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
 
       project.modules.forEach((mod, modIdx) => {
         if (mod.category === "complementary" || mod.bays.length < 1) return;
+        const subLower = String(mod.moduleSubType || "").toLowerCase();
+        const nameLower = String(mod.name || "").toLowerCase();
+        const skipWardrobeProps =
+          mod.category === "kitchen_base" ||
+          mod.category === "kitchen_wall" ||
+          mod.category === "kitchen_tall" ||
+          mod.category === "kitchen_corner" ||
+          mod.category === "kitchen_island" ||
+          subLower.includes("tv") ||
+          subLower.includes("vitrine") ||
+          subLower.includes("bookcase") ||
+          subLower.includes("media") ||
+          subLower.includes("bar") ||
+          subLower.includes("coffee") ||
+          subLower.includes("bath") ||
+          subLower.includes("laundry") ||
+          ((nameLower.includes("tv") ||
+            nameLower.includes("vitrin") ||
+            nameLower.includes("kitaplık") ||
+            nameLower.includes("medya") ||
+            nameLower.includes("konsol") ||
+            nameLower.includes("banyo") ||
+            nameLower.includes("kahve")) &&
+            !nameLower.includes("gardırop") &&
+            !nameLower.includes("vestiyer") &&
+            !nameLower.includes("portmanto"));
+        if (skipWardrobeProps) return;
 
         const isModPropsVisible =
           effectiveDoorsHiddenIn3D ||
@@ -9164,30 +9295,41 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               )
             );
           }
-          if (isStrongWallFocus) {
-            // Refined architectural floor laser indicator when wall is directly focused (no loud 4-sided box)
+          if (isSelectedTargetWall && !minimalChromeRef.current) {
+            // Option 1: Crisp architectural floor + ceiling + vertical corner cyan laser rails on active target wall
+            const railOpacity = isStrongWallFocus ? 0.90 : 0.62;
+            const vertOpacity = isStrongWallFocus ? 0.52 : 0.30;
             const floorLaserMat = new THREE.MeshBasicMaterial({
               color: 0x38bdf8,
               transparent: true,
-              opacity: 0.65,
+              opacity: railOpacity,
               depthWrite: false,
             });
-            const botBar = new THREE.Mesh(new THREE.BoxGeometry(wLen, 4, 14), floorLaserMat);
-            botBar.raycast = () => {};
-            botBar.position.set(wLen / 2, 2.5, inwardIsPositiveLocalZ ? 18 : -18);
-            wallSegGroup.add(botBar);
-          } else if (isSelectedTargetWall && wallsToRender.length > 1) {
-            // Whisper-thin architectural floor reference line along skirting when cabinet is selected
-            const subtleBaseMat = new THREE.MeshBasicMaterial({
+            const vertLaserMat = new THREE.MeshBasicMaterial({
               color: 0x38bdf8,
               transparent: true,
-              opacity: 0.24,
+              opacity: vertOpacity,
               depthWrite: false,
             });
-            const subtleBase = new THREE.Mesh(new THREE.BoxGeometry(wLen, 2.5, 6), subtleBaseMat);
-            subtleBase.raycast = () => {};
-            subtleBase.position.set(wLen / 2, 1.5, inwardIsPositiveLocalZ ? 16 : -16);
-            wallSegGroup.add(subtleBase);
+            const zOff = inwardIsPositiveLocalZ ? 18 : -18;
+            const zCeilOff = inwardIsPositiveLocalZ ? 4 : -4;
+            const botBar = new THREE.Mesh(new THREE.BoxGeometry(wLen, 8, 12), floorLaserMat);
+            botBar.raycast = () => {};
+            botBar.userData = { isWallFocusIndicator: true };
+            botBar.position.set(wLen / 2, 5, zOff);
+            wallSegGroup.add(botBar);
+            const topBar = new THREE.Mesh(new THREE.BoxGeometry(wLen, 10, 6), floorLaserMat);
+            topBar.raycast = () => {};
+            topBar.userData = { isWallFocusIndicator: true };
+            topBar.position.set(wLen / 2, wH - 8, zCeilOff);
+            wallSegGroup.add(topBar);
+            [6, wLen - 6].forEach((vx) => {
+              const vBar = new THREE.Mesh(new THREE.BoxGeometry(8, wH, 5), vertLaserMat);
+              vBar.raycast = () => {};
+              vBar.userData = { isWallFocusIndicator: true };
+              vBar.position.set(vx, wH / 2, zCeilOff);
+              wallSegGroup.add(vBar);
+            });
           }
           wallSegGroup.add(wMesh);
 
@@ -11803,7 +11945,7 @@ const clear3DGhostPreview = useCallback(() => {
                     </button>
                     <div className="flex-1 flex items-center justify-between bg-[#F8FAFC] rounded-xl border border-[#94A3B8] px-3 py-1.5">
                       <input
-                        type="number"
+                        type="number" inputMode="decimal"
                         data-testid={`viewport-3d-dim-input-${editingBadge}`}
                         autoFocus
                         min={bInfo.min}
@@ -14579,6 +14721,33 @@ const clear3DGhostPreview = useCallback(() => {
           open={glbLibraryOpen}
           onClose={() => setGlbLibraryOpen(false)}
         />
+
+        {/* Option 2: Compact floating Active Target Wall HUD pill with 1-click wall switching */}
+        {!minimalChrome && (project.space?.walls?.length || 0) > 1 && (() => {
+          const effWalls = project.space.walls || [];
+          const curWallIdx = Math.max(0, effWalls.findIndex((w) => w.id === (activeWallId || effWalls[0]?.id)));
+          const curWall = effWalls[curWallIdx] || effWalls[0];
+          if (!curWall) return null;
+          const nextWall = effWalls[(curWallIdx + 1) % effWalls.length];
+          return (
+            <button
+              type="button"
+              data-testid="v11-active-wall-hud-pill"
+              title={`Sonraki duvara geç: ${nextWall?.name || "Duvar"}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (nextWall) useConfiguratorStore.getState().setActiveWallId(nextWall.id);
+              }}
+              className="pointer-events-auto absolute top-[72px] max-xl:top-[108px] left-1/2 -translate-x-1/2 z-20 px-3 py-1 rounded-full bg-[#141821]/78 hover:bg-[#1E293B]/90 backdrop-blur-md border border-sky-400/45 text-[#E0F2FE] text-[11px] font-semibold shadow-[0_6px_18px_rgba(0,0,0,0.42)] flex items-center gap-2 transition cursor-pointer"
+            >
+              <span className="w-2 h-2 rounded-full bg-sky-400 shadow-[0_0_8px_#38BDF8] shrink-0" />
+              <span className="truncate max-w-[200px]">
+                Aktif Duvar: <b className="text-white">{curWall.name || "Ana Duvar"}</b> ({Math.round((curWall.length || 0) / 10)} cm)
+              </span>
+              <span className="text-[10px] text-sky-300/90 hidden sm:inline">• Değiştir</span>
+            </button>
+          );
+        })()}
 
         {/* V11.4 ETKİLEŞİMLİ 3B KIRMIZI / TURUNCU HATA NOKTASI AÇIKLAMA & ÇÖZÜM KARTI */}
         {live3DEngineeringReport &&

@@ -773,12 +773,12 @@ export const DoorSystemsShowcaseModal: React.FC<DoorSystemsShowcaseModalProps> =
     return (
       <div
         data-testid="v11-door-showcase-modal"
-        className="fixed inset-0 z-[155] bg-[#141413]/55 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5"
+        className="fixed inset-0 z-[155] bg-[#141413]/55 backdrop-blur-xs flex items-center justify-center p-0 md:p-5"
         onClick={onClose}
       >
         <div
           onClick={(e) => e.stopPropagation()}
-          className="w-full max-w-6xl max-h-[92vh] flex flex-col birim-ice-modal rounded-[28px] overflow-hidden text-[#141413]"
+          className="w-full max-w-6xl max-h-[92dvh] flex flex-col birim-ice-modal rounded-[28px] max-md:rounded-none max-md:h-[100dvh] max-md:max-h-[100dvh] overflow-hidden text-[#141413]"
         >
           <div className="px-6 py-4 birim-ice-shell-header flex items-center justify-between shrink-0 gap-3">
             <div className="flex items-center gap-2.5 min-w-0">

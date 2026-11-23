@@ -1499,7 +1499,7 @@ export function generateModuleGeometry(
 
       const leaf1PivotX = leaf1X0 + leaf1W;
       const leaf1PivotZ = wingD + T_door;
-      const leaf2OuterPivotX = wingD + T_door;
+      const leaf2OuterPivotX = wingD;
       const leaf2OuterPivotZ = leaf2Z0 + leaf2W;
       let leaf1: ComponentGeometry;
       let leaf2: ComponentGeometry;
@@ -1668,7 +1668,7 @@ export function generateModuleGeometry(
           position: {
             x: movingJointX,
             y: doorY,
-            z: movingJointZ - T_door,
+            z: movingJointZ + doorPerimeterGap,
           },
           rotation: [0, leaf2Yaw, 0],
           pivot: { x: movingJointX, y: doorY, z: movingJointZ },
@@ -2698,10 +2698,12 @@ export function generateModuleGeometry(
 
   // 2 & 3. Left & Right Side Panels — Supports Tip A (sides_through), Tip B (top_bottom_through), Tip C (miter_45), Tip D (kitchen_stretchers)
   const joineryTopology =
-    module.carcass.carcassJoineryTopology ||
-    (module.category === "kitchen_base" || module.category === "kitchen_island"
-      ? "kitchen_stretchers"
-      : "sides_through");
+    module.carcass.jointType === "miter_45"
+      ? "miter_45"
+      : module.carcass.carcassJoineryTopology ||
+        (module.category === "kitchen_base" || module.category === "kitchen_island"
+          ? "kitchen_stretchers"
+          : "sides_through");
   const topT = module.carcass.topPanelThicknessMm || T;
   const hasCustomTopThick = topT !== T;
   const sideRunsToFloor = plinthHeight > 0 && effPlinthType === "gable_rails";
@@ -2861,7 +2863,7 @@ export function generateModuleGeometry(
         b.door?.handleProfileId !== "hnd_overhang_recessed_lip"
     );
   const bottomPanelDepth = hasWallBottomGola268 ? Math.max(120, depth - 26) : depth;
-  components.push({
+  if (module.templateId !== "tpl_kt_07_fridge_surround") components.push({
     id: `${module.id}_bottom`,
     role: "carcass_bottom",
     label: hasWallBottomGola268

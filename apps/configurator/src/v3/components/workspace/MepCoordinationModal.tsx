@@ -51,12 +51,12 @@ export const MepCoordinationModal: React.FC<MepCoordinationModalProps> = ({
   return (
     <div
       data-testid="mep-coordination-modal"
-      className="fixed inset-0 z-[175] flex items-center justify-center bg-stone-950/50 backdrop-blur-xs p-3 sm:p-5 select-none"
+      className="fixed inset-0 z-[175] flex items-center justify-center bg-stone-950/50 backdrop-blur-xs p-0 md:p-5 select-none"
       onClick={onClose}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="birim-ice-modal rounded-[28px] w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden text-[#141413]"
+        className="birim-ice-modal rounded-[28px] max-md:rounded-none max-md:h-[100dvh] max-md:max-h-[100dvh] w-full max-w-5xl max-h-[90dvh] flex flex-col overflow-hidden text-[#141413]"
       >
         <div
           onPointerDown={(e) => startZeroLagModalDrag(e)}

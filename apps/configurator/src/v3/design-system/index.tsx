@@ -231,7 +231,7 @@ export const V3DimensionControl: React.FC<V3DimensionControlProps> = ({
             −
           </button>
           <input
-            type="number"
+            type="number" inputMode="decimal"
             data-testid={`${testIdPrefix}-input`}
             min={min}
             max={max}

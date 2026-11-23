@@ -2461,14 +2461,24 @@ function evaluateUnifiedEngineeringModelUncached(
         const frontWall = walls.find((w) => (w.position?.z || 0) >= 1000);
         if (frontWall) distToWall = Math.abs(frontWall.position.z - mod.position.z);
       }
+      const bbNotch = mod.carcass?.baseboardNotch;
+      const bbCoversSkirting =
+        Boolean(bbNotch?.enabled) &&
+        (bbNotch?.heightMm ?? 0) >= skH - 1 &&
+        (bbNotch?.depthMm ?? 0) >= skT - 1;
+      if (bbCoversSkirting) return;
+
       if (distToWall < skT - 1) {
+        const hasPartialNotch = Boolean(bbNotch?.enabled);
         addFinding({
           code: "WARN_WALL_SKIRTING_CLASH",
           severity: "warning",
           ruleNature: "ENGINEERING_VALIDITY",
           blockingProduction: false,
           targetModuleId: mod.id,
-          message: `"${mod.name}" arka alt kenarı duvar süpürgeliği (${skH} mm yüksek, ${skT} mm kalın) ile kesişiyor. Dolap arka duvara tam yanaşmak için süpürgelik kadar (+${skT} mm) öne alınmalı veya montajda süpürgelik/arka panel kertilmelidir.`,
+          message: hasPartialNotch
+            ? `"${mod.name}" arka süpürgelik çentiği (${bbNotch?.heightMm}×${bbNotch?.depthMm} mm), duvar süpürgeliğinden (${skH}×${skT} mm) küçük kalıyor. Çentiği en az ${skH}×${skT} mm yapın.`
+            : `"${mod.name}" arka alt kenarı duvar süpürgeliği (${skH} mm yüksek, ${skT} mm kalın) ile kesişiyor. Dolap arka duvara tam yanaşmak için süpürgelik kadar (+${skT} mm) öne alınmalı veya arka süpürgelik çentiği açılmalıdır.`,
           worldPositionMm: {
             x: roundGeometryMm(mod.position.x + mod.dimensions.width * 0.5),
             y: roundGeometryMm(Math.min(skH * 0.5, modBottomY + 50)),

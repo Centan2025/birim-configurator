@@ -38,7 +38,6 @@ const BUILTIN_SCENE_OBJECT_IDS = new Set<string>([
   "obj_birim_coffee_table",
   "obj_area_rug_300x200",
   "obj_pendant_linear_1200",
-  "obj_wall_tv_65",
   "obj_espresso_station",
   "obj_arch_door_900",
   "obj_arch_window_1400",
@@ -58,6 +57,12 @@ const BUILTIN_SCENE_OBJECT_IDS = new Set<string>([
 ]);
 
 export function resolveEffectiveSceneObjectGlbUrl(obj: SceneObjectInstance): string | undefined {
+  // Force sleek procedural frameless OLED TV instead of legacy low-res beige-arch GLB
+  if (obj.catalogId === "obj_wall_tv_65" || obj.visualKind === "wall_tv_oled") {
+    const raw = (obj.glbUrl || "").trim();
+    if (raw.startsWith("blob:") || raw.startsWith("data:")) return raw;
+    return undefined;
+  }
   if (obj.glbUrl && obj.glbUrl.trim().length > 0) {
     return obj.glbUrl.trim();
   }
@@ -657,7 +662,22 @@ function buildProceduralVisualByKind(
       break;
     }
 
-    case "wall_tv_oled":
+    case "wall_tv_oled": {
+      // Sleek ultra-thin frameless 65" OLED TV (matte anodized chassis + deep obsidian glossy OLED glass, no blurry wallpaper)
+      const chassisMat = makeMat("#14171C", 0.42, 0.55);
+      const oledGlassMat = makeMat("#070A10", 0.06, 0.14);
+      const mountMat = makeMat("#1E242D", 0.5, 0.6);
+      // Rear VESA wall bracket
+      addBox(g, W * 0.36, H * 0.32, Math.max(8, D * 0.34), W / 2, H / 2, Math.max(4, D * 0.17), mountMat);
+      // Slim anodized frame
+      addBox(g, W, H, Math.max(12, D * 0.46), W / 2, H / 2, D * 0.52, chassisMat);
+      // Edge-to-edge deep black OLED display glass
+      addBox(g, Math.max(40, W - 12), Math.max(40, H - 12), 6, W / 2, H / 2, D * 0.78, oledGlassMat);
+      // Subtle standby status LED dot at bottom center
+      addBox(g, 14, 3, 2, W / 2, 7, D * 0.85, makeMat("#CBD5E1", 0.2, 0.1));
+      break;
+    }
+
     case "wall_mirror_full":
     case "framed_art": {
       addBox(g, W, H, D * 0.55, W / 2, H / 2, D * 0.28, secMat);
@@ -669,7 +689,7 @@ function buildProceduralVisualByKind(
         W / 2,
         H / 2,
         D * 0.68,
-        obj.visualKind === "wall_mirror_full" ? chromeMat : obj.visualKind === "framed_art" ? priMat : glassDarkMat
+        obj.visualKind === "wall_mirror_full" ? chromeMat : priMat
       );
       break;
     }

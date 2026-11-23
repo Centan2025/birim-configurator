@@ -235,9 +235,9 @@ export const ArRoomPreviewModal: React.FC<ArRoomPreviewModalProps> = ({
   return (
     <div
       data-testid="ar-and-3d-export-modal"
-      className="fixed inset-0 z-[154] flex items-center justify-center bg-[#141413]/55 backdrop-blur-xs p-3 sm:p-5"
+      className="fixed inset-0 z-[154] flex items-center justify-center bg-[#141413]/55 backdrop-blur-xs p-0 md:p-5"
     >
-      <div data-draggable-shell="ar" className="max-w-2xl w-full birim-ice-modal rounded-[28px] overflow-hidden text-[#141413]">
+      <div data-draggable-shell="ar" className="max-w-2xl w-full birim-ice-modal rounded-[28px] max-md:rounded-none max-md:h-[100dvh] max-md:max-h-[100dvh] overflow-hidden text-[#141413]">
         <div onPointerDown={(e) => startZeroLagModalDrag(e)} title="Taşımak için sürükleyin" className="px-6 py-4 birim-ice-shell-header flex items-center justify-between cursor-grab active:cursor-grabbing select-none">
           <div>
             <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#8C7A6B]">
@@ -255,7 +255,7 @@ export const ArRoomPreviewModal: React.FC<ArRoomPreviewModalProps> = ({
           </button>
         </div>
 
-        <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-5">
+        <div className="flex-1 min-h-0 overflow-y-auto p-3.5 sm:p-6 grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
           {/* Left Column: Mobile AR + QR Scan */}
           <div className="p-4 rounded-2xl bg-white border border-[#E4DFD5] flex flex-col items-center text-center space-y-3">
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#F5F3EE] text-[11px] font-semibold text-[#141413]">

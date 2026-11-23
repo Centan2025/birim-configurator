@@ -541,7 +541,7 @@ const BufferedNumericInput: React.FC<{
 
   return (
     <input
-      type="number"
+      type="number" inputMode="decimal"
       min={min}
       max={max}
       step={step}
@@ -704,7 +704,7 @@ export const CeilingAndEngineeringQuickPopover: React.FC<{
               maxHeight: `${popoverPos.maxHeight}px`,
             }}
             className="z-[9999] w-[332px] overflow-y-auto p-3.5 rounded-2xl bg-white/95 backdrop-blur-xl border border-slate-200 shadow-2xl text-[#1C1917] space-y-3 text-xs"
-            onMouseDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
           >
           {/* 1. MİMARİ TAVAN VE TAVAN TİPLERİ */}
           <div className="space-y-2">

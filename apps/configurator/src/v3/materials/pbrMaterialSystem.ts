@@ -1,3 +1,5 @@
+import { isCompactTouchMobileDevice } from "./webglResourceGuard";
+import { canUseAsyncWoodPbrWorker, scheduleAsyncWoodPbrUpgrade } from "./pbrWoodWorker";
 import * as THREE from "three";
 import { MaterialDefinition } from "@birim/core";
 import { markSharedMaterial, markSharedTexture } from "./webglResourceGuard";
@@ -323,15 +325,17 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
 
   // 1. ULTRA-DEFINITION RIFT-CUT / CATHEDRAL ARCHITECTURAL WOOD VENEERS (1024px 3-Map PBR)
   if (matDef.category === "wood" || (matDef.category === "laminate" && matDef.hasGrain)) {
-    const woodRes = !hdBrowser
+    const rawWoodRes = !hdBrowser
       ? 128
       : proceduralTextureQualityTier === "ultra"
       ? 1024
       : proceduralTextureQualityTier === "hd"
       ? 512
       : 256;
-    const W = woodRes;
-    const H = woodRes;
+    const woodRes = isCompactTouchMobileDevice() ? Math.min(rawWoodRes, 512) : rawWoodRes;
+    const useProgressiveWorker = woodRes >= 512 && canUseAsyncWoodPbrWorker();
+    const W = useProgressiveWorker ? 128 : woodRes;
+    const H = useProgressiveWorker ? 128 : woodRes;
     const colorCanvas = document.createElement("canvas");
     colorCanvas.width = W;
     colorCanvas.height = H;
@@ -462,6 +466,22 @@ function getOrCreateProceduralMaps(matDef: MaterialDefinition): CachedTextureSet
     roughnessMap.needsUpdate = true;
 
     const normalMap = buildNormalMapFromHeightField(heightField, W, H, 1.85, 1, 1);
+
+    if (useProgressiveWorker && normalMap.image instanceof HTMLCanvasElement) {
+      scheduleAsyncWoodPbrUpgrade({
+        targetSize: woodRes,
+        hr,
+        hg,
+        hb,
+        isWalnut,
+        colorCanvas,
+        roughCanvas,
+        normalCanvas: normalMap.image,
+        colorMap,
+        roughnessMap,
+        normalMap,
+      });
+    }
 
     const set: CachedTextureSet = {
       colorMap,

@@ -237,6 +237,7 @@ export interface ConfiguratorState {
   addStackedTopModule: () => void;
   duplicateActiveModule: () => void;
   removeActiveModule: () => void;
+  setModuleProductionAndPricingFlags: (moduleIndex: number, patch: { includeInProduction?: boolean; includeInPricing?: boolean }) => void;
   moveActiveModule: (deltaX: number) => void;
   toggleModuleSelection: (moduleId: string, additive?: boolean) => void;
   selectAllModules: () => void;
@@ -404,8 +405,47 @@ function cloneProjectForSingleModule(project: DesignProject, targetModIndex: num
   };
 }
 
-function cloneProject(project: DesignProject): DesignProject {
+function cloneSingleModule(m: ModuleInstance): ModuleInstance {
+  return {
+    ...m,
+    dimensions: { ...m.dimensions },
+    position: { ...m.position },
+    rotation: m.rotation ? { ...m.rotation } : { x: 0, y: 0, z: 0 },
+    componentMaterialOverrides: m.componentMaterialOverrides
+      ? { ...m.componentMaterialOverrides }
+      : undefined,
+    componentGrainOverrides: m.componentGrainOverrides
+      ? { ...m.componentGrainOverrides }
+      : undefined,
+    carcass: {
+      ...m.carcass,
+      customCadPolygon: m.carcass.customCadPolygon
+        ? m.carcass.customCadPolygon.map((pt) => ({ ...pt }))
+        : undefined,
+    },
+    bays: m.bays.map((b) => ({
+      ...b,
+      door: {
+        ...b.door,
+        customCadPolygon: b.door.customCadPolygon
+          ? b.door.customCadPolygon.map((pt) => ({ ...pt }))
+          : undefined,
+      },
+      shelves: b.shelves.map((s) => ({ ...s })),
+      drawers: b.drawers.map((d) => ({ ...d })),
+      hangingRails: b.hangingRails.map((r) => ({ ...r })),
+      specialFittings: b.specialFittings ? b.specialFittings.map((f) => ({ ...f })) : [],
+      subDividers: b.subDividers ? b.subDividers.map((sd) => ({ ...sd })) : [],
+    })),
+  };
+}
+
+function cloneProject(project: DesignProject, onlyModuleIndex?: number): DesignProject {
   const nextVersion = (project.version || 1) + 1;
+  const isSingleModule =
+    typeof onlyModuleIndex === "number" &&
+    onlyModuleIndex >= 0 &&
+    onlyModuleIndex < project.modules.length;
   return {
     ...project,
     status: "draft",
@@ -414,60 +454,38 @@ function cloneProject(project: DesignProject): DesignProject {
     catalogVersion: project.catalogVersion || project.libraryVersionId || "lib_v4_0_0",
     revisionId: `rev_v${nextVersion}`,
     updatedAt: new Date().toISOString(),
-    space: {
-      ...project.space,
-      walls: project.space.walls.map((w) => ({
-        ...w,
-        position: { ...w.position },
-        elements: w.elements ? w.elements.map((el) => ({ ...el, position: { ...el.position }, dimensions: { ...el.dimensions } })) : [],
-      })),
-      elements: project.space.elements
-        ? project.space.elements.map((el) => ({
-            ...el,
-            position: { ...el.position },
-            dimensions: { ...el.dimensions },
-          }))
-        : [],
-      floorPlanUnderlay: project.space.floorPlanUnderlay
-        ? { ...project.space.floorPlanUnderlay }
-        : undefined,
-    },
-    // Structural sharing: preserve array/object references unless a dedicated action mutates them.
-    // Prevents O(N) structuredClone of GLB/DXF dataUrls & prevents 3D sceneObjects Group rebuilds on shelf/module drags!
-    sceneObjects: project.sceneObjects || [],
-    customModuleTemplates: project.customModuleTemplates || [],
-    modules: project.modules.map((m) => ({
-      ...m,
-      dimensions: { ...m.dimensions },
-      position: { ...m.position },
-      rotation: m.rotation ? { ...m.rotation } : { x: 0, y: 0, z: 0 },
-      componentMaterialOverrides: m.componentMaterialOverrides
-        ? { ...m.componentMaterialOverrides }
-        : undefined,
-      componentGrainOverrides: m.componentGrainOverrides
-        ? { ...m.componentGrainOverrides }
-        : undefined,
-      carcass: {
-        ...m.carcass,
-        customCadPolygon: m.carcass.customCadPolygon
-          ? m.carcass.customCadPolygon.map((pt) => ({ ...pt }))
-          : undefined,
-      },
-      bays: m.bays.map((b) => ({
-        ...b,
-        door: {
-          ...b.door,
-          customCadPolygon: b.door.customCadPolygon
-            ? b.door.customCadPolygon.map((pt) => ({ ...pt }))
+    // O(1) structural sharing: tek modül mutasyonlarında space ve diğer N-1 modül referansları korunur
+    space: isSingleModule
+      ? project.space
+      : {
+          ...project.space,
+          walls: project.space.walls.map((w) => ({
+            ...w,
+            position: { ...w.position },
+            elements: w.elements
+              ? w.elements.map((el) => ({
+                  ...el,
+                  position: { ...el.position },
+                  dimensions: { ...el.dimensions },
+                }))
+              : [],
+          })),
+          elements: project.space.elements
+            ? project.space.elements.map((el) => ({
+                ...el,
+                position: { ...el.position },
+                dimensions: { ...el.dimensions },
+              }))
+            : [],
+          floorPlanUnderlay: project.space.floorPlanUnderlay
+            ? { ...project.space.floorPlanUnderlay }
             : undefined,
         },
-        shelves: b.shelves.map((s) => ({ ...s })),
-        drawers: b.drawers.map((d) => ({ ...d })),
-        hangingRails: b.hangingRails.map((r) => ({ ...r })),
-        specialFittings: b.specialFittings ? b.specialFittings.map((f) => ({ ...f })) : [],
-        subDividers: b.subDividers ? b.subDividers.map((sd) => ({ ...sd })) : [],
-      })),
-    })),
+    sceneObjects: project.sceneObjects || [],
+    customModuleTemplates: project.customModuleTemplates || [],
+    modules: isSingleModule
+      ? project.modules.map((m, idx) => (idx === onlyModuleIndex ? cloneSingleModule(m) : m))
+      : project.modules.map((m) => cloneSingleModule(m)),
   };
 }
 
@@ -584,7 +602,22 @@ function recompute(
     sheetConfig,
   });
   const pricingParams = buildActiveTenantPricingParams(activeRuntimeTenantProfile);
-  const pricing = calculateProjectPrice(bom, pricingParams, undefined, project.sceneObjects || []);
+  const needsIndependentPricingBom = project.modules.some(
+    (m) => m.includeInPricing === false || m.includeInProduction === false
+  );
+  const pricingBom = needsIndependentPricingBom
+    ? generateBOMForProject(
+        {
+          ...project,
+          modules: project.modules
+            .filter((m) => m.includeInPricing !== false)
+            .map((m) => (m.includeInProduction === false ? { ...m, includeInProduction: true } : m)),
+        },
+        undefined,
+        { skipSyncNesting: true, sheetConfig }
+      )
+    : bom;
+  const pricing = calculateProjectPrice(pricingBom, pricingParams, undefined, project.sceneObjects || []);
   const activeMod = project.modules[0] || createDefaultWardrobeModule();
   const smartAdvice = analyzeAndAdviseSpan(activeMod.dimensions.width, activeMod.dimensions.height);
   if (skipNesting) {
@@ -1273,7 +1306,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
 
   applyHardwareProductToBay: (bayIndex, hardwareProductId, options) => {
     const { project, history, activeModuleIndex, batchStartProject } = get();
-    const updated = cloneProject(project);
+    const updated = cloneProject(project, activeModuleIndex);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod) return { applied: false, messageTr: "Aktif modül bulunamadı." };
     const hw = getHardwareProductById(hardwareProductId);
@@ -1496,7 +1529,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
 
   removeHardwareFromBay: (bayIndex, targetKind, targetId) => {
     const { project, history, activeModuleIndex, batchStartProject } = get();
-    const updated = cloneProject(project);
+    const updated = cloneProject(project, activeModuleIndex);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod) return { removed: false, messageTr: "Aktif modül bulunamadı." };
     const safeBayIdx = Math.max(0, Math.min(bayIndex, Math.max(0, mod.bays.length - 1)));
@@ -1603,7 +1636,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
 
   setPlinthHeight: (plinth) => {
     const { project, history, activeModuleIndex, batchStartProject } = get();
-    const updated = cloneProject(project);
+    const updated = cloneProject(project, activeModuleIndex);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod) return;
 
@@ -1631,7 +1664,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
 
   setMaterials: (bodyMatId, doorMatId) => {
     const { project, history, activeModuleIndex, batchStartProject } = get();
-    const updated = cloneProject(project);
+    const updated = cloneProject(project, activeModuleIndex);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod) return;
 
@@ -1664,7 +1697,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
   setBayCount: (count) => {
     const { project, history, activeModuleIndex, batchStartProject } = get();
     if (count < 1 || count > 8) return;
-    const updated = cloneProject(project);
+    const updated = cloneProject(project, activeModuleIndex);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod) return;
 
@@ -1706,7 +1739,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
 
   setBayDoorType: (bayIdx, type) => {
     const { project, history, activeModuleIndex, batchStartProject } = get();
-    const updated = cloneProject(project);
+    const updated = cloneProject(project, activeModuleIndex);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
 
@@ -1848,7 +1881,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
 
   setBayHandleCategory: (bayIdx, category, handleProfileId) => {
     const { project, history, activeModuleIndex, batchStartProject } = get();
-    const updated = cloneProject(project);
+    const updated = cloneProject(project, activeModuleIndex);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
 
@@ -1880,7 +1913,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
 
   addShelf: (bayIdx) => {
     const { project, history, activeModuleIndex, batchStartProject } = get();
-    const updated = cloneProject(project);
+    const updated = cloneProject(project, activeModuleIndex);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
 
@@ -1961,7 +1994,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
 
   addFixedShelf: (bayIdx) => {
     const { project, history, activeModuleIndex, batchStartProject } = get();
-    const updated = cloneProject(project);
+    const updated = cloneProject(project, activeModuleIndex);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
 
@@ -2019,7 +2052,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
 
   setShelfMountType: (bayIdx, shelfId, isAdjustable, fixedConnectorType) => {
     const { project, history, activeModuleIndex, batchStartProject } = get();
-    const updated = cloneProject(project);
+    const updated = cloneProject(project, activeModuleIndex);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
 
@@ -2055,7 +2088,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
 
   removeShelf: (bayIdx, shelfId) => {
     const { project, history, activeModuleIndex, batchStartProject } = get();
-    const updated = cloneProject(project);
+    const updated = cloneProject(project, activeModuleIndex);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
 
@@ -2098,7 +2131,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
 
   addHangingRail: (bayIdx) => {
     const { project, history, activeModuleIndex, batchStartProject } = get();
-    const updated = cloneProject(project);
+    const updated = cloneProject(project, activeModuleIndex);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
 
@@ -2139,7 +2172,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
 
   removeHangingRail: (bayIdx, railId) => {
     const { project, history, activeModuleIndex, batchStartProject } = get();
-    const updated = cloneProject(project);
+    const updated = cloneProject(project, activeModuleIndex);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
 
@@ -2167,7 +2200,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
 
   addDrawer: (bayIdx) => {
     const { project, history, activeModuleIndex, batchStartProject } = get();
-    const updated = cloneProject(project);
+    const updated = cloneProject(project, activeModuleIndex);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
 
@@ -2263,7 +2296,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
 
   removeDrawer: (bayIdx, drawerId) => {
     const { project, history, activeModuleIndex, batchStartProject } = get();
-    const updated = cloneProject(project);
+    const updated = cloneProject(project, activeModuleIndex);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
 
@@ -2326,7 +2359,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
 
   addSpecialFitting: (bayIdx, type) => {
     const { project, history, activeModuleIndex, batchStartProject } = get();
-    const updated = cloneProject(project);
+    const updated = cloneProject(project, activeModuleIndex);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
 
@@ -2403,7 +2436,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
 
   removeSpecialFitting: (bayIdx, fittingId) => {
     const { project, history, activeModuleIndex, batchStartProject } = get();
-    const updated = cloneProject(project);
+    const updated = cloneProject(project, activeModuleIndex);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod || !mod.bays[bayIdx]) return;
 
@@ -2431,7 +2464,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
 
   addAdjacentModule: () => {
     const { project, history, activeModuleIndex, batchStartProject } = get();
-    const updated = cloneProject(project);
+    const updated = cloneProject(project, activeModuleIndex);
     const targetMod = updated.modules[activeModuleIndex] || updated.modules[0];
     const maxRightX = updated.modules.reduce(
       (maxX, m, idx) => Math.max(maxX, (m.position?.x ?? idx * 1000) + m.dimensions.width),
@@ -2487,7 +2520,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
 
   addStackedTopModule: () => {
     const { project, history, activeModuleIndex, batchStartProject } = get();
-    const updated = cloneProject(project);
+    const updated = cloneProject(project, activeModuleIndex);
     const targetMod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!targetMod) return;
 
@@ -2561,7 +2594,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
 
   duplicateActiveModule: () => {
     const { project, history, activeModuleIndex, batchStartProject } = get();
-    const updated = cloneProject(project);
+    const updated = cloneProject(project, activeModuleIndex);
     const targetMod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!targetMod) return;
 
@@ -2585,6 +2618,32 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
       project: updated,
       autoSaveStatus: "unsaved",
       activeModuleIndex: updated.modules.length - 1,
+      validationIssues,
+      bom,
+      pricing,
+      smartAdvice,
+      lastChangeImpact,
+    });
+  },
+
+  setModuleProductionAndPricingFlags: (moduleIndex, patch) => {
+    const { project, history, batchStartProject } = get();
+    if (moduleIndex < 0 || moduleIndex >= project.modules.length) return;
+    const updated = cloneProject(project, moduleIndex);
+    const target = updated.modules[moduleIndex];
+    if (!target) return;
+    if (typeof patch.includeInProduction === "boolean") {
+      target.includeInProduction = patch.includeInProduction;
+    }
+    if (typeof patch.includeInPricing === "boolean") {
+      target.includeInPricing = patch.includeInPricing;
+    }
+    const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
+    set({
+      history: nextHistory(history, project, batchStartProject),
+      future: [],
+      project: updated,
+      autoSaveStatus: "unsaved",
       validationIssues,
       bom,
       pricing,
@@ -2618,7 +2677,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
 
   moveActiveModule: (deltaX: number) => {
     const { project, history, activeModuleIndex, batchStartProject } = get();
-    const updated = cloneProject(project);
+    const updated = cloneProject(project, activeModuleIndex);
     const mod = updated.modules[activeModuleIndex];
     if (!mod) return;
 
@@ -2779,7 +2838,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
 
   applyBatchProjectUpdate: (mutator, actionLabel) => {
     const { project, history, batchStartProject, activeModuleIndex, activeBayIndex } = get();
-    const updated = cloneProject(project);
+    const updated = cloneProject(project, activeModuleIndex);
     mutator(updated);
     updated.version = (updated.version || 1) + 1;
     updated.updatedAt = new Date().toISOString();
@@ -2960,9 +3019,11 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
       });
     }
 
-    harmonizeModuleWithProjectContext(solved.moduleInstance, updated.modules, {
-      mode: "append",
-    });
+    if (!templateId.startsWith("v5_")) {
+      harmonizeModuleWithProjectContext(solved.moduleInstance, updated.modules, {
+        mode: "append",
+      });
+    }
     if (resolveMultiHoleSpec(solved.moduleInstance).mode !== "none") {
       alignModuleShelvesToSystem32(solved.moduleInstance, { includeFixedShelves: true });
     }
@@ -3092,7 +3153,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
 
   saveActiveModuleAsCustomTemplate: (name, familyId) => {
     const { project, activeModuleIndex } = get();
-    const updated = cloneProject(project);
+    const updated = cloneProject(project, activeModuleIndex);
     const activeMod = updated.modules[activeModuleIndex] || updated.modules[0];
     const tplId = `custom_tpl_${Date.now()}`;
     const snap = structuredClone(activeMod);
@@ -3715,7 +3776,7 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
 
   updateCarcass: (patch) => {
     const { project, activeModuleIndex, history, batchStartProject } = get();
-    const updated = cloneProject(project);
+    const updated = cloneProject(project, activeModuleIndex);
     const mod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!mod) return;
     mod.carcass = { ...mod.carcass, ...patch };

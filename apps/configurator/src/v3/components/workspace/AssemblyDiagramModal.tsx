@@ -419,12 +419,12 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
     <div
       data-testid="assembly-diagram-modal"
       onClick={onClose}
-      className="fixed inset-0 z-[158] flex items-center justify-center bg-[#141413]/55 backdrop-blur-xs p-3 sm:p-5"
+      className="fixed inset-0 z-[158] flex items-center justify-center bg-[#141413]/55 backdrop-blur-xs p-0 md:p-5"
     >
       <div
         data-draggable-shell="assembly-diagram-modal"
         onClick={(e) => e.stopPropagation()}
-        className="relative birim-ice-modal rounded-[28px] max-w-6xl w-full max-h-[92vh] flex flex-col overflow-hidden text-[#141413]"
+        className="relative birim-ice-modal rounded-[28px] max-md:rounded-none max-md:h-[100dvh] max-md:max-h-[100dvh] max-w-6xl w-full max-h-[92dvh] flex flex-col overflow-hidden text-[#141413]"
       >
         <button
           type="button"
@@ -468,12 +468,12 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 shrink-0">
             {mainModules.length > 1 && (
               <V3PremiumDropdown
                 variant="popover"
                 size="sm"
-                className="w-[210px]"
+                className="w-full sm:w-[210px]"
                 value={String(selectedModIdx)}
                 onChange={(val) => {
                   setSelectedModIdx(Number(val));
@@ -493,7 +493,7 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
               title="Montaj Şemasını Vektörel SVG Olarak İndir"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>.SVG</span>
+              <span className="hidden sm:inline">.SVG</span>
             </button>
             <button
               type="button"
@@ -502,7 +502,7 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
               className="px-3.5 py-1.5 rounded-xl birim-ice-charcoal-pill text-xs font-bold flex items-center gap-1.5 cursor-pointer"
             >
               <Printer className="w-3.5 h-3.5 text-amber-300" />
-              <span>A4 Montaj Föyü Yazdır</span>
+              <span className="hidden sm:inline">A4 Montaj Föyü Yazdır</span>
             </button>
           </div>
         </div>
@@ -548,9 +548,9 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
         )}
 
         {/* Body: Left Exploded Isometric CAD Diagram + Full-Height Hardware Bag | Right Step-by-Step Sequence */}
-        <div className="flex-1 min-h-0 overflow-y-auto p-5 grid grid-cols-1 lg:grid-cols-12 items-stretch gap-4 text-xs">
+        <div className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-5 grid grid-cols-1 lg:grid-cols-12 items-stretch gap-3 sm:gap-4 text-xs">
           {/* Left 7 cols: Interactive Exploded Isometric SVG + Full-Stretch Hardware Bag */}
-          <div className="lg:col-span-7 flex flex-col gap-3.5 h-full min-h-0">
+          <div className="lg:col-span-7 flex flex-col gap-3.5 lg:h-full lg:min-h-0">
             <div className="shrink-0 p-3.5 rounded-2xl bg-white border border-[#E5DFD3] shadow-2xs flex flex-col items-center">
               <div className="w-full flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-[#ECE7DC] mb-2">
                 <span className="font-bold text-[#141413] flex items-center gap-1.5">
@@ -907,7 +907,7 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
             </div>
 
             {/* Hardware & Fastener Bag Table — Stretches cleanly to bottom of modal! */}
-            <div className="flex-1 min-h-[240px] p-4 rounded-2xl bg-white border border-[#E5DFD3] shadow-2xs flex flex-col gap-2.5">
+            <div className="lg:flex-1 lg:min-h-[240px] p-3.5 sm:p-4 rounded-2xl bg-white border border-[#E5DFD3] shadow-2xs flex flex-col gap-2.5">
               <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-[#ECE7DC] shrink-0">
                 <div className="font-bold text-[#141413] flex items-center gap-1.5">
                   <Wrench className="w-3.5 h-3.5 text-[#8C7A6B]" />
@@ -917,7 +917,7 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
                   {hardwareItems.length} Kalem • {totalHardwareQty} Adet/Birim
                 </span>
               </div>
-              <div className="flex-1 min-h-0 overflow-y-auto pr-1 grid grid-cols-1 sm:grid-cols-2 auto-rows-max content-start gap-2">
+              <div className="lg:flex-1 lg:min-h-0 lg:overflow-y-auto pr-1 grid grid-cols-1 sm:grid-cols-2 auto-rows-max content-start gap-2">
                 {hardwareItems.map((hw) => (
                   <div
                     key={hw.sku}

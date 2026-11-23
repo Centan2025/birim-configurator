@@ -78,10 +78,36 @@ export interface ResolvedMultiHoleSpec {
 }
 
 export function resolveMultiHoleSpec(
-  mod: Pick<ModuleInstance, "carcass" | "dimensions">
+  mod: Pick<ModuleInstance, "carcass" | "dimensions"> & Partial<Pick<ModuleInstance, "category" | "templateId" | "name" | "bays" | "isOpenFront">>
 ): ResolvedMultiHoleSpec {
   const c = mod.carcass;
-  const mode: MultiHoleBoringMode = c.multiHoleMode || "full_system_32";
+  const inferDefaultMultiHoleMode = (): MultiHoleBoringMode => {
+    const cat = String(mod.category || "");
+    const isKitchen = cat.startsWith("kitchen_");
+    if (!isKitchen) return "full_system_32";
+    const tpl = `${mod.templateId || ""} ${mod.name || ""}`.toLowerCase();
+    const isNoShelfKitchenUnit =
+      tpl.includes("sink") || tpl.includes("evye") || tpl.includes("eviye") ||
+      tpl.includes("oven") || tpl.includes("fırın") || tpl.includes("microwave") || tpl.includes("mikrodalga") ||
+      tpl.includes("fridge") || tpl.includes("buzdolab") ||
+      tpl.includes("dishwasher") || tpl.includes("bulaşık") ||
+      tpl.includes("waste") || tpl.includes("çöp") ||
+      tpl.includes("spice") || tpl.includes("baharat") ||
+      tpl.includes("lemans") || tpl.includes("blind_corner") || tpl.includes("magic_corner") ||
+      tpl.includes("bottle") || tpl.includes("şarap");
+    if (isNoShelfKitchenUnit) return "none";
+    const bays = mod.bays || [];
+    const hasAdjustableShelf = bays.some((b) => (b.shelves || []).some((s) => !s.isHidden && s.isAdjustable !== false));
+    const hasOnlyDrawersOrFittings =
+      bays.length > 0 && !hasAdjustableShelf && bays.some((b) => (b.drawers || []).length > 0 || (b.specialFittings || []).length > 0);
+    if (hasOnlyDrawersOrFittings || (cat === "kitchen_island" && !hasAdjustableShelf)) return "none";
+    const isGlassOrOpenWall =
+      Boolean(mod.isOpenFront) ||
+      String(c.doorMaterialId || "").includes("glass") ||
+      bays.some((b) => b.door?.isGlassFramed || String(b.door?.doorMaterialId || "").includes("glass"));
+    return isGlassOrOpenWall ? "cluster_3" : "cluster_5";
+  };
+  const mode: MultiHoleBoringMode = c.multiHoleMode || inferDefaultMultiHoleMode();
   const requestedRows = c.multiHoleRowCount === 3 && mod.dimensions.depth >= 480 ? 3 : 2;
   const frontSetbackMm = Math.max(28, Math.min(120, c.multiHoleFrontSetbackMm ?? c.system32FrontSetback ?? 37));
   const edgeMarginMm = Math.max(48, Math.min(192, c.multiHoleEdgeMarginMm ?? 96));

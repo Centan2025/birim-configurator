@@ -601,7 +601,7 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
         <aside
           aria-label="Modül ve Mekân Araçları"
           data-testid="v11-left-launcher"
-          className="fixed left-4 top-1/2 -translate-y-1/2 z-30 p-1.5 rounded-full bg-[#1C222E]/84 backdrop-blur-2xl border border-white/[0.18] ring-1 ring-black/50 shadow-[0_20px_50px_rgba(0,0,0,0.52)] flex flex-col items-center gap-1.5"
+          className={`fixed left-4 max-md:left-2 top-1/2 -translate-y-1/2 z-30 p-1.5 max-md:p-1 rounded-full bg-[#1C222E]/84 backdrop-blur-2xl border border-white/[0.18] ring-1 ring-black/50 shadow-[0_20px_50px_rgba(0,0,0,0.52)] flex flex-col items-center gap-1.5 max-md:gap-1 transition-opacity duration-200 ${isDrawerOpen ? "max-lg:opacity-0 max-lg:pointer-events-none" : ""}`}
         >
           <button
             type="button"
@@ -611,8 +611,10 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
               if (activeDrawer === "catalog") {
                 onChangeDrawer(null);
                 setOpenLeftSubmenu(null);
+              } else if (activeDrawer !== null) {
+                setOpenLeftSubmenu(null);
+                onChangeDrawer("catalog");
               } else {
-                onChangeDrawer(null);
                 setOpenLeftSubmenu((cur) => (cur === "add" ? null : "add"));
               }
             }}
@@ -634,8 +636,10 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
               if (activeDrawer === "modules") {
                 onChangeDrawer(null);
                 setOpenLeftSubmenu(null);
+              } else if (activeDrawer !== null) {
+                setOpenLeftSubmenu(null);
+                onChangeDrawer("modules");
               } else {
-                onChangeDrawer(null);
                 setOpenLeftSubmenu((cur) => (cur === "modules" ? null : "modules"));
               }
             }}
@@ -660,8 +664,10 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
               if (activeDrawer === "space") {
                 onChangeDrawer(null);
                 setOpenLeftSubmenu(null);
+              } else if (activeDrawer !== null) {
+                setOpenLeftSubmenu(null);
+                onChangeDrawer("space");
               } else {
-                onChangeDrawer(null);
                 setOpenLeftSubmenu((cur) => (cur === "room" ? null : "room"));
               }
             }}
@@ -721,11 +727,11 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
           isOpen={Boolean(openLeftSubmenu && !activeDrawer)}
           origin="left"
           durationMs={220}
-          className="fixed left-[72px] top-1/2 -translate-y-1/2 z-40 pointer-events-none"
+          className="fixed left-[72px] max-md:left-[56px] top-1/2 -translate-y-1/2 z-40 pointer-events-none"
         >
           <div
             data-testid={`v11-left-submenu-${openLeftSubmenu || latchedLeftSubmenu}`}
-            className="pointer-events-auto w-[240px] p-3 rounded-2xl bg-[#1C222E]/94 backdrop-blur-2xl border border-white/[0.18] ring-1 ring-black/55 shadow-[0_24px_60px_rgba(0,0,0,0.62)] text-xs text-slate-100 space-y-2"
+            style={{ width: openLeftSubmenu === "modules" ? "264px" : openLeftSubmenu === "room" ? "236px" : "248px", transition: "width 320ms cubic-bezier(0.16, 1, 0.3, 1)" }} className="pointer-events-auto max-w-[calc(100vw-68px)] p-3 rounded-2xl bg-[#1C222E]/94 backdrop-blur-2xl border border-white/[0.18] ring-1 ring-black/55 shadow-[0_24px_60px_rgba(0,0,0,0.62)] text-xs text-slate-100 space-y-2"
           >
             <div className="flex items-center justify-between gap-2 pb-1.5 border-b border-white/10">
               <span className="text-[11.5px] font-bold text-white">
@@ -807,7 +813,7 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                           {wallLbl} (mm)
                         </span>
                         <input
-                          type="number"
+                          type="number" inputMode="decimal"
                           min={600}
                           max={12000}
                           step={100}
@@ -837,7 +843,7 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                   <label className="space-y-1">
                     <span className="text-[10px] text-slate-400 block">Tavan (mm)</span>
                     <input
-                      type="number"
+                      type="number" inputMode="decimal"
                       min={2000}
                       max={4500}
                       step={50}
@@ -1019,16 +1025,39 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
           <section
             inert={!isDrawerOpen ? true : undefined}
             data-testid={activeDrawer ? `v11-left-popover-${activeDrawer}` : "v11-left-popover-closed"}
-            className={`birim-dramatic-panel fixed left-[76px] top-[72px] bottom-[84px] w-[408px] max-w-[calc(100vw-96px)] z-30 rounded-3xl bg-[#2A313F]/66 backdrop-blur-2xl border border-white/[0.22] ring-1 ring-black/60 shadow-[0_28px_68px_rgba(0,0,0,0.62)] flex flex-col overflow-hidden text-[#F3F4F6] origin-left will-change-[transform,opacity] transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+            style={
+              {
+                paddingBottom: "env(safe-area-inset-bottom)",
+                width:
+                  renderedDrawer === "catalog"
+                    ? "432px"
+                    : renderedDrawer === "modules"
+                    ? "348px"
+                    : "388px",
+                "--birim-left-sheet-h":
+                  renderedDrawer === "catalog"
+                    ? "68dvh"
+                    : renderedDrawer === "modules"
+                    ? "52dvh"
+                    : "60dvh",
+                transition:
+                  "width 360ms cubic-bezier(0.16, 1, 0.3, 1), height 360ms cubic-bezier(0.16, 1, 0.3, 1), transform 360ms cubic-bezier(0.16, 1, 0.3, 1), opacity 240ms ease",
+              } as React.CSSProperties
+            }
+            className={`birim-dramatic-panel fixed left-[76px] top-[72px] bottom-[84px] max-w-[calc(100vw-96px)] max-lg:!w-auto max-lg:left-2.5 max-lg:right-2.5 max-lg:top-auto max-lg:bottom-2.5 max-lg:h-[var(--birim-left-sheet-h)] max-lg:max-w-none max-lg:rounded-t-3xl max-lg:rounded-b-2xl max-lg:origin-bottom max-lg:z-[60] z-30 rounded-3xl bg-[#2A313F]/66 backdrop-blur-2xl border border-white/[0.22] ring-1 ring-black/60 shadow-[0_28px_68px_rgba(0,0,0,0.62)] flex flex-col overflow-hidden text-[#F3F4F6] origin-left will-change-[width,height,transform,opacity] ${
               !isDrawerOpen
-                ? "opacity-0 scale-95 -translate-x-6 pointer-events-none"
+                ? "opacity-0 scale-95 -translate-x-6 max-lg:translate-x-0 max-lg:translate-y-6 pointer-events-none"
                 : isDraggingCatalogItem
                 ? "opacity-15 scale-[0.97] -translate-x-4 pointer-events-none"
-                : "opacity-100 scale-100 translate-x-0 pointer-events-auto"
+                : "opacity-100 scale-100 translate-x-0 max-lg:translate-y-0 pointer-events-auto"
             }`}
           >
+            {/* MOBİL / TABLET ALT ÇEKMECE TUTAMAÇ GÖSTERGESİ (<1024px) */}
+            <div className="lg:hidden w-full pt-2 pb-1 flex justify-center shrink-0">
+              <span className="w-10 h-1 rounded-full bg-[#CFC7B9]" />
+            </div>
             <div className="px-5 pt-4 pb-3 border-b border-[#E6E1D6] flex items-center justify-between gap-2 shrink-0">
-              <div>
+              <div key={renderedDrawer} className="birim-drawer-content-morph">
                 <h2 className="text-sm font-bold tracking-tight">
                   {renderedDrawer === "catalog"
                     ? "Katalog"
@@ -1453,61 +1482,120 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                 </div>
 
                 <div className="flex-1 overflow-y-auto px-4 pb-4 pt-1 space-y-3">
-                  {/* MUTFAK & ADA ÖZEL HIZLI KARTLARI */}
+                  {/* MUTFAK & ADA ÖZEL GÖRSEL HIZLI KARTLARI */}
                   {!searchQuery && activeGroup === "kitchen" && (
-                    <div className="p-3 rounded-2xl bg-[#F2EEE4] border border-[#DED7C8] space-y-2">
-                      <div className="text-[11px] font-bold text-[#141413] flex items-center gap-1.5">
-                        <UtensilsCrossed className="w-3.5 h-3.5 text-[#8C7A6B]" />
+                    <div className="p-2.5 rounded-2xl bg-black/25 border border-white/12 space-y-2">
+                      <div className="text-[11px] font-bold text-slate-100 flex items-center gap-1.5 px-0.5">
+                        <UtensilsCrossed className="w-3.5 h-3.5 text-sky-300" />
                         <span>Mutfak Adası, Masa ve Hazır Setler</span>
                       </div>
-                      <div className="grid grid-cols-2 gap-1.5">
+                      <div className="grid grid-cols-2 gap-2">
                         <button
                           type="button"
+                          title="Şelale Tezgâhlı Ada + 0°/30°/45°/90° bağlı yemek/bar masası"
                           onClick={() => {
                             onChangeDrawer(null);
                             onOpenKitchenIslandModal();
                           }}
-                          className="p-2.5 rounded-xl bg-[#141413] hover:bg-[#292524] text-white text-left transition cursor-pointer"
+                          className="p-2.5 rounded-xl bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white flex flex-col items-center justify-center gap-1.5 text-center shadow-[0_6px_16px_rgba(29,78,216,0.45)] transition hover:scale-[1.02] cursor-pointer"
                         >
-                          <div className="text-[11px] font-bold">Şelale Mutfak Adası & Masa</div>
-                          <div className="text-[10px] text-[#7DD3FC] mt-0.5">
-                            Ada + 0°/30°/45°/90° bağlı yemek/bar masası
+                          <svg viewBox="0 0 88 44" className="w-20 h-10" fill="none">
+                            {/* Waterfall island body */}
+                            <path d="M8 14 H52 V38 H47 V19 H13 V38 H8 Z" stroke="#FFFFFF" strokeWidth="1.5" fill="rgba(255,255,255,0.22)" strokeLinejoin="round" />
+                            <rect x="14" y="20" width="32" height="16" rx="1" stroke="#BAE6FD" strokeWidth="1.1" fill="rgba(186,230,253,0.14)" />
+                            <line x1="30" y1="20" x2="30" y2="36" stroke="#BAE6FD" strokeWidth="1" />
+                            <line x1="14" y1="28" x2="46" y2="28" stroke="#BAE6FD" strokeWidth="1" />
+                            {/* Attached extending dining/bar table */}
+                            <rect x="48" y="20" width="32" height="4.5" rx="1.5" stroke="#FDE68A" strokeWidth="1.4" fill="rgba(253,230,138,0.28)" />
+                            <line x1="76" y1="24.5" x2="76" y2="38" stroke="#FDE68A" strokeWidth="1.8" strokeLinecap="round" />
+                            <line x1="4" y1="39" x2="84" y2="39" stroke="rgba(255,255,255,0.25)" strokeWidth="1" />
+                          </svg>
+                          <div>
+                            <div className="text-[11px] font-bold leading-tight">Şelale Ada &amp; Masa</div>
+                            <div className="text-[9.5px] text-sky-200/90 mt-0.5">0°/30°/45°/90° bağlı masa</div>
                           </div>
                         </button>
+
                         <button
                           type="button"
+                          title="180 cm ada + 80 cm indüksiyon ocak + lineer sarkıt + 3 bar taburesi"
                           onClick={() => onAddCompositeAssembly("comp_island_social_set")}
-                          className="p-2.5 rounded-xl bg-white hover:bg-[#FAF8F4] border border-[#DED8CC] text-left transition cursor-pointer"
+                          className="p-2.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/15 text-slate-100 flex flex-col items-center justify-center gap-1.5 text-center transition hover:scale-[1.02] cursor-pointer"
                         >
-                          <div className="text-[11px] font-bold text-[#141413]">
-                            Sosyal Ada + 3 Tabure Seti
-                          </div>
-                          <div className="text-[10px] text-[#78716C] mt-0.5">
-                            180 cm ada + ocak + sarkıt + bar tabureleri
+                          <svg viewBox="0 0 88 44" className="w-20 h-10" fill="none">
+                            {/* Linear ceiling pendant */}
+                            <line x1="30" y1="2" x2="30" y2="9" stroke="#94A3B8" strokeWidth="1.1" />
+                            <line x1="58" y1="2" x2="58" y2="9" stroke="#94A3B8" strokeWidth="1.1" />
+                            <line x1="25" y1="9" x2="63" y2="9" stroke="#FBBF24" strokeWidth="2.2" strokeLinecap="round" />
+                            {/* Island + cooktop */}
+                            <rect x="14" y="18" width="60" height="19" rx="2" stroke="#E2E8F0" strokeWidth="1.4" fill="rgba(148,163,184,0.16)" />
+                            <line x1="36" y1="16.5" x2="52" y2="16.5" stroke="#38BDF8" strokeWidth="2" strokeLinecap="round" />
+                            {/* 3 Bar stools */}
+                            {[24, 44, 64].map((sx) => (
+                              <g key={sx}>
+                                <rect x={sx - 5} y="27" width="10" height="3.2" rx="1.2" fill="#D6A874" stroke="#FDE68A" strokeWidth="0.9" />
+                                <line x1={sx - 3.5} y1="30.2" x2={sx - 4.5} y2="39" stroke="#CBD5E1" strokeWidth="1.2" strokeLinecap="round" />
+                                <line x1={sx + 3.5} y1="30.2" x2={sx + 4.5} y2="39" stroke="#CBD5E1" strokeWidth="1.2" strokeLinecap="round" />
+                              </g>
+                            ))}
+                            <line x1="6" y1="39.5" x2="82" y2="39.5" stroke="rgba(255,255,255,0.20)" strokeWidth="1" />
+                          </svg>
+                          <div>
+                            <div className="text-[11px] font-bold leading-tight">Sosyal Ada + 3 Tabure</div>
+                            <div className="text-[9.5px] text-slate-300/90 mt-0.5">180 cm + ocak + sarkıt</div>
                           </div>
                         </button>
                       </div>
-                      <div className="flex items-center gap-1.5 pt-0.5">
+
+                      <div className="grid grid-cols-3 gap-1.5">
                         <button
                           type="button"
+                          title="Buzdolabı + Fırın/Mikrodalga Kulesi + Boy Kiler Seti"
                           onClick={() => onAddCompositeAssembly("comp_appliance_wall_trio")}
-                          className="flex-1 py-1.5 px-2.5 rounded-full bg-white hover:bg-[#FAF8F4] border border-[#DED8CC] text-[10.5px] font-semibold cursor-pointer"
+                          className="py-2 px-1.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.16] border border-white/15 text-slate-100 flex flex-col items-center justify-center gap-1 transition cursor-pointer"
                         >
-                          + Ankastre Kule Seti
+                          <svg viewBox="0 0 54 30" className="w-12 h-7" fill="none">
+                            {/* Fridge */}
+                            <rect x="4" y="3" width="15" height="24" rx="1.5" stroke="#CBD5E1" strokeWidth="1.3" fill="rgba(148,163,184,0.16)" />
+                            <line x1="11.5" y1="3" x2="11.5" y2="18" stroke="#94A3B8" strokeWidth="0.9" />
+                            <line x1="4" y1="18" x2="19" y2="18" stroke="#94A3B8" strokeWidth="0.9" />
+                            {/* Oven + MW tower */}
+                            <rect x="21" y="3" width="13" height="24" rx="1.5" stroke="#E2E8F0" strokeWidth="1.3" fill="rgba(148,163,184,0.12)" />
+                            <rect x="23" y="9" width="9" height="4.5" rx="0.8" fill="#0F172A" stroke="#38BDF8" strokeWidth="0.9" />
+                            <rect x="23" y="15" width="9" height="6" rx="0.8" fill="#0F172A" stroke="#38BDF8" strokeWidth="0.9" />
+                            {/* Pantry column */}
+                            <rect x="36" y="3" width="14" height="24" rx="1.5" stroke="#CBD5E1" strokeWidth="1.3" fill="rgba(148,163,184,0.14)" />
+                            <line x1="39" y1="10" x2="47" y2="10" stroke="#94A3B8" strokeWidth="0.9" />
+                            <line x1="39" y1="16" x2="47" y2="16" stroke="#94A3B8" strokeWidth="0.9" />
+                            <line x1="39" y1="22" x2="47" y2="22" stroke="#94A3B8" strokeWidth="0.9" />
+                          </svg>
+                          <span className="text-[10px] font-bold leading-tight">Ankastre Kule</span>
                         </button>
+
                         <button
                           type="button"
+                          title="Hazır L-Tipi Köşe Mutfak Planı"
                           onClick={() => onLoadKitchenPreset("l")}
-                          className="py-1.5 px-2.5 rounded-full bg-white hover:bg-[#FAF8F4] border border-[#DED8CC] text-[10.5px] font-semibold cursor-pointer"
+                          className="py-2 px-1.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.16] border border-white/15 text-slate-100 flex flex-col items-center justify-center gap-1 transition cursor-pointer"
                         >
-                          L-Mutfak
+                          <svg viewBox="0 0 54 30" className="w-12 h-7" fill="none">
+                            <path d="M11 25 V5 H44" stroke="#E2E8F0" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                            <path d="M14 8 H42 V15 H21 V24 H14 Z" stroke="#38BDF8" strokeWidth="1.3" fill="rgba(56,189,248,0.22)" strokeLinejoin="round" />
+                          </svg>
+                          <span className="text-[10px] font-bold leading-tight">L-Mutfak</span>
                         </button>
+
                         <button
                           type="button"
+                          title="Hazır U-Tipi Üç Duvar Mutfak Planı"
                           onClick={() => onLoadKitchenPreset("u")}
-                          className="py-1.5 px-2.5 rounded-full bg-white hover:bg-[#FAF8F4] border border-[#DED8CC] text-[10.5px] font-semibold cursor-pointer"
+                          className="py-2 px-1.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.16] border border-white/15 text-slate-100 flex flex-col items-center justify-center gap-1 transition cursor-pointer"
                         >
-                          U-Mutfak
+                          <svg viewBox="0 0 54 30" className="w-12 h-7" fill="none">
+                            <path d="M9 25 V5 H45 V25" stroke="#E2E8F0" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                            <path d="M12 8 H42 V24 H35 V15 H19 V24 H12 Z" stroke="#38BDF8" strokeWidth="1.3" fill="rgba(56,189,248,0.22)" strokeLinejoin="round" />
+                          </svg>
+                          <span className="text-[10px] font-bold leading-tight">U-Mutfak</span>
                         </button>
                       </div>
                     </div>
@@ -2023,6 +2111,51 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                   })}
                 </div>
 
+                {modules.some((m) => m.category === "complementary") && (
+                  <div className="space-y-1.5 pt-2 border-t border-[#E6E1D6]">
+                    <div className="text-[11px] font-bold text-[#78716C]">
+                      Kör Paneller &amp; Tamamlayıcı Parçalar ({modules.filter((m) => m.category === "complementary").length})
+                    </div>
+                    {modules.map((mod, idx) => {
+                      if (mod.category !== "complementary") return null;
+                      const isSelected = idx === activeModuleIndex;
+                      return (
+                        <div
+                          key={mod.id}
+                          onClick={() => onSelectModuleIndex(idx)}
+                          className={`p-2.5 rounded-2xl border flex items-center justify-between gap-2 transition cursor-pointer ${
+                            isSelected
+                              ? "bg-[#141413] text-white border-[#141413]"
+                              : "bg-white hover:bg-[#F5F2EA] text-[#141413] border-[#E5DFD3]"
+                          }`}
+                        >
+                          <div className="min-w-0">
+                            <div className="text-xs font-bold truncate">{mod.name}</div>
+                            <div className={`text-[10.5px] font-mono ${isSelected ? "text-[#7DD3FC]" : "text-[#78716C]"}`}>
+                              {fmtLen(mod.dimensions.width, false)} × {fmtLen(mod.dimensions.height, false)} × {fmtLen(mod.dimensions.depth)}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onRemoveModuleAt(idx);
+                            }}
+                            title="Bu kör paneli / tamamlayıcı parçayı sil"
+                            className={`w-7 h-7 rounded-full flex items-center justify-center transition cursor-pointer ${
+                              isSelected
+                                ? "hover:bg-white/15 text-stone-300 hover:text-white"
+                                : "hover:bg-red-50 text-[#78716C] hover:text-red-600"
+                            }`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
                 {sceneObjects.length > 0 && (
                   <div className="space-y-2 pt-2 border-t border-[#E6E1D6]">
                     <div className="text-[11px] font-bold text-[#78716C] flex items-center gap-1.5">
@@ -2480,7 +2613,7 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                             <label className="space-y-0.5">
                               <span className="text-[#78716C] block">En (mm)</span>
                               <input
-                                type="number"
+                                type="number" inputMode="decimal"
                                 min={40}
                                 max={6000}
                                 step={10}
@@ -2497,7 +2630,7 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                             <label className="space-y-0.5">
                               <span className="text-[#78716C] block">Boy (mm)</span>
                               <input
-                                type="number"
+                                type="number" inputMode="decimal"
                                 min={40}
                                 max={4000}
                                 step={10}
@@ -2514,7 +2647,7 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                             <label className="space-y-0.5">
                               <span className="text-[#78716C] block" title="Zeminden yükseklik (Kot)">Yerden (mm)</span>
                               <input
-                                type="number"
+                                type="number" inputMode="decimal"
                                 min={0}
                                 max={4000}
                                 step={10}
@@ -2541,7 +2674,7 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                                     Konum (mm)
                                   </span>
                                   <input
-                                    type="number"
+                                    type="number" inputMode="decimal"
                                     min={-2000}
                                     max={12000}
                                     step={50}

@@ -799,13 +799,17 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
    * on the active module and triggers full parametric 3D geometry, BOM, pricing, and validation recomputation.
    */
   const updateCarcassConfig = useCallback(
-    (patch: Partial<import("@birim/core").CarcassConfig>) => {
+    (patch: Partial<import("@birim/core").CarcassConfig>, applyToAllModules?: boolean) => {
       const state = useConfiguratorStore.getState();
       const curProj = state.project;
       const mod = curProj.modules[state.activeModuleIndex];
       if (!mod) return;
       const nextModules = curProj.modules.map((m, idx) => {
-        if (idx !== state.activeModuleIndex) return m;
+        if (applyToAllModules) {
+          if (m.category === "complementary") return m;
+        } else if (idx !== state.activeModuleIndex) {
+          return m;
+        }
         const nextBoxSys = patch.drawerBoxSystem;
         const nextBays = nextBoxSys
           ? m.bays.map((b) => ({
@@ -1377,7 +1381,9 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
                 0.5
             )
           : 600;
-      const bayCnt = Math.max(2, Math.min(4, Math.round(spec.widthMm / 600)));
+      const bayCnt = Math.max(2, Math.min(5, Math.round(spec.widthMm / 600)));
+      const approxBayW = (spec.widthMm - (bayCnt + 1) * 18) / bayCnt;
+      const useDoubleDoor = approxBayW > 600;
       const refMod = baseMods[0] || createDefaultWardrobeModule("isl_seed");
       const islId = `mod_island_${Date.now().toString().slice(-5)}`;
       const islandMod: ModuleInstance = {
@@ -1399,8 +1405,14 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
         },
         carcass: {
           ...structuredClone(refMod.carcass),
+          floorAnchored: true,
           plinthHeight: 100,
           topConstruction: "stretcher_90mm",
+          carcassJoineryTopology: "kitchen_stretchers",
+          hasWaterfallLeft: spec.waterfallLeft,
+          hasWaterfallRight: spec.waterfallRight,
+          islandBackCladding: true,
+          islandOverhangRearMm: spec.barOverhangMm,
           countertopMaterialId: spec.countertopMaterialId,
         },
         islandCountertopConfig: {
@@ -1411,7 +1423,7 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
         },
         bays: Array.from({ length: bayCnt }, (_, bIdx) => ({
           index: bIdx,
-          shelves: [{ id: `${islId}_sh_${bIdx}`, bayIndex: bIdx, elevationY: 340, isAdjustable: true }],
+          shelves: bIdx === 0 ? [] : [{ id: `${islId}_sh_${bIdx}`, bayIndex: bIdx, elevationY: 340, isAdjustable: true }],
           drawers:
             bIdx === 0
               ? [
@@ -1424,8 +1436,8 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
           door: {
             id: `${islId}_door_${bIdx}`,
             bayIndex: bIdx,
-            type: bIdx === 0 ? "open" : "single_left",
-            doorSystemId: bIdx === 0 ? "open" : "hinged_single",
+            type: bIdx === 0 ? "open" : useDoubleDoor ? "double" : "single_left",
+            doorSystemId: bIdx === 0 ? "open" : useDoubleDoor ? "hinged_double" : "hinged_single",
             softClose: true,
             handleCategory: "gola_profile",
           },
@@ -1760,6 +1772,32 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
         const hRatio = newNetH / oldNetH;
 
         nextMod.bays.forEach((b, bIdx) => {
+          // Full-stack external drawers (e.g. kitchen island / base drawer units): scale drawer heights proportionally to fill newNetH
+          const extDrawers = (b.drawers || []).filter((d) => !d.isInternal && !d.isHidden);
+          const isFullDrawerStack =
+            extDrawers.length > 0 &&
+            (b.door?.type === "open" || Boolean(nextMod.isOpenFront)) &&
+            (!b.shelves || b.shelves.length === 0) &&
+            (!b.hangingRails || b.hangingRails.length === 0);
+          if (isFullDrawerStack) {
+            const sorted = [...extDrawers].sort((a, c) => a.elevationY - c.elevationY);
+            const oldStackTop = Math.max(...sorted.map((d) => d.elevationY + d.height));
+            if (oldStackTop >= oldNetH * 0.65) {
+              const gapMm = 4;
+              const usableForDrawers = Math.max(sorted.length * 100, newNetH - gapMm * (sorted.length - 1) - 8);
+              const oldTotalH = Math.max(1, sorted.reduce((acc, d) => acc + d.height, 0));
+              let curElev = 0;
+              sorted.forEach((d, dIdx) => {
+                const nextH =
+                  dIdx === sorted.length - 1
+                    ? Math.max(100, Math.round(usableForDrawers - curElev + gapMm * dIdx))
+                    : Math.max(100, Math.round((usableForDrawers * (d.height / oldTotalH)) / 2) * 2);
+                d.elevationY = curElev;
+                d.height = nextH;
+                curElev += nextH + gapMm;
+              });
+            }
+          }
           const maxDrawerTop =
             b.drawers.length > 0
               ? Math.max(...b.drawers.map((d) => d.elevationY + d.height)) + T_p
@@ -2090,9 +2128,31 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
         }
         return m;
       });
+      const deltaX = clampedX - target.position.x;
+      const deltaZ = clampedZ - target.position.z;
+      const deltaTopY = (clampedY + clampedH) - (target.position.y + oldH);
+      const nextSceneObjects = (curProj.sceneObjects || []).map((so) => {
+        if (so.hostModuleId !== target.id) return so;
+        const isCountertopMounted =
+          so.catalogId?.includes("cooktop") ||
+          so.catalogId?.includes("sink") ||
+          so.visualKind === "cooktop_induction" ||
+          so.visualKind === "sink_undermount_faucet";
+        const nextY = isCountertopMounted
+          ? Math.max(clampedY + clampedH + 38, so.position.y + deltaTopY)
+          : so.position.y + deltaTopY;
+        return {
+          ...so,
+          position: {
+            x: so.position.x + deltaX,
+            y: nextY,
+            z: so.position.z + deltaZ,
+          },
+        };
+      });
       commitAdapterState({
         activeModuleIndex: modIdx,
-        project: { ...curProj, modules: nextMods, updatedAt: new Date().toISOString() },
+        project: { ...curProj, modules: nextMods, sceneObjects: nextSceneObjects, updatedAt: new Date().toISOString() },
       });
 
       const totalLeafCount = nextMod.bays.reduce(

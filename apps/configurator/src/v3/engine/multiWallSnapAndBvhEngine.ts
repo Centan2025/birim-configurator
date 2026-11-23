@@ -8,6 +8,7 @@ import {
 import {
   createSceneObjectInstanceFromCatalog,
   getV4TemplateById,
+  V5_SPECIALIZED_MODULE_TEMPLATES,
   KITCHEN_TEMPLATES,
   WARDROBE_TEMPLATES,
 } from "@birim/catalog";
@@ -187,12 +188,36 @@ export function computeMultiWallModuleSnap(
   }
 ): { moduleInstance: ModuleInstance; snap: MultiWallModuleSnapResult } | null {
   const tpl =
+    V5_SPECIALIZED_MODULE_TEMPLATES.find((s) => s.templateId === templateId) ||
     getV4TemplateById(templateId) ||
     WARDROBE_TEMPLATES.find((w) => w.templateId === templateId) ||
     KITCHEN_TEMPLATES.find((k) => k.templateId === templateId);
   if (!tpl) return null;
 
   const newMod = tpl.createInstance(`mod_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`);
+  const isFreestandingIslandOrTable =
+    newMod.carcass.hullShape === "capsule_table" || newMod.category === "kitchen_island";
+  if (isFreestandingIslandOrTable && typeof targetHint?.worldX !== "number" && typeof targetHint?.worldZ !== "number") {
+    const existingFreeCount = project.modules.filter(
+      (m) => m.carcass.hullShape === "capsule_table" || m.category === "kitchen_island"
+    ).length;
+    newMod.position = {
+      x: Math.round(450 + existingFreeCount * 320),
+      y: newMod.position.y || 0,
+      z: Math.round(1150 + existingFreeCount * 220),
+    };
+    newMod.rotation = { x: 0, y: 0, z: 0 };
+    return {
+      moduleInstance: newMod,
+      snap: {
+        wallId: targetHint?.wallId || project.space.walls?.[0]?.id || "wall_main",
+        wallName: "Serbest Oda Alanı",
+        position: { ...newMod.position },
+        rotationYDeg: 0,
+        snapLabel: "Serbest Oda Yerleşimi",
+      },
+    };
+  }
   const isWallCab =
     newMod.category === "kitchen_wall" || newMod.moduleFamilyId === "fam_kitchen_wall";
   const targetY = isWallCab ? 1450 : newMod.position.y || 0;
@@ -452,14 +477,15 @@ export function solveSceneObjectPlacementSnap(
       const elevY =
         hostCand.category === "kitchen_tall"
           ? baseObj.visualKind === "microwave_builtin"
-            ? 1445
-            : 840
+            ? 1466
+            : 856
           : (hostCand.carcass.plinthHeight || 100) + 18;
+      const frontBezelCompensationMm = 54; // 18mm door front + ~36mm protruding handle inside GLB bbox
       baseObj.hostModuleId = hostCand.id;
       baseObj.position = {
         x: Math.round(hostCand.position.x + (hostCand.dimensions.width - baseObj.dimensions.width) / 2),
         y: elevY,
-        z: Math.round(hostCand.position.z + Math.max(10, hostCand.dimensions.depth - baseObj.dimensions.depth)),
+        z: Math.round(hostCand.position.z + Math.max(10, hostCand.dimensions.depth - baseObj.dimensions.depth + frontBezelCompensationMm)),
       };
       baseObj.rotation = hostCand.rotation ? { ...hostCand.rotation } : { x: 0, y: 0, z: 0 };
       return {

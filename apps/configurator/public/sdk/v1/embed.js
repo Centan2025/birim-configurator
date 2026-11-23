@@ -43,7 +43,9 @@
     iframe.title = tenantSlug.toUpperCase() + " 3D Mobilya Konfigüratörü";
     iframe.allow = "xr-spatial-tracking; fullscreen; clipboard-write";
     iframe.style.width = "100%";
-    iframe.style.height = opts.height || "780px";
+    var isNarrowViewport = typeof global.innerWidth === "number" && global.innerWidth < 768;
+    iframe.style.height = opts.height || (isNarrowViewport ? "88dvh" : "780px");
+    iframe.style.minHeight = isNarrowViewport ? "520px" : "480px";
     iframe.style.border = "0";
     iframe.style.borderRadius = "16px";
     iframe.style.display = "block";

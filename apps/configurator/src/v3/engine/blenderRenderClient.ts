@@ -64,12 +64,21 @@ export async function renderSceneWithBlenderCycles(
   for (const root of roots) {
     root.traverse((obj) => {
       const maybeLine = obj as THREE.Object3D & { isLine?: boolean; isLineSegments?: boolean; isPoints?: boolean };
+      const isFakeWebGlGlowOrOverlayMesh = (m: THREE.Material | undefined | null): boolean => {
+        if (!m) return false;
+        if (m.visible === false) return true;
+        // glTF 2.0 / Blender Cycles does not support AdditiveBlending: WebGL spotlight cones & LED halo planes turn into black shadow/intersection triangles!
+        if (m.blending === THREE.AdditiveBlending) return true;
+        if (m instanceof THREE.MeshBasicMaterial && m.transparent && m.depthWrite === false) return true;
+        return false;
+      };
       const isInvisibleMesh =
         obj instanceof THREE.Mesh &&
         (obj.userData?.isSceneObjectHitbox === true ||
+          obj.userData?.isResizeHandle3D === true ||
           (Array.isArray(obj.material)
-            ? obj.material.length > 0 && obj.material.every((m) => m && m.visible === false)
-            : Boolean(obj.material && (obj.material as THREE.Material).visible === false)));
+            ? obj.material.length > 0 && obj.material.every((m) => isFakeWebGlGlowOrOverlayMesh(m))
+            : isFakeWebGlGlowOrOverlayMesh(obj.material as THREE.Material)));
       if ((maybeLine.isLine || maybeLine.isLineSegments || maybeLine.isPoints || isInvisibleMesh) && obj.visible) {
         hiddenLines.push({ obj, prevVis: obj.visible });
         obj.visible = false;

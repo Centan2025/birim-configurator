@@ -7,7 +7,7 @@ import {
   type HandleCategory,
   type ModuleInstance,
 } from "@birim/core";
-import { KITCHEN_TEMPLATES, WARDROBE_TEMPLATES, getV4TemplateById } from "@birim/catalog";
+import { KITCHEN_TEMPLATES, WARDROBE_TEMPLATES, getV4TemplateById, createSceneObjectInstanceFromCatalog } from "@birim/catalog";
 import { generateBOMForProject } from "@birim/manufacturing";
 import { calculateProjectPrice } from "@birim/pricing";
 
@@ -438,6 +438,419 @@ export function buildGuidedWizardProject(
         wizardCleanRoom: true,
       } as typeof curProj.space,
       modules: kModules,
+      sceneObjects: [],
+    };
+  }
+
+  // Gerçek Salon TV Duvarı / Vitrin / Oturmalı Vestiyer Yerleşimi (I-Tipi, L-Tipi, U-Tipi):
+  if (wiz.spaceCategory === "living") {
+    const isU = wiz.roomShape === "u_shape";
+    const isL = wiz.roomShape === "l_shape";
+    const isVestiyer = wiz.interiorFocus === "hanging";
+    const isGlassTower = effectiveDoorStyle === "glass";
+    const isOpenTower = effectiveDoorStyle === "open";
+    const livingDepth = Math.max(380, Math.min(520, effDepth));
+    const benchDepth = Math.min(480, livingDepth);
+    const towerDepth = Math.min(420, livingDepth);
+    const upperDepth = 350;
+    const benchH = 460;
+    const upperH = 400;
+    const upperY = Math.max(1780, effHeight - upperH);
+    const tsL = Date.now() + Math.floor(Math.random() * 10000);
+    const lModules: ModuleInstance[] = [];
+    const lSceneObjects: NonNullable<DesignProject["sceneObjects"]> = [];
+
+    // Width distribution: Left Tower + Center Bench/TV + Right Tower
+    const hasTwoTowers = usableSpan >= 1800;
+    const towerW = hasTwoTowers
+      ? Math.max(450, Math.min(800, Math.round((usableSpan * 0.25) / 50) * 50))
+      : Math.max(450, Math.min(650, Math.round((usableSpan * 0.35) / 50) * 50));
+    const centerW = hasTwoTowers
+      ? Math.max(900, usableSpan - towerW * 2)
+      : Math.max(800, usableSpan - towerW);
+
+    const baseTpl = WARDROBE_TEMPLATES[0];
+
+    const makeTallTower = (
+      id: string,
+      title: string,
+      posX: number,
+      posZ: number,
+      rotY: number,
+      wMm: number
+    ): ModuleInstance => {
+      const m = baseTpl ? baseTpl.createInstance(id, title) : createDefaultWardrobeModule(id);
+      m.name = title;
+      m.moduleSubType = isVestiyer ? "vestiyer_tower" : isOpenTower ? "tv_bookcase" : "tv_vitrine";
+      m.dimensions = { width: wMm, height: effHeight, depth: towerDepth };
+      m.position = { x: posX, y: 0, z: posZ };
+      m.rotation = { x: 0, y: rotY, z: 0 };
+      m.isOpenFront = isOpenTower;
+      const T = m.carcass.panelThickness || 18;
+      const plinthH = 80;
+      const netH = Math.max(600, effHeight - plinthH - 2 * T);
+      m.carcass = {
+        ...m.carcass,
+        wallAnchored: true,
+        plinthHeight: plinthH,
+        bodyMaterialId: chosenMats.body,
+        doorMaterialId: isGlassTower ? "mat_smoked_glass" : chosenMats.door,
+        crossSectionProfile: isGlassTower ? "glass_frame" : "flat_slab",
+        ledLightingEnabled: wiz.addLed,
+        ledColorTempK: 3000,
+      };
+      const bay0 = JSON.parse(JSON.stringify(m.bays[0]));
+      const nextFittings: typeof bay0.specialFittings = wiz.addLed
+        ? [
+            {
+              id: `fit_led_${id}_0`,
+              bayIndex: 0,
+              elevationY: Math.max(400, netH - 48),
+              type: "led_profile",
+              height: 20,
+            },
+          ]
+        : [];
+      const doorType = isOpenTower
+        ? ("open" as const)
+        : wMm >= 650
+        ? ("double" as const)
+        : posX <= fillerEach + 50
+        ? ("single_left" as const)
+        : ("single_right" as const);
+      const doorSys =
+        doorType === "open"
+          ? ("open" as const)
+          : doorType === "double"
+          ? ("hinged_double" as const)
+          : ("hinged_single" as const);
+
+      const stepY = Math.floor(netH / 5 / 32) * 32;
+      const shelves = isVestiyer
+        ? [
+            {
+              id: `sh_${id}_top`,
+              bayIndex: 0,
+              elevationY: Math.round((netH - 340) / 32) * 32,
+              isAdjustable: false,
+              thickness: 18,
+            },
+            {
+              id: `sh_${id}_shoe`,
+              bayIndex: 0,
+              elevationY: 256,
+              isAdjustable: true,
+              thickness: 18,
+            },
+          ]
+        : [1, 2, 3, 4]
+            .map((k) => ({
+              id: `sh_${id}_${k}`,
+              bayIndex: 0,
+              elevationY: Math.max(288, stepY * k),
+              isAdjustable: k !== 2,
+              thickness: 18,
+            }))
+            .filter((s) => s.elevationY < netH - 140);
+
+      const rails = isVestiyer
+        ? [
+            {
+              id: `rl_${id}_coat`,
+              bayIndex: 0,
+              elevationY: Math.max(900, Math.round((netH - 404) / 32) * 32),
+            },
+          ]
+        : [];
+
+      m.bays = [
+        {
+          ...bay0,
+          index: 0,
+          customWidth: undefined,
+          shelves,
+          hangingRails: rails,
+          drawers: [],
+          specialFittings: nextFittings,
+          door: {
+            ...bay0.door,
+            id: `door_${id}_0`,
+            bayIndex: 0,
+            type: doorType,
+            doorSystemId: doorSys,
+            handleCategory: isOpenTower ? "handleless_plain" : "bar_handle",
+            handleProfileId: isOpenTower ? undefined : "K019",
+            hardwareProductId: "hw_blum_71b3550",
+            doorMaterialId: isGlassTower ? "mat_smoked_glass" : chosenMats.door,
+            isGlassFramed: isGlassTower,
+            crossSectionProfile: isGlassTower ? "glass_frame" : "flat_slab",
+            softClose: true,
+          },
+        },
+      ];
+      return m;
+    };
+
+    // 1. Left Tall Tower (Vitrine / Bookcase / Coat Closet)
+    const leftX = fillerEach;
+    lModules.push(
+      makeTallTower(
+        `mod_liv_l_${tsL}`,
+        isVestiyer
+          ? "Vestiyer Portmanto Kulesi"
+          : isGlassTower
+          ? "Sol Füme Cam Vitrin"
+          : isOpenTower
+          ? "Sol Açık Kitaplık"
+          : "Sol Depolama Kulesi",
+        leftX,
+        0,
+        0,
+        towerW
+      )
+    );
+
+    // 2 & 3. Center Low TV Bench + Upper Bridge — Auto-split into <=2200mm manufacturable carcasses (zero 2770mm sheet or 1150mm drawer errors!)
+    const centerX = leftX + towerW;
+    const centerModCount = Math.max(1, Math.ceil(centerW / 2200));
+    let curCenterX = centerX;
+    for (let cIdx = 0; cIdx < centerModCount; cIdx++) {
+      const thisCenterW =
+        cIdx === centerModCount - 1
+          ? centerX + centerW - curCenterX
+          : Math.round(centerW / centerModCount / 10) * 10;
+      const suffix = centerModCount > 1 ? ` #${cIdx + 1}` : "";
+
+      const benchId = `mod_liv_bench_${tsL}_${cIdx + 1}`;
+      const benchMod = baseTpl
+        ? baseTpl.createInstance(benchId, `${isVestiyer ? "Oturmalı Vestiyer Bankı" : "TV Medya Konsolu"}${suffix}`)
+        : createDefaultWardrobeModule(benchId);
+      benchMod.name = `${isVestiyer ? "Oturmalı Vestiyer Bankı" : "TV Medya Konsolu"}${suffix}`;
+      benchMod.moduleSubType = isVestiyer ? "vestiyer_bench" : "tv_bench";
+      benchMod.dimensions = { width: thisCenterW, height: benchH, depth: benchDepth };
+      benchMod.position = { x: curCenterX, y: 0, z: 0 };
+      benchMod.rotation = { x: 0, y: 0, z: 0 };
+      benchMod.isOpenFront = true;
+      benchMod.carcass = {
+        ...benchMod.carcass,
+        wallAnchored: true,
+        plinthHeight: 60,
+        bodyMaterialId: chosenMats.body,
+        doorMaterialId: chosenMats.door,
+        crossSectionProfile: "flat_slab",
+        ledLightingEnabled: false,
+      };
+      // Guarantee every drawer bay <= 850mm (well within 1150mm soft-close runner engineering limit)
+      const benchBayCount = Math.max(2, Math.ceil(thisCenterW / 850));
+      const bRef = JSON.parse(JSON.stringify(benchMod.bays[0]));
+      benchMod.bays = Array.from({ length: benchBayCount }).map((_, bIdx) => ({
+        ...bRef,
+        index: bIdx,
+        customWidth: undefined,
+        shelves: [],
+        hangingRails: [],
+        specialFittings: [],
+        drawers: [
+          {
+            id: `drw_liv_${tsL}_${cIdx}_${bIdx}`,
+            bayIndex: bIdx,
+            height: 320,
+            elevationY: 0,
+            slideType: "soft_close" as const,
+            frontMaterialId: chosenMats.door,
+          },
+        ],
+        door: {
+          ...bRef.door,
+          id: `door_liv_bench_${tsL}_${cIdx}_${bIdx}`,
+          bayIndex: bIdx,
+          type: "open" as const,
+          doorSystemId: "open" as const,
+          handleCategory: "handleless_plain" as const,
+          softClose: true,
+        },
+      }));
+      lModules.push(benchMod);
+
+      const bridgeId = `mod_liv_top_${tsL}_${cIdx + 1}`;
+      const bridgeMod = baseTpl
+        ? baseTpl.createInstance(bridgeId, `${isVestiyer ? "Üst Vestiyer Köprü Dolabı" : "TV Üst Köprü Dolabı"}${suffix}`)
+        : createDefaultWardrobeModule(bridgeId);
+      bridgeMod.name = `${isVestiyer ? "Üst Vestiyer Köprü Dolabı" : "TV Üst Köprü Dolabı"}${suffix}`;
+      bridgeMod.moduleSubType = isVestiyer ? "vestiyer_bridge" : "tv_bridge";
+      bridgeMod.dimensions = { width: thisCenterW, height: upperH, depth: upperDepth };
+      bridgeMod.position = { x: curCenterX, y: upperY, z: 0 };
+      bridgeMod.rotation = { x: 0, y: 0, z: 0 };
+      bridgeMod.isOpenFront = false;
+      bridgeMod.carcass = {
+        ...bridgeMod.carcass,
+        wallAnchored: true,
+        plinthHeight: 0,
+        bodyMaterialId: chosenMats.body,
+        doorMaterialId: chosenMats.door,
+        crossSectionProfile: "flat_slab",
+        ledLightingEnabled: wiz.addLed,
+        ledColorTempK: 3000,
+      };
+      // Guarantee every double-door leaf <= 550mm (bay <= 1100mm)
+      const brBayCount = Math.max(1, Math.ceil(thisCenterW / 1100));
+      const brRef = JSON.parse(JSON.stringify(bridgeMod.bays[0]));
+      bridgeMod.bays = Array.from({ length: brBayCount }).map((_, bIdx) => ({
+        ...brRef,
+        index: bIdx,
+        customWidth: undefined,
+        shelves: [],
+        hangingRails: [],
+        drawers: [],
+        specialFittings: [],
+        door: {
+          ...brRef.door,
+          id: `door_liv_top_${tsL}_${cIdx}_${bIdx}`,
+          bayIndex: bIdx,
+          type: "double" as const,
+          doorSystemId: "hinged_double" as const,
+          handleCategory: "handleless_plain" as const,
+          openingTechnology: "push_to_open" as const,
+          hardwareProductId: "hw_blum_71b3550",
+          doorMaterialId: chosenMats.door,
+          isGlassFramed: false,
+          crossSectionProfile: "flat_slab" as const,
+          softClose: true,
+        },
+      }));
+      lModules.push(bridgeMod);
+
+      curCenterX += thisCenterW;
+    }
+
+    // 4. Right Tall Tower (when wide enough)
+    if (hasTwoTowers) {
+      lModules.push(
+        makeTallTower(
+          `mod_liv_r_${tsL}`,
+          isVestiyer
+            ? "Sağ Ayakkabı & Depolama Kulesi"
+            : isGlassTower
+            ? "Sağ Füme Cam Vitrin"
+            : isOpenTower
+            ? "Sağ Açık Kitaplık"
+            : "Sağ Depolama Kulesi",
+          centerX + centerW,
+          0,
+          0,
+          towerW
+        )
+      );
+    }
+
+    // 5. Mounted 65" OLED TV centered above the TV bench (for TV layouts, not Vestiyer)
+    if (!isVestiyer) {
+      const tvObj = createSceneObjectInstanceFromCatalog("obj_wall_tv_65", {
+        position: {
+          x: Math.max(centerX + 20, Math.round(centerX + (centerW - 1450) / 2)),
+          y: Math.min(upperY - 880, benchH + 280),
+          z: 20,
+        },
+      });
+      if (tvObj) {
+        if (centerW < 1500) {
+          const fitTvW = Math.max(900, centerW - 100);
+          tvObj.dimensions = {
+            ...tvObj.dimensions,
+            width: fitTvW,
+            height: Math.round(fitTvW * 0.57),
+          };
+          tvObj.position.x = Math.round(centerX + (centerW - fitTvW) / 2);
+          tvObj.position.y = Math.round(benchH + Math.max(180, (upperY - benchH - tvObj.dimensions.height) / 2));
+        }
+        lSceneObjects.push(tvObj);
+      }
+    }
+
+    // 6. Optional L-Shape / U-Shape 90-degree return vitrine/storage wing(s)
+    const wingW = 900;
+    const wingStartZ = benchDepth + 80;
+    const returnWallLenL = Math.max(2000, wingStartZ + wingW + 120);
+    if (isL || isU) {
+      lModules.push(
+        makeTallTower(
+          `mod_liv_wing_r_${tsL}`,
+          isGlassTower ? "Sağ Dönüş Füme Cam Vitrin" : "Sağ Dönüş Ünitesi",
+          safeWallW - towerDepth,
+          wingStartZ,
+          270,
+          wingW
+        )
+      );
+    }
+    if (isU) {
+      lModules.push(
+        makeTallTower(
+          `mod_liv_wing_l_${tsL}`,
+          isGlassTower ? "Sol Dönüş Füme Cam Vitrin" : "Sol Dönüş Ünitesi",
+          towerDepth,
+          wingStartZ + wingW,
+          90,
+          wingW
+        )
+      );
+    }
+
+    const lWalls = [
+      {
+        id: "wall_main",
+        name: "Ana Salon / Vestiyer Duvarı",
+        length: safeWallW,
+        height: ceilH,
+        thickness: 150,
+        position: { x: 0, y: 0, z: 0 },
+        rotationY: 0,
+        elements: [],
+      },
+      ...(isL || isU
+        ? [
+            {
+              id: "wall_right_return",
+              name: "Sağ Yan Duvar",
+              length: returnWallLenL,
+              height: ceilH,
+              thickness: 150,
+              position: { x: safeWallW, y: 0, z: 0 },
+              rotationY: 90,
+              elements: [],
+            },
+          ]
+        : []),
+      ...(isU
+        ? [
+            {
+              id: "wall_left_return",
+              name: "Sol Yan Duvar",
+              length: returnWallLenL,
+              height: ceilH,
+              thickness: 150,
+              position: { x: 0, y: 0, z: 0 },
+              rotationY: 90,
+              elements: [],
+            },
+          ]
+        : []),
+    ];
+
+    return {
+      ...curProj,
+      version: (curProj.version || 1) + 1,
+      updatedAt: new Date().toISOString(),
+      space: {
+        ...curProj.space,
+        type: isU ? ("u_shape" as const) : isL ? ("l_shape" as const) : ("rectangular" as const),
+        ceilingHeight: ceilH,
+        walls: lWalls,
+        elements: [],
+        wizardCleanRoom: true,
+      } as unknown as typeof curProj.space,
+      modules: lModules,
+      sceneObjects: lSceneObjects,
     };
   }
 
@@ -488,7 +901,7 @@ export function buildGuidedWizardProject(
         ? modCount === 1
           ? "Sürgülü Gardırop Modülü"
           : `Sürgülü Gardırop #${i + 1}`
-        : wiz.spaceCategory === "living"
+        : (wiz.spaceCategory as string) === "living"
         ? `Vitrin & Depolama #${i + 1}`
         : wiz.spaceCategory === "walkin"
         ? `Giyinme Ünitesi #${i + 1}`
@@ -507,7 +920,8 @@ export function buildGuidedWizardProject(
       ...m.carcass,
       wallAnchored: true,
       bodyMaterialId: chosenMats.body,
-      doorMaterialId: chosenMats.door,
+      doorMaterialId: effectiveDoorStyle === "glass" ? "mat_smoked_glass" : chosenMats.door,
+      crossSectionProfile: effectiveDoorStyle === "glass" ? "glass_frame" : "flat_slab",
       ledLightingEnabled: wiz.addLed && (wiz.spaceCategory as string) !== "kitchen",
       ledColorTempK: 3000,
       ...(thisW > 2750 ? { allowJumboSheet3660: true } : {}),
@@ -756,6 +1170,24 @@ export function buildGuidedWizardProject(
             });
           }
         }
+        const canFitJewelryTray =
+          approxBayClearW >= 360 &&
+          approxBayClearW <= 1180 &&
+          effDepth >= 450 &&
+          (wiz.spaceCategory === "wardrobe" || wiz.spaceCategory === "walkin" || wiz.spaceCategory === "living") &&
+          isDrawerBay;
+        if (wiz.addJewelryTray && i === 0 && canFitJewelryTray) {
+          nextShelves = nextShelves.map((s) =>
+            s.elevationY >= 370 && s.elevationY < 512 ? { ...s, elevationY: 512 } : s
+          );
+          nextFittings.push({
+            id: `fit_jw_${m.id}_${bIdx}`,
+            bayIndex: bIdx,
+            elevationY: 384,
+            type: "jewelry_tray",
+            height: 85,
+          });
+        }
       }
 
       const leafSpanEst = nextDoorType === "double" ? approxBayClearW / 2 : approxBayClearW;
@@ -969,6 +1401,7 @@ export function buildGuidedWizardProject(
     updatedAt: new Date().toISOString(),
     space: nextSpace,
     modules: builtModules,
+    sceneObjects: [],
   };
 }
 
@@ -1072,6 +1505,65 @@ export function generateSmartStarterTemplates(
               kitchenWallOpening: "hinged",
               conceptTier: "eco",
               addLed: false,
+            },
+          },
+        ]
+      : opts.spaceCategory === "living"
+      ? [
+          {
+            id: "starter_living_tv_vitrine",
+            title: "TV Duvarı & Füme Cam Vitrin",
+            subtitle: "Alçak medya konsolu, 65\" OLED TV, üst köprü ve iki yanda LED füme cam vitrin",
+            badge: "En Çok Seçilen",
+            overrides: {
+              interiorFocus: "balanced",
+              doorStyle: "glass",
+              conceptTier: "smart",
+              addLed: true,
+              addTrouserRack: false,
+              addJewelryTray: false,
+            },
+          },
+          {
+            id: "starter_living_tv_bookcase",
+            title: "Modern TV Ünitesi & Açık Kitaplık",
+            subtitle: "Ortada 65\" TV ve çekmeceli konsol, iki yanda 3000K LED aydınlatmalı açık kitaplık",
+            badge: "Modern Salon",
+            overrides: {
+              interiorFocus: "shelves",
+              doorStyle: "open",
+              conceptTier: "smart",
+              addLed: true,
+              addTrouserRack: false,
+              addJewelryTray: false,
+            },
+          },
+          {
+            id: "starter_living_vestiyer_bench",
+            title: "Oturmalı Antre & Vestiyer",
+            subtitle: "Portmanto askı kulesi, ortada çekmeceli oturma bankı, üst köprü ve ayakkabı dolabı",
+            badge: "Antre / Vestiyer",
+            overrides: {
+              interiorFocus: "hanging",
+              doorStyle: "hinged",
+              conceptTier: "smart",
+              addLed: true,
+              addTrouserRack: false,
+              addJewelryTray: false,
+            },
+          },
+          {
+            id: "starter_living_vitrine_signature",
+            title: "Füme Cam Vitrin & LED Signature",
+            subtitle: "Ceviz/vizon gövde, çerçeveli füme cam vitrin kuleleri, 65\" TV ve 3000K gömme LED",
+            badge: "Signature",
+            overrides: {
+              interiorFocus: "balanced",
+              doorStyle: "glass",
+              conceptTier: "signature",
+              addLed: true,
+              addTrouserRack: false,
+              addJewelryTray: false,
             },
           },
         ]

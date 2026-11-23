@@ -14,6 +14,17 @@ import {
   ShieldCheck,
   FileSpreadsheet,
   Tag,
+  ChevronDown,
+  ChevronUp,
+  ChevronRight,
+  Search,
+  Code2,
+  PanelRightOpen,
+  PanelRightClose,
+  Copy,
+  Printer,
+  Package,
+  Check,
 } from "lucide-react";
 import { DEFAULT_MATERIALS, evaluateUnifiedEngineeringModel, buildHardwareCertificationSummary, exportHardwareCertificationCsv, type RemediationProposal } from "@birim/core";
 import { V4_HARDWARE_CATALOG } from "@birim/catalog";
@@ -69,6 +80,255 @@ function escapeHtml(raw: unknown): string {
     .replace(/'/g, "&#39;");
 }
 
+function countActiveBands(eb: CutPiece["edgeBanding"]): number {
+  return (eb.top ? 1 : 0) + (eb.bottom ? 1 : 0) + (eb.left ? 1 : 0) + (eb.right ? 1 : 0);
+}
+
+function getPieceDxfLayers(p: CutPiece): string[] {
+  const layers = ["PANEL_CONTOUR", "NET_CUT_CONTOUR"];
+  if (p.hasBackGroove) layers.push("BACK_GROOVE_8MM");
+  if (p.tambourTrackGrooveSpec) layers.push("TAMBOUR_TRACK_W8_5_Z7_5");
+  if (p.kerfBendingMeta) layers.push("KERF_SLOTS");
+  if (p.holes && p.holes.length > 0) {
+    if (p.holes.some((h) => h.purpose === "minifix_cam" || h.purpose === "minifix_bolt")) {
+      layers.push("MINIFIX_D15");
+    }
+    if (p.holes.some((h) => h.purpose === "dowel")) {
+      layers.push("DOWEL_D8");
+    }
+    if (p.holes.some((h) => h.purpose === "hinge_cup" || h.purpose === "hinge_mount")) {
+      layers.push("HINGE_D35");
+    }
+    if (p.holes.length >= 6) {
+      layers.push("SYSTEM_32_HOLES");
+    }
+  }
+  return layers;
+}
+
+const MiniEdgeBandSvg: React.FC<{ edgeBanding: CutPiece["edgeBanding"] }> = ({ edgeBanding }) => {
+  const activeCount = countActiveBands(edgeBanding);
+  const strokeColor = activeCount === 4 ? "#D97706" : "#2563EB";
+  const labels: string[] = [];
+  if (edgeBanding.top) labels.push("Üst");
+  if (edgeBanding.bottom) labels.push("Alt");
+  if (edgeBanding.left) labels.push("Sol");
+  if (edgeBanding.right) labels.push("Sağ");
+
+  return (
+    <svg
+      width="22"
+      height="16"
+      viewBox="0 0 22 16"
+      className="shrink-0"
+      aria-label={labels.length ? `Bantlı Kenarlar: ${labels.join(", ")}` : "Bantsız"}
+    >
+      <rect
+        x="2"
+        y="2"
+        width="18"
+        height="12"
+        rx="1.2"
+        fill="#F5F2EA"
+        stroke="#CBD5E1"
+        strokeWidth="1"
+      />
+      {edgeBanding.top && (
+        <line x1="2" y1="2" x2="20" y2="2" stroke={strokeColor} strokeWidth="2.3" strokeLinecap="round" />
+      )}
+      {edgeBanding.bottom && (
+        <line x1="2" y1="14" x2="20" y2="14" stroke={strokeColor} strokeWidth="2.3" strokeLinecap="round" />
+      )}
+      {edgeBanding.left && (
+        <line x1="2" y1="2" x2="2" y2="14" stroke={strokeColor} strokeWidth="2.3" strokeLinecap="round" />
+      )}
+      {edgeBanding.right && (
+        <line x1="20" y1="2" x2="20" y2="14" stroke={strokeColor} strokeWidth="2.3" strokeLinecap="round" />
+      )}
+    </svg>
+  );
+};
+
+const CutPieceBlueprintSvg: React.FC<{
+  piece: CutPiece;
+  layers: { bant: boolean; cnc: boolean; olcu: boolean };
+}> = ({ piece, layers }) => {
+  const boxW = 196;
+  const boxH = 114;
+  const boy = Math.max(1, piece.lengthMm);
+  const en = Math.max(1, piece.widthMm);
+  const ratio = boy / en;
+  let w: number;
+  let h: number;
+  if (ratio >= boxW / boxH) {
+    w = boxW;
+    h = Math.max(36, boxW / ratio);
+  } else {
+    h = boxH;
+    w = Math.max(54, boxH * ratio);
+  }
+  const x = (300 - w) / 2;
+  const y = (196 - h) / 2;
+  const eb = piece.edgeBanding;
+  const bandCount = countActiveBands(eb);
+  const bandColor = bandCount === 4 ? "#F59E0B" : "#3B82F6";
+  const bandText = bandCount === 4 ? "#FDE68A" : "#93C5FD";
+  const netL = piece.netCutLengthMm ?? piece.lengthMm;
+  const netW = piece.netCutWidthMm ?? piece.widthMm;
+  const topY = y - (eb.top && layers.bant ? 22 : 13);
+  const rightX = x + w + (eb.right && layers.bant ? 28 : 13);
+  const botY = y + h + (eb.bottom && layers.bant ? 24 : 15);
+
+  return (
+    <svg
+      viewBox="0 0 300 196"
+      className="w-full h-[196px] rounded-xl bg-[#0F131A] border border-slate-800/80 shadow-inner"
+      aria-label={`${piece.pieceName} 2D teknik çizim`}
+    >
+      <defs>
+        <pattern id="bomEngGrid" width="15" height="15" patternUnits="userSpaceOnUse">
+          <path d="M 15 0 L 0 0 0 15" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="0.7" />
+        </pattern>
+      </defs>
+      <rect width="300" height="196" fill="url(#bomEngGrid)" />
+      {/* Finished contour */}
+      <rect
+        x={x}
+        y={y}
+        width={w}
+        height={h}
+        fill="rgba(255,255,255,0.04)"
+        stroke="rgba(255,255,255,0.28)"
+        strokeWidth="1"
+      />
+      {/* Net cut contour */}
+      <rect
+        x={x + 2.5}
+        y={y + 2.5}
+        width={Math.max(4, w - 5)}
+        height={Math.max(4, h - 5)}
+        fill="none"
+        stroke="rgba(52,211,153,0.32)"
+        strokeWidth="0.7"
+        strokeDasharray="2.5 2.5"
+      />
+
+      {/* Edge banding layer */}
+      {layers.bant && (
+        <g>
+          {eb.top && (
+            <>
+              <line x1={x} y1={y} x2={x + w} y2={y} stroke={bandColor} strokeWidth="3" />
+              <rect x={x + w / 2 - 11} y={y - 11} width="22" height="10" rx="2.5" fill="#0F131A" stroke={bandColor} strokeWidth="0.75" />
+              <text x={x + w / 2} y={y - 3.5} textAnchor="middle" fill={bandText} fontFamily="monospace" fontSize="7.5">Ü</text>
+            </>
+          )}
+          {eb.bottom && (
+            <>
+              <line x1={x} y1={y + h} x2={x + w} y2={y + h} stroke={bandColor} strokeWidth="3" />
+              <rect x={x + w / 2 - 11} y={y + h + 2} width="22" height="10" rx="2.5" fill="#0F131A" stroke={bandColor} strokeWidth="0.75" />
+              <text x={x + w / 2} y={y + h + 9.5} textAnchor="middle" fill={bandText} fontFamily="monospace" fontSize="7.5">A</text>
+            </>
+          )}
+          {eb.left && (
+            <>
+              <line x1={x} y1={y} x2={x} y2={y + h} stroke={bandColor} strokeWidth="3" />
+              <rect x={x - 18} y={y + h / 2 - 5} width="15" height="10" rx="2.5" fill="#0F131A" stroke={bandColor} strokeWidth="0.75" />
+              <text x={x - 10.5} y={y + h / 2 + 2.5} textAnchor="middle" fill={bandText} fontFamily="monospace" fontSize="7.5">S</text>
+            </>
+          )}
+          {eb.right && (
+            <>
+              <line x1={x + w} y1={y} x2={x + w} y2={y + h} stroke={bandColor} strokeWidth="3" />
+              <rect x={x + w + 3} y={y + h / 2 - 5} width="17" height="10" rx="2.5" fill="#0F131A" stroke={bandColor} strokeWidth="0.75" />
+              <text x={x + w + 11.5} y={y + h / 2 + 2.5} textAnchor="middle" fill={bandText} fontFamily="monospace" fontSize="7.5">Sa</text>
+            </>
+          )}
+        </g>
+      )}
+
+      {/* CNC holes, back groove & kerf layer */}
+      {layers.cnc && (
+        <g>
+          {piece.hasBackGroove && (
+            <line
+              x1={x + 3}
+              y1={y + h - 8}
+              x2={x + w - 3}
+              y2={y + h - 8}
+              stroke="#F59E0B"
+              strokeWidth="1.5"
+              strokeDasharray="3.5 2.5"
+              opacity="0.85"
+            />
+          )}
+          {piece.kerfBendingMeta &&
+            Array.from({ length: Math.min(18, Math.max(6, piece.kerfBendingMeta.kerfCount)) }).map((_, ki, arr) => {
+              const kx = x + 6 + (ki / Math.max(1, arr.length - 1)) * (w - 12);
+              return (
+                <line
+                  key={ki}
+                  x1={kx}
+                  y1={y + 4}
+                  x2={kx}
+                  y2={y + h - 4}
+                  stroke="#F59E0B"
+                  strokeOpacity="0.45"
+                  strokeWidth="0.8"
+                />
+              );
+            })}
+          {(piece.holes || []).slice(0, 48).map((hole, hi) => {
+            const normX = Math.max(0.04, Math.min(0.96, hole.y / boy));
+            const normY = Math.max(0.06, Math.min(0.94, hole.x / en));
+            const hx = x + normX * w;
+            const hy = y + normY * h;
+            const isCamOrCup = hole.purpose === "minifix_cam" || hole.purpose === "hinge_cup";
+            return (
+              <circle
+                key={hole.id || hi}
+                cx={hx}
+                cy={hy}
+                r={isCamOrCup ? 3.1 : 1.9}
+                fill={isCamOrCup ? "rgba(245,158,11,0.22)" : "#38BDF8"}
+                stroke={isCamOrCup ? "#F59E0B" : "#E0F2FE"}
+                strokeWidth={isCamOrCup ? 1.1 : 0.5}
+              />
+            );
+          })}
+        </g>
+      )}
+
+      {/* Dimension lines */}
+      {layers.olcu && (
+        <g>
+          <line x1={x} y1={topY} x2={x + w} y2={topY} stroke="rgba(255,255,255,0.25)" strokeWidth="0.8" />
+          <line x1={x} y1={topY - 2.5} x2={x} y2={topY + 2.5} stroke="rgba(255,255,255,0.4)" strokeWidth="0.8" />
+          <line x1={x + w} y1={topY - 2.5} x2={x + w} y2={topY + 2.5} stroke="rgba(255,255,255,0.4)" strokeWidth="0.8" />
+          <text x={x + w / 2} y={topY - 4} textAnchor="middle" fill="#E2E8F0" fontFamily="monospace" fontSize="8.5">
+            {piece.lengthMm} mm
+          </text>
+
+          <line x1={rightX} y1={y} x2={rightX} y2={y + h} stroke="rgba(255,255,255,0.25)" strokeWidth="0.8" />
+          <line x1={rightX - 2.5} y1={y} x2={rightX + 2.5} y2={y} stroke="rgba(255,255,255,0.4)" strokeWidth="0.8" />
+          <line x1={rightX - 2.5} y1={y + h} x2={rightX + 2.5} y2={y + h} stroke="rgba(255,255,255,0.4)" strokeWidth="0.8" />
+          <text x={rightX + 5} y={y + h / 2 + 3} textAnchor="start" fill="#E2E8F0" fontFamily="monospace" fontSize="8">
+            {piece.widthMm}
+          </text>
+
+          <text x={x + w / 2} y={Math.min(191, botY + 5)} textAnchor="middle" fill="#34D399" fontFamily="monospace" fontSize="7.5">
+            NET: {netL} × {netW} mm
+          </text>
+        </g>
+      )}
+
+      <text x={x + w / 2} y={y + h / 2 + 2.5} textAnchor="middle" fill="rgba(255,255,255,0.22)" fontFamily="monospace" fontSize="7.5">
+        {piece.grain && piece.grain !== "none" ? "↔ DESEN" : "SERBEST"}
+      </text>
+    </svg>
+  );
+};
+
 export default function BomModal(props: BomModalProps) {
   if (!props.isOpen) return null;
   return <BomModalInner {...props} />;
@@ -96,6 +356,39 @@ function BomModalInner({ isOpen, onClose, initialTab = "cutlist" }: BomModalProp
   const [showCutSequences, setShowCutSequences] = useState<boolean>(true);
   const [showErpContractPreview, setShowErpContractPreview] = useState<boolean>(false);
   const [selectedSimulatedPieceId, setSelectedSimulatedPieceId] = useState<string | null>(null);
+  const [exportMenuOpen, setExportMenuOpen] = useState<boolean>(false);
+  const [cutSearch, setCutSearch] = useState<string>("");
+  const [cutFilter, setCutFilter] = useState<"all" | "band4" | "cnc" | "shelf" | "plinth">("all");
+  const [showTechIds, setShowTechIds] = useState<boolean>(false);
+  const [inspectorOpen, setInspectorOpen] = useState<boolean>(() =>
+    typeof window !== "undefined" ? window.innerWidth >= 1200 : true
+  );
+  const [selectedCutPieceId, setSelectedCutPieceId] = useState<string | null>(null);
+  const [checkedCutIds, setCheckedCutIds] = useState<Set<string>>(() => new Set());
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
+  const [blueprintLayers, setBlueprintLayers] = useState({ bant: true, cnc: true, olcu: true });
+  const [labelPreviewPiece, setLabelPreviewPiece] = useState<CutPiece | null>(null);
+  const tabGroupRef = React.useRef<HTMLDivElement | null>(null);
+  const tabBtnRefs = React.useRef<Record<string, HTMLButtonElement | null>>({});
+  const [tabIndicator, setTabIndicator] = useState<{ left: number; top: number; width: number; height: number; ready: boolean }>({
+    left: 0,
+    top: 0,
+    width: 0,
+    height: 0,
+    ready: false,
+  });
+
+  const filterGroupRef = React.useRef<HTMLDivElement | null>(null);
+  const filterBtnRefs = React.useRef<Record<string, HTMLButtonElement | null>>({});
+  const [filterIndicator, setFilterIndicator] = useState<{ left: number; top: number; width: number; height: number; ready: boolean }>({
+    left: 0,
+    top: 0,
+    width: 0,
+    height: 0,
+    ready: false,
+  });
+
+
 
   React.useEffect(() => {
     if (isOpen && initialTab) {
@@ -106,15 +399,66 @@ function BomModalInner({ isOpen, onClose, initialTab = "cutlist" }: BomModalProp
   React.useEffect(() => {
     if (!isOpen) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        if (labelPreviewPiece) {
+          setLabelPreviewPiece(null);
+          return;
+        }
+        if (exportMenuOpen) {
+          setExportMenuOpen(false);
+          return;
+        }
+        onClose();
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, exportMenuOpen, labelPreviewPiece]);
 
   const bom = useConfiguratorStore((s) => s.bom);
   const project = useConfiguratorStore((s) => s.project);
   const pricing = useConfiguratorStore((s) => s.pricing);
+
+  React.useLayoutEffect(() => {
+    if (!isOpen) return;
+    const syncTabs = () => {
+      const btn = tabBtnRefs.current[activeTab];
+      if (btn) {
+        setTabIndicator({
+          left: btn.offsetLeft,
+          top: btn.offsetTop,
+          width: btn.offsetWidth,
+          height: btn.offsetHeight,
+          ready: true,
+        });
+      }
+    };
+    const syncFilters = () => {
+      const btn = filterBtnRefs.current[cutFilter];
+      if (btn) {
+        setFilterIndicator({
+          left: btn.offsetLeft,
+          top: btn.offsetTop,
+          width: btn.offsetWidth,
+          height: btn.offsetHeight,
+          ready: true,
+        });
+      }
+    };
+    syncTabs();
+    syncFilters();
+    const raf = requestAnimationFrame(() => {
+      syncTabs();
+      syncFilters();
+    });
+    window.addEventListener("resize", syncTabs);
+    window.addEventListener("resize", syncFilters);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", syncTabs);
+      window.removeEventListener("resize", syncFilters);
+    };
+  }, [isOpen, activeTab, cutFilter, bom.cutList.length, bom.hardwareList.length]);
 
   const erpNestingBundle = React.useMemo(() => {
     if (!isOpen) return null;
@@ -520,73 +864,385 @@ function BomModalInner({ isOpen, onClose, initialTab = "cutlist" }: BomModalProp
   const shelfDeflections = bom.shelfDeflectionAnalyses || [];
   const totalHardwareEur = bom.hardwareList.reduce((acc, h) => acc + (h.totalPrice ?? 0), 0);
 
+  const filteredCutList = bom.cutList.filter((p) => {
+    const q = cutSearch.trim().toLowerCase();
+    if (
+      q &&
+      !p.pieceName.toLowerCase().includes(q) &&
+      !p.id.toLowerCase().includes(q) &&
+      !p.moduleName.toLowerCase().includes(q) &&
+      !p.materialName.toLowerCase().includes(q)
+    ) {
+      return false;
+    }
+    if (cutFilter === "band4") return countActiveBands(p.edgeBanding) === 4;
+    if (cutFilter === "cnc") return (p.holes?.length || 0) > 0 || Boolean(p.hasBackGroove || p.kerfBendingMeta || p.tambourTrackGrooveSpec);
+    if (cutFilter === "shelf") return /raf|shelf/i.test(p.pieceName) || /shelf/i.test(p.componentRole);
+    if (cutFilter === "plinth") return /baza|plinth/i.test(p.pieceName) || /plinth/i.test(p.componentRole);
+    return true;
+  });
+
+  const groupedCutMap = new Map<string, { key: string; moduleName: string; materialName: string; thicknessMm: number; pieces: CutPiece[] }>();
+  for (const p of filteredCutList) {
+    const gk = `${p.moduleName}__${p.materialName}__${p.thicknessMm}`;
+    let grp = groupedCutMap.get(gk);
+    if (!grp) {
+      grp = { key: gk, moduleName: p.moduleName, materialName: p.materialName, thicknessMm: p.thicknessMm, pieces: [] };
+      groupedCutMap.set(gk, grp);
+    }
+    grp.pieces.push(p);
+  }
+  const groupedCutList = Array.from(groupedCutMap.values());
+
+  const activeCutPiece =
+    filteredCutList.find((p) => p.id === selectedCutPieceId) ||
+    bom.cutList.find((p) => p.id === selectedCutPieceId) ||
+    filteredCutList[0] ||
+    bom.cutList[0] ||
+    null;
+
+  const navigateCutPiece = (dir: -1 | 1) => {
+    const list = filteredCutList.length > 0 ? filteredCutList : bom.cutList;
+    if (!list.length) return;
+    const curIdx = activeCutPiece ? list.findIndex((p) => p.id === activeCutPiece.id) : -1;
+    const nextIdx = curIdx === -1 ? 0 : (curIdx + dir + list.length) % list.length;
+    setSelectedCutPieceId(list[nextIdx].id);
+    if (!inspectorOpen) setInspectorOpen(true);
+  };
+
+  const toggleCutRowChecked = (id: string) => {
+    setCheckedCutIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllVisibleChecked = (checked: boolean) => {
+    setCheckedCutIds((prev) => {
+      const next = new Set(prev);
+      for (const p of filteredCutList) {
+        if (checked) next.add(p.id);
+        else next.delete(p.id);
+      }
+      return next;
+    });
+  };
+
+  const toggleGroupCollapsed = (groupKey: string) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupKey)) next.delete(groupKey);
+      else next.add(groupKey);
+      return next;
+    });
+  };
+
+  const copyPieceId = (id: string) => {
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(id).catch(() => {});
+    }
+    setExportStatusBanner(`Teknik kod kopyalandı: ${id}`);
+    setTimeout(() => setExportStatusBanner(null), 2400);
+  };
+
+  const downloadSelectedPiecesDxf = () => {
+    const selected = bom.cutList.filter((p) => checkedCutIds.has(p.id));
+    if (!selected.length) return;
+    if (selected.length === 1) {
+      downloadPieceDXF(selected[0]);
+      return;
+    }
+    if (!checkGateBeforeProductionExport(`Seçili Parçalar DXF (${selected.length})`)) return;
+    selected.slice(0, 6).forEach((p, i) => {
+      setTimeout(() => downloadPieceDXF(p), i * 180);
+    });
+    if (selected.length > 6) {
+      downloadAllPanelsDXF();
+    }
+  };
+
   return (
     <div
       onClick={onClose}
-      className="fixed inset-0 z-[155] flex items-center justify-center bg-[#141413]/52 backdrop-blur-xs p-3 sm:p-5"
+      className="fixed inset-0 z-[155] flex items-center justify-center bg-[#141413]/52 backdrop-blur-xs p-0 md:p-5"
     >
       <div
         data-draggable-shell="bom"
         onClick={(e) => e.stopPropagation()}
-        className="flex flex-col w-full max-w-6xl h-[91vh] birim-ice-modal rounded-[28px] overflow-hidden text-[#141413]"
+        className="flex flex-col w-full max-w-6xl h-[91dvh] birim-ice-modal rounded-[28px] max-md:rounded-none max-md:h-[100dvh] max-md:max-h-[100dvh] overflow-hidden text-[#141413]"
       >
-        {/* Row 1: Studio Architectural Header (Zero-Lag Draggable) */}
+        {/* Row 1: Refined Single Command Header + 3-Column Export Mega-Popover */}
         <div
           onPointerDown={(e) => startZeroLagModalDrag(e)}
           title="Pencereyi taşımak için basılı tutup sürükleyin"
-          className="px-5 py-3.5 birim-ice-shell-header flex flex-wrap items-center justify-between gap-3 cursor-grab active:cursor-grabbing select-none"
+          className="px-4 sm:px-5 py-3 birim-ice-shell-header flex flex-wrap items-center justify-between gap-2.5 cursor-grab active:cursor-grabbing select-none relative z-30"
         >
-          <div className="flex items-center gap-3 min-w-0 flex-1">
-            <BirimLogo className="h-5 w-auto text-[#141413] shrink-0" />
-            <div className="h-4 w-px bg-[#141413]/15 shrink-0" />
+          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+            <BirimLogo className="h-4 sm:h-5 w-auto text-[#141413] shrink-0" />
+            <div className="h-5 w-px bg-[#141413]/15 shrink-0" />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="text-base font-extrabold text-[#141413] tracking-tight">
-                  BOM &amp; İmalat Mühendisliği Portalı
+                <h2 className="text-xs sm:text-sm font-extrabold text-[#141413] tracking-tight leading-tight">
+                  <span className="hidden sm:inline">BOM &amp; İmalat Portalı</span><span className="sm:hidden">BOM &amp; CNC</span>
                 </h2>
                 <span
-                  className={`text-[10.5px] px-2.5 py-0.5 rounded-full font-mono font-bold border ${
+                  className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold border whitespace-nowrap shrink-0 ${
                     bom.approvalStatus === "production_approved"
                       ? "bg-emerald-50 border-emerald-300 text-emerald-800"
                       : "bg-amber-50 border-amber-300 text-amber-900"
                   }`}
                 >
                   v{project.version} •{" "}
-                  {bom.approvalStatus === "production_approved" ? "ÜRETİM ONAYLI" : "TASLAK"}
+                  {bom.approvalStatus === "production_approved" ? "ONAYLI" : "TASLAK"}
                 </span>
                 {exportStatusBanner && (
-                  <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-emerald-100 border border-emerald-300 text-emerald-900 font-semibold">
+                  <span className="hidden xl:inline text-[10.5px] px-2 py-0.5 rounded-full bg-emerald-100 border border-emerald-300 text-emerald-900 font-semibold truncate max-w-[220px]">
                     ✓ {exportStatusBanner}
                   </span>
                 )}
               </div>
-              <p className="text-[11px] text-[#57534E] truncate mt-0.5">
-                {project.title} • Net Testere Kesim, CNC Delik/Kanal/Kerf Operasyonları, 2D Plaka Nesting, Blum BXF &amp; Sehim Doğrulaması
-              </p>
+              <div className="text-[11px] font-medium text-[#57534E] truncate mt-0.5">
+                {project.title}
+              </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          {/* Right: Unified Command Pill Group + Close */}
+          <div
+            className="flex items-center gap-2 shrink-0"
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <div className="inline-flex items-center p-1 gap-1 rounded-2xl bg-black/15 border border-white/15 shadow-[inset_0_1px_2px_rgba(0,0,0,0.35)]">
+            {/* 1. Categorized "Dışa Aktar ▾" 3-Column Mega-Popover */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setExportMenuOpen((v) => !v);
+                }}
+                data-testid="bom-export-menu-btn"
+                className="h-8 px-2.5 sm:px-3 rounded-xl birim-ice-btn text-xs font-bold text-[#141413] inline-flex items-center gap-1.5 cursor-pointer"
+                title="16 farklı kesim, CAD, etiket ve makine çıktı formatı"
+              >
+                <Download className="w-3.5 h-3.5 text-[#57534E]" />
+                <span className="hidden sm:inline">Dışa Aktar</span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 text-[#78716C] transition-transform duration-150 ${
+                    exportMenuOpen ? "rotate-180" : ""
+                  }`}
+                />
+              </button>
+
+              {exportMenuOpen && (
+                <div
+                  onClick={(e) => e.stopPropagation()}
+                  className="fixed sm:absolute right-3 sm:right-0 top-[56px] sm:top-full sm:mt-2 w-[calc(100vw-24px)] sm:w-[680px] max-h-[78dvh] overflow-y-auto bg-[#FAF8F4]/98 backdrop-blur-xl border border-[#D6CFC2] rounded-2xl shadow-2xl p-3.5 sm:p-4 z-50 text-[#141413]"
+                >
+                  <div className="flex items-center justify-between pb-2.5 mb-3 border-b border-[#E5DFD3]">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-extrabold text-[#141413]">
+                        Dışa Aktarma &amp; Makine Çıktıları
+                      </span>
+                      <span className="text-[10px] font-mono text-[#78716C]">16 format</span>
+                    </div>
+                    <span className="text-[10px] font-mono text-[#57534E] px-2 py-0.5 rounded bg-white border border-[#E5DFD3]">
+                      AC1015 / mm
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    {/* Col 1: Kesim & Liste */}
+                    <div>
+                      <div className="text-[10px] font-extrabold uppercase tracking-wider text-[#78716C] px-2 mb-1.5">
+                        Kesim &amp; Liste
+                      </div>
+                      <div className="space-y-0.5">
+                        <button
+                          type="button"
+                          onClick={() => { setExportMenuOpen(false); downloadOptiCutCsv(); }}
+                          data-testid="bom-download-opticut-csv-btn"
+                          className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-[#EFECE4] flex items-center justify-between gap-2 transition cursor-pointer"
+                        >
+                          <span className="text-xs font-semibold text-[#141413] truncate">OptiCut CSV</span>
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-white border border-[#E5DFD3] text-teal-700 font-bold">CSV</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setExportMenuOpen(false); downloadCsv(); }}
+                          className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-[#EFECE4] flex items-center justify-between gap-2 transition cursor-pointer"
+                        >
+                          <span className="text-xs font-semibold text-[#141413] truncate">Standart Kesim CSV</span>
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-white border border-[#E5DFD3] text-emerald-700 font-bold">CSV</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setExportMenuOpen(false); downloadHardwareBomCsv(); }}
+                          data-testid="bom-download-hw-csv-btn"
+                          className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-[#EFECE4] flex items-center justify-between gap-2 transition cursor-pointer"
+                        >
+                          <span className="text-xs font-semibold text-[#141413] truncate">Hırdavat CSV</span>
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-white border border-[#E5DFD3] text-sky-700 font-bold">CSV</span>
+                        </button>
+                        <button
+                          type="button"
+                          data-testid="download-hardware-cert-csv-btn"
+                          onClick={() => { setExportMenuOpen(false); downloadHardwareCertificationCsv(); }}
+                          className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-[#EFECE4] flex items-center justify-between gap-2 transition cursor-pointer"
+                        >
+                          <span className="text-xs font-bold text-blue-800 truncate">56 Donanım Sertifikasyon</span>
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-blue-50 border border-blue-200 text-blue-700 font-bold">CSV</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setExportMenuOpen(false); downloadJson(); }}
+                          className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-[#EFECE4] flex items-center justify-between gap-2 transition cursor-pointer"
+                        >
+                          <span className="text-xs font-semibold text-[#44403C] truncate">Ham Üretim BOM</span>
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-white border border-[#E5DFD3] text-[#78716C] font-bold">JSON</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Col 2: CAD & Plaka */}
+                    <div>
+                      <div className="text-[10px] font-extrabold uppercase tracking-wider text-[#78716C] px-2 mb-1.5">
+                        CAD &amp; Plaka
+                      </div>
+                      <div className="space-y-0.5">
+                        <button
+                          type="button"
+                          onClick={() => { setExportMenuOpen(false); downloadAllPanelsDXF(); }}
+                          data-testid="bom-download-all-dxf-btn"
+                          className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-[#EFECE4] flex items-center justify-between gap-2 transition cursor-pointer"
+                        >
+                          <span className="text-xs font-bold text-indigo-800 truncate">Tüm Parçalar DXF ({bom.cutList.length})</span>
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold">DXF</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setExportMenuOpen(false); downloadNestingSheetsDXF(); }}
+                          data-testid="bom-download-nesting-dxf-btn"
+                          className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-[#EFECE4] flex items-center justify-between gap-2 transition cursor-pointer"
+                        >
+                          <span className="text-xs font-semibold text-[#141413] truncate">2800×2070 Plaka Şeması</span>
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-white border border-[#E5DFD3] text-purple-700 font-bold">DXF</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setExportMenuOpen(false); downloadNestingSvg(); }}
+                          data-testid="bom-download-nesting-svg-btn"
+                          className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-[#EFECE4] flex items-center justify-between gap-2 transition cursor-pointer"
+                        >
+                          <span className="text-xs font-semibold text-[#141413] truncate">Plaka Nest Şeması</span>
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-white border border-[#E5DFD3] text-fuchsia-700 font-bold">SVG</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setExportMenuOpen(false); downloadSampleDXF(); }}
+                          className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-[#EFECE4] flex items-center justify-between gap-2 transition cursor-pointer"
+                        >
+                          <span className="text-xs font-semibold text-[#44403C] truncate">Örnek Tekil Parça</span>
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-white border border-[#E5DFD3] text-blue-700 font-bold">1×DXF</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setExportMenuOpen(false); downloadArchitectMepDxf(); }}
+                          data-testid="bom-download-mep-dxf-btn"
+                          className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-[#EFECE4] flex items-center justify-between gap-2 transition cursor-pointer"
+                        >
+                          <span className="text-xs font-semibold text-[#141413] truncate">Şantiye MEP Tesisat</span>
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-white border border-[#E5DFD3] text-amber-700 font-bold">DXF</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setExportMenuOpen(false); printBomOrNestingSheet(activeTab === "nesting" ? "nesting" : "bom"); }}
+                          data-testid="bom-print-active-sheet-btn"
+                          className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-[#EFECE4] flex items-center justify-between gap-2 transition cursor-pointer"
+                        >
+                          <span className="text-xs font-bold text-blue-700 truncate">Aktif Ekranı Yazdır</span>
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-blue-50 border border-blue-200 text-blue-700 font-bold">A4</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Col 3: Etiket & Makine Köprüsü */}
+                    <div>
+                      <div className="text-[10px] font-extrabold uppercase tracking-wider text-[#78716C] px-2 mb-1.5">
+                        Etiket &amp; Makine Köprüsü
+                      </div>
+                      <div className="space-y-0.5">
+                        <button
+                          type="button"
+                          onClick={() => { setExportMenuOpen(false); downloadThermalLabelsHtml(); }}
+                          data-testid="bom-download-thermal-labels-btn"
+                          className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-[#EFECE4] flex items-center justify-between gap-2 transition cursor-pointer"
+                        >
+                          <span className="text-xs font-semibold text-[#141413] truncate">Termal Etiket 100×50</span>
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-white border border-[#E5DFD3] text-orange-700 font-bold">HTML</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setExportMenuOpen(false); downloadThermalLabelsZpl(); }}
+                          data-testid="bom-download-zpl-labels-btn"
+                          className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-[#EFECE4] flex items-center justify-between gap-2 transition cursor-pointer"
+                        >
+                          <span className="text-xs font-semibold text-[#141413] truncate">Zebra Barkod Akışı</span>
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-white border border-[#E5DFD3] text-stone-700 font-bold">ZPL</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setExportMenuOpen(false); downloadBlumBxf(); }}
+                          data-testid="bom-download-bxf-btn"
+                          className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-[#EFECE4] flex items-center justify-between gap-2 transition cursor-pointer"
+                        >
+                          <span className="text-xs font-bold text-amber-800 truncate">Blum EASYSTICK</span>
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-800 font-bold">BXF</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setExportMenuOpen(false); downloadCustomerQuoteHtml(); }}
+                          data-testid="bom-download-quote-btn"
+                          className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-[#EFECE4] flex items-center justify-between gap-2 transition cursor-pointer"
+                        >
+                          <span className="text-xs font-bold text-emerald-800 truncate">Müşteri Teklif Föyü</span>
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-800 font-bold">HTML</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 2. Subtle ERP Button */}
+            <button
+              type="button"
+              onClick={downloadErpNestingJson}
+              data-testid="bom-download-erp-nesting-json-btn"
+              className="h-8 px-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 text-xs font-bold inline-flex items-center gap-1.5 transition cursor-pointer"
+              title="Birim Portal ERP Nesting modülüyle %100 uyumlu JSON paketini indir"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
+              <span>ERP</span>
+            </button>
+
+            {/* 3. Primary CAM .ZIP Button */}
             <button
               type="button"
               onClick={downloadCamZipArchive}
               data-testid="bom-download-cam-zip-btn"
-              className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl birim-ice-charcoal-pill cursor-pointer"
+              className="h-8 px-3 rounded-xl birim-ice-charcoal-pill shadow-[0_4px_14px_rgba(37,99,235,0.42)] text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
               title="Her parça için ayrı endüstriyel katmanlı CNC .DXF dosyaları içeren .ZIP paketini indir"
             >
-              <Download className="w-3.5 h-3.5 text-amber-300" />
-              <span>CAM .ZIP Paketi</span>
+              <Package className="w-3.5 h-3.5 text-amber-300" />
+              <span className="hidden sm:inline">CAM .ZIP</span><span className="sm:hidden">ZIP</span>
             </button>
-            <button
-              type="button"
-              onClick={downloadCustomerQuoteHtml}
-              data-testid="bom-download-quote-btn"
-              className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-xl bg-amber-600 hover:bg-amber-700 text-white shadow-xs transition cursor-pointer"
-              title="Yazdırılabilir Müşteri Teklif & Teknik Sunum Föyünü İndir"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Teklif Föyü</span>
-            </button>
+
+            </div>
+
             <button
               type="button"
               onClick={onClose}
@@ -671,491 +1327,691 @@ function BomModalInner({ isOpen, onClose, initialTab = "cutlist" }: BomModalProp
           </div>
         )}
 
-        {/* Row 2: Organized Industrial Export & CAD Strip */}
-        <div className="px-5 py-2 bg-[#F5F2EA] border-b border-[#E5DFD3] flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px]">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#78716C] mr-0.5">
-              Kesim &amp; Liste:
-            </span>
-            <button
-              type="button"
-              onClick={downloadOptiCutCsv}
-              data-testid="bom-download-opticut-csv-btn"
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg birim-ice-btn font-bold text-[#141413] cursor-pointer"
-              title="17 sütunlu OptiCut / Kesim Optimizasyon CSV listesini indir"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5 text-teal-700" />
-              <span>OptiCut CSV</span>
-            </button>
-            <button
-              type="button"
-              onClick={downloadCsv}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg birim-ice-btn font-semibold text-[#141413] cursor-pointer"
-              title="Standart Kesim Listesi CSV"
-            >
-              <Download className="w-3 h-3 text-emerald-700" />
-              <span>CSV</span>
-            </button>
-            <button
-              type="button"
-              onClick={downloadHardwareBomCsv}
-              data-testid="bom-download-hw-csv-btn"
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg birim-ice-btn font-bold text-[#141413] cursor-pointer"
-              title="Aksesuar ve Hırdavat Malzeme İhtiyaç Listesi (BOM CSV)"
-            >
-              <ListOrdered className="w-3.5 h-3.5 text-sky-700" />
-              <span>Hırdavat CSV</span>
-            </button>
-              <button
-                type="button"
-                data-testid="download-hardware-cert-csv-btn"
-                onClick={downloadHardwareCertificationCsv}
-                className="px-3 py-1.5 rounded-lg bg-[#141413] hover:bg-[#292524] text-white text-xs font-semibold inline-flex items-center gap-1.5 transition cursor-pointer"
-                title="56 donanımın fabrika onay, yük kapasitesi ve System 32 sertifikasyon listesini CSV olarak indir"
-              >
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                <span>56 Donanım Sertifikasyon CSV</span>
-              </button>
-            <button
-              type="button"
-              onClick={downloadJson}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg birim-ice-btn font-semibold text-[#44403C] cursor-pointer"
-              title="Ham Üretim BOM JSON Paketi"
-            >
-              <Download className="w-3 h-3 text-[#78716C]" />
-              <span>JSON</span>
-            </button>
-          </div>
-
-          <span className="hidden lg:inline-block h-4 w-px bg-[#D6CFC2]" />
-
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#78716C] mr-0.5">
-              CAD &amp; Plaka:
-            </span>
-            <button
-              type="button"
-              onClick={downloadAllPanelsDXF}
-              data-testid="bom-download-all-dxf-btn"
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg birim-ice-btn font-bold text-[#141413] cursor-pointer"
-              title="Projedeki tüm parçaların bitmiş kontur, net kesim, kanal ve delik katmanlı CNC DXF çizimini indir"
-            >
-              <FileCode className="w-3.5 h-3.5 text-indigo-700" />
-              <span>DXF</span>
-            </button>
-            <button
-              type="button"
-              onClick={downloadNestingSheetsDXF}
-              data-testid="bom-download-nesting-dxf-btn"
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg birim-ice-btn font-bold text-[#141413] cursor-pointer"
-              title="2800x2070 mm plaka yerleşim (optimizasyon) kesim şemasını DXF olarak indir"
-            >
-              <FileCode className="w-3.5 h-3.5 text-purple-700" />
-              <span>Nest DXF</span>
-            </button>
-            <button
-              type="button"
-              onClick={downloadNestingSvg}
-              data-testid="bom-download-nesting-svg-btn"
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg birim-ice-btn font-bold text-[#141413] cursor-pointer"
-              title="2800×2070 mm Plaka Kesim ve Yerleşim Şemasını (.SVG) indir"
-            >
-              <Cpu className="w-3.5 h-3.5 text-fuchsia-700" />
-              <span>Nest SVG</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => printBomOrNestingSheet(activeTab === "nesting" ? "nesting" : "bom")}
-              data-testid="bom-print-active-sheet-btn"
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-bold cursor-pointer"
-              title="Aktif Kesim veya Plaka Nesting ekranını A4 / PDF olarak yazdır"
-            >
-              <span>🖨 Yazdır (A4)</span>
-            </button>
-            <button
-              type="button"
-              onClick={downloadSampleDXF}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg birim-ice-btn font-semibold text-[#44403C] cursor-pointer"
-              title="İlk parçanın örnek tekil DXF çizimini indir"
-            >
-              <FileCode className="w-3 h-3 text-blue-700" />
-              <span>1×DXF</span>
-            </button>
-            <button
-              type="button"
-              onClick={downloadArchitectMepDxf}
-              data-testid="bom-download-mep-dxf-btn"
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg birim-ice-btn font-bold text-[#141413] cursor-pointer"
-              title="İç Mimar Şantiye Elektrik, Priz, Su, Gider ve Davlumbaz Baca Aks Paftası (Çok Katmanlı AIA .DXF)"
-            >
-              <FileCode className="w-3.5 h-3.5 text-amber-700" />
-              <span>MEP .DXF</span>
-            </button>
-          </div>
-
-          <span className="hidden lg:inline-block h-4 w-px bg-[#D6CFC2]" />
-
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#78716C] mr-0.5">
-              Etiket &amp; Köprü:
-            </span>
-            <button
-              type="button"
-              onClick={downloadThermalLabelsHtml}
-              data-testid="bom-download-thermal-labels-btn"
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg birim-ice-btn font-bold text-[#141413] cursor-pointer"
-              title="100×50 mm Barkodlu, Kenar Bant Şemalı Termal Parça Etiketlerini Yazdır / İndir"
-            >
-              <Tag className="w-3.5 h-3.5 text-orange-700" />
-              <span>Etiket 100×50</span>
-            </button>
-            <button
-              type="button"
-              onClick={downloadThermalLabelsZpl}
-              data-testid="bom-download-zpl-labels-btn"
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg birim-ice-btn font-bold text-[#141413] cursor-pointer"
-              title="Zebra Termal Yazıcı için Doğrudan Ham .ZPL II (203dpi, 100×50mm Code-128 Barkod) Akışını İndir"
-            >
-              <Tag className="w-3.5 h-3.5 text-stone-700" />
-              <span>Zebra .ZPL</span>
-            </button>
-            <button
-              type="button"
-              onClick={downloadErpNestingJson}
-              data-testid="bom-download-erp-nesting-json-btn"
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-bold cursor-pointer"
-              title="Birim Portal ERP Nesting modülüyle %100 uyumlu JSON paketini indir"
-            >
-              <Download className="w-3 h-3" />
-              <span>ERP</span>
-            </button>
-            <button
-              type="button"
-              onClick={downloadBlumBxf}
-              data-testid="bom-download-bxf-btn"
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#1D4ED8] hover:bg-[#1E40AF] text-white font-bold cursor-pointer"
-              title="Blum E-SERVICES / EASYSTICK / MINIPRESS için .BXF üretim dosyasını indir"
-            >
-              <Download className="w-3 h-3" />
-              <span>BXF</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Row 3: 5 Crisp Summary KPI Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 px-5 py-2.5 bg-[#FAF8F4] border-b border-[#E5DFD3] text-xs">
-          <div className="bg-white px-3 py-2 rounded-xl border border-[#E5DFD3] shadow-2xs">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#78716C] block">
-              Toplam Parça
-            </span>
-            <div className="text-sm font-extrabold font-mono text-[#141413]">
-              {bom.summary.totalPiecesCount} adet
+        {/* Modern Mini Info Panels (5 Tactile KPI Cards) */}
+        <div className="px-3.5 sm:px-5 py-2.5 bg-[#F5F2EA] border-b border-[#E5DFD3]">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+            <div className="px-3 py-2 rounded-xl bg-white/90 border border-[#E5DFD3] shadow-2xs flex items-center gap-2.5 min-w-0">
+              <div className="w-7 h-7 rounded-lg bg-slate-500/15 border border-slate-400/25 flex items-center justify-center shrink-0">
+                <Package className="w-3.5 h-3.5 text-slate-600" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-[9.5px] font-bold uppercase tracking-wider text-[#78716C] truncate">
+                  Toplam Parça
+                </div>
+                <div className="flex items-baseline gap-1 mt-0.5">
+                  <span className="font-mono text-sm font-extrabold text-[#141413] tabular-nums leading-none">
+                    {bom.summary.totalPiecesCount}
+                  </span>
+                  <span className="text-[10px] text-[#78716C]">adet</span>
+                </div>
+              </div>
             </div>
-          </div>
-          <div className="bg-white px-3 py-2 rounded-xl border border-[#E5DFD3] shadow-2xs">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#78716C] block">
-              Net Panel Alanı
-            </span>
-            <div className="text-sm font-extrabold font-mono text-amber-800">
-              {bom.summary.totalPanelAreaM2} m²
+
+            <div className="px-3 py-2 rounded-xl bg-white/90 border border-[#E5DFD3] shadow-2xs flex items-center gap-2.5 min-w-0">
+              <div className="w-7 h-7 rounded-lg bg-amber-500/15 border border-amber-400/30 flex items-center justify-center shrink-0">
+                <FileSpreadsheet className="w-3.5 h-3.5 text-amber-500" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-[9.5px] font-bold uppercase tracking-wider text-[#78716C] truncate">
+                  Net Panel Alanı
+                </div>
+                <div className="flex items-baseline gap-1 mt-0.5">
+                  <span className="font-mono text-sm font-extrabold text-amber-800 tabular-nums leading-none">
+                    {bom.summary.totalPanelAreaM2}
+                  </span>
+                  <span className="text-[10px] text-[#78716C]">m²</span>
+                </div>
+              </div>
             </div>
-          </div>
-          <div className="bg-white px-3 py-2 rounded-xl border border-[#E5DFD3] shadow-2xs">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#78716C] block">
-              Kenar Bandı
-            </span>
-            <div className="text-sm font-extrabold font-mono text-blue-800">
-              {bom.summary.totalEdgeBandMeters} mt
+
+            <div className="px-3 py-2 rounded-xl bg-white/90 border border-[#E5DFD3] shadow-2xs flex items-center gap-2.5 min-w-0">
+              <div className="w-7 h-7 rounded-lg bg-sky-500/15 border border-sky-400/30 flex items-center justify-center shrink-0">
+                <Tag className="w-3.5 h-3.5 text-sky-500" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-[9.5px] font-bold uppercase tracking-wider text-[#78716C] truncate">
+                  Kenar Bandı
+                </div>
+                <div className="flex items-baseline gap-1 mt-0.5">
+                  <span className="font-mono text-sm font-extrabold text-blue-800 tabular-nums leading-none">
+                    {bom.summary.totalEdgeBandMeters}
+                  </span>
+                  <span className="text-[10px] text-[#78716C]">mt</span>
+                </div>
+              </div>
             </div>
-          </div>
-          <div className="bg-white px-3 py-2 rounded-xl border border-[#E5DFD3] shadow-2xs">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#78716C] block">
-              Hırdavat &amp; Ray
-            </span>
-            <div className="text-sm font-extrabold font-mono text-emerald-800">
-              {bom.summary.totalHardwareCount} adet
+
+            <div className="px-3 py-2 rounded-xl bg-white/90 border border-[#E5DFD3] shadow-2xs flex items-center gap-2.5 min-w-0">
+              <div className="w-7 h-7 rounded-lg bg-emerald-500/15 border border-emerald-400/30 flex items-center justify-center shrink-0">
+                <ListOrdered className="w-3.5 h-3.5 text-emerald-500" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-[9.5px] font-bold uppercase tracking-wider text-[#78716C] truncate">
+                  Hırdavat &amp; Ray
+                </div>
+                <div className="flex items-baseline gap-1 mt-0.5">
+                  <span className="font-mono text-sm font-extrabold text-emerald-800 tabular-nums leading-none">
+                    {bom.summary.totalHardwareCount}
+                  </span>
+                  <span className="text-[10px] text-[#78716C]">adet</span>
+                </div>
+              </div>
             </div>
-          </div>
-          <div className="col-span-2 sm:col-span-1 bg-white px-3 py-2 rounded-xl border border-[#E5DFD3] shadow-2xs">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#78716C] block">
-              CNC Delik İşlemi
-            </span>
-            <div className="text-sm font-extrabold font-mono text-purple-800">
-              {bom.summary.totalDrillingHolesCount} delik
+
+            <div className="col-span-2 sm:col-span-1 px-3 py-2 rounded-xl bg-white/90 border border-[#E5DFD3] shadow-2xs flex items-center gap-2.5 min-w-0">
+              <div className="w-7 h-7 rounded-lg bg-sky-500/15 border border-sky-400/30 flex items-center justify-center shrink-0">
+                <Cpu className="w-3.5 h-3.5 text-sky-400" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-[9.5px] font-bold uppercase tracking-wider text-[#78716C] truncate">
+                  CNC Delik
+                </div>
+                <div className="flex items-baseline gap-1 mt-0.5">
+                  <span className="font-mono text-sm font-extrabold text-sky-400 tabular-nums leading-none">
+                    {bom.summary.totalDrillingHolesCount}
+                  </span>
+                  <span className="text-[10px] text-[#78716C]">işlem</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Row 4: Modern Segmented Pill Tabs */}
-        <div className="flex items-center px-5 py-2 bg-white/85 border-b border-[#E5DFD3] gap-1.5 text-xs overflow-x-auto">
-          <button
-            type="button"
-            onClick={() => setActiveTab("cutlist")}
-            className={`px-3 py-1.5 rounded-xl transition cursor-pointer shrink-0 ${
-              activeTab === "cutlist"
-                ? "bg-[#141413] text-white font-bold shadow-2xs"
-                : "text-[#57534E] hover:text-[#141413] hover:bg-[#EFECE4] font-semibold"
-            }`}
+        {/* Row 4: Grouped Segmented Track with Smooth Sliding Active Pill */}
+        <div className="px-3.5 sm:px-5 py-2 bg-white/85 border-b border-[#E5DFD3]">
+          <div
+            ref={tabGroupRef}
+            className="relative inline-flex flex-wrap items-center p-1 gap-1 rounded-2xl bg-black/15 border border-white/15 shadow-[inset_0_1px_3px_rgba(0,0,0,0.35)] text-[11.5px] max-w-full"
           >
-            Net Kesim &amp; CNC Tablosu ({bom.cutList.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("hardware")}
-            className={`px-3 py-1.5 rounded-xl transition cursor-pointer shrink-0 ${
-              activeTab === "hardware"
-                ? "bg-[#141413] text-white font-bold shadow-2xs"
-                : "text-[#57534E] hover:text-[#141413] hover:bg-[#EFECE4] font-semibold"
-            }`}
-          >
-            Hırdavat &amp; Donanım ({bom.hardwareList.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("nesting")}
-            className={`px-3 py-1.5 rounded-xl transition cursor-pointer shrink-0 ${
-              activeTab === "nesting"
-                ? "bg-[#141413] text-white font-bold shadow-2xs"
-                : "text-[#57534E] hover:text-[#141413] hover:bg-[#EFECE4] font-semibold"
-            }`}
-          >
-            2D Plaka Nesting (
-            {erpNestingBundle
-              ? erpNestingBundle.summary.total_sheets_used
-              : bom.nestingResults.reduce((s, r) => s + r.totalSheetsCount, 0)}{" "}
-            Plaka)
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("validation")}
-            data-testid="bom-tab-validation"
-            className={`px-3 py-1.5 rounded-xl transition cursor-pointer shrink-0 inline-flex items-center gap-1 ${
-              activeTab === "validation"
-                ? "bg-[#141413] text-white font-bold shadow-2xs"
-                : "text-[#57534E] hover:text-[#141413] hover:bg-[#EFECE4] font-semibold"
-            }`}
-          >
-            <ShieldCheck className="w-3.5 h-3.5" />
-            <span>Doğrulama &amp; Sehim ({gateChecks.length})</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("assembly")}
-            className={`px-3 py-1.5 rounded-xl transition cursor-pointer shrink-0 inline-flex items-center gap-1 ${
-              activeTab === "assembly"
-                ? "bg-[#141413] text-white font-bold shadow-2xs"
-                : "text-[#57534E] hover:text-[#141413] hover:bg-[#EFECE4] font-semibold"
-            }`}
-          >
-            <ListOrdered className="w-3.5 h-3.5" />
-            <span>Montaj Sırası ({assemblySteps.length})</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("quote")}
-            data-testid="bom-tab-quote"
-            className={`px-3 py-1.5 rounded-xl transition cursor-pointer shrink-0 ${
-              activeTab === "quote"
-                ? "bg-[#141413] text-white font-bold shadow-2xs"
-                : "text-[#57534E] hover:text-[#141413] hover:bg-[#EFECE4] font-semibold"
-            }`}
-          >
-            Müşteri Teklif Föyü
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("blum_bxf")}
-            data-testid="bom-tab-blum-bxf"
-            className={`px-3 py-1.5 rounded-xl transition cursor-pointer shrink-0 ${
-              activeTab === "blum_bxf"
-                ? "bg-[#141413] text-white font-bold shadow-2xs"
-                : "text-[#57534E] hover:text-[#141413] hover:bg-[#EFECE4] font-semibold"
-            }`}
-          >
-            Blum BXF &amp; EASYSTICK
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("selco")}
-            className={`px-3 py-1.5 rounded-xl transition cursor-pointer shrink-0 inline-flex items-center gap-1 ${
-              activeTab === "selco"
-                ? "bg-[#141413] text-white font-bold shadow-2xs"
-                : "text-[#57534E] hover:text-[#141413] hover:bg-[#EFECE4] font-semibold"
-            }`}
-          >
-            <Cpu className="w-3.5 h-3.5" />
-            <span>Selco WNT 600</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("cnc_mpr_cix")}
-            data-testid="bom-tab-cnc-mpr-cix"
-            className={`px-3 py-1.5 rounded-xl transition cursor-pointer shrink-0 inline-flex items-center gap-1 ${
-              activeTab === "cnc_mpr_cix"
-                ? "bg-[#141413] text-white font-bold shadow-2xs"
-                : "text-[#57534E] hover:text-[#141413] hover:bg-[#EFECE4] font-semibold"
-            }`}
-          >
-            <Cpu className="w-3.5 h-3.5" />
-            <span>CNC (.MPR / .CIX / .XCS)</span>
-          </button>
+            {tabIndicator.ready && (
+              <span
+                aria-hidden="true"
+                style={{
+                  transform: `translate3d(${tabIndicator.left}px, ${tabIndicator.top}px, 0)`,
+                  width: `${tabIndicator.width}px`,
+                  height: `${tabIndicator.height}px`,
+                  transition:
+                    "transform 260ms cubic-bezier(0.22, 1, 0.36, 1), width 260ms cubic-bezier(0.22, 1, 0.36, 1), height 260ms cubic-bezier(0.22, 1, 0.36, 1)",
+                }}
+                className="pointer-events-none absolute left-0 top-0 rounded-xl bg-gradient-to-r from-[#0284C7] to-[#2563EB] shadow-[0_6px_18px_rgba(37,99,235,0.52),inset_0_1px_0_rgba(255,255,255,0.28)] z-0"
+              />
+            )}
+            {(
+              [
+                { id: "cutlist", label: "Kesim & CNC", count: bom.cutList.length, testId: undefined, icon: null },
+                { id: "hardware", label: "Hırdavat", count: bom.hardwareList.length, testId: undefined, icon: null },
+                {
+                  id: "nesting",
+                  label: "2D Nesting",
+                  count: erpNestingBundle
+                    ? erpNestingBundle.summary.total_sheets_used
+                    : bom.nestingResults.reduce((s, r) => s + r.totalSheetsCount, 0),
+                  testId: undefined,
+                  icon: null,
+                },
+                { id: "validation", label: "Doğrulama", count: gateChecks.length, testId: "bom-tab-validation", icon: "shield" },
+                { id: "assembly", label: "Montaj", count: assemblySteps.length, testId: undefined, icon: "list" },
+                { id: "quote", label: "Teklif Föyü", count: null, testId: "bom-tab-quote", icon: null },
+                { id: "blum_bxf", label: "Blum BXF", count: null, testId: "bom-tab-blum-bxf", icon: null },
+                { id: "selco", label: "Selco", count: null, testId: undefined, icon: "cpu" },
+                { id: "cnc_mpr_cix", label: "CNC .MPR/.CIX", count: null, testId: "bom-tab-cnc-mpr-cix", icon: "cpu" },
+              ] as const
+            ).map((t) => {
+              const isAct = activeTab === t.id;
+              return (
+                <button
+                  key={t.id}
+                  ref={(el) => {
+                    tabBtnRefs.current[t.id] = el;
+                  }}
+                  type="button"
+                  data-testid={t.testId}
+                  onClick={() => setActiveTab(t.id)}
+                  className={`relative z-10 px-2.5 py-1.5 rounded-xl transition-colors duration-200 cursor-pointer shrink-0 inline-flex items-center gap-1.5 ${
+                    isAct
+                      ? "text-white font-bold"
+                      : "text-[#57534E] hover:text-[#141413] font-semibold"
+                  }`}
+                >
+                  {t.icon === "shield" && <ShieldCheck className="w-3.5 h-3.5" />}
+                  {t.icon === "list" && <ListOrdered className="w-3.5 h-3.5" />}
+                  {t.icon === "cpu" && <Cpu className="w-3.5 h-3.5" />}
+                  <span>{t.label}</span>
+                  {t.count !== null && (
+                    <span
+                      className={`px-1.5 py-0.2 rounded-md font-mono text-[10px] tabular-nums ${
+                        isAct ? "bg-white/20 text-white" : "bg-black/10 text-inherit"
+                      }`}
+                    >
+                      {t.count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {/* Main Scrollable Content */}
-        <div className="flex-1 overflow-auto p-5 bg-[#FAF8F4] text-xs">
-          {/* TAB 1: CUT LIST & DRILLING */}
+        <div className="flex-1 overflow-auto p-3 sm:p-5 bg-[#FAF8F4] text-xs">
+          {/* TAB 1: CUT LIST & DRILLING — Master-Detail Engineering Workspace */}
           {activeTab === "cutlist" && (
-            <div className="space-y-3.5">
-              <div className="p-3.5 bg-white border border-[#E5DFD3] rounded-2xl shadow-2xs flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <span className="font-bold text-[#141413] block">
-                    AutoCAD / CNC Parça Kesim, Tambur Kanal &amp; Delik Çizimleri (.DXF — AC1015 / mm)
-                  </span>
-                  <span className="text-[11px] text-[#57534E]">
-                    PANEL_CONTOUR, NET_CUT_CONTOUR, BACK_GROOVE_8MM, TAMBOUR_TRACK_W8_5_Z7_5, KERF_SLOTS ve System 32 delik katmanları ayrı ayrı üretilir.
-                  </span>
+            <div
+              onClick={() => exportMenuOpen && setExportMenuOpen(false)}
+              className="flex flex-col xl:flex-row gap-4 items-start"
+            >
+              {/* LEFT / MAIN: Toolbar + Bulk Action Bar + Grouped Cut-List Table */}
+              <div className="flex-1 min-w-0 w-full space-y-3">
+                {/* Streamlined Single-Row Toolbar */}
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[240px]">
+                    <div className="relative w-full sm:w-52">
+                      <Search className="w-3.5 h-3.5 text-[#78716C] absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <input
+                        type="text"
+                        value={cutSearch}
+                        onChange={(e) => setCutSearch(e.target.value)}
+                        placeholder="Parça veya malzeme ara..."
+                        className="w-full h-8 pl-8 pr-2.5 rounded-xl bg-white border border-[#DED8CC] text-xs text-[#141413] placeholder-[#A8A29E] focus:outline-none focus:border-[#141413] transition"
+                      />
+                    </div>
+
+                    <div
+                      ref={filterGroupRef}
+                      className="relative inline-flex items-center p-1 gap-0.5 rounded-2xl bg-black/15 border border-white/15 shadow-[inset_0_1px_3px_rgba(0,0,0,0.35)] overflow-x-auto max-w-full"
+                    >
+                      {filterIndicator.ready && (
+                        <span
+                          aria-hidden="true"
+                          style={{
+                            transform: `translate3d(${filterIndicator.left}px, ${filterIndicator.top}px, 0)`,
+                            width: `${filterIndicator.width}px`,
+                            height: `${filterIndicator.height}px`,
+                            transition:
+                              "transform 240ms cubic-bezier(0.22, 1, 0.36, 1), width 240ms cubic-bezier(0.22, 1, 0.36, 1)",
+                          }}
+                          className="pointer-events-none absolute left-0 top-0 rounded-xl bg-gradient-to-r from-[#0284C7] to-[#2563EB] shadow-[0_4px_14px_rgba(37,99,235,0.48),inset_0_1px_0_rgba(255,255,255,0.28)] z-0"
+                        />
+                      )}
+                      {(
+                        [
+                          { id: "all", label: "Tümü" },
+                          { id: "band4", label: "4 Kenar Bantlı" },
+                          { id: "cnc", label: "CNC'li" },
+                          { id: "shelf", label: "Raflar" },
+                          { id: "plinth", label: "Baza" },
+                        ] as const
+                      ).map((f) => {
+                        const active = cutFilter === f.id;
+                        return (
+                          <button
+                            key={f.id}
+                            ref={(el) => {
+                              filterBtnRefs.current[f.id] = el;
+                            }}
+                            type="button"
+                            onClick={() => setCutFilter(f.id)}
+                            className={`relative z-10 px-2.5 py-1 rounded-xl text-[11px] font-bold transition-colors duration-200 cursor-pointer whitespace-nowrap ${
+                              active
+                                ? "text-white"
+                                : "text-[#57534E] hover:text-[#141413]"
+                            }`}
+                          >
+                            {f.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="inline-flex items-center p-1 gap-1 rounded-2xl bg-black/15 border border-white/15 shadow-[inset_0_1px_3px_rgba(0,0,0,0.35)]">
+                    <button
+                      type="button"
+                      onClick={() => setShowTechIds((v) => !v)}
+                      className={`h-7 px-2.5 rounded-xl text-[11px] font-bold inline-flex items-center gap-1.5 transition-all duration-200 cursor-pointer ${
+                        showTechIds
+                          ? "bg-gradient-to-r from-[#0284C7] to-[#2563EB] text-white shadow-[0_4px_12px_rgba(37,99,235,0.45)]"
+                          : "text-[#57534E] hover:text-[#141413]"
+                      }`}
+                    >
+                      <Code2 className="w-3.5 h-3.5" />
+                      <span>Teknik Kodlar</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setInspectorOpen((v) => !v)}
+                      className={`h-7 px-2.5 rounded-xl text-[11px] font-bold inline-flex items-center gap-1.5 transition-all duration-200 cursor-pointer ${
+                        inspectorOpen
+                          ? "bg-gradient-to-r from-[#0284C7] to-[#2563EB] text-white shadow-[0_4px_12px_rgba(37,99,235,0.45)]"
+                          : "text-[#57534E] hover:text-[#141413]"
+                      }`}
+                      title="2D Teknik Çizim İnceleme Panelini Aç/Kapat"
+                    >
+                      {inspectorOpen ? (
+                        <PanelRightClose className="w-3.5 h-3.5" />
+                      ) : (
+                        <PanelRightOpen className="w-3.5 h-3.5" />
+                      )}
+                      <span className="hidden sm:inline">2D İnceleme</span>
+                    </button>
+                  </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={downloadAllPanelsDXF}
-                    className="px-3.5 py-2 rounded-xl bg-[#141413] hover:bg-stone-800 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <Download className="w-3.5 h-3.5 text-amber-300" />
-                    <span>Tüm Parçaları DXF İndir ({bom.cutList.length})</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={downloadNestingSheetsDXF}
-                    className="px-3.5 py-2 rounded-xl birim-ice-btn text-[#141413] font-bold text-xs flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <Download className="w-3.5 h-3.5 text-purple-700" />
-                    <span>2800×2070 Plaka Şeması DXF</span>
-                  </button>
+
+                {/* Contextual Multi-Select Bulk Action Bar */}
+                {checkedCutIds.size > 0 && (
+                  <div className="px-3.5 py-2 rounded-xl bg-blue-50 border border-blue-200 flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className="w-5 h-5 rounded-md bg-blue-700 text-white font-mono text-[11px] font-bold flex items-center justify-center">
+                        {checkedCutIds.size}
+                      </span>
+                      <span className="text-blue-950 font-bold">{checkedCutIds.size} parça seçildi</span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={downloadSelectedPiecesDxf}
+                        className="px-2.5 py-1 rounded-lg bg-blue-700 hover:bg-blue-800 text-white text-[11px] font-bold inline-flex items-center gap-1.5 transition cursor-pointer"
+                      >
+                        <Download className="w-3 h-3" />
+                        <span>Seçili DXF İndir</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={downloadThermalLabelsHtml}
+                        className="px-2.5 py-1 rounded-lg bg-white hover:bg-blue-100 border border-blue-200 text-blue-950 text-[11px] font-bold inline-flex items-center gap-1.5 transition cursor-pointer"
+                      >
+                        <Printer className="w-3 h-3" />
+                        <span>100×50 Etiket</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCheckedCutIds(new Set())}
+                        className="px-2 py-1 rounded-lg text-[#57534E] hover:text-[#141413] text-[11px] font-semibold cursor-pointer"
+                      >
+                        Temizle
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Grouped & Scannable Cut-List Table */}
+                <div className="bg-white border border-[#E5DFD3] rounded-2xl shadow-2xs overflow-hidden">
+                  {groupedCutList.length === 0 ? (
+                    <div className="py-10 text-center text-[#78716C] text-xs">
+                      Arama veya filtre kriterine uygun kesim parçası bulunamadı.
+                    </div>
+                  ) : (
+                    groupedCutList.map((grp, gIdx) => {
+                      const isCollapsed = collapsedGroups.has(grp.key);
+                      const grpArea = grp.pieces.reduce((s, p) => s + (p.areaM2 || 0), 0);
+                      const grpBand = grp.pieces.reduce((s, p) => s + (p.edgeBandMeters || 0), 0);
+                      const allGrpChecked = grp.pieces.every((p) => checkedCutIds.has(p.id));
+                      return (
+                        <div key={grp.key} className={gIdx > 0 ? "border-t border-[#E5DFD3]" : ""}>
+                          {/* Collapsible Module + Material Group Header */}
+                          <div
+                            onClick={() => toggleGroupCollapsed(grp.key)}
+                            className="px-4 py-2.5 bg-[#F5F2EA] hover:bg-[#EFECE4] border-b border-[#E5DFD3] flex flex-wrap items-center justify-between gap-2 cursor-pointer transition"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              {isCollapsed ? (
+                                <ChevronRight className="w-3.5 h-3.5 text-[#78716C] shrink-0" />
+                              ) : (
+                                <ChevronDown className="w-3.5 h-3.5 text-[#78716C] shrink-0" />
+                              )}
+                              <span className="font-bold text-[#141413] truncate">{grp.moduleName}</span>
+                              <span className="text-[#A8A29E]">•</span>
+                              <span className="text-[#57534E] font-medium truncate">{grp.materialName}</span>
+                              <span className="text-[#A8A29E]">•</span>
+                              <span className="font-mono text-[11px] font-bold text-[#141413]">
+                                {grp.thicknessMm}mm
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 text-[11px] font-mono text-[#57534E] tabular-nums">
+                              <span>{grp.pieces.length} parça</span>
+                              <span>•</span>
+                              <span>{grpArea.toFixed(2)} m²</span>
+                              <span>•</span>
+                              <span className="text-amber-800 font-bold">{grpBand.toFixed(2)} mt</span>
+                            </div>
+                          </div>
+
+                          {!isCollapsed && (
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-left border-collapse">
+                                <thead className="bg-[#FAF8F4] text-[#78716C] uppercase tracking-wider text-[10px] border-b border-[#ECE7DC]">
+                                  <tr>
+                                    <th className="py-2 pl-3.5 pr-2 w-8">
+                                      <input
+                                        type="checkbox"
+                                        checked={allGrpChecked}
+                                        onChange={(e) => toggleAllVisibleChecked(e.target.checked)}
+                                        className="rounded border-stone-300 accent-[#141413] cursor-pointer"
+                                      />
+                                    </th>
+                                    <th className="py-2 px-2 font-bold">Parça Adı / İşlem</th>
+                                    <th className="py-2 px-2 text-right font-bold">Bitmiş (mm)</th>
+                                    <th className="py-2 px-2 text-right font-bold">Testere Net (mm)</th>
+                                    <th className="py-2 px-2.5 font-bold">Bant</th>
+                                    <th className="py-2 px-2 text-right font-bold">CNC</th>
+                                    <th className="py-2 px-2 text-right font-bold">Alan (m²)</th>
+                                    <th className="py-2 pl-1.5 pr-3 w-10 text-right font-bold">DXF</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-[#ECE7DC] text-[11.5px]">
+                                  {grp.pieces.map((p, idx) => {
+                                    const isSel = activeCutPiece?.id === p.id;
+                                    const isChk = checkedCutIds.has(p.id);
+                                    const bandCount = countActiveBands(p.edgeBanding);
+                                    const holeCount = p.holes?.length || 0;
+                                    return (
+                                      <tr
+                                        key={p.id}
+                                        onClick={() => {
+                                          setSelectedCutPieceId(p.id);
+                                          if (!inspectorOpen) setInspectorOpen(true);
+                                        }}
+                                        className={`group cursor-pointer transition-colors ${
+                                          isSel ? "bg-blue-50/75" : "hover:bg-[#FAF7F1]"
+                                        }`}
+                                      >
+                                        <td
+                                          className="py-2.5 pl-3.5 pr-2 relative"
+                                          onClick={(e) => e.stopPropagation()}
+                                        >
+                                          {isSel && (
+                                            <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-blue-700 rounded-r" />
+                                          )}
+                                          <input
+                                            type="checkbox"
+                                            checked={isChk}
+                                            onChange={() => toggleCutRowChecked(p.id)}
+                                            className="rounded border-stone-300 accent-[#141413] cursor-pointer"
+                                          />
+                                        </td>
+                                        <td className="py-2.5 px-2">
+                                          <div className="flex items-center gap-1.5">
+                                            <span className="font-mono text-[10px] text-[#A8A29E] tabular-nums">
+                                              {String(idx + 1).padStart(2, "0")}
+                                            </span>
+                                            <span className="font-bold text-[#141413]">{p.pieceName}</span>
+                                          </div>
+                                          {(showTechIds ||
+                                            p.tambourTrackGrooveSpec ||
+                                            p.kerfBendingMeta ||
+                                            p.hasBackGroove ||
+                                            (p.polygonContourMm && p.polygonContourMm.length > 4)) && (
+                                            <div className="flex flex-wrap items-center gap-1 mt-0.5 pl-5">
+                                              {showTechIds && (
+                                                <span className="text-[10px] text-[#78716C] font-mono">{p.id}</span>
+                                              )}
+                                              {p.tambourTrackGrooveSpec && (
+                                                <span className="px-1.5 py-0.2 rounded bg-sky-100 border border-sky-300 text-sky-900 text-[9.5px] font-bold">
+                                                  Tambur Ray {p.tambourTrackGrooveSpec.widthMm}×{p.tambourTrackGrooveSpec.depthMm}mm
+                                                </span>
+                                              )}
+                                              {p.kerfBendingMeta && (
+                                                <span className="px-1.5 py-0.2 rounded bg-amber-100 border border-amber-300 text-amber-950 text-[9.5px] font-bold">
+                                                  CNC Kerf R{p.kerfBendingMeta.outerRadiusMm} ({p.kerfBendingMeta.kerfCount} çentik)
+                                                </span>
+                                              )}
+                                              {p.polygonContourMm && p.polygonContourMm.length > 4 && !p.tambourTrackGrooveSpec && (
+                                                <span className="px-1.5 py-0.2 rounded bg-purple-100 border border-purple-300 text-purple-900 text-[9.5px] font-bold">
+                                                  5-Eksen Kontur
+                                                </span>
+                                              )}
+                                              {p.hasBackGroove && (
+                                                <span className="px-1.5 py-0.2 rounded bg-stone-100 border border-stone-300 text-stone-700 text-[9.5px] font-semibold">
+                                                  8mm Kanal
+                                                </span>
+                                              )}
+                                            </div>
+                                          )}
+                                        </td>
+                                        <td className="py-2.5 px-2 text-right font-mono font-bold text-[#141413] tabular-nums whitespace-nowrap">
+                                          {p.lengthMm} × {p.widthMm}
+                                        </td>
+                                        <td className="py-2.5 px-2 text-right font-mono font-bold text-emerald-800 tabular-nums whitespace-nowrap">
+                                          {p.netCutLengthMm ?? p.lengthMm} × {p.netCutWidthMm ?? p.widthMm}
+                                        </td>
+                                        <td className="py-2.5 px-2.5 whitespace-nowrap">
+                                          <div className="flex items-center gap-2">
+                                            <MiniEdgeBandSvg edgeBanding={p.edgeBanding} />
+                                            <span
+                                              className={`font-mono text-[10.5px] font-bold ${
+                                                bandCount === 4 ? "text-amber-800" : "text-[#57534E]"
+                                              }`}
+                                            >
+                                              {p.edgeBandCode || (bandCount > 0 ? `${bandCount}K` : "—")}
+                                            </span>
+                                          </div>
+                                        </td>
+                                        <td className="py-2.5 px-2 text-right font-mono tabular-nums whitespace-nowrap">
+                                          {holeCount > 0 ? (
+                                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-800">
+                                              <span className="w-1.5 h-1.5 rounded-full bg-blue-600" />
+                                              {holeCount}
+                                            </span>
+                                          ) : (
+                                            <span className="text-[#A8A29E]">—</span>
+                                          )}
+                                        </td>
+                                        <td className="py-2.5 px-2 text-right font-mono text-[#57534E] tabular-nums whitespace-nowrap">
+                                          {p.areaM2}
+                                        </td>
+                                        <td
+                                          className="py-2.5 pl-1.5 pr-3 text-right"
+                                          onClick={(e) => e.stopPropagation()}
+                                        >
+                                          <button
+                                            type="button"
+                                            onClick={() => downloadPieceDXF(p)}
+                                            className="p-1.5 rounded-lg text-[#57534E] hover:text-white hover:bg-[#141413] transition cursor-pointer"
+                                            title={`${p.pieceName} için katmanlı AutoCAD DXF indir`}
+                                          >
+                                            <FileCode className="w-3.5 h-3.5" />
+                                          </button>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+
+                  {/* Clean Table Totals Footer */}
+                  <div className="px-4 py-2.5 bg-[#F4F0E8] border-t border-[#E5DFD3] flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                    <span className="text-[#78716C] font-medium">
+                      Satıra tıklayarak sağdaki 2D teknik çizimde delik, kanal ve bant detaylarını inceleyin
+                    </span>
+                    <div className="font-mono font-bold tabular-nums text-[#141413] flex items-center gap-2.5">
+                      <span>{bom.summary.totalPiecesCount} Parça</span>
+                      <span className="text-[#A8A29E]">•</span>
+                      <span className="text-blue-800">{bom.summary.totalEdgeBandMeters} mt Bant</span>
+                      <span className="text-[#A8A29E]">•</span>
+                      <span className="text-amber-900">{bom.summary.totalPanelAreaM2} m² Alan</span>
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              <div className="bg-white border border-[#E5DFD3] rounded-2xl shadow-2xs overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead className="bg-[#F4F0E8] text-[#57534E] uppercase tracking-wider text-[10.5px] border-b border-[#E5DFD3]">
-                      <tr>
-                        <th className="p-2.5 font-bold">Parça Adı / CNC İşlem</th>
-                        <th className="p-2.5 font-bold">Modül</th>
-                        <th className="p-2.5 font-bold">Malzeme</th>
-                        <th className="p-2.5 text-right font-bold">Bitmiş (Boy×En)</th>
-                        <th className="p-2.5 text-right font-bold">Testere Net (mm)</th>
-                        <th className="p-2.5 text-right font-bold">Kalınlık</th>
-                        <th className="p-2.5 text-center font-bold">Bant (Ü/A/S/Sa)</th>
-                        <th className="p-2.5 text-center font-bold">CNC Delik</th>
-                        <th className="p-2.5 text-right font-bold">Alan (m²)</th>
-                        <th className="p-2.5 text-center font-bold">CAD</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[#ECE7DC] font-mono text-[11px]">
-                      {bom.cutList.map((p) => (
-                        <tr key={p.id} className="hover:bg-[#FAF7F1] transition-colors">
-                          <td className="p-2.5 font-sans">
-                            <div className="font-bold text-[#141413]">{p.pieceName}</div>
-                            <div className="flex flex-wrap items-center gap-1 mt-0.5">
-                              <span className="text-[10px] text-[#78716C] font-mono">{p.id}</span>
-                              {p.tambourTrackGrooveSpec && (
-                                <span className="px-1.5 py-0.2 rounded bg-sky-100 border border-sky-300 text-sky-900 text-[9.5px] font-bold">
-                                  Tambur Ray {p.tambourTrackGrooveSpec.widthMm}×{p.tambourTrackGrooveSpec.depthMm}mm
-                                </span>
-                              )}
-                              {p.kerfBendingMeta && (
-                                <span className="px-1.5 py-0.2 rounded bg-amber-100 border border-amber-300 text-amber-950 text-[9.5px] font-bold">
-                                  CNC Kerf R{p.kerfBendingMeta.outerRadiusMm} ({p.kerfBendingMeta.kerfCount} çentik)
-                                </span>
-                              )}
-                              {p.polygonContourMm && p.polygonContourMm.length > 4 && !p.tambourTrackGrooveSpec && (
-                                <span className="px-1.5 py-0.2 rounded bg-purple-100 border border-purple-300 text-purple-900 text-[9.5px] font-bold">
-                                  5-Eksen Kontur
-                                </span>
-                              )}
-                              {p.hasBackGroove && (
-                                <span className="px-1.5 py-0.2 rounded bg-stone-100 border border-stone-300 text-stone-700 text-[9.5px] font-semibold">
-                                  8mm Kanal
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="p-2.5 text-[#57534E] font-sans">{p.moduleName}</td>
-                          <td className="p-2.5 text-[#292524] font-sans font-medium">{p.materialName}</td>
-                          <td className="p-2.5 text-right text-amber-900 font-bold">
-                            {p.lengthMm} × {p.widthMm}
-                          </td>
-                          <td className="p-2.5 text-right text-emerald-800 font-bold">
-                            {p.netCutLengthMm ?? p.lengthMm} × {p.netCutWidthMm ?? p.widthMm}
-                          </td>
-                          <td className="p-2.5 text-right text-[#44403C]">{p.thicknessMm}mm</td>
-                          <td className="p-2.5 text-center">
-                            <div className="flex justify-center gap-0.5 text-[9.5px] font-bold">
-                              {(
-                                [
-                                  ["Ü", p.edgeBanding.top],
-                                  ["A", p.edgeBanding.bottom],
-                                  ["S", p.edgeBanding.left],
-                                  ["Sa", p.edgeBanding.right],
-                                ] as const
-                              ).map(([lbl, on]) => (
-                                <span
-                                  key={lbl}
-                                  className={`px-1.5 py-0.5 rounded ${
-                                    on
-                                      ? "bg-blue-700 text-white"
-                                      : "bg-[#EFECE4] text-[#A8A29E]"
-                                  }`}
-                                >
-                                  {lbl}
-                                </span>
-                              ))}
-                            </div>
-                            {p.edgeBandCode && (
-                              <div className="text-[9.5px] text-[#78716C] mt-0.5 font-sans">
-                                {p.edgeBandCode}
-                              </div>
-                            )}
-                          </td>
-                          <td className="p-2.5 text-center text-purple-800 font-bold">
-                            {p.holes ? `${p.holes.length} delik` : "0"}
-                          </td>
-                          <td className="p-2.5 text-right text-[#44403C]">{p.areaM2}</td>
-                          <td className="p-2.5 text-center">
+              {/* RIGHT: 2D TECHNICAL BLUEPRINT INSPECTOR (340px on xl, full width below) */}
+              {inspectorOpen && activeCutPiece && (
+                <aside className="w-full xl:w-[340px] shrink-0 bg-white border border-[#E5DFD3] rounded-2xl shadow-2xs overflow-hidden flex flex-col">
+                  {/* Inspector Header */}
+                  <div className="px-4 py-3 bg-[#F5F2EA] border-b border-[#E5DFD3] space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono text-[10px] font-extrabold uppercase tracking-wider text-blue-800">
+                        Parça #{String(Math.max(1, bom.cutList.findIndex((x) => x.id === activeCutPiece.id) + 1)).padStart(2, "0")} / {bom.cutList.length}
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => navigateCutPiece(-1)}
+                          className="w-6 h-6 rounded-lg bg-white border border-[#DED8CC] text-[#57534E] hover:text-[#141413] flex items-center justify-center cursor-pointer"
+                          title="Önceki parça"
+                        >
+                          <ChevronUp className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => navigateCutPiece(1)}
+                          className="w-6 h-6 rounded-lg bg-white border border-[#DED8CC] text-[#57534E] hover:text-[#141413] flex items-center justify-center cursor-pointer"
+                          title="Sonraki parça"
+                        >
+                          <ChevronDown className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setInspectorOpen(false)}
+                          className="w-6 h-6 rounded-lg bg-white border border-[#DED8CC] text-[#57534E] hover:text-[#141413] flex items-center justify-center cursor-pointer ml-0.5"
+                          title="Paneli gizle"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                    <h3 className="text-[13px] font-extrabold text-[#141413] leading-snug">
+                      {activeCutPiece.pieceName}
+                    </h3>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono text-[10px] text-[#78716C] truncate">
+                        {activeCutPiece.id}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => copyPieceId(activeCutPiece.id)}
+                        className="text-[#78716C] hover:text-blue-700 transition shrink-0 cursor-pointer"
+                        title="Teknik kodu kopyala"
+                      >
+                        <Copy className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Blueprint SVG Canvas + 3 Layer Toggles */}
+                  <div className="p-4 space-y-3.5">
+                    <div>
+                      <CutPieceBlueprintSvg piece={activeCutPiece} layers={blueprintLayers} />
+                      <div className="mt-2 grid grid-cols-3 gap-1.5">
+                        {(
+                          [
+                            { key: "bant", label: "Bant", dot: "bg-amber-500" },
+                            { key: "cnc", label: "CNC", dot: "bg-blue-500" },
+                            { key: "olcu", label: "Ölçü", dot: "bg-emerald-500" },
+                          ] as const
+                        ).map((ly) => {
+                          const on = blueprintLayers[ly.key];
+                          return (
                             <button
+                              key={ly.key}
                               type="button"
-                              onClick={() => downloadPieceDXF(p)}
-                              className="px-2 py-1 rounded-lg bg-[#F5F2EA] hover:bg-[#141413] text-[#141413] hover:text-white border border-[#DED8CC] text-[10px] font-sans font-bold transition cursor-pointer"
-                              title={`${p.pieceName} için katmanlı AutoCAD DXF indir`}
+                              onClick={() =>
+                                setBlueprintLayers((prev) => ({ ...prev, [ly.key]: !prev[ly.key] }))
+                              }
+                              className={`h-7 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1.5 border transition cursor-pointer ${
+                                on
+                                  ? "bg-[#141413] text-white border-[#141413]"
+                                  : "bg-[#FAF8F4] text-[#78716C] border-[#DED8CC] hover:text-[#141413]"
+                              }`}
                             >
-                              DXF
+                              <span className={`w-1.5 h-1.5 rounded-full ${on ? ly.dot : "bg-stone-400"}`} />
+                              <span>{ly.label}</span>
                             </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot className="bg-[#F4F0E8] border-t border-[#E5DFD3] font-mono text-[11px] font-bold text-[#141413]">
-                      <tr>
-                        <td className="p-2.5 font-sans" colSpan={6}>
-                          TOPLAM ({bom.summary.totalPiecesCount} Kesim Parçası • Kenar Bandı:{" "}
-                          {bom.summary.totalEdgeBandMeters} mt)
-                        </td>
-                        <td className="p-2.5 text-center text-blue-800">
-                          {bom.summary.totalEdgeBandMeters} mt
-                        </td>
-                        <td className="p-2.5 text-center text-purple-800">
-                          {bom.summary.totalDrillingHolesCount} delik
-                        </td>
-                        <td className="p-2.5 text-right text-amber-900">
-                          {bom.summary.totalPanelAreaM2} m²
-                        </td>
-                        <td className="p-2.5" />
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* 2-Column Technical Spec Grid */}
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 pt-2.5 border-t border-[#ECE7DC] text-xs">
+                      <div>
+                        <div className="text-[10px] text-[#78716C] font-semibold">Bitmiş Ölçü</div>
+                        <div className="font-mono font-bold text-[#141413] tabular-nums mt-0.5">
+                          {activeCutPiece.lengthMm} × {activeCutPiece.widthMm} mm
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-[#78716C] font-semibold">Testere Net</div>
+                        <div className="font-mono font-bold text-emerald-800 tabular-nums mt-0.5">
+                          {activeCutPiece.netCutLengthMm ?? activeCutPiece.lengthMm} × {activeCutPiece.netCutWidthMm ?? activeCutPiece.widthMm} mm
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-[#78716C] font-semibold">Kalınlık</div>
+                        <div className="font-mono font-bold text-[#141413] mt-0.5">
+                          {activeCutPiece.thicknessMm} mm
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-[#78716C] font-semibold">Alan</div>
+                        <div className="font-mono font-bold text-[#141413] tabular-nums mt-0.5">
+                          {activeCutPiece.areaM2} m²
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-[#78716C] font-semibold">Kenar Bandı</div>
+                        <div className="font-mono font-bold text-amber-800 mt-0.5">
+                          {activeCutPiece.edgeBandCode || `${countActiveBands(activeCutPiece.edgeBanding)} Kenar`}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-[#78716C] font-semibold">CNC Operasyon</div>
+                        <div className="font-bold text-blue-800 mt-0.5">
+                          {(activeCutPiece.holes?.length || 0) > 0
+                            ? `${activeCutPiece.holes!.length} Delik`
+                            : activeCutPiece.hasBackGroove
+                            ? "8mm Kanal"
+                            : "İşlem Yok"}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Active DXF Layers */}
+                    <div className="pt-2.5 border-t border-[#ECE7DC]">
+                      <div className="text-[10px] text-[#78716C] font-semibold mb-1.5">
+                        Aktif DXF Katmanları (AC1015)
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {getPieceDxfLayers(activeCutPiece).map((ly) => (
+                          <span
+                            key={ly}
+                            className="px-1.5 py-0.5 rounded bg-[#F5F2EA] border border-[#E5DFD3] font-mono text-[9.5px] font-semibold text-[#44403C]"
+                          >
+                            {ly}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 2 Crisp Bottom Actions */}
+                  <div className="p-3 border-t border-[#E5DFD3] bg-[#F5F2EA] grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => downloadPieceDXF(activeCutPiece)}
+                      className="h-8 rounded-xl bg-[#141413] hover:bg-stone-800 text-xs font-bold text-white inline-flex items-center justify-center gap-1.5 transition cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5 text-amber-300" />
+                      <span>DXF İndir</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLabelPreviewPiece(activeCutPiece)}
+                      className="h-8 rounded-xl bg-white hover:bg-[#EFECE4] border border-[#DED8CC] text-xs font-bold text-[#141413] inline-flex items-center justify-center gap-1.5 transition cursor-pointer"
+                    >
+                      <Tag className="w-3.5 h-3.5 text-orange-700" />
+                      <span>100×50 Etiket</span>
+                    </button>
+                  </div>
+                </aside>
+              )}
             </div>
           )}
 
@@ -2201,7 +3057,7 @@ function BomModalInner({ isOpen, onClose, initialTab = "cutlist" }: BomModalProp
                   <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#ECE7DC] pb-2.5">
                     <div>
                       <span className="font-extrabold text-[#141413] text-sm">
-                        {cIdx + 1}. {cab.moduleName} ({cab.moduleId})
+                        {cIdx + 1}. {cab.moduleName}
                       </span>
                       <div className="text-[11px] font-mono text-[#57534E] mt-0.5">
                         Dış (KB×KH×KT):{" "}
@@ -2625,6 +3481,107 @@ function BomModalInner({ isOpen, onClose, initialTab = "cutlist" }: BomModalProp
             })()}
         </div>
       </div>
+      {/* 100×50mm Thermal Label Preview Sub-Modal */}
+      {labelPreviewPiece && (
+        <div
+          onClick={() => setLabelPreviewPiece(null)}
+          className="fixed inset-0 z-[170] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-lg bg-[#FAF8F4] border border-[#D6CFC2] rounded-2xl shadow-2xl overflow-hidden text-[#141413]"
+          >
+            <div className="px-4 py-3 bg-[#F5F2EA] border-b border-[#E5DFD3] flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Tag className="w-4 h-4 text-orange-700" />
+                <span className="text-xs font-extrabold">Termal Etiket Önizleme · 100 × 50 mm</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLabelPreviewPiece(null)}
+                className="p-1 rounded-lg text-[#57534E] hover:text-[#141413] cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-4 bg-[#EFECE4]">
+              <div className="bg-white text-zinc-950 rounded-xl p-4 border-2 border-dashed border-stone-400">
+                <div className="flex items-start justify-between border-b-2 border-zinc-900 pb-2">
+                  <div>
+                    <div className="text-[9px] font-extrabold tracking-[0.18em] uppercase">BİRİM® · İMALAT ETİKETİ</div>
+                    <div className="text-xs font-bold mt-0.5">{project.title}</div>
+                  </div>
+                  <div className="text-right font-mono">
+                    <div className="text-base font-extrabold leading-none">
+                      #{String(Math.max(1, bom.cutList.findIndex((x) => x.id === labelPreviewPiece.id) + 1)).padStart(2, "0")}
+                    </div>
+                    <div className="text-[9px] text-zinc-600">/ {bom.cutList.length} PARÇA</div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-12 gap-3 py-3 items-center">
+                  <div className="col-span-8 space-y-1">
+                    <div className="text-sm font-extrabold leading-tight">{labelPreviewPiece.pieceName}</div>
+                    <div className="font-mono text-[9.5px] text-zinc-600 break-all">{labelPreviewPiece.id}</div>
+                    <div className="pt-1 flex items-center gap-3 font-mono text-xs">
+                      <span><strong>NET:</strong> {labelPreviewPiece.netCutLengthMm ?? labelPreviewPiece.lengthMm}×{labelPreviewPiece.netCutWidthMm ?? labelPreviewPiece.widthMm}</span>
+                      <span><strong>{labelPreviewPiece.thicknessMm}mm</strong></span>
+                    </div>
+                    <div className="text-[10px] text-zinc-700">
+                      {labelPreviewPiece.materialName} • CNC: {(labelPreviewPiece.holes?.length || 0) > 0 ? `${labelPreviewPiece.holes!.length} delik` : "Yok"}
+                    </div>
+                  </div>
+                  <div className="col-span-4 flex flex-col items-center">
+                    <svg viewBox="0 0 80 52" className="w-24 h-16">
+                      <rect x="12" y="9" width="56" height="34" fill="#F4F4F5" stroke="#A1A1AA" strokeWidth="1" />
+                      {labelPreviewPiece.edgeBanding.top && <line x1="12" y1="9" x2="68" y2="9" stroke="#09090B" strokeWidth="4" />}
+                      {labelPreviewPiece.edgeBanding.bottom && <line x1="12" y1="43" x2="68" y2="43" stroke="#09090B" strokeWidth="4" />}
+                      {labelPreviewPiece.edgeBanding.left && <line x1="12" y1="9" x2="12" y2="43" stroke="#09090B" strokeWidth="4" />}
+                      {labelPreviewPiece.edgeBanding.right && <line x1="68" y1="9" x2="68" y2="43" stroke="#09090B" strokeWidth="4" />}
+                      <text x="40" y="29" textAnchor="middle" fontFamily="monospace" fontSize="8" fontWeight="bold" fill="#18181B">
+                        {labelPreviewPiece.edgeBandCode || `${countActiveBands(labelPreviewPiece.edgeBanding)}K`}
+                      </text>
+                    </svg>
+                  </div>
+                </div>
+                <div className="pt-2 border-t border-zinc-300 flex items-center justify-between gap-3">
+                  <svg viewBox="0 0 210 22" className="h-5 flex-1">
+                    {Array.from({ length: 42 }).map((_, i) => (
+                      <rect key={i} x={i * 5} y="0" width={i % 3 === 0 ? 3 : i % 2 === 0 ? 1.4 : 2.2} height="22" fill="#09090B" />
+                    ))}
+                  </svg>
+                  <span className="font-mono text-[10px] font-bold">v{project.version}</span>
+                </div>
+              </div>
+            </div>
+            <div className="px-4 py-3 bg-[#F5F2EA] border-t border-[#E5DFD3] flex items-center justify-between gap-2">
+              <span className="text-[10px] font-mono text-[#78716C]">Zebra ZD421 • 203 DPI • ZPL II</span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    downloadThermalLabelsHtml();
+                    setLabelPreviewPiece(null);
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-white hover:bg-[#EFECE4] border border-[#DED8CC] text-xs font-bold cursor-pointer"
+                >
+                  HTML Etiket
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    downloadThermalLabelsZpl();
+                    setLabelPreviewPiece(null);
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-[#141413] hover:bg-stone-800 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Printer className="w-3.5 h-3.5 text-amber-300" />
+                  <span>Zebra .ZPL İndir</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

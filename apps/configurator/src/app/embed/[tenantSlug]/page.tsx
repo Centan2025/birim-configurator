@@ -44,7 +44,7 @@ function TenantWhiteLabelEmbedPageInner() {
   const embedCheck = checkTenantEntitlement(activeTenantProfile, "allowWhiteLabelEmbed");
   if (!embedCheck.allowed) {
     return (
-      <div className="h-screen w-screen flex items-center justify-center bg-[#FAF9F6] text-[#141413] p-6">
+      <div className="h-dvh w-screen flex items-center justify-center bg-[#FAF9F6] text-[#141413] p-6">
         <div className="max-w-md bg-white border border-[#E4DFD5] rounded-2xl p-6 text-center space-y-2">
           <Lock className="w-6 h-6 text-amber-700 mx-auto" />
           <h1 className="text-sm font-bold">White-Label Embed Özelliği Kapalı</h1>
@@ -55,7 +55,7 @@ function TenantWhiteLabelEmbedPageInner() {
   }
 
   return (
-    <div className="relative h-screen w-screen overflow-hidden">
+    <div className="relative h-dvh w-screen overflow-hidden">
       <BirimStudioWorkspace initialMode="studio" />
       <button
         type="button"

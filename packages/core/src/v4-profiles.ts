@@ -473,9 +473,9 @@ function calculateFourSpaceDimensionsUncached(
     } else if (tplId.includes("niche_tall")) {
       openCavityBottomCut = Math.max(bottomDrawersSpan, 400) + 550 + T;
     } else if (tplId.includes("microwave_wall")) {
-      openCavityBottomCut = Math.max(bottomDrawersSpan, 360);
+      openCavityBottomCut = Math.max(bottomDrawersSpan, 402);
     } else if (tplId.includes("fridge_surround")) {
-      openCavityBottomCut = Math.max(bottomDrawersSpan, 1720);
+      openCavityBottomCut = Math.max(bottomDrawersSpan, 1776);
     }
 
     const applyPartialDoorCut =

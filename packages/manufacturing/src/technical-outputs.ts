@@ -1113,7 +1113,7 @@ export function calculateBlumEngineeringSummary(
         Math.min(600, Math.max(270, Math.floor((LT - 10) / 50) * 50));
       if (nl + 3 > LT) {
         collisionWarnings.push(
-          `Bölme ${bIdx + 1} Çekmece (${drw.id}): Ray boyu (NL=${nl}mm) + 3mm boşluk net iç derinliği (LT=${LT}mm) aşıyor.`
+          `Bölme ${bIdx + 1} Çekmece: Ray boyu (NL=${nl}mm) + 3mm boşluk net iç derinliği (LT=${LT}mm) aşıyor.`
         );
       }
 
