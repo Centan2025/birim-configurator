@@ -57,6 +57,7 @@ import {
   type ElevationSnapTarget,
 } from "../engine/elevationSnapEngine";
 import { renderSceneWithBlenderCycles } from "../engine/blenderRenderClient";
+import { computeResizeWidthSnap, isKitchenWallModule } from "../engine/cabinetResizeAndStackEngine";
 import {
   getV3PbrMaterial,
   applyMaxAnisotropyToCachedTextures,
@@ -2562,6 +2563,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
     const dimWorldAnchorsRef = useRef<{ id: string; worldPos: THREE.Vector3; worldStart?: THREE.Vector3; worldEnd?: THREE.Vector3; isActiveMod?: boolean }[]>([]);
     const liveDimDeltaRef = useRef<{ dx: number; dz: number }>({ dx: 0, dz: 0 });
     const dimLabelDomMapRef = useRef<Map<string, HTMLDivElement>>(new Map());
+    const labelScale3DRef = useRef<number>(1);
     const gridRef = useRef<THREE.GridHelper | null>(null);
     const shadowPlaneRef = useRef<THREE.Mesh | null>(null);
     const needsRenderRef = useRef<boolean>(true);
@@ -2719,7 +2721,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         } else {
           const uOff = customLabelOffsetsRef.current[p.id] || { dx: 0, dy: 0 };
           el.style.opacity = "1";
-          el.style.transform = `translate3d(${Math.round(p.x + uOff.dx)}px, ${Math.round(p.y + uOff.dy)}px, 0) translate(-50%, -50%) rotate(${p.angleDeg.toFixed(1)}deg)`;
+          el.style.transform = `translate3d(${Math.round(p.x + uOff.dx)}px, ${Math.round(p.y + uOff.dy)}px, 0) translate(-50%, -50%) rotate(${p.angleDeg.toFixed(1)}deg) scale(${labelScale3DRef.current})`;
         }
       }
 
@@ -2782,7 +2784,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           const px = Math.max(45, Math.min(w - 110, (ndc.x + 1) * 0.5 * w + uOff.dx));
           const py = Math.max(45, Math.min(h - 65, (-ndc.y + 1) * 0.5 * h + uOff.dy));
           el.style.opacity = "1";
-          el.style.transform = `translate3d(${Math.round(px)}px, ${Math.round(py)}px, 0)`;
+          el.style.transform = `translate3d(${Math.round(px)}px, ${Math.round(py)}px, 0) scale(${labelScale3DRef.current})`;
         }
       }
       for (const matAnchor of matWorldAnchorsRef.current) {
@@ -2796,13 +2798,30 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           const px = Math.max(45, Math.min(w - 110, (ndc.x + 1) * 0.5 * w + uOff.dx));
           const py = Math.max(45, Math.min(h - 65, (-ndc.y + 1) * 0.5 * h + uOff.dy));
           el.style.opacity = "1";
-          el.style.transform = `translate3d(${Math.round(px)}px, ${Math.round(py)}px, 0)`;
+          el.style.transform = `translate3d(${Math.round(px)}px, ${Math.round(py)}px, 0) scale(${labelScale3DRef.current})`;
         }
       }
     }, []);
 
     const requestRender = useCallback(() => {
       needsRenderRef.current = true;
+    }, []);
+
+    useEffect(() => {
+      const saved = Number(window.localStorage.getItem("birim_ui_font_scale"));
+      if (Number.isFinite(saved) && saved >= 0.75 && saved <= 1.6) {
+        labelScale3DRef.current = saved;
+        needsRenderRef.current = true;
+      }
+      const onScaleChange = (ev: Event) => {
+        const val = Number((ev as CustomEvent<number>).detail);
+        if (Number.isFinite(val) && val >= 0.75 && val <= 1.6) {
+          labelScale3DRef.current = val;
+          needsRenderRef.current = true;
+        }
+      };
+      window.addEventListener("birim:canvas-font-scale-changed", onScaleChange);
+      return () => window.removeEventListener("birim:canvas-font-scale-changed", onScaleChange);
     }, []);
 
     // Initialize WebGL Scene once — never destroyed across mode switches
@@ -4362,63 +4381,92 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             const localFront = new THREE.Vector3(Math.sin(rotRad), 0, Math.cos(rotRad));
             const deltaAlongZ = worldDelta.dot(localFront);
             let nextD = Math.max(240, Math.min(1200, Math.round((activeDrag3D.startValueMm + deltaAlongZ) / 10) * 10));
-            state.project.modules.forEach((other, oi) => {
-              if (oi === activeDrag3D?.modIdx || other.category === "complementary") return;
-              if (Math.abs((other.rotation?.y || 0) - (rMod.rotation?.y || 0)) > 5) return;
-              if (Math.abs(nextD - other.dimensions.depth) <= 30) {
-                nextD = Math.max(240, Math.min(1200, other.dimensions.depth));
-              }
-            });
+            const rIsWall = isKitchenWallModule(rMod);
+            let bestDepthDist = 31;
+            let snappedDepthName: string | null = null;
+            if (!e.altKey) {
+              state.project.modules.forEach((other, oi) => {
+                if (oi === activeDrag3D?.modIdx || other.category === "complementary") return;
+                if (Math.abs((other.rotation?.y || 0) - (rMod.rotation?.y || 0)) > 5) return;
+                // Kitchen wall cabinets snap depth to other wall cabinets, not deep base cabinets
+                if (rIsWall !== isKitchenWallModule(other)) return;
+                const dDist = Math.abs(nextD - other.dimensions.depth);
+                if (dDist <= 30 && dDist < bestDepthDist) {
+                  bestDepthDist = dDist;
+                  nextD = Math.max(240, Math.min(1200, other.dimensions.depth));
+                  snappedDepthName = other.name;
+                }
+              });
+            }
             if (nextD !== rMod.dimensions.depth) {
               state.resizeModuleParametric(activeDrag3D.modIdx, rMod.dimensions.width, undefined, nextD);
             }
-            setSnapBannerDedup(`↔ Derinlik: ${nextD} mm`);
-          } else if (rAxis === "width_right") {
-            let nextW = Math.max(250, Math.min(3600, Math.round((activeDrag3D.startValueMm + deltaAlongX) / 10) * 10));
-            // Magnetic snap right edge to adjacent module left edge
-            const startX = activeDrag3D.startSecondValueMm ?? rMod.position.x;
-            state.project.modules.forEach((other, oi) => {
-              if (oi === activeDrag3D?.modIdx || other.category === "complementary") return;
-              if (Math.abs((other.rotation?.y || 0) - (rMod.rotation?.y || 0)) > 5) return;
-              if (Math.abs(startX + nextW - other.position.x) <= 35) {
-                nextW = Math.max(250, Math.min(3600, other.position.x - startX));
-              }
-            });
-            if (nextW !== rMod.dimensions.width) {
-              const resP = state.resizeModuleParametric(activeDrag3D.modIdx, nextW);
-              if (resP) {
-                setSnapBannerDedup(
-                  `📐 Parametrik Genişlik: ${nextW} mm → ${resP.bayCount} Bölme (${Math.max(0, resP.bayCount - 1)} Dikme) • ${resP.totalLeafCount} Kapak`
-                );
-              } else {
-                setSnapBannerDedup(`↔ Genişlik: ${nextW} mm`);
-              }
-            }
-          } else if (rAxis === "width_left") {
+            setSnapBannerDedup(
+              snappedDepthName
+                ? `🧲 Derinlik ${snappedDepthName} ile Eşitlendi: ${nextD} mm`
+                : `↔ Derinlik: ${nextD} mm`
+            );
+          } else if (rAxis === "width_right" || rAxis === "width_left") {
             const startW = activeDrag3D.startValueMm;
             const startX = activeDrag3D.startSecondValueMm ?? rMod.position.x;
-            const rightEdge = startX + startW;
-            let nextW = Math.max(250, Math.min(3600, Math.round((startW - deltaAlongX) / 10) * 10));
-            let nextX = rightEdge - nextW;
-            // Magnetic snap left edge to adjacent module right edge
-            state.project.modules.forEach((other, oi) => {
-              if (oi === activeDrag3D?.modIdx || other.category === "complementary") return;
-              if (Math.abs((other.rotation?.y || 0) - (rMod.rotation?.y || 0)) > 5) return;
-              const oRight = other.position.x + other.dimensions.width;
-              if (Math.abs(nextX - oRight) <= 35) {
-                nextX = oRight;
-                nextW = Math.max(250, Math.min(3600, rightEdge - nextX));
-              }
+            const rawW = rAxis === "width_right" ? startW + deltaAlongX : startW - deltaAlongX;
+            const widthSnap = computeResizeWidthSnap({
+              modules: state.project.modules,
+              activeModIdx: activeDrag3D.modIdx,
+              axis: rAxis,
+              rawWidthMm: rawW,
+              startX,
+              startW,
+              minW: 250,
+              maxW: 3600,
+              toleranceMm: 35,
+              disableSnap: e.altKey,
             });
-            if (nextW !== rMod.dimensions.width) {
-              const resP = state.resizeModuleParametric(activeDrag3D.modIdx, nextW, nextX);
-              if (resP) {
+            const nextW = widthSnap.width;
+            const nextX = widthSnap.positionX;
+            // Render live 3D Vertical Magnetic Snap Laser Lines during 3D width resize
+            if (ghostSnapGroupRef.current) {
+              const gGroup = ghostSnapGroupRef.current;
+              disposeObject3DTree(gGroup);
+              gGroup.clear();
+              const laserTopY = Math.max(rMod.position.y + rMod.dimensions.height + 240, 2200);
+              const laserDepth = Math.max(rMod.dimensions.depth, 350);
+              widthSnap.candidateLinesX.forEach((sx) => {
+                const isLocked = widthSnap.snappedEdgeX === sx;
+                if (!isLocked && Math.abs(sx - (rAxis === "width_right" ? nextX + nextW : nextX)) > 600) return;
+                add3DRod(
+                  gGroup,
+                  new THREE.Vector3(sx, 0, 0),
+                  new THREE.Vector3(sx, laserTopY, 0),
+                  isLocked ? 7 : 3,
+                  isLocked ? snapSlotActiveRodMat : snapSlotIdleRodMat
+                );
+                add3DRod(
+                  gGroup,
+                  new THREE.Vector3(sx, 0, laserDepth),
+                  new THREE.Vector3(sx, laserTopY, laserDepth),
+                  isLocked ? 7 : 3,
+                  isLocked ? snapSlotActiveRodMat : snapSlotIdleRodMat
+                );
+              });
+              needsRenderRef.current = true;
+            }
+            if (nextW !== rMod.dimensions.width || (rAxis === "width_left" && nextX !== rMod.position.x)) {
+              const resP =
+                rAxis === "width_left"
+                  ? state.resizeModuleParametric(activeDrag3D.modIdx, nextW, nextX)
+                  : state.resizeModuleParametric(activeDrag3D.modIdx, nextW);
+              if (widthSnap.snapBanner) {
+                setSnapBannerDedup(widthSnap.snapBanner);
+              } else if (resP) {
                 setSnapBannerDedup(
                   `📐 Parametrik Genişlik: ${nextW} mm → ${resP.bayCount} Bölme (${Math.max(0, resP.bayCount - 1)} Dikme) • ${resP.totalLeafCount} Kapak`
                 );
               } else {
                 setSnapBannerDedup(`↔ Genişlik: ${nextW} mm`);
               }
+            } else if (widthSnap.snapBanner) {
+              setSnapBannerDedup(widthSnap.snapBanner);
             }
           }
           return;
@@ -5009,6 +5057,11 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               state.commitHistoryTransaction();
             }
           } else {
+            if (dragKind === "resize_3d" && ghostSnapGroupRef.current) {
+              disposeObject3DTree(ghostSnapGroupRef.current);
+              ghostSnapGroupRef.current.clear();
+              needsRenderRef.current = true;
+            }
             // Clear temporary __dragBaseY markers and commit final snapped elevation once on pointerup!
             const modContainer3D = meshGroupRef.current?.children.find(
               (ch) => ch.userData?.moduleIndex === dragModIdx

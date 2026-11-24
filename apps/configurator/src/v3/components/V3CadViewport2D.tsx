@@ -34,6 +34,9 @@ import {
   truncateCadLabel,
   resolveElevationLabelVisibility,
   resolveSelectedElevationContext,
+  computeElevationHingeAnnotation,
+  formatHoveredElevationHud,
+  type HoveredElevationItem,
 } from "./workspace/elevation2dHelpers";
 import { V3PremiumDropdown } from "../design-system";
 import {
@@ -42,6 +45,7 @@ import {
   ElevationBottomBar,
 } from "./workspace/Elevation2DChrome";
 import { NeighborElevationModule } from "./workspace/NeighborElevationModule";
+import { computeResizeWidthSnap } from "../engine/cabinetResizeAndStackEngine";
 import { CadContextMenu2D, type CadContextMenuState } from "./workspace/CadContextMenu2D";
 import {
   useV3Adapter,
@@ -519,18 +523,26 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
     const [spatialAlertsMinimized, setSpatialAlertsMinimized] = useState<boolean>(false);
     const [cadTextScale, setCadTextScale] = useState<number>(() => {
       if (typeof window !== "undefined") {
+        const globalUi = Number(window.localStorage.getItem("birim_ui_font_scale"));
+        if (Number.isFinite(globalUi) && globalUi >= 0.75 && globalUi <= 1.6) {
+          return Number((1.65 * globalUi).toFixed(2));
+        }
         const saved = Number(window.localStorage.getItem("birim_v4_cad_text_scale"));
         if (saved >= 0.8 && saved <= 2.6) return saved;
       }
       return 1.65;
     });
-    const updateCadTextScale = (nextVal: number) => {
-      const clamped = Math.max(0.85, Math.min(2.5, Number(nextVal.toFixed(2))));
-      setCadTextScale(clamped);
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem("birim_v4_cad_text_scale", String(clamped));
-      }
-    };
+    useEffect(() => {
+      const onFontScale = (ev: Event) => {
+        const scale = Number((ev as CustomEvent<number>).detail);
+        if (Number.isFinite(scale) && scale >= 0.75 && scale <= 1.6) {
+          const clamped = Math.max(0.85, Math.min(2.64, Number((1.65 * scale).toFixed(2))));
+          setCadTextScale(clamped);
+        }
+      };
+      window.addEventListener("birim:canvas-font-scale-changed", onFontScale);
+      return () => window.removeEventListener("birim:canvas-font-scale-changed", onFontScale);
+    }, []);
     const [dragGhostPreview, setDragGhostPreview] = useState<RowSnapPreviewResult | null>(null);
     const [activePlanSnapX, setActivePlanSnapX] = useState<number | null>(null);
     const [internalSectionDir2D, setInternalSectionDir2D] = useState<"Z" | "X">("Z");
@@ -547,6 +559,30 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
     };
     const [cadDrawerTab, setCadDrawerTab] = useState<"wall" | "obstacle" | "dxf">("wall");
     const [showWallCoordsInPill, setShowWallCoordsInPill] = useState<boolean>(false);
+    // 1+3 Hibrit Cephe Görünürlüğü: Varsayılan Tasarım Modu (false), klavye kısayolu T
+    const [showAllDimensions, setShowAllDimensions] = useState<boolean>(false);
+    const [hoveredElevationItem, setHoveredElevationItem] = useState<HoveredElevationItem | null>(null);
+    const [hoveredHeightHandle, setHoveredHeightHandle] = useState<"top" | "bottom" | null>(null);
+    const [elevCoordMode, setElevCoordMode] = useState<"global" | "local">("global");
+    const effectiveShowAllDims = showAllDimensions || elevDetailLevel === "technical";
+    useEffect(() => {
+      if (mode !== "elevation") return;
+      const onKeyToggleDims = (ev: KeyboardEvent) => {
+        const tag = (ev.target as HTMLElement | null)?.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (ev.target as HTMLElement | null)?.isContentEditable) return;
+        if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+        if (ev.key === "t" || ev.key === "T") {
+          ev.preventDefault();
+          setShowAllDimensions((v) => {
+            const next = !v;
+            handleChangeElevDetailLevel(next ? "technical" : "selected");
+            return next;
+          });
+        }
+      };
+      window.addEventListener("keydown", onKeyToggleDims);
+      return () => window.removeEventListener("keydown", onKeyToggleDims);
+    }, [mode]);
 
     const footprints = useMemo(
       () => project.modules.map((m, idx) => getModuleOrientedFootprint(m, idx)),
@@ -5079,59 +5115,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 <span className="sr-only">Sığdır</span>
               </button>
 
-              <div
-                data-testid="plan-text-scale-control"
-                title="2D Plan Yazı, Ölçü ve Döndürme Düğmesi Büyüklüğü (Seçiminiz kaydedilir)"
-                className="inline-flex items-center bg-[#F2EDE3] border border-[#E6E0D3] rounded-full p-0.5 shrink-0 whitespace-nowrap"
-              >
-                <button
-                  type="button"
-                  data-testid="plan-text-scale-down-btn"
-                  onClick={() => updateCadTextScale(cadTextScale - 0.18)}
-                  className="w-6 h-6 rounded-full hover:bg-[#1C1917] hover:text-[#FAF9F6] text-[10px] font-bold text-[#1C1917] flex items-center justify-center transition cursor-pointer"
-                  title="Yazı ve İkonları Küçült (A-)"
-                >
-                  A−
-                </button>
-                <button
-                  type="button"
-                  onClick={() => updateCadTextScale(1.65)}
-                  className="font-mono text-[10px] font-semibold px-1.5 text-[#44403C] hover:text-[#1C1917] cursor-pointer"
-                  title="Varsayılan Okunaklı Boyuta Sıfırla (%100)"
-                >
-                  {Math.round((cadTextScale / 1.65) * 100)}%
-                </button>
-                <button
-                  type="button"
-                  data-testid="plan-text-scale-up-btn"
-                  onClick={() => updateCadTextScale(cadTextScale + 0.18)}
-                  className="w-6 h-6 rounded-full hover:bg-[#1C1917] hover:text-[#FAF9F6] text-[11px] font-bold text-[#1C1917] flex items-center justify-center transition cursor-pointer"
-                  title="Yazı ve İkonları Büyüt (A+)"
-                >
-                  A+
-                </button>
-              </div>
-
-              <div
-                data-testid="plan-unit-switcher"
-                className="inline-flex items-center rounded-full bg-[#F2EDE3] p-0.5 border border-[#E6E0D3] text-[11px] shrink-0"
-                title="Gösterim Ölçü Birimi (BOM ve üretim verisi her zaman mm kalır)"
-              >
-                {(["mm", "cm"] as const).map((u) => (
-                  <button
-                    key={u}
-                    type="button"
-                    onClick={() => handleChangeElevDisplayUnit(u)}
-                    className={`px-2 py-0.5 rounded-full font-mono font-semibold transition cursor-pointer ${
-                      elevDisplayUnit === u
-                        ? "bg-[#1C1917] text-[#FAF9F6] shadow-2xs"
-                        : "text-[#57534E] hover:text-[#1C1917]"
-                    }`}
-                  >
-                    {u}
-                  </button>
-                ))}
-              </div>
+              {/* Ölçü birimi (mm/cm) ve etiket boyutu üst header ayarlarından global olarak yönetilir */}
 
               <label
                 title="Plan Ölçü Çizgilerini Göster / Gizle"
@@ -9615,24 +9599,35 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
         return;
       }
       if (elevResizingMod) {
-        if (elevResizingMod.axis === "width_right") {
+        if (elevResizingMod.axis === "width_right" || elevResizingMod.axis === "width_left") {
           const dxMm = (e.clientX - elevResizingMod.startClientX) * elevResizingMod.mmPerPxX;
-          const newW = Math.max(300, Math.min(3600, elevResizingMod.startW + dxMm));
-          const res = resizeModuleParametric(elevResizingMod.modIdx, newW);
-          if (res) {
+          const rawW =
+            elevResizingMod.axis === "width_right"
+              ? elevResizingMod.startW + dxMm
+              : elevResizingMod.startW - dxMm;
+          const widthSnap = computeResizeWidthSnap({
+            modules: project.modules,
+            activeModIdx: elevResizingMod.modIdx,
+            axis: elevResizingMod.axis,
+            rawWidthMm: rawW,
+            startX: elevResizingMod.startX,
+            startW: elevResizingMod.startW,
+            minW: 300,
+            maxW: 3600,
+            toleranceMm: 35,
+            disableSnap: !magnetEnabled || e.altKey,
+          });
+          const res =
+            elevResizingMod.axis === "width_left"
+              ? resizeModuleParametric(elevResizingMod.modIdx, widthSnap.width, widthSnap.positionX)
+              : resizeModuleParametric(elevResizingMod.modIdx, widthSnap.width);
+          if (widthSnap.snapBanner) {
+            setPlanRowSnapBanner(widthSnap.snapBanner);
+          } else if (res) {
             setPlanRowSnapBanner(
-              `📐 Parametrik Genişlik (W): ${Math.round(newW / 10) * 10}mm → ${res.bayCount} Bölme (${res.bayCount - 1} Dikme) • ${res.totalLeafCount} Kapak`
-            );
-          }
-        } else if (elevResizingMod.axis === "width_left") {
-          const dxMm = (e.clientX - elevResizingMod.startClientX) * elevResizingMod.mmPerPxX;
-          const maxRightEdge = elevResizingMod.startX + elevResizingMod.startW;
-          const rawLeft = Math.max(0, Math.min(maxRightEdge - 300, elevResizingMod.startX + dxMm));
-          const newW = Math.max(300, Math.min(3600, maxRightEdge - rawLeft));
-          const res = resizeModuleParametric(elevResizingMod.modIdx, newW, rawLeft);
-          if (res) {
-            setPlanRowSnapBanner(
-              `📐 Parametrik Genişlik (W): ${Math.round(newW / 10) * 10}mm (X:${Math.round(rawLeft / 10) * 10}) → ${res.bayCount} Bölme • ${res.totalLeafCount} Kapak`
+              elevResizingMod.axis === "width_left"
+                ? `📐 Parametrik Genişlik (W): ${widthSnap.width}mm (X:${widthSnap.positionX}) → ${res.bayCount} Bölme • ${res.totalLeafCount} Kapak`
+                : `📐 Parametrik Genişlik (W): ${widthSnap.width}mm → ${res.bayCount} Bölme (${res.bayCount - 1} Dikme) • ${res.totalLeafCount} Kapak`
             );
           }
         } else if (elevResizingMod.axis === "height_top") {
@@ -11366,16 +11361,19 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   stroke="#292524"
                   strokeWidth="8"
                 />
-                <text
-                  x={wallLeftSvgX + 20}
-                  y={ceilingSvgY - (project.space.ceilingConfig?.enabled ? 132 : 22)}
-                  fill="#44403C"
-                  fontSize="28"
-                  fontWeight="800"
-                  fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
-                >
-                  {`🏠 ${elevWallMeta[activeElevWallKey].label.toUpperCase()} CEPHESİ: ${formatElevationValue(mainWallLen, elevDisplayUnit)} × Tavan ${formatElevationValue(ceilingH, elevDisplayUnit)} (Zemin Y: 0)`}
-                </text>
+                {(() => {
+                  const wallHdrText = `🏠 ${elevWallMeta[activeElevWallKey].label.toUpperCase()} CEPHESİ: ${formatElevationValue(mainWallLen, elevDisplayUnit)} × Tavan ${formatElevationValue(ceilingH, elevDisplayUnit)} (Zemin Y: 0)`;
+                  const hdrY = ceilingSvgY - (project.space.ceilingConfig?.enabled ? 156 : 52);
+                  const hdrW = Math.max(540, Math.round(wallHdrText.length * 15.5 + 36));
+                  return (
+                    <foreignObject x={wallLeftSvgX + 12} y={hdrY} width={hdrW + 32} height={48} className="pointer-events-none overflow-visible">
+                      <div className="inline-flex items-center gap-2.5 text-slate-200 bg-slate-900/70 backdrop-blur-md px-2 py-0.5 rounded text-[21px] font-semibold tracking-tight whitespace-nowrap border border-white/12 shadow-md">
+                        <span className="w-2.5 h-2.5 rounded-full bg-blue-500 shrink-0" />
+                        <span>{wallHdrText}</span>
+                      </div>
+                    </foreignObject>
+                  );
+                })()}
                 {activeModule && (
                   <ElevationCeilingSectionSvg
                     project={project}
@@ -11879,10 +11877,12 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   const rawTitle = activeModule.name.replace(/^V4\s+/i, "");
                   const shortTitle = truncateCadLabel(rawTitle, breakdown.overall.width, 16);
                   const haloText = `#${activeModuleIndex + 1} · ${shortTitle}`;
-                  const haloFs = Math.round(20 * elevLabelScale);
-                  const haloH = Math.round(42 * elevLabelScale);
-                  const haloW = Math.max(Math.round(260 * elevLabelScale), Math.round(haloText.length * haloFs * 0.68 + 72));
-                  const haloY = -68 - haloH;
+                  const pxScaleHdr = Math.max(1.1, Math.min(2.6, (vb.width || 2200) / 1050));
+                  const haloFs = Math.round(13.5 * pxScaleHdr);
+                  const haloH = Math.round(28 * pxScaleHdr);
+                  const haloW = Math.max(Math.round(180 * pxScaleHdr), Math.round(haloText.length * haloFs * 0.68 + 44));
+                  // Üst genişlik ölçü çizgisinin (1670 mm) en az 28px yukarısında konumla
+                  const haloY = -Math.round(88 + 28 * pxScaleHdr) - haloH;
                   return (
                   <g ref={activeHaloGroupRef} data-testid="elev-active-mod-selection-halo" transform={activeModTransform || ""}>
                     <g
@@ -12383,6 +12383,30 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 key={el.id}
                 data-testid={`cad-el-${el.id}`}
                 data-interior-owner={dragMeta?.targetId}
+                onMouseEnter={() => {
+                  if (mode !== "elevation") return;
+                  if (isShelf && elevMm !== null) {
+                    setHoveredElevationItem({
+                      id: el.id,
+                      kind: "shelf",
+                      title: isFixedShelf ? "Sabit Raf" : "Hareketli Raf",
+                      globalY: elevMm,
+                      svgY: el.y + el.height / 2,
+                    });
+                  } else if (isDrawer && el.role === "drawer_front" && elevMm !== null) {
+                    setHoveredElevationItem({
+                      id: el.id,
+                      kind: "drawer",
+                      title: "Çekmece",
+                      globalY: elevMm,
+                      svgY: el.y + el.height / 2,
+                    });
+                  }
+                }}
+                onMouseLeave={() => {
+                  if (mode !== "elevation") return;
+                  setHoveredElevationItem((prev) => (prev?.id === el.id ? null : prev));
+                }}
                 onContextMenu={(e) => {
                   const ctxMeta = dragMeta ?? findInteriorDragTarget(el.id);
                   if (ctxMeta) {
@@ -12610,12 +12634,16 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 {mode === "elevation" && (isShelf || (isDrawer && el.role === "drawer_front")) && (el.width > 160 || isActiveDrag) && (
                   <g
                     className={`pointer-events-none transition-opacity duration-75 ${
-                      elVis.showInteriorItemLabel ? "opacity-100" : "opacity-0 group-hover/el:opacity-100"
+                      effectiveShowAllDims || isActiveDrag || isSelected || hoveredElevationItem?.id === el.id
+                        ? "opacity-100"
+                        : elevDetailLevel === "clean"
+                        ? "opacity-0 group-hover/el:opacity-100"
+                        : "opacity-35 group-hover/el:opacity-100"
                     }`}
                   >
                     <rect
                       x={el.x + el.width / 2 - Math.max(isActiveDrag ? 110 : 0, Math.min(195, el.width * 0.48))}
-                      y={isShelf ? el.y - 46 : el.y + Math.round(el.height * 0.76) - 21}
+                      y={isShelf ? el.y - 54 : el.y + Math.round(el.height * 0.76) - 21}
                       width={Math.max(isActiveDrag ? 220 : 0, Math.min(390, el.width * 0.96))}
                       height={42}
                       rx={10}
@@ -12632,7 +12660,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     />
                     <text
                       x={el.x + el.width / 2}
-                      y={isShelf ? el.y - 18 : el.y + Math.round(el.height * 0.76) + 7}
+                      y={isShelf ? el.y - 26 : el.y + Math.round(el.height * 0.76) + 7}
                       textAnchor="middle"
                       fill="#FFFFFF"
                       fontSize="23"
@@ -12650,15 +12678,75 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   </g>
                 )}
 
-                {/* Detailed 2D CAD Technical Drawing for Hinges (Ø35mm Cup + 2xØ8mm Boss Holes + Cruciform Mount Plate) */}
+                {/* Detailed 2D CAD Technical Drawing for Hinges (Ø35mm Cup + 2xØ8mm Boss Holes + Global/Local Y & Inward Smart Label) */}
                 {(mode === "elevation" || mode === "section") && isHinge && (() => {
                   const hcx = el.x + el.width / 2;
                   const hcy = el.y + el.height / 2;
                   const isHettich = el.label.includes("Hettich");
                   const isSalice = el.label.includes("Salice");
                   const halfPitch = isHettich ? 26 : isSalice ? 24 : 22.5;
+                  const pxScale = Math.max(1.1, Math.min(2.6, (vb.width || 2200) / 1050));
+                  const sameBayObstacleSvgYs: number[] = [];
+                  visibleElements.forEach((oEl) => {
+                    if (oEl.role === "shelf" && Math.abs((oEl.x + oEl.width / 2) - hcx) < Math.max(420, oEl.width * 0.65)) {
+                      sameBayObstacleSvgYs.push(oEl.y + oEl.height / 2);
+                    }
+                  });
+                  const hingeAnn = computeElevationHingeAnnotation({
+                    el,
+                    activeModule,
+                    moduleHeightMm: breakdown.overall.height,
+                    sameBayObstacleSvgYs,
+                    svgMmPerPx: pxScale,
+                  });
+                  const isHingeHovered = hoveredElevationItem?.id === el.id;
+                  const showCompactLabel = mode === "elevation" && (effectiveShowAllDims || Boolean(isSelected));
+                  const useLocalCoord = elevCoordMode === "local" && hingeAnn.doorBaseY > 0;
+                  const lblText = elevCoordMode === "local" ? `L:${hingeAnn.doorLocalY}` : `Y:${hingeAnn.globalY}`;
+                  const lblFs = Math.round(10 * pxScale);
+                  const lblH = Math.round(18 * pxScale);
+                  const lblPadX = Math.round(6 * pxScale);
+                  const lblW = Math.round(lblText.length * lblFs * 0.64 + lblPadX * 2);
+                  const lblOffsetX = Math.round(12 * pxScale);
+                  const lblAnchorX = hingeAnn.labelDirection === 1 ? hcx + lblOffsetX : hcx - lblOffsetX;
+                  const lblRectX = hingeAnn.labelDirection === 1 ? lblAnchorX : lblAnchorX - lblW;
+                  const lblCenterY = hcy + hingeAnn.verticalNudgeSvgY;
+                  const mountSideLabel =
+                    hingeAnn.mountSide === "left-wall"
+                      ? "Sol Yan Panel"
+                      : hingeAnn.mountSide === "right-wall"
+                      ? "Sağ Yan Panel"
+                      : hingeAnn.mountSide === "divider-left"
+                      ? "Orta Dikme (Sol Yüz)"
+                      : "Orta Dikme (Sağ Yüz)";
                   return (
-                    <g className="pointer-events-none" data-testid={`cad-hinge-marker-${el.id}`}>
+                    <g
+                      data-testid={`cad-hinge-marker-${el.id}`}
+                      className="cursor-pointer"
+                      onMouseEnter={() => {
+                        if (mode !== "elevation") return;
+                        setHoveredElevationItem({
+                          id: el.id,
+                          kind: "hinge",
+                          title: `${hingeAnn.brand} Menteşe`,
+                          subtitle: `Bölme ${hingeAnn.bayIndex + 1} · ${mountSideLabel}`,
+                          datumNote:
+                            hingeAnn.doorBaseY > 0
+                              ? `Üst kapak referansı: +${hingeAnn.doorBaseY} mm sabit raf üstü`
+                              : "Gövde tabanından (Tam Boy Kapak · Baza üstü 0 mm)",
+                          globalY: hingeAnn.globalY,
+                          doorLocalY: hingeAnn.doorLocalY,
+                          doorBaseY: hingeAnn.doorBaseY,
+                          svgY: hcy,
+                        });
+                      }}
+                      onMouseLeave={() => {
+                        if (mode !== "elevation") return;
+                        setHoveredElevationItem((prev) => (prev?.id === el.id ? null : prev));
+                      }}
+                    >
+                      {/* Invisible hover hit area around hinge icon */}
+                      <circle cx={hcx} cy={hcy} r={Math.max(28, Math.round(16 * pxScale))} fill="transparent" />
                       {/* Cruciform Mounting Plate Wing & Arm */}
                       <rect
                         x={hcx - 22}
@@ -12666,8 +12754,8 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         width={44}
                         height={16}
                         rx={3}
-                        fill="#BAE6FD"
-                        stroke="#0369A1"
+                        fill={isHingeHovered ? "#FDE68A" : "#BAE6FD"}
+                        stroke={isHingeHovered ? "#D97706" : "#0369A1"}
                         strokeWidth="2.5"
                       />
                       {/* Ø35mm Hinge Cup Circle (radius 17.5mm) */}
@@ -12675,53 +12763,52 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                         cx={hcx}
                         cy={hcy}
                         r={17.5}
-                        fill="#38BDF8"
+                        fill={isHingeHovered ? "#F59E0B" : "#38BDF8"}
                         stroke="#0F172A"
                         strokeWidth="3"
                       />
                       {/* 2x Ø8mm Dowel/Boss Holes at exact manufacturer pitch (45mm Blum / 52mm Hettich TH52 / 48mm Salice) */}
-                      <circle
-                        cx={hcx}
-                        cy={hcy - halfPitch}
-                        r={4}
-                        fill="#0F172A"
-                        stroke="#FFFFFF"
-                        strokeWidth="1.5"
-                      />
-                      <circle
-                        cx={hcx}
-                        cy={hcy + halfPitch}
-                        r={4}
-                        fill="#0F172A"
-                        stroke="#FFFFFF"
-                        strokeWidth="1.5"
-                      />
+                      <circle cx={hcx} cy={hcy - halfPitch} r={4} fill="#0F172A" stroke="#FFFFFF" strokeWidth="1.5" />
+                      <circle cx={hcx} cy={hcy + halfPitch} r={4} fill="#0F172A" stroke="#FFFFFF" strokeWidth="1.5" />
                       {/* CAD Centerline Crosshair (+) */}
                       <line x1={hcx - 24} y1={hcy} x2={hcx + 24} y2={hcy} stroke="#0F172A" strokeWidth="1.8" strokeDasharray="4 2" />
                       <line x1={hcx} y1={hcy - 30} x2={hcx} y2={hcy + 30} stroke="#0F172A" strokeWidth="1.8" strokeDasharray="4 2" />
-                      {mode === "elevation" && elVis.showHardwareLabel && (
-                        <>
+                      {showCompactLabel && (
+                        <g className="pointer-events-none" data-mount-side={hingeAnn.mountSide}>
+                          {/* İnce lider çizgisi (Temiz CAD stili) */}
+                          <line
+                            x1={hingeAnn.labelDirection === 1 ? hcx + 18 : hcx - 18}
+                            y1={hcy}
+                            x2={hingeAnn.labelDirection === 1 ? lblRectX : lblRectX + lblW}
+                            y2={lblCenterY}
+                            stroke={useLocalCoord ? "#F59E0B" : "#38BDF8"}
+                            strokeWidth={1.3}
+                            strokeOpacity={0.75}
+                          />
                           <rect
-                            x={el.x + el.width + 10}
-                            y={hcy - Math.round(19 * elevLabelScale)}
-                            width={Math.round(220 * elevLabelScale)}
-                            height={Math.round(38 * elevLabelScale)}
-                            rx={8}
-                            fill="#0F172A"
-                            opacity={0.94}
+                            x={lblRectX}
+                            y={lblCenterY - lblH / 2}
+                            width={lblW}
+                            height={lblH}
+                            rx={Math.round(4 * pxScale)}
+                            fill={isHingeHovered ? "#1E40AF" : "#0F172A"}
+                            fillOpacity={0.93}
+                            stroke={useLocalCoord ? "#F59E0B" : "#38BDF8"}
+                            strokeOpacity={useLocalCoord ? 0.8 : 0.55}
+                            strokeWidth={1.2}
                           />
                           <text
-                            x={el.x + el.width + 10 + Math.round(110 * elevLabelScale)}
-                            y={hcy + Math.round(7 * elevLabelScale)}
-                            textAnchor="middle"
-                            fill="#38BDF8"
-                            fontSize={Math.round(20 * elevLabelScale)}
-                            fontWeight="800"
-                            fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
+                            x={hingeAnn.labelDirection === 1 ? lblRectX + lblPadX : lblRectX + lblW - lblPadX}
+                            y={lblCenterY + Math.round(lblFs * 0.36)}
+                            textAnchor={hingeAnn.labelAnchor}
+                            fill={useLocalCoord ? "#FDE68A" : "#E0F2FE"}
+                            fontSize={lblFs}
+                            fontWeight="700"
+                            fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
                           >
-                            {`${isHettich ? "Hettich" : isSalice ? "Salice" : "Blum"} ${el.label.match(/\(Y:\d+mm\)/)?.[0] || ""}`}
+                            {lblText}
                           </text>
-                        </>
+                        </g>
                       )}
                     </g>
                   );
@@ -12979,6 +13066,20 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 key={rail.id}
                 data-testid={`cad-el-${rail.id}`}
                 data-interior-owner={rail.id}
+                onMouseEnter={() => {
+                  if (mode !== "elevation") return;
+                  setHoveredElevationItem({
+                    id: rail.id,
+                    kind: "rail",
+                    title: "Askı Borusu",
+                    globalY: elevY,
+                    svgY: svgY + rail.dimensions.height / 2,
+                  });
+                }}
+                onMouseLeave={() => {
+                  if (mode !== "elevation") return;
+                  setHoveredElevationItem((prev) => (prev?.id === rail.id ? null : prev));
+                }}
                 onContextMenu={(e) =>
                   openElevationContextMenu(e, {
                     kind: "rail",
@@ -13187,12 +13288,16 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                       {rw > 140 && (
                         <g
                           className={`pointer-events-none transition-opacity duration-75 ${
-                            railVis.showInteriorItemLabel ? "opacity-100" : "opacity-0 group-hover/el:opacity-100"
+                            effectiveShowAllDims || isRailDragging || isRailSelected || hoveredElevationItem?.id === rail.id
+                              ? "opacity-100"
+                              : elevDetailLevel === "clean"
+                              ? "opacity-0 group-hover/el:opacity-100"
+                              : "opacity-35 group-hover/el:opacity-100"
                           }`}
                         >
                           <rect
                             x={clampedBadgeX}
-                            y={rodY - 52}
+                            y={rodY + rodH + 10}
                             width={badgeW}
                             height={40}
                             rx={10}
@@ -13201,7 +13306,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                           />
                           <text
                             x={clampedBadgeX + badgeW / 2}
-                            y={rodY - 25}
+                            y={rodY + rodH + 37}
                             textAnchor="middle"
                             fill="#FFFFFF"
                             fontSize="22"
@@ -13223,6 +13328,96 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
               </g>
             );
           })}
+
+          {/* 1+3 Hibrit Hover Lazer Kot Çizgisi ve Buzlu Cam HUD Kartı */}
+          {mode === "elevation" && hoveredElevationItem && (() => {
+            const pxScaleHud = Math.max(1.1, Math.min(2.6, (vb.width || 2200) / 1050));
+            const hudText = formatHoveredElevationHud(hoveredElevationItem);
+            const hudW = Math.max(210, Math.round(hudText.length * 8.2 + 34)) * pxScaleHud;
+            const hudH = Math.round(30 * pxScaleHud);
+            const hudX = breakdown.overall.width / 2 - hudW / 2;
+            const hudY = hoveredElevationItem.svgY - hudH - Math.round(8 * pxScaleHud);
+            return (
+              <g className="pointer-events-none" data-testid="elev-hover-laser-hud">
+                <line
+                  x1={-16}
+                  y1={hoveredElevationItem.svgY}
+                  x2={breakdown.overall.width + 16}
+                  y2={hoveredElevationItem.svgY}
+                  stroke="#38BDF8"
+                  strokeWidth={Math.max(1.5, 1.4 * pxScaleHud)}
+                  strokeDasharray="4 3"
+                  className="pointer-events-none"
+                />
+                {/* Sol Global Y Rozeti */}
+                <rect
+                  x={-16 - Math.round(68 * pxScaleHud)}
+                  y={hoveredElevationItem.svgY - Math.round(10 * pxScaleHud)}
+                  width={Math.round(66 * pxScaleHud)}
+                  height={Math.round(20 * pxScaleHud)}
+                  rx={Math.round(4 * pxScaleHud)}
+                  fill="#083344"
+                  stroke="#38BDF8"
+                  strokeWidth={1.2}
+                />
+                <text
+                  x={-16 - Math.round(35 * pxScaleHud)}
+                  y={hoveredElevationItem.svgY + Math.round(3.5 * pxScaleHud)}
+                  textAnchor="middle"
+                  fill="#67E8F9"
+                  fontSize={Math.round(9.5 * pxScaleHud)}
+                  fontWeight="700"
+                  fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+                >
+                  {`G-Y:${Math.round(hoveredElevationItem.globalY)}`}
+                </text>
+                {/* Sağ Kapak İçi Lokal Y Rozeti (sadece kısmi kapaklarda) */}
+                {hoveredElevationItem.doorBaseY && hoveredElevationItem.doorBaseY > 0 && typeof hoveredElevationItem.doorLocalY === "number" ? (
+                  <>
+                    <rect
+                      x={breakdown.overall.width + 18}
+                      y={hoveredElevationItem.svgY - Math.round(10 * pxScaleHud)}
+                      width={Math.round(66 * pxScaleHud)}
+                      height={Math.round(20 * pxScaleHud)}
+                      rx={Math.round(4 * pxScaleHud)}
+                      fill="#451A03"
+                      stroke="#F59E0B"
+                      strokeWidth={1.2}
+                    />
+                    <text
+                      x={breakdown.overall.width + 18 + Math.round(33 * pxScaleHud)}
+                      y={hoveredElevationItem.svgY + Math.round(3.5 * pxScaleHud)}
+                      textAnchor="middle"
+                      fill="#FDE68A"
+                      fontSize={Math.round(9.5 * pxScaleHud)}
+                      fontWeight="700"
+                      fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+                    >
+                      {`L-Y:${Math.round(hoveredElevationItem.doorLocalY)}`}
+                    </text>
+                  </>
+                ) : (
+                  <circle cx={breakdown.overall.width + 16} cy={hoveredElevationItem.svgY} r={Math.round(3.5 * pxScaleHud)} fill="#38BDF8" />
+                )}
+                <foreignObject
+                  x={hudX}
+                  y={hudY}
+                  width={hudW}
+                  height={hudH + 8}
+                  className="pointer-events-none overflow-visible"
+                >
+                  <div className="w-full h-full flex items-center justify-center">
+                    <div
+                      style={{ fontSize: `${Math.round(11.5 * pxScaleHud)}px`, padding: `${Math.round(3 * pxScaleHud)}px ${Math.round(10 * pxScaleHud)}px` }}
+                      className="rounded-lg bg-slate-900/80 backdrop-blur-md border border-sky-400/30 text-sky-100 font-semibold font-mono whitespace-nowrap shadow-lg"
+                    >
+                      {hudText}
+                    </div>
+                  </div>
+                </foreignObject>
+              </g>
+            );
+          })()}
 
           {/* System 32 Multi-Hole Dots rendered above shelves so shelf fills never hide them */}
           {mode === "elevation" &&
@@ -13451,29 +13646,68 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   height={56}
                   fill="transparent"
                 />
-                <rect
-                  x={breakdown.overall.width / 2 - Math.round(118 * elevLabelScale)}
-                  y={-Math.round(18 * elevLabelScale)}
-                  width={Math.round(236 * elevLabelScale)}
-                  height={Math.round(36 * elevLabelScale)}
-                  rx={Math.round(18 * elevLabelScale)}
-                  fill="#0F172A"
-                  fillOpacity="0.94"
-                  stroke="#38BDF8"
-                  strokeWidth="2.4"
-                />
-                <text
-                  x={breakdown.overall.width / 2}
-                  y={Math.round(6 * elevLabelScale)}
-                  textAnchor="middle"
-                  fill="#E0F2FE"
-                  fontSize={Math.round(18 * elevLabelScale)}
-                  fontWeight="700"
-                  letterSpacing="0.5"
-                  fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
-                >
-                  ▲ {formatElevationValue(activeModule.dimensions.height, elevDisplayUnit)}
-                </text>
+                {(() => {
+                  const pxS = Math.max(1.1, Math.min(2.6, (vb.width || 2200) / 1050));
+                  const hw = Math.round(28 * pxS);
+                  const hh = Math.round(14 * pxS);
+                  const showTip = hoveredHeightHandle === "top" || elevResizingMod?.axis === "height_top";
+                  const tipW = Math.round(78 * pxS);
+                  const tipH = Math.round(20 * pxS);
+                  return (
+                    <g
+                      onMouseEnter={() => setHoveredHeightHandle("top")}
+                      onMouseLeave={() => setHoveredHeightHandle((prev) => (prev === "top" ? null : prev))}
+                    >
+                      <rect
+                        x={breakdown.overall.width / 2 - hw / 2}
+                        y={-hh / 2}
+                        width={hw}
+                        height={hh}
+                        rx={Math.round(4 * pxS)}
+                        fill="#0F172A"
+                        fillOpacity="0.92"
+                        stroke="#38BDF8"
+                        strokeWidth={1.6}
+                      />
+                      <text
+                        x={breakdown.overall.width / 2}
+                        y={Math.round(3.5 * pxS)}
+                        textAnchor="middle"
+                        fill="#E0F2FE"
+                        fontSize={Math.round(9.5 * pxS)}
+                        fontWeight="800"
+                      >
+                        ▲
+                      </text>
+                      {showTip && (
+                        <g className="pointer-events-none">
+                          <rect
+                            x={breakdown.overall.width / 2 - tipW / 2}
+                            y={-hh / 2 - tipH - Math.round(4 * pxS)}
+                            width={tipW}
+                            height={tipH}
+                            rx={Math.round(5 * pxS)}
+                            fill="#0F172A"
+                            fillOpacity="0.94"
+                            stroke="#38BDF8"
+                            strokeWidth={1.2}
+                          />
+                          <text
+                            x={breakdown.overall.width / 2}
+                            y={-hh / 2 - tipH / 2 - Math.round(0.5 * pxS)}
+                            textAnchor="middle"
+                            fill="#E0F2FE"
+                            fontSize={Math.round(10.5 * pxS)}
+                            fontWeight="700"
+                            fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+                          >
+                            {formatElevationValue(activeModule.dimensions.height, elevDisplayUnit)}
+                          </text>
+                        </g>
+                      )}
+                    </g>
+                  );
+                })()}
               </g>
 
               {/* 2. Bottom Edge Parametric Height/Elevation Resize Handle (▼ Alttan Boy/Kot Değiştir) */}
@@ -13507,29 +13741,68 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   height={56}
                   fill="transparent"
                 />
-                <rect
-                  x={breakdown.overall.width / 2 - Math.round(118 * elevLabelScale)}
-                  y={breakdown.overall.height - Math.round(18 * elevLabelScale)}
-                  width={Math.round(236 * elevLabelScale)}
-                  height={Math.round(36 * elevLabelScale)}
-                  rx={Math.round(18 * elevLabelScale)}
-                  fill="#0F172A"
-                  fillOpacity="0.94"
-                  stroke="#38BDF8"
-                  strokeWidth="2.4"
-                />
-                <text
-                  x={breakdown.overall.width / 2}
-                  y={breakdown.overall.height + Math.round(6 * elevLabelScale)}
-                  textAnchor="middle"
-                  fill="#E0F2FE"
-                  fontSize={Math.round(18 * elevLabelScale)}
-                  fontWeight="700"
-                  letterSpacing="0.5"
-                  fontFamily="Inter, 'Plus Jakarta Sans', system-ui, sans-serif"
-                >
-                  {`▼ ${formatElevationValue(activeModule.dimensions.height, elevDisplayUnit)}`}
-                </text>
+                {(() => {
+                  const pxS = Math.max(1.1, Math.min(2.6, (vb.width || 2200) / 1050));
+                  const hw = Math.round(28 * pxS);
+                  const hh = Math.round(14 * pxS);
+                  const showTip = hoveredHeightHandle === "bottom" || elevResizingMod?.axis === "height_bottom";
+                  const tipW = Math.round(78 * pxS);
+                  const tipH = Math.round(20 * pxS);
+                  return (
+                    <g
+                      onMouseEnter={() => setHoveredHeightHandle("bottom")}
+                      onMouseLeave={() => setHoveredHeightHandle((prev) => (prev === "bottom" ? null : prev))}
+                    >
+                      <rect
+                        x={breakdown.overall.width / 2 - hw / 2}
+                        y={breakdown.overall.height - hh / 2}
+                        width={hw}
+                        height={hh}
+                        rx={Math.round(4 * pxS)}
+                        fill="#0F172A"
+                        fillOpacity="0.92"
+                        stroke="#38BDF8"
+                        strokeWidth={1.6}
+                      />
+                      <text
+                        x={breakdown.overall.width / 2}
+                        y={breakdown.overall.height + Math.round(3.5 * pxS)}
+                        textAnchor="middle"
+                        fill="#E0F2FE"
+                        fontSize={Math.round(9.5 * pxS)}
+                        fontWeight="800"
+                      >
+                        ▼
+                      </text>
+                      {showTip && (
+                        <g className="pointer-events-none">
+                          <rect
+                            x={breakdown.overall.width / 2 - tipW / 2}
+                            y={breakdown.overall.height + hh / 2 + Math.round(4 * pxS)}
+                            width={tipW}
+                            height={tipH}
+                            rx={Math.round(5 * pxS)}
+                            fill="#0F172A"
+                            fillOpacity="0.94"
+                            stroke="#38BDF8"
+                            strokeWidth={1.2}
+                          />
+                          <text
+                            x={breakdown.overall.width / 2}
+                            y={breakdown.overall.height + hh / 2 + tipH / 2 + Math.round(7.5 * pxS)}
+                            textAnchor="middle"
+                            fill="#E0F2FE"
+                            fontSize={Math.round(10.5 * pxS)}
+                            fontWeight="700"
+                            fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+                          >
+                            {formatElevationValue(activeModule.dimensions.height, elevDisplayUnit)}
+                          </text>
+                        </g>
+                      )}
+                    </g>
+                  );
+                })()}
               </g>
 
               {/* 3. Left Edge Parametric Width Resize Handle (◀ Soldan Genişlet/Daralt) */}
@@ -13861,7 +14134,44 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                 onResizeModule={(modIdx, w, h, d) => resizeModuleParametric(modIdx, w, undefined, d, h)}
                 onSetModulePosition={(modIdx, x, z, wallId, y) => setModulePosition(modIdx, x, z, wallId, y)}
               />
-              <ElevationBottomBar
+                    {/* Sağ Altta Yüzen Buzlu Cam Canlı Kot Müfettiş HUD Kartı */}
+      {mode === "elevation" && hoveredElevationItem && (
+        <div
+          data-testid="elev-floating-inspector-hud"
+          className="pointer-events-none absolute bottom-16 right-4 z-30 w-[290px] sm:w-[315px] rounded-xl bg-[#0D1117]/88 backdrop-blur-xl border border-white/15 p-3 shadow-2xl text-zinc-100"
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-sky-400 shrink-0" />
+                <span className="text-xs font-semibold truncate">{hoveredElevationItem.title}</span>
+              </div>
+              {hoveredElevationItem.subtitle && (
+                <div className="text-[11px] text-slate-400 mt-0.5 truncate">{hoveredElevationItem.subtitle}</div>
+              )}
+            </div>
+          </div>
+          <div className="mt-2.5 pt-2 border-t border-white/10 grid grid-cols-2 gap-2 font-mono">
+            <div className="px-2 py-1.5 rounded-lg bg-white/[0.04]">
+              <div className="text-[9px] uppercase text-slate-400">Global Y</div>
+              <div className="text-xs font-bold text-cyan-300 tabular-nums">{Math.round(hoveredElevationItem.globalY)} mm</div>
+            </div>
+            <div className="px-2 py-1.5 rounded-lg bg-white/[0.04]">
+              <div className="text-[9px] uppercase text-slate-400">Kapak İçi (Lokal)</div>
+              <div className={`text-xs font-bold tabular-nums ${
+                hoveredElevationItem.doorBaseY && hoveredElevationItem.doorBaseY > 0 ? "text-amber-300" : "text-slate-300"
+              }`}>
+                {typeof hoveredElevationItem.doorLocalY === "number" ? `${Math.round(hoveredElevationItem.doorLocalY)} mm` : "—"}
+              </div>
+            </div>
+          </div>
+          {hoveredElevationItem.datumNote && (
+            <div className="mt-2 text-[10px] text-slate-400 truncate">{hoveredElevationItem.datumNote}</div>
+          )}
+        </div>
+      )}
+
+      <ElevationBottomBar
                 activeModule={activeModule}
                 activeModuleIndex={activeModuleIndex}
                 selectedContext={selectedElevContext}
@@ -13901,7 +14211,10 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     hasSceneModules={hasSceneModules}
                     spaceWallsLength={spaceWalls?.[0]?.length || 3600}
                     detailLevel={elevDetailLevel}
-                    onChangeDetailLevel={handleChangeElevDetailLevel}
+                    onChangeDetailLevel={(lvl) => {
+                      handleChangeElevDetailLevel(lvl);
+                      setShowAllDimensions(lvl === "technical");
+                    }}
                     displayUnit={elevDisplayUnit}
                     onChangeDisplayUnit={handleChangeElevDisplayUnit}
                     interiorMoveMode={effectiveInteriorMoveMode}
@@ -13912,6 +14225,19 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     onToggleRoomContext={() => setShowRoomContextInElev((v) => !v)}
                     showDoorsIn2D={showDoorsIn2D}
                     onToggleDoorsIn2D={() => setShowDoorsIn2D((v) => !v)}
+                    showAllDimensions={effectiveShowAllDims}
+                    onToggleShowAllDimensions={() => {
+                      const next = !effectiveShowAllDims;
+                      setShowAllDimensions(next);
+                      handleChangeElevDetailLevel(next ? "technical" : "selected");
+                    }}
+                    coordMode={elevCoordMode}
+                    onChangeCoordMode={(m) => {
+                      setElevCoordMode(m);
+                      if (!effectiveShowAllDims) {
+                        setShowAllDimensions(true);
+                      }
+                    }}
                     selectedObstacle={
                       selectedPlanObject?.kind === "obstacle"
                         ? spaceObstacles.find((o) => o.id === selectedPlanObject.id) ?? null

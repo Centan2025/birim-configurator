@@ -106,20 +106,19 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
     const popRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-      if (!scenePopoverOpen && !sectionPopoverOpen && !cameraMenuOpen && !mobileMoreOpen && !viewMenuOpen) return;
+      if (!scenePopoverOpen && !cameraMenuOpen && !mobileMoreOpen && !viewMenuOpen) return;
       const onDown = (e: MouseEvent) => {
         if (popRef.current && !popRef.current.contains(e.target as Node)) {
           setScenePopoverOpen(false);
-          setSectionPopoverOpen(false);
           setCameraMenuOpen(false);
           setMobileMoreOpen(false);
           setViewMenuOpen(false);
+          // Not: sectionPopoverOpen dışarı tıklanınca kapanmaz; kullanıcı 3B sahneyi döndürürken kesit hizasını rahatça ayarlayabilir.
         }
       };
       const onKey = (e: KeyboardEvent) => {
         if (e.key === "Escape") {
           setScenePopoverOpen(false);
-          setSectionPopoverOpen(false);
           setCameraMenuOpen(false);
           setMobileMoreOpen(false);
           setViewMenuOpen(false);
@@ -131,7 +130,7 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
         document.removeEventListener("mousedown", onDown);
         window.removeEventListener("keydown", onKey);
       };
-    }, [scenePopoverOpen, sectionPopoverOpen, cameraMenuOpen, mobileMoreOpen, viewMenuOpen]);
+    }, [scenePopoverOpen, cameraMenuOpen, mobileMoreOpen, viewMenuOpen]);
 
     const triggerCamera = (preset: "hero" | "room_front_persp" | "focus_module" | "front" | "side") => {
       setActiveCam(preset);
@@ -186,6 +185,7 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
                 compact={true}
                 onChangeAxis={(nextAx) => syncSection3D(nextAx, sectionRatio)}
                 onChangeRatio={(nextR) => syncSection3D(sectionAxis || "X", nextR)}
+                onMinimize={() => setSectionPopoverOpen(false)}
                 onClose={() => {
                   syncSection3D(null, sectionRatio);
                   setSectionPopoverOpen(false);
@@ -541,16 +541,22 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
                 type="button"
                 onClick={() => {
                   setMobileMoreOpen(false);
-                  setSectionPopoverOpen((v) => !v);
+                  if (sectionAxis) {
+                    syncSection3D(null, sectionRatio);
+                    setSectionPopoverOpen(false);
+                  } else {
+                    syncSection3D("X", sectionRatio);
+                    setSectionPopoverOpen(true);
+                  }
                 }}
                 className={`py-2 px-2 rounded-2xl border text-[11px] font-semibold flex flex-col items-center gap-1 cursor-pointer ${
-                  sectionPopoverOpen || sectionAxis
+                  sectionAxis
                     ? "bg-[#0284C7] border-sky-400/50 text-white"
                     : "bg-white/[0.07] border-white/[0.10] text-slate-200"
                 }`}
               >
                 <Scissors className="w-4 h-4" />
-                <span>Kesit</span>
+                <span>{sectionAxis ? "Kesiti Kapat" : "Kesit Aç"}</span>
               </button>
               <button
                 type="button"
@@ -637,18 +643,22 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
                 onClick={() => {
                   setViewMenuOpen(false);
                   setScenePopoverOpen(false);
-                  const next = !sectionPopoverOpen;
-                  setSectionPopoverOpen(next);
-                  if (next && !sectionAxis) syncSection3D("X", sectionRatio);
+                  if (sectionAxis) {
+                    syncSection3D(null, sectionRatio);
+                    setSectionPopoverOpen(false);
+                  } else {
+                    syncSection3D("X", sectionRatio);
+                    setSectionPopoverOpen(true);
+                  }
                 }}
                 className={`py-2 px-2.5 rounded-2xl border text-[11px] font-semibold flex items-center gap-1.5 transition cursor-pointer ${
-                  sectionPopoverOpen || sectionAxis
+                  sectionAxis
                     ? "bg-[#0284C7] border-sky-400/50 text-white"
                     : "bg-white/[0.07] hover:bg-white/[0.14] border-white/[0.10] text-slate-200"
                 }`}
               >
                 <Scissors className="w-3.5 h-3.5 shrink-0" />
-                <span>3B Kesit</span>
+                <span>{sectionAxis ? "Kesiti Kapat" : "3B Kesit Aç"}</span>
               </button>
               <button
                 type="button"
@@ -937,6 +947,39 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
                 )}
                 <ChevronDown className={`w-3 h-3 opacity-75 transition-transform ${viewMenuOpen ? "rotate-180" : ""}`} />
               </button>
+              {sectionAxis && (
+                <div
+                  data-testid="v11-active-section-pill"
+                  className="flex h-8 rounded-full items-center bg-[#0284C7] text-white border border-sky-300/50 shadow-[0_0_16px_rgba(2,132,199,0.45)] overflow-hidden shrink-0"
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setViewMenuOpen(false);
+                      setScenePopoverOpen(false);
+                      setCameraMenuOpen(false);
+                      setSectionPopoverOpen((v) => !v);
+                    }}
+                    title="Kesit Hizası Panelini Göster / Gizle"
+                    className="h-full px-2.5 flex items-center gap-1.5 text-[11px] font-semibold hover:bg-white/15 transition cursor-pointer whitespace-nowrap"
+                  >
+                    <Scissors className="w-3.5 h-3.5 shrink-0" />
+                    <span>{sectionAxis === "X" ? "Kesit A–A" : "Kesit B–B"}</span>
+                    <span className="text-[10px] opacity-85">{sectionPopoverOpen ? "▾" : "▴"}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      syncSection3D(null, sectionRatio);
+                      setSectionPopoverOpen(false);
+                    }}
+                    title="3B Kesiti Kapat"
+                    className="h-full px-2 border-l border-white/25 hover:bg-rose-500/80 transition cursor-pointer text-[11px] font-bold flex items-center justify-center"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
             </>
           )}
 

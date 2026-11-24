@@ -32,6 +32,10 @@ interface ElevationTopBarProps {
   onToggleRoomContext: () => void;
   showDoorsIn2D: boolean;
   onToggleDoorsIn2D: () => void;
+  showAllDimensions?: boolean;
+  onToggleShowAllDimensions?: () => void;
+  coordMode?: "global" | "local";
+  onChangeCoordMode?: (mode: "global" | "local") => void;
   selectedObstacle: ArchitecturalElement | null;
   onUpdateObstacle: (id: string, patch: Partial<ArchitecturalElement>) => void;
   onUpdateObstaclePosition: (id: string, x: number) => void;
@@ -62,6 +66,10 @@ export const ElevationTopBar: React.FC<ElevationTopBarProps> = ({
   onToggleRoomContext,
   showDoorsIn2D,
   onToggleDoorsIn2D,
+  showAllDimensions = false,
+  onToggleShowAllDimensions,
+  coordMode = "global",
+  onChangeCoordMode,
   selectedObstacle,
   onUpdateObstacle,
   onUpdateObstaclePosition,
@@ -293,6 +301,55 @@ export const ElevationTopBar: React.FC<ElevationTopBarProps> = ({
             onUpdateCarcass={onUpdateCarcass}
             onSetFacadeGrainContinuity={onSetFacadeGrainContinuity}
           />
+        )}
+
+        {/* 1+3 Hibrit Kot Görünürlüğü (Kısayol: T) */}
+        {onToggleShowAllDimensions && (
+          <button
+            type="button"
+            data-testid="elev-toggle-all-dimensions-btn"
+            onClick={onToggleShowAllDimensions}
+            title="Tüm Menteşe ve Raf Kotlarını Göster / Gizle (Kısayol: T)"
+            className={`h-7 px-2.5 rounded-full text-[11px] font-semibold transition cursor-pointer flex items-center gap-1 border whitespace-nowrap ${
+              showAllDimensions
+                ? "bg-sky-600 text-white border-sky-400/60 shadow-[0_0_12px_rgba(2,132,199,0.45)]"
+                : "bg-black/35 text-slate-200 border-white/[0.12] hover:bg-white/[0.14]"
+            }`}
+          >
+            <span>📏</span>
+            <span>{showAllDimensions ? "Kotlar Açık" : "Kotlar"}</span>
+            <kbd className="px-1 py-0.2 rounded bg-black/30 text-[9.5px] font-mono opacity-80">T</kbd>
+          </button>
+        )}
+        {onChangeCoordMode && (
+          <div
+            data-testid="elev-coord-mode-switcher"
+            title="Menteşe kot referansı: Global Y (Baza üstü 0 mm) veya Kapak İçi Lokal Y"
+            className="inline-flex items-center p-0.5 rounded-full bg-black/35 border border-white/[0.12] text-[10.5px] font-medium shrink-0"
+          >
+            <button
+              type="button"
+              onClick={() => onChangeCoordMode("global")}
+              className={`h-6 px-2 rounded-full transition cursor-pointer whitespace-nowrap ${
+                coordMode === "global"
+                  ? "bg-sky-600 text-white font-semibold shadow-xs"
+                  : "text-slate-300 hover:text-white"
+              }`}
+            >
+              Global Y
+            </button>
+            <button
+              type="button"
+              onClick={() => onChangeCoordMode("local")}
+              className={`h-6 px-2 rounded-full transition cursor-pointer whitespace-nowrap ${
+                coordMode === "local"
+                  ? "bg-amber-600 text-white font-semibold shadow-xs"
+                  : "text-slate-300 hover:text-white"
+              }`}
+            >
+              Kapak İçi
+            </button>
+          </div>
         )}
 
         {/* Grup 3: 3 Seviyeli Görünüm Sistemi */}

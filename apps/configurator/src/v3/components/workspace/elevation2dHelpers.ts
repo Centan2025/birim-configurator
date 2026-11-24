@@ -1,4 +1,4 @@
-import type { ModuleInstance } from "@birim/core";
+import { calculateBayWidths, calculateFourSpaceDimensions, type ModuleInstance } from "@birim/core";
 import type { Rect2D } from "@birim/geometry";
 
 export type ElevationDetailLevel = "clean" | "selected" | "technical";
@@ -370,4 +370,173 @@ export function resolveSelectedElevationContext(
     depthMm: activeModule.dimensions.depth,
     canDelete: false,
   };
+}
+
+export type HingeMountSide = "left-wall" | "right-wall" | "divider-left" | "divider-right";
+
+export interface ElevationHingeAnnotation {
+  id: string;
+  brand: "Blum" | "Hettich" | "Salice";
+  /** Gövde içi tabanından (baza üstü = 0) mutlak yükseklik (mm) */
+  globalY: number;
+  /** Kapağın kendi alt kenarından olan mesafe (CNC referansı, mm) */
+  doorLocalY: number;
+  /** Kapağın başladığı mutlak kot (tam kapak için 0, çekmece üstü kapak için raf üst kotu, mm) */
+  doorBaseY: number;
+  mountSide: HingeMountSide;
+  bayIndex: number;
+  svgX: number;
+  svgY: number;
+  /** Etiket yönü: left-wall / divider-right -> start (sağa), right-wall / divider-left -> end (sola) */
+  labelAnchor: "start" | "end";
+  /** Menteşe merkezinden yatay ofset işareti (+1 = sağa, -1 = sola) */
+  labelDirection: 1 | -1;
+  /** Aynı bölmedeki raf/askı ile |y1 - y2| < 22px çakışması varsa ±12px kaydırma (SVG birimi) */
+  verticalNudgeSvgY: number;
+}
+
+export type ElevationCoordMode = "global" | "local";
+
+export interface HoveredElevationItem {
+  id: string;
+  kind: "hinge" | "shelf" | "rail" | "drawer" | "handle";
+  title: string;
+  subtitle?: string;
+  datumNote?: string;
+  globalY: number;
+  doorLocalY?: number;
+  doorBaseY?: number;
+  svgY: number;
+}
+
+/**
+ * Computes Global Y (baza üstü = 0), Door-Local Y (CNC ref), Door Base Y, mountSide,
+ * inward bay label direction, and vertical collision nudge for a 2D elevation hinge marker.
+ * Does NOT alter 3D geometry, BOM, System 32 drilling, or CNC/DXF outputs.
+ */
+export function computeElevationHingeAnnotation(params: {
+  el: { id: string; label: string; x: number; y: number; width: number; height: number; bayIndex?: number };
+  activeModule: ModuleInstance;
+  moduleHeightMm: number;
+  sameBayObstacleSvgYs?: number[];
+  /** Approximate SVG mm per screen pixel (used to convert 22px threshold & 12px nudge accurately) */
+  svgMmPerPx?: number;
+}): ElevationHingeAnnotation {
+  const { el, activeModule, moduleHeightMm, sameBayObstacleSvgYs = [], svgMmPerPx = 2.2 } = params;
+  const hcx = el.x + el.width / 2;
+  const hcy = el.y + el.height / 2;
+  const brand: "Blum" | "Hettich" | "Salice" = el.label.includes("Hettich")
+    ? "Hettich"
+    : el.label.includes("Salice")
+    ? "Salice"
+    : "Blum";
+
+  const plinthH = activeModule.carcass.plinthHeight ?? 0;
+  const hingeCenterFromModuleBottom = Math.round(moduleHeightMm - hcy);
+  const rawGlobalY = Math.max(0, hingeCenterFromModuleBottom - plinthH);
+
+  // Support both integer and decimal hinge Y values in label (e.g. Y:1638mm or Y:1638.5mm)
+  const yMatch = el.label.match(/\(Y:(\d+(?:\.\d+)?)mm\)/);
+  const parsedLabelY = yMatch ? Math.round(Number(yMatch[1])) : null;
+
+  // Determine bay & mountSide so labels always open INWARD into their own bay
+  const T = activeModule.carcass.panelThickness || 18;
+  const bayWidths = calculateBayWidths(activeModule);
+  const bayCount = Math.max(1, bayWidths.length);
+  let bayIndex = typeof el.bayIndex === "number" && el.bayIndex >= 0 && el.bayIndex < bayCount ? el.bayIndex : 0;
+  let bayLeftX = T;
+  let bayRightX = activeModule.dimensions.width - T;
+
+  let cursorX = T;
+  for (let b = 0; b < bayWidths.length; b++) {
+    const bw = bayWidths[b];
+    const left = cursorX;
+    const right = cursorX + bw;
+    if (hcx >= left - T && hcx <= right + T) {
+      bayIndex = b;
+      bayLeftX = left;
+      bayRightX = right;
+      break;
+    }
+    cursorX = right + T;
+  }
+
+  // Authoritative door base elevation from four-space door leaf spec (plus external drawer fallback)
+  const fourSpace = calculateFourSpaceDimensions(activeModule);
+  const leafDoorY0 = fourSpace?.doorLeaves?.[bayIndex]?.doorY0Mm;
+  let detectedDoorBaseY = 0;
+  if (typeof leafDoorY0 === "number" && Number.isFinite(leafDoorY0)) {
+    const abovePlinth = Math.round(leafDoorY0 - plinthH);
+    if (abovePlinth > 25) detectedDoorBaseY = abovePlinth;
+  }
+  if (detectedDoorBaseY === 0 && parsedLabelY !== null && rawGlobalY - parsedLabelY > 25) {
+    detectedDoorBaseY = Math.round(rawGlobalY - parsedLabelY);
+  }
+  if (detectedDoorBaseY === 0) {
+    const bayObj = activeModule.bays[bayIndex];
+    const extDrawers = (bayObj?.drawers || []).filter((d) => !d.isInternal && !d.isHidden);
+    if (extDrawers.length > 0) {
+      const maxDrwTop = Math.max(...extDrawers.map((d) => (d.elevationY || 0) + (d.height || 0)));
+      if (maxDrwTop > 25) detectedDoorBaseY = Math.round(maxDrwTop + T);
+    }
+  }
+  const doorBaseY = detectedDoorBaseY;
+  const globalY = rawGlobalY;
+  const doorLocalY =
+    doorBaseY > 0
+      ? parsedLabelY !== null && Math.abs(doorBaseY + parsedLabelY - rawGlobalY) <= 45
+        ? parsedLabelY
+        : Math.max(0, Math.round(rawGlobalY - doorBaseY))
+      : parsedLabelY !== null
+      ? parsedLabelY
+      : rawGlobalY;
+
+  const bayMidX = (bayLeftX + bayRightX) / 2;
+  const isLeftSideOfBay = hcx < bayMidX;
+  let mountSide: HingeMountSide;
+  if (isLeftSideOfBay) {
+    mountSide = bayIndex === 0 ? "left-wall" : "divider-right";
+  } else {
+    mountSide = bayIndex === bayCount - 1 ? "right-wall" : "divider-left";
+  }
+
+  // left-wall & divider-right open RIGHT (into bay); right-wall & divider-left open LEFT (into bay)
+  const opensRight = mountSide === "left-wall" || mountSide === "divider-right";
+  const labelAnchor: "start" | "end" = opensRight ? "start" : "end";
+  const labelDirection: 1 | -1 = opensRight ? 1 : -1;
+
+  // Vertical collision guard: if |y1 - y2| < 22px against a same-bay shelf/rail, nudge by ±12px
+  const thresholdSvg = 22 * svgMmPerPx;
+  const nudgeSvg = 12 * svgMmPerPx;
+  let verticalNudgeSvgY = 0;
+  for (const obsY of sameBayObstacleSvgYs) {
+    const diff = hcy - obsY;
+    if (Math.abs(diff) < thresholdSvg) {
+      verticalNudgeSvgY = diff >= 0 ? nudgeSvg : -nudgeSvg;
+      break;
+    }
+  }
+
+  return {
+    id: el.id,
+    brand,
+    globalY,
+    doorLocalY,
+    doorBaseY,
+    mountSide,
+    bayIndex,
+    svgX: hcx,
+    svgY: hcy,
+    labelAnchor,
+    labelDirection,
+    verticalNudgeSvgY,
+  };
+}
+
+export function formatHoveredElevationHud(item: HoveredElevationItem): string {
+  const base = `${item.title} | Y:${Math.round(item.globalY)}`;
+  if (item.kind === "hinge" && item.doorBaseY && item.doorBaseY > 0 && typeof item.doorLocalY === "number") {
+    return `${base} (Kapak: ${Math.round(item.doorLocalY)})`;
+  }
+  return base;
 }

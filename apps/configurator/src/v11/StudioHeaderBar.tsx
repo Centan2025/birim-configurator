@@ -138,6 +138,11 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
   }) => {
     const isShowroom = workspaceMode === "showroom";
     const [outputsOpen, setOutputsOpen] = useState(false);
+    const [outputsAnchor, setOutputsAnchor] = useState<{ top: number; right: number }>({ top: 68, right: 16 });
+    const [portalMounted, setPortalMounted] = useState(false);
+    useEffect(() => {
+      setPortalMounted(true);
+    }, []);
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [settingsPos, setSettingsPos] = useState<{ top: number; left: number }>({ top: 68, left: 12 });
     const [variantOpen, setVariantOpen] = useState(false);
@@ -197,6 +202,26 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
         window.removeEventListener("keydown", onKey);
       };
     }, [outputsOpen, issuesOpen, variantOpen]);
+
+    useEffect(() => {
+      if (!outputsOpen) return;
+      const updateAnchor = () => {
+        const el = menuRef.current;
+        if (!el) return;
+        const rect = el.getBoundingClientRect();
+        setOutputsAnchor({
+          top: Math.round(rect.bottom + 6),
+          right: Math.max(12, Math.round(window.innerWidth - rect.right)),
+        });
+      };
+      updateAnchor();
+      window.addEventListener("resize", updateAnchor);
+      window.addEventListener("scroll", updateAnchor, true);
+      return () => {
+        window.removeEventListener("resize", updateAnchor);
+        window.removeEventListener("scroll", updateAnchor, true);
+      };
+    }, [outputsOpen]);
 
     useEffect(() => {
       setOutputsOpen(false);
@@ -585,32 +610,54 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                       )}
 
                       {onChangeUiFontScale && (
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-[11px] font-semibold text-slate-300">Etiket Boyutu</span>
-                          <div
-                            data-testid="v11-font-scale-switcher"
-                            className="inline-flex items-center p-0.5 rounded-full bg-black/40 border border-white/[0.14]"
-                          >
+                        <div
+                          data-testid="v11-font-scale-switcher"
+                          className="rounded-2xl bg-white/[0.04] border border-white/[0.10] p-2.5 space-y-2"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[11px] font-semibold text-slate-200 tracking-wide">
+                              Etiket Boyutu
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => onChangeUiFontScale(1)}
+                              title="Varsayılan boyuta (%100) sıfırla"
+                              className={`h-5 px-2 rounded-full text-[10px] font-mono font-bold transition cursor-pointer border ${
+                                Math.abs(uiFontScale - 1) < 0.01
+                                  ? "bg-sky-500/15 border-sky-400/30 text-sky-300"
+                                  : "bg-sky-500/25 border-sky-400/50 text-white hover:bg-sky-500/35"
+                              }`}
+                            >
+                              %{Math.round(uiFontScale * 100)}
+                              {Math.abs(uiFontScale - 1) >= 0.01 && <span className="ml-1 opacity-80">↺</span>}
+                            </button>
+                          </div>
+                          <div className="flex items-center gap-2 rounded-xl bg-black/35 border border-white/[0.10] p-1">
                             <button
                               type="button"
                               onClick={() => onChangeUiFontScale(Math.max(0.75, Number((uiFontScale - 0.15).toFixed(2))))}
                               disabled={uiFontScale <= 0.75}
-                              className="h-7 px-2.5 rounded-full text-[11px] font-bold text-slate-200 hover:bg-white/15 disabled:opacity-35 transition cursor-pointer"
+                              title="Etiketleri küçült"
+                              className="w-7 h-7 rounded-lg bg-white/[0.07] hover:bg-white/[0.16] active:scale-95 text-[11px] font-bold text-slate-100 disabled:opacity-30 flex items-center justify-center transition cursor-pointer shrink-0"
                             >
-                              A-
+                              A−
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => onChangeUiFontScale(1)}
-                              className="h-7 px-2 rounded-full text-[10.5px] font-mono font-semibold text-sky-300 cursor-pointer"
-                            >
-                              %{Math.round(uiFontScale * 100)}
-                            </button>
+                            <input
+                              type="range"
+                              min={0.75}
+                              max={1.6}
+                              step={0.05}
+                              value={uiFontScale}
+                              onChange={(e) => onChangeUiFontScale(Number(e.target.value))}
+                              aria-label="Etiket Boyutu"
+                              className="flex-1 h-1.5 rounded-full accent-sky-400 cursor-pointer bg-white/15"
+                            />
                             <button
                               type="button"
                               onClick={() => onChangeUiFontScale(Math.min(1.6, Number((uiFontScale + 0.15).toFixed(2))))}
                               disabled={uiFontScale >= 1.6}
-                              className="h-7 px-2.5 rounded-full text-[11px] font-bold text-slate-200 hover:bg-white/15 disabled:opacity-35 transition cursor-pointer"
+                              title="Etiketleri büyüt"
+                              className="w-7 h-7 rounded-lg bg-white/[0.07] hover:bg-white/[0.16] active:scale-95 text-[11.5px] font-bold text-slate-100 disabled:opacity-30 flex items-center justify-center transition cursor-pointer shrink-0"
                             >
                               A+
                             </button>
@@ -794,8 +841,12 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                 <ChevronDown className="w-3.5 h-3.5 text-slate-400 hidden sm:inline shrink-0" />
               </button>
 
-              {typeof document !== "undefined" && createPortal(
-              <AnimatedPopoverPresence isOpen={outputsOpen} origin="top-right" className="fixed right-4 top-[68px] max-xl:right-3 max-xl:top-[104px] z-[90]">
+              {portalMounted && createPortal(
+              <div
+                className="fixed z-[90] pointer-events-none"
+                style={{ top: outputsAnchor.top, right: outputsAnchor.right }}
+              >
+              <AnimatedPopoverPresence isOpen={outputsOpen} origin="top-right" className="pointer-events-auto">
                 <div
                   data-testid="v11-outputs-dropdown"
                   data-birim-portal-menu="true"
@@ -1004,7 +1055,8 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                     </button>
                   ) : null}
                 </div>
-              </AnimatedPopoverPresence>, document.body)}
+              </AnimatedPopoverPresence>
+              </div>, document.body)}
             </div>
 
             <button

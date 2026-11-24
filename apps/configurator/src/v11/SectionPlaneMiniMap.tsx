@@ -11,6 +11,7 @@ export interface SectionPlaneMiniMapProps {
   ratio: number;
   onChangeAxis: (axis: "X" | "Z") => void;
   onChangeRatio: (ratio: number) => void;
+  onMinimize?: () => void;
   onClose?: () => void;
   compact?: boolean;
 }
@@ -28,6 +29,7 @@ export const SectionPlaneMiniMap: React.FC<SectionPlaneMiniMapProps> = React.mem
     ratio,
     onChangeAxis,
     onChangeRatio,
+    onMinimize,
     onClose,
     compact = false,
   }) => {
@@ -164,16 +166,28 @@ export const SectionPlaneMiniMap: React.FC<SectionPlaneMiniMapProps> = React.mem
             </div>
           </div>
 
-          {onClose && (
-            <button
-              type="button"
-              onClick={onClose}
-              className="w-6 h-6 rounded-full hover:bg-[#EFECE4] text-[#78716C] hover:text-[#141413] flex items-center justify-center cursor-pointer"
-              title="Kesiti Kapat"
-            >
-              ✕
-            </button>
-          )}
+          <div className="flex items-center gap-1 shrink-0">
+            {onMinimize && (
+              <button
+                type="button"
+                onClick={onMinimize}
+                className="w-6 h-6 rounded-full hover:bg-[#EFECE4] text-[#78716C] hover:text-[#141413] flex items-center justify-center cursor-pointer text-[12px] font-bold"
+                title="Paneli Gizle (Kesit Açık Kalır)"
+              >
+                −
+              </button>
+            )}
+            {onClose && (
+              <button
+                type="button"
+                onClick={onClose}
+                className="w-6 h-6 rounded-full hover:bg-rose-100 text-[#78716C] hover:text-rose-700 flex items-center justify-center cursor-pointer"
+                title="Kesiti Tamamen Kapat"
+              >
+                ✕
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Eksen Seçimi: A-A Yan Kesit vs B-B Boyuna Kesit */}

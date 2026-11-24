@@ -1,6 +1,7 @@
 "use client";
 import { computeBaySystem32ShelfHoleElevations } from "../engine/elevationSnapEngine";
 import { solveAngledWallSnapForModule, originToModulePosition } from "../engine/angledWallSnapEngine";
+import { applyPostResizeModuleSync } from "../engine/cabinetResizeAndStackEngine";
 import { buildGuidedWizardProject, type GuidedWizardLayoutInput } from "./guidedWizardBuilder";
 import { harmonizeModuleWithProjectContext } from "./moduleHarmonizer";
 import { buildDoorSystemsShowcaseProject, type DoorShowcaseMode } from "./doorShowcaseBuilder";
@@ -2149,31 +2150,26 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
         }
         return m;
       });
-      const deltaX = clampedX - target.position.x;
-      const deltaZ = clampedZ - target.position.z;
-      const deltaTopY = (clampedY + clampedH) - (target.position.y + oldH);
-      const nextSceneObjects = (curProj.sceneObjects || []).map((so) => {
-        if (so.hostModuleId !== target.id) return so;
-        const isCountertopMounted =
-          so.catalogId?.includes("cooktop") ||
-          so.catalogId?.includes("sink") ||
-          so.visualKind === "cooktop_induction" ||
-          so.visualKind === "sink_undermount_faucet";
-        const nextY = isCountertopMounted
-          ? Math.max(clampedY + clampedH + 38, so.position.y + deltaTopY)
-          : so.position.y + deltaTopY;
-        return {
-          ...so,
-          position: {
-            x: so.position.x + deltaX,
-            y: nextY,
-            z: so.position.z + deltaZ,
-          },
-        };
-      });
+      const synced = applyPostResizeModuleSync(
+        nextMods,
+        curProj.sceneObjects || [],
+        modIdx,
+        target,
+        curProj.space?.ceilingHeight || 2700,
+        {
+          syncStackedColumns: true,
+          reflowAdjacentRow: true,
+          wallWidthLimitMm: curProj.space?.walls?.[0]?.length,
+        }
+      );
       commitAdapterState({
         activeModuleIndex: modIdx,
-        project: { ...curProj, modules: nextMods, sceneObjects: nextSceneObjects, updatedAt: new Date().toISOString() },
+        project: {
+          ...curProj,
+          modules: synced.modules,
+          sceneObjects: synced.sceneObjects,
+          updatedAt: new Date().toISOString(),
+        },
       });
 
       const totalLeafCount = nextMod.bays.reduce(

@@ -1,5 +1,6 @@
 import { create, type StoreApi, type UseBoundStore } from "zustand";
 import { harmonizeModuleWithProjectContext, rescaleBayInteriorForHeightChange } from "../v3/adapter/moduleHarmonizer";
+import { applyPostResizeModuleSync } from "../v3/engine/cabinetResizeAndStackEngine";
 import {
   DesignProject,
   createInitialProject,
@@ -1249,8 +1250,10 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
   setDimensions: (width, height, depth) => {
     const { project, history, activeModuleIndex, batchStartProject } = get();
     const updated = cloneProjectForSingleModule(project, activeModuleIndex);
-    const mod = updated.modules[activeModuleIndex] || updated.modules[0];
+    const resolvedModIdx = updated.modules[activeModuleIndex] ? activeModuleIndex : 0;
+    const mod = updated.modules[resolvedModIdx];
     if (!mod) return;
+    const oldModSnapshot: ModuleInstance = JSON.parse(JSON.stringify(mod));
 
     if (![width, height, depth].every(Number.isFinite)) return;
     const template = mod.templateId ? getV4TemplateById(mod.templateId) : undefined;
@@ -1281,6 +1284,20 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
       rescaleBayInteriorForHeightChange(b, oldInner, newInner, mod.carcass.panelThickness);
     });
     mod.dimensions = next;
+    const synced = applyPostResizeModuleSync(
+      updated.modules,
+      updated.sceneObjects || [],
+      resolvedModIdx,
+      oldModSnapshot,
+      updated.space?.ceilingHeight || 2700,
+      {
+        syncStackedColumns: true,
+        reflowAdjacentRow: true,
+        wallWidthLimitMm: updated.space?.walls?.[0]?.length,
+      }
+    );
+    updated.modules = synced.modules;
+    updated.sceneObjects = synced.sceneObjects;
     updated.updatedAt = new Date().toISOString();
     if (batchStartProject) {
       set({
