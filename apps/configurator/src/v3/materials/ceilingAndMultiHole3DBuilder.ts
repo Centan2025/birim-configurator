@@ -281,6 +281,193 @@ export function build3DModuleMultiHoleInstancedMesh(
  * 3D Sahnede Mimari Tavan ve 6 Tavan Tipini (`flat_plaster`, `dropped_perimeter_cove`,
  * `gypsum_soffit_bulkhead`, `exposed_wood_beams`, `coffered_baffle`, `sloped_attic`) üretir.
  */
+export interface WallCeilingProfilePoint {
+  s: number;
+  y: number;
+}
+
+type SlopeDirId = "left_to_right" | "right_to_left" | "back_to_front";
+
+interface ResolvedWallSlopeParam {
+  dir: SlopeDirId;
+  kneeH: number;
+  angleDeg: number;
+  slopeTan: number;
+}
+
+function getActiveWallSlopeParams(
+  space: SpaceDefinition,
+  cfg: ReturnType<typeof resolveSpaceCeilingConfig>,
+  ceilH: number
+): ResolvedWallSlopeParam[] {
+  const rawWallSlopes = space.ceilingConfig?.wallSlopes;
+  const rawDirs = space.ceilingConfig?.slopeDirections;
+  const activeDirs: SlopeDirId[] =
+    Array.isArray(rawDirs) && rawDirs.length > 0
+      ? Array.from(new Set(rawDirs))
+      : cfg.slopeDirections && cfg.slopeDirections.length > 0
+        ? cfg.slopeDirections
+        : [space.ceilingConfig?.slopeDirection || cfg.slopeDirection || "left_to_right"];
+
+  const out: ResolvedWallSlopeParam[] = [];
+  for (const dir of activeDirs) {
+    const ws = rawWallSlopes?.[dir];
+    if (ws && ws.enabled === false) continue;
+    const kneeH = Math.max(300, Math.min(ceilH, ws?.kneeHeightMm ?? cfg.slopeKneeHeightMm));
+    const angleDeg = Math.max(5, Math.min(65, ws?.angleDeg ?? cfg.slopeAngleDeg));
+    const slopeTan = Math.max(0.08, Math.tan((angleDeg * Math.PI) / 180));
+    out.push({ dir, kneeH, angleDeg, slopeTan });
+  }
+  return out;
+}
+
+/**
+ * Evaluates the exact ceiling underside height (mm) at any world (x, z) coordinate,
+ * matching `build3DArchitecturalCeilingGroup` 1:1 for single- or multi-wall `sloped_attic` roofs.
+ */
+export function evaluateCeilingHeightAtWorldXZ(
+  space: SpaceDefinition,
+  mainWallLengthMm: number,
+  worldX: number,
+  worldZ: number
+): number {
+  const ceilH = space.ceilingHeight || 2600;
+  const cfg = resolveSpaceCeilingConfig(space);
+  if (!cfg.enabled || !cfg.showIn3D || cfg.ceilingType !== "sloped_attic") {
+    return ceilH;
+  }
+
+  const spanW = Math.max(1600, mainWallLengthMm);
+  const sideWallMaxZ = (space.walls || []).reduce((maxZ, w) => {
+    const rot = (((w.rotationY || 0) % 360) + 360) % 360;
+    const extZ = rot === 90 || rot === 270 ? w.position.z + w.length : w.position.z + 2600;
+    return Math.max(maxZ, extZ);
+  }, 2600);
+  const roomDepthZ = Math.max(2500, Math.min(4800, sideWallMaxZ));
+  const activeParams = getActiveWallSlopeParams(space, cfg, ceilH);
+
+  let minH = ceilH;
+  for (const p of activeParams) {
+    let hDir = ceilH;
+    if (p.dir === "back_to_front") {
+      const riseZ = Math.min(roomDepthZ, (ceilH - p.kneeH) / p.slopeTan);
+      const t = Math.max(0, Math.min(1, worldZ / Math.max(1, riseZ)));
+      hDir = p.kneeH + (ceilH - p.kneeH) * t;
+    } else if (p.dir === "right_to_left") {
+      const runX = Math.min(spanW, (ceilH - p.kneeH) / p.slopeTan);
+      const distFromRight = spanW - worldX;
+      const t = Math.max(0, Math.min(1, distFromRight / Math.max(1, runX)));
+      hDir = p.kneeH + (ceilH - p.kneeH) * t;
+    } else {
+      const runX = Math.min(spanW, (ceilH - p.kneeH) / p.slopeTan);
+      const t = Math.max(0, Math.min(1, worldX / Math.max(1, runX)));
+      hDir = p.kneeH + (ceilH - p.kneeH) * t;
+    }
+    if (hDir < minH) minH = hDir;
+  }
+  return minH;
+}
+
+/**
+ * Computes the exact piecewise-linear top profile `[{ s, y }]` along a wall segment `s ∈ [0, wLen]`
+ * so walls and their CAD selection frames clip cleanly against single- or multi-wall sloped ceilings.
+ */
+export function computeWallTopProfileForCeiling(
+  space: SpaceDefinition,
+  mainWallLengthMm: number,
+  wall: { position: { x: number; z: number }; rotationY?: number; length: number; height?: number }
+): { points: WallCeilingProfilePoint[]; isClipped: boolean; minTopY: number; maxTopY: number } {
+  const ceilH = space.ceilingHeight || 2600;
+  const wLen = Math.max(100, wall.length || 3600);
+  const wH = Math.max(400, wall.height || ceilH);
+  const cfg = resolveSpaceCeilingConfig(space);
+
+  if (!cfg.enabled || !cfg.showIn3D || cfg.ceilingType !== "sloped_attic") {
+    return {
+      points: [
+        { s: 0, y: wH },
+        { s: wLen, y: wH },
+      ],
+      isClipped: false,
+      minTopY: wH,
+      maxTopY: wH,
+    };
+  }
+
+  const rotRad = -((wall.rotationY || 0) * Math.PI) / 180;
+  const dirX = Math.cos(rotRad);
+  const dirZ = -Math.sin(rotRad);
+
+  const spanW = Math.max(1600, mainWallLengthMm);
+  const sideWallMaxZ = (space.walls || []).reduce((maxZ, w) => {
+    const rot = (((w.rotationY || 0) % 360) + 360) % 360;
+    const extZ = rot === 90 || rot === 270 ? w.position.z + w.length : w.position.z + 2600;
+    return Math.max(maxZ, extZ);
+  }, 2600);
+  const roomDepthZ = Math.max(2500, Math.min(4800, sideWallMaxZ));
+  const activeParams = getActiveWallSlopeParams(space, cfg, ceilH);
+  const activeDirs = activeParams.map((p) => p.dir);
+
+  const candidateS: number[] = [0, wLen];
+  const pushIfInterior = (sVal: number) => {
+    if (Number.isFinite(sVal) && sVal > 5 && sVal < wLen - 5) {
+      candidateS.push(sVal);
+    }
+  };
+
+  for (const p of activeParams) {
+    const runX = Math.min(spanW, (ceilH - p.kneeH) / p.slopeTan);
+    const riseZ = Math.min(roomDepthZ, (ceilH - p.kneeH) / p.slopeTan);
+    if (p.dir === "back_to_front" && Math.abs(dirZ) > 1e-4) {
+      pushIfInterior((0 - wall.position.z) / dirZ);
+      pushIfInterior((riseZ - wall.position.z) / dirZ);
+    } else if (p.dir === "left_to_right" && Math.abs(dirX) > 1e-4) {
+      pushIfInterior((0 - wall.position.x) / dirX);
+      pushIfInterior((runX - wall.position.x) / dirX);
+    } else if (p.dir === "right_to_left" && Math.abs(dirX) > 1e-4) {
+      pushIfInterior((spanW - runX - wall.position.x) / dirX);
+      pushIfInterior((spanW - wall.position.x) / dirX);
+    }
+  }
+  // If both left and right slopes meet in the middle (gable ridge)
+  if (activeDirs.includes("left_to_right") && activeDirs.includes("right_to_left") && Math.abs(dirX) > 1e-4) {
+    pushIfInterior((spanW * 0.5 - wall.position.x) / dirX);
+  }
+  // Diagonal hip intersections where two slopes meet
+  if (activeDirs.length > 1) {
+    const steps = 16;
+    for (let k = 1; k < steps; k++) {
+      pushIfInterior((wLen * k) / steps);
+    }
+  }
+
+  candidateS.sort((a, b) => a - b);
+  const uniqueS: number[] = [];
+  for (const sVal of candidateS) {
+    if (uniqueS.length === 0 || sVal - uniqueS[uniqueS.length - 1] > 2) {
+      uniqueS.push(sVal);
+    }
+  }
+
+  const points: WallCeilingProfilePoint[] = uniqueS.map((s) => {
+    const wx = wall.position.x + dirX * s;
+    const wz = wall.position.z + dirZ * s;
+    const hCeil = evaluateCeilingHeightAtWorldXZ(space, mainWallLengthMm, wx, wz);
+    return { s, y: Math.max(250, Math.min(wH, hCeil)) };
+  });
+
+  let minTopY = Infinity;
+  let maxTopY = -Infinity;
+  let isClipped = false;
+  for (const p of points) {
+    if (p.y < minTopY) minTopY = p.y;
+    if (p.y > maxTopY) maxTopY = p.y;
+    if (p.y < wH - 2) isClipped = true;
+  }
+
+  return { points, isClipped, minTopY, maxTopY };
+}
+
 export function build3DArchitecturalCeilingGroup(
   space: SpaceDefinition,
   mainWallLengthMm: number,
@@ -442,65 +629,171 @@ export function build3DArchitecturalCeilingGroup(
   };
 
   if (cfg.ceilingType === "sloped_attic") {
-    const kneeH = cfg.slopeKneeHeightMm;
-    const rad = (cfg.slopeAngleDeg * Math.PI) / 180;
-    if (cfg.slopeDirection === "back_to_front") {
-      const riseZ = Math.min(roomDepthZ, (ceilH - kneeH) / Math.max(0.08, Math.tan(rad)));
-      const slopeLen = Math.hypot(riseZ, ceilH - kneeH);
-      const slopeMesh = new THREE.Mesh(
-        new THREE.BoxGeometry(spanW, slabThickness, slopeLen),
-        plasterMat
-      );
-      slopeMesh.position.set(spanW / 2, (kneeH + ceilH) / 2 + slabThickness / 2, riseZ / 2);
-      slopeMesh.rotation.x = -Math.atan2(ceilH - kneeH, Math.max(1, riseZ));
-      slopeMesh.raycast = () => {};
-      slopeMesh.receiveShadow = true;
-      group.add(slopeMesh);
+    // Seamless watertight sloped roof slab (supports single-wall, gable, and multi-wall hip roofs with independent per-wall knee & angle)
+    const activeParams = getActiveWallSlopeParams(space, cfg, ceilH);
+    const activeDirs = activeParams.map((p) => p.dir);
 
-      if (riseZ < roomDepthZ) {
-        const flatExt = new THREE.Mesh(
-          new THREE.BoxGeometry(spanW, slabThickness, roomDepthZ - riseZ),
-          plasterMat
-        );
-        flatExt.position.set(
-          spanW / 2,
-          ceilH + slabThickness / 2,
-          riseZ + (roomDepthZ - riseZ) / 2
-        );
-        flatExt.raycast = () => {};
-        group.add(flatExt);
-      }
-    } else {
-      const runX = Math.min(spanW, (ceilH - kneeH) / Math.max(0.08, Math.tan(rad)));
-      const slopeLen = Math.hypot(runX, ceilH - kneeH);
-      const isRightToLeft = cfg.slopeDirection === "right_to_left";
-      const slopeMesh = new THREE.Mesh(
-        new THREE.BoxGeometry(slopeLen, slabThickness, roomDepthZ),
-        plasterMat
-      );
-      const centerSlopeX = isRightToLeft ? spanW - runX / 2 : runX / 2;
-      slopeMesh.position.set(centerSlopeX, (kneeH + ceilH) / 2 + slabThickness / 2, roomDepthZ / 2);
-      slopeMesh.rotation.z =
-        (isRightToLeft ? -1 : 1) * Math.atan2(ceilH - kneeH, Math.max(1, runX));
-      slopeMesh.raycast = () => {};
-      slopeMesh.receiveShadow = true;
-      group.add(slopeMesh);
+    const maxWallThick = (space.walls || []).reduce(
+      (mx, w) => Math.max(mx, w.thickness || 150),
+      150
+    );
+    const leftPad = maxWallThick;
+    const rightPad = maxWallThick;
+    const backPad = maxWallThick;
 
-      if (runX < spanW) {
-        const flatW = spanW - runX;
-        const flatMesh = new THREE.Mesh(
-          new THREE.BoxGeometry(flatW, slabThickness, roomDepthZ),
-          plasterMat
-        );
-        flatMesh.position.set(
-          isRightToLeft ? flatW / 2 : runX + flatW / 2,
-          ceilH + slabThickness / 2,
-          roomDepthZ / 2
-        );
-        flatMesh.raycast = () => {};
-        group.add(flatMesh);
+    const rawXs: number[] = [-leftPad, 0, spanW, spanW + rightPad];
+    const rawZs: number[] = [-backPad, 0, roomDepthZ];
+
+    for (const p of activeParams) {
+      const runX = Math.min(spanW, (ceilH - p.kneeH) / p.slopeTan);
+      const riseZ = Math.min(roomDepthZ, (ceilH - p.kneeH) / p.slopeTan);
+      if (p.dir === "left_to_right" && runX > 10 && runX < spanW - 10) {
+        rawXs.push(runX);
+      } else if (p.dir === "right_to_left" && runX > 10 && runX < spanW - 10) {
+        rawXs.push(spanW - runX);
+      } else if (p.dir === "back_to_front" && riseZ > 10 && riseZ < roomDepthZ - 10) {
+        rawZs.push(riseZ);
       }
     }
+    if (activeDirs.includes("left_to_right") && activeDirs.includes("right_to_left")) {
+      const pL = activeParams.find((p) => p.dir === "left_to_right");
+      const pR = activeParams.find((p) => p.dir === "right_to_left");
+      if (pL && pR) {
+        const meetX = (pR.kneeH - pL.kneeH + spanW * pR.slopeTan) / Math.max(0.08, pL.slopeTan + pR.slopeTan);
+        if (meetX > 10 && meetX < spanW - 10) rawXs.push(meetX);
+      }
+    }
+    // Add smooth subdivision lines when two perpendicular slopes intersect (hip roof ridge)
+    if (
+      activeDirs.includes("back_to_front") &&
+      (activeDirs.includes("left_to_right") || activeDirs.includes("right_to_left"))
+    ) {
+      const subN = 28;
+      for (let i = 1; i < subN; i++) {
+        rawXs.push((spanW * i) / subN);
+        rawZs.push((roomDepthZ * i) / subN);
+      }
+    }
+
+    const dedupeSorted = (arr: number[]) => {
+      arr.sort((a, b) => a - b);
+      const out: number[] = [];
+      for (const v of arr) {
+        if (out.length === 0 || v - out[out.length - 1] > 2) out.push(v);
+      }
+      return out;
+    };
+    const xs = dedupeSorted(rawXs);
+    const zs = dedupeSorted(rawZs);
+
+    const evalUnderY = (wx: number, wz: number): number => {
+      const cx = Math.max(0, Math.min(spanW, wx));
+      const cz = Math.max(0, Math.min(roomDepthZ, wz));
+      return evaluateCeilingHeightAtWorldXZ(space, mainWallLengthMm, cx, cz);
+    };
+
+    const nx = xs.length;
+    const nz = zs.length;
+    const positions: number[] = [];
+    const pushTri = (
+      ax: number,
+      ay: number,
+      az: number,
+      bx: number,
+      by: number,
+      bz: number,
+      cx: number,
+      cy: number,
+      cz: number
+    ) => {
+      positions.push(ax, ay, az, bx, by, bz, cx, cy, cz);
+    };
+    const pushQuad = (
+      a: [number, number, number],
+      b: [number, number, number],
+      c: [number, number, number],
+      d: [number, number, number]
+    ) => {
+      pushTri(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]);
+      pushTri(a[0], a[1], a[2], c[0], c[1], c[2], d[0], d[1], d[2]);
+    };
+
+    const botGrid: [number, number, number][][] = [];
+    const topGrid: [number, number, number][][] = [];
+    for (let iz = 0; iz < nz; iz++) {
+      const bRow: [number, number, number][] = [];
+      const tRow: [number, number, number][] = [];
+      for (let ix = 0; ix < nx; ix++) {
+        const yB = evalUnderY(xs[ix], zs[iz]);
+        bRow.push([xs[ix], yB, zs[iz]]);
+        tRow.push([xs[ix], yB + slabThickness, zs[iz]]);
+      }
+      botGrid.push(bRow);
+      topGrid.push(tRow);
+    }
+
+    // Top (+Y) and bottom (-Y) roof faces
+    for (let iz = 0; iz < nz - 1; iz++) {
+      for (let ix = 0; ix < nx - 1; ix++) {
+        // Top face (CCW when viewed from +Y)
+        pushQuad(
+          topGrid[iz][ix],
+          topGrid[iz + 1][ix],
+          topGrid[iz + 1][ix + 1],
+          topGrid[iz][ix + 1]
+        );
+        // Bottom face (CCW when viewed from -Y)
+        pushQuad(
+          botGrid[iz][ix],
+          botGrid[iz][ix + 1],
+          botGrid[iz + 1][ix + 1],
+          botGrid[iz + 1][ix]
+        );
+      }
+    }
+
+    // Perimeter thickness fascia walls (front, back, left, right)
+    for (let ix = 0; ix < nx - 1; ix++) {
+      // Front edge (z = roomDepthZ, normal +Z)
+      pushQuad(
+        botGrid[nz - 1][ix],
+        botGrid[nz - 1][ix + 1],
+        topGrid[nz - 1][ix + 1],
+        topGrid[nz - 1][ix]
+      );
+      // Back edge (z = -backPad, normal -Z)
+      pushQuad(
+        botGrid[0][ix + 1],
+        botGrid[0][ix],
+        topGrid[0][ix],
+        topGrid[0][ix + 1]
+      );
+    }
+    for (let iz = 0; iz < nz - 1; iz++) {
+      // Left edge (x = -leftPad, normal -X)
+      pushQuad(
+        botGrid[iz][0],
+        botGrid[iz + 1][0],
+        topGrid[iz + 1][0],
+        topGrid[iz][0]
+      );
+      // Right edge (x = spanW + rightPad, normal +X)
+      pushQuad(
+        botGrid[iz + 1][nx - 1],
+        botGrid[iz][nx - 1],
+        topGrid[iz][nx - 1],
+        topGrid[iz + 1][nx - 1]
+      );
+    }
+
+    const roofGeo = new THREE.BufferGeometry();
+    roofGeo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    roofGeo.computeVertexNormals();
+
+    const roofMesh = new THREE.Mesh(roofGeo, plasterMat);
+    roofMesh.raycast = () => {};
+    roofMesh.receiveShadow = true;
+    group.add(roofMesh);
     return group;
   }
 

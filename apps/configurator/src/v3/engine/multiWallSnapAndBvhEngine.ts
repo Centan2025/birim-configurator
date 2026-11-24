@@ -177,24 +177,17 @@ export function resolveModuleHostWallId(
  * Places modules accurately onto ANY wall (`0°`, `90°`, `180°`, `270°`, or angled),
  * automatically clearing perpendicular corner cabinets at the start of return walls!
  */
-export function computeMultiWallModuleSnap(
+export function placeModuleInstanceOnWall(
   project: DesignProject,
-  templateId: string,
+  newMod: ModuleInstance,
   targetHint?: {
     worldX?: number;
     worldZ?: number;
     wallId?: string;
     insertBetween?: boolean;
+    preserveY?: boolean;
   }
-): { moduleInstance: ModuleInstance; snap: MultiWallModuleSnapResult } | null {
-  const tpl =
-    V5_SPECIALIZED_MODULE_TEMPLATES.find((s) => s.templateId === templateId) ||
-    getV4TemplateById(templateId) ||
-    WARDROBE_TEMPLATES.find((w) => w.templateId === templateId) ||
-    KITCHEN_TEMPLATES.find((k) => k.templateId === templateId);
-  if (!tpl) return null;
-
-  const newMod = tpl.createInstance(`mod_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`);
+): { moduleInstance: ModuleInstance; snap: MultiWallModuleSnapResult } {
   const isFreestandingIslandOrTable =
     newMod.carcass.hullShape === "capsule_table" || newMod.category === "kitchen_island";
   if (isFreestandingIslandOrTable && typeof targetHint?.worldX !== "number" && typeof targetHint?.worldZ !== "number") {
@@ -220,7 +213,11 @@ export function computeMultiWallModuleSnap(
   }
   const isWallCab =
     newMod.category === "kitchen_wall" || newMod.moduleFamilyId === "fam_kitchen_wall";
-  const targetY = isWallCab ? 1450 : newMod.position.y || 0;
+  const targetY = targetHint?.preserveY
+    ? newMod.position.y || 0
+    : isWallCab
+      ? 1450
+      : newMod.position.y || 0;
   const targetTopY = targetY + newMod.dimensions.height;
 
   const effectiveWalls = getEffectiveSpaceWalls(project);
@@ -337,10 +334,19 @@ export function computeMultiWallModuleSnap(
   if (typeof targetHint?.worldX === "number") {
     const cx = targetHint.worldX;
     const cz = targetHint.worldZ ?? 0;
+    const maxAlong = Math.max(startClearance, chosenWall.length - newMod.dimensions.width);
     const cursorAlong = Math.max(
-      0,
-      Math.round((cx - basis.p0.x) * wx + (cz - basis.p0.z) * wz - newMod.dimensions.width * 0.5)
+      startClearance,
+      Math.min(
+        maxAlong,
+        Math.round((cx - basis.p0.x) * wx + (cz - basis.p0.z) * wz - newMod.dimensions.width * 0.5)
+      )
     );
+
+    const overlapsAt = (cand: number) =>
+      occupiedIntervals.some(
+        (s) => cand < s.alongEnd - 2 && cand + newMod.dimensions.width > s.alongStart + 2
+      );
 
     const candidates: number[] = [startClearance];
     for (const item of occupiedIntervals) {
@@ -349,18 +355,23 @@ export function computeMultiWallModuleSnap(
         candidates.push(item.alongStart - newMod.dimensions.width);
       }
     }
-    const freeCands = candidates.filter(
-      (c) =>
-        c >= 0 &&
-        !occupiedIntervals.some(
-          (s) => c < s.alongEnd - 2 && c + newMod.dimensions.width > s.alongStart + 2
-        )
-    );
+    const freeCands = candidates.filter((c) => c >= 0 && !overlapsAt(c));
     if (freeCands.length > 0) {
-      chosenAlong = freeCands.reduce((best, cur) =>
+      const nearestCand = freeCands.reduce((best, cur) =>
         Math.abs(cur - cursorAlong) < Math.abs(best - cursorAlong) ? cur : best
       );
-      snapLabel = `${chosenWall.name} • Mıknatıs Hiza (${chosenAlong}mm)`;
+      const bestDist = Math.abs(nearestCand - cursorAlong);
+      const gridAlong = Math.max(
+        startClearance,
+        Math.min(maxAlong, Math.round(cursorAlong / 50) * 50)
+      );
+      if (bestDist > 240 && !overlapsAt(gridAlong)) {
+        chosenAlong = gridAlong;
+        snapLabel = `${chosenWall.name} • 50mm Izgara (${chosenAlong}mm)`;
+      } else {
+        chosenAlong = nearestCand;
+        snapLabel = `${chosenWall.name} • Mıknatıs Hiza (${chosenAlong}mm)`;
+      }
     }
   }
 
@@ -392,6 +403,235 @@ export function computeMultiWallModuleSnap(
       insertBetweenShift,
       snapLabel,
     },
+  };
+}
+
+export function computeMultiWallModuleSnap(
+  project: DesignProject,
+  templateId: string,
+  targetHint?: {
+    worldX?: number;
+    worldZ?: number;
+    wallId?: string;
+    insertBetween?: boolean;
+  }
+): { moduleInstance: ModuleInstance; snap: MultiWallModuleSnapResult } | null {
+  const tpl =
+    V5_SPECIALIZED_MODULE_TEMPLATES.find((s) => s.templateId === templateId) ||
+    getV4TemplateById(templateId) ||
+    WARDROBE_TEMPLATES.find((w) => w.templateId === templateId) ||
+    KITCHEN_TEMPLATES.find((k) => k.templateId === templateId);
+  if (!tpl) return null;
+
+  const newMod = tpl.createInstance(`mod_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`);
+  return placeModuleInstanceOnWall(project, newMod, targetHint);
+}
+
+export interface MultiWallSnapSlotPreview {
+  alongMm: number;
+  width: number;
+  height: number;
+  depth: number;
+  position: { x: number; y: number; z: number };
+  rotationYDeg: number;
+  label: string;
+  isActive: boolean;
+}
+
+export interface MultiWallDragPreviewResult {
+  templateId: string;
+  wallId: string;
+  wallName: string;
+  previewModule: ModuleInstance;
+  snappedX: number;
+  snappedY: number;
+  snappedZ: number;
+  rotationYDeg: number;
+  alongMm: number;
+  snapLabel: string;
+  isSnappedToSlot: boolean;
+  wallBasis: ReturnType<typeof getWallRoomBasis>;
+  snapSlots: MultiWallSnapSlotPreview[];
+}
+
+/**
+ * Computes the live 3D Ghost Cabinet Silhouette and all Magnetic Snap Target Slots
+ * on ANY target wall (`wallId` or nearest wall to cursor), matching `placeModuleInstanceOnWall`
+ * to 0.0mm so the drag ghost always sits on the selected/hovered wall before drop.
+ */
+export function computeMultiWallDragPreview(
+  project: DesignProject,
+  templateId: string,
+  targetHint?: {
+    worldX?: number;
+    worldZ?: number;
+    wallId?: string;
+  }
+): MultiWallDragPreviewResult | null {
+  const tpl =
+    V5_SPECIALIZED_MODULE_TEMPLATES.find((s) => s.templateId === templateId) ||
+    getV4TemplateById(templateId) ||
+    WARDROBE_TEMPLATES.find((w) => w.templateId === templateId) ||
+    KITCHEN_TEMPLATES.find((k) => k.templateId === templateId);
+  if (!tpl) return null;
+
+  const previewModule = tpl.createInstance(`ghost_${templateId}`);
+  const solved = placeModuleInstanceOnWall(project, previewModule, targetHint);
+
+  const effectiveWalls = getEffectiveSpaceWalls(project);
+  const walls: WallDefinition[] =
+    effectiveWalls.length > 0
+      ? effectiveWalls
+      : [
+          {
+            id: "wall_main",
+            name: "Ana Duvar",
+            length: 3600,
+            height: project.space?.ceilingHeight || 2600,
+            thickness: 150,
+            position: { x: 0, y: 0, z: 0 },
+            rotationY: 0,
+            elements: [],
+          },
+        ];
+  const roomCenter = computeRoomDynamicCenter(walls);
+  const chosenWall = walls.find((w) => w.id === solved.snap.wallId) || walls[0];
+  const basis = getWallRoomBasis(chosenWall, roomCenter);
+  const wx = basis.rawTangent.x;
+  const wz = basis.rawTangent.z;
+  const nx = basis.inwardNormal.x;
+  const nz = basis.inwardNormal.z;
+
+  const targetY = solved.moduleInstance.position.y;
+  const targetTopY = targetY + solved.moduleInstance.dimensions.height;
+
+  // Rebuild occupied intervals along chosenWall for snap slot target guides
+  const occupiedIntervals: { alongStart: number; alongEnd: number }[] = [];
+  project.modules.forEach((m, idx) => {
+    if (m.category === "complementary" || m.category === "kitchen_island") return;
+    const mTopY = m.position.y + m.dimensions.height;
+    if (!(m.position.y < targetTopY - 5 && mTopY > targetY + 5)) return;
+
+    const fp = getModuleOrientedFootprint(m, idx);
+    const corners = [
+      { x: fp.x, z: fp.z },
+      { x: fp.x + fp.planWidth, z: fp.z },
+      { x: fp.x, z: fp.z + fp.planDepth },
+      { x: fp.x + fp.planWidth, z: fp.z + fp.planDepth },
+    ];
+    let minPerp = Infinity;
+    let maxPerp = -Infinity;
+    let minAlong = Infinity;
+    let maxAlong = -Infinity;
+    for (const c of corners) {
+      const dx = c.x - basis.p0.x;
+      const dz = c.z - basis.p0.z;
+      const perp = dx * nx + dz * nz;
+      const along = dx * wx + dz * wz;
+      if (perp < minPerp) minPerp = perp;
+      if (perp > maxPerp) maxPerp = perp;
+      if (along < minAlong) minAlong = along;
+      if (along > maxAlong) maxAlong = along;
+    }
+    if (maxPerp > 8 && minPerp < solved.moduleInstance.dimensions.depth - 8 && maxAlong > 2) {
+      occupiedIntervals.push({
+        alongStart: Math.max(0, Math.round(minAlong)),
+        alongEnd: Math.round(maxAlong),
+      });
+    }
+  });
+  occupiedIntervals.sort((a, b) => a.alongStart - b.alongStart);
+
+  const hasPerpWallAtZero = walls.some((other) => {
+    if (other.id === chosenWall.id) return false;
+    const ob = getWallRoomBasis(other, roomCenter);
+    const dot = Math.abs(ob.rawTangent.x * wx + ob.rawTangent.z * wz);
+    const distP0 = Math.hypot(other.position.x - basis.p0.x, other.position.z - basis.p0.z);
+    return dot < 0.35 && distP0 <= 80;
+  });
+  const startClearance = !solved.moduleInstance.isCorner && hasPerpWallAtZero ? 50 : 0;
+
+  const overlapsAt = (cand: number) =>
+    occupiedIntervals.some(
+      (s) => cand < s.alongEnd - 2 && cand + solved.moduleInstance.dimensions.width > s.alongStart + 2
+    );
+
+  const rawAlongCandidates: { alongMm: number; label: string }[] = [
+    { alongMm: startClearance, label: `${chosenWall.name} • Başlangıç (${startClearance}mm)` },
+  ];
+  occupiedIntervals.forEach((item, idx) => {
+    rawAlongCandidates.push({
+      alongMm: item.alongEnd,
+      label: `${chosenWall.name} • ${idx + 1}. Modül Sağı (${item.alongEnd}mm)`,
+    });
+    const leftSlot = item.alongStart - solved.moduleInstance.dimensions.width;
+    if (leftSlot >= 0) {
+      rawAlongCandidates.push({
+        alongMm: leftSlot,
+        label: `${chosenWall.name} • ${idx + 1}. Modül Solu (${leftSlot}mm)`,
+      });
+    }
+  });
+
+  const seenAlong = new Set<number>();
+  const validAlongCands = rawAlongCandidates.filter((c) => {
+    if (c.alongMm < 0 || overlapsAt(c.alongMm) || seenAlong.has(c.alongMm)) return false;
+    seenAlong.add(c.alongMm);
+    return true;
+  });
+
+  // Compute solved module's alongMm along chosenWall
+  const fpSolved = getModuleOrientedFootprint(solved.moduleInstance, 0);
+  const solvedCorners = [
+    { x: fpSolved.x, z: fpSolved.z },
+    { x: fpSolved.x + fpSolved.planWidth, z: fpSolved.z },
+    { x: fpSolved.x, z: fpSolved.z + fpSolved.planDepth },
+    { x: fpSolved.x + fpSolved.planWidth, z: fpSolved.z + fpSolved.planDepth },
+  ];
+  const solvedAlongMm = Math.max(
+    0,
+    Math.round(
+      Math.min(
+        ...solvedCorners.map((c) => (c.x - basis.p0.x) * wx + (c.z - basis.p0.z) * wz)
+      )
+    )
+  );
+  const isSnappedToSlot = validAlongCands.some((c) => Math.abs(c.alongMm - solvedAlongMm) <= 2);
+
+  const snapSlots: MultiWallSnapSlotPreview[] = validAlongCands.map((c) => {
+    const slotPlaced = wallIntervalToModulePosition(
+      chosenWall,
+      c.alongMm,
+      solved.moduleInstance.dimensions.width,
+      solved.moduleInstance.dimensions.depth,
+      roomCenter
+    );
+    return {
+      alongMm: c.alongMm,
+      width: solved.moduleInstance.dimensions.width,
+      height: solved.moduleInstance.dimensions.height,
+      depth: solved.moduleInstance.dimensions.depth,
+      position: { x: slotPlaced.x, y: targetY, z: slotPlaced.z },
+      rotationYDeg: slotPlaced.rotationYDeg,
+      label: c.label,
+      isActive: Math.abs(c.alongMm - solvedAlongMm) <= 2 && isSnappedToSlot,
+    };
+  });
+
+  return {
+    templateId,
+    wallId: chosenWall.id,
+    wallName: chosenWall.name,
+    previewModule: solved.moduleInstance,
+    snappedX: solved.moduleInstance.position.x,
+    snappedY: solved.moduleInstance.position.y,
+    snappedZ: solved.moduleInstance.position.z,
+    rotationYDeg: solved.snap.rotationYDeg,
+    alongMm: solvedAlongMm,
+    snapLabel: solved.snap.snapLabel,
+    isSnappedToSlot,
+    wallBasis: basis,
+    snapSlots,
   };
 }
 

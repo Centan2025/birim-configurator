@@ -68,6 +68,8 @@ import {
 } from "@birim/catalog";
 import {
   computeMultiWallModuleSnap,
+  placeModuleInstanceOnWall,
+  resolveModuleHostWallId,
   solveSceneObjectPlacementSnap,
 } from "../v3/engine/multiWallSnapAndBvhEngine";
 import { getEffectiveSpaceWalls } from "../v3/engine/kitchenSpatialEngine";
@@ -2610,13 +2612,15 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
   },
 
   duplicateActiveModule: () => {
-    const { project, history, activeModuleIndex, batchStartProject } = get();
+    const { project, history, activeModuleIndex, batchStartProject, activeWallId } = get();
     const updated = cloneProject(project, activeModuleIndex);
     const targetMod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!targetMod) return;
 
-    const lastMod = updated.modules[updated.modules.length - 1];
-    const newX = lastMod ? lastMod.position.x + lastMod.dimensions.width : 0;
+    const effWalls = getEffectiveSpaceWalls(updated);
+    if (effWalls.length > updated.space.walls.length) {
+      updated.space.walls = effWalls.map((w) => ({ ...w, position: { ...w.position } }));
+    }
 
     const clonedMod: ModuleInstance = JSON.parse(JSON.stringify(targetMod));
     clonedMod.id = `mod_${crypto.randomUUID()}`;
@@ -2625,7 +2629,13 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
       for (const items of [b.shelves, b.drawers, b.hangingRails, b.specialFittings ?? [], b.subDividers ?? []]) items.forEach((item, j) => { item.id = `${clonedMod.id}_${i}_${item.id}_${j}`; });
     });
     clonedMod.name = `${targetMod.name} (Kopya)`;
-    clonedMod.position.x = newX;
+
+    const targetWallId =
+      activeWallId || resolveModuleHostWallId(updated, targetMod) || effWalls[0]?.id || undefined;
+    placeModuleInstanceOnWall(updated, clonedMod, {
+      wallId: targetWallId,
+      preserveY: true,
+    });
 
     updated.modules.push(clonedMod);
     const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(updated);
@@ -2635,6 +2645,8 @@ export const useConfiguratorStore: UseBoundStore<StoreApi<ConfiguratorState>> = 
       project: updated,
       autoSaveStatus: "unsaved",
       activeModuleIndex: updated.modules.length - 1,
+      selectedModuleIds: [clonedMod.id],
+      selectedSceneObjectId: null,
       validationIssues,
       bom,
       pricing,

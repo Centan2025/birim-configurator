@@ -2045,15 +2045,117 @@ function evaluateUnifiedEngineeringModelUncached(
 
     // 2m. V7.4 Mimari Tavan Tipi Alt Kot Çakışması & Kapak Tavan Boşluğu Kontrolü
     if (project.space?.ceilingConfig?.enabled) {
-      const ceilClear = computeEffectiveCeilingClearHeight(
+      const W = mod.dimensions.width;
+      const H = mod.dimensions.height;
+      const D = mod.dimensions.depth;
+      const rotRad = ((mod.rotation?.y || 0) * Math.PI) / 180;
+      const cosR = Math.cos(rotRad);
+      const sinR = Math.sin(rotRad);
+      const toWorldXZ = (lx: number, lz: number) => ({
+        x: mod.position.x + lx * cosR + lz * sinR,
+        z: mod.position.z - lx * sinR + lz * cosR,
+      });
+
+      const rs = mod.carcass?.roofSlope;
+      const rs2 = mod.carcass?.secondaryRoofSlope;
+      const sc = mod.carcass?.slopedCeiling;
+      type ActiveModSlope = { side: "left" | "right" | "rear"; kneeH: number; runMm: number };
+      const activeModSlopes: ActiveModSlope[] = [];
+      if (rs && rs.side && rs.side !== "none") {
+        const kneeH = Math.max(400, Math.min(H - 20, rs.kneeWallHeightMm));
+        const runMm = Math.max(150, Math.min(rs.side === "rear" ? D : W, rs.slopeRunMm));
+        if (H - kneeH >= 20) activeModSlopes.push({ side: rs.side, kneeH, runMm });
+      } else if (sc && sc.mode && sc.mode !== "none") {
+        const side =
+          sc.mode === "left_slope" ? "left" : sc.mode === "right_slope" ? "right" : "rear";
+        const kneeH = Math.max(400, Math.min(H - 20, sc.kneeHeightMm));
+        const rad = (Math.max(5, Math.min(75, sc.slopeAngleDeg || 35)) * Math.PI) / 180;
+        const runMm = Math.max(
+          150,
+          Math.min(side === "rear" ? D : W, Math.round((H - kneeH) / Math.max(0.15, Math.tan(rad))))
+        );
+        if (H - kneeH >= 20) activeModSlopes.push({ side, kneeH, runMm });
+      }
+      if (rs2 && rs2.side && rs2.side !== "none") {
+        const kneeH = Math.max(400, Math.min(H - 20, rs2.kneeWallHeightMm));
+        const runMm = Math.max(150, Math.min(rs2.side === "rear" ? D : W, rs2.slopeRunMm));
+        if (H - kneeH >= 20) activeModSlopes.push({ side: rs2.side, kneeH, runMm });
+      }
+
+      const evalModTopAtLocal = (lx: number, lz: number): number => {
+        let minLocalH = H;
+        for (const sl of activeModSlopes) {
+          const rise = H - sl.kneeH;
+          let hLocal = H;
+          if (sl.side === "left") {
+            hLocal = lx >= sl.runMm ? H : sl.kneeH + (Math.max(0, lx) / sl.runMm) * rise;
+          } else if (sl.side === "right") {
+            const distR = W - lx;
+            hLocal = distR >= sl.runMm ? H : sl.kneeH + (Math.max(0, distR) / sl.runMm) * rise;
+          } else {
+            hLocal = lz >= sl.runMm ? H : sl.kneeH + (Math.max(0, lz) / sl.runMm) * rise;
+          }
+          if (hLocal < minLocalH) minLocalH = hLocal;
+        }
+        return mod.position.y + minLocalH;
+      };
+
+      const sampleLocalPts: [number, number][] = [
+        [0, 0],
+        [W, 0],
+        [0, D],
+        [W, D],
+      ];
+      for (const sl of activeModSlopes) {
+        if (sl.side === "left" && sl.runMm > 5 && sl.runMm < W - 5) {
+          sampleLocalPts.push([sl.runMm, 0], [sl.runMm, D]);
+        } else if (sl.side === "right" && sl.runMm > 5 && sl.runMm < W - 5) {
+          sampleLocalPts.push([W - sl.runMm, 0], [W - sl.runMm, D]);
+        } else if (sl.side === "rear" && sl.runMm > 5 && sl.runMm < D - 5) {
+          sampleLocalPts.push([0, sl.runMm], [W, sl.runMm]);
+        }
+      }
+
+      let worstOvershoot = 0;
+      let minGapMm = Infinity;
+      let worstModTopY = mod.position.y + H;
+      let worstCeilClear = computeEffectiveCeilingClearHeight(
         project.space,
         mod.position.x,
-        mod.dimensions.width,
+        W,
         mod.position.z,
-        mod.dimensions.depth
+        D
       );
-      const modTopY = mod.position.y + mod.dimensions.height;
-      if (modTopY > ceilClear.minClearHeightMm + 0.5) {
+      let tightestCeilClear = worstCeilClear;
+      let worstWorldPt = toWorldXZ(W / 2, D / 2);
+
+      for (const [lx, lz] of sampleLocalPts) {
+        const wPt = toWorldXZ(lx, lz);
+        const ptClear = computeEffectiveCeilingClearHeight(
+          project.space,
+          Math.max(0, wPt.x),
+          1,
+          Math.max(0, wPt.z),
+          1
+        );
+        const ptModTop = evalModTopAtLocal(lx, lz);
+        const gap = ptClear.minClearHeightMm - ptModTop;
+        if (gap < minGapMm) {
+          minGapMm = gap;
+          tightestCeilClear = ptClear;
+        }
+        const overshoot = -gap;
+        if (overshoot > worstOvershoot) {
+          worstOvershoot = overshoot;
+          worstModTopY = ptModTop;
+          worstCeilClear = ptClear;
+          worstWorldPt = wPt;
+        }
+      }
+
+      const ceilClear = worstCeilClear;
+      const modTopY = worstModTopY;
+      if (worstOvershoot > 2.0) {
         addFinding({
           severity: "error",
           code: "ERR_CEILING_TYPE_COLLISION",
@@ -2068,9 +2170,9 @@ function evaluateUnifiedEngineeringModelUncached(
           compatibilityStatus: "INCOMPATIBLE",
           ruleNature: "ENGINEERING_VALIDITY",
           worldPositionMm: {
-            x: mod.position.x + mod.dimensions.width / 2,
+            x: worstWorldPt.x,
             y: ceilClear.minClearHeightMm,
-            z: mod.position.z + mod.dimensions.depth / 2,
+            z: worstWorldPt.z,
           },
           remediationProposals: [
             {
@@ -2094,14 +2196,14 @@ function evaluateUnifiedEngineeringModelUncached(
         });
       } else if (
         String(mod.category) !== "complementary" &&
-        ceilClear.minClearHeightMm - modTopY < 15 &&
+        minGapMm < 15 &&
         mod.bays.some((b) => b.door && b.door.type !== "open" && b.door.type !== "sliding")
       ) {
         addFinding({
           severity: "warning",
           code: "WARN_CEILING_DOOR_SWEEP_TIGHT",
-          message: `"${mod.name}" ile ${ceilClear.reasonLabel} arasındaki montaj/açılım boşluğu çok dar (${roundGeometryMm(
-            ceilClear.minClearHeightMm - modTopY
+          message: `"${mod.name}" ile ${tightestCeilClear.reasonLabel} arasındaki montaj/açılım boşluğu çok dar (${roundGeometryMm(
+            minGapMm
           )}mm < 15mm); tavan terazisi eğriliğinde kapak sürtebilir.`,
           targetId: mod.id,
           targetModuleId: mod.id,

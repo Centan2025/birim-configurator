@@ -639,13 +639,8 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
       const detail = (ev as CustomEvent<PaintTool3DState>).detail;
       if (detail) setPaintToolState(detail);
     };
-    const onWallSelected3DEvt = (ev: Event) => {
-      const detail = (ev as CustomEvent<{ wallId: string; wallName: string }>).detail;
-      if (detail?.wallName) {
-        showToast(
-          `Hedef duvar seçildi: ${detail.wallName} — Yeni eklenecek modül ve objeler bu duvara yerleşir.`
-        );
-      }
+    const onWallSelected3DEvt = () => {
+      // Selected wall is already highlighted directly in the 3D scene; skip noisy toast banner.
     };
     const onStyleCopiedEvt = (ev: Event) => {
       const detail = (ev as CustomEvent<{ sourceModuleName?: string } | null>).detail;
@@ -2295,7 +2290,7 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
       {toastText && (
         <div
           style={{ bottom: quickPaletteOpen ? "352px" : "80px" }}
-          className="fixed left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full bg-[#141413] text-white text-xs font-medium shadow-lg pointer-events-none transition-[bottom] duration-150"
+          className="fixed left-1/2 -translate-x-1/2 z-50 max-w-[calc(100vw-24px)] px-3.5 py-2 rounded-2xl sm:rounded-full bg-[#141413]/95 backdrop-blur-md border border-white/10 text-white text-[11px] sm:text-xs font-medium text-center leading-snug shadow-lg pointer-events-none transition-[bottom] duration-150"
         >
           {toastText}
         </div>

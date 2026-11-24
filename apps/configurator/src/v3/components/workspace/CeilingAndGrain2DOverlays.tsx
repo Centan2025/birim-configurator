@@ -821,6 +821,59 @@ export const CeilingAndEngineeringQuickPopover: React.FC<{
                   </div>
                 )}
 
+                {ceilCfg.ceilingType === "sloped_attic" && (() => {
+                  const rawDirs = project.space.ceilingConfig?.slopeDirections;
+                  const activeDirs: ("left_to_right" | "right_to_left" | "back_to_front")[] =
+                    Array.isArray(rawDirs) && rawDirs.length > 0
+                      ? Array.from(new Set(rawDirs))
+                      : ceilCfg.slopeDirections && ceilCfg.slopeDirections.length > 0
+                        ? ceilCfg.slopeDirections
+                        : [ceilCfg.slopeDirection];
+                  return (
+                    <div className="col-span-2 space-y-1">
+                      <div className="flex items-center justify-between text-[10px] font-semibold text-slate-500">
+                        <span>Eğimli Duvarlar (Çoklu Seçim)</span>
+                        <span className="font-mono text-slate-800">{activeDirs.length} duvar</span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-1">
+                        {(
+                          [
+                            { id: "left_to_right", label: "Sol Duvar" },
+                            { id: "back_to_front", label: "Ana Duvar" },
+                            { id: "right_to_left", label: "Sağ Duvar" },
+                          ] as const
+                        ).map((dir) => {
+                          const isOn = activeDirs.includes(dir.id);
+                          return (
+                            <button
+                              key={dir.id}
+                              type="button"
+                              onClick={() => {
+                                const nextDirs = isOn
+                                  ? activeDirs.length > 1
+                                    ? activeDirs.filter((d) => d !== dir.id)
+                                    : activeDirs
+                                  : [...activeDirs, dir.id];
+                                onUpdateCeiling({
+                                  slopeDirection: nextDirs[0],
+                                  slopeDirections: nextDirs,
+                                });
+                              }}
+                              className={`py-1 px-1.5 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
+                                isOn
+                                  ? "bg-slate-900 text-white border-slate-900"
+                                  : "bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300"
+                              }`}
+                            >
+                              {isOn ? `✓ ${dir.label}` : dir.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {surface === "3d" && (
                   <label className="col-span-2 flex items-center justify-between px-2 py-1 rounded-lg bg-slate-100 text-[10.5px] font-semibold cursor-pointer">
                     <span>Üstten Bakışta Yarı-Saydam Kesit Tavan</span>

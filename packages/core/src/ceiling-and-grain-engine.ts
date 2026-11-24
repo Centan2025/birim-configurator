@@ -406,11 +406,25 @@ export function resolveSpaceCeilingConfig(space: SpaceDefinition): Required<Spac
     ),
     slopeDirection:
       raw?.slopeDirection ??
-      (space.slopedCeiling?.mode === "right_slope"
+      (raw?.slopeDirections && raw.slopeDirections.length > 0
+        ? raw.slopeDirections[0]
+        : space.slopedCeiling?.mode === "right_slope"
         ? "right_to_left"
         : space.slopedCeiling?.mode === "back_slope"
         ? "back_to_front"
         : "left_to_right"),
+    slopeDirections:
+      raw?.slopeDirections && raw.slopeDirections.length > 0
+        ? Array.from(new Set(raw.slopeDirections))
+        : [
+            raw?.slopeDirection ??
+              (space.slopedCeiling?.mode === "right_slope"
+                ? "right_to_left"
+                : space.slopedCeiling?.mode === "back_slope"
+                ? "back_to_front"
+                : "left_to_right"),
+          ],
+    wallSlopes: raw?.wallSlopes ?? {},
     colorHex: raw?.colorHex || "#F5F3EE",
   };
 }
@@ -505,17 +519,31 @@ export function computeEffectiveCeilingClearHeight(
     };
   }
 
-  // Eğimli Çatı (`sloped_attic`)
+  // Eğimli Çatı (`sloped_attic`) — duvar bazlı bağımsız diz kotu & açı desteği (kırma/beşik çatı)
   const mainWallLen = space.walls?.[0]?.length || 3600;
-  const tanAlpha = Math.tan((cfg.slopeAngleDeg * Math.PI) / 180);
+  const rawWallSlopes = space.ceilingConfig?.wallSlopes || cfg.wallSlopes;
+  const activeDirs =
+    cfg.slopeDirections && cfg.slopeDirections.length > 0
+      ? cfg.slopeDirections
+      : [cfg.slopeDirection];
   const evalAt = (px: number, pz: number): number => {
-    let dist = px;
-    if (cfg.slopeDirection === "right_to_left") {
-      dist = Math.max(0, mainWallLen - px);
-    } else if (cfg.slopeDirection === "back_to_front") {
-      dist = Math.max(0, pz);
+    let minH = rawH;
+    for (const dir of activeDirs) {
+      const ws = rawWallSlopes?.[dir];
+      if (ws && ws.enabled === false) continue;
+      const dirKnee = ws?.kneeHeightMm ?? cfg.slopeKneeHeightMm;
+      const dirAngle = ws?.angleDeg ?? cfg.slopeAngleDeg;
+      const tanA = Math.tan((dirAngle * Math.PI) / 180);
+      let dist = px;
+      if (dir === "right_to_left") {
+        dist = Math.max(0, mainWallLen - px);
+      } else if (dir === "back_to_front") {
+        dist = Math.max(0, pz);
+      }
+      const hDir = Math.min(rawH, roundMm(dirKnee + Math.max(0, dist) * tanA, 1));
+      if (hDir < minH) minH = hDir;
     }
-    return Math.min(rawH, roundMm(cfg.slopeKneeHeightMm + Math.max(0, dist) * tanAlpha, 1));
+    return minH;
   };
 
   const h1 = evalAt(xMm, zMm);

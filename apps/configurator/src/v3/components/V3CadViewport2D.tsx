@@ -12154,10 +12154,17 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                   const innerFloorSvgY = floorSvgY - g.modY - g.plinthH - g.carcassT;
                   const isSubDiv = g.visual === "sub_divider";
                   const isDrawer = g.visual === "drawer" || g.visual === "internal_drawer";
-                  const isRail = g.visual === "rail";
-                  const isTray = g.visual === "trouser_rack" || g.visual === "shoe_rack" || g.visual === "jewelry_tray";
+                  const isWardrobeLift = g.visual === "wardrobe_lift" || g.id === "lib_wardrobe_lift";
+                  const isRail = g.visual === "rail" && !isWardrobeLift;
+                  const isTray =
+                    g.visual === "trouser_rack" ||
+                    g.visual === "shoe_rack" ||
+                    g.visual === "jewelry_tray" ||
+                    g.visual === "tie_rack";
                   const itemH = isSubDiv
                     ? (g.subSpanH || 300)
+                    : isWardrobeLift
+                    ? 740
                     : isDrawer
                     ? 180
                     : isRail
@@ -12169,22 +12176,64 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
                     : g.carcassT;
                   const itemW = isSubDiv ? g.carcassT : Math.max(40, g.bayWidth - 6);
                   const gx = isSubDiv ? g.baySvgX + g.offsetX : g.baySvgX + 3;
+                  const effectiveElevY = isWardrobeLift
+                    ? Math.max(32, g.elevationY - Math.round(itemH * 0.75))
+                    : g.elevationY;
                   const gy = isSubDiv
                     ? innerFloorSvgY - ((g.subBotY ?? 0) + itemH)
-                    : innerFloorSvgY - (g.elevationY + itemH);
+                    : innerFloorSvgY - (effectiveElevY + itemH);
                   return (
                     <g data-testid="elev-live-accessory-ghost" className="pointer-events-none">
-                      <rect
-                        x={gx}
-                        y={gy}
-                        width={itemW}
-                        height={itemH}
-                        rx={isRail ? 11 : 4}
-                        fill="rgba(37, 99, 235, 0.24)"
-                        stroke="#2563EB"
-                        strokeWidth="4"
-                        strokeDasharray="10 5"
-                      />
+                      {isWardrobeLift ? (
+                        <>
+                          {/* Left & right hydraulic damper housings */}
+                          <rect x={gx} y={gy + itemH - 140} width={28} height={140} rx={4} fill="rgba(30, 41, 59, 0.55)" stroke="#2563EB" strokeWidth="3.5" />
+                          <rect x={gx + itemW - 28} y={gy + itemH - 140} width={28} height={140} rx={4} fill="rgba(30, 41, 59, 0.55)" stroke="#2563EB" strokeWidth="3.5" />
+                          {/* Telescopic lift arms + top hanging bar */}
+                          <path
+                            d={`M ${gx + 22} ${gy + itemH - 95} L ${gx + 22} ${gy + 34} Q ${gx + 22} ${gy + 12} ${gx + 44} ${gy + 12} L ${gx + itemW - 44} ${gy + 12} Q ${gx + itemW - 22} ${gy + 12} ${gx + itemW - 22} ${gy + 34} L ${gx + itemW - 22} ${gy + itemH - 95}`}
+                            fill="none"
+                            stroke="#2563EB"
+                            strokeWidth="16"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            opacity="0.72"
+                          />
+                          {/* Central pull-down wand + T-handle grip */}
+                          <line
+                            x1={gx + itemW / 2}
+                            y1={gy + 16}
+                            x2={gx + itemW / 2}
+                            y2={gy + itemH - 60}
+                            stroke="#2563EB"
+                            strokeWidth="10"
+                            strokeLinecap="round"
+                            opacity="0.8"
+                          />
+                          <rect
+                            x={gx + itemW / 2 - 46}
+                            y={gy + itemH - 68}
+                            width={92}
+                            height={20}
+                            rx={10}
+                            fill="#1E3A8A"
+                            stroke="#60A5FA"
+                            strokeWidth="3"
+                          />
+                        </>
+                      ) : (
+                        <rect
+                          x={gx}
+                          y={gy}
+                          width={itemW}
+                          height={itemH}
+                          rx={isRail ? 11 : 4}
+                          fill="rgba(37, 99, 235, 0.24)"
+                          stroke="#2563EB"
+                          strokeWidth="4"
+                          strokeDasharray="10 5"
+                        />
+                      )}
                       <rect
                         x={gx + itemW / 2 - 120}
                         y={gy - 42}

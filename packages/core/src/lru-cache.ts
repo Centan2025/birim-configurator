@@ -148,9 +148,12 @@ function computeModuleStructuralSignatureInternal(mod: ModuleInstance, includePl
   const grainOverridesSig = serializeSortedStringRecord(mod.componentGrainOverrides);
   const cutoutsSig = mod.utilityCutouts?.length ? JSON.stringify(mod.utilityCutouts) : "";
   const cellSig = mod.rootCell ? JSON.stringify(mod.rootCell) : "";
-  const slopeSig = c.slopedCeiling
-    ? `${c.slopedCeiling.mode}:${c.slopedCeiling.kneeHeightMm}:${c.slopedCeiling.slopeAngleDeg}:${c.slopedCeiling.topFlatSpanMm || 0}`
+  const roofSlopePart = c.roofSlope
+    ? `RS:${c.roofSlope.side}:${c.roofSlope.kneeWallHeightMm}:${c.roofSlope.slopeRunMm}`
     : "";
+  const slopeSig = (c.slopedCeiling
+    ? `${c.slopedCeiling.mode}:${c.slopedCeiling.kneeHeightMm}:${c.slopedCeiling.slopeAngleDeg}:${c.slopedCeiling.topFlatSpanMm || 0}`
+    : "") + roofSlopePart;
   const baseNotchSig = c.baseboardNotch?.enabled
     ? `${c.baseboardNotch.depthMm}x${c.baseboardNotch.heightMm}`
     : "";

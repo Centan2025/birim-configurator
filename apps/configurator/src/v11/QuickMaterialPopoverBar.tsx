@@ -269,9 +269,6 @@ export const QuickMaterialPopoverBar: React.FC<QuickMaterialPopoverBarProps> = R
           );
         }, 20);
       }
-      onShowToast?.(
-        `Hedef duvar seçildi: ${wallName} — Katalogdan seçeceğiniz dolap ve eşyalar bu duvara yerleşir.`
-      );
       setOpenMenu(null);
     };
 

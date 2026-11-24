@@ -1073,6 +1073,96 @@ function getCachedMiter45CarcassGeometry(
   return entry;
 }
 
+const POLYGON_CONTOUR_GEO_CACHE = new Map<
+  string,
+  { geo: THREE.BufferGeometry; edges: THREE.EdgesGeometry }
+>();
+
+/**
+ * Builds true 3D extruded non-rectangular panel geometry (trapezoid / pentagon)
+ * from `comp.polygonContourMm` for sloped-ceiling / attic-cut panels:
+ * - thicknessAxis === "z" (doors, backs): contour points are [xMm (0..w), yMm (0..h)], extruded along Z (d)
+ * - thicknessAxis === "x" (sides, dividers): contour points are [zMm (0..d), yMm (0..h)], extruded along X (w)
+ */
+function getCachedPolygonContourGeometry(
+  w: number,
+  h: number,
+  d: number,
+  thicknessAxis: "x" | "z",
+  contour: [number, number][]
+): { geo: THREE.BufferGeometry; edges: THREE.EdgesGeometry } {
+  const ptsKey = contour.map(([a, b]) => `${Math.round(a)},${Math.round(b)}`).join(";");
+  const key = `${thicknessAxis}_${Math.round(w)}_${Math.round(h)}_${Math.round(d)}_${ptsKey}`;
+  const cached = POLYGON_CONTOUR_GEO_CACHE.get(key);
+  if (cached) return cached;
+
+  const shape = new THREE.Shape();
+  const halfU = thicknessAxis === "z" ? w / 2 : d / 2;
+  const halfV = h / 2;
+  const extrudeDepth = thicknessAxis === "z" ? d : w;
+
+  contour.forEach(([u, v], idx) => {
+    const sx = u - halfU;
+    const sy = v - halfV;
+    if (idx === 0) shape.moveTo(sx, sy);
+    else shape.lineTo(sx, sy);
+  });
+  shape.closePath();
+
+  const rawGeo = new THREE.ExtrudeGeometry(shape, {
+    depth: Math.max(1, extrudeDepth),
+    bevelEnabled: false,
+    curveSegments: 1,
+    steps: 1,
+  });
+  rawGeo.translate(0, 0, -Math.max(1, extrudeDepth) / 2);
+  if (thicknessAxis === "x") {
+    // Map local shape X (zMm - d/2) -> +Z, extrude Z (-w/2..+w/2) -> X
+    rawGeo.rotateY(-Math.PI / 2);
+  }
+  const geo = rawGeo.index ? rawGeo.toNonIndexed() : rawGeo;
+  if (geo !== rawGeo) rawGeo.dispose();
+  geo.computeVertexNormals();
+
+  // Tri-planar world-mm UVs matching adjacent rectangular panels
+  const pos = geo.getAttribute("position");
+  const norm = geo.getAttribute("normal");
+  const uvArr = new Float32Array(pos.count * 2);
+  const uvScale = 1 / 600;
+  for (let i = 0; i < pos.count; i++) {
+    const px = pos.getX(i);
+    const py = pos.getY(i);
+    const pz = pos.getZ(i);
+    const nx = Math.abs(norm.getX(i));
+    const ny = Math.abs(norm.getY(i));
+    const nz = Math.abs(norm.getZ(i));
+    if (nz >= nx && nz >= ny) {
+      uvArr[i * 2] = (px + w / 2) * uvScale;
+      uvArr[i * 2 + 1] = (py + h / 2) * uvScale;
+    } else if (nx >= ny) {
+      uvArr[i * 2] = (pz + d / 2) * uvScale;
+      uvArr[i * 2 + 1] = (py + h / 2) * uvScale;
+    } else {
+      uvArr[i * 2] = (px + w / 2) * uvScale;
+      uvArr[i * 2 + 1] = (pz + d / 2) * uvScale;
+    }
+  }
+  geo.setAttribute("uv", new THREE.BufferAttribute(uvArr, 2));
+  geo.computeBoundingBox();
+  geo.computeBoundingSphere();
+
+  const edges = new THREE.EdgesGeometry(geo, 18);
+  markSharedGeometry(geo);
+  markSharedGeometry(edges);
+
+  if (POLYGON_CONTOUR_GEO_CACHE.size > 160) {
+    POLYGON_CONTOUR_GEO_CACHE.clear();
+  }
+  const entry = { geo, edges };
+  POLYGON_CONTOUR_GEO_CACHE.set(key, entry);
+  return entry;
+}
+
 export function createComponentMesh(
   comp: ComponentGeometry,
   material: THREE.Material,
@@ -2199,6 +2289,23 @@ export function createComponentMesh(
   // Interior Baked Ambient Occlusion vignette on cabinet back panel (adds realistic interior depth at 0 FPS cost)
   if (comp.role === "carcass_back") {
     const { width: w, height: h, depth: d } = comp.dimensions;
+    if (Array.isArray(comp.polygonContourMm) && comp.polygonContourMm.length >= 3) {
+      const polyEntry = getCachedPolygonContourGeometry(w, h, d, "z", comp.polygonContourMm);
+      const slopedBack = new THREE.Mesh(polyEntry.geo, material);
+      slopedBack.position.set(cx, cy, cz);
+      slopedBack.castShadow = true;
+      slopedBack.receiveShadow = true;
+      tagSubMesh(slopedBack, userData, comp);
+      group.add(slopedBack);
+
+      const primaryEdgeLines = new THREE.LineSegments(polyEntry.edges, edgeMaterial);
+      primaryEdgeLines.position.set(cx, cy, cz);
+      primaryEdgeLines.userData.isPrimaryEdge = true;
+      primaryEdgeLines.raycast = () => {};
+      group.add(primaryEdgeLines);
+      return group;
+    }
+
     const baseBack = new THREE.Mesh(box, material);
     baseBack.scale.set(w, h, d);
     baseBack.position.set(cx, cy, cz);
@@ -2207,7 +2314,8 @@ export function createComponentMesh(
     tagSubMesh(baseBack, userData, comp);
     group.add(baseBack);
 
-    const aoMat = getBakedInteriorAoMaterial();
+    const isTransparentXrayMat = Boolean((material as THREE.Material).transparent && (material as THREE.Material).opacity < 0.5);
+    const aoMat = isTransparentXrayMat ? null : getBakedInteriorAoMaterial();
     if (aoMat) {
       const aoPlane = new THREE.Mesh(new THREE.PlaneGeometry(w, h), aoMat);
       aoPlane.position.set(cx, cy, cz + d / 2 + 0.6);
@@ -3639,7 +3747,26 @@ export function createComponentMesh(
       ? 2.0
       : 0.9;
 
+  const hasSlopedPolygonContour =
+    (!comp.primitive || comp.primitive === "box") &&
+    Array.isArray(comp.polygonContourMm) &&
+    comp.polygonContourMm.length >= 3 &&
+    (comp.thicknessAxis === "x" || comp.thicknessAxis === "z") &&
+    comp.dimensions.width >= 2 &&
+    comp.dimensions.height >= 12 &&
+    comp.dimensions.depth >= 2;
+  const polygonContourEntry = hasSlopedPolygonContour
+    ? getCachedPolygonContourGeometry(
+        comp.dimensions.width,
+        comp.dimensions.height,
+        comp.dimensions.depth,
+        comp.thicknessAxis as "x" | "z",
+        comp.polygonContourMm!
+      )
+    : null;
+
   const isMiter45CarcassPanel =
+    !polygonContourEntry &&
     (!comp.primitive || comp.primitive === "box") &&
     (comp.role === "carcass_top" ||
       comp.role === "carcass_bottom" ||
@@ -3659,6 +3786,7 @@ export function createComponentMesh(
     : null;
 
   const useTrueBevelGeo =
+    !polygonContourEntry &&
     !isMiter45CarcassPanel &&
     isBeveledFrontRole &&
     comp.dimensions.width >= 12 &&
@@ -3679,6 +3807,7 @@ export function createComponentMesh(
       ? (rawGrainUv as { offsetXMm: number; offsetYMm: number; crosswise?: boolean })
       : undefined;
   const useWorldUvFlatBox =
+    !polygonContourEntry &&
     !useTrueBevelGeo &&
     (!comp.primitive || comp.primitive === "box") &&
     comp.isManufacturablePanel !== false;
@@ -3688,6 +3817,8 @@ export function createComponentMesh(
       ? sphere
       : comp.primitive === "cylinder"
       ? cylinder
+      : polygonContourEntry
+      ? polygonContourEntry.geo
       : miter45Entry
       ? miter45Entry.geo
       : useTrueBevelGeo
@@ -3719,7 +3850,7 @@ export function createComponentMesh(
     miterLines.raycast = () => {};
     mesh.add(miterLines);
   }
-  if (!useTrueBevelGeo && !useWorldUvFlatBox && !isMiter45CarcassPanel) {
+  if (!polygonContourEntry && !useTrueBevelGeo && !useWorldUvFlatBox && !isMiter45CarcassPanel) {
     mesh.scale.set(comp.dimensions.width, comp.dimensions.height, comp.dimensions.depth);
   }
   mesh.position.set(cx, cy, cz);
@@ -3728,7 +3859,11 @@ export function createComponentMesh(
   if (!comp.primitive || comp.primitive === "box") {
     const cadFrameHolder = new THREE.Group();
     cadFrameHolder.position.set(cx, cy, cz);
-    if (miter45Entry) {
+    if (polygonContourEntry) {
+      const primaryEdgeLines = new THREE.LineSegments(polygonContourEntry.edges, edgeMaterial);
+      primaryEdgeLines.userData.isPrimaryEdge = true;
+      cadFrameHolder.add(primaryEdgeLines);
+    } else if (miter45Entry) {
       const primaryEdgeLines = new THREE.LineSegments(miter45Entry.edges, edgeMaterial);
       primaryEdgeLines.userData.isPrimaryEdge = true;
       cadFrameHolder.add(primaryEdgeLines);
@@ -3747,6 +3882,7 @@ export function createComponentMesh(
       comp.crossSectionProfile === "u_glass_open_top" ||
       String(comp.materialId || "").includes("glass");
     const isStandardZFacingDoor =
+      !polygonContourEntry &&
       comp.thicknessAxis !== "x" &&
       comp.dimensions.depth <= 36 &&
       Math.abs(comp.rotation?.[1] || 0) < 0.04 && Math.abs(comp.rotation?.[0] || 0) < 0.04 &&

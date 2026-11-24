@@ -1871,11 +1871,26 @@ export function useV3Adapter(options?: { lightweightViewport?: boolean }) {
               );
             });
           } else if (b.shelves.length > 0) {
+            const bayDrawers = b.drawers || [];
             b.shelves.forEach((s) => {
-              s.elevationY = Math.max(
-                60,
-                Math.min(newNetH - 60, Math.round((s.elevationY * hRatio) / 10) * 10)
-              );
+              const shT = s.thickness ?? nextMod.carcass.panelThickness ?? 18;
+              let nextY: number;
+              if (maxDrawerTop > 0 && Math.abs(s.elevationY - maxDrawerTop) <= 32) {
+                nextY = Math.min(newNetH - 60, Math.round(maxDrawerTop));
+              } else {
+                nextY = Math.max(
+                  60,
+                  Math.min(newNetH - 60, Math.round((s.elevationY * hRatio) / 10) * 10)
+                );
+              }
+              for (const dr of bayDrawers) {
+                const drBot = dr.elevationY || 0;
+                const drTop = drBot + Math.max(80, dr.height || 180);
+                if (nextY + shT > drBot + 10 && nextY < drTop - 2) {
+                  nextY = Math.min(newNetH - 60, Math.round(drTop));
+                }
+              }
+              s.elevationY = nextY;
             });
           }
 

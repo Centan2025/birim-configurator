@@ -2,10 +2,11 @@
 
 import { getBayShelfIntervalsForSubDivider } from "../adapter/useV3Adapter";
 import { buildSceneObject3DGroup, subscribeSceneObjectGlbLoaded } from "../materials/sceneObject3DBuilder";
-import { getActiveDraggedSceneCatalogId, setActiveDraggedSceneCatalogId, resolveModuleHostWallId, wallIntervalToModulePosition, computeRoomDynamicCenter } from "../engine/multiWallSnapAndBvhEngine";
+import { getActiveDraggedSceneCatalogId, setActiveDraggedSceneCatalogId, resolveModuleHostWallId, wallIntervalToModulePosition, computeRoomDynamicCenter, computeMultiWallDragPreview } from "../engine/multiWallSnapAndBvhEngine";
 import {
   build3DArchitecturalCeilingGroup,
   build3DModuleMultiHoleInstancedMesh,
+  computeWallTopProfileForCeiling,
 } from "../materials/ceilingAndMultiHole3DBuilder";
 import { CeilingAndEngineeringQuickPopover } from "./workspace/CeilingAndGrain2DOverlays";
 
@@ -32,7 +33,6 @@ import {
   getModuleOrientedFootprint,
   getActiveDraggedTemplateId,
   setActiveDraggedTemplateId,
-  computeRowSnapPreview,
 } from "../adapter/useV3Adapter";
 import {
   calculateFourSpaceDimensions,
@@ -370,6 +370,166 @@ function getWarmLedWashTexture(): THREE.CanvasTexture | null {
   tex.needsUpdate = true;
   cachedLedWashTex = tex;
   return tex;
+}
+
+function createActiveWallBadgeMesh(
+  wallName: string,
+  wallLengthMm: number,
+  displayUnit: "mm" | "cm",
+  isStrongFocus: boolean,
+  inwardIsPositiveLocalZ: boolean
+): THREE.Mesh | null {
+  if (typeof document === "undefined") return null;
+  const dimText =
+    displayUnit === "cm"
+      ? `${Number((wallLengthMm / 10).toFixed(1))} cm`
+      : `${Math.round(wallLengthMm)} mm`;
+  const cleanName = (wallName || "Ana Duvar").trim();
+  const titleText = `${cleanName} · ${dimText}`;
+  const tagText = "AKTİF";
+
+  const dpr = 3;
+  const padX = 28;
+  const dotBlockW = 28;
+  const pillH = 62;
+  const arrowH = 14;
+
+  const measureCanvas = document.createElement("canvas");
+  const mCtx = measureCanvas.getContext("2d");
+  if (!mCtx) return null;
+  mCtx.font = "800 15px Inter, system-ui, -apple-system, sans-serif";
+  const tagW = mCtx.measureText(tagText).width;
+  mCtx.font = "700 22px Inter, system-ui, -apple-system, sans-serif";
+  const titleW = mCtx.measureText(titleText).width;
+
+  const tagPillW = Math.ceil(tagW + 22);
+  const gapW = 16;
+  const logicalW = Math.max(320, Math.min(720, Math.ceil(padX * 2 + dotBlockW + tagPillW + gapW + titleW)));
+  const logicalH = pillH + arrowH + 14;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = logicalW * dpr;
+  canvas.height = logicalH * dpr;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  ctx.scale(dpr, dpr);
+  const bx = 5;
+  const by = 5;
+  const bw = logicalW - 10;
+  const bh = pillH;
+  const r = bh / 2;
+
+  const drawRoundedRect = (x: number, y: number, w: number, h: number, rad: number) => {
+    const rr = Math.min(rad, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y);
+    ctx.lineTo(x + w - rr, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+    ctx.lineTo(x + w, y + h - rr);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+    ctx.lineTo(x + rr, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+    ctx.lineTo(x, y + rr);
+    ctx.quadraticCurveTo(x, y, x + rr, y);
+    ctx.closePath();
+  };
+
+  // High-contrast backdrop with soft outer glow
+  ctx.save();
+  ctx.shadowColor = isStrongFocus ? "rgba(56, 189, 248, 0.62)" : "rgba(15, 23, 42, 0.52)";
+  ctx.shadowBlur = isStrongFocus ? 14 : 10;
+  ctx.shadowOffsetY = 2;
+  drawRoundedRect(bx, by, bw, bh, r);
+  ctx.fillStyle = isStrongFocus ? "rgba(10, 22, 42, 0.96)" : "rgba(15, 23, 42, 0.92)";
+  ctx.fill();
+  ctx.restore();
+
+  // Crisp cyan border
+  drawRoundedRect(bx, by, bw, bh, r);
+  ctx.lineWidth = isStrongFocus ? 3 : 2.4;
+  ctx.strokeStyle = isStrongFocus ? "#38bdf8" : "rgba(56, 189, 248, 0.88)";
+  ctx.stroke();
+
+  // Bottom pointer triangle pointing straight to the active wall top edge
+  const cx = logicalW / 2;
+  ctx.beginPath();
+  ctx.moveTo(cx - 11, by + bh - 1);
+  ctx.lineTo(cx + 11, by + bh - 1);
+  ctx.lineTo(cx, by + bh + arrowH);
+  ctx.closePath();
+  ctx.fillStyle = isStrongFocus ? "#38bdf8" : "rgba(56, 189, 248, 0.9)";
+  ctx.fill();
+
+  // Active status glowing dot
+  const dotX = bx + padX + 4;
+  const dotY = by + bh / 2;
+  ctx.beginPath();
+  ctx.arc(dotX, dotY, 10, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(56, 189, 248, 0.30)";
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(dotX, dotY, 5.5, 0, Math.PI * 2);
+  ctx.fillStyle = "#7dd3fc";
+  ctx.fill();
+
+  // "AKTİF" high-contrast pill
+  const tagX = dotX + 20;
+  const tagH = 30;
+  const tagY = by + (bh - tagH) / 2;
+  drawRoundedRect(tagX, tagY, tagPillW, tagH, 15);
+  ctx.fillStyle = "rgba(56, 189, 248, 0.28)";
+  ctx.fill();
+  ctx.font = "800 15px Inter, system-ui, -apple-system, sans-serif";
+  ctx.fillStyle = "#bae6fd";
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "center";
+  ctx.fillText(tagText, tagX + tagPillW / 2, dotY + 1);
+
+  // Wall name & length (pure white bold for maximum readability)
+  ctx.font = "700 22px Inter, system-ui, -apple-system, sans-serif";
+  ctx.fillStyle = "#ffffff";
+  ctx.textAlign = "left";
+  ctx.fillText(titleText, tagX + tagPillW + gapW, dotY + 1);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.anisotropy = 8;
+  tex.needsUpdate = true;
+
+  const baseOpacity = isStrongFocus ? 0.99 : 0.92;
+  const mat = new THREE.MeshBasicMaterial({
+    map: tex,
+    transparent: true,
+    opacity: baseOpacity,
+    side: THREE.DoubleSide,
+    depthTest: false,
+    depthWrite: false,
+  });
+
+  const aspect = logicalW / logicalH;
+  const maxWorldW = Math.max(520, wallLengthMm * 0.72);
+  const rawWorldH = 225;
+  const rawWorldW = aspect * rawWorldH;
+  const fitScale = rawWorldW > maxWorldW ? maxWorldW / rawWorldW : 1;
+  const worldW = rawWorldW * fitScale;
+  const worldH = rawWorldH * fitScale;
+
+  const geo = new THREE.PlaneGeometry(worldW, worldH);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.rotation.y = inwardIsPositiveLocalZ ? 0 : Math.PI;
+  mesh.renderOrder = 950;
+  mesh.raycast = () => {};
+  mesh.userData = {
+    isWallFocusIndicator: true,
+    isWallBadgeSprite: true,
+    baseScaleX: 1,
+    baseScaleY: 1,
+    baseOpacity,
+  };
+  return mesh;
 }
 
 const xrayIcePanelMat = markSharedMaterial(
@@ -2567,6 +2727,35 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
     const gridRef = useRef<THREE.GridHelper | null>(null);
     const shadowPlaneRef = useRef<THREE.Mesh | null>(null);
     const needsRenderRef = useRef<boolean>(true);
+    const wallPulseRef = useRef<{ wallId: string; startTime: number; durationMs: number } | null>(null);
+    const prevActiveWallIdRef = useRef<string | undefined>(activeWallId);
+
+    const triggerWallSelectionPulse = useCallback((targetWallId?: string | null) => {
+      if (!targetWallId) return;
+      wallPulseRef.current = {
+        wallId: targetWallId,
+        startTime: performance.now(),
+        durationMs: 680,
+      };
+      needsRenderRef.current = true;
+    }, []);
+
+    useEffect(() => {
+      if (activeWallId && prevActiveWallIdRef.current !== activeWallId) {
+        triggerWallSelectionPulse(activeWallId);
+      }
+      prevActiveWallIdRef.current = activeWallId;
+    }, [activeWallId, triggerWallSelectionPulse]);
+
+    useEffect(() => {
+      const onWallPulse = (ev: Event) => {
+        const detail = (ev as CustomEvent<{ wallId?: string }>).detail;
+        const targetId = detail?.wallId || useConfiguratorStore.getState().activeWallId || "wall_main";
+        triggerWallSelectionPulse(targetId);
+      };
+      window.addEventListener("birim:wall-selected-3d", onWallPulse);
+      return () => window.removeEventListener("birim:wall-selected-3d", onWallPulse);
+    }, [triggerWallSelectionPulse]);
 
     const [glbCatalogRev, setGlbCatalogRev] = useState(0);
     const [glbLibraryOpen, setGlbLibraryOpen] = useState(false);
@@ -6173,7 +6362,88 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           }
         }
         const updated = curControls.update();
-        if (needsRenderRef.current || updated || isFlying) {
+        let isWallPulsing = false;
+        const wallPulse = wallPulseRef.current;
+        if (wallPulse && roomArchGroupRef.current) {
+          const rawP = (performance.now() - wallPulse.startTime) / Math.max(1, wallPulse.durationMs);
+          const clampedP = Math.min(1, Math.max(0, rawP));
+          // Fast bright attack (0..0.22) followed by smooth ease-out decay (0.22..1)
+          const env =
+            clampedP >= 1
+              ? 0
+              : clampedP < 0.22
+                ? clampedP / 0.22
+                : Math.pow(1 - (clampedP - 0.22) / 0.78, 1.65);
+
+          const defaultBaseCyan = new THREE.Color(0x0ea5e9);
+          const flashCyan = new THREE.Color(0xf0f9ff);
+
+          roomArchGroupRef.current.traverse((node) => {
+            if (node.userData?.isRoomWallGroup && node.userData.wallId === wallPulse.wallId) {
+              node.traverse((child) => {
+                if (child.userData?.isWallFocusRail && child instanceof THREE.Mesh) {
+                  const mat = child.material as THREE.MeshBasicMaterial;
+                  if (mat && mat.isMeshBasicMaterial) {
+                    const baseOp = typeof child.userData.baseOpacity === "number" ? child.userData.baseOpacity : 0.85;
+                    const baseCol =
+                      typeof child.userData.baseColorHex === "number"
+                        ? new THREE.Color(child.userData.baseColorHex)
+                        : defaultBaseCyan;
+                    const pulseCol = baseCol.clone().lerp(flashCyan, env * 0.85);
+                    mat.opacity = Math.min(1, baseOp + (1 - baseOp) * env);
+                    mat.color.copy(clampedP >= 1 ? baseCol : pulseCol);
+                  }
+                  const railAxis = child.userData.railAxis as "horiz" | "vert" | "bracket" | undefined;
+                  const thicknessBoost = 1 + 0.75 * env;
+                  if (railAxis === "horiz") {
+                    child.scale.set(1, clampedP >= 1 ? 1 : thicknessBoost, clampedP >= 1 ? 1 : thicknessBoost);
+                  } else if (railAxis === "vert") {
+                    child.scale.set(clampedP >= 1 ? 1 : thicknessBoost, 1, clampedP >= 1 ? 1 : thicknessBoost);
+                  } else if (railAxis === "bracket") {
+                    const bScale = 1 + 0.14 * env;
+                    child.scale.set(clampedP >= 1 ? 1 : bScale, clampedP >= 1 ? 1 : bScale, 1);
+                  }
+                } else if (
+                  child.userData?.isWallBadgeSprite &&
+                  (child instanceof THREE.Mesh || child instanceof THREE.Sprite)
+                ) {
+                  const bsx = typeof child.userData.baseScaleX === "number" ? child.userData.baseScaleX : 1;
+                  const bsy = typeof child.userData.baseScaleY === "number" ? child.userData.baseScaleY : 1;
+                  const s = clampedP >= 1 ? 1 : 1 + 0.22 * env;
+                  child.scale.set(bsx * s, bsy * s, 1);
+                  const mat = child.material as THREE.MeshBasicMaterial | THREE.SpriteMaterial;
+                  if (mat) {
+                    const baseOp = typeof child.userData.baseOpacity === "number" ? child.userData.baseOpacity : 0.92;
+                    mat.opacity = clampedP >= 1 ? baseOp : Math.min(1, baseOp + (1 - baseOp) * env);
+                  }
+                } else if (
+                  child.userData?.isRoomWall &&
+                  child.userData.wallId === wallPulse.wallId &&
+                  child instanceof THREE.Mesh
+                ) {
+                  const mat = child.material as THREE.MeshStandardMaterial;
+                  if (mat && mat.isMeshStandardMaterial && mat.userData?.isIsolatedSelectedWallMat) {
+                    const baseEm =
+                      typeof mat.userData.baseEmissiveIntensity === "number"
+                        ? mat.userData.baseEmissiveIntensity
+                        : 0;
+                    mat.emissive.setHex(0x0ea5e9);
+                    mat.emissiveIntensity = clampedP >= 1 ? baseEm : baseEm + 0.28 * env;
+                  }
+                }
+              });
+            }
+          });
+
+          if (clampedP >= 1) {
+            wallPulseRef.current = null;
+            needsRenderRef.current = true;
+          } else {
+            isWallPulsing = true;
+            needsRenderRef.current = true;
+          }
+        }
+        if (needsRenderRef.current || updated || isFlying || isWallPulsing) {
           const t0 = performance.now();
           const cam = (curControls.object as THREE.Camera) || perspCamRef.current;
           if (cam) {
@@ -6972,9 +7242,56 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                 (activeMod.dimensions.width - (activeMod.bays.length + 1) * T) /
                   activeMod.bays.length
               );
+            // Clamp active bay highlight frame height to sloped ceiling if module has roofSlope / slopedCeiling
+            let bayEffectiveInnerH = innerH;
+            const rsFrame = activeMod.carcass.roofSlope;
+            const scFrame = activeMod.carcass.slopedCeiling;
+            if ((rsFrame && rsFrame.side !== "none") || (scFrame && scFrame.mode !== "none")) {
+              const modW = activeMod.dimensions.width;
+              const modH = activeMod.dimensions.height;
+              const fSide =
+                rsFrame && rsFrame.side !== "none"
+                  ? rsFrame.side
+                  : scFrame!.mode === "left_slope"
+                  ? "left"
+                  : scFrame!.mode === "right_slope"
+                  ? "right"
+                  : "rear";
+              const fKnee =
+                rsFrame && rsFrame.side !== "none"
+                  ? Math.max(400, Math.min(modH - 120, rsFrame.kneeWallHeightMm))
+                  : Math.max(400, Math.min(modH - 120, scFrame!.kneeHeightMm));
+              const fRun =
+                rsFrame && rsFrame.side !== "none"
+                  ? Math.max(150, Math.min(modW, rsFrame.slopeRunMm))
+                  : Math.max(
+                      150,
+                      Math.min(
+                        modW,
+                        Math.round(
+                          (modH - fKnee) /
+                            Math.max(0.15, Math.tan(((scFrame!.slopeAngleDeg || 35) * Math.PI) / 180))
+                        )
+                      )
+                    );
+              const fRad = Math.atan2(modH - fKnee, fRun);
+              const sampleSlopeY = (xMm: number) => {
+                if (fSide === "left") return xMm >= fRun ? modH : fKnee + (xMm / fRun) * (modH - fKnee);
+                if (fSide === "right") {
+                  const dR = modW - xMm;
+                  return dR >= fRun ? modH : fKnee + (dR / fRun) * (modH - fKnee);
+                }
+                return modH;
+              };
+              const minBayTop =
+                Math.min(sampleSlopeY(curBayX), sampleSlopeY(curBayX + bw)) -
+                T / Math.max(0.4, Math.cos(fRad));
+              bayEffectiveInnerH = Math.max(120, Math.min(innerH, minBayTop - plinthH - T));
+            }
+
             const bayFrameGeo = new THREE.BoxGeometry(
               Math.max(80, bw - 4),
-              Math.max(120, innerH - 4),
+              Math.max(120, bayEffectiveInnerH - 4),
               Math.max(100, activeMod.dimensions.depth - T - 8)
             );
             const bayFrameEdgesGeo = new THREE.EdgesGeometry(bayFrameGeo);
@@ -6990,14 +7307,14 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             bayFrameLines.raycast = () => {};
             bayFrameLines.position.set(
               curBayX + bw / 2,
-              plinthH + T + innerH / 2,
+              plinthH + T + bayEffectiveInnerH / 2,
               T + (activeMod.dimensions.depth - T) / 2
             );
             modAnchor.add(bayFrameLines);
 
             const frontRectGeo = new THREE.BoxGeometry(
               Math.max(80, bw + 6),
-              Math.max(120, innerH + 6),
+              Math.max(120, bayEffectiveInnerH + 6),
               12
             );
             const frontRectEdgesGeo = new THREE.EdgesGeometry(frontRectGeo);
@@ -7013,7 +7330,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             frontRectLines.raycast = () => {};
             frontRectLines.position.set(
               curBayX + bw / 2,
-              plinthH + T + innerH / 2,
+              plinthH + T + bayEffectiveInnerH / 2,
               activeMod.dimensions.depth + 2
             );
             modAnchor.add(frontRectLines);
@@ -8139,6 +8456,38 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
             const isSidePanel = cw <= 32 && ch > 100 && cd > 100;
             const isHorizPanel = ch <= 36 && cw > 100 && cd > 100;
             const isShelfComp = comp.role === "shelf";
+            const hasCompRotation =
+              Boolean(comp.rotation) &&
+              (Math.abs(comp.rotation![0] || 0) > 1e-4 ||
+                Math.abs(comp.rotation![1] || 0) > 1e-4 ||
+                Math.abs(comp.rotation![2] || 0) > 1e-4);
+            let compRotMatrix: THREE.Matrix4 | null = null;
+            if (hasCompRotation && comp.rotation) {
+              const piv = comp.pivot ?? comp.position;
+              const tPos = new THREE.Matrix4().makeTranslation(piv.x, piv.y, piv.z);
+              const tNeg = new THREE.Matrix4().makeTranslation(-piv.x, -piv.y, -piv.z);
+              const rMat = new THREE.Matrix4().makeRotationFromEuler(
+                new THREE.Euler(comp.rotation[0], comp.rotation[1], comp.rotation[2])
+              );
+              compRotMatrix = tPos.multiply(rMat).multiply(tNeg);
+            }
+            const polyContour =
+              Array.isArray(comp.polygonContourMm) && comp.polygonContourMm.length >= 3
+                ? comp.polygonContourMm
+                : null;
+            const isInsidePoly2D = (u: number, v: number, poly: [number, number][]): boolean => {
+              let inside = false;
+              for (let a = 0, b = poly.length - 1; a < poly.length; b = a++) {
+                const xi = poly[a][0];
+                const yi = poly[a][1];
+                const xj = poly[b][0];
+                const yj = poly[b][1];
+                const intersect =
+                  yi > v !== yj > v && u < ((xj - xi) * (v - yi)) / (yj - yi || 1e-6) + xi;
+                if (intersect) inside = !inside;
+              }
+              return inside;
+            };
 
             (piece.holes || []).forEach((h) => {
               const isCableHole = h.purpose === "cable_exit" || (h.diameter >= 9 && h.diameter <= 11 && h.id.includes("led")) || h.id.includes("_drw_runner_");
@@ -8172,6 +8521,13 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                   dummy.scale.set(h.diameter, depthMm, h.diameter);
                 }
               } else if (isSidePanel) {
+                if (h.y > ch + 4) return;
+                const localY = Math.min(ch - 6, Math.max(6, h.y));
+                const zFromBack = piece.mirrorInnerFaceX ? h.x : cd - h.x;
+                const localZ = Math.min(cd - 6, Math.max(6, zFromBack));
+                if (polyContour && comp.thicknessAxis === "x" && !isInsidePoly2D(localZ, localY, polyContour)) {
+                  return;
+                }
                 const wx =
                   comp.role === "carcass_divider"
                     ? h.direction === "face_back"
@@ -8180,10 +8536,9 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                     : comp.role === "carcass_side_right"
                     ? px + depthMm * 0.5
                     : px + cw - depthMm * 0.5;
-                const wy = py + Math.min(ch - 6, Math.max(6, h.y));
+                const wy = py + localY;
                 holeWy = wy;
-                const zFromBack = piece.mirrorInnerFaceX ? h.x : cd - h.x;
-                const wz = pz + Math.min(cd - 6, Math.max(6, zFromBack));
+                const wz = pz + localZ;
                 if (h.direction.startsWith("edge_")) {
                   dummy.position.set(px + cw * 0.5, wy, wz);
                   dummy.scale.set(h.diameter, depthMm, h.diameter);
@@ -8195,6 +8550,20 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               } else if (isHorizPanel) {
                 const spanCoord = h.y;
                 const depthCoord = h.x;
+                if (spanCoord > cw + 6 || depthCoord > cd + 6) return;
+                // Skip duplicate edge joint holes at the mitered seam where _top_sloped meets _top_flat
+                const hasFlatSibling = breakdown.components.some((c) => c.id === `${mod.id}_top_flat`);
+                if (hasFlatSibling && comp.id.includes("_top_sloped")) {
+                  const rotZ = comp.rotation?.[2] || 0;
+                  if (rotZ > 0 && spanCoord > cw - 24) return;
+                  if (rotZ < 0 && spanCoord < 24) return;
+                }
+                if (hasFlatSibling && comp.id.includes("_top_flat")) {
+                  const slopedSibling = breakdown.components.find((c) => c.id === `${mod.id}_top_sloped`);
+                  const rotZ = slopedSibling?.rotation?.[2] || 0;
+                  if (rotZ > 0 && spanCoord < 24) return;
+                  if (rotZ < 0 && spanCoord > cw - 24) return;
+                }
                 const wx = px + Math.min(cw - 6, Math.max(6, spanCoord));
                 const wz = pz + Math.min(cd - 6, Math.max(6, cd - depthCoord));
                 if (h.direction.startsWith("edge_")) {
@@ -8217,14 +8586,24 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                   (comp.role === "drawer_front" && cw > ch && !isAlreadySwappedDrawerFront);
                 const rawX = isWideDrawerPanel ? h.y : h.x;
                 const rawY = isWideDrawerPanel ? h.x : h.y;
-                const wx = px + Math.min(cw - 6, Math.max(6, rawX));
-                const wy = py + Math.min(ch - 6, Math.max(6, rawY));
+                if (rawX > cw + 6 || rawY > ch + 6) return;
+                const localX = Math.min(cw - 6, Math.max(6, rawX));
+                const localY = Math.min(ch - 6, Math.max(6, rawY));
+                if (polyContour && comp.thicknessAxis === "z" && !isInsidePoly2D(localX, localY, polyContour)) {
+                  return;
+                }
+                const wx = px + localX;
+                const wy = py + localY;
                 holeWy = wy;
                 dummy.rotation.x = Math.PI / 2;
                 dummy.position.set(wx, wy, pz + cd * 0.5);
                 dummy.scale.set(h.diameter, depthMm, h.diameter);
               }
               dummy.updateMatrix();
+              if (compRotMatrix) {
+                dummy.matrix.premultiply(compRotMatrix);
+                dummy.matrix.decompose(dummy.position, dummy.quaternion, dummy.scale);
+              }
 
               // V116: Bind shelf holes AND mating side/divider fixed-shelf bolts to the owning shelf's live drag group
               // so minifix & dowel holes glide smoothly in real time while dragging a shelf in X-Ray!
@@ -8270,9 +8649,15 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
 
             // Visualize Back-Panel Grooves in X-Ray mode (Purple)
             if (piece.hasBackGroove && (isSidePanel || isHorizPanel)) {
+              let effectiveSideGrooveH = ch;
+              if (isSidePanel && polyContour && comp.thicknessAxis === "x") {
+                const rearPts = polyContour.filter(([zPt]) => zPt <= 2);
+                const rearTopY = rearPts.reduce((mx, [, yPt]) => Math.max(mx, yPt), 0);
+                if (rearTopY > 40) effectiveSideGrooveH = Math.min(ch, rearTopY);
+              }
               const grooveMesh = new THREE.Mesh(
                 isSidePanel
-                  ? new THREE.BoxGeometry(8, Math.max(40, ch - 12), 8.5)
+                  ? new THREE.BoxGeometry(8, Math.max(40, effectiveSideGrooveH - 12), 8.5)
                   : new THREE.BoxGeometry(Math.max(40, cw - 12), 8, 8.5),
                 xrayGrooveMat
               );
@@ -8281,9 +8666,14 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               const gOff = piece.backGrooveOffsetMm ? Math.max(8, piece.backGrooveOffsetMm - 4) : 16;
               grooveMesh.position.set(
                 isSidePanel ? (comp.role === "carcass_side_right" ? px + 4 : px + cw - 4) : px + cw * 0.5,
-                py + ch * 0.5,
+                isSidePanel ? py + effectiveSideGrooveH * 0.5 : py + ch * 0.5,
                 pz + gOff
               );
+              if (compRotMatrix) {
+                grooveMesh.updateMatrix();
+                grooveMesh.matrix.premultiply(compRotMatrix);
+                grooveMesh.matrix.decompose(grooveMesh.position, grooveMesh.quaternion, grooveMesh.scale);
+              }
               modContainer.add(grooveMesh);
             }
 
@@ -8338,8 +8728,14 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           });
           if (moduleHasAnyLedInXray) {
             const drvW = Math.min(180, Math.max(110, mod.dimensions.width * 0.16));
+            const isSlopedMod =
+              (mod.carcass.roofSlope && mod.carcass.roofSlope.side !== "none") ||
+              (mod.carcass.slopedCeiling && mod.carcass.slopedCeiling.mode !== "none");
+            const drvY = isSlopedMod
+              ? Math.max(20, (mod.carcass.plinthHeight || 80) * 0.5)
+              : mod.dimensions.height + 16;
             const drvMesh = new THREE.Mesh(new THREE.BoxGeometry(drvW, 28, 52), xrayLedDriverMat);
-            drvMesh.position.set(mod.dimensions.width * 0.5, mod.dimensions.height + 16, 42);
+            drvMesh.position.set(mod.dimensions.width * 0.5, drvY, isSlopedMod ? Math.min(140, mod.dimensions.depth * 0.4) : 42);
             drvMesh.raycast = () => {};
             drvMesh.renderOrder = 24;
             const drvEdge = new THREE.LineSegments(
@@ -9396,79 +9792,282 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           const effectiveActiveWallId = activeWallId || wallsToRender[0]?.id || "wall_main";
           const isSelectedTargetWall =
             (wallsToRender.length > 1 || Boolean(activeWallId)) && w.id === effectiveActiveWallId;
-          // V46: Subtle 2-state wall focus — when a cabinet/component is selected, wall returns to 100% natural plaster!
+          // Option 1 + 3 (refined) + 6: Keep all walls at 100% natural plaster; highlight the active wall with a crisp, non-overlapping architectural frame + corner viewfinders + wall-parallel badge
           const isStrongWallFocus = isSelectedTargetWall && wallFocusHighlight && !hasActiveCabinetSelection;
-          const segWallMat = isStrongWallFocus
-            ? new THREE.MeshStandardMaterial({
-                color: wallMat.color.clone().lerp(new THREE.Color(0xdbeafe), 0.12),
-                map: wallTex || null,
-                normalMap: wallNorm || null,
-                normalScale: new THREE.Vector2(0.28, 0.28),
-                roughness: 0.84,
-                metalness: 0.02,
-                emissive: new THREE.Color(0x0284c7),
-                emissiveIntensity: 0.045,
-                envMapIntensity: 0.56,
-                side: THREE.DoubleSide,
-              })
+          const segWallMat = isSelectedTargetWall
+            ? (() => {
+                const mat = new THREE.MeshStandardMaterial({
+                  color: wallMat.color.clone(),
+                  map: wallTex || null,
+                  normalMap: wallNorm || null,
+                  normalScale: new THREE.Vector2(0.28, 0.28),
+                  roughness: wallMat.roughness,
+                  metalness: 0.02,
+                  emissive: new THREE.Color(0x0284c7),
+                  emissiveIntensity: 0,
+                  envMapIntensity: wallMat.envMapIntensity,
+                  side: THREE.DoubleSide,
+                });
+                mat.userData = {
+                  isIsolatedSelectedWallMat: true,
+                  baseEmissiveIntensity: 0,
+                };
+                return mat;
+              })()
             : wallMat;
-          const wGeo = new THREE.BoxGeometry(wLen, wH, wThick);
+          const wallProfile = computeWallTopProfileForCeiling(project.space, mainW, w);
+          const sampleWallTopY = (sQuery: number): number => {
+            const pts = wallProfile.points;
+            if (pts.length === 0) return wH;
+            if (sQuery <= pts[0].s) return pts[0].y;
+            for (let pi = 0; pi < pts.length - 1; pi++) {
+              const a = pts[pi];
+              const b = pts[pi + 1];
+              if (sQuery <= b.s) {
+                const span = Math.max(1e-4, b.s - a.s);
+                const t = (sQuery - a.s) / span;
+                return a.y + (b.y - a.y) * t;
+              }
+            }
+            return pts[pts.length - 1].y;
+          };
+
+          let wGeo: THREE.BufferGeometry;
+          if (wallProfile.isClipped) {
+            const wallShape = new THREE.Shape();
+            wallShape.moveTo(0, 0);
+            wallShape.lineTo(wLen, 0);
+            for (let pi = wallProfile.points.length - 1; pi >= 0; pi--) {
+              wallShape.lineTo(wallProfile.points[pi].s, wallProfile.points[pi].y);
+            }
+            wallShape.closePath();
+            const extGeo = new THREE.ExtrudeGeometry(wallShape, {
+              depth: wThick,
+              bevelEnabled: false,
+            });
+            extGeo.translate(0, 0, -wThick / 2);
+            const uvAttr = extGeo.attributes.uv;
+            if (uvAttr) {
+              for (let ui = 0; ui < uvAttr.count; ui++) {
+                uvAttr.setXY(ui, uvAttr.getX(ui) / Math.max(1, wLen), uvAttr.getY(ui) / Math.max(1, wH));
+              }
+              uvAttr.needsUpdate = true;
+            }
+            extGeo.computeVertexNormals();
+            wGeo = extGeo;
+          } else {
+            wGeo = new THREE.BoxGeometry(wLen, wH, wThick);
+          }
+
           const wMesh = new THREE.Mesh(wGeo, segWallMat);
           wMesh.userData = {
             isRoomWall: true,
             wallId: w.id,
             wallName: w.name || "Duvar",
           };
-          wMesh.position.set(wLen / 2, wH / 2, wallLocalZ);
+          if (wallProfile.isClipped) {
+            wMesh.position.set(0, 0, wallLocalZ);
+          } else {
+            wMesh.position.set(wLen / 2, wH / 2, wallLocalZ);
+          }
           wMesh.castShadow = false;
           wMesh.receiveShadow = true;
-          if (renderEdgeMode === "cad" || isStrongWallFocus) {
+          if (renderEdgeMode === "cad") {
             wMesh.add(
               new THREE.LineSegments(
                 new THREE.EdgesGeometry(wGeo),
                 new THREE.LineBasicMaterial({
-                  color: isStrongWallFocus ? 0x38bdf8 : 0x94a3b8,
+                  color: 0x94a3b8,
                   transparent: true,
-                  opacity: isStrongWallFocus ? 0.48 : 0.45,
+                  opacity: 0.45,
                 })
               )
             );
           }
-          if (isSelectedTargetWall && !minimalChromeRef.current) {
-            // Option 1: Crisp architectural floor + ceiling + vertical corner cyan laser rails on active target wall
-            const railOpacity = isStrongWallFocus ? 0.90 : 0.62;
-            const vertOpacity = isStrongWallFocus ? 0.52 : 0.30;
-            const floorLaserMat = new THREE.MeshBasicMaterial({
-              color: 0x38bdf8,
+          if (isSelectedTargetWall && showInCanvasHud) {
+            // Refined Option 3: Flush, clean CAD viewfinder frame + non-overlapping corner L-brackets (follows sloped ceiling profile)
+            const zSign = inwardIsPositiveLocalZ ? 1 : -1;
+            const zFrame = zSign * 3.2;
+            const zBracket = zSign * 4.8;
+            const frameInset = 18;
+            const botY = (skEnabled3D ? skH3D : 0) + frameInset;
+            const leftX = frameInset;
+            const rightX = wLen - frameInset;
+            const leftTopY = Math.max(botY + 80, sampleWallTopY(leftX) - frameInset);
+            const rightTopY = Math.max(botY + 80, sampleWallTopY(rightX) - frameInset);
+            const innerW = Math.max(40, rightX - leftX);
+            const minInnerH = Math.max(40, Math.min(leftTopY, rightTopY) - botY);
+
+            const lineThick = 7;
+            const armLen = Math.max(60, Math.min(155, innerW * 0.11, minInnerH * 0.12));
+            const armThick = 14;
+
+            const railColorHex = isStrongWallFocus ? 0x38bdf8 : 0x0ea5e9;
+            const bracketColorHex = isStrongWallFocus ? 0x0ea5e9 : 0x0284c7;
+            const railOpacity = isStrongWallFocus ? 0.78 : 0.56;
+            const bracketOpacity = isStrongWallFocus ? 0.96 : 0.88;
+
+            const railMat = new THREE.MeshBasicMaterial({
+              color: railColorHex,
               transparent: true,
               opacity: railOpacity,
               depthWrite: false,
+              side: THREE.DoubleSide,
             });
-            const vertLaserMat = new THREE.MeshBasicMaterial({
-              color: 0x38bdf8,
+            const bracketMat = new THREE.MeshBasicMaterial({
+              color: bracketColorHex,
               transparent: true,
-              opacity: vertOpacity,
+              opacity: bracketOpacity,
               depthWrite: false,
+              side: THREE.DoubleSide,
             });
-            const zOff = inwardIsPositiveLocalZ ? 18 : -18;
-            const zCeilOff = inwardIsPositiveLocalZ ? 4 : -4;
-            const botBar = new THREE.Mesh(new THREE.BoxGeometry(wLen, 8, 12), floorLaserMat);
-            botBar.raycast = () => {};
-            botBar.userData = { isWallFocusIndicator: true };
-            botBar.position.set(wLen / 2, 5, zOff);
-            wallSegGroup.add(botBar);
-            const topBar = new THREE.Mesh(new THREE.BoxGeometry(wLen, 10, 6), floorLaserMat);
-            topBar.raycast = () => {};
-            topBar.userData = { isWallFocusIndicator: true };
-            topBar.position.set(wLen / 2, wH - 8, zCeilOff);
-            wallSegGroup.add(topBar);
-            [6, wLen - 6].forEach((vx) => {
-              const vBar = new THREE.Mesh(new THREE.BoxGeometry(8, wH, 5), vertLaserMat);
-              vBar.raycast = () => {};
-              vBar.userData = { isWallFocusIndicator: true };
-              vBar.position.set(vx, wH / 2, zCeilOff);
-              wallSegGroup.add(vBar);
+
+            // Bottom slim edge line trimmed between bottom brackets
+            const hBotSpan = Math.max(0, innerW - armLen * 2);
+            if (hBotSpan > 10) {
+              const botLine = new THREE.Mesh(new THREE.PlaneGeometry(hBotSpan, lineThick), railMat);
+              botLine.position.set(wLen / 2, botY + lineThick / 2, zFrame);
+              botLine.raycast = () => {};
+              botLine.userData = {
+                isWallFocusIndicator: true,
+                isWallFocusRail: true,
+                railAxis: "horiz",
+                baseOpacity: railOpacity,
+                baseColorHex: railColorHex,
+              };
+              wallSegGroup.add(botLine);
+            }
+
+            // Top slim edge line(s) following sloped ceiling polyline
+            const topPolyPts: { x: number; y: number }[] = [
+              { x: leftX, y: leftTopY },
+              ...wallProfile.points
+                .filter((p) => p.s > leftX + 4 && p.s < rightX - 4)
+                .map((p) => ({ x: p.s, y: Math.max(botY + 80, p.y - frameInset) })),
+              { x: rightX, y: rightTopY },
+            ];
+            for (let si = 0; si < topPolyPts.length - 1; si++) {
+              const pA = topPolyPts[si];
+              const pB = topPolyPts[si + 1];
+              const dx = pB.x - pA.x;
+              const dy = pB.y - pA.y;
+              const segLen = Math.hypot(dx, dy);
+              const trimStart = si === 0 ? armLen : 0;
+              const trimEnd = si === topPolyPts.length - 2 ? armLen : 0;
+              const usableLen = segLen - trimStart - trimEnd;
+              if (usableLen > 10 && segLen > 1) {
+                const ux = dx / segLen;
+                const uy = dy / segLen;
+                const midDist = trimStart + usableLen / 2;
+                const mx = pA.x + ux * midDist;
+                const my = pA.y + uy * midDist - lineThick / 2;
+                const segMesh = new THREE.Mesh(new THREE.PlaneGeometry(usableLen, lineThick), railMat);
+                segMesh.position.set(mx, my, zFrame);
+                segMesh.rotation.z = Math.atan2(dy, dx);
+                segMesh.raycast = () => {};
+                segMesh.userData = {
+                  isWallFocusIndicator: true,
+                  isWallFocusRail: true,
+                  railAxis: "horiz",
+                  baseOpacity: railOpacity,
+                  baseColorHex: railColorHex,
+                };
+                wallSegGroup.add(segMesh);
+              }
+            }
+
+            // Left & right slim vertical edge lines trimmed between corner brackets
+            [
+              { rx: leftX + lineThick / 2, topEdge: leftTopY },
+              { rx: rightX - lineThick / 2, topEdge: rightTopY },
+            ].forEach(({ rx, topEdge }) => {
+              const vSpan = Math.max(0, topEdge - botY - armLen * 2);
+              if (vSpan > 10) {
+                const vLine = new THREE.Mesh(new THREE.PlaneGeometry(lineThick, vSpan), railMat);
+                vLine.position.set(rx, (botY + topEdge) / 2, zFrame);
+                vLine.raycast = () => {};
+                vLine.userData = {
+                  isWallFocusIndicator: true,
+                  isWallFocusRail: true,
+                  railAxis: "vert",
+                  baseOpacity: railOpacity,
+                  baseColorHex: railColorHex,
+                };
+                wallSegGroup.add(vLine);
+              }
             });
+
+            // 4 precision L-brackets (bottom 2 horizontal + top 2 aligned to local ceiling slope angle)
+            const vLegLen = Math.max(12, armLen - armThick);
+            const leftSlopeAng =
+              topPolyPts.length >= 2
+                ? Math.atan2(topPolyPts[1].y - topPolyPts[0].y, Math.max(1, topPolyPts[1].x - topPolyPts[0].x))
+                : 0;
+            const lastIdx = topPolyPts.length - 1;
+            const rightSlopeAng =
+              topPolyPts.length >= 2
+                ? Math.atan2(
+                    topPolyPts[lastIdx].y - topPolyPts[lastIdx - 1].y,
+                    Math.max(1, topPolyPts[lastIdx].x - topPolyPts[lastIdx - 1].x)
+                  )
+                : 0;
+
+            const corners = [
+              { cx: leftX, cy: botY, sx: 1, sy: 1, slopeAng: 0 },
+              { cx: rightX, cy: botY, sx: -1, sy: 1, slopeAng: 0 },
+              { cx: leftX, cy: leftTopY, sx: 1, sy: -1, slopeAng: leftSlopeAng },
+              { cx: rightX, cy: rightTopY, sx: -1, sy: -1, slopeAng: rightSlopeAng },
+            ];
+            corners.forEach((c) => {
+              const hLeg = new THREE.Mesh(new THREE.PlaneGeometry(armLen, armThick), bracketMat);
+              const cosA = Math.cos(c.slopeAng);
+              const sinA = Math.sin(c.slopeAng);
+              const alongSign = c.sx;
+              hLeg.position.set(
+                c.cx + alongSign * cosA * (armLen / 2),
+                c.cy + alongSign * sinA * (armLen / 2) + c.sy * (armThick / 2),
+                zBracket
+              );
+              hLeg.rotation.z = c.slopeAng;
+              hLeg.raycast = () => {};
+              hLeg.userData = {
+                isWallFocusIndicator: true,
+                isWallFocusRail: true,
+                railAxis: "bracket",
+                baseOpacity: bracketOpacity,
+                baseColorHex: bracketColorHex,
+              };
+              wallSegGroup.add(hLeg);
+
+              const vLeg = new THREE.Mesh(new THREE.PlaneGeometry(armThick, vLegLen), bracketMat);
+              vLeg.position.set(
+                c.cx + c.sx * (armThick / 2),
+                c.cy + c.sy * (armThick + vLegLen / 2),
+                zBracket
+              );
+              vLeg.raycast = () => {};
+              vLeg.userData = {
+                isWallFocusIndicator: true,
+                isWallFocusRail: true,
+                railAxis: "bracket",
+                baseOpacity: bracketOpacity,
+                baseColorHex: bracketColorHex,
+              };
+              wallSegGroup.add(vLeg);
+            });
+
+            const wallBadge = createActiveWallBadgeMesh(
+              w.name || "Ana Duvar",
+              wLen,
+              displayUnit,
+              isStrongWallFocus,
+              inwardIsPositiveLocalZ
+            );
+            if (wallBadge) {
+              const midTopY = sampleWallTopY(wLen / 2);
+              wallBadge.position.set(wLen / 2, midTopY + 145, zSign * 6);
+              wallSegGroup.add(wallBadge);
+            }
           }
           wallSegGroup.add(wMesh);
 
@@ -10003,6 +10602,8 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       wallTone,
       floorStyle,
       theme,
+      displayUnit,
+      showInCanvasHud,
       markShadowsAndRender,
     ]);
 
@@ -10623,6 +11224,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           "shoe_rack",
           "jewelry_tray",
           "tie_rack",
+          "wardrobe_lift",
           "waste_bin",
           "spice_pullout",
           "pantry_pullout",
@@ -10658,10 +11260,21 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
               ? Math.min(Math.max(360, netInnerHLocal - 40), netInnerHLocal)
               : resolvedFittingType === "spice_pullout"
               ? Math.min(320, netInnerHLocal)
+              : resolvedFittingType === "wardrobe_lift"
+              ? Math.min(Math.max(220, netInnerHLocal - 32), Math.min(820, Math.max(420, netInnerHLocal - 80)))
               : resolvedFittingType === "wire_basket"
               ? 85
               : 80;
-          const clampedItemY = Math.max(0, Math.min(Math.max(0, netInnerHLocal - fitH), snappedElevY));
+          const clampedItemY =
+            resolvedFittingType === "wardrobe_lift"
+              ? Math.max(
+                  32,
+                  Math.min(
+                    Math.max(32, netInnerHLocal - fitH - 48),
+                    snappedElevY - Math.round(fitH * 0.75)
+                  )
+                )
+              : Math.max(0, Math.min(Math.max(0, netInnerHLocal - fitH), snappedElevY));
           const nextSig = `${resolvedFittingType}|${fitW}|${fitH}|${fitD}`;
           if (pool.accessorySig !== nextSig) {
             disposeObject3DTree(pool.accessoryHolder);
@@ -11014,6 +11627,99 @@ const clear3DGhostPreview = useCallback(() => {
       return Math.round((relX * wallLen) / 50) * 50;
     };
 
+    const resolve3DDragTargetWallAndPoint = (
+      e: React.DragEvent<HTMLDivElement>
+    ): {
+      wallId: string;
+      hitPoint: THREE.Vector3 | null;
+      hitWallDirectly: boolean;
+    } => {
+      const effWalls = getEffectiveSpaceWalls(project);
+      const liveActiveWallId = useConfiguratorStore.getState().activeWallId || undefined;
+      const fallbackWallId =
+        liveActiveWallId && effWalls.some((w) => w.id === liveActiveWallId)
+          ? liveActiveWallId
+          : effWalls[0]?.id || "wall_main";
+
+      let targetWallId = fallbackWallId;
+      let hitPoint: THREE.Vector3 | null = null;
+      let hitWallDirectly = false;
+
+      const curCam = (controlsRef.current?.object as THREE.Camera) || perspCamRef.current;
+      const domRect = rendererRef.current
+        ? rendererRef.current.domElement.getBoundingClientRect()
+        : e.currentTarget.getBoundingClientRect();
+
+      if (curCam && domRect.width > 0 && domRect.height > 0) {
+        const ndcX = ((e.clientX - domRect.left) / domRect.width) * 2 - 1;
+        const ndcY = -((e.clientY - domRect.top) / domRect.height) * 2 + 1;
+        const rc = new THREE.Raycaster();
+        rc.setFromCamera(new THREE.Vector2(ndcX, ndcY), curCam);
+
+        const isNodeVisible = (obj: THREE.Object3D | null): boolean => {
+          let cur: THREE.Object3D | null = obj;
+          while (cur) {
+            if (!cur.visible) return false;
+            cur = cur.parent;
+          }
+          return true;
+        };
+
+        // 1. Check direct raycast onto visible 3D wall meshes
+        if (roomArchGroupRef.current) {
+          const wHits = rc.intersectObjects(roomArchGroupRef.current.children, true);
+          for (const wh of wHits) {
+            if (
+              wh.object?.userData?.isRoomWall &&
+              wh.object.userData.wallId &&
+              isNodeVisible(wh.object)
+            ) {
+              targetWallId = String(wh.object.userData.wallId);
+              hitPoint = wh.point.clone();
+              hitWallDirectly = true;
+              break;
+            }
+          }
+        }
+
+        // 2. If cursor is over floor/empty space (not directly on a wall mesh),
+        //    intersect ray with the SELECTED wall's own front plane (or floor plane)
+        if (!hitPoint) {
+          const selectedWall = effWalls.find((w) => w.id === targetWallId) || effWalls[0];
+          if (selectedWall) {
+            const roomCenter = computeRoomDynamicCenter(effWalls);
+            const basis = getWallRoomBasis(selectedWall, roomCenter);
+            const planeNormal = new THREE.Vector3(basis.inwardNormal.x, 0, basis.inwardNormal.z);
+            if (planeNormal.lengthSq() > 1e-6) {
+              planeNormal.normalize();
+              const planeAnchor = new THREE.Vector3(
+                basis.p0.x + basis.inwardNormal.x * 280,
+                0,
+                basis.p0.z + basis.inwardNormal.z * 280
+              );
+              const targetWallPlane = new THREE.Plane().setFromNormalAndCoplanarPoint(
+                planeNormal,
+                planeAnchor
+              );
+              const pt = new THREE.Vector3();
+              if (rc.ray.intersectPlane(targetWallPlane, pt)) {
+                hitPoint = pt;
+              }
+            }
+          }
+          if (!hitPoint) {
+            const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+            const pt = new THREE.Vector3();
+            if (rc.ray.intersectPlane(floorPlane, pt)) {
+              hitPoint = pt;
+            }
+          }
+        }
+      }
+
+      return { wallId: targetWallId, hitPoint, hitWallDirectly };
+    };
+
     const handle3DDragOver = (e: React.DragEvent<HTMLDivElement>) => {
       const draggedMat = typeof window !== "undefined" ? (window as any).__birimDraggedMaterial : null;
       const hasMatMime = e.dataTransfer.types.includes("application/x-birim-material");
@@ -11224,49 +11930,66 @@ const clear3DGhostPreview = useCallback(() => {
       e.preventDefault();
       e.dataTransfer.dropEffect = "copy";
 
-      const rawWorldX = resolve3DWorldXFromDragEvent(e);
+      const dragTarget = resolve3DDragTargetWallAndPoint(e);
       const tplId = activeTplId || "v4_kb_01_single_door";
-      const preview = computeRowSnapPreview(project, tplId, rawWorldX);
+      const preview = computeMultiWallDragPreview(project, tplId, {
+        wallId: dragTarget.wallId,
+        ...(dragTarget.hitPoint
+          ? { worldX: dragTarget.hitPoint.x, worldZ: dragTarget.hitPoint.z }
+          : {}),
+      });
       if (!preview) return;
 
-      const ghostKey = `${preview.templateId}_${preview.snappedX}_${preview.snappedY}_${preview.isSnappedToSlot ? 1 : 0}`;
+      const ghostKey = `${preview.wallId}_${preview.templateId}_${preview.snappedX}_${preview.snappedY}_${preview.snappedZ}_${preview.rotationYDeg}_${preview.isSnappedToSlot ? 1 : 0}`;
       if (lastGhostKeyRef.current !== ghostKey && ghostSnapGroupRef.current) {
         lastGhostKeyRef.current = ghostKey;
         const gGroup = ghostSnapGroupRef.current;
         disposeObject3DTree(gGroup);
         gGroup.clear();
 
-        // A. Render ALL Magnetic Snap Target Slots along the wall (Vertical Laser Guides + Floor/Wall Target Pads)
+        const { p0, rawTangent: wt, inwardNormal: wn } = preview.wallBasis;
+        const slotPadRotY = Math.atan2(-wt.z, wt.x);
+
+        // A. Render ALL Magnetic Snap Target Slots along the TARGET wall (Vertical Laser Guides + Floor/Wall Target Pads)
         preview.snapSlots.forEach((slot) => {
           const rodMat = slot.isActive ? snapSlotActiveRodMat : snapSlotIdleRodMat;
           const rodRadius = slot.isActive ? 6.5 : 4;
-          // Left snap edge vertical laser line
+          const s0 = slot.alongMm;
+          const s1 = slot.alongMm + slot.width;
+          const b0x = p0.x + wt.x * s0;
+          const b0z = p0.z + wt.z * s0;
+          const f0x = b0x + wn.x * slot.depth;
+          const f0z = b0z + wn.z * slot.depth;
+
+          // Left snap edge vertical laser lines (back & front of wall)
           add3DRod(
             gGroup,
-            new THREE.Vector3(slot.x, slot.y, 0),
-            new THREE.Vector3(slot.x, slot.y + slot.height + 180, 0),
+            new THREE.Vector3(b0x, slot.position.y, b0z),
+            new THREE.Vector3(b0x, slot.position.y + slot.height + 180, b0z),
             rodRadius,
             rodMat
           );
           add3DRod(
             gGroup,
-            new THREE.Vector3(slot.x, slot.y, slot.depth),
-            new THREE.Vector3(slot.x, slot.y + slot.height + 180, slot.depth),
+            new THREE.Vector3(f0x, slot.position.y, f0z),
+            new THREE.Vector3(f0x, slot.position.y + slot.height + 180, f0z),
             rodRadius,
             rodMat
           );
           if (slot.isActive) {
             // Right edge laser line for the locked snap slot
+            const f1x = p0.x + wt.x * s1 + wn.x * slot.depth;
+            const f1z = p0.z + wt.z * s1 + wn.z * slot.depth;
             add3DRod(
               gGroup,
-              new THREE.Vector3(slot.x + slot.width, slot.y, slot.depth),
-              new THREE.Vector3(slot.x + slot.width, slot.y + slot.height + 180, slot.depth),
+              new THREE.Vector3(f1x, slot.position.y, f1z),
+              new THREE.Vector3(f1x, slot.position.y + slot.height + 180, f1z),
               rodRadius,
               rodMat
             );
           }
 
-          // Magnetic Slot Footprint Target Box
+          // Magnetic Slot Footprint Target Box aligned flush to the target wall
           const padGeo = new THREE.BoxGeometry(slot.width, 10, slot.depth);
           const padMesh = new THREE.Mesh(
             padGeo,
@@ -11277,7 +12000,11 @@ const clear3DGhostPreview = useCallback(() => {
               depthWrite: false,
             })
           );
-          padMesh.position.set(slot.x + slot.width / 2, slot.y + 5, slot.depth / 2);
+          const midAlong = slot.alongMm + slot.width * 0.5;
+          const padCx = p0.x + wt.x * midAlong + wn.x * (slot.depth * 0.5);
+          const padCz = p0.z + wt.z * midAlong + wn.z * (slot.depth * 0.5);
+          padMesh.position.set(padCx, slot.position.y + 5, padCz);
+          padMesh.rotation.y = slotPadRotY;
           padMesh.add(
             new THREE.LineSegments(
               new THREE.EdgesGeometry(padGeo),
@@ -11287,7 +12014,7 @@ const clear3DGhostPreview = useCallback(() => {
           gGroup.add(padMesh);
         });
 
-        // B. Render Full-Scale 3D Ghost Cabinet Silhouette at (snappedX, snappedY, 0)
+        // B. Render Full-Scale 3D Ghost Cabinet Silhouette on the TARGET wall at exact world pose
         const ghostBreakdown = generateModuleGeometry(preview.previewModule, {
           doorOpenAngleDeg: 0,
           drawerOpenMm: 0,
@@ -11404,30 +12131,11 @@ const clear3DGhostPreview = useCallback(() => {
       }
 
       // Detect if user dropped directly onto a 3D Wall (or fall back to selected activeWallId)
-      let dropWallId: string | undefined = useConfiguratorStore.getState().activeWallId || undefined;
-      let dropHitPoint: THREE.Vector3 | null = null;
-      if (rendererRef.current && roomArchGroupRef.current) {
-        const dRect = rendererRef.current.domElement.getBoundingClientRect();
-        const curCamD = (controlsRef.current?.object as THREE.Camera) || perspCamRef.current;
-        if (dRect.width > 0 && dRect.height > 0 && curCamD) {
-          const dRay = new THREE.Raycaster();
-          dRay.setFromCamera(
-            new THREE.Vector2(
-              ((e.clientX - dRect.left) / dRect.width) * 2 - 1,
-              -((e.clientY - dRect.top) / dRect.height) * 2 + 1
-            ),
-            curCamD
-          );
-          const wHits = dRay.intersectObjects(roomArchGroupRef.current.children, true);
-          for (const wh of wHits) {
-            if (wh.object?.userData?.isRoomWall && wh.object.userData.wallId) {
-              dropWallId = String(wh.object.userData.wallId);
-              dropHitPoint = wh.point.clone();
-              useConfiguratorStore.getState().setActiveWallId(dropWallId);
-              break;
-            }
-          }
-        }
+      const dropTarget = resolve3DDragTargetWallAndPoint(e);
+      const dropWallId: string | undefined = dropTarget.wallId;
+      const dropHitPoint: THREE.Vector3 | null = dropTarget.hitPoint;
+      if (dropTarget.hitWallDirectly && dropWallId) {
+        useConfiguratorStore.getState().setActiveWallId(dropWallId);
       }
       const effDropWalls = getEffectiveSpaceWalls(project);
       const primaryWallId = effDropWalls[0]?.id || "wall_main";
@@ -14078,15 +14786,17 @@ const clear3DGhostPreview = useCallback(() => {
         {isXrayActive && (
           <div
             data-testid="cnc-xray-legend-pill"
-            className="absolute bottom-[68px] left-1/2 -translate-x-1/2 z-20 max-w-[calc(100%-32px)] px-3 py-1.5 rounded-full bg-[#1C222E]/90 backdrop-blur-xl border border-white/15 shadow-[0_12px_32px_rgba(0,0,0,0.45)] flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[10.5px] font-semibold text-slate-100"
+            className="absolute bottom-[68px] left-1/2 -translate-x-1/2 z-20 max-w-[calc(100%-24px)] pl-2.5 pr-1.5 py-1 rounded-full bg-[#1C222E]/92 backdrop-blur-xl border border-white/15 shadow-[0_10px_28px_rgba(0,0,0,0.45)] flex items-center gap-1.5 text-[10px] sm:text-[10.5px] font-semibold text-slate-100"
           >
-            <span className="inline-flex items-center gap-1 whitespace-nowrap"><span className="w-2 h-2 rounded-full bg-[#10b981]" />Ø5 Sistem32</span>
-            <span className="inline-flex items-center gap-1 whitespace-nowrap"><span className="w-2 h-2 rounded-full bg-[#3b82f6]" />Ø8 Kavela</span>
-            <span className="inline-flex items-center gap-1 whitespace-nowrap"><span className="w-2 h-2 rounded-full bg-[#ef4444]" />Ø15 Minifiks</span>
-            <span className="inline-flex items-center gap-1 whitespace-nowrap"><span className="w-2 h-2 rounded-full bg-[#f59e0b]" />Ø35 Menteşe</span>
-            <span className="inline-flex items-center gap-1 whitespace-nowrap"><span className="w-2 h-2 rounded-full bg-[#a855f7]" />Kanal</span>
-            <span className="inline-flex items-center gap-1 whitespace-nowrap"><span className="w-2 h-2 rounded-full bg-[#facc15]" />LED Kanal</span>
-            <span className="inline-flex items-center gap-1 whitespace-nowrap"><span className="w-2 h-2 rounded-full bg-[#06b6d4]" />Ray / Kablo</span>
+            <div className="flex items-center gap-x-2.5 overflow-x-auto no-scrollbar py-0.5">
+              <span className="inline-flex items-center gap-1 whitespace-nowrap shrink-0"><span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: "#10b981" }} />Ø5 Sistem32</span>
+              <span className="inline-flex items-center gap-1 whitespace-nowrap shrink-0"><span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: "#3b82f6" }} />Ø8 Kavela</span>
+              <span className="inline-flex items-center gap-1 whitespace-nowrap shrink-0"><span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: "#ef4444" }} />Ø15 Minifiks</span>
+              <span className="inline-flex items-center gap-1 whitespace-nowrap shrink-0"><span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: "#f59e0b" }} />Ø35 Menteşe</span>
+              <span className="inline-flex items-center gap-1 whitespace-nowrap shrink-0"><span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: "#a855f7" }} />Kanal</span>
+              <span className="inline-flex items-center gap-1 whitespace-nowrap shrink-0"><span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: "#facc15" }} />LED Kanal</span>
+              <span className="inline-flex items-center gap-1 whitespace-nowrap shrink-0"><span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: "#06b6d4" }} />Ray / Kablo</span>
+            </div>
             <button
               type="button"
               onClick={() => {
@@ -14094,7 +14804,7 @@ const clear3DGhostPreview = useCallback(() => {
                 setHardwareViewMode("normal");
                 setRenderEdgeMode("photoreal");
               }}
-              className="ml-0.5 w-5 h-5 rounded-full bg-white/10 hover:bg-white/25 text-slate-200 flex items-center justify-center text-[10px] cursor-pointer"
+              className="shrink-0 w-5 h-5 rounded-full bg-white/12 hover:bg-white/25 text-slate-200 flex items-center justify-center text-[10px] cursor-pointer"
               title="CNC X-Ray Görünümünü Kapat"
             >
               ✕

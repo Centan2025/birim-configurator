@@ -48,7 +48,13 @@ import {
   type RemediationProposal,
   type SpecialFittingConfig,
 } from "@birim/core";
-import { calculateSlopedCeilingGeometry, computeBayDoorZones } from "@birim/core";
+import {
+  calculateSlopedCeilingGeometry,
+  computeBayDoorZones,
+  resolveSpaceCeilingConfig,
+  computeEffectiveCeilingClearHeight,
+  sampleCeilingClearHeightAtX,
+} from "@birim/core";
 import type { HandleProfileDefinition } from "@birim/catalog";
 import { useConfiguratorStore, type UserExperienceTier } from "../store/useConfiguratorStore";
 import {
@@ -1008,6 +1014,26 @@ function startLive3DPartGrab(
         <polygon points="8,14 22,20 22,80 8,74" fill="#E6DAC8" stroke="#2563EB" stroke-width="1.5"/>
         <polygon points="22,20 38,10 38,70 22,80" fill="#D5C4AC" stroke="#2563EB" stroke-width="1.5"/>
       </svg>`;
+    } else if (v === "wardrobe_lift") {
+      // 3D isometric Servetto / Häfele pull-down wardrobe lift (hydraulic side housings + lift arms + top bar + pull wand)
+      svgMarkup = `<svg width="118" height="86" viewBox="0 0 118 86" fill="none">
+        <!-- Left & right hydraulic side damper housings -->
+        <rect x="6" y="42" width="12" height="24" rx="2.5" fill="#1E293B" stroke="#2563EB" stroke-width="1.4"/>
+        <circle cx="15" cy="54" r="4.5" fill="#475569" stroke="#94A3B8" stroke-width="1.2"/>
+        <rect x="100" y="28" width="12" height="24" rx="2.5" fill="#1E293B" stroke="#2563EB" stroke-width="1.4"/>
+        <circle cx="103" cy="40" r="4.5" fill="#475569" stroke="#94A3B8" stroke-width="1.2"/>
+        <!-- Telescopic lift arms rising to curved bends -->
+        <path d="M16 52 L16 26 Q16 20 22 19 L96 8 Q102 7 102 13 L102 38" fill="none" stroke="#CBD5E1" stroke-width="5.2" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M16 52 L16 26 Q16 20 22 19 L96 8 Q102 7 102 13 L102 38" fill="none" stroke="#2563EB" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <!-- Lower dark arm sleeves -->
+        <line x1="16" y1="52" x2="16" y2="36" stroke="#334155" stroke-width="5.5" stroke-linecap="round"/>
+        <line x1="102" y1="38" x2="102" y2="23" stroke="#334155" stroke-width="5.5" stroke-linecap="round"/>
+        <!-- Central swivel collar + vertical pull-down wand + T-handle grip -->
+        <rect x="54" y="10" width="10" height="8" rx="2" fill="#1E293B"/>
+        <line x1="59" y1="18" x2="59" y2="72" stroke="#E2E8F0" stroke-width="3.4" stroke-linecap="round"/>
+        <line x1="59" y1="18" x2="59" y2="72" stroke="#2563EB" stroke-width="1" stroke-linecap="round"/>
+        <rect x="46" y="71" width="26" height="6.5" rx="3.2" fill="#1E293B" stroke="#2563EB" stroke-width="1.2"/>
+      </svg>`;
     } else if (v === "rail") {
       // 3D isometric chrome hanging rail with end flanges
       svgMarkup = `<svg width="118" height="36" viewBox="0 0 118 36" fill="none">
@@ -1864,6 +1890,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
 
     const unitMode = useConfiguratorStore((st) => st.displayUnit);
     const setUnitMode = useConfiguratorStore((st) => st.setDisplayUnit);
+    const reactiveSpace = useConfiguratorStore((st) => st.project.space);
     const [moduleMenuOpen, setModuleMenuOpen] = useState(false);
     const [moduleMenuPos, setModuleMenuPos] = useState<{ top: number; right: number }>({
       top: 126,
@@ -3913,8 +3940,198 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                 );
                 const setSlope = (patch: Partial<typeof slopeSpec>) => {
                   const next = { ...slopeSpec, ...patch };
-                  onUpdateCarcassConfig({ roofSlope: next });
+                  const nextGeom = calculateSlopedCeilingGeometry(
+                    activeModule.dimensions.width,
+                    activeModule.dimensions.height,
+                    activeModule.dimensions.depth,
+                    next
+                  );
+                  const syncedSlopedCeiling =
+                    next.side === "none"
+                      ? {
+                          mode: "none" as const,
+                          kneeHeightMm: activeModule.dimensions.height,
+                          slopeAngleDeg: 0,
+                        }
+                      : {
+                          mode:
+                            next.side === "left"
+                              ? ("left_slope" as const)
+                              : next.side === "right"
+                              ? ("right_slope" as const)
+                              : ("back_slope" as const),
+                          kneeHeightMm: nextGeom.kneeWallHeightMm,
+                          slopeAngleDeg: Math.max(5, Math.round(nextGeom.slopeAngleDeg || 30)),
+                          topFlatSpanMm: nextGeom.flatTopLengthMm,
+                        };
+                  onUpdateCarcassConfig({
+                    roofSlope: next,
+                    secondaryRoofSlope: next.side === "none" ? undefined : activeModule.carcass.secondaryRoofSlope,
+                    slopedCeiling: syncedSlopedCeiling,
+                  });
                 };
+
+                const storeSpace = reactiveSpace;
+                const roomCeilCfg = resolveSpaceCeilingConfig(storeSpace);
+                const hasSlopedRoomCeiling =
+                  roomCeilCfg.enabled && roomCeilCfg.ceilingType === "sloped_attic";
+
+                const handleFitToRoomSlopedCeiling = () => {
+                  const modX = activeModule.position?.x || 0;
+                  const modY = activeModule.position?.y || 0;
+                  const modZ = activeModule.position?.z || 0;
+                  const modW = activeModule.dimensions.width;
+                  const modH = activeModule.dimensions.height;
+                  const modD = activeModule.dimensions.depth;
+                  const rotYDeg = activeModule.rotation?.y || 0;
+                  const rotYRad = (rotYDeg * Math.PI) / 180;
+                  const sinY = Math.sin(rotYRad);
+                  const cosY = Math.cos(rotYRad);
+                  const clearance = 20;
+
+                  const toWorldXZ = (lx: number, lz: number) => ({
+                    x: modX + lx * cosY + lz * sinY,
+                    z: modZ - lx * sinY + lz * cosY,
+                  });
+
+                  // Exact net clear height under single- or multi-wall (hip/gable) roof at any local (lx, lz)
+                  const clearAtLocal = (lx: number, lz: number): number => {
+                    const wp = toWorldXZ(lx, lz);
+                    const res = computeEffectiveCeilingClearHeight(
+                      storeSpace,
+                      Math.max(0, wp.x),
+                      1,
+                      Math.max(0, wp.z),
+                      1
+                    );
+                    return res.minClearHeightMm - modY - clearance;
+                  };
+
+                  // Sample the 4 corners and detect independent rear (Z) and lateral (X) roof slopes (supports hip/compound roofs!)
+                  const cBL = clearAtLocal(0, 0);
+                  const cBR = clearAtLocal(modW, 0);
+                  const cFL = clearAtLocal(0, modD);
+                  const cFR = clearAtLocal(modW, modD);
+                  const maxCornerClear = Math.max(cBL, cBR, cFL, cFR);
+                  const targetH = Math.max(700, Math.min(modH, Math.floor(maxCornerClear)));
+
+                  type SlopeSpec = {
+                    side: "left" | "right" | "rear";
+                    kneeWallHeightMm: number;
+                    slopeRunMm: number;
+                  };
+
+                  const solveRunAlongLine = (
+                    maxSpan: number,
+                    knee: number,
+                    sampleFn: (u: number) => number
+                  ): number => {
+                    let reqRun = 150;
+                    const steps = 16;
+                    for (let i = 1; i <= steps; i++) {
+                      const u = (maxSpan * i) / steps;
+                      const sy = sampleFn(u);
+                      if (sy < targetH - 1) {
+                        const denom = sy - knee;
+                        if (denom <= 1) {
+                          reqRun = maxSpan;
+                        } else {
+                          const needed = (u * (targetH - knee)) / denom;
+                          if (needed > reqRun) reqRun = needed;
+                        }
+                      }
+                    }
+                    return Math.round(Math.max(150, Math.min(maxSpan, reqRun)));
+                  };
+
+                  // 1) Rear (back-to-front Z) slope evaluated along the taller X side so a lateral hip slope doesn't mask it
+                  const rearHighX = cFR >= cFL ? modW : 0;
+                  const rearLow = clearAtLocal(rearHighX, 0);
+                  const rearHigh = clearAtLocal(rearHighX, modD);
+                  let rearSlope: SlopeSpec | undefined;
+                  if (rearHigh > rearLow + 25 && rearLow < targetH - 25) {
+                    const knee = Math.max(450, Math.min(targetH - 40, Math.floor(rearLow)));
+                    const run = solveRunAlongLine(modD, knee, (u) => clearAtLocal(rearHighX, u));
+                    rearSlope = { side: "rear", kneeWallHeightMm: knee, slopeRunMm: run };
+                  }
+
+                  // 2) Lateral (left/right X) slope evaluated along the taller Z side (usually front z = modD)
+                  const latHighZ = Math.max(cFL, cFR) >= Math.max(cBL, cBR) ? modD : 0;
+                  const latLeft = clearAtLocal(0, latHighZ);
+                  const latRight = clearAtLocal(modW, latHighZ);
+                  let lateralSlope: SlopeSpec | undefined;
+                  if (latRight > latLeft + 25 && latLeft < targetH - 25) {
+                    const knee = Math.max(450, Math.min(targetH - 40, Math.floor(latLeft)));
+                    const run = solveRunAlongLine(modW, knee, (u) => clearAtLocal(u, latHighZ));
+                    lateralSlope = { side: "left", kneeWallHeightMm: knee, slopeRunMm: run };
+                  } else if (latLeft > latRight + 25 && latRight < targetH - 25) {
+                    const knee = Math.max(450, Math.min(targetH - 40, Math.floor(latRight)));
+                    const run = solveRunAlongLine(modW, knee, (u) => clearAtLocal(modW - u, latHighZ));
+                    lateralSlope = { side: "right", kneeWallHeightMm: knee, slopeRunMm: run };
+                  }
+
+                  const primarySlope: SlopeSpec | undefined = rearSlope || lateralSlope;
+                  const secondarySlope: SlopeSpec | undefined =
+                    rearSlope && lateralSlope ? lateralSlope : undefined;
+
+                  if (targetH !== modH) {
+                    onSetDimensions(modW, targetH, modD);
+                  }
+
+                  if (!primarySlope) {
+                    const flatH = Math.max(500, Math.min(modH, Math.floor(Math.min(cBL, cBR, cFL, cFR))));
+                    if (flatH !== targetH && flatH !== modH) {
+                      onSetDimensions(modW, flatH, modD);
+                    }
+                    onUpdateCarcassConfig({
+                      roofSlope: { side: "none", kneeWallHeightMm: flatH, slopeRunMm: 0 },
+                      secondaryRoofSlope: undefined,
+                      slopedCeiling: {
+                        mode: "none",
+                        kneeHeightMm: flatH,
+                        slopeAngleDeg: 0,
+                        topFlatSpanMm: modW,
+                      },
+                    });
+                    return;
+                  }
+
+                  const nextGeom = calculateSlopedCeilingGeometry(modW, targetH, modD, primarySlope);
+                  onUpdateCarcassConfig({
+                    roofSlope: primarySlope,
+                    secondaryRoofSlope: secondarySlope,
+                    slopedCeiling: {
+                      mode:
+                        primarySlope.side === "left"
+                          ? "left_slope"
+                          : primarySlope.side === "right"
+                            ? "right_slope"
+                            : "back_slope",
+                      kneeHeightMm: nextGeom.kneeWallHeightMm,
+                      slopeAngleDeg: Math.max(5, Math.round(nextGeom.slopeAngleDeg || 25)),
+                      topFlatSpanMm: nextGeom.flatTopLengthMm,
+                    },
+                  });
+
+                  // Auto-flip hinged single doors away from any short lateral sloped edge
+                  const latDir =
+                    primarySlope.side === "left" || primarySlope.side === "right"
+                      ? primarySlope.side
+                      : secondarySlope?.side === "left" || secondarySlope?.side === "right"
+                        ? secondarySlope.side
+                        : null;
+                  if (latDir) {
+                    const stStore = useConfiguratorStore.getState();
+                    activeModule.bays.forEach((bay, bIdx) => {
+                      if (latDir === "left" && bay.door.type === "single_left") {
+                        stStore.setBayDoorType(bIdx, "single_right");
+                      } else if (latDir === "right" && bay.door.type === "single_right") {
+                        stStore.setBayDoorType(bIdx, "single_left");
+                      }
+                    });
+                  }
+                };
+
                 return (
                   <div
                     data-testid="v11-roof-slope-section"
@@ -3930,6 +4147,18 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                         </span>
                       )}
                     </div>
+
+                    {hasSlopedRoomCeiling && (
+                      <button
+                        type="button"
+                        data-testid="v11-fit-module-to-sloped-ceiling-btn"
+                        onClick={handleFitToRoomSlopedCeiling}
+                        className="w-full py-1.5 px-2.5 rounded-xl bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white text-[11px] font-bold flex items-center justify-center gap-1.5 shadow-xs hover:brightness-110 transition cursor-pointer"
+                      >
+                        <span>✨ Oda Tavan Eğimine Uydur</span>
+                      </button>
+                    )}
+
                     <div className="grid grid-cols-4 gap-1">
                       {(
                         [
@@ -3946,7 +4175,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                           className={`h-7 rounded-lg text-[11px] font-semibold border transition cursor-pointer ${
                             slopeSpec.side === opt.id
                               ? "bg-[#141413] text-white border-[#141413]"
-                              : "bg-[#FAF8F4] hover:bg-[#EFEAE0] text-[#44403C] border-[#E5DFD3]"
+                              : "bg-white/[0.08] hover:bg-white/[0.15] text-slate-200 border-white/15"
                           }`}
                         >
                           {opt.label}
@@ -3960,28 +4189,28 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                             <span>Düşük Kenar ({unitMode})</span>
                             <input
                               type="number" inputMode="decimal"
-                              min={unitMode === "cm" ? 50 : 500}
-                              max={unitMode === "cm" ? Math.round((activeModule.dimensions.height - 150) / 10) : activeModule.dimensions.height - 150}
+                              min={unitMode === "cm" ? 45 : 450}
+                              max={unitMode === "cm" ? Math.round((activeModule.dimensions.height - 120) / 10) : activeModule.dimensions.height - 120}
                               value={unitMode === "cm" ? Math.round(slopeSpec.kneeWallHeightMm / 10) : slopeSpec.kneeWallHeightMm}
                               onChange={(e) => {
                                 const raw = Number(e.target.value) || 1200;
                                 setSlope({ kneeWallHeightMm: unitMode === "cm" ? raw * 10 : raw });
                               }}
-                              className="w-full h-8 px-2.5 rounded-lg bg-[#FAF8F4] border border-[#DDD6C8] font-mono text-xs text-[#141413]"
+                              className="w-full h-8 px-2.5 rounded-lg bg-white/[0.08] border border-white/15 font-mono text-xs text-slate-100"
                             />
                           </label>
                           <label className="text-[10px] text-[#57534E] space-y-1">
                             <span>Eğim Mesafesi ({unitMode})</span>
                             <input
                               type="number" inputMode="decimal"
-                              min={unitMode === "cm" ? 20 : 200}
-                              max={unitMode === "cm" ? Math.round(activeModule.dimensions.width / 10) : activeModule.dimensions.width}
+                              min={unitMode === "cm" ? 15 : 150}
+                              max={unitMode === "cm" ? Math.round((slopeSpec.side === "rear" ? activeModule.dimensions.depth : activeModule.dimensions.width) / 10) : (slopeSpec.side === "rear" ? activeModule.dimensions.depth : activeModule.dimensions.width)}
                               value={unitMode === "cm" ? Math.round(slopeSpec.slopeRunMm / 10) : slopeSpec.slopeRunMm}
                               onChange={(e) => {
                                 const raw = Number(e.target.value) || 600;
                                 setSlope({ slopeRunMm: unitMode === "cm" ? raw * 10 : raw });
                               }}
-                              className="w-full h-8 px-2.5 rounded-lg bg-[#FAF8F4] border border-[#DDD6C8] font-mono text-xs text-[#141413]"
+                              className="w-full h-8 px-2.5 rounded-lg bg-white/[0.08] border border-white/15 font-mono text-xs text-slate-100"
                             />
                           </label>
                         </div>
@@ -4637,7 +4866,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                         id: "lib_wardrobe_lift",
                         label: "Asansörlü Askı",
                         visual: "rail",
-                        dragVisual: "rail",
+                        dragVisual: "wardrobe_lift",
                         count:
                           activeBay?.specialFittings.filter((f) => f.type === "wardrobe_lift")
                             .length || 0,

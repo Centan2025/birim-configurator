@@ -27,10 +27,14 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
-import type {
-  ArchitecturalElement,
-  ModuleInstance,
-  SceneObjectInstance,
+import {
+  CEILING_TYPE_CATALOG,
+  resolveSpaceCeilingConfig,
+  type ArchitecturalElement,
+  type CeilingType,
+  type ModuleInstance,
+  type SceneObjectInstance,
+  type SpaceCeilingConfig,
 } from "@birim/core";
 import {
   V5_SCENE_OBJECT_CATALOG,
@@ -1132,7 +1136,7 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                 return (
                   <div
                     className="relative shrink-0 rounded-xl bg-black/40 border border-white/15 p-1.5"
-                    title={`Hedef Duvar: ${currentTargetWall?.name || "Ana Duvar"} — Kesikli (+): Duvar Ekle · Dolu: Seç · Kırmızı (×): Duvarı Sil`}
+                    title={`Hedef Duvar: ${currentTargetWall?.name || "Ana Duvar"} — Kesikli (+): Duvar Ekle · Dolu: Seç`}
                   >
                     <svg viewBox="0 0 96 54" className="w-[104px] h-[58px] block" fill="none">
                       {/* Zemin */}
@@ -1149,7 +1153,7 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                       >
                         <title>{leftWall ? `${leftWall.name} (Seç)` : "+ Sol Duvar Ekle"}</title>
                         <polygon
-                          points="19,10 26,10 17,43 8,43"
+                          points="16,10 25,10 16,41 5,41"
                           fill={wallFill(isLeftSel, Boolean(leftWall))}
                           stroke={wallStroke(isLeftSel, Boolean(leftWall))}
                           strokeWidth={isLeftSel ? "2" : leftWall ? "1.5" : "1.2"}
@@ -1157,24 +1161,12 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                           style={{ filter: wallFilter(isLeftSel) }}
                           strokeLinejoin="round"
                         />
-                        {!leftWall ? (
+                        {!leftWall && (
                           <g pointerEvents="none">
-                            <circle cx="17" cy="26" r="5.5" fill="#0F172A" stroke="#38BDF8" strokeWidth="1.2" />
-                            <path d="M17 23.4v5.2M14.4 26h5.2" stroke="#7DD3FC" strokeWidth="1.4" strokeLinecap="round" />
+                            <circle cx="15.5" cy="25.5" r="5.5" fill="#0F172A" stroke="#38BDF8" strokeWidth="1.2" />
+                            <path d="M15.5 22.9v5.2M12.9 25.5h5.2" stroke="#7DD3FC" strokeWidth="1.4" strokeLinecap="round" />
                           </g>
-                        ) : effectiveWalls.length > 1 ? (
-                          <g
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              deleteSecondaryWall(leftWall.id);
-                            }}
-                            className="cursor-pointer"
-                          >
-                            <title>Sol Duvarı Sil</title>
-                            <circle cx="11" cy="26" r="5" fill="#E11D48" stroke="#FFFFFF" strokeWidth="1" />
-                            <path d="M9 24l4 4M13 24l-4 4" stroke="#FFFFFF" strokeWidth="1.25" strokeLinecap="round" />
-                          </g>
-                        ) : null}
+                        )}
                       </g>
 
                       {/* Sağ Duvar (270°) */}
@@ -1188,7 +1180,7 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                       >
                         <title>{rightWall ? `${rightWall.name} (Seç)` : "+ Sağ Duvar Ekle"}</title>
                         <polygon
-                          points="70,10 77,10 88,43 79,43"
+                          points="71,10 80,10 91,41 80,41"
                           fill={wallFill(isRightSel, Boolean(rightWall))}
                           stroke={wallStroke(isRightSel, Boolean(rightWall))}
                           strokeWidth={isRightSel ? "2" : rightWall ? "1.5" : "1.2"}
@@ -1196,24 +1188,12 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                           style={{ filter: wallFilter(isRightSel) }}
                           strokeLinejoin="round"
                         />
-                        {!rightWall ? (
+                        {!rightWall && (
                           <g pointerEvents="none">
-                            <circle cx="79" cy="26" r="5.5" fill="#0F172A" stroke="#38BDF8" strokeWidth="1.2" />
-                            <path d="M79 23.4v5.2M76.4 26h5.2" stroke="#7DD3FC" strokeWidth="1.4" strokeLinecap="round" />
+                            <circle cx="80.5" cy="25.5" r="5.5" fill="#0F172A" stroke="#38BDF8" strokeWidth="1.2" />
+                            <path d="M80.5 22.9v5.2M77.9 25.5h5.2" stroke="#7DD3FC" strokeWidth="1.4" strokeLinecap="round" />
                           </g>
-                        ) : effectiveWalls.length > 1 ? (
-                          <g
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              deleteSecondaryWall(rightWall.id);
-                            }}
-                            className="cursor-pointer"
-                          >
-                            <title>Sağ Duvarı Sil</title>
-                            <circle cx="85" cy="26" r="5" fill="#E11D48" stroke="#FFFFFF" strokeWidth="1" />
-                            <path d="M83 24l4 4M87 24l-4 4" stroke="#FFFFFF" strokeWidth="1.25" strokeLinecap="round" />
-                          </g>
-                        ) : null}
+                        )}
                       </g>
 
                       {/* Ana Arka Duvar (0°) */}
@@ -1226,9 +1206,9 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                       >
                         <title>{mainWall?.name || "Ana Duvar"}</title>
                         <rect
-                          x="26"
-                          y="5"
-                          width="44"
+                          x="27"
+                          y="4"
+                          width="42"
                           height="13"
                           rx="2.2"
                           fill={wallFill(isMainSel, true)}
@@ -1248,10 +1228,11 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                         className="cursor-pointer transition-opacity hover:opacity-95"
                       >
                         <title>{frontWall ? `${frontWall.name} (Seç)` : "+ Karşı Duvar Ekle"}</title>
+                        <rect x="20" y="38" width="56" height="11" fill="transparent" />
                         <rect
-                          x="8"
-                          y="38"
-                          width="28"
+                          x="20"
+                          y="39"
+                          width="20"
                           height="9"
                           rx="1.8"
                           fill={wallFill(isFrontSel, Boolean(frontWall))}
@@ -1261,9 +1242,9 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                           style={{ filter: wallFilter(isFrontSel) }}
                         />
                         <rect
-                          x="60"
-                          y="38"
-                          width="28"
+                          x="56"
+                          y="39"
+                          width="20"
                           height="9"
                           rx="1.8"
                           fill={wallFill(isFrontSel, Boolean(frontWall))}
@@ -1272,33 +1253,36 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                           strokeDasharray={frontWall ? undefined : "3 2"}
                           style={{ filter: wallFilter(isFrontSel) }}
                         />
-                        {!frontWall ? (
+                        {!frontWall && (
                           <g pointerEvents="none">
-                            <circle cx="48" cy="42.5" r="5.5" fill="#0F172A" stroke="#38BDF8" strokeWidth="1.2" />
-                            <path d="M48 39.9v5.2M45.4 42.5h5.2" stroke="#7DD3FC" strokeWidth="1.4" strokeLinecap="round" />
+                            <circle cx="48" cy="43.5" r="5.5" fill="#0F172A" stroke="#38BDF8" strokeWidth="1.2" />
+                            <path d="M48 40.9v5.2M45.4 43.5h5.2" stroke="#7DD3FC" strokeWidth="1.4" strokeLinecap="round" />
                           </g>
-                        ) : effectiveWalls.length > 1 ? (
-                          <g
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              deleteSecondaryWall(frontWall.id);
-                            }}
-                            className="cursor-pointer"
-                          >
-                            <title>Karşı Duvarı Sil</title>
-                            <circle cx="48" cy="42.5" r="5" fill="#E11D48" stroke="#FFFFFF" strokeWidth="1" />
-                            <path d="M46 40.5l4 4M50 40.5l-4 4" stroke="#FFFFFF" strokeWidth="1.25" strokeLinecap="round" />
-                          </g>
-                        ) : null}
+                        )}
                       </g>
                     </svg>
                     <div className="flex items-center justify-center gap-1 mt-0.5">
-                      <span className="text-[9px] font-bold text-[#7DD3FC] leading-tight truncate max-w-[78px]">
+                      <span className="text-[9px] font-bold text-[#7DD3FC] leading-tight truncate max-w-[74px]">
                         {currentTargetWall?.name || "Ana Duvar"}
                       </span>
                       <span className="text-[8px] font-mono text-slate-300/80">
                         ({effectiveWalls.length}/4)
                       </span>
+                      {!isMainSel && currentTargetWall && effectiveWalls.length > 1 && (
+                        <button
+                          type="button"
+                          data-testid="v25-delete-active-wall-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteSecondaryWall(currentTargetWall.id);
+                          }}
+                          title={`${currentTargetWall.name} duvarını sil`}
+                          aria-label={`${currentTargetWall.name} duvarını sil`}
+                          className="ml-0.5 w-4 h-4 rounded-full bg-rose-600/90 hover:bg-rose-500 text-white flex items-center justify-center shrink-0 transition cursor-pointer"
+                        >
+                          <X className="w-2.5 h-2.5" strokeWidth={2.5} />
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
@@ -2201,49 +2185,476 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
             {/* SEKME 3: ODA ÖLÇÜLERİ, HAZIR MUTFAK PLANLARI, ADA & ENGELLER */}
             {renderedDrawer === "space" && (
               <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
-                <div className="p-3.5 rounded-2xl bg-white border border-[#E5DFD3] space-y-3">
-                  <div className="font-bold text-[#141413]">Oda Duvar ve Tavan Ölçüleri</div>
+                {(() => {
+                  const mainWallId = effectiveWalls[0]?.id || "wall_main";
+                  const selectedWall = currentTargetWall || effectiveWalls[0];
+                  const isMainSelected = !selectedWall || selectedWall.id === mainWallId;
+                  const selectedWallLabel = selectedWall?.name || "Ana Duvar";
+                  const selectedWallLenMm = selectedWall?.length ?? wallWidthMm;
+                  const sliderMaxMm = Math.max(6000, Math.ceil(selectedWallLenMm / 50) * 50);
 
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[#57534E]">Duvar Genişliği</span>
-                      <span className="font-mono font-bold">
-                        {fmtLen(wallWidthMm)}
-                      </span>
-                    </div>
-                    <input
-                      type="range"
-                      min={1200}
-                      max={6000}
-                      step={50}
-                      value={wallWidthMm}
-                      onChange={(e) =>
-                        onSetRoomDimensions(Number(e.target.value), ceilingHeightMm)
-                      }
-                      className="w-full accent-[#141413] cursor-pointer"
-                    />
-                  </div>
+                  const handleSelectedWallLengthChange = (nextLenRaw: number) => {
+                    const nextLen = Math.max(600, Math.min(12000, Math.round(nextLenRaw)));
+                    if (isMainSelected || !selectedWall) {
+                      onSetRoomDimensions(nextLen, ceilingHeightMm);
+                      return;
+                    }
+                    const st = useConfiguratorStore.getState();
+                    if (!st.project.space.walls.some((sw) => sw.id === selectedWall.id)) {
+                      st.applyBatchProjectUpdate((draft) => {
+                        draft.space.walls = effectiveWalls.map((ew) => ({
+                          ...ew,
+                          position: { ...ew.position },
+                        }));
+                      }, "Oda duvarları hazırlandı");
+                    }
+                    useConfiguratorStore.getState().updateWallSegment(selectedWall.id, {
+                      length: nextLen,
+                    });
+                  };
 
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[#57534E]">Tavan Yüksekliği</span>
-                      <span className="font-mono font-bold">
-                        {fmtLen(ceilingHeightMm)}
-                      </span>
+                  return (
+                    <div className="p-3.5 rounded-2xl bg-white border border-[#E5DFD3] space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="font-bold text-[#141413]">Oda Duvar ve Tavan Ölçüleri</div>
+                        <span
+                          data-testid="v11-space-active-wall-badge"
+                          className="px-2 py-0.5 rounded-full bg-sky-500/15 border border-sky-400/35 text-sky-300 text-[10px] font-semibold truncate max-w-[130px]"
+                          title={`Aktif duvar: ${selectedWallLabel}`}
+                        >
+                          {selectedWallLabel}
+                        </span>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[#57534E]">Duvar Genişliği ({selectedWallLabel})</span>
+                          <span data-testid="v11-space-wall-length-value" className="font-mono font-bold">
+                            {fmtLen(selectedWallLenMm)}
+                          </span>
+                        </div>
+                        <input
+                          data-testid="v11-space-wall-length-slider"
+                          type="range"
+                          min={600}
+                          max={sliderMaxMm}
+                          step={50}
+                          value={selectedWallLenMm}
+                          onChange={(e) => handleSelectedWallLengthChange(Number(e.target.value))}
+                          className="w-full accent-[#141413] cursor-pointer"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[#57534E]">Tavan Yüksekliği</span>
+                          <span className="font-mono font-bold">
+                            {fmtLen(ceilingHeightMm)}
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min={2100}
+                          max={3400}
+                          step={20}
+                          value={ceilingHeightMm}
+                          onChange={(e) =>
+                            onSetRoomDimensions(wallWidthMm, Number(e.target.value))
+                          }
+                          className="w-full accent-[#141413] cursor-pointer"
+                        />
+                      </div>
                     </div>
-                    <input
-                      type="range"
-                      min={2100}
-                      max={3400}
-                      step={20}
-                      value={ceilingHeightMm}
-                      onChange={(e) =>
-                        onSetRoomDimensions(wallWidthMm, Number(e.target.value))
+                  );
+                })()}
+
+                {/* Mimari Tavan Tipi Seçimi ve Ayarları */}
+                {(() => {
+                  const ceilCfg = resolveSpaceCeilingConfig(storeProject.space);
+                  const updateCeiling = (patch: Partial<SpaceCeilingConfig>) => {
+                    useConfiguratorStore.getState().updateCeilingConfig(patch);
+                  };
+                  const isSloped = ceilCfg.ceilingType === "sloped_attic";
+                  const isBeams = ceilCfg.ceilingType === "exposed_wood_beams";
+                  const hasDropControl =
+                    ceilCfg.ceilingType !== "flat_plaster" && !isSloped;
+
+                  type SlopeDirId = "left_to_right" | "right_to_left" | "back_to_front";
+                  const effWallsForCeil = getEffectiveSpaceWalls(storeProject);
+                  const activeSelWall =
+                    effWallsForCeil.find((w) => w.id === activeWallId) || effWallsForCeil[0];
+                  const inferWallDir = (
+                    w?: { position: { x: number; z: number }; rotationY?: number }
+                  ): SlopeDirId => {
+                    if (!w) return "back_to_front";
+                    const mainSpan = Math.max(1600, effWallsForCeil[0]?.length || 3600);
+                    const rotNorm = (((w.rotationY || 0) % 360) + 360) % 360;
+                    const isSide = Math.abs(rotNorm - 90) < 35 || Math.abs(rotNorm - 270) < 35;
+                    if (isSide) {
+                      return w.position.x > mainSpan * 0.5 ? "right_to_left" : "left_to_right";
+                    }
+                    return "back_to_front";
+                  };
+                  const selectedWallDir: SlopeDirId = inferWallDir(activeSelWall);
+                  const selectedWallName =
+                    activeSelWall?.name ||
+                    (selectedWallDir === "left_to_right"
+                      ? "Sol Duvar"
+                      : selectedWallDir === "right_to_left"
+                        ? "Sağ Duvar"
+                        : "Ana Duvar");
+                  const rawCeilCfg = storeProject.space?.ceilingConfig;
+                  const activeSlopeDirs: SlopeDirId[] =
+                    Array.isArray(rawCeilCfg?.slopeDirections) && rawCeilCfg.slopeDirections.length > 0
+                      ? Array.from(new Set(rawCeilCfg.slopeDirections))
+                      : ceilCfg.slopeDirections && ceilCfg.slopeDirections.length > 0
+                        ? ceilCfg.slopeDirections
+                        : [ceilCfg.slopeDirection];
+                  const rawWallSlopes = rawCeilCfg?.wallSlopes || {};
+                  const isSelectedWallSloped =
+                    ceilCfg.enabled && isSloped && activeSlopeDirs.includes(selectedWallDir);
+                  const selectedWallSlopeSetting = rawWallSlopes[selectedWallDir] || {
+                    enabled: isSelectedWallSloped,
+                    kneeHeightMm: ceilCfg.slopeKneeHeightMm,
+                    angleDeg: ceilCfg.slopeAngleDeg,
+                  };
+
+                  const setWallSlopeState = (
+                    targetDir: SlopeDirId,
+                    nextEnabled: boolean,
+                    overrideParams?: { kneeHeightMm?: number; angleDeg?: number }
+                  ) => {
+                    const liveCfg = useConfiguratorStore.getState().project.space?.ceilingConfig;
+                    const liveDirs: SlopeDirId[] =
+                      Array.isArray(liveCfg?.slopeDirections) && liveCfg.slopeDirections.length > 0
+                        ? Array.from(new Set(liveCfg.slopeDirections))
+                        : [liveCfg?.slopeDirection || ceilCfg.slopeDirection || "left_to_right"];
+                    const liveMap = { ...(liveCfg?.wallSlopes || {}) };
+                    const prevTarget = liveMap[targetDir] || {
+                      enabled: liveDirs.includes(targetDir),
+                      kneeHeightMm: liveCfg?.slopeKneeHeightMm ?? ceilCfg.slopeKneeHeightMm,
+                      angleDeg: liveCfg?.slopeAngleDeg ?? ceilCfg.slopeAngleDeg,
+                    };
+                    let nextDirs: SlopeDirId[];
+                    if (nextEnabled) {
+                      nextDirs = liveDirs.includes(targetDir) ? liveDirs : [...liveDirs, targetDir];
+                    } else {
+                      nextDirs = liveDirs.length > 1 ? liveDirs.filter((d) => d !== targetDir) : liveDirs;
+                    }
+                    liveMap[targetDir] = {
+                      enabled: nextDirs.includes(targetDir),
+                      kneeHeightMm: overrideParams?.kneeHeightMm ?? prevTarget.kneeHeightMm,
+                      angleDeg: overrideParams?.angleDeg ?? prevTarget.angleDeg,
+                    };
+                    // Ensure all other active directions preserve their own snapshot in wallSlopes
+                    for (const d of nextDirs) {
+                      if (!liveMap[d]) {
+                        liveMap[d] = {
+                          enabled: true,
+                          kneeHeightMm: liveCfg?.slopeKneeHeightMm ?? ceilCfg.slopeKneeHeightMm,
+                          angleDeg: liveCfg?.slopeAngleDeg ?? ceilCfg.slopeAngleDeg,
+                        };
                       }
-                      className="w-full accent-[#141413] cursor-pointer"
-                    />
-                  </div>
-                </div>
+                    }
+                    updateCeiling({
+                      enabled: true,
+                      showIn3D: true,
+                      showInElevation2D: true,
+                      ceilingType: "sloped_attic",
+                      slopeDirection: nextDirs[0],
+                      slopeDirections: nextDirs,
+                      wallSlopes: liveMap,
+                    });
+                  };
+                  return (
+                    <div
+                      data-testid="v11-space-ceiling-type-card"
+                      className="p-3.5 rounded-2xl bg-white border border-[#E5DFD3] space-y-2.5"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="font-bold text-[#141413]">Mimari Tavan Tipi</div>
+                        <button
+                          type="button"
+                          data-testid="v11-space-ceiling-toggle"
+                          onClick={() =>
+                            updateCeiling({
+                              enabled: !ceilCfg.enabled,
+                              showIn3D: true,
+                              showInElevation2D: true,
+                            })
+                          }
+                          className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition cursor-pointer ${
+                            ceilCfg.enabled
+                              ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] text-white shadow-xs"
+                              : "bg-white/[0.10] hover:bg-white/[0.16] text-slate-300 border border-white/15"
+                          }`}
+                        >
+                          {ceilCfg.enabled ? "Açık" : "Kapalı"}
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {CEILING_TYPE_CATALOG.map((ct) => {
+                          const active = ceilCfg.enabled && ceilCfg.ceilingType === ct.id;
+                          return (
+                            <button
+                              key={ct.id}
+                              type="button"
+                              data-testid={`v11-ceiling-type-${ct.id}`}
+                              onClick={() => {
+                                if (ct.id === "sloped_attic") {
+                                  if (!active) {
+                                    // First time enabling sloped roof: start from currently selected wall
+                                    const initKnee = ceilCfg.slopeKneeHeightMm;
+                                    const initAng = ceilCfg.slopeAngleDeg;
+                                    updateCeiling({
+                                      enabled: true,
+                                      showIn3D: true,
+                                      showInElevation2D: true,
+                                      ceilingType: "sloped_attic",
+                                      slopeDirection: selectedWallDir,
+                                      slopeDirections: [selectedWallDir],
+                                      wallSlopes: {
+                                        [selectedWallDir]: {
+                                          enabled: true,
+                                          kneeHeightMm: initKnee,
+                                          angleDeg: initAng,
+                                        },
+                                      },
+                                    });
+                                  } else if (!isSelectedWallSloped) {
+                                    // Already sloped on another wall -> clicking "Eğimli Çatı" while a new wall is selected adds slope to this wall too!
+                                    setWallSlopeState(selectedWallDir, true);
+                                  }
+                                  return;
+                                }
+                                updateCeiling({
+                                  enabled: true,
+                                  showIn3D: true,
+                                  showInElevation2D: true,
+                                  ceilingType: ct.id as CeilingType,
+                                  dropHeightMm:
+                                    ct.defaultDropHeightMm > 0
+                                      ? ct.defaultDropHeightMm
+                                      : ceilCfg.dropHeightMm,
+                                });
+                              }}
+                              title={ct.description}
+                              className={`px-2.5 py-1.5 rounded-xl border text-left text-[11px] font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                                active
+                                  ? "bg-[#141413] text-white border-[#141413] shadow-xs"
+                                  : "bg-white/[0.08] hover:bg-white/[0.15] text-slate-200 border-white/15"
+                              }`}
+                            >
+                              <span>{ct.icon}</span>
+                              <span className="truncate">{ct.shortLabel}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {ceilCfg.enabled && (
+                        <div className="space-y-2.5 pt-2 border-t border-white/10">
+                          {isSloped && (
+                            <>
+                              {/* Seçili Duvar Bağımsız Eğim Kontrol Çubuğu */}
+                              <div className="p-2 rounded-xl bg-sky-50 border border-sky-200 flex items-center justify-between gap-2">
+                                <div className="min-w-0">
+                                  <div className="text-[9.5px] font-bold uppercase tracking-wide text-sky-700">
+                                    Seçili Duvar Eğimi
+                                  </div>
+                                  <div className="text-[11px] font-bold text-[#141413] truncate">
+                                    {selectedWallName}
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  data-testid="v11-selected-wall-slope-toggle"
+                                  onClick={() =>
+                                    setWallSlopeState(selectedWallDir, !isSelectedWallSloped)
+                                  }
+                                  className={`px-2.5 py-1 rounded-lg text-[10.5px] font-bold border transition cursor-pointer shrink-0 ${
+                                    isSelectedWallSloped
+                                      ? "bg-[#141413] text-white border-[#141413]"
+                                      : "bg-sky-600 hover:bg-sky-700 text-white border-sky-600"
+                                  }`}
+                                >
+                                  {isSelectedWallSloped
+                                    ? activeSlopeDirs.length > 1
+                                      ? "✓ Eğim Açık · Kaldır"
+                                      : "✓ Eğim Açık"
+                                    : "+ Bu Duvara Eğim Ekle"}
+                                </button>
+                              </div>
+
+                              <div className="space-y-1">
+                                <div className="flex items-center justify-between text-[11px]">
+                                  <span className="text-[#57534E]">
+                                    Diz Duvarı Kotu ({selectedWallName})
+                                  </span>
+                                  <span className="font-mono font-bold">
+                                    {fmtLen(selectedWallSlopeSetting.kneeHeightMm)}
+                                  </span>
+                                </div>
+                                <input
+                                  type="range"
+                                  min={800}
+                                  max={Math.max(1200, ceilingHeightMm - 200)}
+                                  step={50}
+                                  value={selectedWallSlopeSetting.kneeHeightMm}
+                                  onChange={(e) =>
+                                    setWallSlopeState(selectedWallDir, true, {
+                                      kneeHeightMm: Number(e.target.value),
+                                    })
+                                  }
+                                  className="w-full accent-[#141413] cursor-pointer"
+                                />
+                              </div>
+
+                              <div className="space-y-1">
+                                <div className="flex items-center justify-between text-[11px]">
+                                  <span className="text-[#57534E]">
+                                    Çatı Eğim Açısı ({selectedWallName})
+                                  </span>
+                                  <span className="font-mono font-bold">
+                                    {selectedWallSlopeSetting.angleDeg}°
+                                  </span>
+                                </div>
+                                <input
+                                  type="range"
+                                  min={10}
+                                  max={55}
+                                  step={1}
+                                  value={selectedWallSlopeSetting.angleDeg}
+                                  onChange={(e) =>
+                                    setWallSlopeState(selectedWallDir, true, {
+                                      angleDeg: Number(e.target.value),
+                                    })
+                                  }
+                                  className="w-full accent-[#141413] cursor-pointer"
+                                />
+                              </div>
+
+                              <div className="space-y-1">
+                                <div className="flex items-center justify-between text-[10px] text-[#57534E]">
+                                  <span>Eğimli Duvarlar (Çoklu Seçim)</span>
+                                  <span className="font-mono font-bold text-[#141413]">
+                                    {activeSlopeDirs.length} duvar
+                                  </span>
+                                </div>
+                                <div className="grid grid-cols-3 gap-1">
+                                  {(
+                                    [
+                                      { id: "left_to_right", label: "Sol Duvar" },
+                                      { id: "back_to_front", label: "Ana Duvar" },
+                                      { id: "right_to_left", label: "Sağ Duvar" },
+                                    ] as const
+                                  ).map((dir) => {
+                                    const isDirOn = activeSlopeDirs.includes(dir.id);
+                                    const dirAngle =
+                                      rawWallSlopes[dir.id]?.angleDeg ?? ceilCfg.slopeAngleDeg;
+                                    return (
+                                      <button
+                                        key={dir.id}
+                                        type="button"
+                                        onClick={() => setWallSlopeState(dir.id, !isDirOn)}
+                                        className={`py-1 px-1.5 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
+                                          isDirOn
+                                            ? "bg-[#141413] text-white border-[#141413]"
+                                            : "bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300"
+                                        }`}
+                                      >
+                                        {isDirOn ? `✓ ${dir.label} ${dirAngle}°` : dir.label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </>
+                          )}
+
+                          {hasDropControl && (
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between text-[11px]">
+                                <span className="text-[#57534E]">
+                                  {isBeams ? "Kiriş Yüksekliği" : "Tavan Düşümü"}
+                                </span>
+                                <span className="font-mono font-bold">
+                                  {fmtLen(isBeams ? ceilCfg.beamHeightMm : ceilCfg.dropHeightMm)}
+                                </span>
+                              </div>
+                              <input
+                                type="range"
+                                min={40}
+                                max={500}
+                                step={10}
+                                value={isBeams ? ceilCfg.beamHeightMm : ceilCfg.dropHeightMm}
+                                onChange={(e) =>
+                                  updateCeiling(
+                                    isBeams
+                                      ? { beamHeightMm: Number(e.target.value) }
+                                      : { dropHeightMm: Number(e.target.value) }
+                                  )
+                                }
+                                className="w-full accent-[#141413] cursor-pointer"
+                              />
+                            </div>
+                          )}
+
+                          <div className="flex flex-wrap gap-1.5 pt-0.5">
+                            {ceilCfg.ceilingType === "dropped_perimeter_cove" && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  updateCeiling({ hasHiddenLedCove: !ceilCfg.hasHiddenLedCove })
+                                }
+                                className={`px-2 py-1 rounded-lg text-[10.5px] font-semibold border transition cursor-pointer ${
+                                  ceilCfg.hasHiddenLedCove
+                                    ? "bg-amber-50 text-amber-900 border-amber-300"
+                                    : "bg-white/[0.08] hover:bg-white/[0.15] text-slate-200 border-white/15"
+                                }`}
+                              >
+                                {ceilCfg.hasHiddenLedCove ? "✓ Gizli LED" : "Gizli LED"}
+                              </button>
+                            )}
+                            {!isSloped && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  updateCeiling({ hasRecessedSpots: !ceilCfg.hasRecessedSpots })
+                                }
+                                className={`px-2 py-1 rounded-lg text-[10.5px] font-semibold border transition cursor-pointer ${
+                                  ceilCfg.hasRecessedSpots
+                                    ? "bg-amber-50 text-amber-900 border-amber-300"
+                                    : "bg-white/[0.08] hover:bg-white/[0.15] text-slate-200 border-white/15"
+                                }`}
+                              >
+                                {ceilCfg.hasRecessedSpots ? "✓ Gömme Spot" : "Gömme Spot"}
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateCeiling({
+                                  translucentCutawayIn3D: !ceilCfg.translucentCutawayIn3D,
+                                })
+                              }
+                              className={`px-2 py-1 rounded-lg text-[10.5px] font-semibold border transition cursor-pointer ${
+                                ceilCfg.translucentCutawayIn3D
+                                  ? "bg-sky-50 text-sky-900 border-sky-300"
+                                  : "bg-white/[0.08] hover:bg-white/[0.15] text-slate-200 border-white/15"
+                              }`}
+                            >
+                              {ceilCfg.translucentCutawayIn3D
+                                ? "✓ 3B Yarı-Saydam"
+                                : "3B Yarı-Saydam"}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* V102: Duvar Süpürgeliği Ayarları + Canlı Çakışma Uyarısı */}
                 {(() => {

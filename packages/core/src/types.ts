@@ -137,6 +137,13 @@ export interface SpaceCeilingConfig {
   slopeKneeHeightMm?: UnitLength;
   slopeAngleDeg?: number;
   slopeDirection?: "left_to_right" | "right_to_left" | "back_to_front";
+  slopeDirections?: ("left_to_right" | "right_to_left" | "back_to_front")[];
+  wallSlopes?: Partial<
+    Record<
+      "left_to_right" | "right_to_left" | "back_to_front",
+      { enabled: boolean; kneeHeightMm: number; angleDeg: number }
+    >
+  >;
   colorHex?: string;
 }
 
@@ -622,6 +629,7 @@ export interface CrownMoldingConfig {
 
 export interface CarcassConfig {
   roofSlope?: { side: "none" | "left" | "right" | "rear"; kneeWallHeightMm: number; slopeRunMm: number };
+  secondaryRoofSlope?: { side: "none" | "left" | "right" | "rear"; kneeWallHeightMm: number; slopeRunMm: number };
   panelThickness: UnitLength; // default 18
   topPanelThicknessMm?: UnitLength; // Bağımsız üst tabla kalınlığı (TV bench, konsol vb. için)
   backPanelThickness: UnitLength; // default 8
@@ -740,6 +748,7 @@ export interface ModuleInstance {
   isOpenFront?: boolean;
   isCorner?: boolean;
   roofSlope?: { side: "none" | "left" | "right" | "rear"; kneeWallHeightMm: number; slopeRunMm: number };
+  secondaryRoofSlope?: { side: "none" | "left" | "right" | "rear"; kneeWallHeightMm: number; slopeRunMm: number };
   cornerAngleDeg?: number; // 90 for standard L-corner
   isFixedWidth?: boolean;
   isFreestandingDishwasher?: boolean;

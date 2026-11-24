@@ -2245,10 +2245,37 @@ export function generateBOMForProject(
                   (partJoineryTopology === "top_bottom_through" ||
                     partJoineryTopology === "miter_45");
                 const ys: number[] = [];
+                const isSlopedTop = comp.id.includes("_top_sloped");
+                const isFlatTopSlice = comp.id.includes("_top_flat");
+                const rotZ = comp.rotation?.[2] || 0;
+                const cosSlope = Math.max(0.35, Math.cos(Math.abs(rotZ)));
+                const compStartX = comp.position.x;
+                const compHorizSpan = isSlopedTop
+                  ? comp.dimensions.width * cosSlope
+                  : comp.dimensions.width;
+
                 let curX = isOuterThrough ? T_p : 0;
                 for (let bi = 0; bi < module.bays.length - 1; bi++) {
                   curX += fourSpace.usableInternal.bayClearWidthsMm[bi] || 0;
-                  ys.push(roundMm(curX + T_p / 2, 2));
+                  const divCenterFromInner = curX + T_p / 2;
+                  const divWorldX = (isOuterThrough ? 0 : T_p) + divCenterFromInner;
+                  if (isSlopedTop) {
+                    if (
+                      divWorldX > compStartX + 24 &&
+                      divWorldX < compStartX + compHorizSpan - 24
+                    ) {
+                      ys.push(roundMm((divWorldX - compStartX) / cosSlope, 2));
+                    }
+                  } else if (isFlatTopSlice) {
+                    if (
+                      divWorldX > compStartX + 24 &&
+                      divWorldX < compStartX + compHorizSpan - 24
+                    ) {
+                      ys.push(roundMm(divWorldX - compStartX, 2));
+                    }
+                  } else {
+                    ys.push(roundMm(divCenterFromInner, 2));
+                  }
                   curX += T_p;
                 }
                 return ys;

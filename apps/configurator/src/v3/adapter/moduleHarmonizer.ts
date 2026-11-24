@@ -97,19 +97,30 @@ export function rescaleBayInteriorForHeightChange(
   }
 
   // Rafları ölçekle: çekmece üstündeki bölme rafını çekmece üst kotunda tut, üstündekileri üst bölgede orantıla
+  // ve hiçbir rafın yeniden ölçekleme sonrası çekmece gövdesinin içine girmemesini garanti altına al.
   const oldUpperZone = Math.max(1, safeOldInner - oldDrawerTop);
   const newUpperZone = Math.max(1, safeNewInner - newDrawerTop);
   (bay.shelves || []).forEach((s) => {
     const shT = s.thickness ?? panelThickness;
     const maxY = Math.max(0, safeNewInner - shT);
-    if (oldDrawerTop > 0 && Math.abs(s.elevationY - oldDrawerTop) <= 28) {
-      s.elevationY = roundInt(clamp(newDrawerTop, 0, maxY));
+    let nextY: number;
+    if (oldDrawerTop > 0 && Math.abs(s.elevationY - oldDrawerTop) <= 32) {
+      nextY = roundInt(clamp(newDrawerTop, 0, maxY));
     } else if (oldDrawerTop > 0 && s.elevationY > oldDrawerTop) {
       const rel = (s.elevationY - oldDrawerTop) / oldUpperZone;
-      s.elevationY = roundInt(clamp(newDrawerTop + rel * newUpperZone, newDrawerTop, maxY));
+      nextY = roundInt(clamp(newDrawerTop + rel * newUpperZone, newDrawerTop, maxY));
     } else {
-      s.elevationY = roundInt(clamp((s.elevationY * safeNewInner) / safeOldInner, 0, maxY));
+      nextY = roundInt(clamp((s.elevationY * safeNewInner) / safeOldInner, 0, maxY));
     }
+    // Çekmece gövdesi çakışma koruması: ölçeklenen raf herhangi bir çekmecenin içinden geçiyorsa üstüne al
+    for (const d of drawers) {
+      const drBot = d.elevationY || 0;
+      const drTop = drBot + Math.max(80, d.height || 180);
+      if (nextY + shT > drBot + 10 && nextY < drTop - 2) {
+        nextY = roundInt(clamp(drTop, 0, maxY));
+      }
+    }
+    s.elevationY = nextY;
   });
 
   // Askı borularını ölçekle

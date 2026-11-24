@@ -709,6 +709,17 @@ export const SpaceCeilingConfigSchema = z.object({
   slopeKneeHeightMm: z.number().min(400).max(5000).optional(),
   slopeAngleDeg: z.number().min(3).max(75).optional(),
   slopeDirection: z.enum(["left_to_right", "right_to_left", "back_to_front"]).optional(),
+  slopeDirections: z.array(z.enum(["left_to_right", "right_to_left", "back_to_front"])).optional(),
+  wallSlopes: z
+    .record(
+      z.enum(["left_to_right", "right_to_left", "back_to_front"]),
+      z.object({
+        enabled: z.boolean(),
+        kneeHeightMm: z.number(),
+        angleDeg: z.number(),
+      })
+    )
+    .optional(),
   colorHex: z.string().optional(),
 });
 
