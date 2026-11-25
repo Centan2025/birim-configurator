@@ -19,7 +19,8 @@ import {
 
 describe("V5.9 Architectural Features & Engineering Audit", () => {
   it("snaps a cabinet parallel and flush (0.0mm gap) against a 45° angled wall", () => {
-    const project = createInitialProject("Angled Wall Test");
+    const project = createInitialProject();
+    project.title = "Angled Wall Test";
     const angledWall: WallDefinition = {
       id: "wall_45",
       name: "Açılı Duvar 45°",
@@ -66,9 +67,10 @@ describe("V5.9 Architectural Features & Engineering Audit", () => {
       name: "Özel Pirinç Mimari Kulp 360mm (C-C 320)",
       category: "bar_handle",
       holeSpacingCcMm: 320,
+      protrusionMm: 34,
+      doorHeightDeductionMm: 0,
+      minDoorThicknessMm: 16,
       totalLengthMm: 360,
-      projectionDepthMm: 34,
-      requiresCncRouting: false,
       defaultFinishMaterialId: "mat_handle_brass",
       unitPriceEur: 18.5,
     });
@@ -78,7 +80,8 @@ describe("V5.9 Architectural Features & Engineering Audit", () => {
     expect(found?.holeSpacingCcMm).toBe(320);
     expect(getAllHandleProfiles().some((h) => h.id === "K_CUSTOM_320")).toBe(true);
 
-    const project = createInitialProject("Custom Handle CNC Test");
+    const project = createInitialProject();
+    project.title = "Custom Handle CNC Test";
     project.modules[0].bays[0].door = {
       ...project.modules[0].bays[0].door,
       type: "single_left",
@@ -100,7 +103,8 @@ describe("V5.9 Architectural Features & Engineering Audit", () => {
   });
 
   it("generates Waterfall Kitchen Island panels and 45° Attached Table geometry cleanly", () => {
-    const project = createInitialProject("Kitchen Island & Table Test");
+    const project = createInitialProject();
+    project.title = "Kitchen Island & Table Test";
     const islandMod: ModuleInstance = {
       ...structuredClone(project.modules[0]),
       id: "mod_island_test",
@@ -145,9 +149,10 @@ describe("V5.9 Architectural Features & Engineering Audit", () => {
   });
 
   it("projects 16mm drawer_back panel in 2D A-A & B-B Cross-Section views", () => {
-    const project = createInitialProject("Section Drawer Back Test");
+    const project = createInitialProject();
+    project.title = "Section Drawer Back Test";
     project.modules[0].bays[0].drawers = [
-      { id: "drw_sec_1", bayIndex: 0, elevationY: 0, height: 220 },
+      { id: "drw_sec_1", bayIndex: 0, elevationY: 0, height: 220, slideType: "soft_close" },
     ];
     const bd = generateModuleGeometry(project.modules[0]);
     const secAA = generateCrossSection2D(bd, undefined, { direction: "X", cutCoordMm: 220 });

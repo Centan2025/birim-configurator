@@ -18,6 +18,11 @@ import {
   type BirimSessionRole,
 } from "@birim/integrations";
 
+import {
+  clampAuthoritativeDiscountPercent,
+  sanitizeProjectForServerPricing,
+} from "../../../../lib/authoritative-pricing";
+
 function resolveAuthoritativeProjectArtifacts(
   rawProject: unknown,
   tenantProfile?: import("@birim/core").TenantWorkspaceProfile
@@ -31,9 +36,10 @@ function resolveAuthoritativeProjectArtifacts(
     );
   }
   const parsed = parsedRes.project;
-  syncProjectCustomMaterials(parsed.customMaterials || []);
-  const materialsMap = new Map(
-    [...DEFAULT_MATERIALS, ...(parsed.customMaterials || [])].map((m) => [m.id, m])
+  // Never mutate global DEFAULT_MATERIALS from untrusted client payloads; resolve isolated map per request
+  const { materialsMap, sceneObjects: safeSceneObjects } = sanitizeProjectForServerPricing(
+    parsed,
+    tenantProfile?.tenantId || DEFAULT_BIRIM_ORG_UUID
   );
   const cRule = tenantProfile?.construction;
   const bom = generateBOMForProject(
@@ -55,7 +61,7 @@ function resolveAuthoritativeProjectArtifacts(
     bom,
     tenantProfile ? { ...tenantProfile.pricing } : DEFAULT_PRICING_PARAMS,
     materialsMap,
-    parsed.sceneObjects || []
+    safeSceneObjects
   );
   const unified = evaluateUnifiedEngineeringModel(parsed);
   const compatibility = evaluateProjectCompatibility(parsed);
@@ -141,6 +147,10 @@ export async function POST(req: Request): Promise<Response> {
       tenantCtx.profile
     );
 
+    const safeDiscountRatePercent = clampAuthoritativeDiscountPercent(
+      body.discountRatePercent,
+      tenantCtx.profile
+    );
     const headerIdempKey = req.headers.get("Idempotency-Key") || req.headers.get("idempotency-key");
     const idempotencyKey = (headerIdempKey || body.idempotencyKey || "").trim() || undefined;
 
@@ -158,7 +168,7 @@ export async function POST(req: Request): Promise<Response> {
         bom,
         pricing,
         currency: body.currency || tenantCtx.profile.pricing.currency,
-        discountRatePercent: body.discountRatePercent ?? 0,
+        discountRatePercent: safeDiscountRatePercent,
         autoConvertToOrder: Boolean(body.autoConvertToOrder),
         idempotencyKey,
       });
@@ -214,7 +224,7 @@ export async function POST(req: Request): Promise<Response> {
         const mock = new MockStoreAdapter();
         const reconciled = buildReconciledStoreQuotationLines(project, bom, pricing, {
           currency: body.currency || "TRY",
-          discountRatePercent: body.discountRatePercent ?? 0,
+          discountRatePercent: safeDiscountRatePercent,
         });
         const mockQuoteNo = `${tenantCtx.profile.brand.quoteCodePrefix === "BRM" ? "TKL" : tenantCtx.profile.brand.quoteCodePrefix}-${new Date().getFullYear()}-SIM1`;
         recordTenantAuditEvent({
@@ -285,7 +295,7 @@ export async function POST(req: Request): Promise<Response> {
       customerId: body.customerId || null,
       customerName: body.customerName || project.customerName || null,
       currency: body.currency || "TRY",
-      discountRatePercent: body.discountRatePercent ?? 0,
+      discountRatePercent: safeDiscountRatePercent,
       autoConvertToOrder: Boolean(body.autoConvertToOrder),
       orderDraft: body.orderDraft || null,
       idempotencyKey,

@@ -103,8 +103,8 @@ describe("V7.4 — Çoklu Delik Sistemi (System 32), Mimari Tavan Tipleri ve Des
     const mod = proj.modules[0];
     mod.dimensions = { width: 1200, height: 2460, depth: 600 };
     mod.bays[0].customWidth = 573;
-    mod.wallAnchored = true;
-    mod.wallSubstrate = "concrete";
+    mod.carcass.wallAnchored = true;
+    proj.space.wallSubstrateType = "reinforced_concrete";
 
     // 1) Düz Tavan (2600mm): 2460mm dolap sığar
     proj.space.ceilingConfig = {

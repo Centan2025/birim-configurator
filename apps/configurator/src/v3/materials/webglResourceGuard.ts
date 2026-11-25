@@ -35,6 +35,18 @@ function disposeMaterialSafely(mat: THREE.Material | null | undefined): void {
     "aoMap",
     "alphaMap",
     "emissiveMap",
+    "envMap",
+    "lightMap",
+    "displacementMap",
+    "clearcoatMap",
+    "clearcoatRoughnessMap",
+    "clearcoatNormalMap",
+    "sheenColorMap",
+    "sheenRoughnessMap",
+    "specularIntensityMap",
+    "specularColorMap",
+    "transmissionMap",
+    "thicknessMap",
   ];
   for (const key of textureKeys) {
     const candidate = record[key];
@@ -54,14 +66,20 @@ export function disposeObject3DTree(root: THREE.Object3D | null | undefined): vo
   const geometriesToDispose = new Set<THREE.BufferGeometry>();
   const materialsToDispose = new Set<THREE.Material>();
 
+  const instancedToDispose = new Set<THREE.InstancedMesh>();
+
   root.traverse((obj) => {
+    if (obj instanceof THREE.InstancedMesh) {
+      instancedToDispose.add(obj);
+    }
     if (
       obj instanceof THREE.Mesh ||
       obj instanceof THREE.Line ||
       obj instanceof THREE.LineSegments ||
-      obj instanceof THREE.Points
+      obj instanceof THREE.Points ||
+      obj instanceof THREE.Sprite
     ) {
-      if (obj.geometry && !isSharedWebGLResource(obj.geometry)) {
+      if ("geometry" in obj && obj.geometry && !isSharedWebGLResource(obj.geometry)) {
         geometriesToDispose.add(obj.geometry);
       }
       if (Array.isArray(obj.material)) {
@@ -74,6 +92,7 @@ export function disposeObject3DTree(root: THREE.Object3D | null | undefined): vo
     }
   });
 
+  instancedToDispose.forEach((inst) => inst.dispose());
   geometriesToDispose.forEach((geo) => geo.dispose());
   materialsToDispose.forEach((mat) => disposeMaterialSafely(mat));
   root.clear();

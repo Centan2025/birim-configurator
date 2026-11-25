@@ -77,11 +77,11 @@ describe("2D Cephe (Elevation) UX/UI Helpers & 3-Seviyeli Görünüm", () => {
   it("4. Seçili modül, raf, çekmece, askı ve Blum menteşe bağlamsal bilgisini doğru çözer", () => {
     const project = createInitialProject();
     const mod = project.modules[0];
-    mod.bays[0].shelves = [{ id: "sh_test_1", elevationY: 640, thickness: 18 }];
+    mod.bays[0].shelves = [{ id: "sh_test_1", bayIndex: 0, elevationY: 640, thickness: 18, isAdjustable: true }];
     mod.bays[0].drawers = [
-      { id: "dr_test_1", bayIndex: 0, elevationY: 120, height: 180, slideType: "blum_tandembox" },
+      { id: "dr_test_1", bayIndex: 0, elevationY: 120, height: 180, slideType: "soft_close" },
     ];
-    mod.bays[0].hangingRails = [{ id: "hr_test_1", elevationY: 1650 }];
+    mod.bays[0].hangingRails = [{ id: "hr_test_1", bayIndex: 0, elevationY: 1650 }];
 
     const breakdown = generateModuleGeometry(mod, { doorOpenAngleDeg: 0 });
     const elev = generateElevation2D(breakdown);

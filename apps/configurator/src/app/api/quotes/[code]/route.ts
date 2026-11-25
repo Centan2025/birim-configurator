@@ -6,6 +6,7 @@ import {
 } from "../../../../lib/server-quote-store";
 import {
   TenantSecurityError,
+  extractCookieValue,
   verifyTenantSessionToken,
 } from "../../../../lib/tenant-auth-guard";
 
@@ -16,7 +17,10 @@ export async function GET(
   try {
     const { code } = await context.params;
     const explicitTenantParam = req.nextUrl?.searchParams?.get("tenantId");
-    const sessionHeader = req.headers.get("x-modul-session-token");
+    const authHeader = req.headers.get("authorization") || "";
+    const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : null;
+    const cookieToken = extractCookieValue(req.headers.get("cookie"), "modul_session");
+    const sessionHeader = req.headers.get("x-modul-session-token") || bearerToken || cookieToken;
 
     if (sessionHeader) {
       const claims = verifyTenantSessionToken(sessionHeader);

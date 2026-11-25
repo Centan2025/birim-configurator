@@ -14,6 +14,10 @@ import { generateQrCodeSvg } from "../../../lib/qr-svg";
 import { encodeSharePayloadBase64Url } from "../../../lib/quote-codec";
 import { generateShortQuoteCode, saveVerifiedQuote } from "../../../lib/server-quote-store";
 import {
+  clampAuthoritativeDiscountPercent,
+  sanitizeProjectForServerPricing,
+} from "../../../lib/authoritative-pricing";
+import {
   TenantSecurityError,
   assertTenantPermissionAndEntitlement,
   checkTenantRateLimit,
@@ -72,9 +76,10 @@ export async function POST(req: NextRequest) {
       status: "draft",
     } as DesignProject);
 
-    syncProjectCustomMaterials(cleanProject.customMaterials || []);
-    const materialsMap = new Map(
-      [...DEFAULT_MATERIALS, ...(cleanProject.customMaterials || [])].map((m) => [m.id, m])
+    // Never mutate global DEFAULT_MATERIALS from untrusted client payloads; resolve isolated map per request
+    const { materialsMap, sceneObjects: safeSceneObjects } = sanitizeProjectForServerPricing(
+      cleanProject,
+      ctx.tenantId
     );
 
     const cRule = ctx.profile.construction;
@@ -99,20 +104,14 @@ export async function POST(req: NextRequest) {
         standardSheetAreaM2: sheetAreaM2,
       },
       materialsMap,
-      cleanProject.sceneObjects || []
+      safeSceneObjects
     );
     const compat = evaluateProjectCompatibility(cleanProject);
     const unifiedEng = evaluateUnifiedEngineeringModel(cleanProject);
 
-    const maxAllowedDiscount = pRule.maxSalesRepDiscountPercent ?? 25;
-    const safeDiscountPct = Math.max(
-      0,
-      Math.min(
-        maxAllowedDiscount,
-        Number.isFinite(body.requestedDiscountPercent)
-          ? Number(body.requestedDiscountPercent)
-          : 0
-      )
+    const safeDiscountPct = clampAuthoritativeDiscountPercent(
+      body.requestedDiscountPercent,
+      ctx.profile
     );
     const safeInstallments = Math.max(
       1,

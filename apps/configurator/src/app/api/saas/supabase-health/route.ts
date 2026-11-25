@@ -1,9 +1,34 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { TENANT_BIRIM_ENTERPRISE } from "@birim/core";
+import {
+  TenantSecurityError,
+  resolveTenantRequestContext,
+} from "../../../../lib/tenant-auth-guard";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  try {
+    const ctx = resolveTenantRequestContext(req);
+    const isAllowed =
+      ctx.role === "platform_admin" ||
+      (process.env.NODE_ENV !== "production" && ctx.role === "org_owner");
+    if (!isAllowed) {
+      throw new TenantSecurityError(
+        "PLATFORM_SUPERADMIN_REQUIRED",
+        "Supabase sağlık denetimi yalnızca Platform SuperAdmin yetkisine açıktır.",
+        403
+      );
+    }
+  } catch (err) {
+    if (err instanceof TenantSecurityError) {
+      return NextResponse.json(
+        { ok: false, code: err.code, message: err.message },
+        { status: err.httpStatus }
+      );
+    }
+    return NextResponse.json({ ok: false, message: "Yetki doğrulama hatası." }, { status: 403 });
+  }
   const t0 = Date.now();
   const supabaseUrl = (
     process.env.SUPABASE_URL ||
@@ -82,30 +107,11 @@ export async function GET() {
     const plans = (await plansRes.json()) as { id: string }[];
     const orgs = (await orgsRes.json()) as { id: string; slug: string; plan_id: string }[];
     const tenant1Found = orgs.some((o) => o.id === TENANT_BIRIM_ENTERPRISE.tenantId);
-
-    // 2. Live Write Roundtrip to modul_audit_logs
-    const writeRes = await fetch(`${supabaseUrl}/rest/v1/modul_audit_logs`, {
-      method: "POST",
-      headers: {
-        ...headers,
-        Prefer: "return=representation",
-      },
-      body: JSON.stringify({
-        tenant_id: TENANT_BIRIM_ENTERPRISE.tenantId,
-        actor_role: "platform_admin",
-        action: "SUPABASE_HEALTH_ROUNDTRIP_OK",
-        target_type: "healthcheck",
-        target_id: "modul_saas_init",
-        metadata: { checkedAt: new Date().toISOString() },
-      }),
-    });
-
-    const auditWriteVerified = writeRes.ok;
     const latencyMs = Date.now() - t0;
 
     return NextResponse.json({
-      ok: auditWriteVerified && tenant1Found && plans.length >= 4,
-      stage: "ALL_CHECKS_PASSED",
+      ok: tenant1Found && plans.length >= 4,
+      stage: "READ_HEALTH_PASSED",
       supabaseConnected: true,
       latencyMs,
       keyFormat: secretKey.startsWith("sb_secret_") ? "sb_secret_modern" : "legacy_jwt",
@@ -113,9 +119,7 @@ export async function GET() {
       postgrestLiveEnabled,
       plansCount: plans.length,
       organizationsCount: orgs.length,
-      organizations: orgs,
       tenant1Found,
-      auditWriteVerified,
     });
   } catch (err) {
     return NextResponse.json(

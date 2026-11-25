@@ -15,7 +15,7 @@ const mockPieces: CutPiece[] = [
     widthMm: 580,
     thicknessMm: 18,
     quantity: 1,
-    edgeBanding: { top: true, bottom: true, left: true, right: true },
+    edgeBanding: { top: true, bottom: true, left: true, right: true, thickness: 1 },
     grain: "lengthwise",
     areaM2: 1.276,
     edgeBandMeters: 5.56,

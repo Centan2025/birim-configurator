@@ -67,6 +67,7 @@ export async function POST(req: NextRequest) {
       });
       res.cookies?.set?.("modul_session", sessionToken, {
         httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
         sameSite: "lax",
         path: "/",
         maxAge: 8 * 3600,
@@ -75,14 +76,28 @@ export async function POST(req: NextRequest) {
     }
 
     if (body.action === "register_org") {
+      if (!body.password || body.password.trim().length < 8) {
+        throw new TenantSecurityError(
+          "WEAK_PASSWORD",
+          "Parola en az 8 karakter uzunluğunda olmalıdır.",
+          400
+        );
+      }
+      if (body.planId === "enterprise") {
+        throw new TenantSecurityError(
+          "ENTERPRISE_PLAN_REQUIRES_SALES",
+          "Enterprise abonelik yalnızca sözleşmeli satış veya ödeme doğrulaması ile aktif edilebilir.",
+          403
+        );
+      }
       const created = await modulPostgresRepo.registerOrganizationAndOwner({
         companyDisplayName: body.companyDisplayName || "Yeni Mobilya Stüdyosu",
         companyLegalName: body.companyLegalName || body.companyDisplayName || "Yeni Mobilya A.Ş.",
         slug: body.slug || `firma-${Date.now()}`,
         ownerFullName: body.fullName || "Firma Yöneticisi",
         ownerEmail: body.email || `kurucu@${Date.now()}.modul.studio`,
-        password: body.password || "Modul2026!",
-        planId: body.planId || "business",
+        password: body.password,
+        planId: body.planId || "starter",
         currency: body.currency || "TRY",
         carcassThicknessMm: body.carcassThicknessMm || 18,
         backPanelMounting: body.backPanelMounting || "grooved_8mm",
@@ -96,7 +111,7 @@ export async function POST(req: NextRequest) {
         role: "org_owner",
       });
 
-      return NextResponse.json(
+      const regRes = NextResponse.json(
         {
           ok: true,
           tenant: created.tenant,
@@ -106,6 +121,14 @@ export async function POST(req: NextRequest) {
         },
         { status: 201 }
       );
+      regRes.cookies?.set?.("modul_session", sessionToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: 8 * 3600,
+      });
+      return regRes;
     }
 
     if (body.action === "create_invite") {
@@ -121,17 +144,32 @@ export async function POST(req: NextRequest) {
     }
 
     if (body.action === "accept_invite") {
+      if (!body.password || body.password.trim().length < 8) {
+        throw new TenantSecurityError(
+          "WEAK_PASSWORD",
+          "Parola en az 8 karakter uzunluğunda olmalıdır.",
+          400
+        );
+      }
       const membership = modulPostgresRepo.acceptMemberInvitation({
         inviteToken: body.inviteToken || "",
         fullName: body.fullName || "Ekip Üyesi",
-        password: body.password || "Modul2026!",
+        password: body.password,
       });
       const sessionToken = signTenantSessionToken({
         tenantId: membership.tenantId,
         userId: membership.userId,
         role: membership.role,
       });
-      return NextResponse.json({ ok: true, membership, sessionToken });
+      const invRes = NextResponse.json({ ok: true, membership, sessionToken });
+      invRes.cookies?.set?.("modul_session", sessionToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: 8 * 3600,
+      });
+      return invRes;
     }
 
     if (body.action === "logout") {

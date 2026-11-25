@@ -1382,14 +1382,20 @@ export function createInitialProject(): DesignProject {
   };
 }
 
+const BUILTIN_OFFICIAL_MATERIAL_IDS = new Set<string>(DEFAULT_MATERIALS.map((m) => m.id));
+
 /**
  * Registers or updates a user-created custom surface/material (e.g. custom RAL/HEX lacquer
  * or uploaded .JPG/.PNG wood/marble texture) inside `DEFAULT_MATERIALS` so 3D PBR, BOM,
  * pricing, and customer PDFs immediately recognize it across the entire monorepo.
+ * Built-in factory materials are immutable against price/spec overrides.
  */
 export function registerRuntimeMaterial(mat: MaterialDefinition): MaterialDefinition {
   const existingIdx = DEFAULT_MATERIALS.findIndex((m) => m.id === mat.id);
   if (existingIdx >= 0) {
+    if (BUILTIN_OFFICIAL_MATERIAL_IDS.has(mat.id)) {
+      return DEFAULT_MATERIALS[existingIdx];
+    }
     DEFAULT_MATERIALS[existingIdx] = { ...DEFAULT_MATERIALS[existingIdx], ...mat };
     return DEFAULT_MATERIALS[existingIdx];
   }

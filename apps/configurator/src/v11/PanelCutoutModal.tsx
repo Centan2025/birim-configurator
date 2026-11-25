@@ -95,8 +95,8 @@ export const PanelCutoutModal: React.FC<PanelCutoutModalProps> = React.memo(
 
           <div className="p-5 max-h-[75dvh] overflow-y-auto">
             <PanelCutoutInspector
-              activeModule={activeModule as any}
-              allModules={allModules as any}
+              activeModule={activeModule}
+              allModules={allModules}
               roomObstacles={mappedObstacles}
               bomCutPieces={cncPieces}
               canExportProduction={canExportProduction}

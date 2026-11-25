@@ -65,12 +65,13 @@ const RATE_LIMIT_BUCKETS = new Map<string, { count: number; resetAtMs: number }>
 function getSessionSecret(): string {
   const configured =
     process.env.MODUL_SAAS_SESSION_SECRET ||
+    process.env.BIRIM_SESSION_HMAC_SECRET ||
     process.env.BIRIM_QUOTE_SIGNING_SECRET;
   if (!configured && process.env.NODE_ENV === "production") {
     throw new TenantSecurityError(
       "SERVER_SECRET_MISSING",
       "Üretim ortamında MODUL_SAAS_SESSION_SECRET tanımlanması zorunludur.",
-      500
+      503
     );
   }
   return configured || "modul-saas-dev-session-hmac-secret-v1";
@@ -141,22 +142,38 @@ export function verifyTenantSessionToken(rawToken: string | null | undefined): T
 }
 
 function mapLegacySessionRoleToSaasRole(legacyRole?: string | null): SaasRoleId {
-  switch ((legacyRole || "").toLowerCase()) {
+  const normalized = (legacyRole || "").trim().toLowerCase();
+  if (!normalized) {
+    return process.env.NODE_ENV === "production" ? "readonly_viewer" : "org_owner";
+  }
+  switch (normalized) {
+    case "owner":
+    case "org_owner":
+      return "org_owner";
     case "admin":
     case "super_admin":
+    case "org_admin":
       return "org_admin";
     case "production_manager":
+    case "production_lead":
     case "factory":
       return "production_lead";
+    case "architect":
+      return "architect";
+    case "designer":
+      return "designer";
     case "sales_manager":
+    case "sales_rep":
     case "sales":
       return "sales_rep";
     case "dealer":
+    case "dealer_admin":
       return "dealer_admin";
     case "viewer":
+    case "readonly_viewer":
       return "readonly_viewer";
     default:
-      return "org_owner";
+      return "readonly_viewer";
   }
 }
 
@@ -264,7 +281,10 @@ export function resolveTenantRequestContext(
     };
   }
 
-  if (process.env.MODUL_SAAS_REQUIRE_AUTH === "true") {
+  const requireAuth =
+    process.env.MODUL_SAAS_REQUIRE_AUTH === "true" ||
+    (process.env.NODE_ENV === "production" && process.env.MODUL_SAAS_REQUIRE_AUTH !== "false");
+  if (requireAuth) {
     throw new TenantSecurityError(
       "AUTH_SESSION_REQUIRED",
       "Bu SaaS uç noktası için doğrulanmış organizasyon oturumu gereklidir.",
@@ -343,12 +363,23 @@ export function assertTenantPermissionAndEntitlement(
   }
 }
 
+const MAX_RATE_LIMIT_BUCKETS = 4096;
+
 export function checkTenantRateLimit(
   tenantId: string,
   bucketName: string,
   maxRequestsPerMinute = 120
 ): void {
   const now = Date.now();
+  if (RATE_LIMIT_BUCKETS.size > MAX_RATE_LIMIT_BUCKETS) {
+    for (const [k, v] of RATE_LIMIT_BUCKETS.entries()) {
+      if (now >= v.resetAtMs) RATE_LIMIT_BUCKETS.delete(k);
+    }
+    if (RATE_LIMIT_BUCKETS.size > MAX_RATE_LIMIT_BUCKETS) {
+      const oldestKey = RATE_LIMIT_BUCKETS.keys().next().value;
+      if (oldestKey) RATE_LIMIT_BUCKETS.delete(oldestKey);
+    }
+  }
   const key = `${tenantId}:${bucketName}`;
   const entry = RATE_LIMIT_BUCKETS.get(key);
   if (!entry || now >= entry.resetAtMs) {

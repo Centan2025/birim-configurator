@@ -1,5 +1,6 @@
 "use client";
 
+
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   DEFAULT_MATERIALS,
@@ -9,27 +10,29 @@ import {
   type CustomStandardMetric,
   type CustomStandardRule,
   type DesignProject,
+  type DoorSystemId,
 } from "@birim/core";
 import { V5_SPECIALIZED_MODULE_TEMPLATES } from "@birim/catalog";
 import { convertSceneObjectsToExportBoxes, generateModuleGeometry } from "@birim/geometry";
-import {
-  useV3Adapter,
-  KITCHEN_ENGINEERING_RULE_REGISTRY,
-  type EngineeringValidationFinding,
-} from "../v3/adapter/useV3Adapter";
+import { useV3Adapter, type EngineeringValidationFinding } from "../v3/adapter/useV3Adapter";
 import { useConfiguratorStore } from "../store/useConfiguratorStore";
 import { V3ThreeViewport } from "../v3/components/V3ThreeViewport";
-import type { CommandPaletteAction } from "../v3/components/workspace/CommandSearchModal";
 
 import { StudioHeaderBar } from "./StudioHeaderBar";
 import { useDeviceProfile } from "./useDeviceProfile";
 import { safeLocalStorageGet, safeLocalStorageSet } from "../lib/safeStorage";
+import {
+  clearAutoSavedDraft,
+  createDebouncedDraftAutoSaver,
+  loadAutoSavedDraft,
+} from "../lib/draftAutoSave";
+import { PanelErrorBoundary } from "../components/PanelErrorBoundary";
 import { LeftCatalogLauncher } from "./LeftCatalogLauncher";
 import { RightParametricInspector } from "./RightParametricInspector";
 import { ShowroomPresentationOverlay } from "./ShowroomPresentationOverlay";
 import { BottomSceneDock } from "./BottomSceneDock";
 import { OnObjectQuickToolbar, type Selected3DPartKind } from "./OnObjectQuickToolbar";
-import { HardwareQuickSwapPopover, type HardwareSwapGroup, type HardwareSwapTarget } from "./HardwareQuickSwapPopover";
+import { type HardwareSwapTarget } from "./HardwareQuickSwapPopover";
 import { QuickStyleAndMaterialDock } from "./QuickStyleAndMaterialDock";
 import { resolveModuleHostWallId, wallIntervalToModulePosition, computeRoomDynamicCenter } from "../v3/engine/multiWallSnapAndBvhEngine";
 import {
@@ -38,23 +41,15 @@ import {
   getModuleOrientedFootprint,
 } from "../v3/engine/kitchenSpatialEngine";
 import { getWallRoomBasis } from "../v3/engine/angledWallSnapEngine";
-import { AnimatedModalPresence, AnimatedValuePresence } from "./AnimatedWindowPresence";
-import {
-  BIRIM_CURATED_MOODBOARDS,
-  applyZoneMaterialToProjectDraft,
-  applyCuratedMoodboardToProjectDraft,
-  replaceExistingMaterialAcrossProjectDraft,
-  dispatchPaintToolState3D,
-  type QuickZoneScope,
-  type CuratedBirimMoodboard,
-  type PaintTool3DState,
-} from "./quickMaterialAndMoodboardEngine";
+import { applyZoneMaterialToProjectDraft, applyCuratedMoodboardToProjectDraft, replaceExistingMaterialAcrossProjectDraft, dispatchPaintToolState3D, type QuickZoneScope, type CuratedBirimMoodboard, type PaintTool3DState } from "./quickMaterialAndMoodboardEngine";
 import type {
   V11CadSubMode,
   V11InspectorTab,
   V11LeftDrawerTab,
   V11WorkspaceMode,
 } from "./v11Constants";
+import { useStudioKeyboardEventsAndCommands } from "./workspace/useStudioKeyboardEventsAndCommands";
+import { StudioModalsLayer } from "./workspace/StudioModalsLayer";
 
 // Performans: İlk 3B açılışta kullanılmayan 2B CAD ve 19 modal/panel React.lazy ile tembel yüklenir (~%45-55 ilk JS azalması).
 // next/dynamic({ ssr: false }) yerine React.lazy + Suspense kullanmak React 19 DevTools hydrated Suspense hatasını da önler.
@@ -200,21 +195,68 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
   const setDisplayUnit = useConfiguratorStore((s) => s.setDisplayUnit);
 
   useEffect(() => {
-    try {
-      const saved = window.localStorage.getItem("birim_elev_unit");
-      if (saved === "mm" || saved === "cm") {
-        setDisplayUnit(saved);
-      }
-    } catch {
-      // ignore storage errors
+    const saved = safeLocalStorageGet("birim_elev_unit");
+    if (saved === "mm" || saved === "cm") {
+      setDisplayUnit(saved);
     }
   }, [setDisplayUnit]);
+  const autoSaveStatus = useConfiguratorStore((s) => s.autoSaveStatus);
+  const setAutoSaveStatus = useConfiguratorStore((s) => s.setAutoSaveStatus);
   const setExperienceTier = useConfiguratorStore((s) => s.setUserExperienceTier);
   const viewportRenderStyle = useConfiguratorStore((s) => s.viewportRenderStyle);
   const setViewportRenderStyle = useConfiguratorStore((s) => s.setViewportRenderStyle);
   const activeTenantId = useConfiguratorStore((s) => s.activeTenantId);
   const updateCeilingConfig = useConfiguratorStore((s) => s.updateCeilingConfig);
   const updateBayDrawerConfig = useConfiguratorStore((s) => s.updateBayDrawerConfig);
+
+  const autoSaverRef = useRef<ReturnType<typeof createDebouncedDraftAutoSaver> | null>(null);
+  const hasHydratedProjectRef = useRef(false);
+  const [recoverableDraft, setRecoverableDraft] = useState<{
+    project: DesignProject;
+    savedAt: string;
+  } | null>(() => {
+    if (typeof window === "undefined") return null;
+    const found = loadAutoSavedDraft(activeTenantId);
+    if (!found || !found.project.modules?.length) return null;
+    const isModified =
+      found.project.version > 1 ||
+      found.project.title !== project.title ||
+      found.project.modules.length !== project.modules.length;
+    return isModified ? found : null;
+  });
+
+  useEffect(() => {
+    if (!autoSaverRef.current) {
+      autoSaverRef.current = createDebouncedDraftAutoSaver(1500);
+    }
+    return () => {
+      autoSaverRef.current?.flush();
+      autoSaverRef.current?.cancel();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hasHydratedProjectRef.current) {
+      hasHydratedProjectRef.current = true;
+      return;
+    }
+    autoSaverRef.current?.schedule(activeTenantId, project, setAutoSaveStatus);
+  }, [activeTenantId, project, setAutoSaveStatus]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (autoSaverRef.current?.hasPending()) {
+        autoSaverRef.current.flush();
+      }
+      if (autoSaveStatus === "saving") {
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [autoSaveStatus]);
   const [hardwareSwapTarget, setHardwareSwapTarget] = useState<HardwareSwapTarget | null>(null);
   const [doorShowcaseOpen, setDoorShowcaseOpen] = useState(false);
   const [quickPaletteOpen, setQuickPaletteOpen] = useState(false);
@@ -354,336 +396,6 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
     }
   }, []);
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const onBay3D = (ev: Event) => {
-      const detail = (
-        ev as CustomEvent<{ bayIndex?: number; moduleIndex?: number; role?: string; componentId?: string }>
-      ).detail;
-      if (typeof detail?.moduleIndex === "number" && detail.moduleIndex >= 0) {
-        setActiveModuleIndex(detail.moduleIndex);
-      }
-      const bIdx = typeof detail?.bayIndex === "number" ? detail.bayIndex : 0;
-      setActiveBayIndex(bIdx);
-      setSelected3DCompId(detail?.componentId || null);
-      const r = detail?.role || "";
-      const partKind: Selected3DPartKind = r.includes("sub_divider")
-        ? "sub_divider"
-        : r.includes("shelf")
-        ? "shelf"
-        : r.includes("drawer")
-        ? "drawer"
-        : r.includes("rail")
-        ? "rail"
-        : "bay";
-      const roleTr =
-        partKind === "sub_divider"
-          ? "Raf Arası Dikme"
-          : partKind === "shelf"
-          ? "Raf"
-          : partKind === "drawer"
-          ? "Çekmece"
-          : partKind === "rail"
-          ? "Askı Borusu"
-          : "Bölme İçi";
-      setSelected3DPartKind(partKind);
-      setSelected3DContextLabel(`${bIdx + 1}. Bölme • ${roleTr}`);
-      setInspectorTab("interior");
-      setIsInspectorOpen(true);
-    };
-    const onDoor3D = (ev: Event) => {
-      const detail = (ev as CustomEvent<{ bayIndex?: number; componentId?: string }>).detail;
-      const bIdx = typeof detail?.bayIndex === "number" ? detail.bayIndex : 0;
-      setActiveBayIndex(bIdx);
-      setSelected3DCompId(detail?.componentId || null);
-      setSelected3DPartKind("door");
-      setSelected3DContextLabel(`${bIdx + 1}. Bölme • Kapak`);
-      setInspectorTab("doors");
-      setIsInspectorOpen(true);
-    };
-    const onMat3D = () => {
-      setSelected3DPartKind("door");
-      setSelected3DContextLabel("Yüzey & Kartela");
-      setInspectorTab("materials");
-      setIsInspectorOpen(true);
-    };
-    const onHardware3D = (ev: Event) => {
-      const detail = (
-        ev as CustomEvent<{
-          group?: string;
-          bayIndex?: number;
-          componentId?: string;
-          moduleIndex?: number;
-          sku?: string;
-        }>
-      ).detail;
-      if (typeof detail?.moduleIndex === "number" && detail.moduleIndex >= 0) {
-        setActiveModuleIndex(detail.moduleIndex);
-      }
-      const bIdx = typeof detail?.bayIndex === "number" ? detail.bayIndex : 0;
-      setActiveBayIndex(bIdx);
-      const rawGroup = detail?.group || "hinge";
-      const mappedGroup: HardwareSwapGroup =
-        rawGroup === "handle"
-          ? "handle"
-          : rawGroup === "drawer_slide" || rawGroup === "drawer"
-          ? "drawer_slide"
-          : rawGroup === "rail" || rawGroup === "accessories"
-          ? "rail"
-          : "hinge";
-      setHardwareSwapTarget({
-        group: mappedGroup,
-        bayIndex: bIdx,
-        componentId: detail?.componentId || null,
-        sku: detail?.sku || null,
-      });
-    };
-    const onClear3DSelection = () => {
-      setSelected3DContextLabel(null);
-      setSelected3DCompId(null);
-      setHardwareSwapTarget(null);
-    };
-    const onOpenStudioRender = () => setStudioRenderOpen(true);
-    const onDeleteActiveSelection = () => {
-      const stNow = useConfiguratorStore.getState();
-      if (stNow.selectedSceneObjectId) {
-        stNow.removeSceneObject(stNow.selectedSceneObjectId);
-        stNow.setSelectedSceneObjectId(null);
-        setSelected3DContextLabel(null);
-        latestRef.current.showToast("Seçili 3B obje silindi.");
-        return;
-      }
-      const selComp = stNow.selectedComponentId;
-      if (selComp && removeSelectedInteriorComponent()) {
-        setSelected3DContextLabel(null);
-        return;
-      }
-      if (stNow.project.modules.length > 1) {
-        const delIdx = Math.max(0, Math.min(stNow.activeModuleIndex, stNow.project.modules.length - 1));
-        const delName = stNow.project.modules[delIdx]?.name || "Modül";
-        removeModuleAt(delIdx);
-        setSelected3DContextLabel(null);
-        latestRef.current.showToast(`"${delName}" sahneden silindi.`);
-      } else {
-        latestRef.current.showToast("Sahnede en az 1 ana modül kalmalıdır.");
-      }
-    };
-    const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        setCommandSearchOpen((v) => !v);
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !e.shiftKey) {
-        const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
-        if (tag !== "input" && tag !== "textarea") {
-          e.preventDefault();
-          undo();
-        }
-      } else if (
-        (e.ctrlKey || e.metaKey) &&
-        (e.key.toLowerCase() === "y" || (e.shiftKey && e.key.toLowerCase() === "z"))
-      ) {
-        const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
-        if (tag !== "input" && tag !== "textarea") {
-          e.preventDefault();
-          redo();
-        }
-      } else if (!e.ctrlKey && !e.metaKey && !e.altKey) {
-        const el = e.target as HTMLElement | null;
-        const tag = el?.tagName?.toLowerCase();
-        if (tag === "input" || tag === "textarea" || tag === "select" || el?.isContentEditable) {
-          return;
-        }
-        const k = e.key.toLowerCase();
-        if (k === "m") {
-          e.preventDefault();
-          setQuickPaletteOpen((v) => !v);
-        } else if (k === "b") {
-          e.preventDefault();
-          setPaintToolState((prev) => ({
-            ...prev,
-            mode: prev.mode === "paint" ? "none" : "paint",
-          }));
-        } else if (k === "i") {
-          e.preventDefault();
-          setPaintToolState((prev) => ({
-            ...prev,
-            mode: prev.mode === "eyedropper" ? "none" : "eyedropper",
-          }));
-        } else if (e.key === "Delete" || e.key === "Backspace") {
-          // In 2D Plan mode, let V3CadViewport2D handle deleting selected plan walls, obstacles, or placed items
-          if (workspaceModeRef.current === "plan") return;
-          if ((e as unknown as { __birimDeleteHandled?: boolean }).__birimDeleteHandled) return;
-          (e as unknown as { __birimDeleteHandled?: boolean }).__birimDeleteHandled = true;
-          e.preventDefault();
-          e.stopImmediatePropagation?.();
-          const stDel = useConfiguratorStore.getState();
-          // 1. Delete selected 3D scene object (appliance, chair, plant, etc.)
-          if (stDel.selectedSceneObjectId) {
-            const objId = stDel.selectedSceneObjectId;
-            stDel.removeSceneObject(objId);
-            stDel.setSelectedSceneObjectId(null);
-            latestRef.current.showToast("Seçili 3B obje silindi.");
-            return;
-          }
-          // 2. Delete selected interior cabinet component (shelf, drawer, rail, sub-divider, special_fitting/accessory)
-          // Works identically in BOTH 3D Viewport and 2D Front Elevation regardless of selected3DPartKind!
-          const selCid = stDel.selectedComponentId || "";
-          if (selCid) {
-            if (removeSelectedInteriorComponent()) {
-              setSelected3DContextLabel(null);
-              latestRef.current.showToast("Seçili iç parça silindi (Ctrl+Z ile geri al).");
-              return;
-            }
-            if (selCid.includes("_fitting_") || selCid.includes("_fit_")) {
-              let deletedFit = false;
-              stDel.applyBatchProjectUpdate((draft) => {
-                for (const m of draft.modules) {
-                  for (const b of m.bays) {
-                    if (!b.specialFittings?.length) continue;
-                    const before = b.specialFittings.length;
-                    b.specialFittings = b.specialFittings.filter(
-                      (f) => !selCid.startsWith(f.id) && !selCid.includes(f.id)
-                    );
-                    if (b.specialFittings.length < before) deletedFit = true;
-                  }
-                }
-              }, "İç donanım silindi");
-              if (deletedFit) {
-                stDel.setSelectedComponentId(null);
-                setSelected3DContextLabel(null);
-                latestRef.current.showToast("Seçili donanım silindi (Ctrl+Z ile geri al).");
-                return;
-              }
-            }
-            // 2b. Vertical carcass divider -> remove divider & merge adjacent bays
-            const activeMod =
-              stDel.project.modules[stDel.activeModuleIndex] || stDel.project.modules[0];
-            if (activeMod && (selCid.includes("_divider_") || selCid.includes("carcass_divider"))) {
-              if (activeMod.bays.length > 1) {
-                const divMatch = selCid.match(/divider_(\d+)/);
-                const bIdx = divMatch
-                  ? Math.max(0, Math.min(activeMod.bays.length - 1, Number(divMatch[1])))
-                  : Math.max(0, Math.min(activeMod.bays.length - 1, stDel.activeBayIndex));
-                removeBayAt(bIdx);
-                stDel.setSelectedComponentId(null);
-                setSelected3DContextLabel(null);
-                latestRef.current.showToast("Ara dikme kaldırıldı ve bölmeler birleştirildi.");
-                return;
-              }
-            }
-            // 2c. Door leaf / hinge -> remove door from bay (convert to open bay)
-            if (activeMod && (selCid.includes("_door_") || selCid.includes("_hinge_"))) {
-              const bayMatch = selCid.match(/bay_(\d+)/);
-              const bIdx = bayMatch
-                ? Math.max(0, Math.min(activeMod.bays.length - 1, Number(bayMatch[1])))
-                : Math.max(0, Math.min(activeMod.bays.length - 1, stDel.activeBayIndex));
-              if (activeMod.bays[bIdx]?.door?.type && activeMod.bays[bIdx].door.type !== "open") {
-                setBayDoorType(bIdx, "open");
-                stDel.setSelectedComponentId(null);
-                setSelected3DContextLabel(null);
-                latestRef.current.showToast("Bölme kapağı kaldırıldı (Açık bölme).");
-                return;
-              }
-            }
-          }
-          // 3. Delete currently active module (keep at least 1 module in scene)
-          if (stDel.project.modules.length > 1) {
-            const delIdx = Math.max(
-              0,
-              Math.min(stDel.activeModuleIndex, stDel.project.modules.length - 1)
-            );
-            const delName = stDel.project.modules[delIdx]?.name || "Modül";
-            removeModuleAt(delIdx);
-            setSelected3DContextLabel(null);
-            latestRef.current.showToast(`"${delName}" sahneden silindi.`);
-          } else {
-            latestRef.current.showToast("Sahnede en az 1 ana modül kalmalıdır.");
-          }
-        } else if (e.key === "Escape") {
-          setPaintToolState((prev) =>
-            prev.mode === "none" ? prev : { ...prev, mode: "none" }
-          );
-        }
-      }
-    };
-
-    const onMaterialSampled3D = (ev: Event) => {
-      const detail = (
-        ev as CustomEvent<{ materialId: string; materialName: string; toolState?: PaintTool3DState }>
-      ).detail;
-      if (!detail) return;
-      if (detail.toolState) {
-        setPaintToolState(detail.toolState);
-      }
-      showToast(`Damlalık ile alındı: ${detail.materialName} — Boyamaya hazır`);
-    };
-
-    const onMaterialPainted3D = (ev: Event) => {
-      const detail = (ev as CustomEvent<{ materialName: string }>).detail;
-      if (detail?.materialName) {
-        showToast(`${detail.materialName} yüzeye uygulandı.`);
-      }
-    };
-
-    const onTogglePaletteEvt = () => setQuickPaletteOpen((v) => !v);
-    const onTogglePaintEvt = () => {
-      setPaintToolState((prev) => ({
-        ...prev,
-        mode: prev.mode === "paint" ? "none" : "paint",
-      }));
-    };
-    const onClearPaintToolEvt = () => {
-      setPaintToolState((prev) => (prev.mode === "none" ? prev : { ...prev, mode: "none" }));
-    };
-    const onSyncPaintToolFrom3DEvt = (ev: Event) => {
-      const detail = (ev as CustomEvent<PaintTool3DState>).detail;
-      if (detail) setPaintToolState(detail);
-    };
-    const onWallSelected3DEvt = () => {
-      // Selected wall is already highlighted directly in the 3D scene; skip noisy toast banner.
-    };
-    const onStyleCopiedEvt = (ev: Event) => {
-      const detail = (ev as CustomEvent<{ sourceModuleName?: string } | null>).detail;
-      if (detail?.sourceModuleName) {
-        showToast(`"${detail.sourceModuleName}" stili kopyalandı — Sağ tıkla başka dolaplara yapıştırın.`);
-      }
-    };
-
-    window.addEventListener("birim:select-bay-3d", onBay3D);
-    window.addEventListener("birim:select-door-3d", onDoor3D);
-    window.addEventListener("birim:select-hardware-3d", onHardware3D);
-    window.addEventListener("birim:select-material-part-3d", onMat3D);
-    window.addEventListener("birim:clear-3d-selection", onClear3DSelection);
-    window.addEventListener("birim:open-studio-render-modal", onOpenStudioRender);
-    window.addEventListener("birim:delete-active-selection", onDeleteActiveSelection);
-    window.addEventListener("birim:material-sampled-3d", onMaterialSampled3D);
-    window.addEventListener("birim:material-painted-3d", onMaterialPainted3D);
-    window.addEventListener("birim:toggle-quick-palette-dock", onTogglePaletteEvt);
-    window.addEventListener("birim:toggle-paint-bucket-shortcut", onTogglePaintEvt);
-    window.addEventListener("birim:request-clear-paint-tool-3d", onClearPaintToolEvt);
-    window.addEventListener("birim:sync-paint-tool-from-3d", onSyncPaintToolFrom3DEvt);
-    window.addEventListener("birim:wall-selected-3d", onWallSelected3DEvt);
-    window.addEventListener("birim:style-clipboard-changed", onStyleCopiedEvt);
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("birim:select-bay-3d", onBay3D);
-      window.removeEventListener("birim:select-door-3d", onDoor3D);
-      window.removeEventListener("birim:select-hardware-3d", onHardware3D);
-      window.removeEventListener("birim:select-material-part-3d", onMat3D);
-      window.removeEventListener("birim:clear-3d-selection", onClear3DSelection);
-      window.removeEventListener("birim:open-studio-render-modal", onOpenStudioRender);
-      window.removeEventListener("birim:delete-active-selection", onDeleteActiveSelection);
-      window.removeEventListener("birim:material-sampled-3d", onMaterialSampled3D);
-      window.removeEventListener("birim:material-painted-3d", onMaterialPainted3D);
-      window.removeEventListener("birim:toggle-quick-palette-dock", onTogglePaletteEvt);
-      window.removeEventListener("birim:toggle-paint-bucket-shortcut", onTogglePaintEvt);
-      window.removeEventListener("birim:request-clear-paint-tool-3d", onClearPaintToolEvt);
-      window.removeEventListener("birim:sync-paint-tool-from-3d", onSyncPaintToolFrom3DEvt);
-      window.removeEventListener("birim:wall-selected-3d", onWallSelected3DEvt);
-      window.removeEventListener("birim:style-clipboard-changed", onStyleCopiedEvt);
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [setActiveBayIndex, undo, redo, showToast]);
 
   // Combine V5 specialized templates (TV Bench, Capsule Table, Capsule Bar, Bookcase, Vestiyer, Vanity) + V4 templates + user custom templates
   const combinedTemplates = useMemo(() => {
@@ -696,7 +408,12 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
       defaultDimensions: ct.serializedModuleSnapshot.dimensions,
       dimensionLimits: { minW: 300, maxW: 3600, minH: 350, maxH: 2900, minD: 280, maxD: 950 },
       defaultDoorSystemId: "hinged_double" as const,
-      compatibleDoorSystems: ["hinged_single", "hinged_double", "sliding_top_hung", "open"] as any,
+      compatibleDoorSystems: [
+        "hinged_single",
+        "hinged_double",
+        "sliding_top_hung",
+        "open",
+      ] as DoorSystemId[],
       createInstance: (id: string, customName?: string) => {
         const cl = JSON.parse(JSON.stringify(ct.serializedModuleSnapshot));
         cl.id = id;
@@ -995,209 +712,6 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
     [variantSnapshots]
   );
 
-  const commandActions = useMemo<CommandPaletteAction[]>(
-    () => [
-      {
-        id: "open_catalog",
-        labelTr: "Ürün, Modül, TV Bench ve Masa Kataloğunu Aç",
-        categoryTr: "Tasarım",
-        keywords: "modül ekle gardırop mutfak tv bench konsol masa kütüphane",
-        onExecute: () => setLeftDrawer("catalog"),
-      },
-      {
-        id: "open_island",
-        labelTr: "Şelale Mutfak Adası ve Açılı Yemek/Bar Masası Ekle",
-        categoryTr: "Mutfak",
-        keywords: "ada mutfak şelale masa bar taburesi",
-        onExecute: () => setKitchenIslandOpen(true),
-      },
-      {
-        id: "open_capsule",
-        labelTr: "Kapsül Stadyum Yemek Masası & Tamburlu Konsol Tasarla",
-        categoryTr: "Özel Ürün",
-        keywords: "kapsül oval masa konsol bar glb 3d",
-        onExecute: () => setSceneHubTab("capsule_curved"),
-      },
-      {
-        id: "open_wizard",
-        labelTr: "Hızlı Oda & Dolap Kurulum Sihirbazı",
-        categoryTr: "Tasarım",
-        keywords: "sihirbaz otomatik kurulum oda",
-        onExecute: () => setWizardModalOpen(true),
-      },
-      {
-        id: "open_section_2d",
-        labelTr: "Görsel Planlı 2B A-A Yan Kesit Ekranını Aç",
-        categoryTr: "Teknik Çizim",
-        keywords: "kesit plan aa bb 2d",
-        onExecute: () => {
-          setWorkspaceMode("2d");
-          setCadSubMode("section");
-        },
-      },
-      {
-        id: "open_mep",
-        labelTr: "Elektrik ve Sıhhi Tesisat (MEP) Koordinasyon Planı",
-        categoryTr: "Mühendislik",
-        keywords: "tesisat elektrik su priz boru mep dxf",
-        onExecute: () => setMepModalOpen(true),
-      },
-      {
-        id: "open_cutout",
-        labelTr: "Panel Kertme ve Priz / Boru CNC Kesimi",
-        categoryTr: "Mühendislik",
-        keywords: "kertme priz boru kolon kesim cnc",
-        onExecute: () => setCutoutModalOpen(true),
-      },
-      {
-        id: "open_production_sheet",
-        labelTr: "Üretim Paftası & Teknik Çizim Düzeni (Plan, Görünüş, Kesit, 3B)",
-        categoryTr: "Üretim",
-        keywords: "pafta plan görünüş kesit perspektif antet pdf svg dxf üretim",
-        onExecute: () => setProductionSheetModalOpen(true),
-      },
-      {
-        id: "open_bom",
-        labelTr: "Kesim Listesi, Plaka Nesting, CNC (.MPR/.CIX) ve Blum BXF",
-        categoryTr: "Üretim",
-        keywords: "bom kesim nesting cnc dxf mpr cix blum bxf plaka",
-        onExecute: () => setBomModalTab("cutlist"),
-      },
-      {
-        id: "open_erp",
-        labelTr: "Birim Store & Portal ERP Sipariş Aktarımı",
-        categoryTr: "Üretim",
-        keywords: "erp mağaza store sipariş portal",
-        onExecute: () => setStoreErpOpen(true),
-      },
-      {
-        id: "open_quote",
-        labelTr: "Müşteri Fiyat Teklifi ve Görselli PDF",
-        categoryTr: "Satış",
-        keywords: "fiyat teklif pdf iskonto",
-        onExecute: () => setQuoteModalOpen(true),
-      },
-      {
-        id: "toggle_quick_palette",
-        labelTr: "Bölgesel Hızlı Kartela ve İmza Kombinasyonlarını Aç (M)",
-        categoryTr: "Hızlı Malzeme",
-        keywords: "kartela malzeme renk kombinasyon palet m",
-        onExecute: () => setQuickPaletteOpen(true),
-      },
-      {
-        id: "activate_paint_bucket",
-        labelTr: "3B Boya Kovası Modunu Aç (Kısayol: B)",
-        categoryTr: "Hızlı Malzeme",
-        keywords: "boya kovası fırça paint bucket b",
-        onExecute: () =>
-          handleChangePaintToolState({
-            ...paintToolState,
-            mode: "paint",
-          }),
-      },
-      {
-        id: "activate_eyedropper",
-        labelTr: "3B Damlalık ile Dolaptan Malzeme Örnekle (Kısayol: I / Alt+Tık)",
-        categoryTr: "Hızlı Malzeme",
-        keywords: "damlalık eyedropper malzeme seç örnekle i",
-        onExecute: () =>
-          handleChangePaintToolState({
-            ...paintToolState,
-            mode: "eyedropper",
-          }),
-      },
-      ...BIRIM_CURATED_MOODBOARDS.map((mb) => ({
-        id: `cmd_mb_${mb.id}`,
-        labelTr: `Hazır Kombinasyon Uygula: ${mb.titleTr} (${mb.badgeTr})`,
-        categoryTr: "İmza Kombinasyon",
-        keywords: `kombinasyon çift ton ${mb.titleTr.toLowerCase()} ${mb.subtitleTr.toLowerCase()}`,
-        onExecute: () => handleApplyCuratedMoodboard(mb),
-      })),
-      {
-        id: "batch_base_walnut",
-        labelTr: "Tüm Alt Dolaplar → Variodor Barok Ceviz",
-        categoryTr: "Bölgesel Boyama",
-        keywords: "alt dolaplar barok ceviz ahşap",
-        onExecute: () => handleApplyZoneMaterial("base_cabinets", "mat_veneer_walnut"),
-      },
-      {
-        id: "batch_base_nordic_oak",
-        labelTr: "Tüm Alt Dolaplar → Çamsan İskandinav Meşe",
-        categoryTr: "Bölgesel Boyama",
-        keywords: "alt dolaplar iskandinav meşe",
-        onExecute: () => handleApplyZoneMaterial("base_cabinets", "mat_camsan_iskandinav_mese"),
-      },
-      {
-        id: "batch_wall_cream_lacquer",
-        labelTr: "Tüm Üst Dolaplar → İpek Mat Lake Sahra Kumu",
-        categoryTr: "Bölgesel Boyama",
-        keywords: "üst dolaplar sahra kumu krem lake",
-        onExecute: () => handleApplyZoneMaterial("wall_cabinets", "mat_lacquer_cream"),
-      },
-      {
-        id: "batch_wall_sage_lacquer",
-        labelTr: "Tüm Üst Dolaplar → İpek Mat Lake Adaçayı Yeşili",
-        categoryTr: "Bölgesel Boyama",
-        keywords: "üst dolaplar adaçayı yeşili lake",
-        onExecute: () => handleApplyZoneMaterial("wall_cabinets", "mat_lacquer_sage"),
-      },
-      {
-        id: "batch_wall_cashmere",
-        labelTr: "Tüm Üst Dolaplar → Kaşmir Gri",
-        categoryTr: "Bölgesel Boyama",
-        keywords: "üst dolaplar kaşmir gri",
-        onExecute: () => handleApplyZoneMaterial("wall_cabinets", "mat_ye_kasmir_gri"),
-      },
-      {
-        id: "batch_ct_calacatta_luxe",
-        labelTr: " Tüm Tezgâhlar → Neolith Calacatta Luxe Porselen",
-        categoryTr: "Tezgâh & Taş",
-        keywords: "tezgah neolith calacatta luxe mermer kuvars",
-        onExecute: () => handleApplyZoneMaterial("countertops", "mat_neolith_calacatta_luxe"),
-      },
-      {
-        id: "batch_ct_dekton_entzo",
-        labelTr: "Tüm Tezgâhlar → Dekton Entzo Calacatta Gold",
-        categoryTr: "Tezgâh & Taş",
-        keywords: "tezgah dekton entzo gold",
-        onExecute: () => handleApplyZoneMaterial("countertops", "mat_dekton_entzo"),
-      },
-      {
-        id: "batch_ct_basalt_black",
-        labelTr: "Tüm Tezgâhlar → Neolith Basalt Black",
-        categoryTr: "Tezgâh & Taş",
-        keywords: "tezgah siyah bazalt basalt black",
-        onExecute: () => handleApplyZoneMaterial("countertops", "mat_neolith_basalt_black"),
-      },
-      {
-        id: "batch_handle_black",
-        labelTr: "Kulp & Gola Profilleri → K019 Mat Siyah Eloksal",
-        categoryTr: "Kulp & Gola",
-        keywords: "kulp gola siyah eloksal metal",
-        onExecute: () => handleApplyZoneMaterial("handles_gola", "mat_handle_matte_black"),
-      },
-      {
-        id: "batch_handle_brass",
-        labelTr: "Kulp & Gola Profilleri → K021 Satine Pirinç",
-        categoryTr: "Kulp & Gola",
-        keywords: "kulp gola pirinç altın brass",
-        onExecute: () => handleApplyZoneMaterial("handles_gola", "mat_handle_brass"),
-      },
-      {
-        id: "open_door_gallery",
-        labelTr: "Kapak ve Kulpsuz Sistemler 1:1 Kesit Galerisini Aç",
-        categoryTr: "Tasarım",
-        keywords: "kapak galerisi gola j kulp kesit aventos",
-        onExecute: () => setDoorShowcaseOpen(true),
-      },
-    ],
-    [
-      handleChangePaintToolState,
-      paintToolState,
-      handleApplyCuratedMoodboard,
-      handleApplyZoneMaterial,
-    ]
-  );
 
   const arExportParts = useMemo(() => {
     if (!arModalOpen) return [];
@@ -1314,6 +828,8 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
     setDoorOpenAngleDeg,
     setDrawerOpenMm: (mm: number, animated?: boolean) => useConfiguratorStore.getState().setDrawerOpenMm(mm, animated),
   };
+
+  const { commandActions } = useStudioKeyboardEventsAndCommands({ handleApplyCuratedMoodboard, handleApplyZoneMaterial, handleChangePaintToolState, latestRef, paintToolState, redo, removeBayAt, removeModuleAt, removeSelectedInteriorComponent, setActiveBayIndex, setActiveModuleIndex, setBayDoorType, setBomModalTab, setCadSubMode, setCommandSearchOpen, setCutoutModalOpen, setDoorShowcaseOpen, setHardwareSwapTarget, setInspectorTab, setIsInspectorOpen, setKitchenIslandOpen, setLeftDrawer, setMepModalOpen, setPaintToolState, setProductionSheetModalOpen, setQuickPaletteOpen, setQuoteModalOpen, setSceneHubTab, setSelected3DCompId, setSelected3DContextLabel, setSelected3DPartKind, setStoreErpOpen, setStudioRenderOpen, setWizardModalOpen, setWorkspaceMode, showToast, undo, workspaceModeRef });
 
   // Memoized callbacks so React.memo on StudioHeaderBar, LeftCatalogLauncher,
   // RightParametricInspector & BottomSceneDock stays intact during 60fps animations
@@ -1642,13 +1158,9 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
 
   const handleCycleBayDoorType = useCallback((bIdx: number) => {
     const cur = latestRef.current.activeModule?.bays[bIdx]?.door?.type || "double";
-    const order: Array<"double" | "single_left" | "single_right" | "open"> = [
-      "double",
-      "single_left",
-      "single_right",
-      "open",
-    ];
-    const next = order[(order.indexOf(cur as any) + 1) % order.length];
+    const order = ["double", "single_left", "single_right", "open"] as const;
+    const idx = order.findIndex((t) => t === cur);
+    const next = order[(idx + 1) % order.length];
     setBayDoorType(bIdx, next);
   }, [setBayDoorType]);
   const handleToggleFacadeGrainContinuity = useCallback((enabled: boolean) => {
@@ -2030,19 +1542,21 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
                 : "w-full h-full relative"
             }
           >
-            <V3CadViewport2D
-              mode={effective2DMode}
-              interactivePlan={effective2DMode === "plan"}
-              externalSectionDirection={cadExternalSectionDir}
-              externalSectionRatio={sectionRatio2D}
-              onExternalSectionChange={handleExternalSectionChange}
-              hideLegacySectionBar={true}
-              studioSafeInsets={
-                cadSubMode === "split"
-                  ? studioSafeInsets2DSplit
-                  : studioSafeInsets2DFull
-              }
-            />
+            <PanelErrorBoundary panelName="2B Teknik Çizim (CAD)">
+              <V3CadViewport2D
+                mode={effective2DMode}
+                interactivePlan={effective2DMode === "plan"}
+                externalSectionDirection={cadExternalSectionDir}
+                externalSectionRatio={sectionRatio2D}
+                onExternalSectionChange={handleExternalSectionChange}
+                hideLegacySectionBar={true}
+                studioSafeInsets={
+                  cadSubMode === "split"
+                    ? studioSafeInsets2DSplit
+                    : studioSafeInsets2DFull
+                }
+              />
+            </PanelErrorBoundary>
 
             {/* 2B KESİT MODUNDA DOĞRUDAN GÖRSEL ÜST PLAN KESİT SEÇİCİSİ */}
             {effective2DMode === "section" && activeModule && (
@@ -2073,11 +1587,13 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
 
         {workspaceMode === "plan" && (
           <div className="w-full h-full relative">
-            <V3CadViewport2D
-              mode="plan"
-              interactivePlan={true}
-              studioSafeInsets={studioSafeInsetsPlan}
-            />
+            <PanelErrorBoundary panelName="2B Mimari Plan">
+              <V3CadViewport2D
+                mode="plan"
+                interactivePlan={true}
+                studioSafeInsets={studioSafeInsetsPlan}
+              />
+            </PanelErrorBoundary>
           </div>
         )}
       </div>
@@ -2296,326 +1812,50 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
         </div>
       )}
 
-      {/* 6. TÜM MODALLAR İÇİN YAY ANİMASYONLU AÇILIŞ & KAPANIŞ SAHNESİ */}
-      <AnimatedModalPresence isOpen={projectModalOpen}>
-        {(renderOpen) => (
-          <V3ProjectModal isOpen={renderOpen} onClose={() => setProjectModalOpen(false)} />
-        )}
-      </AnimatedModalPresence>
-
-      <AnimatedModalPresence isOpen={wizardModalOpen}>
-        {(renderOpen) => (
-          <GuidedSetupModal
-            isOpen={renderOpen}
-            project={project}
-            materials={allMaterials}
-            onClose={() => setWizardModalOpen(false)}
-            onApply={(wiz) => {
-              applyGuidedWizardLayout(wiz);
-              showToast("Endüstriyel standartlara uygun yerleşim oluşturuldu.");
-            }}
-          />
-        )}
-      </AnimatedModalPresence>
-
-      <AnimatedModalPresence isOpen={quoteModalOpen}>
-        {(renderOpen) => (
-          <QuoteSummaryModal
-            isOpen={renderOpen}
-            project={project}
-            materials={allMaterials}
-            pricing={pricing}
-            onClose={() => setQuoteModalOpen(false)}
-            onOpenBomModal={(tab) => setBomModalTab(tab || "cutlist")}
-            onOpenStoreErpModal={() => setStoreErpOpen(true)}
-          />
-        )}
-      </AnimatedModalPresence>
-
-      <AnimatedValuePresence value={bomModalTab}>
-        {(latchedBomTab) => (
-          <BomModal
-            isOpen={true}
-            initialTab={latchedBomTab}
-            onClose={() => setBomModalTab(null)}
-          />
-        )}
-      </AnimatedValuePresence>
-
-      <AnimatedModalPresence isOpen={storeErpOpen}>
-        {(renderOpen) => (
-          <StoreErpModal isOpen={renderOpen} onClose={() => setStoreErpOpen(false)} />
-        )}
-      </AnimatedModalPresence>
-
-      <AnimatedModalPresence isOpen={assemblyModalOpen}>
-        {(renderOpen) => (
-          <AssemblyDiagramModal
-            isOpen={renderOpen}
-            project={project}
-            bom={bom}
-            activeModuleIndex={activeModuleIndex}
-            onClose={() => setAssemblyModalOpen(false)}
-          />
-        )}
-      </AnimatedModalPresence>
-
-      <ProductionSheetStudioModal
-        open={productionSheetModalOpen}
-        onClose={() => setProductionSheetModalOpen(false)}
-        project={project}
-        bom={bom}
-        spaceWalls={spaceWalls}
-        spaceObstacles={spaceObstacles}
-        initialUnit={displayUnit}
-        onOpenBomModal={(tab) => setBomModalTab(tab || "cutlist")}
-      />
-
-      <AnimatedModalPresence isOpen={studioRenderOpen}>
-        {(renderOpen) => (
-          <StudioRenderModal
-            isOpen={renderOpen}
-            projectId={project.id}
-            projectTitle={project.title}
-            onClose={() => setStudioRenderOpen(false)}
-          />
-        )}
-      </AnimatedModalPresence>
-
-      <AnimatedModalPresence isOpen={arModalOpen}>
-        {(renderOpen) => (
-          <ArRoomPreviewModal
-            isOpen={renderOpen}
-            onClose={() => setArModalOpen(false)}
-            project={project}
-            materials={allMaterials}
-            parts={arExportParts}
-            clientTotalEur={pricing?.totalWithVatEur || 0}
-          />
-        )}
-      </AnimatedModalPresence>
-
-      <AnimatedModalPresence isOpen={standardsModalOpen}>
-        {(renderOpen) => (
-          <RulesStandardsModal
-            isOpen={renderOpen}
-            onClose={() => setStandardsModalOpen(false)}
-            onOpenAdminModal={() => {
-              setStandardsModalOpen(false);
-              setSaasModalOpen(true);
-            }}
-            tenantId={activeTenantId}
-            humanCompatStatusLabel={
-              blockingCount === 0 ? "Üretime Hazır" : `${blockingCount} Kontrol Noktası`
-            }
-            rulesModalTab={rulesTab}
-            setRulesModalTab={setRulesTab}
-            findings={allFindings}
-            ergonomicProfileId={ergonomicProfileId}
-            setErgonomicProfileId={setErgonomicProfileId}
-            regionalErgonomicProfiles={regionalErgonomicProfiles}
-            applyApprovedEngineeringFix={applyApprovedEngineeringFix}
-            onShowBanner={(b) => showToast(b.text)}
-            customStdRules={customStdRules}
-            setCustomStdRules={setCustomStdRules}
-            kitchenRuleRegistry={KITCHEN_ENGINEERING_RULE_REGISTRY}
-            newStdName={newStdName}
-            setNewStdName={setNewStdName}
-            newStdRef={newStdRef}
-            setNewStdRef={setNewStdRef}
-            newStdMetric={newStdMetric}
-            setNewStdMetric={setNewStdMetric}
-            newStdThreshold={newStdThreshold}
-            setNewStdThreshold={setNewStdThreshold}
-            newStdCategory={newStdCategory}
-            setNewStdCategory={setNewStdCategory}
-            newStdSeverity={newStdSeverity}
-            setNewStdSeverity={setNewStdSeverity}
-          />
-        )}
-      </AnimatedModalPresence>
-
-      <AnimatedModalPresence isOpen={saasModalOpen}>
-        {(renderOpen) => (
-          <SaasTenantStudioModal
-            isOpen={renderOpen}
-            onClose={() => setSaasModalOpen(false)}
-          />
-        )}
-      </AnimatedModalPresence>
-
-      <AnimatedModalPresence isOpen={commandSearchOpen}>
-        {(renderOpen) => (
-          <CommandSearchModal
-            isOpen={renderOpen}
-            actions={commandActions}
-            onClose={() => setCommandSearchOpen(false)}
-          />
-        )}
-      </AnimatedModalPresence>
-
-      <AnimatedModalPresence isOpen={kitchenIslandOpen}>
-        {(renderOpen) => (
-          <KitchenIslandTableModal
-            isOpen={renderOpen}
-            project={project}
-            materials={allMaterials}
-            activeModuleIndex={activeModuleIndex}
-            onAddIsland={(spec) => {
-              addKitchenIslandUnit(spec);
-              setKitchenIslandOpen(false);
-              showToast("Şelale ada mutfak sahneye eklendi.");
-            }}
-            onAddOrUpdateAttachedTable={(spec) => {
-              addOrUpdateAttachedTable(spec);
-              setKitchenIslandOpen(false);
-              showToast("Açılı masa bağlantısı eklendi.");
-            }}
-            onClose={() => setKitchenIslandOpen(false)}
-          />
-        )}
-      </AnimatedModalPresence>
-
-      <AnimatedModalPresence isOpen={customHardwareOpen}>
-        {(renderOpen) => (
-          <CustomHardwareModal
-            isOpen={renderOpen}
-            onClose={() => setCustomHardwareOpen(false)}
-            onApplyHandleToActiveBay={(spec) => {
-              setBayV4DoorConfig(activeBayIndex, {
-                handleCategory: spec.handleCategory,
-                handleProfileId: spec.handleProfileId,
-                handleLengthMm: spec.handleLengthMm,
-                handleMaterialId: spec.handleMaterialId,
-              });
-            }}
-            onApplyHandleToAllBays={(spec) => {
-              setBayV4DoorConfig(activeBayIndex, {
-                handleCategory: spec.handleCategory,
-                handleProfileId: spec.handleProfileId,
-                handleLengthMm: spec.handleLengthMm,
-                handleMaterialId: spec.handleMaterialId,
-              });
-              copyDoorConfigToAllBays(activeBayIndex);
-            }}
-            onCatalogChanged={() => setCatalogBump((n) => n + 1)}
-          />
-        )}
-      </AnimatedModalPresence>
-
-      <AnimatedModalPresence isOpen={mepModalOpen}>
-        {(renderOpen) => (
-          <MepCoordinationModal
-            isOpen={renderOpen}
-            project={project}
-            onClose={() => setMepModalOpen(false)}
-          />
-        )}
-      </AnimatedModalPresence>
-
-      <AnimatedModalPresence isOpen={Boolean(cutoutModalOpen && activeModule)}>
-        {(renderOpen) =>
-          activeModule ? (
-            <PanelCutoutModal
-              isOpen={renderOpen}
-              activeModule={activeModule}
-              allModules={project.modules}
-              roomObstacles={spaceObstacles}
-              bom={bom}
-              canExportProduction={blockingCount === 0}
-              onChangeCutouts={(nextCutouts) => {
-                setModuleUtilityCutouts(nextCutouts);
-                showToast("Panel kertme ayarları güncellendi.");
+      {recoverableDraft && !isShowroom && (
+        <div
+          role="status"
+          data-testid="v11-autosave-recovery-banner"
+          className="fixed top-[72px] left-1/2 -translate-x-1/2 z-40 max-w-[min(92vw,540px)] px-4 py-2.5 rounded-2xl bg-[#141413]/95 backdrop-blur-md border border-amber-400/40 text-white text-xs shadow-xl flex flex-wrap items-center justify-between gap-3"
+        >
+          <div className="min-w-0">
+            <span className="font-semibold text-amber-300">Otomatik taslak bulundu:</span>{" "}
+            <span className="text-stone-200 truncate">{recoverableDraft.project.title}</span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                const res = useConfiguratorStore
+                  .getState()
+                  .importProjectJSON(JSON.stringify(recoverableDraft.project));
+                setRecoverableDraft(null);
+                showToast(
+                  res.success
+                    ? "Önceki oturum taslağı geri yüklendi."
+                    : `Taslak geri yüklenemedi: ${res.error || "Bilinmeyen hata"}`
+                );
               }}
-              onAutoResolveCornerCollisions={() => {
-                autoResolveCornerCollisions();
-                showToast("Köşe çakışmaları otomatik çözüldü.");
+              className="px-3 py-1 rounded-xl bg-amber-400 text-[#141413] font-bold hover:bg-amber-300 transition cursor-pointer"
+            >
+              Geri Yükle
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                clearAutoSavedDraft(activeTenantId);
+                setRecoverableDraft(null);
               }}
-              onClose={() => setCutoutModalOpen(false)}
-            />
-          ) : null
-        }
-      </AnimatedModalPresence>
-
-      <AnimatedValuePresence value={sceneHubTab}>
-        {(latchedHubTab) => (
-          <SceneObjectAndModuleHubModal
-            isOpen={true}
-            initialTab={latchedHubTab}
-            project={project}
-            totalWithVatEur={pricing?.totalWithVatEur || 0}
-            selectedSceneObjectId={selectedSceneObjectId}
-            onSelectSceneObject={setSelectedSceneObjectId}
-            onAppendModule={(tplId, opts) => appendModuleWithMultiWallSnap(tplId, opts)}
-            onFillWallGap={(gap, tplId) => fillWallGapWithParametricModule(gap, tplId)}
-            onAddCompositeAssembly={addCompositeAssemblyPreset}
-            onSaveActiveModuleAsTemplate={saveActiveModuleAsCustomTemplate}
-            onDeleteCustomTemplate={deleteCustomModuleTemplate}
-            onAddSceneObjectCatalog={(catId) =>
-              addSceneObjectFromCatalog(catId, undefined)
-            }
-            onAddCustomSceneObject={addCustomSceneObject}
-            onUpdateSceneObject={updateSceneObject}
-            onDuplicateSceneObject={duplicateSceneObject}
-            onRemoveSceneObject={removeSceneObject}
-            onAutoFillersAndCrown={runAutoFillersAndCrown}
-            onAutoNotchObstacles={runAutoNotchObstacles}
-            onImportRoomPlanJson={importRoomPlanLiDARJson}
-            onCreateCapsuleModule={(spec) => {
-              addCustomCapsuleModule(spec);
-              showToast("Özel kapsül ünite oluşturuldu.");
-            }}
-            onClose={() => setSceneHubTab(null)}
-          />
-        )}
-      </AnimatedValuePresence>
-      {workspaceMode === "3d" && !isShowroom && activeModule && hardwareSwapTarget && (
-        <HardwareQuickSwapPopover
-          target={hardwareSwapTarget}
-          activeModule={activeModule}
-          onApplyDoorHardware={(bayIndices, patch, msg) => {
-            bayIndices.forEach((bIdx) => {
-              setBayV4DoorConfig(bIdx, patch);
-            });
-            showToast(msg);
-          }}
-          onApplyDrawerHardware={(bayIndices, patch, msg) => {
-            bayIndices.forEach((bIdx) => {
-              const drws = activeModule.bays[bIdx]?.drawers || [];
-              drws.forEach((d) => {
-                updateBayDrawerConfig(bIdx, d.id, patch);
-              });
-            });
-            showToast(msg);
-          }}
-          onApplyRailProfile={(bayIndices, profileType, msg) => {
-            bayIndices.forEach((bIdx) => {
-              const rails = activeModule.bays[bIdx]?.hangingRails || [];
-              rails.forEach((r) => {
-                setHangingRailProfile(bIdx, r.id, profileType);
-              });
-            });
-            showToast(msg);
-          }}
-          onClose={() => setHardwareSwapTarget(null)}
-        />
+              className="px-2.5 py-1 rounded-xl bg-white/10 text-stone-200 hover:bg-white/20 transition cursor-pointer"
+            >
+              Yoksay
+            </button>
+          </div>
+        </div>
       )}
-      <AnimatedModalPresence isOpen={doorShowcaseOpen}>
-        {(renderOpen) => (
-          <DoorSystemsShowcaseModal
-            isOpen={renderOpen}
-            onClose={() => setDoorShowcaseOpen(false)}
-            onLoad3DShowcase={(mode) => {
-              loadDoorSystemsShowcase(mode);
-              showToast(
-                mode === "kitchen_opening_systems"
-                  ? "15 paralel mutfak kapak & açılım örneği 3B sahneye dizildi."
-                  : "9 paralel kapak modeli & kesit örneği 3B sahneye dizildi."
-              );
-            }}
-          />
-        )}
-      </AnimatedModalPresence>
+
+      {/* 6. TÜM MODALLAR İÇİN YAY ANİMASYONLU AÇILIŞ & KAPANIŞ SAHNESİ */}
+      <StudioModalsLayer ArRoomPreviewModal={ArRoomPreviewModal} AssemblyDiagramModal={AssemblyDiagramModal} BomModal={BomModal} CommandSearchModal={CommandSearchModal} CustomHardwareModal={CustomHardwareModal} DoorSystemsShowcaseModal={DoorSystemsShowcaseModal} GuidedSetupModal={GuidedSetupModal} KitchenIslandTableModal={KitchenIslandTableModal} MepCoordinationModal={MepCoordinationModal} PanelCutoutModal={PanelCutoutModal} ProductionSheetStudioModal={ProductionSheetStudioModal} QuoteSummaryModal={QuoteSummaryModal} RulesStandardsModal={RulesStandardsModal} SaasTenantStudioModal={SaasTenantStudioModal} SceneObjectAndModuleHubModal={SceneObjectAndModuleHubModal} StoreErpModal={StoreErpModal} StudioRenderModal={StudioRenderModal} V3ProjectModal={V3ProjectModal} activeBayIndex={activeBayIndex} activeModule={activeModule} activeModuleIndex={activeModuleIndex} activeTenantId={activeTenantId} addCompositeAssemblyPreset={addCompositeAssemblyPreset} addCustomCapsuleModule={addCustomCapsuleModule} addCustomSceneObject={addCustomSceneObject} addKitchenIslandUnit={addKitchenIslandUnit} addOrUpdateAttachedTable={addOrUpdateAttachedTable} addSceneObjectFromCatalog={addSceneObjectFromCatalog} allFindings={allFindings} allMaterials={allMaterials} appendModuleWithMultiWallSnap={appendModuleWithMultiWallSnap} applyApprovedEngineeringFix={applyApprovedEngineeringFix} applyGuidedWizardLayout={applyGuidedWizardLayout} arExportParts={arExportParts} arModalOpen={arModalOpen} assemblyModalOpen={assemblyModalOpen} autoResolveCornerCollisions={autoResolveCornerCollisions} blockingCount={blockingCount} bom={bom} bomModalTab={bomModalTab} commandActions={commandActions} commandSearchOpen={commandSearchOpen} copyDoorConfigToAllBays={copyDoorConfigToAllBays} customHardwareOpen={customHardwareOpen} customStdRules={customStdRules} cutoutModalOpen={cutoutModalOpen} deleteCustomModuleTemplate={deleteCustomModuleTemplate} displayUnit={displayUnit} doorShowcaseOpen={doorShowcaseOpen} duplicateSceneObject={duplicateSceneObject} ergonomicProfileId={ergonomicProfileId} fillWallGapWithParametricModule={fillWallGapWithParametricModule} hardwareSwapTarget={hardwareSwapTarget} importRoomPlanLiDARJson={importRoomPlanLiDARJson} isShowroom={isShowroom} kitchenIslandOpen={kitchenIslandOpen} loadDoorSystemsShowcase={loadDoorSystemsShowcase} mepModalOpen={mepModalOpen} newStdCategory={newStdCategory} newStdMetric={newStdMetric} newStdName={newStdName} newStdRef={newStdRef} newStdSeverity={newStdSeverity} newStdThreshold={newStdThreshold} pricing={pricing} productionSheetModalOpen={productionSheetModalOpen} project={project} projectModalOpen={projectModalOpen} quoteModalOpen={quoteModalOpen} regionalErgonomicProfiles={regionalErgonomicProfiles} removeSceneObject={removeSceneObject} rulesTab={rulesTab} runAutoFillersAndCrown={runAutoFillersAndCrown} runAutoNotchObstacles={runAutoNotchObstacles} saasModalOpen={saasModalOpen} saveActiveModuleAsCustomTemplate={saveActiveModuleAsCustomTemplate} sceneHubTab={sceneHubTab} selectedSceneObjectId={selectedSceneObjectId} setArModalOpen={setArModalOpen} setAssemblyModalOpen={setAssemblyModalOpen} setBayV4DoorConfig={setBayV4DoorConfig} setBomModalTab={setBomModalTab} setCatalogBump={setCatalogBump} setCommandSearchOpen={setCommandSearchOpen} setCustomHardwareOpen={setCustomHardwareOpen} setCustomStdRules={setCustomStdRules} setCutoutModalOpen={setCutoutModalOpen} setDoorShowcaseOpen={setDoorShowcaseOpen} setErgonomicProfileId={setErgonomicProfileId} setHangingRailProfile={setHangingRailProfile} setHardwareSwapTarget={setHardwareSwapTarget} setKitchenIslandOpen={setKitchenIslandOpen} setMepModalOpen={setMepModalOpen} setModuleUtilityCutouts={setModuleUtilityCutouts} setNewStdCategory={setNewStdCategory} setNewStdMetric={setNewStdMetric} setNewStdName={setNewStdName} setNewStdRef={setNewStdRef} setNewStdSeverity={setNewStdSeverity} setNewStdThreshold={setNewStdThreshold} setProductionSheetModalOpen={setProductionSheetModalOpen} setProjectModalOpen={setProjectModalOpen} setQuoteModalOpen={setQuoteModalOpen} setRulesTab={setRulesTab} setSaasModalOpen={setSaasModalOpen} setSceneHubTab={setSceneHubTab} setSelectedSceneObjectId={setSelectedSceneObjectId} setStandardsModalOpen={setStandardsModalOpen} setStoreErpOpen={setStoreErpOpen} setStudioRenderOpen={setStudioRenderOpen} setWizardModalOpen={setWizardModalOpen} showToast={showToast} spaceObstacles={spaceObstacles} spaceWalls={spaceWalls} standardsModalOpen={standardsModalOpen} storeErpOpen={storeErpOpen} studioRenderOpen={studioRenderOpen} updateBayDrawerConfig={updateBayDrawerConfig} updateSceneObject={updateSceneObject} wizardModalOpen={wizardModalOpen} workspaceMode={workspaceMode} />
 
       {/* 3B Galeri Modundayken Paralel Modül İsim Şeridi (Tek Tıkla Seç & İncele) */}
       {workspaceMode === "3d" &&

@@ -6,6 +6,7 @@ import {
   DEFAULT_MATERIALS,
   computeProjectGrainNeighborMap,
   createDefaultWardrobeModule,
+  createInitialProject,
   type DesignProject,
 } from "@birim/core";
 import {
@@ -16,9 +17,10 @@ import {
 } from "@birim/manufacturing";
 
 function createOak180WardrobeProject(): DesignProject {
-  const mod = createDefaultWardrobeModule("mod_oak_180", 1800, 2200, 600);
+  const mod = createDefaultWardrobeModule("mod_oak_180");
+  mod.dimensions = { width: 1800, height: 2200, depth: 600 };
   mod.name = "180cm Meşe Gardırop (58+117cm)";
-  mod.carcass.materialId = "mat_melamine_white";
+  mod.carcass.bodyMaterialId = "mat_melamine_white";
   mod.carcass.doorMaterialId = "mat_veneer_oak";
   mod.carcass.grainContinuityMode = "module_4way";
   mod.carcass.plinthHeight = 80;
@@ -27,55 +29,61 @@ function createOak180WardrobeProject(): DesignProject {
   // 2. Bölme (117 cm iç net) -> Altta 2 dış çekmece + Üstte Çift Kapak
   mod.bays = [
     {
-      id: "bay_0",
       index: 0,
-      widthRule: "fixed",
-      fixedWidth: 580,
+      widthRatio: 1,
+      customWidth: 580,
       shelves: [],
       drawers: [],
       hangingRails: [],
-      internalFittings: [],
+      specialFittings: [],
       door: {
         id: "door_b0",
+        bayIndex: 0,
         type: "single_left",
-        doorSystemId: "hinged_single_left",
-        doorMaterialId: "mat_veneer_oak",
+        doorSystemId: "hinged_single",
+        softClose: true,
       },
     },
     {
-      id: "bay_1",
       index: 1,
-      widthRule: "fixed",
-      fixedWidth: 1166,
+      widthRatio: 2,
+      customWidth: 1166,
       shelves: [],
       drawers: [
         {
           id: "drw_b1_bot",
+          bayIndex: 1,
           height: 200,
           elevationY: 0,
-          slideSystemId: "blum_tandem_500",
+          slideType: "soft_close",
+          hardwareProductId: "blum_tandem_500",
           frontMaterialId: "mat_veneer_oak",
         },
         {
           id: "drw_b1_top",
+          bayIndex: 1,
           height: 200,
           elevationY: 200,
-          slideSystemId: "blum_tandem_500",
+          slideType: "soft_close",
+          hardwareProductId: "blum_tandem_500",
           frontMaterialId: "mat_veneer_oak",
         },
       ],
       hangingRails: [],
-      internalFittings: [],
+      specialFittings: [],
       door: {
         id: "door_b1",
+        bayIndex: 1,
         type: "double",
         doorSystemId: "hinged_double",
-        doorMaterialId: "mat_veneer_oak",
+        softClose: true,
       },
     },
   ];
 
+  const base = createInitialProject();
   return {
+    ...base,
     id: "proj_v75_oak180",
     title: "Birim V7.5 Desen Takibi & Ortak R2 Testi",
     customerName: "Cenk Tanrikulu",
@@ -84,15 +92,24 @@ function createOak180WardrobeProject(): DesignProject {
     createdAt: "2026-11-14T09:00:00.000Z",
     updatedAt: "2026-11-14T09:00:00.000Z",
     space: {
-      id: "sp_1",
-      name: "Yatak Odası",
-      type: "bedroom",
-      walls: [{ id: "w1", length: 3600, height: 2600, thickness: 200 }],
+      ...base.space,
       ceilingHeight: 2600,
+      walls: [
+        {
+          id: "w1",
+          name: "Ana Duvar",
+          length: 3600,
+          height: 2600,
+          thickness: 200,
+          position: { x: 0, y: 0, z: 0 },
+          rotationY: 0,
+          elements: [],
+        },
+      ],
       elements: [],
     },
     modules: [mod],
-  } as DesignProject;
+  };
 }
 
 describe("V7.5 — Desen Takibi Termal Etiketler, 2D Montaj Dizilimi ve Ortak Birim-Portal R2", () => {

@@ -302,15 +302,40 @@ function sanitizeAsciiDxfText(input: string): string {
     .replace(/[^\x20-\x7E]/g, " ");
 }
 
+const BASE_DXF_TEMPLATE_LAYERS = new Set([
+  "0",
+  "Defpoints",
+  "PANEL_CONTOUR",
+  "NET_CUT_CONTOUR",
+  "BACK_GROOVE_8MM",
+  "CUTOUT_SINK_HOB",
+  "DRILLING",
+  "BORE_35MM",
+  "CAM_15MM",
+  "DRILL_8MM",
+  "DRILL_5MM",
+  "HARDWARE_AXIS",
+  "PART_LABELS",
+  "SHEET_BORDER",
+]);
+
 class DxfWriter {
   private handle = 0x1000;
   private entities: string[] = [];
+  private usedLayers = new Set<string>();
+
+  private registerLayer(layer: string): void {
+    if (layer && !BASE_DXF_TEMPLATE_LAYERS.has(layer)) {
+      this.usedLayers.add(layer);
+    }
+  }
 
   nextHandle(): string {
     return (this.handle++).toString(16).toUpperCase();
   }
 
   addPolyline(layer: string, points: [number, number][], closed = true): void {
+    this.registerLayer(layer);
     const h = this.nextHandle();
     const lines = [
       "  0",
@@ -359,6 +384,7 @@ class DxfWriter {
   }
 
   addLine(layer: string, x1: number, y1: number, x2: number, y2: number): void {
+    this.registerLayer(layer);
     const h = this.nextHandle();
     const lines = [
       "  0",
@@ -390,6 +416,7 @@ class DxfWriter {
   }
 
   addCircle(layer: string, cx: number, cy: number, radius: number): void {
+    this.registerLayer(layer);
     const h = this.nextHandle();
     const lines = [
       "  0",
@@ -424,6 +451,7 @@ class DxfWriter {
     text: string,
     rotationDeg = 0
   ): void {
+    this.registerLayer(layer);
     const clean = sanitizeAsciiDxfText(text);
     const h = this.nextHandle();
     const lines = [
@@ -458,11 +486,41 @@ class DxfWriter {
   }
 
   toDxf(): string {
+    let dynamicLayerRecords = "";
+    const extraCount = this.usedLayers.size;
+    for (const layerName of this.usedLayers) {
+      const lh = this.nextHandle();
+      const colorCode = layerName.startsWith("OUTLINE_")
+        ? "7"
+        : layerName.startsWith("GROOVE_") || layerName.startsWith("TAMBOUR_")
+        ? "6"
+        : layerName.startsWith("NOTCH_") || layerName.startsWith("CUTOUT_")
+        ? "1"
+        : layerName.startsWith("BACK_FACE_")
+        ? "2"
+        : layerName.startsWith("DRILL_H_") || layerName === "EDGE_DRILL_8MM"
+        ? "3"
+        : "4";
+      dynamicLayerRecords +=
+        `  0\r\nLAYER\r\n  5\r\n${lh}\r\n330\r\n1\r\n100\r\nAcDbSymbolTableRecord\r\n100\r\nAcDbLayerTableRecord\r\n  2\r\n${layerName}\r\n 70\r\n0\r\n 62\r\n${colorCode}\r\n  6\r\nContinuous\r\n370\r\n-3\r\n390\r\n13\r\n`;
+    }
+
     const nextHex = (this.handle + 16).toString(16).toUpperCase();
-    const header = DXF_AC1015_HEADER.replace(
+    let header = DXF_AC1015_HEADER.replace(
       /\$HANDSEED\r?\n\s*5\r?\n[0-9A-Fa-f]+/,
       `$HANDSEED\r\n  5\r\n${nextHex}`
     );
+
+    if (extraCount > 0) {
+      const totalLayers = BASE_DXF_TEMPLATE_LAYERS.size + extraCount;
+      header = header.replace(
+        "TABLE\r\n  2\r\nLAYER\r\n  5\r\n1\r\n330\r\n0\r\n100\r\nAcDbSymbolTable\r\n 70\r\n14\r\n",
+        `TABLE\r\n  2\r\nLAYER\r\n  5\r\n1\r\n330\r\n0\r\n100\r\nAcDbSymbolTable\r\n 70\r\n${totalLayers}\r\n`
+      );
+      const sheetBorderMarker =
+        "  2\r\nSHEET_BORDER\r\n 70\r\n0\r\n 62\r\n8\r\n  6\r\nContinuous\r\n370\r\n-3\r\n390\r\n13\r\n";
+      header = header.replace(sheetBorderMarker, sheetBorderMarker + dynamicLayerRecords);
+    }
 
     return header + this.entities.join("") + "  0\r\nENDSEC\r\n" + DXF_AC1015_FOOTER;
   }
@@ -479,6 +537,9 @@ function renderSinglePieceEntities(
   // h = piece.lengthMm (Boy — Y-axis 0..h)
   const w = piece.widthMm;
   const h = piece.lengthMm;
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) {
+    return;
+  }
   const netW = piece.netCutWidthMm ?? w;
   const netH = piece.netCutLengthMm ?? h;
   const eb = piece.edgeBanding;
@@ -729,13 +790,13 @@ function renderSinglePieceEntities(
         const boreLen = Math.min(hole.depth || 34, Math.min(w, h) * 0.4);
         let x2 = hx;
         let y2 = hy;
-        let sideCode = "LEFT";
+        let sideCode = "BOTTOM";
         if (hole.direction === "edge_bottom") {
           y2 = roundMm(hy + boreLen, 2);
-          sideCode = "LEFT";
+          sideCode = "BOTTOM";
         } else if (hole.direction === "edge_top") {
           y2 = roundMm(hy - boreLen, 2);
-          sideCode = "RIGHT";
+          sideCode = "TOP";
         } else if (hole.direction === "edge_left") {
           x2 = roundMm(hx + boreLen, 2);
           sideCode = "LEFT";
@@ -836,7 +897,10 @@ export function exportNestingSheetsDXF(bom: ManufacturingBOM): string {
           const netL = src.netCutLengthMm ?? src.lengthMm;
           const rawOffX = src.rawOriginOffsetXMm ?? 0;
           const rawOffY = src.rawOriginOffsetYMm ?? 0;
-          const axesNormal = Math.abs(pw - netL) <= Math.abs(pw - netW);
+          const axesNormal =
+            Math.abs(netL - netW) < 0.5
+              ? !placed.isRotated
+              : Math.abs(pw - netL) <= Math.abs(pw - netW);
 
           const mapLocalPointToSheet = (localFinishedX: number, localFinishedY: number): [number, number] => {
             const xRaw = Math.max(0, Math.min(netW, localFinishedX - rawOffX));

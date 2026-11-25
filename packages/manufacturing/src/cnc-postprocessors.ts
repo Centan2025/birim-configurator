@@ -178,10 +178,54 @@ function adjustOpToWorkpieceOrigin(
   };
 }
 
+function assertValidCncWorkpiece(piece: CncPieceInput, L: number, B: number, D: number): void {
+  if (!Number.isFinite(L) || !Number.isFinite(B) || !Number.isFinite(D) || L <= 0 || B <= 0 || D <= 0) {
+    throw new Error(
+      `[ERR_CNC_INVALID_WORKPIECE] Parça "${piece.pieceName || piece.id}" geçersiz iş parçası ölçüsüne sahip (${L}x${B}x${D}mm).`
+    );
+  }
+}
+
+function resolveCheckedCncHoleCoords(
+  piece: CncPieceInput,
+  op: CncDrillOpInput,
+  L: number,
+  B: number
+): { xWork: number; yWork: number } {
+  const adj = adjustOpToWorkpieceOrigin(op, piece);
+  const tol = 0.75;
+  if (adj.y < -tol || adj.y > L + tol || adj.x < -tol || adj.x > B + tol) {
+    throw new Error(
+      `[ERR_CNC_HOLE_OUT_OF_BOUNDS] Parça "${piece.pieceName || piece.id}" (${L}x${B}mm) üzerinde delik (${op.type}) sınır dışı (X=${fmtNum(adj.y)}, Y=${fmtNum(adj.x)}mm).`
+    );
+  }
+  return {
+    xWork: Math.max(0, Math.min(L, adj.y)),
+    yWork: Math.max(0, Math.min(B, adj.x)),
+  };
+}
+
+function computeRawBackGrooveCenterY(piece: CncPieceInput, B: number): number {
+  const grooveW = 8.5;
+  const grooveOff = piece.backGrooveOffsetMm ?? 20;
+  const finishedW = piece.widthMm > 0 ? piece.widthMm : B;
+  const useRawPreBand =
+    (piece.boreReferenceMode ?? "pre_banding_raw") === "pre_banding_raw" &&
+    (piece.netCutLengthMm !== undefined || piece.netCutWidthMm !== undefined);
+  const offX = useRawPreBand ? (piece.rawOriginOffsetXMm ?? 0) : 0;
+  // Matches technical-outputs.ts DXF groove rectangle centerline to 0.00 mm
+  const finishedGrooveStart = piece.mirrorInnerFaceX
+    ? Math.max(8, grooveOff - grooveW)
+    : Math.max(12, finishedW - grooveOff);
+  const finishedCenter = finishedGrooveStart + grooveW / 2;
+  return Math.max(grooveW / 2, Math.min(B - grooveW / 2, finishedCenter - offX));
+}
+
 export function generateHomagMprPrograms(piece: CncPieceInput): CncProgramFile[] {
   const L = piece.netCutLengthMm ?? piece.lengthMm;
   const B = piece.netCutWidthMm ?? piece.widthMm;
   const D = piece.thicknessMm || 18;
+  assertValidCncWorkpiece(piece, L, B, D);
 
   const primaryVertOps = piece.drillingOperations.filter(
     (op) => !isOppositeFaceOp(op.face) && !isHorizontalEdgeOp(op.face)
@@ -277,9 +321,7 @@ export function generateHomagMprPrograms(piece: CncPieceInput): CncProgramFile[]
     let opCount = 0;
 
     for (const op of vertOps) {
-      const adj = adjustOpToWorkpieceOrigin(op, piece);
-      const mprX = Math.max(0, Math.min(L, adj.y));
-      const rawY = Math.max(0, Math.min(B, adj.x));
+      const { xWork: mprX, yWork: rawY } = resolveCheckedCncHoleCoords(piece, op, L, B);
       const mprY = isFlipSetup ? Math.max(0, B - rawY) : rawY;
       lines.push(
         "<102 \\BohrVert\\",
@@ -299,10 +341,10 @@ export function generateHomagMprPrograms(piece: CncPieceInput): CncProgramFile[]
 
     if (includeHorizAndGroove) {
       for (const hop of horizOps) {
-        const adjH = adjustOpToWorkpieceOrigin(hop, piece);
+        const { xWork, yWork } = resolveCheckedCncHoleCoords(piece, hop, L, B);
         const zCenter = fmtNum(D / 2);
-        let xa = fmtNum(Math.max(0, Math.min(L, adjH.y)));
-        let ya = fmtNum(Math.max(0, Math.min(B, adjH.x)));
+        let xa = fmtNum(xWork);
+        let ya = fmtNum(yWork);
         let bm = "XP";
         if (hop.face === "edge_bottom") {
           xa = "0.00";
@@ -344,10 +386,7 @@ export function generateHomagMprPrograms(piece: CncPieceInput): CncProgramFile[]
           piece.partRole === "carcass_top" ||
           piece.partRole === "carcass_bottom")
       ) {
-        const grooveOff = piece.backGrooveOffsetMm ?? 20;
-        const grooveCenterY = piece.mirrorInnerFaceX
-          ? grooveOff - 4
-          : Math.max(8, B - grooveOff + 4);
+        const grooveCenterY = computeRawBackGrooveCenterY(piece, B);
         lines.push(
           "<109 \\Nut\\",
           'XA="0.00"',
@@ -464,6 +503,7 @@ export function generateBiesseCixProgram(piece: CncPieceInput): CncProgramFile {
   const LPX = piece.netCutLengthMm ?? piece.lengthMm;
   const LPY = piece.netCutWidthMm ?? piece.widthMm;
   const LPZ = piece.thicknessMm || 18;
+  assertValidCncWorkpiece(piece, LPX, LPY, LPZ);
   const safeSlug = `${piece.moduleId}_${piece.partRole}_${piece.id}`.replace(/[^a-zA-Z0-9_-]/g, "_");
 
   const lines: string[] = [
@@ -487,9 +527,7 @@ export function generateBiesseCixProgram(piece: CncPieceInput): CncProgramFile {
   let hasBottomSide = false;
 
   for (const op of piece.drillingOperations) {
-    const adj = adjustOpToWorkpieceOrigin(op, piece);
-    const xVal = Math.max(0, Math.min(LPX, adj.y));
-    const yVal = Math.max(0, Math.min(LPY, adj.x));
+    const { xWork: xVal, yWork: yVal } = resolveCheckedCncHoleCoords(piece, op, LPX, LPY);
 
     if (isHorizontalEdgeOp(op.face)) {
       const cixSide =
@@ -547,8 +585,7 @@ export function generateBiesseCixProgram(piece: CncPieceInput): CncProgramFile {
       piece.partRole === "carcass_top" ||
       piece.partRole === "carcass_bottom")
   ) {
-    const grooveOff = piece.backGrooveOffsetMm ?? 20;
-    const grooveY = piece.mirrorInnerFaceX ? grooveOff - 4 : Math.max(8, LPY - grooveOff + 4);
+    const grooveY = computeRawBackGrooveCenterY(piece, LPY);
     lines.push(
       "BEGIN MACRO",
       "  NAME=CUT_G",
@@ -722,6 +759,7 @@ export function generateScmXcsProgram(piece: CncPieceInput): CncProgramFile {
   const L = piece.netCutLengthMm ?? piece.lengthMm;
   const B = piece.netCutWidthMm ?? piece.widthMm;
   const D = piece.thicknessMm || 18;
+  assertValidCncWorkpiece(piece, L, B, D);
   const safeName = sanitizeCncComment(piece.pieceName || piece.id);
   const lines: string[] = [
     `// Birim Configurator V6.2 — SCM Maestro .XCS Post-Processor`,
@@ -758,10 +796,7 @@ export function generateScmXcsProgram(piece: CncPieceInput): CncProgramFile {
   }
 
   piece.drillingOperations.forEach((op, idx) => {
-    const adj = adjustOpToWorkpieceOrigin(op, piece);
-    // P0-01 Fix: Workpiece Box has X = L (lengthMm -> adj.y) and Y = B (widthMm -> adj.x), matching Homag .MPR & Biesse .CIX!
-    const scmX = Math.max(0, Math.min(L, adj.y));
-    const rawScmY = Math.max(0, Math.min(B, adj.x));
+    const { xWork: scmX, yWork: rawScmY } = resolveCheckedCncHoleCoords(piece, op, L, B);
     if (isHorizontalEdgeOp(op.face)) {
       let edgeX = scmX;
       let edgeY = rawScmY;
@@ -793,8 +828,7 @@ export function generateScmXcsProgram(piece: CncPieceInput): CncProgramFile {
       piece.partRole === "carcass_top" ||
       piece.partRole === "carcass_bottom")
   ) {
-    const gOff = piece.backGrooveOffsetMm ?? 20;
-    const grooveY = piece.mirrorInnerFaceX ? Math.max(4, gOff - 4) : Math.max(8, B - gOff + 4);
+    const grooveY = computeRawBackGrooveCenterY(piece, B);
     lines.push(
       `CreateBladeCut("BACK_GROOVE_8_5MM", "GROOVE_SAW", TypeOfProcess.Groove, 0.00, ${fmtNum(grooveY)}, ${fmtNum(L)}, ${fmtNum(grooveY)}, 8.5, 8.5, 90, 0, true);`
     );

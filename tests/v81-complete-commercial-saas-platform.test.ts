@@ -129,10 +129,12 @@ describe("v81 — Complete Commercial Multi-Tenant SaaS Platform (Phases 0–6)"
         {
           templateId: "ctpl_anka_only",
           name: "Anka Özel Modül",
+          description: "Anka Kiracı Özel Modülü",
+          familyId: "fam_wardrobe",
           category: "wardrobe",
           createdAt: new Date().toISOString(),
           baseDimensions: { width: 1000, height: 2100, depth: 600 },
-          serializedModuleSnapshot: JSON.stringify(createDefaultWardrobeModule()),
+          serializedModuleSnapshot: createDefaultWardrobeModule(),
         },
       ],
       TENANT_ANKA_BUSINESS.tenantId

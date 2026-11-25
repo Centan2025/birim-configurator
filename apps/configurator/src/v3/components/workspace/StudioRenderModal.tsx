@@ -339,12 +339,16 @@ export const StudioRenderModal: React.FC<StudioRenderModalProps> = ({
     refreshLiveMetrics();
     if (!autoStartedSessionRef.current) {
       autoStartedSessionRef.current = true;
-      void checkBlenderRenderStatus().then((st) => {
-        setBlenderStatus(st);
-        if (!pathTraceUrl && !isRunningGuardRef.current) {
-          void runComparisonRender("pathtrace");
-        }
-      });
+      void checkBlenderRenderStatus()
+        .then((st) => {
+          setBlenderStatus(st);
+          if (!pathTraceUrl && !isRunningGuardRef.current) {
+            void runComparisonRender("pathtrace");
+          }
+        })
+        .catch(() => {
+          // Non-fatal: fallback to local WebGL path-tracing preview when status probe fails.
+        });
     }
   }, [isOpen, pathTraceUrl, refreshLiveMetrics, runComparisonRender]);
 

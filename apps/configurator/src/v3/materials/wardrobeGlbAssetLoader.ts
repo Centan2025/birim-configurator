@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { GLTFLoader, type GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
 import {
+  disposeObject3DTree,
   markSharedGeometry,
   markSharedMaterial,
   markSharedTexture,
@@ -434,13 +435,19 @@ export function registerCustomWardrobeGlbFile(
   }
   const blobUrl = URL.createObjectURL(file);
   customBlobUrls.set(category, { url: blobUrl, fileName: file.name });
+  const prevTpl = normalizedTemplateCache.get(category);
+  if (prevTpl) disposeObject3DTree(prevTpl);
   normalizedTemplateCache.delete(category);
   inFlightLoads.delete(category);
   loadErrorMap.delete(category);
-  void ensureWardrobeGlbLoaded(category).then(() => {
-    notifyCatalogSubscribers();
-    notifyRenderSubscribers();
-  });
+  void ensureWardrobeGlbLoaded(category)
+    .then(() => {
+      notifyCatalogSubscribers();
+      notifyRenderSubscribers();
+    })
+    .catch(() => {
+      // Fallback proxy stays active
+    });
   notifyCatalogSubscribers();
 }
 
@@ -461,13 +468,19 @@ export function registerCustomWardrobeGlbUrl(
     customRemoteUrls.set(category, trimmed);
   }
   persistCustomUrls();
+  const prevTpl = normalizedTemplateCache.get(category);
+  if (prevTpl) disposeObject3DTree(prevTpl);
   normalizedTemplateCache.delete(category);
   inFlightLoads.delete(category);
   loadErrorMap.delete(category);
-  void ensureWardrobeGlbLoaded(category).then(() => {
-    notifyCatalogSubscribers();
-    notifyRenderSubscribers();
-  });
+  void ensureWardrobeGlbLoaded(category)
+    .then(() => {
+      notifyCatalogSubscribers();
+      notifyRenderSubscribers();
+    })
+    .catch(() => {
+      // Fallback proxy stays active
+    });
   notifyCatalogSubscribers();
 }
 
@@ -482,7 +495,9 @@ function getGltfLoader(): GLTFLoader | null {
   loader.register(() => ({ name: "KHR_materials_variants" }));
   loader.setCrossOrigin("anonymous");
   const draco = new DRACOLoader();
-  draco.setDecoderPath("https://www.gstatic.com/draco/versioned/decoders/1.5.7/");
+  // Local self-hosted Draco decoder (copied from three/examples/jsm/libs/draco/gltf -> public/draco/)
+  // Guarantees offline factory / intranet GLB loading with zero third-party CDN dependency.
+  draco.setDecoderPath("/draco/");
   loader.setDRACOLoader(draco);
   sharedGltfLoader = loader;
   return loader;
@@ -1293,19 +1308,23 @@ function mountTemplateCloneOrAsync(
     freezeStaticObject3DSubtree(anchor, true);
   }
 
-  void ensureWardrobeGlbLoaded(category).then((tpl) => {
-    if (!tpl || !anchor.parent) return;
-    if (proxyNode && proxyNode.parent === anchor) {
-      anchor.remove(proxyNode);
-    }
-    // Clear any temporary hanger before attachFromTemplate re-adds configured set
-    anchor.clear();
-    attachFromTemplate(tpl);
-    if (anchor.parent) {
-      anchor.parent.updateMatrixWorld(true);
-    }
-    notifyRenderSubscribers();
-  });
+  void ensureWardrobeGlbLoaded(category)
+    .then((tpl) => {
+      if (!tpl || !anchor.parent) return;
+      if (proxyNode && proxyNode.parent === anchor) {
+        anchor.remove(proxyNode);
+      }
+      // Clear any temporary hanger before attachFromTemplate re-adds configured set
+      anchor.clear();
+      attachFromTemplate(tpl);
+      if (anchor.parent) {
+        anchor.parent.updateMatrixWorld(true);
+      }
+      notifyRenderSubscribers();
+    })
+    .catch(() => {
+      // Instant proxy remains rendered on network/GLB failure
+    });
 
   return anchor;
 }

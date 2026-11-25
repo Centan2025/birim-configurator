@@ -15,8 +15,6 @@ export const ALLOWED_EXTENSIONS = new Set([
   "json",
   "zip",
   "zpl",
-  "html",
-  "svg",
   "csv",
   "nc",
   "mpr",
@@ -24,6 +22,76 @@ export const ALLOWED_EXTENSIONS = new Set([
   "xcs",
   "bxf",
 ]);
+
+const EXTENSION_MIME_ALLOWLIST: Record<string, string[]> = {
+  glb: ["model/gltf-binary", "application/octet-stream"],
+  gltf: ["model/gltf+json", "application/json", "application/octet-stream"],
+  ktx2: ["image/ktx2", "application/octet-stream"],
+  png: ["image/png", "application/octet-stream"],
+  jpg: ["image/jpeg", "application/octet-stream"],
+  jpeg: ["image/jpeg", "application/octet-stream"],
+  webp: ["image/webp", "application/octet-stream"],
+  dxf: ["application/dxf", "image/vnd.dxf", "text/plain", "application/octet-stream"],
+  pdf: ["application/pdf", "application/octet-stream"],
+  json: ["application/json", "text/plain", "application/octet-stream"],
+  zip: ["application/zip", "application/x-zip-compressed", "application/octet-stream"],
+  zpl: ["text/plain", "application/octet-stream"],
+  csv: ["text/csv", "text/plain", "application/octet-stream"],
+  nc: ["text/plain", "application/octet-stream"],
+  mpr: ["text/plain", "application/octet-stream"],
+  cix: ["text/plain", "application/octet-stream"],
+  xcs: ["text/plain", "application/octet-stream"],
+  bxf: ["application/xml", "text/xml", "application/zip", "application/octet-stream"],
+};
+
+export function validateR2UploadContent(
+  ext: string,
+  rawContentType: string,
+  bodyBuffer: Buffer
+): { ok: true; normalizedContentType: string } | { ok: false; code: string; message: string } {
+  const mimeBase = (rawContentType || "application/octet-stream").split(";")[0].trim().toLowerCase();
+  const allowedMimes = EXTENSION_MIME_ALLOWLIST[ext];
+  if (!allowedMimes || !allowedMimes.includes(mimeBase)) {
+    return {
+      ok: false,
+      code: "INVALID_CONTENT_TYPE",
+      message: `'.${ext}' uzantısı için '${mimeBase}' Content-Type kabul edilmez.`,
+    };
+  }
+  if (ext === "png") {
+    if (
+      bodyBuffer.byteLength < 8 ||
+      bodyBuffer[0] !== 0x89 ||
+      bodyBuffer[1] !== 0x50 ||
+      bodyBuffer[2] !== 0x4e ||
+      bodyBuffer[3] !== 0x47
+    ) {
+      return { ok: false, code: "INVALID_FILE_SIGNATURE", message: "Geçersiz PNG dosya imzası." };
+    }
+  } else if (ext === "jpg" || ext === "jpeg") {
+    if (bodyBuffer.byteLength < 3 || bodyBuffer[0] !== 0xff || bodyBuffer[1] !== 0xd8 || bodyBuffer[2] !== 0xff) {
+      return { ok: false, code: "INVALID_FILE_SIGNATURE", message: "Geçersiz JPEG dosya imzası." };
+    }
+  } else if (ext === "pdf") {
+    if (bodyBuffer.byteLength < 5 || bodyBuffer.subarray(0, 5).toString("ascii") !== "%PDF-") {
+      return { ok: false, code: "INVALID_FILE_SIGNATURE", message: "Geçersiz PDF dosya imzası." };
+    }
+  } else if (ext === "zip") {
+    if (
+      bodyBuffer.byteLength < 4 ||
+      bodyBuffer[0] !== 0x50 ||
+      bodyBuffer[1] !== 0x4b ||
+      (bodyBuffer[2] !== 0x03 && bodyBuffer[2] !== 0x05)
+    ) {
+      return { ok: false, code: "INVALID_FILE_SIGNATURE", message: "Geçersiz ZIP dosya imzası." };
+    }
+  } else if (ext === "glb") {
+    if (bodyBuffer.byteLength < 4 || bodyBuffer.subarray(0, 4).toString("ascii") !== "glTF") {
+      return { ok: false, code: "INVALID_FILE_SIGNATURE", message: "Geçersiz GLB (glTF) dosya imzası." };
+    }
+  }
+  return { ok: true, normalizedContentType: mimeBase };
+}
 
 function sha256Hex(data: Buffer | string): string {
   return crypto.createHash("sha256").update(data).digest("hex");

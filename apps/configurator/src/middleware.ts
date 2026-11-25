@@ -21,9 +21,8 @@ export function middleware(req: NextRequest) {
   }
 
   const requestHeaders = new Headers(req.headers);
-  if (!requestHeaders.has("x-modul-resolved-tenant-slug")) {
-    requestHeaders.set("x-modul-resolved-tenant-slug", resolvedSlug);
-  }
+  // Always overwrite incoming header so external clients cannot spoof resolved tenant slug
+  requestHeaders.set("x-modul-resolved-tenant-slug", resolvedSlug);
 
   const res = NextResponse.next({
     request: { headers: requestHeaders },

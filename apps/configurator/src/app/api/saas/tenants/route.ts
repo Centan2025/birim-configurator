@@ -21,20 +21,32 @@ export async function GET(req: NextRequest) {
     const requestedTenant = req.nextUrl.searchParams.get("tenantId") || undefined;
     const ctx = resolveTenantRequestContext(req, { tenantId: requestedTenant });
     const entitlements = PLAN_ENTITLEMENTS_MATRIX[ctx.profile.planId];
-    const demoSessionToken = signTenantSessionToken({
-      tenantId: ctx.tenantId,
-      role: ctx.role,
-      userId: ctx.userId,
-    });
+    const isProd = process.env.NODE_ENV === "production";
+    const visibleTenants =
+      ctx.role === "platform_admin"
+        ? listRegisteredTenantProfiles()
+        : [ctx.profile];
+    const canViewAuditLogs =
+      ctx.role === "platform_admin" ||
+      ctx.role === "org_owner" ||
+      ctx.role === "org_admin";
 
     return NextResponse.json({
       ok: true,
       activeTenant: ctx.profile,
       entitlements,
       role: ctx.role,
-      demoSessionToken,
-      auditLogs: listTenantAuditEvents(ctx.tenantId).slice(0, 25),
-      availableTenants: listRegisteredTenantProfiles().map((t) => ({
+      ...(!isProd && ctx.authenticated
+        ? {
+            demoSessionToken: signTenantSessionToken({
+              tenantId: ctx.tenantId,
+              role: ctx.role,
+              userId: ctx.userId,
+            }),
+          }
+        : {}),
+      auditLogs: canViewAuditLogs ? listTenantAuditEvents(ctx.tenantId).slice(0, 25) : [],
+      availableTenants: visibleTenants.map((t) => ({
         tenantId: t.tenantId,
         slug: t.slug,
         displayName: t.brand.displayName,

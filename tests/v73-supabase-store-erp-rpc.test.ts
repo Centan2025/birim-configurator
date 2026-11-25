@@ -507,8 +507,8 @@ function createProductionVerifiedProject() {
   mod.dimensions.width = 1200;
   mod.dimensions.height = 2100;
   mod.dimensions.depth = 600;
-  mod.wallAnchored = true;
-  mod.wallSubstrate = "concrete";
+  mod.carcass.wallAnchored = true;
+  proj.space.wallSubstrateType = "reinforced_concrete";
   mod.bays[0].customWidth = 573;
   // İç çekmece kapak çarpışması olmasın diye Bölme 2'yi açık/dış çekmeceli veya 155° sıfır taşma menteşeli yap
   mod.bays.forEach((b) => {
@@ -566,16 +566,18 @@ describe("V7.3 — Birim-Store Teklif Akışı & Birim-Portal ERP Nesting Canlı
     project.sceneObjects = [
       {
         id: "so_oven_1",
-        catalogItemId: "00000000-0000-4000-8000-000000000888",
         sku: "BOSCH-HBG675BB1",
         name: "Bosch Serie 8 Ankastre Fırın",
-        category: "appliance_oven",
+        category: "appliance",
+        anchorMode: "free_floor",
+        visualKind: "oven_builtin",
+        catalogId: "00000000-0000-4000-8000-000000000888",
         commercialRole: "quoted_product",
         unitPriceEur: 890,
         quantity: 2,
         dimensions: { width: 595, height: 595, depth: 548 },
         position: { x: 1400, y: 0, z: 300 },
-        rotationY: 0,
+        rotation: { x: 0, y: 0, z: 0 },
       },
     ];
 
@@ -693,7 +695,7 @@ describe("V7.3 — Birim-Store Teklif Akışı & Birim-Portal ERP Nesting Canlı
     const unsafeProj = createInitialProject();
     unsafeProj.modules[0].dimensions.height = 2400;
     unsafeProj.modules[0].dimensions.depth = 320;
-    unsafeProj.modules[0].wallAnchored = false;
+    unsafeProj.modules[0].carcass.wallAnchored = false;
     const gate = evaluateUnifiedEngineeringModel(unsafeProj);
     expect(gate.canExportToCncAndSaw).toBe(false);
 
@@ -756,7 +758,7 @@ describe("V7.3 — Birim-Store Teklif Akışı & Birim-Portal ERP Nesting Canlı
     const unsafeProj = createInitialProject();
     unsafeProj.modules[0].dimensions.height = 2350;
     unsafeProj.modules[0].dimensions.depth = 300;
-    unsafeProj.modules[0].wallAnchored = false;
+    unsafeProj.modules[0].carcass.wallAnchored = false;
 
     const matMap = new Map(DEFAULT_MATERIALS.map((m) => [m.id, m]));
     const bom = generateBOMForProject(unsafeProj, matMap);

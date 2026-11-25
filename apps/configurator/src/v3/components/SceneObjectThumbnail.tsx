@@ -13,6 +13,7 @@ import {
   resolveEffectiveSceneObjectGlbUrl,
   subscribeSceneObjectGlbLoaded,
 } from "../materials/sceneObject3DBuilder";
+import { disposeObject3DTree } from "../materials/webglResourceGuard";
 
 interface SceneObjectThumbnailProps {
   item: Pick<SceneObjectCatalogItem, "catalogId" | "name" | "primaryColorHex">;
@@ -27,6 +28,34 @@ const glbThumbnailRendered = new Set<string>();
 let sharedThumbRenderer: THREE.WebGLRenderer | null = null;
 let sharedThumbScene: THREE.Scene | null = null;
 let sharedThumbCamera: THREE.PerspectiveCamera | null = null;
+let sharedThumbEnvTarget: THREE.WebGLRenderTarget | null = null;
+let thumbIdleReleaseTimer: ReturnType<typeof setTimeout> | null = null;
+
+function releaseThumbRigIfIdle(): void {
+  if (thumbIdleReleaseTimer) {
+    clearTimeout(thumbIdleReleaseTimer);
+    thumbIdleReleaseTimer = null;
+  }
+  if (sharedThumbEnvTarget) {
+    sharedThumbEnvTarget.dispose();
+    sharedThumbEnvTarget = null;
+  }
+  if (sharedThumbScene) {
+    sharedThumbScene.environment = null;
+    disposeObject3DTree(sharedThumbScene);
+    sharedThumbScene = null;
+  }
+  if (sharedThumbRenderer) {
+    sharedThumbRenderer.dispose();
+    sharedThumbRenderer = null;
+  }
+  sharedThumbCamera = null;
+}
+
+function scheduleThumbRigIdleRelease(): void {
+  if (thumbIdleReleaseTimer) clearTimeout(thumbIdleReleaseTimer);
+  thumbIdleReleaseTimer = setTimeout(releaseThumbRigIfIdle, 15_000);
+}
 
 function getThumbRig(): {
   renderer: THREE.WebGLRenderer;
@@ -57,8 +86,11 @@ function getThumbRig(): {
 
     const scene = new THREE.Scene();
     const pmrem = new THREE.PMREMGenerator(renderer);
-    const envTarget = pmrem.fromScene(new RoomEnvironment(), 0.04);
+    const roomEnv = new RoomEnvironment();
+    const envTarget = pmrem.fromScene(roomEnv, 0.04);
+    roomEnv.dispose();
     scene.environment = envTarget.texture;
+    sharedThumbEnvTarget = envTarget;
     pmrem.dispose();
 
     const hemi = new THREE.HemisphereLight("#ffffff", "#d6d3d1", 1.0);
@@ -206,6 +238,8 @@ function renderCatalogThumbnail(catalogId: string): {
     }
   } finally {
     scene.remove(group);
+    disposeObject3DTree(group);
+    scheduleThumbRigIdleRelease();
   }
 
   return { url: dataUrl, glbKey, usedGlb };

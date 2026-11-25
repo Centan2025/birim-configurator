@@ -10,7 +10,8 @@ function setupStoreWithTemplate(templateId: string) {
   const tpl = getV4TemplateById(templateId);
   if (!tpl) throw new Error(`Template not found: ${templateId}`);
   const mod = tpl.createInstance(`test_${templateId}`);
-  const proj = createInitialProject("Mutfak Kapak Testi");
+  const proj = createInitialProject();
+  proj.title = "Mutfak Kapak Testi";
   proj.modules = [mod];
   useConfiguratorStore.setState({
     project: proj,
@@ -219,7 +220,7 @@ describe("Kitchen module door system switching", () => {
       // Gizli ray tabanın tam alt yüzüne kadar oturur (sıfır çakışma)
       expect(dSlide.position.y + dSlide.dimensions.height).toBeLessThanOrEqual(dBot.position.y + 0.5);
     }
-    const bomWood = generateBOMForProject({ ...createInitialProject("Wood Drawer"), modules: [modWood] });
+    const bomWood = generateBOMForProject({ ...createInitialProject(), title: "Wood Drawer", modules: [modWood] });
     for (const role of ["drawer_side_left", "drawer_side_right", "drawer_box", "drawer_back"] as const) {
       const p = bomWood.cutList.find((item) => item.componentRole === role);
       expect(p?.hasDrawerBottomGroove, `BOM groove on ${role}`).toBe(true);

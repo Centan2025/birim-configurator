@@ -124,6 +124,32 @@ const SHARED_INVISIBLE_HITBOX_MAT = markSharedMaterial(
   new THREE.MeshBasicMaterial({ visible: false })
 );
 const sharedSceneMatPool = new Map<string, THREE.MeshStandardMaterial>();
+let sharedGlowHaloGeo: THREE.SphereGeometry | null = null;
+const sharedGlowHaloMats = new Map<string, THREE.MeshBasicMaterial>();
+
+function getSharedGlowHaloGeo(): THREE.SphereGeometry {
+  if (!sharedGlowHaloGeo) {
+    sharedGlowHaloGeo = markSharedGeometry(new THREE.SphereGeometry(1, 10, 8));
+  }
+  return sharedGlowHaloGeo;
+}
+
+function getSharedGlowHaloMat(kelvinKey: string, kelvinColor: number): THREE.MeshBasicMaterial {
+  let mat = sharedGlowHaloMats.get(kelvinKey);
+  if (!mat) {
+    mat = markSharedMaterial(
+      new THREE.MeshBasicMaterial({
+        color: kelvinColor,
+        transparent: true,
+        opacity: 0.35,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      })
+    );
+    sharedGlowHaloMats.set(kelvinKey, mat);
+  }
+  return mat;
+}
 
 function tagSelectableHierarchy(
   root: THREE.Object3D,
@@ -276,33 +302,33 @@ export function buildSceneObject3DGroup(
     } else {
       // Render detailed architectural fallback immediately until async .GLB resolves from public/models/scene-objects
       buildProceduralVisualByKind(inner, obj, W, H, D, priMat, secMat, chromeMat, glassDarkMat);
-      void loadCustomSceneGlbAsync(cacheKey, effectiveGlbUrl, obj.localAssetKey, options?.renderer).then((tpl) => {
-        if (tpl) notifySceneObjLoaded(cacheKey);
-      });
+      void loadCustomSceneGlbAsync(cacheKey, effectiveGlbUrl, obj.localAssetKey, options?.renderer)
+        .then((tpl) => {
+          if (tpl) notifySceneObjLoaded(cacheKey);
+        })
+        .catch(() => {
+          // Graceful procedural fallback already rendered
+        });
     }
   } else {
     buildProceduralVisualByKind(inner, obj, W, H, D, priMat, secMat, chromeMat, glassDarkMat);
   }
 
   if (obj.lightEmission?.enabled) {
-    const kelvinColor =
+    const kelvinKey =
       obj.lightEmission.colorTempK === 2700
-        ? 0xffd299
+        ? "2700"
         : obj.lightEmission.colorTempK === 4000
-        ? 0xf4f8ff
-        : 0xffe3b8;
+        ? "4000"
+        : "3000";
+    const kelvinColor =
+      kelvinKey === "2700" ? 0xffd299 : kelvinKey === "4000" ? 0xf4f8ff : 0xffe3b8;
+    const haloRadius = Math.min(90, Math.max(36, Math.min(W, D) * 0.18));
     const glowHalo = new THREE.Mesh(
-      markSharedGeometry(new THREE.SphereGeometry(Math.min(90, Math.max(36, Math.min(W, D) * 0.18)), 10, 8)),
-      markSharedMaterial(
-        new THREE.MeshBasicMaterial({
-          color: kelvinColor,
-          transparent: true,
-          opacity: 0.35,
-          blending: THREE.AdditiveBlending,
-          depthWrite: false,
-        })
-      )
+      getSharedGlowHaloGeo(),
+      getSharedGlowHaloMat(kelvinKey, kelvinColor)
     );
+    glowHalo.scale.setScalar(haloRadius);
     glowHalo.raycast = () => {};
     glowHalo.position.set(W / 2, Math.max(40, H * 0.18), D / 2);
     inner.add(glowHalo);
@@ -311,6 +337,7 @@ export function buildSceneObject3DGroup(
   if (options?.isSelected) {
     const selGeo = new THREE.BoxGeometry(W + 12, H + 12, D + 12);
     const edges = new THREE.EdgesGeometry(selGeo);
+    selGeo.dispose();
     const selLines = new THREE.LineSegments(
       edges,
       new THREE.LineBasicMaterial({ color: 0x2563eb })

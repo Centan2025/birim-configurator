@@ -5,9 +5,12 @@ import {
   MAX_UPLOAD_BYTES,
   buildIsolatedConfiguratorR2Key,
   buildR2SigV4PutHeaders,
+  validateR2UploadContent,
 } from "../../../../lib/r2-upload-helpers";
 import {
   TenantSecurityError,
+  assertTenantPermissionAndEntitlement,
+  checkTenantRateLimit,
   recordTenantAuditEvent,
   resolveTenantRequestContext,
 } from "../../../../lib/tenant-auth-guard";
@@ -49,6 +52,8 @@ export async function POST(request: Request) {
       organizationId:
         request.headers.get("x-birim-org-id") || request.headers.get("x-modul-tenant-id"),
     });
+    checkTenantRateLimit(tenantCtx.tenantId, "r2_upload", 60);
+    assertTenantPermissionAndEntitlement(tenantCtx, "project:write");
   } catch (err) {
     if (err instanceof TenantSecurityError) {
       return jsonResponse({ ok: false, code: err.code, message: err.message }, err.httpStatus);
@@ -74,11 +79,13 @@ export async function POST(request: Request) {
     );
   }
 
-  const sharePortalHeader = request.headers.get("x-birim-share-portal-r2") === "true";
+  // Client header can NEVER unlock a production bucket in production deployments
+  const sharePortalHeader =
+    process.env.NODE_ENV !== "production" &&
+    request.headers.get("x-birim-share-portal-r2") === "true";
   const allowProdR2 =
     process.env.BIRIM_ALLOW_PRODUCTION_R2_MUTATION === "true" ||
     process.env.BIRIM_SHARE_PORTAL_R2 === "true" ||
-    process.env.NODE_ENV === "production" ||
     sharePortalHeader;
 
   if (KNOWN_PRODUCTION_R2_BUCKETS.has(bucket) && !allowProdR2) {
@@ -106,6 +113,18 @@ export async function POST(request: Request) {
     );
   }
 
+  const declaredLength = Number(request.headers.get("content-length") || "0");
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_UPLOAD_BYTES) {
+    return jsonResponse(
+      {
+        ok: false,
+        code: "INVALID_FILE_SIZE",
+        message: "Dosya boyutu 0 ile 50 MB arasında olmalıdır.",
+      },
+      413
+    );
+  }
+
   const arrayBuf = await request.arrayBuffer();
   const bodyBuffer = Buffer.from(arrayBuf);
   if (bodyBuffer.byteLength === 0 || bodyBuffer.byteLength > MAX_UPLOAD_BYTES) {
@@ -119,6 +138,15 @@ export async function POST(request: Request) {
     );
   }
 
+  const contentCheck = validateR2UploadContent(ext, contentType, bodyBuffer);
+  if (!contentCheck.ok) {
+    return jsonResponse(
+      { ok: false, code: contentCheck.code, message: contentCheck.message },
+      400
+    );
+  }
+  const safeContentType = contentCheck.normalizedContentType;
+
   const objectKey = buildIsolatedConfiguratorR2Key({
     organizationId: orgId,
     subFolder: rawFolder,
@@ -131,7 +159,7 @@ export async function POST(request: Request) {
     objectKey,
     accessKeyId,
     secretAccessKey,
-    contentType,
+    contentType: safeContentType,
     bodyBuffer,
   });
 
@@ -173,7 +201,7 @@ export async function POST(request: Request) {
       key: objectKey,
       url: resolvedUrl,
       size: bodyBuffer.byteLength,
-      contentType,
+      contentType: safeContentType,
     },
     201
   );

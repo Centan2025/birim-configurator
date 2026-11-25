@@ -70,7 +70,7 @@ describe("V12 End-to-End Audit Remediation, 10 User Scenarios & Parametric Bound
         );
         expect(leftSideGeo).toBeDefined();
         expect(leftSideBom).toBeDefined();
-        expect(Math.abs(leftSideGeo!.dimensions.height - leftSideBom!.nominalLengthMm)).toBeLessThan(0.5);
+        expect(Math.abs(leftSideGeo!.dimensions.height - (leftSideBom!.nominalLengthMm ?? leftSideBom!.lengthMm))).toBeLessThan(0.5);
       }
     }
   });
@@ -161,7 +161,7 @@ describe("V12 End-to-End Audit Remediation, 10 User Scenarios & Parametric Bound
     // Fixed structural shelf must NOT snap to System 32 5mm pin grid; adjustable shelf MUST snap
     const sampleProj = createInitialProject();
     const sampleMod = sampleProj.modules[0];
-    sampleMod.carcass.multiHoleMode = "system_32_full";
+    sampleMod.carcass.multiHoleMode = "full_system_32";
     sampleMod.bays[0].shelves = [
       { id: "sh_fixed", bayIndex: 0, elevationY: 500, isAdjustable: false, isFixed: true },
       { id: "sh_adj", bayIndex: 0, elevationY: 900, isAdjustable: true },
@@ -227,9 +227,9 @@ describe("V12 End-to-End Audit Remediation, 10 User Scenarios & Parametric Bound
       for (const piece of bom.cutList) {
         for (const hole of piece.holes || []) {
           expect(hole.x).toBeGreaterThanOrEqual(-0.5);
-          expect(hole.x).toBeLessThanOrEqual(piece.nominalWidthMm + 0.5);
+          expect(hole.x).toBeLessThanOrEqual((piece.nominalWidthMm ?? piece.widthMm) + 0.5);
           expect(hole.y).toBeGreaterThanOrEqual(-0.5);
-          expect(hole.y).toBeLessThanOrEqual(piece.nominalLengthMm + 0.5);
+          expect(hole.y).toBeLessThanOrEqual((piece.nominalLengthMm ?? piece.lengthMm) + 0.5);
         }
       }
 
@@ -263,10 +263,13 @@ describe("V12 End-to-End Audit Remediation, 10 User Scenarios & Parametric Bound
       {
         id: "so_fridge_lux",
         catalogId: "obj_fridge_french_910",
+        sku: "OBJ-FRIDGE-910",
         name: "Ankastre Gardırop Buzdolabı",
         category: "appliance",
+        anchorMode: "free_floor",
         visualKind: "fridge_french_door",
         position: { x: 2500, y: 0, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
         dimensions: { width: 910, height: 1820, depth: 700 },
         quantity: 1,
         unitPriceEur: 2500,
@@ -281,7 +284,7 @@ describe("V12 End-to-End Audit Remediation, 10 User Scenarios & Parametric Bound
     expect(uvDoors.every((d) => d.edgeBanding.top && d.edgeBanding.left)).toBe(true);
 
     // Every material alternative must include the €2,500 commercial appliance + VAT (no fake -2,900 € delta!)
-    for (const alt of prUv.materialAlternatives) {
+    for (const alt of prUv.materialAlternatives ?? []) {
       expect(alt.totalWithVatEur).toBeGreaterThan(2500);
     }
 

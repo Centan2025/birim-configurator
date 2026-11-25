@@ -53,6 +53,32 @@ export function verifyWebhookPayloadHmac256(
   }
 }
 
+const BLOCKED_SSRF_HOST_RE =
+  /^(localhost|127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|169\.254\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+|0\.0\.0\.0|\[::1\]|\[fc[0-9a-f]{2}:|\[fd[0-9a-f]{2}:|\[fe80:)$/i;
+
+export function assertSafeOutboundWebhookUrl(rawUrl: string): URL {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new Error("Geçersiz webhook hedef URL formatı.");
+  }
+  const isProd = typeof process !== "undefined" && process.env?.NODE_ENV === "production";
+  if (parsed.protocol !== "https:" && (isProd || parsed.protocol !== "http:")) {
+    throw new Error("Webhook hedef URL yalnızca HTTPS protokolünü kullanabilir.");
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (
+    BLOCKED_SSRF_HOST_RE.test(host) ||
+    host.endsWith(".local") ||
+    host.endsWith(".internal") ||
+    host === "metadata.google.internal"
+  ) {
+    throw new Error(`SSRF koruması: Özel/yerel ağ hedefine (${host}) webhook gönderimi engellendi.`);
+  }
+  return parsed;
+}
+
 export class OutboundWebhookErpAdapter {
   private readonly tenantId: string;
   private readonly endpointUrl: string;
@@ -65,12 +91,16 @@ export class OutboundWebhookErpAdapter {
     signingSecret?: string;
     maxAttempts?: number;
   }) {
+    assertSafeOutboundWebhookUrl(params.endpointUrl);
     this.tenantId = params.tenantId;
     this.endpointUrl = params.endpointUrl;
+    const resolvedSecret =
+      params.signingSecret || process.env.MODUL_WEBHOOK_SIGNING_SECRET;
+    if (!resolvedSecret && typeof process !== "undefined" && process.env?.NODE_ENV === "production") {
+      throw new Error("SERVER_SECRET_MISSING: MODUL_WEBHOOK_SIGNING_SECRET üretim ortamında zorunludur.");
+    }
     this.signingSecret =
-      params.signingSecret ||
-      process.env.MODUL_WEBHOOK_SIGNING_SECRET ||
-      `whsec_${params.tenantId.replace(/-/g, "").slice(0, 16)}`;
+      resolvedSecret || `whsec_${params.tenantId.replace(/-/g, "").slice(0, 16)}`;
     this.maxAttempts = params.maxAttempts ?? 3;
   }
 
@@ -117,18 +147,27 @@ export class OutboundWebhookErpAdapter {
       record.attemptCount += 1;
       record.updatedAt = new Date().toISOString();
       try {
-        const res = await fetch(this.endpointUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json; charset=utf-8",
-            "X-Modul-Tenant-Id": this.tenantId,
-            "X-Modul-Event-Type": params.eventType,
-            "X-Modul-Timestamp": nowIso,
-            "X-Modul-Signature-256": sig,
-            "Idempotency-Key": idemp,
-          },
-          body: rawBody,
-        });
+        assertSafeOutboundWebhookUrl(this.endpointUrl);
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 15_000);
+        let res: Response;
+        try {
+          res = await fetch(this.endpointUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json; charset=utf-8",
+              "X-Modul-Tenant-Id": this.tenantId,
+              "X-Modul-Event-Type": params.eventType,
+              "X-Modul-Timestamp": nowIso,
+              "X-Modul-Signature-256": sig,
+              "Idempotency-Key": idemp,
+            },
+            body: rawBody,
+            signal: controller.signal,
+          });
+        } finally {
+          clearTimeout(timer);
+        }
         record.lastHttpStatus = res.status;
         if (res.ok) {
           record.status = "delivered";

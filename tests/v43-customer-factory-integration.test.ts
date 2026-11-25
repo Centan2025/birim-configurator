@@ -97,6 +97,6 @@ describe("Birim V4.3 — Mağaza Müşterisi & Fabrika Üretim Planlamacısı B�
     const samplePlanDxf = "0\nSECTION\n2\nENTITIES\n0\nLINE\n8\nWALLS\n10\n0\n20\n0\n11\n3200\n21\n0\n0\nENDSEC\n0\nEOF";
     const parsed = parseCadDxfText(samplePlanDxf, "plan.dxf");
     expect(parsed.fileType).toBe("dxf");
-    expect(parsed.polylines.length).toBeGreaterThan(0);
+    expect((parsed.polylines ?? []).length).toBeGreaterThan(0);
   });
 });

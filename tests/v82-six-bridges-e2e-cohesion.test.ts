@@ -88,8 +88,9 @@ describe("v82 — End-to-End Cohesion of All 6 Final SaaS Bridges", () => {
     };
     new Function("self", workerSrc)(selfShim);
     selfShim.onmessage?.({ data: { pieces: bom.cutList } });
-    expect(postedMsg?.ok).toBe(true);
-    expect(postedMsg?.result?.length).toBe(directRes.length);
+    const msg = postedMsg as { ok: boolean; result?: unknown[] } | null;
+    expect(msg?.ok).toBe(true);
+    expect(msg?.result?.length).toBe(directRes.length);
   });
 
   it("3. persists audit & subscription ledgers to disk and writes through to PostgREST when enabled", async () => {

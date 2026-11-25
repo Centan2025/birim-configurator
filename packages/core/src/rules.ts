@@ -23,7 +23,9 @@ import { evaluateCustomStandardRules } from "./standards-registry";
 export function roundMm(value: number, decimals = 2): number {
   if (!Number.isFinite(value)) return 0;
   const factor = Math.pow(10, decimals);
-  return Math.round((value + Number.EPSILON) * factor) / factor;
+  const sign = value < 0 ? -1 : 1;
+  const rounded = Math.round(Math.abs(value) * factor + 1e-9) / factor;
+  return rounded === 0 ? 0 : sign * rounded;
 }
 
 /**

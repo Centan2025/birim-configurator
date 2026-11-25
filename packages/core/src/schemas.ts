@@ -162,22 +162,22 @@ export const JointTypeSchema = z.enum([
 export const GrainDirectionSchema = z.enum(["lengthwise", "crosswise", "none"]);
 
 export const Dimensions3DSchema = z.object({
-  width: z.number().min(15, "Min width 15mm").max(5000, "Max width 5000mm"),
-  height: z.number().min(15, "Min height 15mm").max(3200, "Max height 3200mm"),
-  depth: z.number().min(15, "Min depth 15mm").max(1500, "Max depth 1500mm"),
+  width: z.number().finite().min(15, "Min width 15mm").max(5000, "Max width 5000mm"),
+  height: z.number().finite().min(15, "Min height 15mm").max(3200, "Max height 3200mm"),
+  depth: z.number().finite().min(15, "Min depth 15mm").max(1500, "Max depth 1500mm"),
 });
 
 export const Position3DSchema = z.object({
-  x: z.number(),
-  y: z.number(),
-  z: z.number(),
+  x: z.number().finite(),
+  y: z.number().finite(),
+  z: z.number().finite(),
 });
 
 export const Rotation3DSchema = z
   .object({
-    x: z.number().default(0),
-    y: z.number().default(0),
-    z: z.number().default(0),
+    x: z.number().finite().default(0),
+    y: z.number().finite().default(0),
+    z: z.number().finite().default(0),
   })
   .optional();
 

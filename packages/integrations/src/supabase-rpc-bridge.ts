@@ -205,30 +205,19 @@ export function computeCanonicalRequestHash(payload: unknown): string {
     return v;
   });
 
-  // Node.js ortamında gerçek SHA-256 varsa kullan, yoksa deterministik 64-bit çift FNV-1a kullan
-  try {
-    if (typeof process !== "undefined" && process.versions?.node) {
-      // Dinamik require ile tarayıcı paketleyicilerini kırmadan kripto modülünü yükle
-      const req = eval("require") as (mod: string) => {
-        createHash: (alg: string) => { update: (d: string) => { digest: (enc: string) => string } };
-      };
-      const cryptoMod = req("crypto");
-      return cryptoMod.createHash("sha256").update(canonicalJson).digest("hex");
-    }
-  } catch {
-    // Tarayıcı ortamı fallback
-  }
-
+  // Pure deterministic 128-bit FNV-1a quad-lane digest (CSP-safe, zero eval, browser + Node identical)
   let h1 = 0x811c9dc5;
-  let h2 = 0x811c9dc5;
+  let h2 = 0x9e3779b9;
+  let h3 = 0x85ebca6b;
+  let h4 = 0xc2b2ae35;
   for (let i = 0; i < canonicalJson.length; i++) {
     const ch = canonicalJson.charCodeAt(i);
-    h1 ^= ch;
-    h1 = Math.imul(h1, 0x01000193);
-    h2 ^= ch ^ (i & 0xff);
-    h2 = Math.imul(h2, 0x01000193);
+    h1 = Math.imul(h1 ^ ch, 0x01000193);
+    h2 = Math.imul(h2 ^ (ch + (i & 0xff)), 0x01000193);
+    h3 = Math.imul(h3 ^ (ch ^ ((i >>> 8) & 0xff)), 0x01000193);
+    h4 = Math.imul(h4 ^ ((ch << 3) ^ i), 0x01000193);
   }
-  return `fnv64_${(h1 >>> 0).toString(16).padStart(8, "0")}${(h2 >>> 0).toString(16).padStart(8, "0")}`;
+  return `h128_${(h1 >>> 0).toString(16).padStart(8, "0")}${(h2 >>> 0).toString(16).padStart(8, "0")}${(h3 >>> 0).toString(16).padStart(8, "0")}${(h4 >>> 0).toString(16).padStart(8, "0")}`;
 }
 
 /**

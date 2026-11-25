@@ -105,6 +105,9 @@ const VERSIONS_BY_TENANT_PROJECT = new Map<string, CloudProjectVersionRecord[]>(
 
 function seedInitialAccountsOnce(): void {
   if (USERS_BY_EMAIL.size > 0) return;
+  if (process.env.NODE_ENV === "production" && process.env.MODUL_ALLOW_DEMO_ACCOUNTS !== "true") {
+    return;
+  }
 
   const birimAdminPwd = hashPasswordScrypt("Birim2026!");
   const birimOwner: SaasUserAccount = {

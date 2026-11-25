@@ -291,8 +291,15 @@ export class IyzicoBillingAdapter implements IBillingProvider {
   private readonly secretKey: string;
 
   constructor(secretKey?: string) {
-    this.secretKey =
-      secretKey || process.env.IYZICO_SECRET_KEY || "iyzico-dev-webhook-secret-v1";
+    const resolved = secretKey || process.env.IYZICO_SECRET_KEY;
+    if (!resolved && process.env.NODE_ENV === "production") {
+      throw new TenantSecurityError(
+        "SERVER_SECRET_MISSING",
+        "Üretim ortamında IYZICO_SECRET_KEY tanımlanmalıdır.",
+        503
+      );
+    }
+    this.secretKey = resolved || "iyzico-dev-webhook-secret-v1";
   }
 
   createCheckoutSession(params: {
@@ -340,8 +347,15 @@ export class StripeBillingAdapter implements IBillingProvider {
   private readonly webhookSecret: string;
 
   constructor(webhookSecret?: string) {
-    this.webhookSecret =
-      webhookSecret || process.env.STRIPE_WEBHOOK_SECRET || "whsec_stripe_dev_secret_v1";
+    const resolved = webhookSecret || process.env.STRIPE_WEBHOOK_SECRET;
+    if (!resolved && process.env.NODE_ENV === "production") {
+      throw new TenantSecurityError(
+        "SERVER_SECRET_MISSING",
+        "Üretim ortamında STRIPE_WEBHOOK_SECRET tanımlanmalıdır.",
+        503
+      );
+    }
+    this.webhookSecret = resolved || "whsec_stripe_dev_secret_v1";
   }
 
   createCheckoutSession(params: {
@@ -382,6 +396,11 @@ export class StripeBillingAdapter implements IBillingProvider {
       })
     );
     if (!parts.t || !parts.v1) return false;
+    const tsSec = Number(parts.t);
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (!Number.isFinite(tsSec) || Math.abs(nowSec - tsSec) > 300) {
+      return false;
+    }
     const expectedV1 = crypto
       .createHmac("sha256", this.webhookSecret)
       .update(`${parts.t}.${rawBody}`, "utf8")

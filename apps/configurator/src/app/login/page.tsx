@@ -10,8 +10,10 @@ import type { SaasRoleId } from "@birim/core";
 export default function ModulSaasLoginPage() {
   const router = useRouter();
   const switchActiveTenant = useConfiguratorStore((s: ConfiguratorState) => s.switchActiveTenant);
-  const [email, setEmail] = useState("info@birim.com");
-  const [password, setPassword] = useState("Birim2026!");
+  const [email, setEmail] = useState(
+    process.env.NODE_ENV === "development" ? "info@birim.com" : ""
+  );
+  const [password, setPassword] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -35,9 +37,7 @@ export default function ModulSaasLoginPage() {
         setErrorMsg(data.error || "Giriş başarısız oldu.");
         return;
       }
-      if (typeof window !== "undefined" && data.sessionToken) {
-        window.localStorage.setItem("modul_saas_session_token", data.sessionToken);
-      }
+      // Session token is kept exclusively in the httpOnly `modul_session` cookie (never stored in localStorage)
       switchActiveTenant(data.activeMembership.tenantId, data.activeMembership.role);
       router.push("/v3/studio");
     } catch {

@@ -7,7 +7,16 @@ import type { V4ModuleTemplateDefinition } from "@birim/catalog";
 import { generateModuleGeometry } from "../adapter/useV3Adapter";
 import { createComponentMesh } from "../../components/componentMesh";
 import { getStudioPmremEnvironment, getV3PbrMaterial } from "../materials/pbrMaterialSystem";
+import { disposeObject3DTree, markSharedMaterial } from "../materials/webglResourceGuard";
 import { V3IsometricModuleIcon } from "./V3IsometricModuleIcon";
+
+const THUMB_SHARED_MATS = {
+  metal: markSharedMaterial(new THREE.MeshStandardMaterial({ color: 0x333840, roughness: 0.32, metalness: 0.76 })),
+  door: markSharedMaterial(new THREE.MeshStandardMaterial({ color: 0xe2e0dc, roughness: 0.72, metalness: 0.02 })),
+  darkAccent: markSharedMaterial(new THREE.MeshStandardMaterial({ color: 0x3b3e44, roughness: 0.82, metalness: 0.03 })),
+  outerCarcass: markSharedMaterial(new THREE.MeshStandardMaterial({ color: 0xf4f3f0, roughness: 0.78, metalness: 0.02 })),
+  innerCarcass: markSharedMaterial(new THREE.MeshStandardMaterial({ color: 0xe8e6e2, roughness: 0.76, metalness: 0.02 })),
+};
 
 const thumbnailDataUrlCache = new Map<string, string>();
 const pendingQueue: Array<{
@@ -128,11 +137,7 @@ function getOrInitStudioThumbStage(): boolean {
 }
 
 function disposeGroupGeometries(grp: THREE.Object3D) {
-  grp.traverse((obj) => {
-    if (obj instanceof THREE.Mesh || obj instanceof THREE.LineSegments) {
-      obj.geometry?.dispose();
-    }
-  });
+  disposeObject3DTree(grp);
 }
 
 function renderTemplateThumbnailSync(template: V4ModuleTemplateDefinition): string | null {
@@ -200,14 +205,14 @@ function renderTemplateThumbnailSync(template: V4ModuleTemplateDefinition): stri
         comp.role === "carcass_bottom" ||
         comp.role === "plinth";
       const pbrMat = isMetal
-        ? new THREE.MeshStandardMaterial({ color: 0x333840, roughness: 0.32, metalness: 0.76 })
+        ? THUMB_SHARED_MATS.metal
         : isDoorLike
-        ? new THREE.MeshStandardMaterial({ color: 0xe2e0dc, roughness: 0.72, metalness: 0.02 })
+        ? THUMB_SHARED_MATS.door
         : isDarkAccent
-        ? new THREE.MeshStandardMaterial({ color: 0x3b3e44, roughness: 0.82, metalness: 0.03 })
+        ? THUMB_SHARED_MATS.darkAccent
         : isOuterCarcass
-        ? new THREE.MeshStandardMaterial({ color: 0xf4f3f0, roughness: 0.78, metalness: 0.02 })
-        : new THREE.MeshStandardMaterial({ color: 0xe8e6e2, roughness: 0.76, metalness: 0.02 });
+        ? THUMB_SHARED_MATS.outerCarcass
+        : THUMB_SHARED_MATS.innerCarcass;
       const meshGrp = createComponentMesh(comp, pbrMat, sharedEdgeMat, {
         role: comp.role,
       });
@@ -312,9 +317,13 @@ export const V3StudioModuleThumbnail: React.FC<V3StudioModuleThumbnailProps> = R
       const el = hostRef.current;
       if (!el || typeof IntersectionObserver === "undefined") {
         let active = true;
-        enqueueTemplateThumbnail(template).then((url) => {
-          if (active && url) setImgUrl(url);
-        });
+        enqueueTemplateThumbnail(template)
+          .then((url) => {
+            if (active && url) setImgUrl(url);
+          })
+          .catch(() => {
+            // Fallback isometric icon remains rendered
+          });
         return () => {
           active = false;
         };
@@ -324,9 +333,13 @@ export const V3StudioModuleThumbnail: React.FC<V3StudioModuleThumbnailProps> = R
         (entries) => {
           if (entries.some((e) => e.isIntersecting)) {
             obs.disconnect();
-            enqueueTemplateThumbnail(template).then((url) => {
-              if (active && url) setImgUrl(url);
-            });
+            enqueueTemplateThumbnail(template)
+              .then((url) => {
+                if (active && url) setImgUrl(url);
+              })
+              .catch(() => {
+                // Fallback isometric icon remains rendered
+              });
           }
         },
         { rootMargin: "160px" }

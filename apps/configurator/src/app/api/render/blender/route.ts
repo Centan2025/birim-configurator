@@ -104,7 +104,11 @@ export async function GET(): Promise<NextResponse<BlenderExecutableInfo>> {
     return NextResponse.json({ available: false, path: null, version: null });
   }
   const version = await queryBlenderVersion(exePath);
-  return NextResponse.json({ available: true, path: exePath, version });
+  return NextResponse.json({
+    available: true,
+    path: process.env.NODE_ENV === "production" ? null : exePath,
+    version: process.env.NODE_ENV === "production" ? null : version,
+  });
 }
 
 interface RenderMetaPayload {
@@ -140,7 +144,17 @@ function runBlenderProcess(
     let stderr = "";
     let lineBuf = "";
 
+    const timeoutTimer = setTimeout(() => {
+      try {
+        proc.kill("SIGTERM");
+      } catch {
+        // ignore
+      }
+      reject(new Error("Blender Cycles render zaman aşımına (120 sn) uğradı."));
+    }, 120_000);
+
     const onAbort = () => {
+      clearTimeout(timeoutTimer);
       try {
         proc.kill("SIGTERM");
       } catch {
@@ -171,10 +185,12 @@ function runBlenderProcess(
       stderr += chunk.toString("utf8");
     });
     proc.on("error", (err) => {
+      clearTimeout(timeoutTimer);
       signal.removeEventListener("abort", onAbort);
       reject(err);
     });
     proc.on("close", (code) => {
+      clearTimeout(timeoutTimer);
       signal.removeEventListener("abort", onAbort);
       if (code === 0) {
         resolve({ stdout, stderr });
@@ -200,11 +216,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     throw err;
   }
 
-  const exePath = await resolveBlenderExecutable();
+  const allowLocalSpawn =
+    process.env.NODE_ENV !== "production" ||
+    process.env.MODUL_ALLOW_LOCAL_BLENDER_SPAWN === "true";
+  const exePath = allowLocalSpawn ? await resolveBlenderExecutable() : null;
   const isExternalSaasTenant = tenantCtx.tenantSlug !== "birim";
   const isCloudQueueMode =
     process.env.MODUL_CLOUD_SAAS_MODE === "true" ||
-    (isExternalSaasTenant && !exePath);
+    !allowLocalSpawn ||
+    isExternalSaasTenant;
 
   if (isCloudQueueMode) {
     try {
@@ -295,11 +315,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (!(glbEntry instanceof File)) {
       return NextResponse.json({ error: "GLB sahne dosyasi eksik." }, { status: 400 });
     }
+    const MAX_GLB_BYTES = 50 * 1024 * 1024;
+    if (glbEntry.size <= 0 || glbEntry.size > MAX_GLB_BYTES) {
+      return NextResponse.json(
+        { error: "GLB sahne dosyası 0 ile 50 MB arasında olmalıdır." },
+        { status: 413 }
+      );
+    }
 
     let meta: RenderMetaPayload = {};
     if (typeof metaEntry === "string") {
       try {
-        meta = JSON.parse(metaEntry) as RenderMetaPayload;
+        const parsedMeta = JSON.parse(metaEntry) as RenderMetaPayload;
+        meta = {
+          ...parsedMeta,
+          width: Math.max(320, Math.min(3840, Math.round(Number(parsedMeta.width) || 1600))),
+          height: Math.max(240, Math.min(2160, Math.round(Number(parsedMeta.height) || 1000))),
+          samples: Math.max(8, Math.min(256, Math.round(Number(parsedMeta.samples) || 64))),
+          bounces: Math.max(1, Math.min(12, Math.round(Number(parsedMeta.bounces) || 6))),
+        };
       } catch {
         meta = {};
       }

@@ -478,12 +478,20 @@ export const QuickStyleAndMaterialDock: React.FC<QuickStyleAndMaterialDockProps>
                       e.dataTransfer.effectAllowed = "copy";
                       e.dataTransfer.setData("application/x-birim-material", JSON.stringify({ materialId: mat.id, materialName: mat.name }));
                       if (typeof window !== "undefined") {
-                        (window as any).__birimDraggedMaterial = { materialId: mat.id, materialName: mat.name };
+                        (
+                          window as Window & {
+                            __birimDraggedMaterial?: { materialId: string; materialName: string } | null;
+                          }
+                        ).__birimDraggedMaterial = { materialId: mat.id, materialName: mat.name };
                       }
                     }}
                     onDragEnd={() => {
                       if (typeof window !== "undefined") {
-                        (window as any).__birimDraggedMaterial = null;
+                        (
+                          window as Window & {
+                            __birimDraggedMaterial?: { materialId: string; materialName: string } | null;
+                          }
+                        ).__birimDraggedMaterial = null;
                       }
                     }}
                     onMouseEnter={() =>

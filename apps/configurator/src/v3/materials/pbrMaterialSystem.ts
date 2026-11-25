@@ -22,6 +22,20 @@ let proceduralTextureQualityTier: ProceduralTextureQualityTier = "ultra";
 export function setProceduralTextureQualityTier(tier: ProceduralTextureQualityTier): void {
   if (proceduralTextureQualityTier === tier) return;
   proceduralTextureQualityTier = tier;
+  // Properly release GPU VRAM for every cached CanvasTexture & MeshPhysicalMaterial before clearing
+  textureCache.forEach((set) => {
+    set.colorMap?.dispose();
+    set.roughnessMap?.dispose();
+    set.normalMap?.dispose();
+    set.bumpMap?.dispose();
+  });
+  rotatedTexCache.forEach((t) => t.dispose());
+  pbrMaterialCache.forEach((m) => m.dispose());
+  floorTextureCache.forEach((t) => t.dispose());
+  floorNormalCache.forEach((t) => t.dispose());
+  wallTextureCache.forEach((t) => t.dispose());
+  wallNormalCache.forEach((t) => t.dispose());
+
   textureCache.clear();
   rotatedTexCache.clear();
   pbrMaterialCache.clear();

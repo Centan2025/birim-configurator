@@ -34,12 +34,12 @@ function createWardrobeWithInternalDrawers(
     hardwareProductId: "hw_blum_71b3550", // standard 110° hinge
   };
   bay.drawers = [
-    { id: "drw_int_1", elevationY: 0, height: 180, isInternal: true },
-    { id: "drw_int_2", elevationY: 185, height: 180, isInternal: true },
-    { id: "drw_int_3", elevationY: 370, height: 180, isInternal: true },
+    { id: "drw_int_1", bayIndex: 0, elevationY: 0, height: 180, slideType: "soft_close", isInternal: true },
+    { id: "drw_int_2", bayIndex: 0, elevationY: 185, height: 180, slideType: "soft_close", isInternal: true },
+    { id: "drw_int_3", bayIndex: 0, elevationY: 370, height: 180, slideType: "soft_close", isInternal: true },
   ];
   bay.shelves = [
-    { id: "shf_cap", elevationY: 565, thickness: 18, isAdjustable: false, isFixed: true },
+    { id: "shf_cap", bayIndex: 0, elevationY: 565, thickness: 18, isAdjustable: false, isFixed: true },
   ];
 
   return { project, mod, bay };
@@ -111,10 +111,10 @@ describe("Internal Drawer Blind Panel + Front Filler System (Kör Dikme + Ön K�
     expect(blindFrontPart!.edgeBanding.right).toBe(true);
 
     const leftSideRunnerHoles = (leftSidePart?.holes || []).filter(
-      (h) => h.purpose === "drawer_runner"
+      (h) => h.purpose === "slide_mount" || String(h.purpose) === "drawer_runner"
     );
     const blindDivRunnerHoles = (blindDivPart?.holes || []).filter(
-      (h) => h.purpose === "drawer_runner"
+      (h) => h.purpose === "slide_mount" || String(h.purpose) === "drawer_runner"
     );
     expect(leftSideRunnerHoles).toHaveLength(0);
     expect(blindDivRunnerHoles.length).toBeGreaterThanOrEqual(6);
@@ -169,8 +169,8 @@ describe("Internal Drawer Blind Panel + Front Filler System (Kör Dikme + Ön K�
     );
     // Keep standard 110° hinge (hw_blum_71b3550) and place a drawer whose upper half hits the bottom hinge (~82mm inner Y)
     mod.bays[0].drawers = [
-      { id: "drw_upper_clash", elevationY: 0, height: 180, isInternal: true },
-      { id: "drw_clear_mid", elevationY: 300, height: 160, isInternal: true },
+      { id: "drw_upper_clash", bayIndex: 0, elevationY: 0, height: 180, slideType: "soft_close", isInternal: true },
+      { id: "drw_clear_mid", bayIndex: 0, elevationY: 300, height: 160, slideType: "soft_close", isInternal: true },
     ];
 
     const report = evaluateUnifiedEngineeringModel(project);

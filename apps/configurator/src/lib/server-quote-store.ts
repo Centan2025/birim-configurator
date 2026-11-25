@@ -11,10 +11,11 @@ function getStoreFilePath(): string {
 }
 
 function getSigningSecret(): string {
-  return (
-    process.env.BIRIM_QUOTE_SIGNING_SECRET ||
-    "birim-dev-hmac-secret-change-in-production-v46"
-  );
+  const configured = process.env.BIRIM_QUOTE_SIGNING_SECRET;
+  if (!configured && process.env.NODE_ENV === "production") {
+    throw new Error("SERVER_SECRET_MISSING: BIRIM_QUOTE_SIGNING_SECRET üretim ortamında zorunludur.");
+  }
+  return configured || "birim-dev-hmac-secret-change-in-production-v46";
 }
 
 function loadDiskQuotesOnce(): void {

@@ -379,14 +379,17 @@ describe("V11.4 Studio UI, Fixed Shelf, System-32 Multi-Hole Shelf Snap, Perform
     const soGrp = buildSceneObject3DGroup({
       id: "so_fridge_1",
       catalogId: "app_fridge_90",
+      sku: "APP-FRIDGE-90",
       name: "Gardırop Tipi Buzdolabı",
       category: "appliance",
+      anchorMode: "free_floor",
       visualKind: "fridge_french_door",
       position: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
       dimensions: { width: 900, height: 1820, depth: 700 },
       quantity: 1,
       unitPriceEur: 1450,
-      commercialRole: "catalog_priced",
+      commercialRole: "quoted_product",
     });
     let hitboxCount = 0;
     soGrp.traverse((ch: any) => {

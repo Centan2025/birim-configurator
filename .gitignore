@@ -23,3 +23,10 @@ test-results/
 # Local temporary AI handoff
 .handoff.local.md
 tsconfig.tsbuildinfo
+dist-test/
+*.tsbuildinfo
+.birim-quotes-store.json
+birim-configurator-saf-kod.zip
+.vercel/
+supabase/.temp/
+__pycache__/

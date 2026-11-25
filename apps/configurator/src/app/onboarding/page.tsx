@@ -65,9 +65,7 @@ export default function ModulSaasOnboardingWizardPage() {
         setErrorMsg(data.error || "Organizasyon kurulumu tamamlanamadı.");
         return;
       }
-      if (typeof window !== "undefined" && data.sessionToken) {
-        window.localStorage.setItem("modul_saas_session_token", data.sessionToken);
-      }
+      // Session token is kept exclusively in the httpOnly `modul_session` cookie (never stored in localStorage)
       switchActiveTenant(data.tenant.tenantId, "org_owner");
       router.push(`/${data.tenant.slug}/admin`);
     } catch {

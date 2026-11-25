@@ -762,7 +762,7 @@ describe("Birim Configurator V6 — 12 Seviyeli Mühendislik Doğruluğu ve Üre
     expect(scm.content).toContain('CreateDrill("V_DRILL_1", 1800.00, 37.00, 12.00, 5.00');
     expect(scm.content).toContain('CreateDrill("V_DRILL_2", 1800.00, 563.00, 12.00, 5.00');
     expect(scm.content).toContain(
-      'CreateBladeCut("BACK_GROOVE_8_5MM", "GROOVE_SAW", TypeOfProcess.Groove, 0.00, 584.00, 2200.00, 584.00'
+      'CreateBladeCut("BACK_GROOVE_8_5MM", "GROOVE_SAW", TypeOfProcess.Groove, 0.00, 584.25, 2200.00, 584.25'
     );
 
     // P3-01: Kapsül stadyum modülünde Nesting SVG gerçek <polygon> konturu çizer

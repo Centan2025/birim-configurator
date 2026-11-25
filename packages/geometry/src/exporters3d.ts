@@ -1,3 +1,4 @@
+import { crc32Bytes } from "@birim/core";
 export interface ExportMaterialSpec {
   id: string;
   name: string;
@@ -530,16 +531,6 @@ export function convertSceneObjectsToExportBoxes(
   return out;
 }
 
-function crc32Bytes(data: Uint8Array): number {
-  let crc = 0xffffffff;
-  for (let i = 0; i < data.length; i++) {
-    crc ^= data[i];
-    for (let j = 0; j < 8; j++) {
-      crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
-    }
-  }
-  return (crc ^ 0xffffffff) >>> 0;
-}
 
 /**
  * Builds a compliant, zero-compression 64-byte-aligned Apple AR Quick Look `.USDZ` binary archive
@@ -629,4 +620,3 @@ export function exportPartsToUSDZ(
 
   return out;
 }
-
