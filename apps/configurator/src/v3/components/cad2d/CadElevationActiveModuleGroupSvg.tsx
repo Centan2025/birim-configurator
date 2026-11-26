@@ -1207,7 +1207,7 @@ export const CadElevationActiveModuleGroupSvg: React.FC<CadElevationAndSectionSv
                   <div className="w-full h-full flex items-center justify-center">
                     <div
                       style={{ fontSize: `${Math.round(11.5 * pxScaleHud)}px`, padding: `${Math.round(3 * pxScaleHud)}px ${Math.round(10 * pxScaleHud)}px` }}
-                      className="rounded-lg bg-slate-900/80 backdrop-blur-md border border-sky-400/30 text-sky-100 font-semibold font-mono whitespace-nowrap shadow-lg"
+                      className="rounded-lg bg-slate-900/92 border border-sky-400/30 text-sky-100 font-semibold font-mono whitespace-nowrap shadow-lg"
                     >
                       {hudText}
                     </div>

@@ -1,7 +1,7 @@
 import type { StoreApi } from "zustand";
 
 import type { ConfiguratorState, ProjectRevisionSnapshot } from "../useConfiguratorStore";
-import { recompute, getDeferredCommitRecomputeTimer, setDeferredCommitRecomputeTimer } from "../storeHelpers";
+import { recompute, getAdaptiveMaxHistoryEntries, getDeferredCommitRecomputeTimer, setDeferredCommitRecomputeTimer } from "../storeHelpers";
 
 export type StoreSet = StoreApi<ConfiguratorState>["setState"];
 export type StoreGet = StoreApi<ConfiguratorState>["getState"];
@@ -137,8 +137,9 @@ export function createHistoryAndTransactionsSlice(set: StoreSet, get: StoreGet):
     if (typeof window !== "undefined") {
       // Zero-hitch pointerup: settle visual position immediately on this frame, then run heavy BOM/pricing/engineering off-frame!
       const settledProject = project;
+      const maxHist = getAdaptiveMaxHistoryEntries();
       set({
-        history: [...history.slice(-50), batchStartProject],
+        history: [...history.slice(-maxHist), batchStartProject],
         future: [],
         batchStartProject: null,
       });
@@ -158,8 +159,9 @@ export function createHistoryAndTransactionsSlice(set: StoreSet, get: StoreGet):
       return;
     }
     const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(project);
+    const maxHist = getAdaptiveMaxHistoryEntries();
     set({
-      history: [...history.slice(-50), batchStartProject],
+      history: [...history.slice(-maxHist), batchStartProject],
       future: [],
       batchStartProject: null,
       validationIssues,
@@ -193,8 +195,9 @@ export function createHistoryAndTransactionsSlice(set: StoreSet, get: StoreGet):
     if (!target) return false;
     const restored = structuredClone(target.project);
     const { validationIssues, bom, pricing, smartAdvice, lastChangeImpact } = recompute(restored);
+    const maxHist = getAdaptiveMaxHistoryEntries();
     set({
-      history: [...history.slice(-50), project],
+      history: [...history.slice(-maxHist), project],
       future: [],
       project: restored,
       autoSaveStatus: "unsaved",

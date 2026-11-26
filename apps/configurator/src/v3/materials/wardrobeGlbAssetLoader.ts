@@ -488,17 +488,26 @@ export function resetWardrobeGlbCategoryToDefault(category: WardrobeGlbCategory)
   registerCustomWardrobeGlbUrl(category, "");
 }
 
+let sharedLocalDracoLoader: DRACOLoader | null = null;
+
+export function getSharedLocalDracoLoader(): DRACOLoader {
+  if (!sharedLocalDracoLoader) {
+    const draco = new DRACOLoader();
+    // Local self-hosted Draco decoder (copied from three/examples/jsm/libs/draco/gltf -> public/draco/)
+    // Guarantees offline factory / intranet GLB loading with zero third-party CDN dependency and 1 WASM pool.
+    draco.setDecoderPath("/draco/");
+    sharedLocalDracoLoader = draco;
+  }
+  return sharedLocalDracoLoader;
+}
+
 function getGltfLoader(): GLTFLoader | null {
   if (typeof window === "undefined") return null;
   if (sharedGltfLoader) return sharedGltfLoader;
   const loader = new GLTFLoader();
   loader.register(() => ({ name: "KHR_materials_variants" }));
   loader.setCrossOrigin("anonymous");
-  const draco = new DRACOLoader();
-  // Local self-hosted Draco decoder (copied from three/examples/jsm/libs/draco/gltf -> public/draco/)
-  // Guarantees offline factory / intranet GLB loading with zero third-party CDN dependency.
-  draco.setDecoderPath("/draco/");
-  loader.setDRACOLoader(draco);
+  loader.setDRACOLoader(getSharedLocalDracoLoader());
   sharedGltfLoader = loader;
   return loader;
 }

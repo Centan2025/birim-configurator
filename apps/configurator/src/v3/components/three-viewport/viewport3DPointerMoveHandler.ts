@@ -278,9 +278,12 @@ export function createViewport3DPointerMoveHandler(ctx: CreateViewport3DPointerM
             deltaX = (camRight.x * dxPx - camFwd.x * dyPx) * activeDrag3D.mmPerPx;
             deltaZ = (camRight.z * dxPx - camFwd.z * dyPx) * activeDrag3D.mmPerPx;
           }
-          // Exact horizontal floor-plane raycast using live viewport rect
+          // Exact horizontal floor-plane raycast using cached viewport rect (zero drag layout reflow)
           if (curRenderer && curCam && activeDrag3D.startPlaneHit) {
-            const rect = curRenderer.domElement.getBoundingClientRect();
+            const rect =
+              canvasRectRef.current && canvasRectRef.current.width > 0
+                ? canvasRectRef.current
+                : curRenderer.domElement.getBoundingClientRect();
             if (rect.width > 0 && rect.height > 0) {
               const curNdcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
               const curNdcY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
@@ -393,7 +396,10 @@ export function createViewport3DPointerMoveHandler(ctx: CreateViewport3DPointerM
             roomArchGroupRef.current &&
             effWallsW.length > 1
           ) {
-            const rectW = curRendererW.domElement.getBoundingClientRect();
+            const rectW =
+              canvasRectRef.current && canvasRectRef.current.width > 0
+                ? canvasRectRef.current
+                : curRendererW.domElement.getBoundingClientRect();
             const ndcXW = ((e.clientX - rectW.left) / rectW.width) * 2 - 1;
             const ndcYW = -((e.clientY - rectW.top) / rectW.height) * 2 + 1;
             const wallRc = new THREE.Raycaster();
@@ -470,7 +476,10 @@ export function createViewport3DPointerMoveHandler(ctx: CreateViewport3DPointerM
           const curRenderer = rendererRef.current;
           const curCam = (controlsRef.current?.object as THREE.Camera) || perspCamRef.current;
           if (curRenderer && curCam) {
-            const rect = curRenderer.domElement.getBoundingClientRect();
+            const rect =
+              canvasRectRef.current && canvasRectRef.current.width > 0
+                ? canvasRectRef.current
+                : curRenderer.domElement.getBoundingClientRect();
             const startNdcX = ((activeDrag3D.startClientX - rect.left) / rect.width) * 2 - 1;
             const startNdcY = -((activeDrag3D.startClientY - rect.top) / rect.height) * 2 + 1;
             const curNdcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
@@ -498,7 +507,10 @@ export function createViewport3DPointerMoveHandler(ctx: CreateViewport3DPointerM
           if (isRotated90Mod) {
             let dzMm = -dxPx * activeDrag3D.mmPerPx;
             if (curRenderer && curCam && activeDrag3D.dragPlane && activeDrag3D.startPlaneHit) {
-              const rect = curRenderer.domElement.getBoundingClientRect();
+              const rect =
+                canvasRectRef.current && canvasRectRef.current.width > 0
+                  ? canvasRectRef.current
+                  : curRenderer.domElement.getBoundingClientRect();
               const curNdcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
               const curNdcY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
               const rc = new THREE.Raycaster();

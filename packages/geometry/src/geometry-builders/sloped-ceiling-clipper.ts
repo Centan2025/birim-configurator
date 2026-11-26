@@ -131,15 +131,15 @@ export function applySlopedCeilingToComponents(
             thicknessAxis: "y",
           });
         } else {
-          // rear slope
+          // rear slope: top panels sit ON TOP of side panels (which are cut below the slope), so span full width W
           const flatDepth = D - runMm;
           if (flatDepth > 20) {
             topPanelsToAdd.push({
               id: `${module.id}_top_flat`,
               role: "carcass_top",
               label: "Üst Panel (Ön Düz Kısım)",
-              dimensions: { width: Math.max(40, W - 2 * T), height: T, depth: flatDepth },
-              position: { x: T, y: H - T, z: runMm },
+              dimensions: { width: Math.max(40, W), height: T, depth: flatDepth },
+              position: { x: 0, y: H - T, z: runMm },
               materialId: bodyMatId,
               isManufacturablePanel: true,
               thicknessAxis: "y",
@@ -149,9 +149,9 @@ export function applySlopedCeilingToComponents(
             id: `${module.id}_top_sloped`,
             role: "carcass_top",
             label: `Eğimli Arka Üst Tabla (${Math.round((slopeRad * 180) / Math.PI)}°)`,
-            dimensions: { width: Math.max(40, W - 2 * T), height: T, depth: slopedLen },
-            position: { x: T, y: kneeH - T, z: 0 },
-            pivot: { x: T, y: kneeH, z: 0 },
+            dimensions: { width: Math.max(40, W), height: T, depth: slopedLen },
+            position: { x: 0, y: kneeH - T, z: 0 },
+            pivot: { x: 0, y: kneeH, z: 0 },
             rotation: [-slopeRad, 0, 0],
             materialId: bodyMatId,
             isManufacturablePanel: true,
@@ -173,9 +173,9 @@ export function applySlopedCeilingToComponents(
         const slopedTopVerticalThick = T / Math.max(0.4, Math.cos(slopeRad));
         let maxTop: number;
         if (role === "carcass_side_left") {
-          maxTop = side === "left" ? kneeH - slopedTopVerticalThick : getCeilingYAtX(0);
+          maxTop = side === "left" ? kneeH - T * Math.cos(slopeRad) : getCeilingYAtX(0);
         } else if (role === "carcass_side_right") {
-          maxTop = side === "right" ? kneeH - slopedTopVerticalThick : getCeilingYAtX(W);
+          maxTop = side === "right" ? kneeH - T * Math.cos(slopeRad) : getCeilingYAtX(W);
         } else if (role === "carcass_divider") {
           const yLowEdge = Math.min(getCeilingYAtX(x), getCeilingYAtX(x + cw));
           const underSlope =
@@ -405,23 +405,63 @@ export function applySlopedCeilingToComponents(
     return H;
   };
 
-  // Helper: clip an existing [u, v] polygon contour against a horizontal ceiling cap v <= capV
-  const clipContourTopToCap = (pts: [number, number][], capV: number): [number, number][] => {
+  // Helper: clip an existing [u, v] polygon contour against half-plane a*u + b*v <= c (Sutherland-Hodgman)
+  const clipContourByHalfPlane = (
+    pts: [number, number][],
+    a: number,
+    b: number,
+    c: number
+  ): [number, number][] => {
     const out: [number, number][] = [];
     for (let k = 0; k < pts.length; k++) {
       const cur = pts[k];
       const nxt = pts[(k + 1) % pts.length];
-      const curIn = cur[1] <= capV + 0.5;
-      const nxtIn = nxt[1] <= capV + 0.5;
+      const fCur = a * cur[0] + b * cur[1] - c;
+      const fNxt = a * nxt[0] + b * nxt[1] - c;
+      const curIn = fCur <= 0.5;
+      const nxtIn = fNxt <= 0.5;
       if (curIn) out.push(cur);
       if (curIn !== nxtIn) {
-        const dy = nxt[1] - cur[1];
-        const t = Math.abs(dy) > 1e-4 ? (capV - cur[1]) / dy : 0;
-        out.push([Math.round(cur[0] + (nxt[0] - cur[0]) * t), Math.round(capV)]);
+        const denom = fNxt - fCur;
+        const t = Math.abs(denom) > 1e-5 ? -fCur / denom : 0;
+        out.push([
+          Math.round(cur[0] + (nxt[0] - cur[0]) * t),
+          Math.round(cur[1] + (nxt[1] - cur[1]) * t),
+        ]);
       }
     }
     return out.length >= 3 ? out : pts;
   };
+
+  // Helper: clip an existing [u, v] polygon contour against a horizontal ceiling cap v <= capV
+  const clipContourTopToCap = (pts: [number, number][], capV: number): [number, number][] =>
+    clipContourByHalfPlane(pts, 0, 1, capV);
+
+  // Precompute exact secondary lateral top-panel geometry so top panels, dividers, back & doors stay 100% consistent
+  const isDualLateralGable =
+    (side === "left" && secSide === "right") || (side === "right" && secSide === "left");
+  const isRearPlusLateralHip = side === "rear" && (secSide === "left" || secSide === "right");
+
+  // For dual lateral gable (left + right), check if slopes intersect before reaching H (sharp gable ridge)
+  let gableRidgeX = -1;
+  let gableRidgeY = H;
+  if (isDualLateralGable && runMm + secRunMm >= W - 20) {
+    const mL = side === "left" ? rise / Math.max(1, runMm) : secRise / Math.max(1, secRunMm);
+    const mR = side === "right" ? rise / Math.max(1, runMm) : secRise / Math.max(1, secRunMm);
+    const kL = side === "left" ? kneeH : secKneeH;
+    const kR = side === "right" ? kneeH : secKneeH;
+    gableRidgeX = Math.max(60, Math.min(W - 60, Math.round((kR + W * mR - kL) / Math.max(1e-4, mL + mR))));
+    gableRidgeY = Math.min(H, Math.round(kL + gableRidgeX * mL));
+  }
+
+  // For rear + lateral hip roof, split Z at `runMm` when a flat front zone exists; when the rear slope spans the
+  // full depth `D`, keep a compact front lateral sloped strip so `_top_sloped_sec` meets `_top_sloped` at full `H`
+  // with 0 mm vertical step at z = D while staying strictly under the rear roof slab at z = hipZSplit.
+  const hipZSplit = isRearPlusLateralHip
+    ? runMm <= D - 60
+      ? Math.max(40, Math.round(runMm))
+      : Math.max(80, D - Math.max(60, Math.min(D - 80, Math.round(32 / Math.max(0.15, Math.tan(slopeRad))))))
+    : 0;
 
   const secRemove = new Set<number>();
   const secTopPanelsToAdd: ComponentGeometry[] = [];
@@ -432,106 +472,129 @@ export function applySlopedCeilingToComponents(
     const { x, y, z } = comp.position;
     const { width: cw, height: ch, depth: cd } = comp.dimensions;
 
-    // A. Trim existing top panels so their low lateral edge does not poke through the secondary roof slope,
-    //    and cap that trimmed lateral zone with a matching sloped top panel so no bay is left open!
+    // A. Trim existing top panels cleanly so they meet the secondary sloped top panel with 0 mm gap & no overhang
     if (role === "carcass_top" && (secSide === "left" || secSide === "right")) {
-      const trimInset = Math.min(cw - 60, Math.round(secRunMm));
-      if (trimInset > 8 && cw - trimInset >= 60) {
-        if (secSide === "left") {
-          comp.position = { ...comp.position, x: x + trimInset };
-          if (comp.pivot) comp.pivot = { ...comp.pivot, x: comp.pivot.x + trimInset };
-          comp.dimensions = { ...comp.dimensions, width: cw - trimInset };
-        } else {
-          comp.dimensions = { ...comp.dimensions, width: cw - trimInset };
+      const isFlatTop = comp.id.endsWith("_top_flat");
+      const isPrimarySlopedTop = comp.id.endsWith("_top_sloped");
+
+      if (isDualLateralGable) {
+        if (gableRidgeX > 0) {
+          // Sharp gable ridge: remove flat top and trim primary sloped top to exact ridgeX
+          if (isFlatTop) {
+            secRemove.add(i);
+          } else if (isPrimarySlopedTop) {
+            const primSpanX = side === "left" ? gableRidgeX : W - gableRidgeX;
+            const primRiseAtRidge = Math.max(10, gableRidgeY - kneeH);
+            const primLen = Math.round(Math.hypot(primSpanX, primRiseAtRidge));
+            if (side === "left") {
+              comp.dimensions = { ...comp.dimensions, width: primLen };
+            } else {
+              comp.position = { ...comp.position, x: gableRidgeX, y: gableRidgeY - T };
+              comp.pivot = { x: gableRidgeX, y: gableRidgeY, z: 0 };
+              comp.dimensions = { ...comp.dimensions, width: primLen };
+            }
+          }
+        } else if (isFlatTop) {
+          // Flat ridge between left and right slopes: trim ONLY `_top_flat` to [leftRun, W - rightRun]
+          const leftBound = side === "left" ? runMm : secRunMm;
+          const rightBound = side === "right" ? W - runMm : W - secRunMm;
+          const nextW = Math.round(rightBound - leftBound);
+          if (nextW < 40) {
+            secRemove.add(i);
+          } else {
+            comp.position = { ...comp.position, x: leftBound };
+            comp.dimensions = { ...comp.dimensions, width: nextW };
+          }
         }
 
         if (!addedSecTopPanel) {
           addedSecTopPanel = true;
-          const secSpanX = Math.max(60, Math.min(secRunMm, trimInset + T));
-          const cornerLowY = Math.min(kneeH, secKneeH);
-          if (side === "rear") {
-            // Compound hip-roof corner: keep rear-corner flat at min(kneeH, secKneeH) and slope only the front zone
-            // so the lateral top panel NEVER pokes through the rear roof slope at z = 0!
-            const zSplit = Math.max(80, Math.min(D - 80, Math.round(runMm * 0.55)));
-            const frontD = Math.max(60, D - zSplit);
-            const rearCeilAtSplit =
-              zSplit >= runMm ? H : kneeH + (zSplit / Math.max(1, runMm)) * rise;
-            const cappedRise = Math.max(10, Math.min(secRise, rearCeilAtSplit - secKneeH));
-            const cappedSlopeRad = Math.atan2(cappedRise, Math.max(60, secSpanX));
-            const frontSlopedLen = Math.round(Math.hypot(secSpanX, cappedRise));
-
+          const secSpanX =
+            gableRidgeX > 0
+              ? secSide === "left"
+                ? gableRidgeX
+                : W - gableRidgeX
+              : secRunMm;
+          const secTopY = gableRidgeX > 0 ? gableRidgeY : H;
+          const secSpanRise = Math.max(10, secTopY - secKneeH);
+          const secSlopedLen = Math.round(Math.hypot(secSpanX, secSpanRise));
+          if (secSide === "left") {
             secTopPanelsToAdd.push({
-              id: `${module.id}_top_corner_rear_flat`,
+              id: `${module.id}_top_sloped_sec`,
               role: "carcass_top",
-              label: "Kırma Köşe Üst Tabla (Arka)",
-              dimensions: { width: secSpanX, height: T, depth: zSplit },
-              position: {
-                x: secSide === "left" ? T : W - T - secSpanX,
-                y: cornerLowY - T,
-                z: 0,
-              },
+              label: `İkincil Eğimli Üst Tabla (Sol ${Math.round((secSlopeRad * 180) / Math.PI)}°)`,
+              dimensions: { width: secSlopedLen, height: T, depth: D },
+              position: { x: 0, y: secKneeH - T, z: 0 },
+              pivot: { x: 0, y: secKneeH, z: 0 },
+              rotation: [0, 0, secSlopeRad],
               materialId: bodyMatId,
               isManufacturablePanel: true,
               thicknessAxis: "y",
             });
-
-            if (secSide === "left") {
-              secTopPanelsToAdd.push({
-                id: `${module.id}_top_sloped_sec`,
-                role: "carcass_top",
-                label: `Kırma Köşe Eğimli Üst Tabla (Sol ${Math.round((cappedSlopeRad * 180) / Math.PI)}°)`,
-                dimensions: { width: frontSlopedLen, height: T, depth: frontD },
-                position: { x: 0, y: secKneeH - T, z: zSplit },
-                pivot: { x: 0, y: secKneeH, z: zSplit },
-                rotation: [0, 0, cappedSlopeRad],
-                materialId: bodyMatId,
-                isManufacturablePanel: true,
-                thicknessAxis: "y",
-              });
-            } else {
-              secTopPanelsToAdd.push({
-                id: `${module.id}_top_sloped_sec`,
-                role: "carcass_top",
-                label: `Kırma Köşe Eğimli Üst Tabla (Sağ ${Math.round((cappedSlopeRad * 180) / Math.PI)}°)`,
-                dimensions: { width: frontSlopedLen, height: T, depth: frontD },
-                position: { x: W - secSpanX, y: secKneeH + cappedRise - T, z: zSplit },
-                pivot: { x: W - secSpanX, y: secKneeH + cappedRise, z: zSplit },
-                rotation: [0, 0, -cappedSlopeRad],
-                materialId: bodyMatId,
-                isManufacturablePanel: true,
-                thicknessAxis: "y",
-              });
-            }
           } else {
-            const secRiseAtSpan = (secSpanX / Math.max(1, secRunMm)) * secRise;
-            const secSlopedLen = Math.round(Math.hypot(secSpanX, secRiseAtSpan));
-            if (secSide === "left") {
-              secTopPanelsToAdd.push({
-                id: `${module.id}_top_sloped_sec`,
-                role: "carcass_top",
-                label: `İkincil Eğimli Üst Tabla (Sol ${Math.round((secSlopeRad * 180) / Math.PI)}°)`,
-                dimensions: { width: secSlopedLen, height: T, depth: D },
-                position: { x: 0, y: secKneeH - T, z: 0 },
-                pivot: { x: 0, y: secKneeH, z: 0 },
-                rotation: [0, 0, secSlopeRad],
-                materialId: bodyMatId,
-                isManufacturablePanel: true,
-                thicknessAxis: "y",
-              });
-            } else {
-              secTopPanelsToAdd.push({
-                id: `${module.id}_top_sloped_sec`,
-                role: "carcass_top",
-                label: `İkincil Eğimli Üst Tabla (Sağ ${Math.round((secSlopeRad * 180) / Math.PI)}°)`,
-                dimensions: { width: secSlopedLen, height: T, depth: D },
-                position: { x: W - secSpanX, y: H - T, z: 0 },
-                pivot: { x: W - secSpanX, y: H, z: 0 },
-                rotation: [0, 0, -secSlopeRad],
-                materialId: bodyMatId,
-                isManufacturablePanel: true,
-                thicknessAxis: "y",
-              });
-            }
+            secTopPanelsToAdd.push({
+              id: `${module.id}_top_sloped_sec`,
+              role: "carcass_top",
+              label: `İkincil Eğimli Üst Tabla (Sağ ${Math.round((secSlopeRad * 180) / Math.PI)}°)`,
+              dimensions: { width: secSlopedLen, height: T, depth: D },
+              position: { x: W - secSpanX, y: secTopY - T, z: 0 },
+              pivot: { x: W - secSpanX, y: secTopY, z: 0 },
+              rotation: [0, 0, -secSlopeRad],
+              materialId: bodyMatId,
+              isManufacturablePanel: true,
+              thicknessAxis: "y",
+            });
+          }
+        }
+        continue;
+      }
+
+      // Rear + lateral compound hip roof: align trimmed primary top edges EXACTLY to `secRunMm` (or `W - secRunMm`)
+      if (isRearPlusLateralHip && (isFlatTop || isPrimarySlopedTop)) {
+        const curLeft = x;
+        const curRight = x + cw;
+        const nextLeft = secSide === "left" ? Math.max(curLeft, secRunMm) : curLeft;
+        const nextRight = secSide === "right" ? Math.min(curRight, W - secRunMm) : curRight;
+        const nextW = Math.round(nextRight - nextLeft);
+        if (nextW < 40) {
+          secRemove.add(i);
+        } else {
+          comp.position = { ...comp.position, x: nextLeft };
+          if (comp.pivot) comp.pivot = { ...comp.pivot, x: nextLeft };
+          comp.dimensions = { ...comp.dimensions, width: nextW };
+        }
+
+        if (!addedSecTopPanel) {
+          addedSecTopPanel = true;
+          const frontD = Math.max(40, D - hipZSplit);
+          const frontSlopedLen = Math.round(Math.hypot(secRunMm, secRise));
+
+          if (secSide === "left") {
+            secTopPanelsToAdd.push({
+              id: `${module.id}_top_sloped_sec`,
+              role: "carcass_top",
+              label: `Kırma Köşe Eğimli Üst Tabla (Sol ${Math.round((secSlopeRad * 180) / Math.PI)}°)`,
+              dimensions: { width: frontSlopedLen, height: T, depth: frontD },
+              position: { x: 0, y: secKneeH - T, z: hipZSplit },
+              pivot: { x: 0, y: secKneeH, z: hipZSplit },
+              rotation: [0, 0, secSlopeRad],
+              materialId: bodyMatId,
+              isManufacturablePanel: true,
+              thicknessAxis: "y",
+            });
+          } else {
+            secTopPanelsToAdd.push({
+              id: `${module.id}_top_sloped_sec`,
+              role: "carcass_top",
+              label: `Kırma Köşe Eğimli Üst Tabla (Sağ ${Math.round((secSlopeRad * 180) / Math.PI)}°)`,
+              dimensions: { width: frontSlopedLen, height: T, depth: frontD },
+              position: { x: W - secRunMm, y: H - T, z: hipZSplit },
+              pivot: { x: W - secRunMm, y: H, z: hipZSplit },
+              rotation: [0, 0, -secSlopeRad],
+              materialId: bodyMatId,
+              isManufacturablePanel: true,
+              thicknessAxis: "y",
+            });
           }
         }
       }
@@ -549,7 +612,15 @@ export function applySlopedCeilingToComponents(
         const yLowEdge = Math.min(getSecCeilingYAtX(x), getSecCeilingYAtX(x + cw));
         const underSec =
           (secSide === "left" && x < secRunMm) || (secSide === "right" && x + cw > W - secRunMm);
-        const capWorldY = yLowEdge - (underSec ? secSlopedTopVertT : T);
+        const isKneeOuterSide =
+          (secSide === "left" && role === "carcass_side_left") ||
+          (secSide === "right" && role === "carcass_side_right");
+        const topThickDeduct = isKneeOuterSide
+          ? T * Math.cos(secSlopeRad)
+          : underSec
+          ? secSlopedTopVertT
+          : T;
+        const capWorldY = yLowEdge - topThickDeduct;
         const capLocalY = Math.max(80, Math.floor(capWorldY - y));
         if (Array.isArray(comp.polygonContourMm) && comp.polygonContourMm.length >= 3) {
           comp.polygonContourMm = clipContourTopToCap(comp.polygonContourMm, capLocalY);
@@ -593,30 +664,60 @@ export function applySlopedCeilingToComponents(
         };
         const hL = Math.max(40, Math.min(ch, Math.floor(secBackTopAtX(x0) - y)));
         const hR = Math.max(40, Math.min(ch, Math.floor(secBackTopAtX(x1) - y)));
+        const hFlatTop = Math.max(40, Math.min(ch, Math.floor(H - T - 1 - y)));
         if (hL < ch - 1 || hR < ch - 1) {
-          const breakX = secSide === "left" ? secRunMm : W - secRunMm;
-          comp.polygonContourMm =
-            breakX > x0 + 6 && breakX < x1 - 6
-              ? [
-                  [0, 0],
-                  [cw, 0],
-                  [cw, hR],
-                  [Math.round(breakX - x0), ch],
-                  [0, hL],
-                ]
-              : [
-                  [0, 0],
-                  [cw, 0],
-                  [cw, hR],
-                  [0, hL],
-                ];
+          if (Array.isArray(comp.polygonContourMm) && comp.polygonContourMm.length >= 3) {
+            // Intersect with existing pass-1 contour (e.g., gable left + right) instead of overwriting!
+            const uBreak = secSide === "left" ? secRunMm - x0 : W - secRunMm - x0;
+            const vKnee = Math.floor(secKneeH - secSlopedTopVertT - 1 - y);
+            const vTop = Math.floor(H - secSlopedTopVertT - 1 - y);
+            const slopeM =
+              secSide === "left"
+                ? (vTop - vKnee) / Math.max(1, secRunMm)
+                : -(vTop - vKnee) / Math.max(1, secRunMm);
+            const refU = secSide === "left" ? -x0 : W - x0;
+            // Half-plane: v <= vKnee + slopeM * (u - refU)  =>  (-slopeM)*u + 1*v <= vKnee - slopeM*refU
+            const clipped = clipContourByHalfPlane(
+              comp.polygonContourMm,
+              -slopeM,
+              1,
+              vKnee - slopeM * refU
+            );
+            comp.polygonContourMm = uBreak > 0 && uBreak < cw ? clipContourTopToCap(clipped, hFlatTop) : clipped;
+          } else {
+            // Compute exact X where the secondary lateral slope intersects the back panel's current top `y + ch`
+            const slopeTan = secRise / Math.max(1, secRunMm);
+            const targetWorldY = y + hFlatTop;
+            const distToTop = Math.max(
+              0,
+              Math.min(secRunMm, (targetWorldY - (secKneeH - secSlopedTopVertT - 1)) / Math.max(1e-4, slopeTan))
+            );
+            const breakX = secSide === "left" ? distToTop : W - distToTop;
+            comp.polygonContourMm =
+              breakX > x0 + 6 && breakX < x1 - 6
+                ? [
+                    [0, 0],
+                    [cw, 0],
+                    [cw, hR],
+                    [Math.round(breakX - x0), hFlatTop],
+                    [0, hL],
+                  ]
+                : [
+                    [0, 0],
+                    [cw, 0],
+                    [cw, hR],
+                    [0, hL],
+                  ];
+          }
           comp.thicknessAxis = "z";
         }
       } else {
         const backZ = Math.max(0, z);
         const ceilAtBackZ = getSecCeilingYAtZ(backZ);
-        const newH = Math.max(80, Math.min(ch, Math.floor(ceilAtBackZ - secSlopedTopVertT - y)));
-        if (newH < ch - 1) {
+        const newH = Math.max(80, Math.min(ch, Math.floor(ceilAtBackZ - secSlopedTopVertT - 2 - y)));
+        if (Array.isArray(comp.polygonContourMm) && comp.polygonContourMm.length >= 3) {
+          comp.polygonContourMm = clipContourTopToCap(comp.polygonContourMm, newH);
+        } else if (newH < ch - 1) {
           comp.dimensions = { ...comp.dimensions, height: newH };
         }
       }
@@ -636,22 +737,38 @@ export function applySlopedCeilingToComponents(
       const hL = Math.max(40, Math.min(ch, Math.floor(getSecCeilingYAtX(x0) - 2 - y)));
       const hR = Math.max(40, Math.min(ch, Math.floor(getSecCeilingYAtX(x1) - 2 - y)));
       if (hL < ch - 1 || hR < ch - 1) {
-        const breakX = secSide === "left" ? secRunMm : W - secRunMm;
-        comp.polygonContourMm =
-          breakX > x0 + 6 && breakX < x1 - 6
-            ? [
-                [0, 0],
-                [cw, 0],
-                [cw, hR],
-                [Math.round(breakX - x0), ch],
-                [0, hL],
-              ]
-            : [
-                [0, 0],
-                [cw, 0],
-                [cw, hR],
-                [0, hL],
-              ];
+        if (Array.isArray(comp.polygonContourMm) && comp.polygonContourMm.length >= 3) {
+          const vKnee = Math.floor(secKneeH - 2 - y);
+          const vTop = Math.floor(H - 2 - y);
+          const slopeM =
+            secSide === "left"
+              ? (vTop - vKnee) / Math.max(1, secRunMm)
+              : -(vTop - vKnee) / Math.max(1, secRunMm);
+          const refU = secSide === "left" ? -x0 : W - x0;
+          comp.polygonContourMm = clipContourByHalfPlane(
+            comp.polygonContourMm,
+            -slopeM,
+            1,
+            vKnee - slopeM * refU
+          );
+        } else {
+          const breakX = secSide === "left" ? secRunMm : W - secRunMm;
+          comp.polygonContourMm =
+            breakX > x0 + 6 && breakX < x1 - 6
+              ? [
+                  [0, 0],
+                  [cw, 0],
+                  [cw, hR],
+                  [Math.round(breakX - x0), ch],
+                  [0, hL],
+                ]
+              : [
+                  [0, 0],
+                  [cw, 0],
+                  [cw, hR],
+                  [0, hL],
+                ];
+        }
         comp.thicknessAxis = "z";
       }
       continue;

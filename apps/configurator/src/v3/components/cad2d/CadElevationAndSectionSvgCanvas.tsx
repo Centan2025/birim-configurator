@@ -313,7 +313,7 @@ export const CadElevationAndSectionSvgCanvas: React.FC<CadElevationAndSectionSvg
                   const hdrW = Math.max(540, Math.round(wallHdrText.length * 15.5 + 36));
                   return (
                     <foreignObject x={wallLeftSvgX + 12} y={hdrY} width={hdrW + 32} height={48} className="pointer-events-none overflow-visible">
-                      <div className="inline-flex items-center gap-2.5 text-slate-200 bg-slate-900/70 backdrop-blur-md px-2 py-0.5 rounded text-[21px] font-semibold tracking-tight whitespace-nowrap border border-white/12 shadow-md">
+                      <div className="inline-flex items-center gap-2.5 text-slate-200 bg-slate-900/88 px-2 py-0.5 rounded text-[21px] font-semibold tracking-tight whitespace-nowrap border border-white/12 shadow-md">
                         <span className="w-2.5 h-2.5 rounded-full bg-blue-500 shrink-0" />
                         <span>{wallHdrText}</span>
                       </div>

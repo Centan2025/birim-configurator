@@ -312,7 +312,7 @@ export function getModuleOrientedFootprint(
  * or returns the existing elements in `project.space.elements`.
  */
 export function getEffectiveSpaceObstacles(project: DesignProject): ArchitecturalElement[] {
-  if ((project.space as any).wizardCleanRoom) {
+  if ((project.space as typeof project.space & { wizardCleanRoom?: boolean }).wizardCleanRoom) {
     return project.space.elements || [];
   }
   if (project.space.elements && project.space.elements.length > 0) {

@@ -152,7 +152,7 @@ export function useViewport3DCalloutProjections(ctx: UseViewport3DCalloutProject
           window.removeEventListener("mousemove", onMove);
           window.removeEventListener("mouseup", onUp);
           if (moved) {
-            (window as any).__birimSuppressNextClick = Date.now();
+            window.__birimSuppressNextClick = Date.now();
             setCustomLabelTick((t) => t + 1);
           }
         };

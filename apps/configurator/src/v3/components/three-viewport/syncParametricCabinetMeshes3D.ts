@@ -1350,7 +1350,7 @@ export function syncParametricCabinetMeshes3D(ctx: SyncParametricCabinetMeshes3D
           title: string;
           message: string;
           suggestions: string[];
-          remediationProposals: any[];
+          remediationProposals: import("@birim/core").RemediationProposal[];
           moduleIndex: number;
           bayIndex: number;
           wp: { x: number; y: number; z: number };

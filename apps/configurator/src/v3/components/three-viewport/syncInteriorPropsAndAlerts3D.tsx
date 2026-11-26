@@ -118,7 +118,16 @@ export function syncInteriorWardrobeProps3D(ctx: SyncInteriorWardrobeProps3DCtx)
         // Compact, deterministic string signature (avoids expensive JSON.stringify on full bay objects!)
         const T = mod.carcass.panelThickness || 18;
         const plinthH = mod.carcass.plinthHeight ?? 100;
-        let interiorPropsSig = `${mod.id}|${mod.dimensions.width}x${mod.dimensions.height}x${mod.dimensions.depth}|${mod.moduleSubType || ""}|${T}:${plinthH}:G${maxGarmentsPerRail}:R${glbCatalogRev}`;
+        const rsSig = mod.carcass.roofSlope
+          ? `${mod.carcass.roofSlope.side}:${mod.carcass.roofSlope.kneeWallHeightMm}:${mod.carcass.roofSlope.slopeRunMm}`
+          : "";
+        const rs2Sig = mod.carcass.secondaryRoofSlope
+          ? `${mod.carcass.secondaryRoofSlope.side}:${mod.carcass.secondaryRoofSlope.kneeWallHeightMm}:${mod.carcass.secondaryRoofSlope.slopeRunMm}`
+          : "";
+        const scSig = mod.carcass.slopedCeiling
+          ? `${mod.carcass.slopedCeiling.mode}:${mod.carcass.slopedCeiling.kneeHeightMm}:${mod.carcass.slopedCeiling.slopeAngleDeg}`
+          : "";
+        let interiorPropsSig = `${mod.id}|${mod.dimensions.width}x${mod.dimensions.height}x${mod.dimensions.depth}|${mod.moduleSubType || ""}|${T}:${plinthH}:G${maxGarmentsPerRail}:R${glbCatalogRev}|RS[${rsSig}|${rs2Sig}|${scSig}]`;
         for (let b = 0; b < mod.bays.length; b++) {
           const bay = mod.bays[b];
           const sPart = (bay.shelves || []).map((sh) => `${sh.elevationY}:${sh.isHidden ? 1 : 0}`).join(",");
@@ -275,11 +284,82 @@ export function syncInteriorWardrobeProps3D(ctx: SyncInteriorWardrobeProps3DCtx)
               }
             });
 
+            // Evaluate exact sloped ceiling underside (world Y) over a prop footprint [x0..x1] x [z0..modD]
+            const evalSlopedUndersideWorldY = (x0: number, x1: number, z0: number): number => {
+              const modW = mod.dimensions.width;
+              const modH = mod.dimensions.height;
+              let minY = plinthH + T + innerH;
+              const applySlope = (sSide: "left" | "right" | "rear", sKnee: number, sRun: number) => {
+                const rise = Math.max(1, modH - sKnee);
+                const rad = Math.atan2(rise, Math.max(1, sRun));
+                const vertT = T / Math.max(0.4, Math.cos(rad));
+                if (sSide === "left") {
+                  const cx = Math.max(0, Math.min(modW, x0));
+                  const yAt = cx >= sRun ? modH - T : sKnee + (cx / sRun) * rise - vertT;
+                  if (yAt < minY) minY = yAt;
+                } else if (sSide === "right") {
+                  const dR = Math.max(0, modW - Math.max(0, Math.min(modW, x1)));
+                  const yAt = dR >= sRun ? modH - T : sKnee + (dR / sRun) * rise - vertT;
+                  if (yAt < minY) minY = yAt;
+                } else {
+                  const cz = Math.max(0, Math.min(modD, z0));
+                  const yAt = cz >= sRun ? modH - T : sKnee + (cz / sRun) * rise - vertT;
+                  if (yAt < minY) minY = yAt;
+                }
+              };
+              const rsProp = mod.carcass.roofSlope;
+              const scProp = mod.carcass.slopedCeiling;
+              if (rsProp && rsProp.side && rsProp.side !== "none") {
+                const maxSpan = rsProp.side === "rear" ? modD : modW;
+                applySlope(
+                  rsProp.side,
+                  Math.max(400, Math.min(modH - 120, rsProp.kneeWallHeightMm)),
+                  Math.max(150, Math.min(maxSpan, rsProp.slopeRunMm))
+                );
+              } else if (scProp && scProp.mode && scProp.mode !== "none") {
+                const fSide: "left" | "right" | "rear" =
+                  scProp.mode === "left_slope"
+                    ? "left"
+                    : scProp.mode === "right_slope"
+                    ? "right"
+                    : "rear";
+                const fKnee = Math.max(400, Math.min(modH - 120, scProp.kneeHeightMm));
+                const maxSpan = fSide === "rear" ? modD : modW;
+                const fRun = Math.max(
+                  150,
+                  Math.min(
+                    maxSpan,
+                    Math.round((modH - fKnee) / Math.max(0.15, Math.tan(((scProp.slopeAngleDeg || 35) * Math.PI) / 180)))
+                  )
+                );
+                applySlope(fSide, fKnee, fRun);
+              }
+              const rs2Prop = mod.carcass.secondaryRoofSlope;
+              if (rs2Prop && rs2Prop.side && rs2Prop.side !== "none") {
+                const maxSpan = rs2Prop.side === "rear" ? modD : modW;
+                applySlope(
+                  rs2Prop.side,
+                  Math.max(400, Math.min(modH - 20, rs2Prop.kneeWallHeightMm)),
+                  Math.max(150, Math.min(maxSpan, rs2Prop.slopeRunMm))
+                );
+              }
+              return minY;
+            };
+
             sortedShelves.forEach((sh, sIdx) => {
               const shelfTopLocalY = sh.elevationY + (sh.thickness || T);
               const shelfTopWorldY = plinthH + T + shelfTopLocalY;
               const nextShelf = sortedShelves[sIdx + 1];
-              const ceilingLocalY = nextShelf ? nextShelf.elevationY : innerH;
+              const propHalfW = Math.min(165, bw * 0.34);
+              const propHalfD = Math.min(165, (modD - 105) * 0.5);
+              const slopedCeilWorldY = nextShelf
+                ? plinthH + T + nextShelf.elevationY
+                : evalSlopedUndersideWorldY(
+                    bayStartX + bw * 0.5 - propHalfW,
+                    bayStartX + bw * 0.5 + propHalfW,
+                    Math.max(T, centerZ - propHalfD)
+                  );
+              const ceilingLocalY = Math.max(0, slopedCeilWorldY - (plinthH + T));
               const clearHeadroom = ceilingLocalY - shelfTopLocalY;
               const railInsideSpace = sortedRails.some(
                 (r) =>

@@ -81,7 +81,7 @@ export const Viewport3DCalloutOverlays: React.FC<Viewport3DCalloutOverlaysProps>
                   }}
                   onMouseDown={(e) => startCalloutBadgeDrag(item.id, e)}
                   onClick={(e) => {
-                    if (typeof window !== "undefined" && (window as any).__birimSuppressNextClick && Date.now() - (window as any).__birimSuppressNextClick < 250) {
+                    if (typeof window !== "undefined" && window.__birimSuppressNextClick && Date.now() - window.__birimSuppressNextClick < 250) {
                       e.stopPropagation();
                       return;
                     }
@@ -218,7 +218,7 @@ export const Viewport3DCalloutOverlays: React.FC<Viewport3DCalloutOverlaysProps>
                       onMouseDown={(e) => startCalloutBadgeDrag(hc.id, e)}
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (typeof window !== "undefined" && (window as any).__birimSuppressNextClick && Date.now() - (window as any).__birimSuppressNextClick < 250) {
+                        if (typeof window !== "undefined" && window.__birimSuppressNextClick && Date.now() - window.__birimSuppressNextClick < 250) {
                           return;
                         }
                         setSelectedHwCalloutId(hc.id);
@@ -352,7 +352,7 @@ export const Viewport3DCalloutOverlays: React.FC<Viewport3DCalloutOverlaysProps>
                     onMouseDown={(e) => startCalloutBadgeDrag(mc.id, e)}
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (typeof window !== "undefined" && (window as any).__birimSuppressNextClick && Date.now() - (window as any).__birimSuppressNextClick < 250) {
+                      if (typeof window !== "undefined" && window.__birimSuppressNextClick && Date.now() - window.__birimSuppressNextClick < 250) {
                         return;
                       }
                       (setSelectedComponentId as (id: string | null, mIdx?: number) => void)(

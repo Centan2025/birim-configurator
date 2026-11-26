@@ -158,14 +158,6 @@ export function generateBOMForProject(
         "adet",
         14.5
       );
-      addHardware(
-        "HW_SINK_DRIP_MAT_ALU",
-        "Eviye / Lavabo Alt Tabla Alüminyum Su Sızdırmaz Koruma Sacı",
-        "special",
-        1,
-        "adet",
-        14.5
-      );
     }
     if (cutKind === "cooktop" || cid.includes("cooktop") || cid.includes("hob") || nm.includes("ocak")) {
       addHardware(

@@ -10,7 +10,7 @@ import { useV3Adapter, getMemoizedUnifiedEngineering } from "../adapter/useV3Ada
 import { calculateFourSpaceDimensions, evaluateUnifiedEngineeringModel } from "@birim/core";
 import { GEOMETRY_ENGINE_REV } from "@birim/geometry";
 import { computeElevationSnapTargets, findDraggableInteriorComponent, type ElevationSnapTarget } from "../engine/elevationSnapEngine";
-import { applyMaxAnisotropyToCachedTextures, getStudioEnvironmentTexture, getStudioPmremEnvironment, disposeRendererPmremEnvironment, type ArchitecturalFloorStyle, type ArchitecturalWallTone } from "../materials/pbrMaterialSystem";
+import { applyMaxAnisotropyToCachedTextures, configurePbrForHardwareTier, trimPbrCachesUnderMemoryPressure, getStudioEnvironmentTexture, getStudioPmremEnvironment, disposeRendererPmremEnvironment, type ArchitecturalFloorStyle, type ArchitecturalWallTone } from "../materials/pbrMaterialSystem";
 import { disposeObject3DTree, markSharedMaterial, attachWebGLContextRecovery, createSafeWebGL2Renderer, disposeWebGLRendererCleanly, getAdaptiveWebglRenderBudget, type WebGL2CapabilityReport } from "../materials/webglResourceGuard";
 import { Software3DFallbackViewport } from "./Software3DFallbackViewport";
 import { preloadAllWardrobeGlbAssets, subscribeWardrobeGlbCatalogChange, subscribeWardrobeGlbRenderNeeded } from "../materials/wardrobeGlbAssetLoader";
@@ -576,7 +576,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
     const dimGroupRef = useRef<THREE.Group | null>(null);
     const ghostSnapGroupRef = useRef<THREE.Group | null>(null);
     const lastGhostKeyRef = useRef<string>("");
-    const lastAccessoryDropTargetRef = useRef<{ bayIndex: number; elevationY: number; offsetX?: number; accessory: any } | null>(null);
+    const lastAccessoryDropTargetRef = useRef<{ bayIndex: number; elevationY: number; offsetX?: number; accessory: import("../../types/birim-window").BirimDraggedAccessoryPayload } | null>(null);
     const selectionFrameGroupRef = useRef<THREE.Group | null>(null);
     const activeModFrameGroupRef = useRef<THREE.Group | null>(null);
     const dimWorldAnchorsRef = useRef<{ id: string; worldPos: THREE.Vector3; worldStart?: THREE.Vector3; worldEnd?: THREE.Vector3; isActiveMod?: boolean }[]>([]);
@@ -585,7 +585,24 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
     const labelScale3DRef = useRef<number>(1);
     const gridRef = useRef<THREE.GridHelper | null>(null);
     const shadowPlaneRef = useRef<THREE.Mesh | null>(null);
-    const needsRenderRef = useRef<boolean>(true);
+    const wakeRenderLoopRef = useRef<(() => void) | null>(null);
+    const needsRenderRef = useMemo(() => {
+      let dirty = true;
+      return {
+        get current(): boolean {
+          return dirty;
+        },
+        set current(val: boolean) {
+          dirty = val;
+          if (val) wakeRenderLoopRef.current?.();
+        },
+      } as React.MutableRefObject<boolean>;
+    }, []);
+    useEffect(() => {
+      if (!paused) {
+        needsRenderRef.current = true;
+      }
+    }, [paused, needsRenderRef]);
     const wallPulseRef = useRef<{ wallId: string; startTime: number; durationMs: number } | null>(null);
     const prevActiveWallIdRef = useRef<string | undefined>(activeWallId);
 
@@ -774,31 +791,35 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       const isLegacyGpu = safeGl.bundle.capability.isLegacyOrLowSpecGpu;
       const adaptiveBudget = getAdaptiveWebglRenderBudget(
         isLegacyGpu,
-        renderer.capabilities?.maxTextureSize || 2048
+        renderer.capabilities?.maxTextureSize || 2048,
+        safeGl.bundle.capability.gpuRendererInfo
       );
+      configurePbrForHardwareTier(adaptiveBudget);
+      document.body.dataset.birimGpuTier = adaptiveBudget.disableBackdropBlur ? "low" : "high";
       let restSharpDpr = adaptiveBudget.restSharpDpr;
       let motionFastDpr = adaptiveBudget.motionFastDpr;
       let currentAppliedDpr = restSharpDpr;
+      let governorDowngradeLevel = 0;
       const onRenderQualityChange = (ev: Event) => {
         const qTier = (ev as CustomEvent<"performance" | "hd" | "ultra">).detail || "ultra";
         const nativeDpr = window.devicePixelRatio || 1;
         if (qTier === "performance") {
           restSharpDpr = 1;
-          motionFastDpr = 1;
+          motionFastDpr = 0.85;
           applyMaxAnisotropyToCachedTextures(2);
         } else if (qTier === "hd") {
           restSharpDpr = adaptiveBudget.isTouchMobile
-            ? Math.min(nativeDpr, 1.35)
-            : Math.min(Math.max(nativeDpr, 1.35), 1.85);
-          motionFastDpr = adaptiveBudget.isTouchMobile ? 1 : Math.min(nativeDpr, 1.25);
+            ? Math.min(nativeDpr, 1.25)
+            : Math.min(nativeDpr, 1.5);
+          motionFastDpr = adaptiveBudget.isTouchMobile ? 1 : Math.min(nativeDpr, 1.15);
           applyMaxAnisotropyToCachedTextures(Math.min(8, adaptiveBudget.maxAnisotropyCap));
         } else {
           restSharpDpr = adaptiveBudget.isTouchMobile
             ? adaptiveBudget.restSharpDpr
-            : Math.min(Math.max(nativeDpr, 1.65), 2.5);
+            : Math.min(nativeDpr, 2.0);
           motionFastDpr = adaptiveBudget.isTouchMobile
             ? adaptiveBudget.motionFastDpr
-            : Math.min(Math.max(nativeDpr, 1.25), 1.5);
+            : Math.min(nativeDpr, 1.35);
           if (renderer.capabilities?.getMaxAnisotropy) {
             applyMaxAnisotropyToCachedTextures(
               Math.min(renderer.capabilities.getMaxAnisotropy(), adaptiveBudget.maxAnisotropyCap)
@@ -807,7 +828,7 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
         }
         renderer.setPixelRatio(restSharpDpr);
         currentAppliedDpr = restSharpDpr;
-        // Clear module render signatures so upgraded 1024px/512px procedural PBR maps rebind immediately!
+        // Clear module render signatures so upgraded procedural PBR maps rebind immediately!
         if (meshGroupRef.current) {
           meshGroupRef.current.children.forEach((ch) => {
             if (ch.userData) ch.userData.renderSig = "";
@@ -956,22 +977,26 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       scene.add(rimLight);
       rimLightRef.current = rimLight;
 
-      // Whisper-soft front detail fill so wood grain & interior hardware stay legible without flattening shadows
-      const frontFillLight = new THREE.DirectionalLight(0xf8fafc, 0.09);
-      frontFillLight.position.set(1500, 1450, 3900);
-      scene.add(frontFillLight);
+      // Whisper-soft front detail fill & gallery spot: skipped on tier0/tier1 integrated GPUs (~30% fragment shader savings)
+      if (!adaptiveBudget.useLowSpecLighting) {
+        const frontFillLight = new THREE.DirectionalLight(0xf8fafc, 0.09);
+        frontFillLight.position.set(1500, 1450, 3900);
+        scene.add(frontFillLight);
 
-      const floorBounceLight = new THREE.DirectionalLight(0xd8c3a5, 0.05);
-      floorBounceLight.position.set(950, -1400, 2100);
-      scene.add(floorBounceLight);
+        const floorBounceLight = new THREE.DirectionalLight(0xd8c3a5, 0.05);
+        floorBounceLight.position.set(950, -1400, 2100);
+        scene.add(floorBounceLight);
 
-      // Architectural Ceiling Gallery SpotLight (mm-calibrated decay=0.15 so wall-washer light pool & dramatic falloff are clearly visible!)
-      const gallerySpot = new THREE.SpotLight(0xffe6c2, 3.6, 8500, Math.PI / 3.4, 0.72, 0.15);
-      gallerySpot.position.set(1600, 3250, 1950);
-      gallerySpot.target.position.set(1450, 950, 180);
-      scene.add(gallerySpot.target);
-      scene.add(gallerySpot);
-      gallerySpotLightRef.current = gallerySpot;
+        // Architectural Ceiling Gallery SpotLight (mm-calibrated decay=0.15 so wall-washer light pool & dramatic falloff are clearly visible!)
+        const gallerySpot = new THREE.SpotLight(0xffe6c2, 3.6, 8500, Math.PI / 3.4, 0.72, 0.15);
+        gallerySpot.position.set(1600, 3250, 1950);
+        gallerySpot.target.position.set(1450, 950, 180);
+        scene.add(gallerySpot.target);
+        scene.add(gallerySpot);
+        gallerySpotLightRef.current = gallerySpot;
+      } else {
+        gallerySpotLightRef.current = null;
+      }
 
       // Refined architectural floor grid with non-distracting gallery opacity
       const gridColor1 = theme === "dark" ? 0x334155 : 0xa39c90;
@@ -1632,7 +1657,164 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       window.addEventListener("pointercancel", handlePointerCancelOrBlur, { capture: true });
       window.addEventListener("blur", handlePointerCancelOrBlur);
 
-      const stopStudioAnimLoop = attachViewport3DStudioRenderAndLoop({ activeModFrameGroupRef, cameraFlightRef, container, controlsRef, dimGroupRef, ghostSnapGroupRef, gridRef, hoverOverlayGroup, interiorPropsGroupRef, isOrbitingRef, keyLightRef, meshGroupRef, needsRenderRef, onPerformanceSample, pausedRef, perspCamRef, rendererRef, rimLightRef, roomArchGroupRef, sceneObjectsGroupRef, sceneRef, selectionFrameGroupRef, updateProjectedDimensionLabels, wallPulseRef });
+      let powerSaverActive = false;
+      const applyGovernorLevel = (level: number) => {
+        governorDowngradeLevel = level;
+        if (level === 0 && !powerSaverActive) {
+          restSharpDpr = adaptiveBudget.restSharpDpr;
+          motionFastDpr = adaptiveBudget.motionFastDpr;
+          setAdaptiveDpr(isOrbitingRef.current ? motionFastDpr : restSharpDpr);
+          if (!isLegacyGpu && renderer.capabilities?.getMaxAnisotropy) {
+            applyMaxAnisotropyToCachedTextures(
+              Math.min(renderer.capabilities.getMaxAnisotropy(), adaptiveBudget.maxAnisotropyCap)
+            );
+          }
+          document.body.dataset.birimGpuTier = adaptiveBudget.disableBackdropBlur ? "low" : "high";
+          if (!isLegacyGpu && !renderer.shadowMap.enabled) {
+            renderer.shadowMap.enabled = true;
+            keyLight.castShadow = true;
+            renderer.shadowMap.needsUpdate = true;
+            needsRenderRef.current = true;
+          }
+        } else if (level === 1) {
+          restSharpDpr = Math.min(adaptiveBudget.restSharpDpr, 1.0);
+          motionFastDpr = Math.min(adaptiveBudget.motionFastDpr, 0.85);
+          setAdaptiveDpr(isOrbitingRef.current ? motionFastDpr : restSharpDpr);
+          applyMaxAnisotropyToCachedTextures(2);
+          document.body.dataset.birimGpuTier = "low";
+          if (!isLegacyGpu && !renderer.shadowMap.enabled) {
+            renderer.shadowMap.enabled = true;
+            keyLight.castShadow = true;
+            renderer.shadowMap.needsUpdate = true;
+            needsRenderRef.current = true;
+          }
+        } else if (level >= 2) {
+          restSharpDpr = Math.min(adaptiveBudget.restSharpDpr, 1.0);
+          motionFastDpr = Math.min(adaptiveBudget.motionFastDpr, 0.85);
+          setAdaptiveDpr(isOrbitingRef.current ? motionFastDpr : restSharpDpr);
+          applyMaxAnisotropyToCachedTextures(2);
+          document.body.dataset.birimGpuTier = "low";
+          if (renderer.shadowMap.enabled) {
+            renderer.shadowMap.enabled = false;
+            keyLight.castShadow = false;
+            needsRenderRef.current = true;
+          }
+        }
+      };
+
+      const onSlowFrameWindow = (avgRenderMs: number) => {
+        if (governorDowngradeLevel === 0) {
+          applyGovernorLevel(1);
+        } else if (governorDowngradeLevel === 1 && avgRenderMs > 46) {
+          applyGovernorLevel(2);
+        }
+      };
+
+      const onFastFrameWindow = () => {
+        if (powerSaverActive) return;
+        if (governorDowngradeLevel > 0) {
+          applyGovernorLevel(governorDowngradeLevel - 1);
+        }
+      };
+
+      // JS Heap memory pressure watchdog (Chromium performance.memory) — trims PBR LRU before OOM
+      const memoryWatchdogId = window.setInterval(() => {
+        if (document.hidden) return;
+        const perfMem = (
+          performance as unknown as {
+            memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number };
+          }
+        ).memory;
+        if (perfMem && perfMem.jsHeapSizeLimit > 0) {
+          const ratio = perfMem.usedJSHeapSize / perfMem.jsHeapSizeLimit;
+          if (ratio > 0.78) {
+            trimPbrCachesUnderMemoryPressure();
+            if (governorDowngradeLevel < 1) {
+              applyGovernorLevel(1);
+            }
+          }
+        }
+      }, 15_000);
+
+      // Battery / power-saver & tab visibility guard
+      const handleVisibilityChange = () => {
+        if (!document.hidden && !pausedRef.current) {
+          needsRenderRef.current = true;
+        }
+      };
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+
+      let detachBatteryListeners: (() => void) | null = null;
+      const navBattery = navigator as unknown as {
+        getBattery?: () => Promise<{
+          charging: boolean;
+          level: number;
+          addEventListener: (ev: string, fn: () => void) => void;
+          removeEventListener: (ev: string, fn: () => void) => void;
+        }>;
+      };
+      if (typeof navBattery.getBattery === "function") {
+        void navBattery
+          .getBattery()
+          .then((bat) => {
+            const syncBattery = () => {
+              const lowBattery = !bat.charging && bat.level <= 0.2;
+              if (lowBattery !== powerSaverActive) {
+                powerSaverActive = lowBattery;
+                if (lowBattery) {
+                  applyGovernorLevel(Math.max(governorDowngradeLevel, 1));
+                } else {
+                  applyGovernorLevel(0);
+                }
+              }
+            };
+            syncBattery();
+            bat.addEventListener("chargingchange", syncBattery);
+            bat.addEventListener("levelchange", syncBattery);
+            detachBatteryListeners = () => {
+              bat.removeEventListener("chargingchange", syncBattery);
+              bat.removeEventListener("levelchange", syncBattery);
+            };
+          })
+          .catch(() => {
+            // Ignore unsupported Battery API
+          });
+      }
+
+      const stopStudioAnimLoop = attachViewport3DStudioRenderAndLoop({
+        activeModFrameGroupRef,
+        cameraFlightRef,
+        container,
+        controlsRef,
+        dimGroupRef,
+        ghostSnapGroupRef,
+        gridRef,
+        hoverOverlayGroup,
+        interiorPropsGroupRef,
+        isOrbitingRef,
+        keyLightRef,
+        meshGroupRef,
+        needsRenderRef,
+        onFastFrameWindow,
+        onPerformanceSample,
+        onSlowFrameWindow,
+        pausedRef,
+        perspCamRef,
+        rendererRef,
+        rimLightRef,
+        roomArchGroupRef,
+        sceneObjectsGroupRef,
+        sceneRef,
+        selectionFrameGroupRef,
+        ultraPhotoLimits: {
+          maxWidth: adaptiveBudget.maxUltraPhotoWidth,
+          maxHeight: adaptiveBudget.maxUltraPhotoHeight,
+          maxSamples: adaptiveBudget.maxUltraPhotoSamples,
+        },
+        updateProjectedDimensionLabels,
+        wakeRenderLoopRef,
+        wallPulseRef,
+      });
 
       const resizeObserver = new ResizeObserver(() => {
         const curRenderer = rendererRef.current;
@@ -1667,6 +1849,10 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
 
       return () => {
         delete document.body.dataset.birimOrbiting;
+        delete document.body.dataset.birimGpuTier;
+        window.clearInterval(memoryWatchdogId);
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+        detachBatteryListeners?.();
         delete (window as unknown as { __birimRenderUltraStudioPhoto?: unknown }).__birimRenderUltraStudioPhoto;
         if (settleSharpTimer) clearTimeout(settleSharpTimer);
         stopStudioAnimLoop();

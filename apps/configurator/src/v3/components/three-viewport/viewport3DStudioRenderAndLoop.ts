@@ -7,7 +7,7 @@ import { computeHeroStudioFraming } from "./viewport3DSharedAssets";
 import type { AttachViewport3DStudioRenderAndLoopCtx } from "./viewport3DTypes";
 
 export function attachViewport3DStudioRenderAndLoop(ctx: AttachViewport3DStudioRenderAndLoopCtx) {
-  const { activeModFrameGroupRef, cameraFlightRef, container, controlsRef, dimGroupRef, ghostSnapGroupRef, gridRef, hoverOverlayGroup, interiorPropsGroupRef, isOrbitingRef, keyLightRef, meshGroupRef, needsRenderRef, onPerformanceSample, pausedRef, perspCamRef, rendererRef, rimLightRef, roomArchGroupRef, sceneObjectsGroupRef, sceneRef, selectionFrameGroupRef, updateProjectedDimensionLabels, wallPulseRef } = ctx;
+  const { activeModFrameGroupRef, cameraFlightRef, container, controlsRef, dimGroupRef, ghostSnapGroupRef, gridRef, hoverOverlayGroup, interiorPropsGroupRef, isOrbitingRef, keyLightRef, meshGroupRef, needsRenderRef, onFastFrameWindow, onPerformanceSample, onSlowFrameWindow, pausedRef, perspCamRef, rendererRef, rimLightRef, roomArchGroupRef, sceneObjectsGroupRef, sceneRef, selectionFrameGroupRef, ultraPhotoLimits, updateProjectedDimensionLabels, wakeRenderLoopRef, wallPulseRef } = ctx;
       const captureStudioSnapshot = (opts?: {
         angle?: "current" | "iso" | "front";
         hideOverlays?: boolean;
@@ -119,9 +119,13 @@ export function attachViewport3DStudioRenderAndLoop(ctx: AttachViewport3DStudioR
         const rLight = rimLightRef.current;
         if (!curRenderer || !curScene || !perspCam) return "";
 
-        const targetW = opts?.width || 2048;
-        const targetH = opts?.height || 1280;
-        const totalSamples = 16; // Exact 2^4 for lossless binary-tree 0.5 alpha accumulation
+        const capW = ultraPhotoLimits?.maxWidth ?? 2048;
+        const capH = ultraPhotoLimits?.maxHeight ?? 1280;
+        const capSamples = ultraPhotoLimits?.maxSamples ?? 16;
+        const targetW = Math.min(opts?.width || 2048, capW);
+        const targetH = Math.min(opts?.height || 1280, capH);
+        const requestedSamples = opts?.samples ?? capSamples;
+        const totalSamples = requestedSamples >= 16 && capSamples >= 16 ? 16 : requestedSamples >= 8 && capSamples >= 8 ? 8 : 4;
 
         const prevSize = new THREE.Vector2();
         curRenderer.getSize(prevSize);
@@ -270,8 +274,9 @@ export function attachViewport3DStudioRenderAndLoop(ctx: AttachViewport3DStudioR
             }
           }
 
-          // Subtle architectural lens vignette for gallery realism
-          const finalCtx = tiers[3].ctx;
+          // Pick highest populated binary reduction tier for 4, 8, or 16 samples
+          const finalTierIdx = totalSamples >= 16 ? 3 : totalSamples >= 8 ? 2 : 1;
+          const finalCtx = tiers[finalTierIdx].ctx;
           finalCtx.globalAlpha = 1.0;
           const vig = finalCtx.createRadialGradient(
             targetW * 0.5,
@@ -286,10 +291,15 @@ export function attachViewport3DStudioRenderAndLoop(ctx: AttachViewport3DStudioR
           finalCtx.fillStyle = vig;
           finalCtx.fillRect(0, 0, targetW, targetH);
 
-          return tiers[3].canvas.toDataURL("image/png");
+          return tiers[finalTierIdx].canvas.toDataURL("image/png");
         } catch {
           return "";
         } finally {
+          // Immediately release 2D canvas GPU backing stores to prevent mobile/4GB RAM OOM
+          for (const t of tiers) {
+            t.canvas.width = 0;
+            t.canvas.height = 0;
+          }
           perspCam.clearViewOffset();
           perspCam.position.copy(savedCamPos);
           perspCam.quaternion.copy(savedCamQuat);
@@ -424,6 +434,7 @@ export function attachViewport3DStudioRenderAndLoop(ctx: AttachViewport3DStudioR
         }
       };
 
+      let lastMeasuredFrameMs = 4.2;
       const getLiveSceneStats = () => {
         const curR = rendererRef.current;
         if (!curR) return null;
@@ -432,7 +443,7 @@ export function attachViewport3DStudioRenderAndLoop(ctx: AttachViewport3DStudioR
           triangles: curR.info.render.triangles,
           geometries: curR.info.memory.geometries,
           textures: curR.info.memory.textures,
-          lastFrameMs: 4.2,
+          lastFrameMs: Math.round(lastMeasuredFrameMs * 10) / 10,
         };
       };
 
@@ -447,11 +458,42 @@ export function attachViewport3DStudioRenderAndLoop(ctx: AttachViewport3DStudioR
       winHooks.__birimRenderPathTracedPhoto = renderPathTracedPhoto;
       winHooks.__birimGetLiveSceneStats = getLiveSceneStats;
 
-      let animId: number;
+      const isAuditMode =
+        typeof window !== "undefined" &&
+        new URLSearchParams(window.location.search).has("audit");
+      const defaultBaseCyan = new THREE.Color(0x0ea5e9);
+      const flashCyan = new THREE.Color(0xf0f9ff);
+      const tmpBaseCol = new THREE.Color();
+      const tmpPulseCol = new THREE.Color();
+
+      let animId: number | null = null;
+      let isDisposed = false;
+      let idleTickStreak = 0;
       let lastDimSyncMs = 0;
+      let slowFrameSumMs = 0;
+      let slowFrameCount = 0;
+      let fastFrameSumMs = 0;
+      let fastFrameCount = 0;
+      let lastGovernorTriggerMs = 0;
+
+      const scheduleNextFrame = () => {
+        if (isDisposed || animId !== null) return;
+        animId = requestAnimationFrame(animate);
+      };
+
+      const wakeLoop = () => {
+        if (isDisposed) return;
+        idleTickStreak = 0;
+        scheduleNextFrame();
+      };
+
+      if (wakeRenderLoopRef) {
+        wakeRenderLoopRef.current = wakeLoop;
+      }
 
       const animate = () => {
-        animId = requestAnimationFrame(animate);
+        animId = null;
+        if (isDisposed) return;
         if (pausedRef.current) return;
         const curControls = controlsRef.current;
         const curRenderer = rendererRef.current;
@@ -490,9 +532,6 @@ export function attachViewport3DStudioRenderAndLoop(ctx: AttachViewport3DStudioR
                 ? clampedP / 0.22
                 : Math.pow(1 - (clampedP - 0.22) / 0.78, 1.65);
 
-          const defaultBaseCyan = new THREE.Color(0x0ea5e9);
-          const flashCyan = new THREE.Color(0xf0f9ff);
-
           roomArchGroupRef.current.traverse((node) => {
             if (node.userData?.isRoomWallGroup && node.userData.wallId === wallPulse.wallId) {
               node.traverse((child) => {
@@ -500,13 +539,14 @@ export function attachViewport3DStudioRenderAndLoop(ctx: AttachViewport3DStudioR
                   const mat = child.material as THREE.MeshBasicMaterial;
                   if (mat && mat.isMeshBasicMaterial) {
                     const baseOp = typeof child.userData.baseOpacity === "number" ? child.userData.baseOpacity : 0.85;
-                    const baseCol =
-                      typeof child.userData.baseColorHex === "number"
-                        ? new THREE.Color(child.userData.baseColorHex)
-                        : defaultBaseCyan;
-                    const pulseCol = baseCol.clone().lerp(flashCyan, env * 0.85);
+                    if (typeof child.userData.baseColorHex === "number") {
+                      tmpBaseCol.setHex(child.userData.baseColorHex);
+                    } else {
+                      tmpBaseCol.copy(defaultBaseCyan);
+                    }
+                    tmpPulseCol.copy(tmpBaseCol).lerp(flashCyan, env * 0.85);
                     mat.opacity = Math.min(1, baseOp + (1 - baseOp) * env);
-                    mat.color.copy(clampedP >= 1 ? baseCol : pulseCol);
+                    mat.color.copy(clampedP >= 1 ? tmpBaseCol : tmpPulseCol);
                   }
                   const railAxis = child.userData.railAxis as "horiz" | "vert" | "bracket" | undefined;
                   const thicknessBoost = 1 + 0.75 * env;
@@ -558,7 +598,9 @@ export function attachViewport3DStudioRenderAndLoop(ctx: AttachViewport3DStudioR
             needsRenderRef.current = true;
           }
         }
-        if (needsRenderRef.current || updated || isFlying || isWallPulsing) {
+        const shouldRender = Boolean(needsRenderRef.current || updated || isFlying || isWallPulsing);
+        if (shouldRender) {
+          idleTickStreak = 0;
           const t0 = performance.now();
           const cam = (curControls.object as THREE.Camera) || perspCamRef.current;
           if (cam) {
@@ -615,7 +657,44 @@ export function attachViewport3DStudioRenderAndLoop(ctx: AttachViewport3DStudioR
             }
           }
           const dt = performance.now() - t0;
-          if (new URLSearchParams(window.location.search).has("audit"))
+          lastMeasuredFrameMs = dt;
+          if (onSlowFrameWindow || onFastFrameWindow) {
+            if (dt > 32) {
+              fastFrameSumMs = 0;
+              fastFrameCount = 0;
+              slowFrameSumMs += dt;
+              slowFrameCount += 1;
+              if (slowFrameCount >= 8 && onSlowFrameWindow) {
+                const nowMs = performance.now();
+                if (nowMs - lastGovernorTriggerMs > 4000) {
+                  lastGovernorTriggerMs = nowMs;
+                  onSlowFrameWindow(slowFrameSumMs / slowFrameCount);
+                }
+                slowFrameSumMs = 0;
+                slowFrameCount = 0;
+              }
+            } else {
+              slowFrameSumMs = 0;
+              slowFrameCount = 0;
+              if (dt < 14 && onFastFrameWindow) {
+                fastFrameSumMs += dt;
+                fastFrameCount += 1;
+                if (fastFrameCount >= 24) {
+                  const nowMs = performance.now();
+                  if (nowMs - lastGovernorTriggerMs > 8000) {
+                    lastGovernorTriggerMs = nowMs;
+                    onFastFrameWindow(fastFrameSumMs / fastFrameCount);
+                  }
+                  fastFrameSumMs = 0;
+                  fastFrameCount = 0;
+                }
+              } else {
+                fastFrameSumMs = 0;
+                fastFrameCount = 0;
+              }
+            }
+          }
+          if (isAuditMode) {
             curRenderer.domElement.dataset.performance = JSON.stringify({
               renderCpuMs: dt,
               drawCalls: curRenderer.info.render.calls,
@@ -623,12 +702,27 @@ export function attachViewport3DStudioRenderAndLoop(ctx: AttachViewport3DStudioR
               geometries: curRenderer.info.memory.geometries,
               textures: curRenderer.info.memory.textures,
             });
+          }
           if (onPerformanceSample) onPerformanceSample({ lastRenderMs: dt });
           needsRenderRef.current = false;
+        } else {
+          idleTickStreak += 1;
+        }
+
+        // On-demand sleep: stop 60Hz rAF once scene & OrbitControls damping settle (0% idle CPU/battery)
+        if (shouldRender || isOrbitingRef.current || idleTickStreak < 4) {
+          scheduleNextFrame();
         }
       };
-      animate();
+      wakeLoop();
   return () => {
-    cancelAnimationFrame(animId);
+    isDisposed = true;
+    if (wakeRenderLoopRef) {
+      wakeRenderLoopRef.current = null;
+    }
+    if (animId !== null) {
+      cancelAnimationFrame(animId);
+      animId = null;
+    }
   };
 }

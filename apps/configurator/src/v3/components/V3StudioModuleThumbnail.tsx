@@ -6,8 +6,15 @@ import { DEFAULT_MATERIALS, type MaterialDefinition } from "@birim/core";
 import type { V4ModuleTemplateDefinition } from "@birim/catalog";
 import { generateModuleGeometry } from "../adapter/useV3Adapter";
 import { createComponentMesh } from "../../components/componentMesh";
-import { getStudioPmremEnvironment, getV3PbrMaterial } from "../materials/pbrMaterialSystem";
-import { disposeObject3DTree, markSharedMaterial } from "../materials/webglResourceGuard";
+import { disposeRendererPmremEnvironment, getStudioPmremEnvironment, getV3PbrMaterial } from "../materials/pbrMaterialSystem";
+import {
+  attachWebGLContextRecovery,
+  disposeObject3DTree,
+  disposeWebGLRendererCleanly,
+  getCachedHardwarePerformanceTier,
+  markSharedMaterial,
+  probeWebGL2Support,
+} from "../materials/webglResourceGuard";
 import { V3IsometricModuleIcon } from "./V3IsometricModuleIcon";
 
 const THUMB_SHARED_MATS = {
@@ -31,13 +38,62 @@ let sharedCamera: THREE.PerspectiveCamera | null = null;
 let sharedModHolder: THREE.Group | null = null;
 let sharedKeyLight: THREE.DirectionalLight | null = null;
 let sharedEdgeMat: THREE.LineBasicMaterial | null = null;
+let detachStudioThumbRecovery: (() => void) | null = null;
+let studioThumbIdleTimer: ReturnType<typeof setTimeout> | null = null;
 let webglUnavailable = false;
+
+function resetStudioThumbStage(): void {
+  if (studioThumbIdleTimer) {
+    clearTimeout(studioThumbIdleTimer);
+    studioThumbIdleTimer = null;
+  }
+  if (detachStudioThumbRecovery) {
+    detachStudioThumbRecovery();
+    detachStudioThumbRecovery = null;
+  }
+  if (sharedScene) {
+    sharedScene.environment = null;
+    disposeObject3DTree(sharedScene);
+    sharedScene = null;
+  }
+  if (sharedRenderer) {
+    disposeRendererPmremEnvironment(sharedRenderer);
+    disposeWebGLRendererCleanly(sharedRenderer);
+    sharedRenderer = null;
+  }
+  sharedCamera = null;
+  sharedModHolder = null;
+  sharedKeyLight = null;
+  sharedEdgeMat = null;
+}
+
+function scheduleStudioThumbIdleRelease(): void {
+  if (studioThumbIdleTimer) clearTimeout(studioThumbIdleTimer);
+  studioThumbIdleTimer = setTimeout(() => {
+    studioThumbIdleTimer = null;
+    if (!isDrainingQueue && pendingQueue.length === 0) {
+      resetStudioThumbStage();
+    }
+  }, 12_000);
+}
 
 const THUMB_W = 440;
 const THUMB_H = 250;
 
 function getOrInitStudioThumbStage(): boolean {
   if (webglUnavailable || typeof document === "undefined") return false;
+  // On software/low-spec integrated GPUs or WebGL2-less PCs, skip spawning a 2nd WebGL2 context
+  // so V3IsometricModuleIcon renders instantly with 0 VRAM / context pressure.
+  const hwTier = getCachedHardwarePerformanceTier();
+  if (hwTier === "tier0_software" || hwTier === "tier1_low_igpu") {
+    webglUnavailable = true;
+    return false;
+  }
+  const cap = probeWebGL2Support();
+  if (!cap.supported || cap.isLegacyOrLowSpecGpu) {
+    webglUnavailable = true;
+    return false;
+  }
   if (sharedRenderer && sharedScene && sharedCamera && sharedModHolder) return true;
   try {
     const canvas = document.createElement("canvas");
@@ -48,10 +104,15 @@ function getOrInitStudioThumbStage(): boolean {
       antialias: true,
       alpha: false,
       preserveDrawingBuffer: true,
-      powerPreference: "high-performance",
+      powerPreference: "low-power",
     });
     renderer.setSize(THUMB_W, THUMB_H, false);
     renderer.setPixelRatio(1);
+    detachStudioThumbRecovery = attachWebGLContextRecovery(renderer.domElement, {
+      onContextLost: () => {
+        resetStudioThumbStage();
+      },
+    });
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -286,6 +347,7 @@ function scheduleDrainQueue() {
       window.requestAnimationFrame(step);
     } else {
       isDrainingQueue = false;
+      scheduleStudioThumbIdleRelease();
     }
   };
   window.requestAnimationFrame(step);

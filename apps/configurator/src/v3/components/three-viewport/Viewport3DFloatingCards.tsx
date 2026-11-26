@@ -1119,7 +1119,7 @@ export const Viewport3DFloatingCards: React.FC<Viewport3DFloatingCardsProps> = (
                           }
                           onDragEnd={() => {
                             if (typeof window !== "undefined") {
-                              (window as any).__birimActiveDraggedAccessory = null;
+                              window.__birimActiveDraggedAccessory = null;
                             }
                           }}
                           onClick={fItem.onClick}

@@ -88,7 +88,7 @@ export function mapCutPieceToCncPieceInput(cp: CutPiece): CncPieceInput {
     rawOriginOffsetXMm: cp.rawOriginOffsetXMm,
     rawOriginOffsetYMm: cp.rawOriginOffsetYMm,
     mirrorInnerFaceX: cp.mirrorInnerFaceX,
-    hasBackGroove: cp.hasBackGroove,
+    hasBackGroove: Boolean(cp.hasBackGroove),
     backGrooveOffsetMm: cp.backGrooveOffsetMm,
     hasSinkOrHobCutout: cp.hasSinkOrHobCutout,
     cutoutWidthMm: cp.cutoutWidthMm,
@@ -377,7 +377,7 @@ export function generateHomagMprPrograms(piece: CncPieceInput): CncProgramFile[]
       }
 
       if (
-        piece.hasBackGroove !== false &&
+        piece.hasBackGroove === true &&
         (piece.partRole === "carcass_side" ||
           piece.partRole === "carcass_side_left" ||
           piece.partRole === "carcass_side_right" ||
@@ -576,7 +576,7 @@ export function generateBiesseCixProgram(piece: CncPieceInput): CncProgramFile {
   }
 
   if (
-    piece.hasBackGroove !== false &&
+    piece.hasBackGroove === true &&
     (piece.partRole === "carcass_side" ||
       piece.partRole === "carcass_side_left" ||
       piece.partRole === "carcass_side_right" ||

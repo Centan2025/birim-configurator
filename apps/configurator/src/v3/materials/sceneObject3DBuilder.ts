@@ -1,16 +1,29 @@
 import * as THREE from "three";
 import { GLTFLoader, type GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
-import { KTX2Loader } from "three/examples/jsm/loaders/KTX2Loader.js";
 import type { SceneObjectInstance } from "@birim/core";
 import { resolvePersistentGlbAssetUrl } from "@birim/integrations";
-import { markSharedGeometry, markSharedMaterial } from "./webglResourceGuard";
-import { decimateHighPolyBufferGeometry } from "./wardrobeGlbAssetLoader";
+import { disposeObject3DTree, markSharedGeometry, markSharedMaterial } from "./webglResourceGuard";
+import { decimateHighPolyBufferGeometry, getSharedLocalDracoLoader } from "./wardrobeGlbAssetLoader";
 
+const MAX_GLB_SCENE_CACHE = 28;
 let sharedSceneGltfLoader: GLTFLoader | null = null;
 const glbSceneCache = new Map<string, THREE.Group>();
 const glbInFlight = new Map<string, Promise<THREE.Group | null>>();
 const sceneObjRenderListeners = new Set<(loadedKey?: string) => void>();
+
+function setGlbSceneCacheBounded(key: string, group: THREE.Group): void {
+  if (glbSceneCache.has(key)) {
+    glbSceneCache.delete(key);
+  }
+  glbSceneCache.set(key, group);
+  while (glbSceneCache.size > MAX_GLB_SCENE_CACHE) {
+    const oldestKey = glbSceneCache.keys().next().value;
+    if (!oldestKey) break;
+    const evicted = glbSceneCache.get(oldestKey);
+    glbSceneCache.delete(oldestKey);
+    if (evicted) disposeObject3DTree(evicted);
+  }
+}
 
 export const BUILTIN_SCENE_OBJECT_GLB_BASE_PATH = "/models/scene-objects";
 
@@ -93,27 +106,13 @@ function notifySceneObjLoaded(loadedKey?: string): void {
   });
 }
 
-export function getUniversalSceneGltfLoader(renderer?: THREE.WebGLRenderer | null): GLTFLoader | null {
+export function getUniversalSceneGltfLoader(_renderer?: THREE.WebGLRenderer | null): GLTFLoader | null {
   if (typeof window === "undefined") return null;
   if (sharedSceneGltfLoader) return sharedSceneGltfLoader;
 
   const loader = new GLTFLoader();
   loader.setCrossOrigin("anonymous");
-
-  const draco = new DRACOLoader();
-  draco.setDecoderPath("https://www.gstatic.com/draco/versioned/decoders/1.5.7/");
-  loader.setDRACOLoader(draco);
-
-  try {
-    const ktx2 = new KTX2Loader();
-    ktx2.setTranscoderPath("https://www.gstatic.com/basis-universal/versioned/2021-04-15-ba1c3e4/");
-    if (renderer) {
-      ktx2.detectSupport(renderer);
-    }
-    loader.setKTX2Loader(ktx2);
-  } catch {
-    // Graceful fallback if KTX2 transcoder is offline
-  }
+  loader.setDRACOLoader(getSharedLocalDracoLoader());
 
   sharedSceneGltfLoader = loader;
   return loader;
@@ -453,7 +452,7 @@ async function loadCustomSceneGlbAsync(
           child.receiveShadow = true;
         }
       });
-      glbSceneCache.set(cacheKey, gltf.scene);
+      setGlbSceneCacheBounded(cacheKey, gltf.scene);
       return gltf.scene;
     } catch {
       return null;

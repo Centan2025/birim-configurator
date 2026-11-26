@@ -394,12 +394,84 @@ export function disposeWebGLRendererCleanly(renderer: THREE.WebGLRenderer | null
 }
 
 
+export type HardwarePerformanceTier =
+  | "tier0_software"
+  | "tier1_low_igpu"
+  | "tier2_mid_igpu"
+  | "tier3_discrete";
+
 export interface AdaptiveWebglRenderBudget {
+  hardwareTier: HardwarePerformanceTier;
   isTouchMobile: boolean;
   restSharpDpr: number;
   motionFastDpr: number;
   shadowMapSize: number;
   maxAnisotropyCap: number;
+  useLowSpecLighting: boolean;
+  disableBackdropBlur: boolean;
+  defaultTextureQuality: "standard" | "hd" | "ultra";
+  maxTextureCacheEntries: number;
+  maxHistoryEntries: number;
+  maxUltraPhotoWidth: number;
+  maxUltraPhotoHeight: number;
+  maxUltraPhotoSamples: number;
+}
+
+const LOW_IGPU_REGEX =
+  /Intel\(R\)\s*(HD|UHD)\s*Graphics|Intel\(R\)\s*Graphics|AMD\s*Radeon\(TM\)\s*(Vega\s*[368]|R[2-5]|Graphics)|Mali-[GT]\d|Adreno\s*\(TM\)\s*[3-6]\d\d|PowerVR|Apple\s*A1[0-3]/i;
+
+const MID_IGPU_REGEX =
+  /Intel\(R\)\s*(Iris|Arc)|Apple\s*M[1-4]|Apple\s*GPU|Adreno\s*\(TM\)\s*7\d\d|Radeon\s*(6[68]0M|7[68]0M|8[89]0M)/i;
+
+const DISCRETE_GPU_REGEX =
+  /NVIDIA\s*GeForce\s*(RTX|GTX\s*(9\d0|10\d0|16\d0))|Quadro|RTX\s*A\d+|AMD\s*Radeon\s*(RX|PRO\s*W)/i;
+
+let cachedHardwareTier: HardwarePerformanceTier | null = null;
+
+export function getCachedHardwarePerformanceTier(): HardwarePerformanceTier {
+  if (cachedHardwareTier) return cachedHardwareTier;
+  if (typeof navigator === "undefined") return "tier2_mid_igpu";
+  const cores = navigator.hardwareConcurrency || 4;
+  const memGb = (navigator as unknown as { deviceMemory?: number }).deviceMemory;
+  const isTouchMobile = isCompactTouchMobileDevice();
+  if (isTouchMobile || (typeof memGb === "number" && memGb <= 4) || cores <= 4) {
+    return "tier1_low_igpu";
+  }
+  return "tier2_mid_igpu";
+}
+
+export function detectHardwarePerformanceTier(
+  isLegacyGpu: boolean,
+  gpuRendererInfo = ""
+): HardwarePerformanceTier {
+  if (isLegacyGpu) {
+    cachedHardwareTier = "tier0_software";
+    return cachedHardwareTier;
+  }
+  const isTouchMobile = isCompactTouchMobileDevice();
+  const cores = typeof navigator !== "undefined" ? navigator.hardwareConcurrency || 4 : 8;
+  const memGb =
+    typeof navigator !== "undefined"
+      ? (navigator as unknown as { deviceMemory?: number }).deviceMemory
+      : undefined;
+  const isLowMemory = typeof memGb === "number" && memGb <= 4;
+  const isLowCores = cores <= 4;
+
+  if (DISCRETE_GPU_REGEX.test(gpuRendererInfo) && !isTouchMobile && !isLowMemory) {
+    cachedHardwareTier = "tier3_discrete";
+    return cachedHardwareTier;
+  }
+  if (isTouchMobile || isLowMemory || LOW_IGPU_REGEX.test(gpuRendererInfo)) {
+    cachedHardwareTier = "tier1_low_igpu";
+    return cachedHardwareTier;
+  }
+  if (MID_IGPU_REGEX.test(gpuRendererInfo) || isLowCores) {
+    cachedHardwareTier = "tier2_mid_igpu";
+    return cachedHardwareTier;
+  }
+  // Unknown desktop GPU (e.g. masked Safari/Firefox string): safe balanced mid-tier
+  cachedHardwareTier = "tier2_mid_igpu";
+  return cachedHardwareTier;
 }
 
 /**
@@ -415,30 +487,92 @@ export function isCompactTouchMobileDevice(): boolean {
 }
 
 /**
- * iOS Safari / Android Chrome WebGL VRAM limitlerini (~300MB Jetsam eşiği) aşmamak için
- * mobil cihazlarda DPR, gölge haritası ve anizotropi üst sınırlarını dinamik olarak daraltır.
- * Masaüstü cihazlarda mevcut yüksek kaliteli değerleri aynen korur.
+ * 4 kademeli evrensel donanım bütçesi:
+ * - tier0_software (GeForce 210 / SwiftShader / Software)
+ * - tier1_low_igpu (Intel HD/UHD, <=4GB RAM, mobil/tablet)
+ * - tier2_mid_igpu (Iris Xe, Apple M-serisi, Vega, masked GPU)
+ * - tier3_discrete (RTX/GTX/RX iş istasyonu)
  */
 export function getAdaptiveWebglRenderBudget(
   isLegacyGpu: boolean,
-  maxTextureSize: number
+  maxTextureSize: number,
+  gpuRendererInfo = ""
 ): AdaptiveWebglRenderBudget {
   const nativeDpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
   const isTouchMobile = isCompactTouchMobileDevice();
-  if (isTouchMobile) {
+  const hardwareTier = detectHardwarePerformanceTier(isLegacyGpu, gpuRendererInfo);
+
+  if (hardwareTier === "tier0_software") {
     return {
-      isTouchMobile: true,
-      restSharpDpr: isLegacyGpu ? 1 : Math.min(nativeDpr, 1.5),
+      hardwareTier,
+      isTouchMobile,
+      restSharpDpr: 1,
+      motionFastDpr: 0.85,
+      shadowMapSize: 1024,
+      maxAnisotropyCap: 2,
+      useLowSpecLighting: true,
+      disableBackdropBlur: true,
+      defaultTextureQuality: "standard",
+      maxTextureCacheEntries: 16,
+      maxHistoryEntries: 15,
+      maxUltraPhotoWidth: 1280,
+      maxUltraPhotoHeight: 800,
+      maxUltraPhotoSamples: 4,
+    };
+  }
+
+  if (hardwareTier === "tier1_low_igpu") {
+    return {
+      hardwareTier,
+      isTouchMobile,
+      restSharpDpr: Math.min(nativeDpr, isTouchMobile ? 1.25 : 1.25),
       motionFastDpr: 1,
       shadowMapSize: 1024,
       maxAnisotropyCap: 4,
+      useLowSpecLighting: true,
+      disableBackdropBlur: true,
+      defaultTextureQuality: "standard",
+      maxTextureCacheEntries: 20,
+      maxHistoryEntries: 20,
+      maxUltraPhotoWidth: 1280,
+      maxUltraPhotoHeight: 800,
+      maxUltraPhotoSamples: 8,
     };
   }
+
+  if (hardwareTier === "tier2_mid_igpu") {
+    return {
+      hardwareTier,
+      isTouchMobile,
+      restSharpDpr: Math.min(nativeDpr, 1.5),
+      motionFastDpr: Math.min(nativeDpr, 1.15),
+      shadowMapSize: maxTextureSize >= 2048 ? 2048 : 1024,
+      maxAnisotropyCap: 8,
+      useLowSpecLighting: false,
+      disableBackdropBlur: false,
+      defaultTextureQuality: "hd",
+      maxTextureCacheEntries: 36,
+      maxHistoryEntries: 35,
+      maxUltraPhotoWidth: 1600,
+      maxUltraPhotoHeight: 1000,
+      maxUltraPhotoSamples: 12,
+    };
+  }
+
   return {
+    hardwareTier,
     isTouchMobile: false,
-    restSharpDpr: isLegacyGpu ? 1 : Math.min(Math.max(nativeDpr, 1.5), 2.5),
-    motionFastDpr: isLegacyGpu ? 1 : Math.min(nativeDpr, 1.35),
-    shadowMapSize: isLegacyGpu ? 1024 : maxTextureSize >= 4096 ? 4096 : 2048,
+    restSharpDpr: Math.min(nativeDpr, 2.0),
+    motionFastDpr: Math.min(nativeDpr, 1.35),
+    shadowMapSize: maxTextureSize >= 2048 ? 2048 : 1024,
     maxAnisotropyCap: 16,
+    useLowSpecLighting: false,
+    disableBackdropBlur: false,
+    defaultTextureQuality: "ultra",
+    maxTextureCacheEntries: 48,
+    maxHistoryEntries: 50,
+    maxUltraPhotoWidth: 2048,
+    maxUltraPhotoHeight: 1280,
+    maxUltraPhotoSamples: 16,
   };
 }

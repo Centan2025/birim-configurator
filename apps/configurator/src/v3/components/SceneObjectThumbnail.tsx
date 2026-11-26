@@ -13,7 +13,12 @@ import {
   resolveEffectiveSceneObjectGlbUrl,
   subscribeSceneObjectGlbLoaded,
 } from "../materials/sceneObject3DBuilder";
-import { disposeObject3DTree } from "../materials/webglResourceGuard";
+import {
+  attachWebGLContextRecovery,
+  disposeObject3DTree,
+  disposeWebGLRendererCleanly,
+  probeWebGL2Support,
+} from "../materials/webglResourceGuard";
 
 interface SceneObjectThumbnailProps {
   item: Pick<SceneObjectCatalogItem, "catalogId" | "name" | "primaryColorHex">;
@@ -30,11 +35,16 @@ let sharedThumbScene: THREE.Scene | null = null;
 let sharedThumbCamera: THREE.PerspectiveCamera | null = null;
 let sharedThumbEnvTarget: THREE.WebGLRenderTarget | null = null;
 let thumbIdleReleaseTimer: ReturnType<typeof setTimeout> | null = null;
+let detachThumbContextRecovery: (() => void) | null = null;
 
 function releaseThumbRigIfIdle(): void {
   if (thumbIdleReleaseTimer) {
     clearTimeout(thumbIdleReleaseTimer);
     thumbIdleReleaseTimer = null;
+  }
+  if (detachThumbContextRecovery) {
+    detachThumbContextRecovery();
+    detachThumbContextRecovery = null;
   }
   if (sharedThumbEnvTarget) {
     sharedThumbEnvTarget.dispose();
@@ -46,7 +56,7 @@ function releaseThumbRigIfIdle(): void {
     sharedThumbScene = null;
   }
   if (sharedThumbRenderer) {
-    sharedThumbRenderer.dispose();
+    disposeWebGLRendererCleanly(sharedThumbRenderer);
     sharedThumbRenderer = null;
   }
   sharedThumbCamera = null;
@@ -63,6 +73,8 @@ function getThumbRig(): {
   camera: THREE.PerspectiveCamera;
 } | null {
   if (typeof window === "undefined") return null;
+  const cap = probeWebGL2Support();
+  if (!cap.supported) return null;
   if (sharedThumbRenderer && sharedThumbScene && sharedThumbCamera) {
     return {
       renderer: sharedThumbRenderer,
@@ -109,6 +121,11 @@ function getThumbRig(): {
     sharedThumbRenderer = renderer;
     sharedThumbScene = scene;
     sharedThumbCamera = camera;
+    detachThumbContextRecovery = attachWebGLContextRecovery(renderer.domElement, {
+      onContextLost: () => {
+        releaseThumbRigIfIdle();
+      },
+    });
     return { renderer, scene, camera };
   } catch {
     return null;

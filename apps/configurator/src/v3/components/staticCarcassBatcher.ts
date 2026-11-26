@@ -93,6 +93,8 @@ export function batchStaticModuleCarcassMeshes(
     const batchedMesh = new THREE.Mesh(merged, bucket.material);
     batchedMesh.castShadow = refMesh.castShadow;
     batchedMesh.receiveShadow = refMesh.receiveShadow;
+    batchedMesh.updateMatrix();
+    batchedMesh.matrixAutoUpdate = false;
     batchedMesh.userData = {
       isStaticCarcassBatch: true,
       moduleIndex,

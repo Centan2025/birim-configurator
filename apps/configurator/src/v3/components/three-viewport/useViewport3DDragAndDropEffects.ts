@@ -847,7 +847,7 @@ const clear3DGhostPreview = useCallback(() => {
     };
 
     const handle3DDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-      const draggedMat = typeof window !== "undefined" ? (window as any).__birimDraggedMaterial : null;
+      const draggedMat = typeof window !== "undefined" ? window.__birimDraggedMaterial ?? null : null;
       const hasMatMime = e.dataTransfer.types.includes("application/x-birim-material");
       if (hasMatMime || draggedMat) {
         e.preventDefault();
@@ -857,7 +857,7 @@ const clear3DGhostPreview = useCallback(() => {
         }
         return;
       }
-      const activeAcc = typeof window !== "undefined" ? (window as any).__birimActiveDraggedAccessory : null;
+      const activeAcc = typeof window !== "undefined" ? window.__birimActiveDraggedAccessory ?? null : null;
       const hasAccessoryMime = e.dataTransfer.types.includes("application/x-birim-accessory-id");
 
       // CASE 1: ACCESSORY / INTERIOR ITEM DRAG
@@ -1170,14 +1170,14 @@ const clear3DGhostPreview = useCallback(() => {
 
     const handle3DDrop = (e: React.DragEvent<HTMLDivElement>) => {
       const rawMatJson = e.dataTransfer.getData("application/x-birim-material");
-      const winDraggedMat = typeof window !== "undefined" ? (window as any).__birimDraggedMaterial : null;
+      const winDraggedMat = typeof window !== "undefined" ? window.__birimDraggedMaterial ?? null : null;
       let droppedMat: { materialId: string; materialName?: string } | null = winDraggedMat;
       if (!droppedMat && rawMatJson) {
         try { droppedMat = JSON.parse(rawMatJson); } catch {}
       }
       if (droppedMat?.materialId) {
         e.preventDefault();
-        if (typeof window !== "undefined") (window as any).__birimDraggedMaterial = null;
+        if (typeof window !== "undefined") window.__birimDraggedMaterial = null;
         const curRenderer = rendererRef.current;
         const curGroup = meshGroupRef.current;
         const curCam = (controlsRef.current?.object as THREE.Camera) || perspCamRef.current;
@@ -1228,14 +1228,16 @@ const clear3DGhostPreview = useCallback(() => {
         }
         return;
       }
-      const activeAcc = typeof window !== "undefined" ? (window as any).__birimActiveDraggedAccessory : null;
+      const activeAcc = typeof window !== "undefined" ? window.__birimActiveDraggedAccessory ?? null : null;
       const hasAccessoryMime = e.dataTransfer.types.includes("application/x-birim-accessory-id");
 
       if (hasAccessoryMime || activeAcc || lastAccessoryDropTargetRef.current) {
         e.preventDefault();
         clear3DGhostPreview();
         const dropInfo = lastAccessoryDropTargetRef.current;
-        const acc = dropInfo?.accessory || activeAcc || { id: "lib_shelf", title: "Raf" };
+        const acc: import("../../../types/birim-window").BirimDraggedAccessoryPayload =
+          (dropInfo?.accessory as import("../../../types/birim-window").BirimDraggedAccessoryPayload | undefined) ||
+          activeAcc || { id: "lib_shelf", title: "Raf" };
         const bayIdx = dropInfo ? dropInfo.bayIndex : 0;
         const elevY = dropInfo ? dropInfo.elevationY : 400;
 
@@ -1251,7 +1253,7 @@ const clear3DGhostPreview = useCallback(() => {
 
         lastAccessoryDropTargetRef.current = null;
         if (typeof window !== "undefined") {
-          (window as any).__birimActiveDraggedAccessory = null;
+          window.__birimActiveDraggedAccessory = null;
         }
         return;
       }

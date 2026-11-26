@@ -48,7 +48,14 @@ export function getAutoSaveStorageKey(tenantId: string): string {
   return buildTenantScopedStorageKey(tenantId, AUTOSAVE_STORAGE_SUFFIX);
 }
 
-export function saveAutoSaveDraftNow(tenantId: string, project: DesignProject): boolean {
+export function saveAutoSaveDraftNow(
+  tenantId: string,
+  project: DesignProject,
+  onUnderlayStripped?: () => void
+): boolean {
+  const hadOversizedUnderlay =
+    typeof project.space?.floorPlanUnderlay?.dataUrl === "string" &&
+    project.space.floorPlanUnderlay.dataUrl.length > MAX_UNDERLAY_DATA_URL_BYTES;
   const sanitized = sanitizeProjectForAutoSave(project);
   const envelope: StoredAutoSaveEnvelope = {
     savedAt: new Date().toISOString(),
@@ -56,7 +63,11 @@ export function saveAutoSaveDraftNow(tenantId: string, project: DesignProject): 
   };
   try {
     const serialized = JSON.stringify(envelope);
-    return safeLocalStorageSet(getAutoSaveStorageKey(tenantId), serialized);
+    const saved = safeLocalStorageSet(getAutoSaveStorageKey(tenantId), serialized);
+    if (saved && hadOversizedUnderlay) {
+      onUnderlayStripped?.();
+    }
+    return saved;
   } catch {
     return false;
   }
@@ -89,7 +100,8 @@ export interface DebouncedDraftAutoSaver {
   schedule: (
     tenantId: string,
     project: DesignProject,
-    onStatusChange?: (status: AutoSaveStatus) => void
+    onStatusChange?: (status: AutoSaveStatus) => void,
+    onUnderlayStripped?: () => void
   ) => void;
   flush: () => boolean;
   cancel: () => void;
@@ -102,6 +114,7 @@ export function createDebouncedDraftAutoSaver(delayMs = 1500): DebouncedDraftAut
     tenantId: string;
     project: DesignProject;
     onStatusChange?: (status: AutoSaveStatus) => void;
+    onUnderlayStripped?: () => void;
   } | null = null;
 
   const flush = (): boolean => {
@@ -112,7 +125,7 @@ export function createDebouncedDraftAutoSaver(delayMs = 1500): DebouncedDraftAut
     if (!pending) return false;
     const current = pending;
     pending = null;
-    const ok = saveAutoSaveDraftNow(current.tenantId, current.project);
+    const ok = saveAutoSaveDraftNow(current.tenantId, current.project, current.onUnderlayStripped);
     current.onStatusChange?.(ok ? "saved" : "unsaved");
     return ok;
   };
@@ -128,13 +141,14 @@ export function createDebouncedDraftAutoSaver(delayMs = 1500): DebouncedDraftAut
   const schedule = (
     tenantId: string,
     project: DesignProject,
-    onStatusChange?: (status: AutoSaveStatus) => void
+    onStatusChange?: (status: AutoSaveStatus) => void,
+    onUnderlayStripped?: () => void
   ): void => {
     if (timer !== null) {
       clearTimeout(timer);
       timer = null;
     }
-    pending = { tenantId, project, onStatusChange };
+    pending = { tenantId, project, onStatusChange, onUnderlayStripped };
     onStatusChange?.("saving");
     timer = setTimeout(() => {
       flush();

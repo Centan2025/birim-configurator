@@ -214,16 +214,20 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
   const [recoverableDraft, setRecoverableDraft] = useState<{
     project: DesignProject;
     savedAt: string;
-  } | null>(() => {
-    if (typeof window === "undefined") return null;
+  } | null>(null);
+
+  useEffect(() => {
     const found = loadAutoSavedDraft(activeTenantId);
-    if (!found || !found.project.modules?.length) return null;
+    if (!found || !found.project.modules?.length) return;
+    const curProj = useConfiguratorStore.getState().project;
     const isModified =
       found.project.version > 1 ||
-      found.project.title !== project.title ||
-      found.project.modules.length !== project.modules.length;
-    return isModified ? found : null;
-  });
+      found.project.title !== curProj.title ||
+      found.project.modules.length !== curProj.modules.length;
+    if (isModified) {
+      setRecoverableDraft(found);
+    }
+  }, [activeTenantId]);
 
   useEffect(() => {
     if (!autoSaverRef.current) {
@@ -235,12 +239,18 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
     };
   }, []);
 
+  const underlayStripNotifiedRef = useRef(false);
   useEffect(() => {
     if (!hasHydratedProjectRef.current) {
       hasHydratedProjectRef.current = true;
       return;
     }
-    autoSaverRef.current?.schedule(activeTenantId, project, setAutoSaveStatus);
+    autoSaverRef.current?.schedule(activeTenantId, project, setAutoSaveStatus, () => {
+      if (!underlayStripNotifiedRef.current) {
+        underlayStripNotifiedRef.current = true;
+        setToastText("Kat planı altlığı (>150 KB) yerel taslak kotası için görselsiz kaydedildi.");
+      }
+    });
   }, [activeTenantId, project, setAutoSaveStatus]);
 
   useEffect(() => {
@@ -395,6 +405,23 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
       }, 2400);
     }
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleOffline = () => {
+      autoSaverRef.current?.flush();
+      showToast("İnternet bağlantısı koptu — çalışmanız yerel taslağa kaydedildi.");
+    };
+    const handleOnline = () => {
+      showToast("İnternet bağlantısı yeniden kuruldu.");
+    };
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
+    return () => {
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [showToast]);
 
 
   // Combine V5 specialized templates (TV Bench, Capsule Table, Capsule Bar, Bookcase, Vestiyer, Vanity) + V4 templates + user custom templates
@@ -657,13 +684,13 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
 
       const existing = variantSnapshots[slot];
       if (!existing || forceOverwrite) {
-        const cloned = JSON.parse(JSON.stringify(st.project)) as DesignProject;
+        const cloned = structuredClone(st.project);
         setVariantSnapshots((prev) => ({
           ...prev,
           ...(slot !== "A" && !prev.A
             ? {
                 A: {
-                  project: JSON.parse(JSON.stringify(st.project)) as DesignProject,
+                  project: structuredClone(st.project),
                   priceEur: curPrice,
                   summaryTr: doorMatName,
                 },
@@ -688,7 +715,7 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
         setVariantSnapshots((prev) => ({
           ...prev,
           A: {
-            project: JSON.parse(JSON.stringify(st.project)) as DesignProject,
+            project: structuredClone(st.project),
             priceEur: curPrice,
             summaryTr: doorMatName,
           },

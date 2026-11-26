@@ -75,7 +75,9 @@ export async function syncRowToSaasPostgrest(
     | "modul_audit_logs"
     | "modul_usage_events"
     | "modul_subscriptions"
-    | "modul_integration_events",
+    | "modul_integration_events"
+    | "modul_verified_quotes"
+    | "modul_billing_webhook_events",
   tenantId: string,
   rowPayload: Record<string, unknown>
 ): Promise<boolean> {
@@ -97,5 +99,30 @@ export async function syncRowToSaasPostgrest(
     return res.ok;
   } catch {
     return false;
+  }
+}
+
+export async function queryRowsFromSaasPostgrest<T>(
+  tableName: "modul_verified_quotes" | "modul_billing_webhook_events",
+  queryString: string
+): Promise<T[] | null> {
+  if (!isLiveSaasPostgrestEnabled()) return null;
+  const baseUrl = (process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "").replace(/\/+$/, "");
+  const key = (process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
+  try {
+    const res = await fetch(`${baseUrl}/rest/v1/${tableName}?${queryString}`, {
+      method: "GET",
+      headers: {
+        apikey: key,
+        ...(key.startsWith("sb_") ? {} : { Authorization: `Bearer ${key}` }),
+        Accept: "application/json",
+      },
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const rows = (await res.json()) as T[];
+    return Array.isArray(rows) ? rows : null;
+  } catch {
+    return null;
   }
 }

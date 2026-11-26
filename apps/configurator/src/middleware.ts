@@ -27,8 +27,17 @@ export function middleware(req: NextRequest) {
   const res = NextResponse.next({
     request: { headers: requestHeaders },
   });
+  const isEmbedRoute = req.nextUrl.pathname.startsWith("/embed/");
   res.headers.set("X-Content-Type-Options", "nosniff");
   res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  if (!isEmbedRoute) {
+    res.headers.set("X-Frame-Options", "SAMEORIGIN");
+    res.headers.set("Content-Security-Policy", "frame-ancestors 'self'");
+  }
+  if (process.env.NODE_ENV === "production") {
+    res.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  }
   res.headers.set("X-Modul-Tenant-Slug", resolvedSlug);
   return res;
 }

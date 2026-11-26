@@ -20,7 +20,15 @@ const nextConfig = {
   },
   experimental: {
     externalDir: true,
-    optimizePackageImports: ["lucide-react"],
+    optimizePackageImports: [
+      "lucide-react",
+      "@birim/core",
+      "@birim/geometry",
+      "@birim/catalog",
+      "@birim/pricing",
+      "@birim/manufacturing",
+      "@birim/integrations",
+    ],
   },
   transpilePackages: [
     "@birim/core",

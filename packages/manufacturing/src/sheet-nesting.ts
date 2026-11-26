@@ -158,6 +158,10 @@ export function optimizeSheetNesting(
     matPieces.forEach((p) => {
       const netL = p.netCutLengthMm ?? p.lengthMm;
       const netW = p.netCutWidthMm ?? p.widthMm;
+      if (!Number.isFinite(netL) || !Number.isFinite(netW) || netL < 10 || netW < 10) {
+        unplaced.push(p);
+        return;
+      }
       const isCross = p.grain === "crosswise";
       const reqW = isCross ? netW : netL;
       const reqH = isCross ? netL : netW;

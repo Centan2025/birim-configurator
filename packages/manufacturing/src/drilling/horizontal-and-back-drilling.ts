@@ -10,9 +10,10 @@ export function drillHorizontalPanel(ctx: PartDrillingContext): boolean {
   if (
     part.role === "carcass_bottom" ||
     part.role === "carcass_top" ||
+    part.role === "shelf_fixed" ||
     (part.role === "shelf" && (part.label.includes("Sabit") || part.label.includes("Taşıyıcı Tabla")))
   ) {
-    const isFixedOrCarrierShelf = part.role === "shelf";
+    const isFixedOrCarrierShelf = part.role === "shelf" || part.role === "shelf_fixed";
     if (
       part.id.includes("_capsule_bottom") ||
       part.id.includes("_capsule_top") ||

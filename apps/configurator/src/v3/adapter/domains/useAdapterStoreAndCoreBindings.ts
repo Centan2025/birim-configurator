@@ -1,6 +1,7 @@
 "use client";
 import { useCallback } from "react";
 import { useConfiguratorStore } from "../../../store/useConfiguratorStore";
+import { getAdaptiveMaxHistoryEntries } from "../../../store/storeHelpers";
 import { type ArchitecturalElement, type DoorSystemId, type SlidingMountingType, type DoorOverlayType, type HandleCategory } from "@birim/core";
 import { generateModuleGeometry } from "@birim/geometry";
 import { getEffectiveSpaceObstacles } from "../../engine/kitchenSpatialEngine";
@@ -85,7 +86,7 @@ const isLite = Boolean(options?.lightweightViewport);
         };
       });
       commitAdapterState({
-        history: [...state.history.slice(-50), curProj],
+        history: [...state.history.slice(-getAdaptiveMaxHistoryEntries()), curProj],
         future: [],
         project: {
           ...curProj,
@@ -243,7 +244,7 @@ const isLite = Boolean(options?.lightweightViewport);
       });
 
       commitAdapterState({
-        history: [...state.history.slice(-50), curProj],
+        history: [...state.history.slice(-getAdaptiveMaxHistoryEntries()), curProj],
         future: [],
         project: {
           ...curProj,
@@ -320,7 +321,7 @@ const isLite = Boolean(options?.lightweightViewport);
         };
       });
       commitAdapterState({
-        history: [...state.history.slice(-50), curProj],
+        history: [...state.history.slice(-getAdaptiveMaxHistoryEntries()), curProj],
         future: [],
         project: {
           ...curProj,
@@ -384,7 +385,7 @@ const isLite = Boolean(options?.lightweightViewport);
         };
       });
       commitAdapterState({
-        history: [...state.history.slice(-50), curProj],
+        history: [...state.history.slice(-getAdaptiveMaxHistoryEntries()), curProj],
         future: [],
         project: {
           ...curProj,
@@ -524,7 +525,7 @@ const isLite = Boolean(options?.lightweightViewport);
         updatedAt: new Date().toISOString(),
       };
       commitAdapterState({
-        history: [...state.history.slice(-50), curProj],
+        history: [...state.history.slice(-getAdaptiveMaxHistoryEntries()), curProj],
         future: [],
         project: nextProj,
       });

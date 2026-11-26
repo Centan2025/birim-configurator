@@ -1,9 +1,14 @@
 import { useConfiguratorStore } from "../../store/useConfiguratorStore";
+import {
+  getActiveRuntimeTenantProfile,
+  buildActiveTenantPricingParams,
+  buildActiveTenantSheetConfig,
+  scheduleBackgroundStoreNesting,
+} from "../../store/storeHelpers";
 import { createDefaultWardrobeModule, type DesignProject, calculateFourSpaceDimensions, evaluateProjectCompatibility, evaluateUnifiedEngineeringModel, type BayConfig, computeContinuousKitchenLayers, BoundedLruCache, computeProjectStructuralSignature } from "@birim/core";
 import { analyzeAndAdviseSpan, WARDROBE_TEMPLATES, KITCHEN_TEMPLATES, getAllHandleProfiles, getAllHardwareProducts, getV4TemplateById } from "@birim/catalog";
 import { generateBOMForProject } from "@birim/manufacturing";
 import { calculateProjectPrice } from "@birim/pricing";
-import { computeNestingAsync } from "../../workers/manufacturing-worker-client";
 import { validateSpatialAndKitchenEngineering, type RowSnapPreviewResult, type SnapSlotCandidate } from "../engine/kitchenSpatialEngine";
 
 /**
@@ -118,7 +123,6 @@ export function computeRowSnapPreview(
 }
 
 
-let adapterNestingTimer: ReturnType<typeof setTimeout> | null = null;
 const cachedSpatialBySig = new BoundedLruCache<
   string,
   ReturnType<typeof validateSpatialAndKitchenEngineering>
@@ -176,9 +180,12 @@ export function commitAdapterState(patch: Partial<ReturnType<typeof useConfigura
     return;
   }
   const isBrowser = typeof window !== "undefined";
+  const tenantProfile = state.activeTenantProfile || getActiveRuntimeTenantProfile();
+  const sheetConfig = buildActiveTenantSheetConfig(tenantProfile);
+  const pricingParams = buildActiveTenantPricingParams(tenantProfile);
   const bom =
-    patch.bom ?? generateBOMForProject(project, undefined, { skipSyncNesting: isBrowser });
-  const pricing = patch.pricing ?? calculateProjectPrice(bom, undefined, undefined, project.sceneObjects || []);
+    patch.bom ?? generateBOMForProject(project, undefined, { skipSyncNesting: isBrowser, sheetConfig });
+  const pricing = patch.pricing ?? calculateProjectPrice(bom, pricingParams, undefined, project.sceneObjects || []);
   const validationIssues =
     patch.validationIssues ?? getMemoizedUnifiedEngineering(project).findings;
   const active = project.modules[patch.activeModuleIndex ?? state.activeModuleIndex] ?? project.modules[0] ?? createDefaultWardrobeModule("empty_fallback");
@@ -194,24 +201,7 @@ export function commitAdapterState(patch: Partial<ReturnType<typeof useConfigura
     future: patch.future ?? [],
   });
   if (isBrowser && bom.cutList.length > 0) {
-    if (adapterNestingTimer) clearTimeout(adapterNestingTimer);
-    adapterNestingTimer = setTimeout(() => {
-      adapterNestingTimer = null;
-      void computeNestingAsync(bom.cutList, project.version, undefined, {
-        projectId: project.id,
-        revisionId: project.revisionId,
-      }).then((workerSheets) => {
-        if (!workerSheets) return;
-        const latest = useConfiguratorStore.getState();
-        if (latest.project.id === project.id && latest.project.version === project.version) {
-          const refreshedBom = { ...latest.bom, nestingResults: workerSheets };
-          useConfiguratorStore.setState({
-            bom: refreshedBom,
-            pricing: calculateProjectPrice(refreshedBom, undefined, undefined, latest.project.sceneObjects || []),
-          });
-        }
-      });
-    }, 180);
+    scheduleBackgroundStoreNesting(project, bom);
   }
 }
 

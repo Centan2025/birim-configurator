@@ -65,11 +65,6 @@ function discoverSiblingBirimPortalEnvFile(explicitPath?: string): {
   const candidates = [
     explicitPath,
     process.env.BIRIM_PORTAL_ENV_PATH,
-    "F:/birim-portal/.env.local",
-    "F:/birim-portal/.env.staging.local",
-    "F:\\birim-portal\\.env.local",
-    "F:\\birim-portal\\.env.staging.local",
-    "C:/birim-portal/.env.local",
     path.resolve(cwd, "../birim-portal/.env.local"),
     path.resolve(cwd, "../../birim-portal/.env.local"),
     path.resolve(cwd, "../../../birim-portal/.env.local"),

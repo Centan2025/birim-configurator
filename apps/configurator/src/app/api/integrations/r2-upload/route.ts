@@ -24,13 +24,33 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 export const runtime = "nodejs";
 
-export async function GET() {
-  const resolved = resolveSharedBirimPortalEnv();
+export async function GET(request?: Request) {
+  let tenantCtx;
+  try {
+    tenantCtx = resolveTenantRequestContext(
+      request ?? new Request("http://localhost/api/integrations/r2-upload")
+    );
+  } catch (err) {
+    if (err instanceof TenantSecurityError) {
+      return jsonResponse({ ok: false, code: err.code, message: err.message }, err.httpStatus);
+    }
+    throw err;
+  }
+  const resolved = resolveSharedBirimPortalEnv({ tenantId: tenantCtx.tenantId });
+  const isProd = process.env.NODE_ENV === "production";
   const isProdBucket = KNOWN_PRODUCTION_R2_BUCKETS.has(resolved.r2BucketName);
   const allowProdR2 =
     process.env.BIRIM_ALLOW_PRODUCTION_R2_MUTATION === "true" ||
     process.env.BIRIM_SHARE_PORTAL_R2 === "true" ||
-    process.env.NODE_ENV === "production";
+    isProd;
+
+  if (isProd) {
+    return jsonResponse({
+      ok: true,
+      configured: resolved.r2Configured,
+      mode: resolved.r2Configured ? "cloudflare_r2_s3v4" : "indexeddb_offline_only",
+    });
+  }
 
   return jsonResponse({
     ok: true,

@@ -77,10 +77,31 @@ import {
   resolveTenantRequestContext,
 } from "../../../../lib/tenant-auth-guard";
 
-export async function GET(): Promise<Response> {
-  resolveSharedBirimPortalEnv({ hydrateProcessEnv: true });
+export async function GET(req?: Request): Promise<Response> {
+  let tenantCtx;
+  try {
+    tenantCtx = resolveTenantRequestContext(
+      req ?? new Request("http://localhost/api/integrations/store-quote")
+    );
+  } catch (err) {
+    if (err instanceof TenantSecurityError) {
+      return Response.json(
+        { ok: false, code: err.code, error: err.message },
+        { status: err.httpStatus }
+      );
+    }
+    throw err;
+  }
+  resolveSharedBirimPortalEnv({ hydrateProcessEnv: true, tenantId: tenantCtx.tenantId });
   const adapter = new SupabaseStoreRpcAdapter();
   const configured = adapter.isConfigured();
+  if (process.env.NODE_ENV === "production") {
+    return Response.json({
+      ok: true,
+      configured,
+      mode: configured ? "live_supabase_rpc" : "offline_simulation",
+    });
+  }
   const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
   const prodSafetyLockActive =
     supabaseUrl.includes("qchmdyiakmrfyvphbbok") &&

@@ -1,25 +1,23 @@
 import {
-  DEFAULT_MATERIALS,
-  DesignProject,
   evaluateProjectCompatibility,
   evaluateUnifiedEngineeringModel,
   parseAndMigrateProject,
-  syncProjectCustomMaterials,
 } from "@birim/core";
 import { generateBOMForProject } from "@birim/manufacturing";
 import {
   BirimSupabaseRpcError,
-  DEFAULT_BIRIM_ORG_UUID,
   MockERPAdapter,
   OutboundWebhookErpAdapter,
   SupabaseErpNestingRpcAdapter,
   type BirimSessionRole,
 } from "@birim/integrations";
 
+import { sanitizeProjectForServerPricing } from "../../../../lib/authoritative-pricing";
 import { resolveSharedBirimPortalEnv } from "../../../../lib/birim-portal-env";
 import {
   TenantSecurityError,
   assertTenantPermissionAndEntitlement,
+  checkTenantRateLimit,
   recordTenantAuditEvent,
   resolveTenantRequestContext,
 } from "../../../../lib/tenant-auth-guard";
@@ -55,7 +53,18 @@ export async function POST(req: Request): Promise<Response> {
       );
     }
 
-    // 1. Sunucu Tarafı Yetkili Geometri, Mühendislik Kapısı ve BOM Hesabı
+    // 1. ÖNCE Zero-Trust Kiracı Doğrulama, Rate-Limit ve RBAC/Entitlement Kontrolü
+    const tenantCtx = resolveTenantRequestContext(req, {
+      organizationId: body.organizationId,
+      branchIdOrCode: body.branchIdOrCode,
+      sessionUserId: body.sessionUserId,
+      sessionRole: body.sessionRole,
+    });
+    checkTenantRateLimit(tenantCtx.tenantId, "erp_nesting_post", 45);
+    assertTenantPermissionAndEntitlement(tenantCtx, "erp:publish_production", "allowErpIntegration");
+    resolveSharedBirimPortalEnv({ hydrateProcessEnv: true, tenantId: tenantCtx.tenantId });
+
+    // 2. Sunucu Tarafı Yetkili Geometri, Mühendislik Kapısı ve İzole Malzeme/BOM Hesabı
     const parsedRes = parseAndMigrateProject(body.project);
     if (!parsedRes.ok) {
       return Response.json(
@@ -68,7 +77,6 @@ export async function POST(req: Request): Promise<Response> {
       );
     }
     const project = parsedRes.project;
-    syncProjectCustomMaterials(project.customMaterials || []);
 
     const unified = evaluateUnifiedEngineeringModel(project);
     const compatibility = evaluateProjectCompatibility(project);
@@ -98,19 +106,9 @@ export async function POST(req: Request): Promise<Response> {
       );
     }
 
-    const tenantCtx = resolveTenantRequestContext(req, {
-      organizationId: body.organizationId,
-      branchIdOrCode: body.branchIdOrCode,
-      sessionUserId: body.sessionUserId,
-      sessionRole: body.sessionRole,
-    });
-    assertTenantPermissionAndEntitlement(tenantCtx, "erp:publish_production", "allowErpIntegration");
-    resolveSharedBirimPortalEnv({ hydrateProcessEnv: true, tenantId: tenantCtx.tenantId });
-
     const cRule = tenantCtx.profile.construction;
-    const materialsMap = new Map(
-      [...DEFAULT_MATERIALS, ...(project.customMaterials || [])].map((m) => [m.id, m])
-    );
+    // Never mutate global DEFAULT_MATERIALS from untrusted client payloads; resolve isolated map per request
+    const { materialsMap } = sanitizeProjectForServerPricing(project, tenantCtx.tenantId);
     const bom = generateBOMForProject(project, materialsMap, {
       sheetConfig: {
         name: `${tenantCtx.profile.brand.displayName} ${cRule.standardSheetLengthMm}x${cRule.standardSheetWidthMm}`,

@@ -23,6 +23,7 @@ function SharedProjectQuotePageInner() {
     currency: "EUR" | "TRY";
     totalFormatted: string;
     hmacShort: string;
+    isServerVerified: boolean;
   } | null>(null);
 
   useEffect(() => {
@@ -56,6 +57,7 @@ function SharedProjectQuotePageInner() {
                 currency: cur,
                 totalFormatted: formatted,
                 hmacShort: data.quote.hmacSignature.slice(0, 10),
+                isServerVerified: true,
               });
               setStatus("ready");
               return;
@@ -67,8 +69,6 @@ function SharedProjectQuotePageInner() {
           const decoded = decodeSharePayloadBase64Url<{
             code: string;
             tenantId?: string;
-            verifiedTotalEur: number;
-            sig: string;
             project: unknown;
           }>(fallbackToken);
           if (!cancelled && decoded?.project) {
@@ -77,16 +77,13 @@ function SharedProjectQuotePageInner() {
             const imported = importProjectJSON(JSON.stringify(decoded.project));
             if (imported.success) {
               const cur = tenantProfile.pricing.currency;
-              const formatted =
-                cur === "TRY"
-                  ? `₺ ${Math.round((decoded.verifiedTotalEur || 0) * tenantProfile.pricing.eurTryExchangeRate).toLocaleString("tr-TR")}`
-                  : `€ ${(decoded.verifiedTotalEur || 0).toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`;
               setVerifiedBadge({
                 code: decoded.code || code,
                 brandName: tenantProfile.brand.displayName,
                 currency: cur,
-                totalFormatted: formatted,
-                hmacShort: decoded.sig || "stateless",
+                totalFormatted: "Sunucu doğrulaması gerekli",
+                hmacShort: "DOĞRULANMADI",
+                isServerVerified: false,
               });
               setStatus("ready");
               return;
@@ -141,17 +138,35 @@ function SharedProjectQuotePageInner() {
   return (
     <div className="relative h-dvh w-screen overflow-hidden flex flex-col">
       {verifiedBadge && (
-        <div className="h-8 bg-[#141413] text-white px-4 flex items-center justify-between text-[11px] shrink-0 z-40">
+        <div
+          className={`h-8 px-4 flex items-center justify-between text-[11px] shrink-0 z-40 ${
+            verifiedBadge.isServerVerified
+              ? "bg-[#141413] text-white"
+              : "bg-amber-900 text-amber-50"
+          }`}
+        >
           <div className="flex items-center gap-2">
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+            {verifiedBadge.isServerVerified ? (
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+            ) : (
+              <AlertCircle className="w-3.5 h-3.5 text-amber-300" />
+            )}
             <span>
-              Doğrulanmış {verifiedBadge.brandName} Teklif Kodu:{" "}
+              {verifiedBadge.isServerVerified
+                ? `Doğrulanmış ${verifiedBadge.brandName} Teklif Kodu:`
+                : `Doğrulanmamış Yerel Önizleme (${verifiedBadge.brandName}):`}{" "}
               <strong className="font-mono">{verifiedBadge.code}</strong>
             </span>
           </div>
           <div className="flex items-center gap-3 font-mono">
-            <span>KDV Dahil: {verifiedBadge.totalFormatted}</span>
-            <span className="text-stone-400 hidden sm:inline">HMAC:{verifiedBadge.hmacShort}</span>
+            <span>
+              {verifiedBadge.isServerVerified
+                ? `KDV Dahil: ${verifiedBadge.totalFormatted}`
+                : verifiedBadge.totalFormatted}
+            </span>
+            <span className="text-stone-300 hidden sm:inline">
+              {verifiedBadge.isServerVerified ? `HMAC:${verifiedBadge.hmacShort}` : "İMZASIZ"}
+            </span>
           </div>
         </div>
       )}

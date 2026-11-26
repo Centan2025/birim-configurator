@@ -115,7 +115,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
     const storeValidationIssues = useConfiguratorStore((s) => s.validationIssues);
     const isStoreBatchDragging = useConfiguratorStore((s) => s.batchStartProject !== null);
 
-    const lastAccessoryDropTarget2DRef = useRef<{ bayIndex: number; elevationY: number; offsetX?: number; accessory: any } | null>(null);
+    const lastAccessoryDropTarget2DRef = useRef<{ bayIndex: number; elevationY: number; offsetX?: number; accessory: import("../../types/birim-window").BirimDraggedAccessoryPayload } | null>(null);
     const [zoom, setZoom] = useState(1);
   const zoomRef = useRef(1);
   zoomRef.current = zoom;

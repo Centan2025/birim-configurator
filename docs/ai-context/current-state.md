@@ -57,7 +57,7 @@
 
 ## 2. Doğrulama ve Test Durumu (2026-11-08 Gerçek Ölçüm)
 - **Vitest Birim/Regresyon (`npx vitest run tests/v43-customer-factory-integration.test.ts`):** `5/5 test PASS` (`24ms` test süresi) — `[VERIFIED]`
-- **TypeScript (`npm run lint` / `tsc --noEmit`):** `[CONFLICT]` / `[STALE]` — `docs/NEXT_AGENT_HANDOFF.md` (`27e3938`) içinde `0 hata` kayıtlıydı; `1c1faf3..9169ec4` commitlerindeki yeni alanlar nedeniyle `tsc --noEmit` üzerinde tip uyumsuzlukları (`useV3Adapter.ts`, `useConfiguratorStore.ts`, `bom-generator.ts`) tespit edildi.
+- **TypeScript (`npm run lint` / `tsc --noEmit`):** **0 hata (`TSC_OK`)** — `[VERIFIED]` (2026-11-25, Faz 1–4 güvenlik/WebGL/CNC/sıfır-`any` iyileştirmeleri sonrası).
 - **Üretim Kapısı Durumu:** `productionGate.isReadyForErp = false` ve `v4CompatibilityReport.canApproveProduction = false` (`UNVERIFIED` / Fail-Closed korunuyor) — `[VERIFIED]`
 
 ## 3. Açık Kalan Görevler ve Sınırlar

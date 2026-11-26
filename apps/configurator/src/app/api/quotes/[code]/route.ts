@@ -1,14 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTenantProfileByIdOrSlug } from "@birim/core";
 import {
-  getVerifiedQuoteByCode,
-  getVerifiedQuoteByCodeForTenant,
+  getVerifiedQuoteByCodeAsync,
+  getVerifiedQuoteByCodeForTenantAsync,
 } from "../../../../lib/server-quote-store";
 import {
   TenantSecurityError,
+  checkTenantRateLimit,
   extractCookieValue,
   verifyTenantSessionToken,
 } from "../../../../lib/tenant-auth-guard";
+import type { VerifiedQuoteRecord } from "../../../../lib/quote-codec";
+
+function sanitizePublicQuoteRecord(
+  record: VerifiedQuoteRecord
+): Omit<VerifiedQuoteRecord, "dealerNetTotalWithVatTry"> {
+  const { dealerNetTotalWithVatTry: _strippedDealerNet, ...publicSafe } = record;
+  void _strippedDealerNet;
+  return publicSafe;
+}
 
 export async function GET(
   req: NextRequest,
@@ -16,6 +26,12 @@ export async function GET(
 ) {
   try {
     const { code } = await context.params;
+    const forwardedIp =
+      req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      req.headers.get("x-real-ip")?.trim() ||
+      "anonymous";
+    checkTenantRateLimit(`ip:${forwardedIp}`, "quotes_get_code", 60);
+
     const explicitTenantParam = req.nextUrl?.searchParams?.get("tenantId");
     const authHeader = req.headers.get("authorization") || "";
     const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : null;
@@ -27,7 +43,7 @@ export async function GET(
       if (!claims) {
         throw new TenantSecurityError("INVALID_SESSION_TOKEN", "Geçersiz oturum jetonu.", 401);
       }
-      const scopedRecord = getVerifiedQuoteByCodeForTenant(code, claims.tenantId);
+      const scopedRecord = await getVerifiedQuoteByCodeForTenantAsync(code, claims.tenantId);
       if (!scopedRecord) {
         return NextResponse.json(
           { ok: false, code: "QUOTE_NOT_FOUND_OR_ISOLATED", error: "Teklif kaydı bu organizasyonda bulunamadı." },
@@ -45,8 +61,8 @@ export async function GET(
     }
 
     const record = explicitTenantParam
-      ? getVerifiedQuoteByCodeForTenant(code, getTenantProfileByIdOrSlug(explicitTenantParam).tenantId)
-      : getVerifiedQuoteByCode(code);
+      ? await getVerifiedQuoteByCodeForTenantAsync(code, getTenantProfileByIdOrSlug(explicitTenantParam).tenantId)
+      : await getVerifiedQuoteByCodeAsync(code);
 
     if (!record) {
       return NextResponse.json(
@@ -58,7 +74,7 @@ export async function GET(
     const tenantProfile = getTenantProfileByIdOrSlug(record.tenantId);
     return NextResponse.json({
       ok: true,
-      quote: record,
+      quote: sanitizePublicQuoteRecord(record),
       tenantSlug: tenantProfile.slug,
       brand: tenantProfile.brand,
       currency: tenantProfile.pricing.currency,

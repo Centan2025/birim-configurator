@@ -3,6 +3,7 @@ import React from "react";
 import { X, Plus, Minus, Scissors } from "lucide-react";
 import {
   resolveMultiHoleSpec,
+  calculateModulePlacement,
   calculateSlopedCeilingGeometry,
   resolveSpaceCeilingConfig,
   computeEffectiveCeilingClearHeight,
@@ -1321,21 +1322,21 @@ export const InspectorDimensionsTab: React.FC<InspectorDimensionsTabProps> = (pr
                   roomCeilCfg.enabled && roomCeilCfg.ceilingType === "sloped_attic";
 
                 const handleFitToRoomSlopedCeiling = () => {
-                  const modX = activeModule.position?.x || 0;
                   const modY = activeModule.position?.y || 0;
-                  const modZ = activeModule.position?.z || 0;
                   const modW = activeModule.dimensions.width;
                   const modH = activeModule.dimensions.height;
                   const modD = activeModule.dimensions.depth;
-                  const rotYDeg = activeModule.rotation?.y || 0;
-                  const rotYRad = (rotYDeg * Math.PI) / 180;
+                  const placement = calculateModulePlacement(activeModule);
+                  const origX = placement.origin.x;
+                  const origZ = placement.origin.z;
+                  const rotYRad = placement.rotationYRad;
                   const sinY = Math.sin(rotYRad);
                   const cosY = Math.cos(rotYRad);
                   const clearance = 20;
 
                   const toWorldXZ = (lx: number, lz: number) => ({
-                    x: modX + lx * cosY + lz * sinY,
-                    z: modZ - lx * sinY + lz * cosY,
+                    x: origX + lx * cosY + lz * sinY,
+                    z: origZ - lx * sinY + lz * cosY,
                   });
 
                   // Exact net clear height under single- or multi-wall (hip/gable) roof at any local (lx, lz)
@@ -1351,13 +1352,26 @@ export const InspectorDimensionsTab: React.FC<InspectorDimensionsTabProps> = (pr
                     return res.minClearHeightMm - modY - clearance;
                   };
 
-                  // Sample the 4 corners and detect independent rear (Z) and lateral (X) roof slopes (supports hip/compound roofs!)
+                  // Sample the 4 corners + interior ridge points so symmetric/asymmetric gable & hip roofs are detected accurately
                   const cBL = clearAtLocal(0, 0);
                   const cBR = clearAtLocal(modW, 0);
                   const cFL = clearAtLocal(0, modD);
                   const cFR = clearAtLocal(modW, modD);
-                  const maxCornerClear = Math.max(cBL, cBR, cFL, cFR);
-                  const targetH = Math.max(700, Math.min(modH, Math.floor(maxCornerClear)));
+                  let maxSpanClear = Math.max(cBL, cBR, cFL, cFR);
+                  let peakXFront = cFR >= cFL ? modW : 0;
+                  let peakFrontClear = Math.max(cFL, cFR);
+                  for (let si = 1; si <= 15; si++) {
+                    const ux = (modW * si) / 16;
+                    const cf = clearAtLocal(ux, modD);
+                    const cb = clearAtLocal(ux, 0);
+                    if (cf > peakFrontClear) {
+                      peakFrontClear = cf;
+                      peakXFront = ux;
+                    }
+                    if (cf > maxSpanClear) maxSpanClear = cf;
+                    if (cb > maxSpanClear) maxSpanClear = cb;
+                  }
+                  const targetH = Math.max(700, Math.min(modH, Math.floor(maxSpanClear)));
 
                   type SlopeSpec = {
                     side: "left" | "right" | "rear";
@@ -1388,8 +1402,8 @@ export const InspectorDimensionsTab: React.FC<InspectorDimensionsTabProps> = (pr
                     return Math.round(Math.max(150, Math.min(maxSpan, reqRun)));
                   };
 
-                  // 1) Rear (back-to-front Z) slope evaluated along the taller X side so a lateral hip slope doesn't mask it
-                  const rearHighX = cFR >= cFL ? modW : 0;
+                  // 1) Rear (back-to-front Z) slope evaluated along the tallest X ridge so lateral slopes don't mask it
+                  const rearHighX = peakXFront;
                   const rearLow = clearAtLocal(rearHighX, 0);
                   const rearHigh = clearAtLocal(rearHighX, modD);
                   let rearSlope: SlopeSpec | undefined;
@@ -1399,24 +1413,40 @@ export const InspectorDimensionsTab: React.FC<InspectorDimensionsTabProps> = (pr
                     rearSlope = { side: "rear", kneeWallHeightMm: knee, slopeRunMm: run };
                   }
 
-                  // 2) Lateral (left/right X) slope evaluated along the taller Z side (usually front z = modD)
-                  const latHighZ = Math.max(cFL, cFR) >= Math.max(cBL, cBR) ? modD : 0;
+                  // 2) Lateral (left AND/OR right X) slopes evaluated independently along the taller Z side (supports gable roofs!)
+                  const latHighZ = peakFrontClear >= Math.max(cBL, cBR) ? modD : 0;
                   const latLeft = clearAtLocal(0, latHighZ);
                   const latRight = clearAtLocal(modW, latHighZ);
-                  let lateralSlope: SlopeSpec | undefined;
-                  if (latRight > latLeft + 25 && latLeft < targetH - 25) {
+                  let leftSlope: SlopeSpec | undefined;
+                  let rightSlope: SlopeSpec | undefined;
+                  if (latLeft < targetH - 25 && peakFrontClear > latLeft + 25) {
                     const knee = Math.max(450, Math.min(targetH - 40, Math.floor(latLeft)));
                     const run = solveRunAlongLine(modW, knee, (u) => clearAtLocal(u, latHighZ));
-                    lateralSlope = { side: "left", kneeWallHeightMm: knee, slopeRunMm: run };
-                  } else if (latLeft > latRight + 25 && latRight < targetH - 25) {
+                    leftSlope = { side: "left", kneeWallHeightMm: knee, slopeRunMm: run };
+                  }
+                  if (latRight < targetH - 25 && peakFrontClear > latRight + 25) {
                     const knee = Math.max(450, Math.min(targetH - 40, Math.floor(latRight)));
                     const run = solveRunAlongLine(modW, knee, (u) => clearAtLocal(modW - u, latHighZ));
-                    lateralSlope = { side: "right", kneeWallHeightMm: knee, slopeRunMm: run };
+                    rightSlope = { side: "right", kneeWallHeightMm: knee, slopeRunMm: run };
                   }
 
-                  const primarySlope: SlopeSpec | undefined = rearSlope || lateralSlope;
-                  const secondarySlope: SlopeSpec | undefined =
-                    rearSlope && lateralSlope ? lateralSlope : undefined;
+                  let primarySlope: SlopeSpec | undefined;
+                  let secondarySlope: SlopeSpec | undefined;
+                  if (rearSlope) {
+                    primarySlope = rearSlope;
+                    secondarySlope =
+                      leftSlope && rightSlope
+                        ? leftSlope.kneeWallHeightMm <= rightSlope.kneeWallHeightMm
+                          ? leftSlope
+                          : rightSlope
+                        : leftSlope || rightSlope;
+                  } else if (leftSlope && rightSlope) {
+                    primarySlope = leftSlope;
+                    secondarySlope = rightSlope;
+                  } else {
+                    primarySlope = leftSlope || rightSlope;
+                    secondarySlope = undefined;
+                  }
 
                   if (targetH !== modH) {
                     onSetDimensions(modW, targetH, modD);

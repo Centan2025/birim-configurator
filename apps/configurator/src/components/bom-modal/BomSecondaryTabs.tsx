@@ -492,7 +492,7 @@ export const BomSecondaryTabs: React.FC<BomSecondaryTabsProps> = (props) => {
                     <div className="flex justify-between">
                       <span className="font-sans text-[#57534E]">Ahşap / Levha Maliyeti:</span>
                       <span className="font-bold">
-                        €{(pricing.materialCost ?? (pricing as any).materialCostEur ?? 0).toFixed(2)}
+                        €{(pricing.materialCost ?? 0).toFixed(2)}
                       </span>
                     </div>
                     <div className="flex justify-between">
@@ -500,7 +500,7 @@ export const BomSecondaryTabs: React.FC<BomSecondaryTabsProps> = (props) => {
                         Kenar Bandı (PVC/ABS) Maliyeti:
                       </span>
                       <span className="font-bold">
-                        €{(pricing.edgeBandCost ?? (pricing as any).edgeBandCostEur ?? 0).toFixed(2)}
+                        €{(pricing.edgeBandCost ?? 0).toFixed(2)}
                       </span>
                     </div>
                     <div className="flex justify-between">
@@ -508,7 +508,7 @@ export const BomSecondaryTabs: React.FC<BomSecondaryTabsProps> = (props) => {
                         Dünya Markaları Aksesuar &amp; LED Donanım:
                       </span>
                       <span className="font-bold">
-                        €{(pricing.hardwareCost ?? (pricing as any).hardwareCostEur ?? 0).toFixed(2)}
+                        €{(pricing.hardwareCost ?? 0).toFixed(2)}
                       </span>
                     </div>
                     <div className="flex justify-between">
@@ -516,7 +516,7 @@ export const BomSecondaryTabs: React.FC<BomSecondaryTabsProps> = (props) => {
                         CNC İşçilik, Ebatlama &amp; Montaj:
                       </span>
                       <span className="font-bold">
-                        €{(pricing.laborCost ?? (pricing as any).laborCostEur ?? 0).toFixed(2)}
+                        €{(pricing.laborCost ?? 0).toFixed(2)}
                       </span>
                     </div>
                     <div className="pt-3 border-t border-[#E5DFD3] flex justify-between items-baseline text-sm font-black text-[#141413]">

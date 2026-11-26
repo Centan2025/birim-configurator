@@ -7,6 +7,23 @@ import { useConfiguratorStore, type LiveChangeImpactSummary } from "./useConfigu
 
 export const sessionUnderlayDataCache = new Map<string, string>();
 
+/**
+ * Adaptive Undo/Redo history cap based on device RAM & CPU cores so 4GB RAM / mobile
+ * browsers never accumulate 50 deep DesignProject clones in memory.
+ */
+export function getAdaptiveMaxHistoryEntries(): number {
+  if (typeof navigator === "undefined") return 40;
+  const memGb = (navigator as unknown as { deviceMemory?: number }).deviceMemory;
+  const cores = navigator.hardwareConcurrency || 4;
+  if ((typeof memGb === "number" && memGb <= 4) || cores <= 4) {
+    return 18;
+  }
+  if (typeof memGb === "number" && memGb <= 8) {
+    return 32;
+  }
+  return 50;
+}
+
 export function cloneSingleModule(m: ModuleInstance): ModuleInstance {
   return {
     ...m,
@@ -149,18 +166,22 @@ export function scheduleBackgroundStoreNesting(project: DesignProject, bom: Manu
     void computeNestingAsync(bom.cutList, targetVersion, sheetCfg, {
       projectId: targetProjectId,
       revisionId: targetRev,
-    }).then((workerSheets) => {
-      if (!workerSheets) return;
-      const latest = useConfiguratorStore.getState();
-      if (latest.project.id === targetProjectId && latest.project.version === targetVersion) {
-        const refreshedBom = { ...latest.bom, nestingResults: workerSheets };
-        const prcParams = buildActiveTenantPricingParams(latest.activeTenantProfile || activeRuntimeTenantProfile);
-        useConfiguratorStore.setState({
-          bom: refreshedBom,
-          pricing: calculateProjectPrice(refreshedBom, prcParams, undefined, latest.project.sceneObjects || []),
-        });
-      }
-    });
+    })
+      .then((workerSheets) => {
+        if (!workerSheets) return;
+        const latest = useConfiguratorStore.getState();
+        if (latest.project.id === targetProjectId && latest.project.version === targetVersion) {
+          const refreshedBom = { ...latest.bom, nestingResults: workerSheets };
+          const prcParams = buildActiveTenantPricingParams(latest.activeTenantProfile || activeRuntimeTenantProfile);
+          useConfiguratorStore.setState({
+            bom: refreshedBom,
+            pricing: calculateProjectPrice(refreshedBom, prcParams, undefined, latest.project.sceneObjects || []),
+          });
+        }
+      })
+      .catch(() => {
+        // Worker termination or transient failure: preserve last valid BOM/pricing without unhandled rejection
+      });
   }, 180);
 }
 

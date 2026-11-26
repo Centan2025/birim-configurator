@@ -42,10 +42,10 @@ interface ElevationTopBarProps {
   onRemoveObstacle: (id: string) => void;
   onSwapModule: (idx: number, dir: "left" | "right") => void;
   onSetModulePosition: (idx: number, x: number, z: number, wallId: number, y: number) => void;
-  onUpdateCeiling: (patch: any) => void;
+  onUpdateCeiling: (patch: Partial<NonNullable<DesignProject["space"]["ceilingConfig"]>>) => void;
   onUpdateCeilingHeightMm: (h: number) => void;
-  onUpdateCarcass: (patch: any) => void;
-  onSetFacadeGrainContinuity: (mode: any) => void;
+  onUpdateCarcass: (patch: Partial<ModuleInstance["carcass"]>) => void;
+  onSetFacadeGrainContinuity: (mode: NonNullable<DesignProject["facadeGrainContinuity"]>) => void;
 }
 
 export const ElevationTopBar: React.FC<ElevationTopBarProps> = ({

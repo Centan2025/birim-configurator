@@ -387,7 +387,7 @@ export function createActiveWallBadgeMesh(
     transparent: true,
     opacity: baseOpacity,
     side: THREE.DoubleSide,
-    depthTest: false,
+    depthTest: true,
     depthWrite: false,
   });
 
@@ -402,7 +402,7 @@ export function createActiveWallBadgeMesh(
   const geo = new THREE.PlaneGeometry(worldW, worldH);
   const mesh = new THREE.Mesh(geo, mat);
   mesh.rotation.y = inwardIsPositiveLocalZ ? 0 : Math.PI;
-  mesh.renderOrder = 950;
+  mesh.renderOrder = 20;
   mesh.raycast = () => {};
   mesh.userData = {
     isWallFocusIndicator: true,

@@ -1,6 +1,6 @@
 "use client";
 
-import { build3DArchitecturalCeilingGroup, computeWallTopProfileForCeiling } from "../../materials/ceilingAndMultiHole3DBuilder";
+import { build3DArchitecturalCeilingGroup, computeWallTopProfileForCeiling, evaluateCeilingHeightAtWorldXZ } from "../../materials/ceilingAndMultiHole3DBuilder";
 import { useEffect } from "react";
 import * as THREE from "three";
 import { getWallRoomBasis } from "../../engine/angledWallSnapEngine";
@@ -454,7 +454,8 @@ export function useViewport3DRoomXrayAndDropEffects(ctx: UseViewport3DRoomXrayAn
             );
             if (wallBadge) {
               const midTopY = sampleWallTopY(wLen / 2);
-              wallBadge.position.set(wLen / 2, midTopY + 145, zSign * 6);
+              const peakTopY = wallProfile.points.reduce((acc, p) => Math.max(acc, p.y), midTopY);
+              wallBadge.position.set(wLen / 2, Math.max(midTopY, peakTopY) + 145, zSign * 6);
               wallSegGroup.add(wallBadge);
             }
           }
@@ -928,7 +929,35 @@ export function useViewport3DRoomXrayAndDropEffects(ctx: UseViewport3DRoomXrayAn
             roomGroup.add(plateMesh);
           } else {
             // Solid Architectural Structural Column, Beam, Niche, or Partition (Matches Wall PBR in Photoreal!)
+            // Clip top vertices against single-, gable-, or hip-sloped ceilings so columns never protrude through the roof!
+            const colX = midX + inwardWorldX * (od * 0.5);
+            const colZ = midZ + inwardWorldZ * (od * 0.5);
             const colGeo = new THREE.BoxGeometry(ow, oh, od);
+            const colPosAttr = colGeo.getAttribute("position");
+            const cosCol = Math.cos(obsRotRad);
+            const sinCol = Math.sin(obsRotRad);
+            let colClippedToRoof = false;
+            for (let vi = 0; vi < colPosAttr.count; vi++) {
+              const py = colPosAttr.getY(vi);
+              if (py > 0) {
+                const px = colPosAttr.getX(vi);
+                const pz = colPosAttr.getZ(vi);
+                const wx = colX + px * cosCol + pz * sinCol;
+                const wz = colZ - px * sinCol + pz * cosCol;
+                const ceilAtVert = evaluateCeilingHeightAtWorldXZ(project.space, mainW, wx, wz);
+                const maxLocalY = Math.max(-oh / 2 + 40, ceilAtVert - cy3D);
+                if (maxLocalY < py - 0.5) {
+                  colPosAttr.setY(vi, maxLocalY);
+                  colClippedToRoof = true;
+                }
+              }
+            }
+            if (colClippedToRoof) {
+              colPosAttr.needsUpdate = true;
+              colGeo.computeVertexNormals();
+              colGeo.computeBoundingBox();
+              colGeo.computeBoundingSphere();
+            }
             const colMesh = new THREE.Mesh(
               colGeo,
               renderEdgeMode === "cad"
@@ -942,8 +971,6 @@ export function useViewport3DRoomXrayAndDropEffects(ctx: UseViewport3DRoomXrayAn
             colMesh.userData = { obstacleId: obs.id };
             colMesh.castShadow = renderEdgeMode !== "cad";
             colMesh.receiveShadow = renderEdgeMode !== "cad";
-            const colX = midX + inwardWorldX * (od * 0.5);
-            const colZ = midZ + inwardWorldZ * (od * 0.5);
             colMesh.position.set(colX, cy3D, colZ);
             colMesh.rotation.y = obsRotRad;
             if (renderEdgeMode === "cad") {

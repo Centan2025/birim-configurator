@@ -1142,7 +1142,7 @@ export function createCadElevationPointerAndDropHandlers(ctx: CreateCadElevation
 
     const handleElevDragOver = (e: React.DragEvent<HTMLDivElement>) => {
       if (mode !== "elevation") return;
-      const activeAcc = typeof window !== "undefined" ? (window as any).__birimActiveDraggedAccessory : null;
+      const activeAcc = typeof window !== "undefined" ? window.__birimActiveDraggedAccessory ?? null : null;
       const hasAccessoryMime = e.dataTransfer.types.includes("application/x-birim-accessory-id");
 
       if (hasAccessoryMime || activeAcc) {
@@ -1267,13 +1267,15 @@ export function createCadElevationPointerAndDropHandlers(ctx: CreateCadElevation
 
     const handleElevDrop = (e: React.DragEvent<HTMLDivElement>) => {
       if (mode !== "elevation") return;
-      const activeAcc = typeof window !== "undefined" ? (window as any).__birimActiveDraggedAccessory : null;
+      const activeAcc = typeof window !== "undefined" ? window.__birimActiveDraggedAccessory ?? null : null;
       const hasAccessoryMime = e.dataTransfer.types.includes("application/x-birim-accessory-id");
 
       if (hasAccessoryMime || activeAcc || lastAccessoryDropTarget2DRef.current) {
         e.preventDefault();
         const dropInfo = lastAccessoryDropTarget2DRef.current;
-        const acc = dropInfo?.accessory || activeAcc || { id: "lib_shelf", title: "Raf" };
+        const acc: import("../../../types/birim-window").BirimDraggedAccessoryPayload =
+          (dropInfo?.accessory as import("../../../types/birim-window").BirimDraggedAccessoryPayload | undefined) ||
+          activeAcc || { id: "lib_shelf", title: "Raf" };
         const bayIdx = dropInfo ? dropInfo.bayIndex : 0;
         const elevY = dropInfo ? dropInfo.elevationY : 400;
 
@@ -1297,7 +1299,7 @@ export function createCadElevationPointerAndDropHandlers(ctx: CreateCadElevation
             setTimeout(() => setPlanRowSnapBanner(null), 4200);
             lastAccessoryDropTarget2DRef.current = null;
             if (typeof window !== "undefined") {
-              (window as any).__birimActiveDraggedAccessory = null;
+              window.__birimActiveDraggedAccessory = null;
             }
             return;
           }
@@ -1308,7 +1310,7 @@ export function createCadElevationPointerAndDropHandlers(ctx: CreateCadElevation
 
         lastAccessoryDropTarget2DRef.current = null;
         if (typeof window !== "undefined") {
-          (window as any).__birimActiveDraggedAccessory = null;
+          window.__birimActiveDraggedAccessory = null;
         }
         return;
       }

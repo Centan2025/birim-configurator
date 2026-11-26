@@ -201,12 +201,12 @@ describe("V7.5 — Desen Takibi Termal Etiketler, 2D Montaj Dizilimi ve Ortak Bi
 
     const {
       resolveSharedBirimPortalEnv,
-    } = require("../apps/configurator/src/lib/birim-portal-env");
-    const { buildIsolatedConfiguratorR2Key } = require("../apps/configurator/src/lib/r2-upload-helpers");
+    } = await import("../apps/configurator/src/lib/birim-portal-env");
+    const { buildIsolatedConfiguratorR2Key } = await import("../apps/configurator/src/lib/r2-upload-helpers");
     const {
       GET: getR2Health,
       POST: postR2Upload,
-    } = require("../apps/configurator/src/app/api/integrations/r2-upload/route");
+    } = await import("../apps/configurator/src/app/api/integrations/r2-upload/route");
 
     const prevPortalPath = process.env.BIRIM_PORTAL_ENV_PATH;
     const prevEnd = process.env.R2_ENDPOINT;

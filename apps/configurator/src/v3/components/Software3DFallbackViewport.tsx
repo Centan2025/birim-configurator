@@ -76,11 +76,15 @@ export const Software3DFallbackViewport: React.FC<Software3DFallbackViewportProp
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const quadsRef = useRef<ProjectedQuad[]>([]);
+  const camRef = useRef<{ yawDeg: number; pitchDeg: number; zoomScale: number; panX: number; panY: number }>({
+    yawDeg: -26,
+    pitchDeg: 20,
+    zoomScale: 1.0,
+    panX: 0,
+    panY: 20,
+  });
+  const renderRafRef = useRef<number | null>(null);
 
-  const [yawDeg, setYawDeg] = useState<number>(-26);
-  const [pitchDeg, setPitchDeg] = useState<number>(20);
-  const [zoomScale, setZoomScale] = useState<number>(1.0);
-  const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 20 });
   const [hideDoors, setHideDoors] = useState<boolean>(false);
   const [showDriverTip, setShowDriverTip] = useState<boolean>(false);
 
@@ -206,13 +210,42 @@ export const Software3DFallbackViewport: React.FC<Software3DFallbackViewportProp
     matMap,
   ]);
 
+  const sceneBounds = useMemo(() => {
+    let minX = 0;
+    let maxX = 2400;
+    let maxY = 2300;
+    let minZ = 0;
+    let maxZ = 800;
+    if (sceneBoxes.length > 0) {
+      minX = Infinity;
+      maxX = -Infinity;
+      maxY = 1800;
+      minZ = 0;
+      maxZ = 600;
+      for (let i = 0; i < sceneBoxes.length; i++) {
+        const b = sceneBoxes[i];
+        const lx = b.cx - b.w * 0.5;
+        const rx = b.cx + b.w * 0.5;
+        const ty = b.cy + b.h * 0.5;
+        const nz = b.cz - b.d * 0.5;
+        const fz = b.cz + b.d * 0.5;
+        if (lx < minX) minX = lx;
+        if (rx > maxX) maxX = rx;
+        if (ty > maxY) maxY = ty;
+        if (nz < minZ) minZ = nz;
+        if (fz > maxZ) maxZ = fz;
+      }
+    }
+    return { minX, maxX, maxY, minZ, maxZ };
+  }, [sceneBoxes]);
+
   const renderFrame = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.25);
     const rect = canvas.getBoundingClientRect();
     const cw = Math.max(320, Math.round(rect.width));
     const ch = Math.max(240, Math.round(rect.height));
@@ -232,19 +265,8 @@ export const Software3DFallbackViewport: React.FC<Software3DFallbackViewportProp
     ctx.fillStyle = bgGrad;
     ctx.fillRect(0, 0, cw, ch);
 
-    // Compute scene bounding center
-    let minX = 0,
-      maxX = 2400,
-      maxY = 2300,
-      minZ = 0,
-      maxZ = 800;
-    if (sceneBoxes.length > 0) {
-      minX = Math.min(...sceneBoxes.map((b) => b.cx - b.w / 2));
-      maxX = Math.max(...sceneBoxes.map((b) => b.cx + b.w / 2));
-      maxY = Math.max(1800, ...sceneBoxes.map((b) => b.cy + b.h / 2));
-      minZ = Math.min(0, ...sceneBoxes.map((b) => b.cz - b.d / 2));
-      maxZ = Math.max(600, ...sceneBoxes.map((b) => b.cz + b.d / 2));
-    }
+    const { minX, maxX, maxY, minZ, maxZ } = sceneBounds;
+    const { yawDeg, pitchDeg, zoomScale, panX, panY } = camRef.current;
     const targetX = (minX + maxX) * 0.5;
     const targetY = maxY * 0.46;
     const targetZ = (minZ + maxZ) * 0.35;
@@ -270,33 +292,32 @@ export const Software3DFallbackViewport: React.FC<Software3DFallbackViewportProp
       const rz = dy * spitch + rz1 * cpitch;
       const persp = camDist / Math.max(400, camDist - rz);
       return {
-        x: cw * 0.5 + panOffset.x + rx * effScale * persp,
-        y: ch * 0.52 + panOffset.y - ry * effScale * persp,
+        x: cw * 0.5 + panX + rx * effScale * persp,
+        y: ch * 0.52 + panY - ry * effScale * persp,
         z: rz,
       };
     };
 
-    // Draw subtle architectural floor grid & back wall outline
+    // Draw subtle architectural floor grid in ONE batched path stroke
     ctx.strokeStyle = "rgba(71, 85, 105, 0.16)";
     ctx.lineWidth = 1;
     const gridMinX = Math.floor((minX - 600) / 500) * 500;
     const gridMaxX = Math.ceil((maxX + 600) / 500) * 500;
+    const gridMaxZ = Math.max(2200, maxZ + 600);
+    ctx.beginPath();
     for (let gx = gridMinX; gx <= gridMaxX; gx += 500) {
       const p0 = projectPt(gx, 0, -100);
-      const p1 = projectPt(gx, 0, Math.max(2200, maxZ + 600));
-      ctx.beginPath();
+      const p1 = projectPt(gx, 0, gridMaxZ);
       ctx.moveTo(p0.x, p0.y);
       ctx.lineTo(p1.x, p1.y);
-      ctx.stroke();
     }
-    for (let gz = 0; gz <= Math.max(2200, maxZ + 600); gz += 500) {
+    for (let gz = 0; gz <= gridMaxZ; gz += 500) {
       const p0 = projectPt(gridMinX, 0, gz);
       const p1 = projectPt(gridMaxX, 0, gz);
-      ctx.beginPath();
       ctx.moveTo(p0.x, p0.y);
       ctx.lineTo(p1.x, p1.y);
-      ctx.stroke();
     }
+    ctx.stroke();
 
     // Build all visible box faces with directional shading
     const quads: ProjectedQuad[] = [];
@@ -518,7 +539,15 @@ export const Software3DFallbackViewport: React.FC<Software3DFallbackViewportProp
     }
 
     ctx.restore();
-  }, [sceneBoxes, yawDeg, pitchDeg, zoomScale, panOffset, project.modules, activeModuleIndex, engineeringReport]);
+  }, [sceneBoxes, sceneBounds, project.modules, activeModuleIndex, engineeringReport]);
+
+  const scheduleCanvasRender = useCallback(() => {
+    if (renderRafRef.current !== null) return;
+    renderRafRef.current = window.requestAnimationFrame(() => {
+      renderRafRef.current = null;
+      renderFrame();
+    });
+  }, [renderFrame]);
 
   useEffect(() => {
     renderFrame();
@@ -557,8 +586,12 @@ export const Software3DFallbackViewport: React.FC<Software3DFallbackViewportProp
 
     return () => {
       window.removeEventListener("resize", onResize);
+      if (renderRafRef.current !== null) {
+        window.cancelAnimationFrame(renderRafRef.current);
+        renderRafRef.current = null;
+      }
     };
-  }, [renderFrame]);
+  }, [renderFrame, sceneBoxes.length]);
 
   const isPointInPoly = (px: number, py: number, pts: { x: number; y: number }[]) => {
     let inside = false;
@@ -588,10 +621,10 @@ export const Software3DFallbackViewport: React.FC<Software3DFallbackViewportProp
             mode: e.button === 2 || e.shiftKey ? "orbit" : "pan",
             startX: e.clientX,
             startY: e.clientY,
-            startYaw: yawDeg,
-            startPitch: pitchDeg,
-            startPanX: panOffset.x,
-            startPanY: panOffset.y,
+            startYaw: camRef.current.yawDeg,
+            startPitch: camRef.current.pitchDeg,
+            startPanX: camRef.current.panX,
+            startPanY: camRef.current.panY,
             moved: false,
           };
         }}
@@ -602,11 +635,13 @@ export const Software3DFallbackViewport: React.FC<Software3DFallbackViewportProp
           const dy = e.clientY - st.startY;
           if (Math.hypot(dx, dy) > 4) st.moved = true;
           if (st.mode === "orbit") {
-            setYawDeg(st.startYaw + dx * 0.45);
-            setPitchDeg(Math.max(-5, Math.min(78, st.startPitch + dy * 0.35)));
+            camRef.current.yawDeg = st.startYaw + dx * 0.45;
+            camRef.current.pitchDeg = Math.max(-5, Math.min(78, st.startPitch + dy * 0.35));
           } else {
-            setPanOffset({ x: st.startPanX + dx, y: st.startPanY + dy });
+            camRef.current.panX = st.startPanX + dx;
+            camRef.current.panY = st.startPanY + dy;
           }
+          scheduleCanvasRender();
         }}
         onPointerUp={(e) => {
           const st = dragRef.current;
@@ -634,7 +669,8 @@ export const Software3DFallbackViewport: React.FC<Software3DFallbackViewportProp
         onWheel={(e) => {
           e.stopPropagation();
           const delta = e.deltaY < 0 ? 0.12 : -0.12;
-          setZoomScale((z) => Math.max(0.45, Math.min(2.8, +(z + delta).toFixed(2))));
+          camRef.current.zoomScale = Math.max(0.45, Math.min(2.8, +(camRef.current.zoomScale + delta).toFixed(2)));
+          scheduleCanvasRender();
         }}
         className="w-full h-full block cursor-grab active:cursor-grabbing"
       />
@@ -654,7 +690,7 @@ export const Software3DFallbackViewport: React.FC<Software3DFallbackViewportProp
       )}
 
       {/* Non-blocking Hardware Compatibility Status Pill (Top-Center below TopBar) */}
-      <div className="absolute top-14 left-1/2 -translate-x-1/2 z-30 max-w-[94vw] px-3.5 py-2 rounded-2xl bg-[#141413]/90 backdrop-blur-md text-white border border-amber-400/40 shadow-lg flex flex-wrap items-center gap-2.5 text-[11px]">
+      <div className="absolute top-14 left-1/2 -translate-x-1/2 z-30 max-w-[94vw] px-3.5 py-2 rounded-2xl bg-[#141413]/95 text-white border border-amber-400/40 shadow-lg flex flex-wrap items-center gap-2.5 text-[11px]">
         <Cpu className="w-4 h-4 text-amber-300 shrink-0" />
         <span className="font-semibold">
           Eski Ekran Kartı Uyumluluk Modu (Yazılımsal 3D Motoru Aktif)
@@ -693,7 +729,7 @@ export const Software3DFallbackViewport: React.FC<Software3DFallbackViewportProp
       </div>
 
       {showDriverTip && (
-        <div className="absolute top-27 left-1/2 -translate-x-1/2 z-30 max-w-lg w-[92vw] p-3.5 rounded-2xl bg-white/95 backdrop-blur-md border border-stone-300 shadow-xl text-[11px] text-stone-800 space-y-1.5">
+        <div className="absolute top-27 left-1/2 -translate-x-1/2 z-30 max-w-lg w-[92vw] p-3.5 rounded-2xl bg-white/98 border border-stone-300 shadow-xl text-[11px] text-stone-800 space-y-1.5">
           <div className="font-bold text-[#141413]">
             Neden Bu Mod Açıldı? ({failureReason || "Direct3D9Ex / WebGL2 Sınırı"})
           </div>
@@ -707,14 +743,12 @@ export const Software3DFallbackViewport: React.FC<Software3DFallbackViewportProp
       )}
 
       {/* Bottom Interactive Software 3D Camera & Door Controls */}
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 px-3 py-1.5 rounded-2xl bg-white/90 backdrop-blur-md border border-stone-300 shadow-md flex flex-wrap items-center gap-1.5 text-[11px] text-[#141413]">
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 px-3 py-1.5 rounded-2xl bg-white/96 border border-stone-300 shadow-md flex flex-wrap items-center gap-1.5 text-[11px] text-[#141413]">
         <button
           type="button"
           onClick={() => {
-            setYawDeg(-26);
-            setPitchDeg(20);
-            setZoomScale(1);
-            setPanOffset({ x: 0, y: 20 });
+            camRef.current = { yawDeg: -26, pitchDeg: 20, zoomScale: 1, panX: 0, panY: 20 };
+            scheduleCanvasRender();
           }}
           className="px-2.5 py-1 rounded-xl hover:bg-stone-100 font-bold inline-flex items-center gap-1 cursor-pointer"
         >
@@ -724,8 +758,9 @@ export const Software3DFallbackViewport: React.FC<Software3DFallbackViewportProp
         <button
           type="button"
           onClick={() => {
-            setYawDeg(0);
-            setPitchDeg(2);
+            camRef.current.yawDeg = 0;
+            camRef.current.pitchDeg = 2;
+            scheduleCanvasRender();
           }}
           className="px-2 py-1 rounded-xl hover:bg-stone-100 font-semibold cursor-pointer"
         >
@@ -734,8 +769,9 @@ export const Software3DFallbackViewport: React.FC<Software3DFallbackViewportProp
         <button
           type="button"
           onClick={() => {
-            setYawDeg(-90);
-            setPitchDeg(6);
+            camRef.current.yawDeg = -90;
+            camRef.current.pitchDeg = 6;
+            scheduleCanvasRender();
           }}
           className="px-2 py-1 rounded-xl hover:bg-stone-100 font-semibold cursor-pointer"
         >
@@ -744,8 +780,9 @@ export const Software3DFallbackViewport: React.FC<Software3DFallbackViewportProp
         <button
           type="button"
           onClick={() => {
-            setYawDeg(0);
-            setPitchDeg(78);
+            camRef.current.yawDeg = 0;
+            camRef.current.pitchDeg = 78;
+            scheduleCanvasRender();
           }}
           className="px-2 py-1 rounded-xl hover:bg-stone-100 font-semibold cursor-pointer"
         >
@@ -754,7 +791,10 @@ export const Software3DFallbackViewport: React.FC<Software3DFallbackViewportProp
         <div className="h-4 w-px bg-stone-300 mx-0.5" />
         <button
           type="button"
-          onClick={() => setZoomScale((z) => Math.min(2.8, +(z + 0.18).toFixed(2)))}
+          onClick={() => {
+            camRef.current.zoomScale = Math.min(2.8, +(camRef.current.zoomScale + 0.18).toFixed(2));
+            scheduleCanvasRender();
+          }}
           className="p-1.5 rounded-xl hover:bg-stone-100 cursor-pointer"
           title="Yakınlaştır"
         >
@@ -762,7 +802,10 @@ export const Software3DFallbackViewport: React.FC<Software3DFallbackViewportProp
         </button>
         <button
           type="button"
-          onClick={() => setZoomScale((z) => Math.max(0.45, +(z - 0.18).toFixed(2)))}
+          onClick={() => {
+            camRef.current.zoomScale = Math.max(0.45, +(camRef.current.zoomScale - 0.18).toFixed(2));
+            scheduleCanvasRender();
+          }}
           className="p-1.5 rounded-xl hover:bg-stone-100 cursor-pointer"
           title="Uzaklaştır"
         >

@@ -23,6 +23,21 @@ export interface WoodWorkerUpgradeParams {
   normalMap: THREE.CanvasTexture;
 }
 
+export interface StoneWorkerUpgradeParams {
+  targetSize: number;
+  br: number;
+  bg: number;
+  bb: number;
+  veinRgb: [number, number, number];
+  isDarkStone: boolean;
+  colorCanvas: HTMLCanvasElement;
+  roughCanvas: HTMLCanvasElement;
+  normalCanvas: HTMLCanvasElement;
+  colorMap: THREE.CanvasTexture;
+  roughnessMap: THREE.CanvasTexture;
+  normalMap: THREE.CanvasTexture;
+}
+
 const WOOD_WORKER_SOURCE = `
 const PERM_512 = (() => {
   const p = new Uint8Array(512);
@@ -60,13 +75,46 @@ function periodicFbm(nx, ny, px, py, octaves) {
 }
 
 self.onmessage = (ev) => {
-  const { id, size, hr, hg, hb, isWalnut } = ev.data;
+  const { id, kind, size, hr, hg, hb, isWalnut, br, bg, bb, veinRgb, isDarkStone } = ev.data;
   const W = size, H = size;
   const colorData = new Uint8ClampedArray(W * H * 4);
   const roughData = new Uint8ClampedArray(W * H * 4);
   const normalData = new Uint8ClampedArray(W * H * 4);
   const heightField = new Float32Array(W * H);
 
+  if (kind === "stone") {
+    const strength = isDarkStone ? 0.22 : 0.3;
+    for (let y = 0; y < H; y++) {
+      const ny = y / H;
+      for (let x = 0; x < W; x++) {
+        const nx = x / W;
+        const warp = periodicFbm(nx, ny, 4, 4, 4);
+        const vein1 = Math.pow(
+          Math.max(0, 1 - Math.abs(Math.sin((nx * 2.0 + ny * 2.0 + warp * 1.65) * Math.PI)) * 4.8),
+          2.4
+        );
+        const vein2 =
+          Math.pow(
+            Math.max(0, 1 - Math.abs(Math.sin((nx * 4.0 - ny * 4.0 + warp * 2.2) * Math.PI)) * 6.5),
+            2.9
+          ) * 0.55;
+        const vFactor = Math.min(1, vein1 + vein2);
+        const idx = (y * W + x) * 4;
+        colorData[idx] = clampByte(br * (1 - vFactor * strength) + veinRgb[0] * vFactor * strength);
+        colorData[idx + 1] = clampByte(bg * (1 - vFactor * strength) + veinRgb[1] * vFactor * strength);
+        colorData[idx + 2] = clampByte(bb * (1 - vFactor * strength) + veinRgb[2] * vFactor * strength);
+        colorData[idx + 3] = 255;
+
+        const rv = clampByte(72 + warp * 26 + vFactor * 28);
+        roughData[idx] = rv;
+        roughData[idx + 1] = rv;
+        roughData[idx + 2] = rv;
+        roughData[idx + 3] = 255;
+
+        heightField[y * W + x] = 0.5 + (warp - 0.5) * 0.14 - vFactor * 0.08;
+      }
+    }
+  } else {
   for (let y = 0; y < H; y++) {
     const ny = y / H;
     for (let x = 0; x < W; x++) {
@@ -110,9 +158,10 @@ self.onmessage = (ev) => {
       heightField[y * W + x] = 0.55 + (mediumFibers - 0.5) * 0.22 + (fineGrain - 0.5) * 0.09 + (latewoodBand - 0.5) * 0.1 - poreDepth * 0.42;
     }
   }
+  }
 
   const sample = (x, y) => heightField[(((y % H) + H) % H) * W + (((x % W) + W) % W)];
-  const strength = 1.85;
+  const strength = kind === "stone" ? 0.75 : 1.85;
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const tl = sample(x - 1, y - 1), t = sample(x, y - 1), tr = sample(x + 1, y - 1);
@@ -139,7 +188,15 @@ self.onmessage = (ev) => {
 
 let sharedWorker: Worker | null = null;
 let nextJobId = 1;
-const pendingJobs = new Map<number, WoodWorkerUpgradeParams>();
+interface PendingCanvasJob {
+  colorCanvas: HTMLCanvasElement;
+  roughCanvas: HTMLCanvasElement;
+  normalCanvas: HTMLCanvasElement;
+  colorMap: THREE.CanvasTexture;
+  roughnessMap: THREE.CanvasTexture;
+  normalMap: THREE.CanvasTexture;
+}
+const pendingJobs = new Map<number, PendingCanvasJob>();
 
 function getOrCreateWoodWorker(): Worker | null {
   if (typeof window === "undefined" || typeof Worker === "undefined" || typeof Blob === "undefined") {
@@ -202,11 +259,30 @@ export function scheduleAsyncWoodPbrUpgrade(params: WoodWorkerUpgradeParams): bo
   pendingJobs.set(id, params);
   worker.postMessage({
     id,
+    kind: "wood",
     size: params.targetSize,
     hr: params.hr,
     hg: params.hg,
     hb: params.hb,
     isWalnut: params.isWalnut,
+  });
+  return true;
+}
+
+export function scheduleAsyncStonePbrUpgrade(params: StoneWorkerUpgradeParams): boolean {
+  const worker = getOrCreateWoodWorker();
+  if (!worker) return false;
+  const id = nextJobId++;
+  pendingJobs.set(id, params);
+  worker.postMessage({
+    id,
+    kind: "stone",
+    size: params.targetSize,
+    br: params.br,
+    bg: params.bg,
+    bb: params.bb,
+    veinRgb: params.veinRgb,
+    isDarkStone: params.isDarkStone,
   });
   return true;
 }

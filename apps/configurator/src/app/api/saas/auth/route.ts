@@ -9,10 +9,17 @@ import type {
 import {
   TenantSecurityError,
   assertTenantPermissionAndEntitlement,
+  checkTenantRateLimit,
   resolveTenantRequestContext,
   signTenantSessionToken,
 } from "../../../../lib/tenant-auth-guard";
 import { modulPostgresRepo } from "../../../../lib/modul-postgres-repository";
+
+function resolveClientIpKey(req: NextRequest): string {
+  const fwd = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  const real = req.headers.get("x-real-ip")?.trim();
+  return `ip:${fwd || real || "local"}`;
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -36,7 +43,13 @@ export async function POST(req: NextRequest) {
       inviteToken?: string;
     };
 
+    const clientIpKey = resolveClientIpKey(req);
+
     if (body.action === "login") {
+      checkTenantRateLimit(clientIpKey, "saas_auth_login", 20);
+      if (body.email) {
+        checkTenantRateLimit(`email:${body.email.trim().toLowerCase()}`, "saas_auth_login_email", 15);
+      }
       const auth = modulPostgresRepo.authenticateUser(body.email || "", body.password || "");
       const chosenMembership =
         (body.tenantId
@@ -76,6 +89,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (body.action === "register_org") {
+      checkTenantRateLimit(clientIpKey, "saas_auth_register", 10);
       if (!body.password || body.password.trim().length < 8) {
         throw new TenantSecurityError(
           "WEAK_PASSWORD",
@@ -144,6 +158,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (body.action === "accept_invite") {
+      checkTenantRateLimit(clientIpKey, "saas_auth_accept_invite", 15);
       if (!body.password || body.password.trim().length < 8) {
         throw new TenantSecurityError(
           "WEAK_PASSWORD",

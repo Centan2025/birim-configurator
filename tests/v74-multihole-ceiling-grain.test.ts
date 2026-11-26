@@ -165,7 +165,7 @@ describe("V7.4 — Çoklu Delik Sistemi (System 32), Mimari Tavan Tipleri ve Des
     }
   });
 
-  it("3. Desenli Malzemede Desen Takibi: 3D/2D UV ofset haritası, BOM kompozit 2D plaka şeridi ve ERP Nesting sıra kilidi birebir tutarlıdır", () => {
+  it("3. Desenli Malzemede Desen Takibi: 3D/2D UV ofset haritası, BOM kompozit 2D plaka şeridi ve ERP Nesting sıra kilidi birebir tutarlıdır", async () => {
     expect(GRAIN_CONTINUITY_CATALOG.length).toBe(4);
     const matMap = new Map(DEFAULT_MATERIALS.map((m) => [m.id, m]));
 
@@ -213,7 +213,7 @@ describe("V7.4 — Çoklu Delik Sistemi (System 32), Mimari Tavan Tipleri ve Des
     expect(d1Assign.grainGroupId).toBe(m2Assign.grainGroupId);
 
     // 3D mesh-generator'ın ürettiği gerçek kapak/çekmece bileşen kimliklerinin (`_leaf_left`, `_leaf_right`, `_left`, `_front`) %100'ü haritada eşleşmelidir!
-    const { generateModuleGeometry } = require("@birim/geometry");
+    const { generateModuleGeometry } = await import("@birim/geometry");
     const defaultOakProj = createInitialProject();
     const defaultMap = computeProjectGrainContinuityMap(defaultOakProj, matMap);
     const geo3d = generateModuleGeometry(defaultOakProj.modules[0]);
@@ -376,8 +376,8 @@ describe("V7.4 — Çoklu Delik Sistemi (System 32), Mimari Tavan Tipleri ve Des
     expect(nextCfg).toContain("externalDir: true");
     expect(nextCfg).toContain('"@birim/integrations"');
 
-    const { buildR2SigV4PutHeaders } = require("../apps/configurator/src/lib/r2-upload-helpers");
-    const { POST: postR2Upload } = require("../apps/configurator/src/app/api/integrations/r2-upload/route");
+    const { buildR2SigV4PutHeaders } = await import("../apps/configurator/src/lib/r2-upload-helpers");
+    const { POST: postR2Upload } = await import("../apps/configurator/src/app/api/integrations/r2-upload/route");
 
     const signed = buildR2SigV4PutHeaders({
       endpointUrl: "https://acc123.r2.cloudflarestorage.com",

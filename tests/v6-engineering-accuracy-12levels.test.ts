@@ -975,7 +975,7 @@ describe("Birim Configurator V6 — 12 Seviyeli Mühendislik Doğruluğu ve Üre
     expect(wallNestDxf).toContain("NOTCH_WALL_HANGER");
 
     // 3) MockERPAdapter.publishProductionBlueprint merkezi doğrulama motorunun yakaladığı hatalarda üretimi reddeder
-    const { MockERPAdapter } = require("../packages/integrations/src/erp-adapter");
+    const { MockERPAdapter } = await import("../packages/integrations/src/erp-adapter");
     const erpAdapter = new MockERPAdapter();
     const badTipProj = createInitialProject();
     badTipProj.modules[0].dimensions = { width: 800, height: 2200, depth: 340 };
@@ -1098,8 +1098,8 @@ describe("Birim Configurator V6 — 12 Seviyeli Mühendislik Doğruluğu ve Üre
     expect(fixedTipA.modules[0].carcass.carcassJoineryTopology).toBe("sides_through");
   });
 
-  it("V7.2 Doğrulama K: Gerçek Zod Anahtar Kırpma Altında Sıfır Veri Kaybı (48+ V5/V6/V7 Alanı) ve Mağaza Atomik Onaylı Düzeltme Senkronu", () => {
-    const { parseAndMigrateProject } = require("../packages/core/src/schemas");
+  it("V7.2 Doğrulama K: Gerçek Zod Anahtar Kırpma Altında Sıfır Veri Kaybı (48+ V5/V6/V7 Alanı) ve Mağaza Atomik Onaylı Düzeltme Senkronu", async () => {
+    const { parseAndMigrateProject } = await import("../packages/core/src/schemas");
     const richProj = createInitialProject();
     richProj.ergonomicProfileId = "ACCESSIBLE_EN17210";
     richProj.space.wallSubstrateType = "reinforced_concrete";

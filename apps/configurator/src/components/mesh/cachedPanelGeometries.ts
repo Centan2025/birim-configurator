@@ -860,8 +860,16 @@ export function getCachedMiter45CarcassGeometry(
   markSharedGeometry(geo);
   markSharedGeometry(edges);
 
-  if (MITER_45_CARCASS_GEO_CACHE.size > 120) {
-    MITER_45_CARCASS_GEO_CACHE.clear();
+  if (MITER_45_CARCASS_GEO_CACHE.size >= 96) {
+    const oldestKey = MITER_45_CARCASS_GEO_CACHE.keys().next().value;
+    if (oldestKey) {
+      const ev = MITER_45_CARCASS_GEO_CACHE.get(oldestKey);
+      if (ev) {
+        ev.geo.dispose();
+        ev.edges.dispose();
+      }
+      MITER_45_CARCASS_GEO_CACHE.delete(oldestKey);
+    }
   }
   const entry = { geo, edges };
   MITER_45_CARCASS_GEO_CACHE.set(key, entry);
@@ -950,8 +958,16 @@ export function getCachedPolygonContourGeometry(
   markSharedGeometry(geo);
   markSharedGeometry(edges);
 
-  if (POLYGON_CONTOUR_GEO_CACHE.size > 160) {
-    POLYGON_CONTOUR_GEO_CACHE.clear();
+  if (POLYGON_CONTOUR_GEO_CACHE.size >= 120) {
+    const oldestKey = POLYGON_CONTOUR_GEO_CACHE.keys().next().value;
+    if (oldestKey) {
+      const ev = POLYGON_CONTOUR_GEO_CACHE.get(oldestKey);
+      if (ev) {
+        ev.geo.dispose();
+        ev.edges.dispose();
+      }
+      POLYGON_CONTOUR_GEO_CACHE.delete(oldestKey);
+    }
   }
   const entry = { geo, edges };
   POLYGON_CONTOUR_GEO_CACHE.set(key, entry);

@@ -29,13 +29,14 @@ export function createComponentMesh(
   userData: Record<string, unknown>
 ): THREE.Group {
   const group = new THREE.Group();
-  group.position.set(comp.position.x, comp.position.y, comp.position.z);
+  const pivot = comp.pivot ?? comp.position;
+  group.position.set(pivot.x, pivot.y, pivot.z);
   if (comp.rotation) group.rotation.set(...comp.rotation);
   group.userData = userData;
 
-  const cx = comp.dimensions.width / 2;
-  const cy = comp.dimensions.height / 2;
-  const cz = comp.dimensions.depth / 2;
+  const cx = comp.position.x - pivot.x + comp.dimensions.width / 2;
+  const cy = comp.position.y - pivot.y + comp.dimensions.height / 2;
+  const cz = comp.position.z - pivot.z + comp.dimensions.depth / 2;
 
   const ctx = { comp, material, edgeMaterial, userData, group, cx, cy, cz };
 

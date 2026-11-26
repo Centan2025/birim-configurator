@@ -65,12 +65,13 @@ const emptyFallbackModule = useMemo(
   );
   const unifiedEngineeringReport = useMemo(() => {
     if (isLite) {
+      const emptyFindings: ReturnType<typeof evaluateUnifiedEngineeringModel>["findings"] = [];
       return (
         lastSettledEngineeringRef.current || {
-          findings: EMPTY_VALIDATION_ISSUES as any,
-          blockingSafetyAndEngineeringErrors: EMPTY_VALIDATION_ISSUES as any,
-          verificationRequiredFindings: EMPTY_VALIDATION_ISSUES as any,
-          ergonomicAdvisories: EMPTY_VALIDATION_ISSUES as any,
+          findings: emptyFindings,
+          blockingSafetyAndEngineeringErrors: emptyFindings,
+          verificationRequiredFindings: emptyFindings,
+          ergonomicAdvisories: emptyFindings,
           canExportToCncAndSaw: true,
           canApproveFinalErpRelease: true,
         }
@@ -850,14 +851,14 @@ const emptyFallbackModule = useMemo(
           const desiredBays = straightW > 1850 ? 3 : straightW > 980 ? 2 : 1;
           while (nextMod.bays.length < desiredBays) {
             const newIdx = nextMod.bays.length;
-            const cloned = JSON.parse(JSON.stringify(nextMod.bays[0]));
+            const cloned = JSON.parse(JSON.stringify(nextMod.bays[0])) as typeof nextMod.bays[number];
             cloned.index = newIdx;
             cloned.customWidth = undefined;
             cloned.door.id = `${nextMod.id}_door_${newIdx}`;
             cloned.door.bayIndex = newIdx;
             cloned.door.type = "tambour";
             cloned.door.doorSystemId = "tambour_roller";
-            cloned.shelves = (cloned.shelves || []).map((s: any, si: number) => ({
+            cloned.shelves = (cloned.shelves || []).map((s, si) => ({
               ...s,
               id: `${nextMod.id}_cap_sh_${newIdx}_${si}`,
               bayIndex: newIdx,
@@ -897,8 +898,15 @@ const emptyFallbackModule = useMemo(
           bayDoorPlan = Array.from({ length: targetBayCount }, () => "sliding");
         } else if (isPureDrawerStack || isOpenWalkIn || isLift) {
           targetBayCount = clampedW > 2700 ? 4 : clampedW > 1800 ? 3 : clampedW > 1000 ? 2 : 1;
+          const fallbackDoorType: "single_left" | "single_right" | "double" | "sliding" | "open" =
+            firstBay?.door.type === "single_right" ||
+            firstBay?.door.type === "double" ||
+            firstBay?.door.type === "sliding" ||
+            firstBay?.door.type === "open"
+              ? firstBay.door.type
+              : "single_left";
           bayDoorPlan = Array.from({ length: targetBayCount }, () =>
-            isPureDrawerStack || isOpenWalkIn ? "open" : (firstBay?.door.type as any) || "single_left"
+            isPureDrawerStack || isOpenWalkIn ? "open" : fallbackDoorType
           );
         } else {
           // Hinged Wardrobe / Kitchen Cabinet Structural Door & Divider Progression:
@@ -940,22 +948,22 @@ const emptyFallbackModule = useMemo(
         while (nextMod.bays.length < targetBayCount) {
           const newIdx = nextMod.bays.length;
           const srcBay = nextMod.bays[nextMod.bays.length - 1] || nextMod.bays[0];
-          const clonedBay = JSON.parse(JSON.stringify(srcBay));
+          const clonedBay = JSON.parse(JSON.stringify(srcBay)) as typeof nextMod.bays[number];
           clonedBay.index = newIdx;
           clonedBay.customWidth = undefined;
           clonedBay.door.id = `${nextMod.id}_door_${newIdx}`;
           clonedBay.door.bayIndex = newIdx;
-          clonedBay.shelves = (clonedBay.shelves || []).map((s: any, si: number) => ({
+          clonedBay.shelves = (clonedBay.shelves || []).map((s, si) => ({
             ...s,
             id: `${nextMod.id}_shelf_${newIdx}_${si}`,
             bayIndex: newIdx,
           }));
-          clonedBay.hangingRails = (clonedBay.hangingRails || []).map((r: any, ri: number) => ({
+          clonedBay.hangingRails = (clonedBay.hangingRails || []).map((r, ri) => ({
             ...r,
             id: `${nextMod.id}_rail_${newIdx}_${ri}`,
             bayIndex: newIdx,
           }));
-          clonedBay.drawers = (clonedBay.drawers || []).map((d: any, di: number) => ({
+          clonedBay.drawers = (clonedBay.drawers || []).map((d, di) => ({
             ...d,
             id: `${nextMod.id}_drw_${newIdx}_${di}`,
             bayIndex: newIdx,

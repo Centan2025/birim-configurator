@@ -2,6 +2,7 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import type { VerifiedQuoteRecord } from "./quote-codec";
+import { queryRowsFromSaasPostgrest, syncRowToSaasPostgrest } from "./saas-persistent-ledger";
 
 const MEMORY_QUOTES = new Map<string, VerifiedQuoteRecord>();
 
@@ -48,9 +49,9 @@ function persistDiskQuotes(): void {
 
 export function generateShortQuoteCode(prefix = "BRM"): string {
   const alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
-  const bytes = crypto.randomBytes(6);
+  const bytes = crypto.randomBytes(10);
   let token = "";
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 10; i++) {
     token += alphabet[bytes[i] % alphabet.length];
   }
   const cleanPrefix = (prefix || "BRM").replace(/[^A-Z0-9]/gi, "").toUpperCase().slice(0, 6) || "BRM";
@@ -98,6 +99,14 @@ export function saveVerifiedQuote(
   };
   MEMORY_QUOTES.set(signed.code.toUpperCase(), signed);
   persistDiskQuotes();
+  void syncRowToSaasPostgrest("modul_verified_quotes", signed.tenantId || "00000000-0000-0000-0000-000000000001", {
+    code: signed.code.toUpperCase(),
+    tenant_id: signed.tenantId || "00000000-0000-0000-0000-000000000001",
+    project_id: signed.projectId,
+    hmac_signature: signed.hmacSignature,
+    expires_at: signed.expiresAt,
+    record_payload: signed,
+  });
   return signed;
 }
 
@@ -109,11 +118,37 @@ export function getVerifiedQuoteByCode(code: string): VerifiedQuoteRecord | null
   return rec;
 }
 
+export async function getVerifiedQuoteByCodeAsync(code: string): Promise<VerifiedQuoteRecord | null> {
+  const local = getVerifiedQuoteByCode(code);
+  if (local) return local;
+  const normalizedCode = String(code || "").trim().toUpperCase();
+  if (!normalizedCode) return null;
+  const rows = await queryRowsFromSaasPostgrest<{ record_payload?: VerifiedQuoteRecord }>(
+    "modul_verified_quotes",
+    `code=eq.${encodeURIComponent(normalizedCode)}&select=record_payload&limit=1`
+  );
+  const rec = rows?.[0]?.record_payload;
+  if (!rec || !verifyQuoteHmac(rec)) return null;
+  MEMORY_QUOTES.set(normalizedCode, rec);
+  return rec;
+}
+
 export function getVerifiedQuoteByCodeForTenant(
   code: string,
   tenantId: string
 ): VerifiedQuoteRecord | null {
   const rec = getVerifiedQuoteByCode(code);
+  if (!rec) return null;
+  const recTenant = rec.tenantId || "00000000-0000-0000-0000-000000000001";
+  if (recTenant !== tenantId) return null;
+  return rec;
+}
+
+export async function getVerifiedQuoteByCodeForTenantAsync(
+  code: string,
+  tenantId: string
+): Promise<VerifiedQuoteRecord | null> {
+  const rec = await getVerifiedQuoteByCodeAsync(code);
   if (!rec) return null;
   const recTenant = rec.tenantId || "00000000-0000-0000-0000-000000000001";
   if (recTenant !== tenantId) return null;

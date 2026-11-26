@@ -422,7 +422,7 @@ function syncStackedBaysToBase(upper: ModuleInstance, base: ModuleInstance): voi
             ]
           : [];
     } else {
-      cloned.shelves = (cloned.shelves || []).map((s: any, si: number) => ({
+      cloned.shelves = (cloned.shelves || []).map((s: typeof cloned.shelves[number], si: number) => ({
         ...s,
         id: s.id || `${upper.id}_shelf_${idx}_${si}`,
         bayIndex: idx,

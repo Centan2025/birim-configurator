@@ -7,8 +7,93 @@ import { DEFAULT_MATERIALS, getModuleOrientedFootprint } from "../../adapter/use
 import { calculateFourSpaceDimensions } from "@birim/core";
 import { GEOMETRY_ENGINE_REV } from "@birim/geometry";
 import { getV3PbrMaterial, getStudioPmremEnvironment } from "../../materials/pbrMaterialSystem";
-import { disposeObject3DTree } from "../../materials/webglResourceGuard";
+import { disposeObject3DTree, markSharedGeometry, markSharedMaterial } from "../../materials/webglResourceGuard";
 import { buildJPullCrossSectionLoop } from "../../materials/capsuleAndProfileGeometry";
+
+let sharedSectionCapAssets: {
+  unitPlaneGeo: THREE.PlaneGeometry;
+  unitEdgeGeo: THREE.EdgesGeometry;
+  mdfCoreMat: THREE.MeshStandardMaterial;
+  innerBoxCoreMat: THREE.MeshStandardMaterial;
+  dadoBoardCoreMat: THREE.MeshStandardMaterial;
+  metalCoreMat: THREE.MeshStandardMaterial;
+  ledCoreMat: THREE.MeshBasicMaterial;
+  capOutlineMat: THREE.LineBasicMaterial;
+} | null = null;
+
+function getSharedSectionCapAssets() {
+  if (sharedSectionCapAssets) return sharedSectionCapAssets;
+  const unitPlaneGeo = markSharedGeometry(new THREE.PlaneGeometry(1, 1));
+  const unitEdgeGeo = markSharedGeometry(new THREE.EdgesGeometry(unitPlaneGeo));
+  sharedSectionCapAssets = {
+    unitPlaneGeo,
+    unitEdgeGeo,
+    mdfCoreMat: markSharedMaterial(
+      new THREE.MeshStandardMaterial({
+        color: 0xc29e70,
+        roughness: 0.92,
+        metalness: 0.02,
+        side: THREE.DoubleSide,
+        polygonOffset: true,
+        polygonOffsetFactor: -1,
+        polygonOffsetUnits: -1,
+      })
+    ),
+    innerBoxCoreMat: markSharedMaterial(
+      new THREE.MeshStandardMaterial({
+        color: 0xb38b5c,
+        roughness: 0.92,
+        metalness: 0.02,
+        side: THREE.DoubleSide,
+        polygonOffset: true,
+        polygonOffsetFactor: -1,
+        polygonOffsetUnits: -1,
+      })
+    ),
+    dadoBoardCoreMat: markSharedMaterial(
+      new THREE.MeshStandardMaterial({
+        color: 0x9c7446,
+        roughness: 0.9,
+        metalness: 0.02,
+        side: THREE.DoubleSide,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2,
+      })
+    ),
+    metalCoreMat: markSharedMaterial(
+      new THREE.MeshStandardMaterial({
+        color: 0x475569,
+        roughness: 0.38,
+        metalness: 0.68,
+        side: THREE.DoubleSide,
+        polygonOffset: true,
+        polygonOffsetFactor: -1,
+        polygonOffsetUnits: -1,
+      })
+    ),
+    ledCoreMat: markSharedMaterial(
+      new THREE.MeshBasicMaterial({
+        color: 0xfff1c4,
+        side: THREE.DoubleSide,
+        polygonOffset: true,
+        polygonOffsetFactor: -3,
+        polygonOffsetUnits: -3,
+      })
+    ),
+    capOutlineMat: markSharedMaterial(
+      new THREE.LineBasicMaterial({
+        color: 0x2d1f10,
+        transparent: true,
+        opacity: 0.88,
+        polygonOffset: true,
+        polygonOffsetFactor: -3,
+        polygonOffsetUnits: -3,
+      })
+    ),
+  };
+  return sharedSectionCapAssets;
+}
 import { computeHeroStudioFraming, xrayIcePanelMat, cadHardwareMat, cadTechnicalMat, cadSelectedMat, getCachedEdgeMaterial } from "./viewport3DSharedAssets";
 import { traverseCabinetObjectsOnly } from "./viewport3DSceneHelpers";
 
@@ -231,69 +316,29 @@ export function useViewport3DCameraSectionAndFrames(ctx: UseViewport3DCameraSect
 
       // Generate solid MDF / metal / LED section-cut caps AFTER main scene effect rebuilds meshes
       let rafCapId = 0;
-      const buildSectionCaps = () => {
+      const clearSectionCapGroup = () => {
         if (sectionCapGroupRef.current) {
           if (curScene) curScene.remove(sectionCapGroupRef.current);
-          sectionCapGroupRef.current.clear();
+          disposeObject3DTree(sectionCapGroupRef.current);
           sectionCapGroupRef.current = null;
         }
+      };
+      const buildSectionCaps = () => {
+        clearSectionCapGroup();
         if (!curScene || !curMeshGroup) return;
 
         const capGroup = new THREE.Group();
         capGroup.name = "birim_3d_section_caps";
-        const unitPlaneGeo = new THREE.PlaneGeometry(1, 1);
-        const unitEdgeGeo = new THREE.EdgesGeometry(unitPlaneGeo);
-        const mdfCoreMat = new THREE.MeshStandardMaterial({
-          color: 0xc29e70, // Natural raw MDF / particleboard core tone
-          roughness: 0.92,
-          metalness: 0.02,
-          side: THREE.DoubleSide,
-          polygonOffset: true,
-          polygonOffsetFactor: -1,
-          polygonOffsetUnits: -1,
-        });
-        const innerBoxCoreMat = new THREE.MeshStandardMaterial({
-          color: 0xb38b5c, // Slightly deeper core tone for inner drawer sub-front so 18mm klapa vs 16mm inner sub-front reads crisply in section
-          roughness: 0.92,
-          metalness: 0.02,
-          side: THREE.DoubleSide,
-          polygonOffset: true,
-          polygonOffsetFactor: -1,
-          polygonOffsetUnits: -1,
-        });
-        const dadoBoardCoreMat = new THREE.MeshStandardMaterial({
-          color: 0x9c7446, // Distinct deeper core tone so 8mm grooved back panel & drawer bottom dado slots stand out unmistakably inside 18mm panels
-          roughness: 0.9,
-          metalness: 0.02,
-          side: THREE.DoubleSide,
-          polygonOffset: true,
-          polygonOffsetFactor: -2,
-          polygonOffsetUnits: -2,
-        });
-        const metalCoreMat = new THREE.MeshStandardMaterial({
-          color: 0x475569,
-          roughness: 0.38,
-          metalness: 0.68,
-          side: THREE.DoubleSide,
-          polygonOffset: true,
-          polygonOffsetFactor: -1,
-          polygonOffsetUnits: -1,
-        });
-        const ledCoreMat = new THREE.MeshBasicMaterial({
-          color: 0xfff1c4,
-          side: THREE.DoubleSide,
-          polygonOffset: true,
-          polygonOffsetFactor: -3,
-          polygonOffsetUnits: -3,
-        });
-        const capOutlineMat = new THREE.LineBasicMaterial({
-          color: 0x2d1f10,
-          transparent: true,
-          opacity: 0.88,
-          polygonOffset: true,
-          polygonOffsetFactor: -3,
-          polygonOffsetUnits: -3,
-        });
+        const {
+          unitPlaneGeo,
+          unitEdgeGeo,
+          mdfCoreMat,
+          innerBoxCoreMat,
+          dadoBoardCoreMat,
+          metalCoreMat,
+          ledCoreMat,
+          capOutlineMat,
+        } = getSharedSectionCapAssets();
 
         const tmpBox = new THREE.Box3();
         curMeshGroup.updateMatrixWorld(true);
@@ -480,10 +525,10 @@ export function useViewport3DCameraSectionAndFrames(ctx: UseViewport3DCameraSect
         requestRender();
       };
 
-      buildSectionCaps();
       rafCapId = window.requestAnimationFrame(buildSectionCaps);
       return () => {
         if (rafCapId) window.cancelAnimationFrame(rafCapId);
+        clearSectionCapGroup();
       };
     }, [section3DAxis, section3DRatio, project, activeModuleIndex, requestRender, GEOMETRY_ENGINE_REV]);
 
@@ -684,14 +729,44 @@ export function useViewport3DCameraSectionAndFrames(ctx: UseViewport3DCameraSect
                 (activeMod.dimensions.width - (activeMod.bays.length + 1) * T) /
                   activeMod.bays.length
               );
-            // Clamp active bay highlight frame height to sloped ceiling if module has roofSlope / slopedCeiling
+            // Clamp active bay highlight frame height to primary & secondary sloped ceilings
             let bayEffectiveInnerH = innerH;
             const rsFrame = activeMod.carcass.roofSlope;
             const scFrame = activeMod.carcass.slopedCeiling;
+            const rs2Frame = activeMod.carcass.secondaryRoofSlope;
+            const modW = activeMod.dimensions.width;
+            const modH = activeMod.dimensions.height;
+            const modD = activeMod.dimensions.depth;
+
+            const evalSlopeBayMinTop = (
+              sSide: "left" | "right" | "rear",
+              sKnee: number,
+              sRun: number
+            ): number => {
+              const rise = Math.max(1, modH - sKnee);
+              const rad = Math.atan2(rise, Math.max(1, sRun));
+              const vertT = T / Math.max(0.4, Math.cos(rad));
+              if (sSide === "left") {
+                const y0 = curBayX >= sRun ? modH : sKnee + (curBayX / sRun) * rise;
+                const y1 = curBayX + bw >= sRun ? modH : sKnee + ((curBayX + bw) / sRun) * rise;
+                const under = curBayX < sRun;
+                return Math.min(y0, y1) - (under ? vertT : T);
+              }
+              if (sSide === "right") {
+                const d0 = modW - curBayX;
+                const d1 = modW - (curBayX + bw);
+                const y0 = d0 >= sRun ? modH : sKnee + (d0 / sRun) * rise;
+                const y1 = d1 >= sRun ? modH : sKnee + (d1 / sRun) * rise;
+                const under = curBayX + bw > modW - sRun;
+                return Math.min(y0, y1) - (under ? vertT : T);
+              }
+              // rear slope: front edge of bay is at z = modD, rear at z = T
+              return Math.min(modH - T, sKnee - vertT + (Math.min(modD, sRun) / Math.max(1, sRun)) * rise);
+            };
+
+            let minBayTopWorld = plinthH + T + innerH;
             if ((rsFrame && rsFrame.side !== "none") || (scFrame && scFrame.mode !== "none")) {
-              const modW = activeMod.dimensions.width;
-              const modH = activeMod.dimensions.height;
-              const fSide =
+              const fSide: "left" | "right" | "rear" =
                 rsFrame && rsFrame.side !== "none"
                   ? rsFrame.side
                   : scFrame!.mode === "left_slope"
@@ -703,33 +778,29 @@ export function useViewport3DCameraSectionAndFrames(ctx: UseViewport3DCameraSect
                 rsFrame && rsFrame.side !== "none"
                   ? Math.max(400, Math.min(modH - 120, rsFrame.kneeWallHeightMm))
                   : Math.max(400, Math.min(modH - 120, scFrame!.kneeHeightMm));
+              const maxSpan = fSide === "rear" ? modD : modW;
               const fRun =
                 rsFrame && rsFrame.side !== "none"
-                  ? Math.max(150, Math.min(modW, rsFrame.slopeRunMm))
+                  ? Math.max(150, Math.min(maxSpan, rsFrame.slopeRunMm))
                   : Math.max(
                       150,
                       Math.min(
-                        modW,
+                        maxSpan,
                         Math.round(
                           (modH - fKnee) /
                             Math.max(0.15, Math.tan(((scFrame!.slopeAngleDeg || 35) * Math.PI) / 180))
                         )
                       )
                     );
-              const fRad = Math.atan2(modH - fKnee, fRun);
-              const sampleSlopeY = (xMm: number) => {
-                if (fSide === "left") return xMm >= fRun ? modH : fKnee + (xMm / fRun) * (modH - fKnee);
-                if (fSide === "right") {
-                  const dR = modW - xMm;
-                  return dR >= fRun ? modH : fKnee + (dR / fRun) * (modH - fKnee);
-                }
-                return modH;
-              };
-              const minBayTop =
-                Math.min(sampleSlopeY(curBayX), sampleSlopeY(curBayX + bw)) -
-                T / Math.max(0.4, Math.cos(fRad));
-              bayEffectiveInnerH = Math.max(120, Math.min(innerH, minBayTop - plinthH - T));
+              minBayTopWorld = Math.min(minBayTopWorld, evalSlopeBayMinTop(fSide, fKnee, fRun));
             }
+            if (rs2Frame && rs2Frame.side && rs2Frame.side !== "none") {
+              const s2Knee = Math.max(400, Math.min(modH - 20, rs2Frame.kneeWallHeightMm));
+              const s2MaxSpan = rs2Frame.side === "rear" ? modD : modW;
+              const s2Run = Math.max(150, Math.min(s2MaxSpan, rs2Frame.slopeRunMm));
+              minBayTopWorld = Math.min(minBayTopWorld, evalSlopeBayMinTop(rs2Frame.side, s2Knee, s2Run));
+            }
+            bayEffectiveInnerH = Math.max(120, Math.min(innerH, minBayTopWorld - plinthH - T));
 
             const bayFrameGeo = new THREE.BoxGeometry(
               Math.max(80, bw - 4),

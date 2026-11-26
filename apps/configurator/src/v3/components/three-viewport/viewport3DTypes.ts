@@ -186,6 +186,10 @@ export interface AttachViewport3DStudioRenderAndLoopCtx {
   selectionFrameGroupRef: React.RefObject<THREE.Group | null>;
   updateProjectedDimensionLabels: () => void;
   wallPulseRef: React.RefObject<{ wallId: string; startTime: number; durationMs: number; } | null>;
+  wakeRenderLoopRef?: React.MutableRefObject<(() => void) | null>;
+  onSlowFrameWindow?: (avgRenderMs: number) => void;
+  onFastFrameWindow?: (avgRenderMs: number) => void;
+  ultraPhotoLimits?: { maxWidth: number; maxHeight: number; maxSamples: number };
 }
 
 export interface UseViewport3DCameraSectionAndFramesCtx {

@@ -2,6 +2,44 @@ import * as THREE from "three";
 import { ComponentGeometry } from "@birim/geometry";
 import { box, sphere, cylinder, cylinderY, darkDamperMat, screwHeadMat, chromeHardwareMat, darkCavityMat, tagSubMesh } from "./sharedMeshMaterialsAndPrimitives";
 import { tryBuildArchitecturalOrMechanismMesh } from "./architecturalAndMechanismMeshes";
+import { markSharedMaterial } from "../../v3/materials/webglResourceGuard";
+
+const SHARED_ZINC_STEEL_MAT = markSharedMaterial(
+  new THREE.MeshStandardMaterial({ color: 0xe6ecf4, metalness: 0.95, roughness: 0.17, envMapIntensity: 1.45 })
+);
+const SHARED_INNER_CARRIAGE_MAT = markSharedMaterial(
+  new THREE.MeshStandardMaterial({ color: 0xcbd5e1, metalness: 0.92, roughness: 0.21, envMapIntensity: 1.35 })
+);
+const SHARED_DARK_POLYMER_MAT = markSharedMaterial(
+  new THREE.MeshStandardMaterial({ color: 0x26292e, metalness: 0.12, roughness: 0.68 })
+);
+const SHARED_LATCH_BLUM_MAT = markSharedMaterial(
+  new THREE.MeshStandardMaterial({ color: 0xea580c, metalness: 0.08, roughness: 0.45 })
+);
+const SHARED_LATCH_HETTICH_MAT = markSharedMaterial(
+  new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.08, roughness: 0.45 })
+);
+const SHARED_BRUSHED_ALU_MAT = markSharedMaterial(
+  new THREE.MeshStandardMaterial({ color: 0xdbe3ec, metalness: 0.93, roughness: 0.2, envMapIntensity: 1.4 })
+);
+const SHARED_CHROME_ROD_MAT = markSharedMaterial(
+  new THREE.MeshStandardMaterial({ color: 0xf1f5f9, metalness: 0.97, roughness: 0.12, envMapIntensity: 1.5 })
+);
+const SHARED_SLIDE_CAP_MAT = markSharedMaterial(
+  new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.35, roughness: 0.45 })
+);
+const SHARED_CHROME_METAL_MAT = markSharedMaterial(
+  new THREE.MeshStandardMaterial({ color: 0xeef2f6, metalness: 0.96, roughness: 0.14, envMapIntensity: 1.5 })
+);
+const SHARED_BRUSHED_STEEL_MAT = markSharedMaterial(
+  new THREE.MeshStandardMaterial({ color: 0xd5dce6, metalness: 0.92, roughness: 0.22, envMapIntensity: 1.35 })
+);
+const SHARED_DARK_ANODIZED_MAT = markSharedMaterial(
+  new THREE.MeshStandardMaterial({ color: 0x22252a, metalness: 0.25, roughness: 0.55 })
+);
+const SHARED_TRAY_SURFACE_MAT = markSharedMaterial(
+  new THREE.MeshStandardMaterial({ color: 0xf4f1ea, metalness: 0.05, roughness: 0.52 })
+);
 
 export interface ComponentMeshBuildContext {
   comp: ComponentGeometry;
@@ -299,28 +337,10 @@ export function tryBuildHardwareOrFittingMesh(ctx: ComponentMeshBuildContext): T
     const inwardSign = isRightSlide ? -1 : 1;
     const railLen = Math.max(180, d);
 
-    const zincSteelMat = new THREE.MeshStandardMaterial({
-      color: 0xe6ecf4,
-      metalness: 0.95,
-      roughness: 0.17,
-      envMapIntensity: 1.45,
-    });
-    const innerCarriageMat = new THREE.MeshStandardMaterial({
-      color: 0xcbd5e1,
-      metalness: 0.92,
-      roughness: 0.21,
-      envMapIntensity: 1.35,
-    });
-    const darkPolymerMat = new THREE.MeshStandardMaterial({
-      color: 0x26292e,
-      metalness: 0.12,
-      roughness: 0.68,
-    });
-    const latchAccentMat = new THREE.MeshStandardMaterial({
-      color: isHettich ? 0x334155 : 0xea580c,
-      metalness: 0.08,
-      roughness: 0.45,
-    });
+    const zincSteelMat = SHARED_ZINC_STEEL_MAT;
+    const innerCarriageMat = SHARED_INNER_CARRIAGE_MAT;
+    const darkPolymerMat = SHARED_DARK_POLYMER_MAT;
+    const latchAccentMat = isHettich ? SHARED_LATCH_HETTICH_MAT : SHARED_LATCH_BLUM_MAT;
 
     // A. Outer Carcass Mounting C-Channel (bolted flush to carcass side wall, strictly bounded to `h`)
     const wallX = isRightSlide ? w - 2.2 : 2.2;
@@ -420,23 +440,9 @@ export function tryBuildHardwareOrFittingMesh(ctx: ComponentMeshBuildContext): T
     const isRight = comp.role === "drawer_side_right";
     const inward = isRight ? -1 : 1;
 
-    const brushedAluMat = new THREE.MeshStandardMaterial({
-      color: 0xdbe3ec,
-      metalness: 0.93,
-      roughness: 0.2,
-      envMapIntensity: 1.4,
-    });
-    const chromeRodMat = new THREE.MeshStandardMaterial({
-      color: 0xf1f5f9,
-      metalness: 0.97,
-      roughness: 0.12,
-      envMapIntensity: 1.5,
-    });
-    const capMat = new THREE.MeshStandardMaterial({
-      color: 0x334155,
-      metalness: 0.35,
-      roughness: 0.45,
-    });
+    const brushedAluMat = SHARED_BRUSHED_ALU_MAT;
+    const chromeRodMat = SHARED_CHROME_ROD_MAT;
+    const capMat = SHARED_SLIDE_CAP_MAT;
 
     const isHighGallery = h >= 150;
     const baseWallH = isHighGallery ? Math.min(92, h * 0.56) : h;
@@ -484,28 +490,10 @@ export function tryBuildHardwareOrFittingMesh(ctx: ComponentMeshBuildContext): T
     const idLower = (comp.id || "").toLowerCase();
     const lblLower = (comp.label || "").toLowerCase();
 
-    const chromeMetalMat = new THREE.MeshStandardMaterial({
-      color: 0xeef2f6,
-      metalness: 0.96,
-      roughness: 0.14,
-      envMapIntensity: 1.5,
-    });
-    const brushedSteelMat = new THREE.MeshStandardMaterial({
-      color: 0xd5dce6,
-      metalness: 0.92,
-      roughness: 0.22,
-      envMapIntensity: 1.35,
-    });
-    const darkAnodizedMat = new THREE.MeshStandardMaterial({
-      color: 0x22252a,
-      metalness: 0.25,
-      roughness: 0.55,
-    });
-    const traySurfaceMat = new THREE.MeshStandardMaterial({
-      color: 0xf4f1ea,
-      metalness: 0.05,
-      roughness: 0.52,
-    });
+    const chromeMetalMat = SHARED_CHROME_METAL_MAT;
+    const brushedSteelMat = SHARED_BRUSHED_STEEL_MAT;
+    const darkAnodizedMat = SHARED_DARK_ANODIZED_MAT;
+    const traySurfaceMat = SHARED_TRAY_SURFACE_MAT;
 
     // 1. Adjustable Axilo Plinth Foot (Vertical Y-axis -> `cylinderY`!)
     if (idLower.includes("_axilo_leg_")) {
