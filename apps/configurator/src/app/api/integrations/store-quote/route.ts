@@ -77,12 +77,10 @@ import {
   resolveTenantRequestContext,
 } from "../../../../lib/tenant-auth-guard";
 
-export async function GET(req?: Request): Promise<Response> {
+export async function GET(req: Request): Promise<Response> {
   let tenantCtx;
   try {
-    tenantCtx = resolveTenantRequestContext(
-      req ?? new Request("http://localhost/api/integrations/store-quote")
-    );
+    tenantCtx = resolveTenantRequestContext(req);
   } catch (err) {
     if (err instanceof TenantSecurityError) {
       return Response.json(

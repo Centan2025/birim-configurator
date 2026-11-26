@@ -869,7 +869,9 @@ describe("V7.3 — Birim-Store Teklif Akışı & Birim-Portal ERP Nesting Canlı
       process.env.SUPABASE_URL = STAGING_URL;
       process.env.SUPABASE_SERVICE_ROLE_KEY = TEST_SERVICE_KEY;
 
-      const healthRes = await getStoreQuoteStatus();
+      const healthRes = await getStoreQuoteStatus(
+      new Request("http://localhost/api/integrations/store-quote")
+    );
       const healthJson = (await healthRes.json()) as { configured: boolean; mode: string };
       expect(healthJson.configured).toBe(true);
       expect(healthJson.mode).toBe("live_supabase_rpc");

@@ -24,12 +24,10 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 export const runtime = "nodejs";
 
-export async function GET(request?: Request) {
+export async function GET(request: Request) {
   let tenantCtx;
   try {
-    tenantCtx = resolveTenantRequestContext(
-      request ?? new Request("http://localhost/api/integrations/r2-upload")
-    );
+    tenantCtx = resolveTenantRequestContext(request);
   } catch (err) {
     if (err instanceof TenantSecurityError) {
       return jsonResponse({ ok: false, code: err.code, message: err.message }, err.httpStatus);
