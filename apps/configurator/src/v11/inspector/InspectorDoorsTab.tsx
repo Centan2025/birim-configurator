@@ -572,7 +572,7 @@ export const InspectorDoorsTab: React.FC<InspectorDoorsTabProps> = React.memo((p
                                 isSelectedDr
                                   ? "bg-[#141413] text-white border-[#38BDF8]"
                                   : batchApplyDrawerFrontToAll
-                                  ? "bg-[#ECE7DD]/70 text-[#57534E] border-[#DED8CC]"
+                                  ? "bg-[#ECE7DD]/80 text-[#57534E] border-[#DED8CC]"
                                   : "bg-[#FAF8F4] hover:bg-[#F2EEE4] text-[#57534E] border-[#E5DFD3]"
                               }`}
                             >

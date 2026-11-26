@@ -2147,6 +2147,10 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
           const curWall = effWalls[curWallIdx] || effWalls[0];
           if (!curWall) return null;
           const nextWall = effWalls[(curWallIdx + 1) % effWalls.length];
+          if (paintTool3D.mode !== "none") return null;
+          const safeTopPx = stageSafeInsets?.topPx ?? 76;
+          const safeLeftPx = stageSafeInsets?.leftPx ?? 76;
+          const safeRightPx = stageSafeInsets?.rightPx ?? 68;
           return (
             <button
               type="button"
@@ -2156,7 +2160,11 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
                 e.stopPropagation();
                 if (nextWall) useConfiguratorStore.getState().setActiveWallId(nextWall.id);
               }}
-              className="pointer-events-auto absolute top-[72px] max-xl:top-[108px] left-1/2 -translate-x-1/2 z-20 px-3 py-1 rounded-full bg-[#141821]/78 hover:bg-[#1E293B]/90 backdrop-blur-md border border-sky-400/45 text-[#E0F2FE] text-[11px] font-semibold shadow-[0_6px_18px_rgba(0,0,0,0.42)] flex items-center gap-2 transition cursor-pointer"
+              style={{
+                top: `${safeTopPx}px`,
+                left: `calc(${safeLeftPx}px + (100% - ${safeLeftPx + safeRightPx}px) / 2)`,
+              }}
+              className="pointer-events-auto absolute max-xl:!top-[114px] max-lg:!left-1/2 -translate-x-1/2 z-20 px-3 py-1 rounded-full bg-[#141821]/86 hover:bg-[#1E293B]/95 backdrop-blur-md border border-sky-400/45 text-[#E0F2FE] text-[11px] font-semibold shadow-[0_6px_18px_rgba(0,0,0,0.42)] flex items-center gap-2 transition-[top,left] duration-200 cursor-pointer"
             >
               <span className="w-2 h-2 rounded-full bg-sky-400 shadow-[0_0_8px_#38BDF8] shrink-0" />
               <span className="truncate max-w-[200px]">

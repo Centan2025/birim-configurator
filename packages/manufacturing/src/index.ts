@@ -11,3 +11,5 @@ export * from "./mep-architectural-plan";
 export * from "./cartonization-and-assembly";
 export * from "./shared-worker-nesting-kernel";
 export * from "./cnc-simulation";
+
+export * from "./batch-project-nesting";

@@ -11,14 +11,13 @@ import {
   assertTenantPermissionAndEntitlement,
   checkTenantRateLimit,
   resolveTenantRequestContext,
+  resolveTrustedClientIp,
   signTenantSessionToken,
 } from "../../../../lib/tenant-auth-guard";
 import { modulPostgresRepo } from "../../../../lib/modul-postgres-repository";
 
 function resolveClientIpKey(req: NextRequest): string {
-  const fwd = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  const real = req.headers.get("x-real-ip")?.trim();
-  return `ip:${fwd || real || "local"}`;
+  return `ip:${resolveTrustedClientIp(req)}`;
 }
 
 export async function POST(req: NextRequest) {

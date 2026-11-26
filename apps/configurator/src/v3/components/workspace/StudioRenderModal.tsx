@@ -791,7 +791,7 @@ export const StudioRenderModal: React.FC<StudioRenderModalProps> = ({
                       onClick={() => setPtSamples(spp)}
                       className={`py-1.5 rounded-xl border font-mono text-[11px] font-bold transition cursor-pointer ${
                         ptSamples === spp
-                          ? "bg-emerald-600 border-emerald-400/60 text-white shadow-[0_4px_12px_rgba(16,185,129,0.38)]"
+                          ? "bg-emerald-700 border-emerald-400/60 text-white shadow-[0_4px_12px_rgba(16,185,129,0.38)]"
                           : "bg-white/[0.05] border-white/12 text-slate-300 hover:bg-white/[0.10]"
                       }`}
                     >
@@ -949,7 +949,7 @@ export const StudioRenderModal: React.FC<StudioRenderModalProps> = ({
                   }`}
                 >
                   <span>BİRİM® Stüdyo Filigran Bandı</span>
-                  <span className={`w-4 h-4 rounded-md flex items-center justify-center ${includeWatermark ? "bg-emerald-500 text-white" : "bg-white/10"}`}>
+                  <span className={`w-4 h-4 rounded-md flex items-center justify-center ${includeWatermark ? "bg-emerald-700 text-white" : "bg-white/10"}`}>
                     {includeWatermark && <Check className="w-3 h-3" />}
                   </span>
                 </button>

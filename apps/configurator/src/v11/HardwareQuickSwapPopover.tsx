@@ -29,6 +29,7 @@ export interface HardwareSwapTarget {
 export interface HardwareQuickSwapPopoverProps {
   target: HardwareSwapTarget;
   activeModule: ModuleInstance;
+  isInspectorOpen?: boolean;
   onApplyDoorHardware: (
     bayIndices: number[],
     patch: Partial<DoorConfig>,
@@ -121,6 +122,7 @@ export const HardwareQuickSwapPopover: React.FC<HardwareQuickSwapPopoverProps> =
   ({
     target,
     activeModule,
+    isInspectorOpen = true,
     onApplyDoorHardware,
     onApplyDrawerHardware,
     onApplyRailProfile,
@@ -238,7 +240,9 @@ export const HardwareQuickSwapPopover: React.FC<HardwareQuickSwapPopoverProps> =
     return (
       <div
         data-testid="v11-hardware-quick-swap-popover"
-        className="fixed z-40 top-[76px] right-4 sm:right-[404px] w-[min(368px,calc(100vw-24px))] max-h-[min(560px,calc(100vh-110px))] flex flex-col rounded-2xl bg-[#FAF8F4]/98 backdrop-blur-xl border border-[#DFD3BC] text-[#141413] shadow-[0_18px_42px_rgba(20,20,19,0.16)] overflow-hidden"
+        className={`fixed z-40 top-[76px] max-xl:top-[114px] right-4 ${
+          isInspectorOpen ? "lg:right-[412px]" : "lg:right-4"
+        } w-[min(356px,calc(100vw-32px))] lg:max-w-[calc(100vw-500px)] max-h-[min(540px,calc(100dvh-196px))] flex flex-col rounded-2xl bg-[#FAF8F4]/98 backdrop-blur-xl border border-[#DFD3BC] text-[#141413] shadow-[0_18px_42px_rgba(20,20,19,0.16)] overflow-hidden`}
       >
         {/* Başlık */}
         <div className="px-3.5 py-2.5 border-b border-[#E6E0D4] flex items-start justify-between gap-2 bg-white/75">

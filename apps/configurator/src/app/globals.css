@@ -633,7 +633,7 @@ body[data-birim-ui-dragging="1"] .birim-ice-floating-shell,
 body[data-birim-ui-dragging="1"] .birim-ice-popover {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
-  background: rgba(251, 250, 247, 0.96) !important;
+  background: rgba(38, 44, 56, 0.96) !important;
 }
 
 body[data-birim-ui-dragging="1"] .birim-ice-dark-bar {
@@ -660,7 +660,7 @@ body[data-birim-ui-dragging="1"] .birim-ice-dark-bar {
 body[data-birim-ui-dragging="1"] .birim-ice-modal {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
-  background: rgba(251, 250, 247, 0.98) !important;
+  background: rgba(38, 44, 56, 0.98) !important;
 }
 
 
@@ -890,7 +890,19 @@ body :is(
   .bg-white\/90,
   .bg-white\/92,
   .bg-white\/95,
+  .bg-white\/96,
   .bg-white\/98,
+  .bg-\[\#ECE7DD\]\/70,
+  .bg-\[\#F6F4EF\],
+  .bg-slate-100\/80,
+  .bg-stone-50\/80,
+  .bg-stone-300\/80,
+  .bg-zinc-50,
+  .bg-zinc-100,
+  .bg-gray-50,
+  .bg-gray-100,
+  .bg-neutral-50,
+  .bg-neutral-100,
   .bg-black\/5,
   .bg-slate-900\/\[0\.06\]
 ):not([style*="background"]):not(canvas):not(svg):not([role="switch"] > span) {
@@ -947,6 +959,9 @@ body :is(.bg-amber-100,
   .bg-amber-50\/70,
   .bg-amber-50\/90,
   .bg-amber-50\/95,
+  .bg-amber-100\/70,
+  .bg-yellow-50,
+  .bg-yellow-100,
   .bg-orange-50):not([style*="background"]) {
   background-color: rgba(245, 158, 11, 0.16) !important;
   border-color: rgba(251, 191, 36, 0.40) !important;
@@ -966,7 +981,9 @@ body :is(.bg-red-100,
 body :is(.bg-emerald-100,
   .bg-emerald-50,
   .bg-emerald-50\/70,
-  .bg-emerald-50\/75):not([style*="background"]) {
+  .bg-emerald-50\/75,
+  .bg-green-50,
+  .bg-green-100):not([style*="background"]) {
   background-color: rgba(16, 185, 129, 0.16) !important;
   border-color: rgba(52, 211, 153, 0.38) !important;
 }
@@ -975,7 +992,22 @@ body :is(.bg-blue-100,
   .bg-blue-50\/90,
   .bg-sky-100,
   .bg-sky-50,
-  .bg-sky-50\/40):not([style*="background"]) {
+  .bg-sky-50\/40,
+  .bg-blue-50\/40,
+  .bg-blue-50\/75,
+  .bg-\[\#EEF2FF\],
+  .bg-indigo-50,
+  .bg-indigo-100,
+  .bg-cyan-50,
+  .bg-cyan-100,
+  .bg-teal-50,
+  .bg-teal-100,
+  .bg-violet-50,
+  .bg-violet-100,
+  .bg-purple-50,
+  .bg-purple-100,
+  .bg-fuchsia-50,
+  .bg-fuchsia-100):not([style*="background"]) {
   background-color: rgba(56, 189, 248, 0.16) !important;
   border-color: rgba(56, 189, 248, 0.38) !important;
 }
@@ -1083,6 +1115,13 @@ body :is(
   .hover\:bg-white\/75,
   .hover\:bg-white\/80,
   .hover\:bg-white\/95,
+  .hover\:bg-\[\#E0E7FF\],
+  .hover\:bg-\[\#EAE6DC\],
+  .hover\:bg-slate-50,
+  .hover\:bg-emerald-50,
+  .hover\:bg-emerald-100,
+  .hover\:bg-blue-100,
+  .hover\:bg-blue-50\/40,
   .hover\:bg-black\/10,
   .hover\:bg-black\/5
 ):not([style*="background"]):hover {
@@ -1090,7 +1129,7 @@ body :is(
   color: #ffffff !important;
 }
 
-body :is(.hover\:bg-red-50, .hover\:bg-red-100, .hover\:bg-rose-50):not([style*="background"]):hover {
+body :is(.hover\:bg-red-50, .hover\:bg-red-100, .hover\:bg-red-200, .hover\:bg-rose-50, .hover\:bg-rose-100, .hover\:bg-rose-200):not([style*="background"]):hover {
   background-color: rgba(239, 68, 68, 0.28) !important;
   color: #fecaca !important;
 }
@@ -1142,10 +1181,13 @@ body :is(
   .text-slate-500,
   .text-slate-600,
   .text-slate-700,
+  .text-\[\#A8A29E\],
+  .text-\[\#8C857B\],
+  .text-stone-400,
   .text-stone-500,
   .text-stone-600,
   .text-stone-700
-) {
+):not([style*="color"]) {
   color: #cbd5e1 !important;
 }
 
@@ -1169,9 +1211,26 @@ body :is(.text-amber-600,
   .text-amber-900,
   .text-amber-900\/90,
   .text-amber-950,
+  .text-amber-500,
   .text-amber-950\/90,
   .text-orange-700) {
   color: #fde68a !important;
+}
+body :is(.text-purple-700, .text-purple-800, .text-purple-900, .text-violet-700, .text-violet-800, .text-violet-900, .text-fuchsia-700, .text-fuchsia-800) {
+  color: #e9d5ff !important;
+}
+body :is(.text-cyan-700, .text-cyan-800, .text-cyan-900, .text-cyan-950, .text-teal-700, .text-teal-800, .text-teal-900) {
+  color: #67e8f9 !important;
+}
+body :is(.hover\:text-red-600, .hover\:text-red-700, .hover\:text-rose-700):hover {
+  color: #fecaca !important;
+}
+body :is(.hover\:text-blue-700, .hover\:text-cyan-950):hover {
+  color: #bae6fd !important;
+}
+.group:hover .group-hover\:bg-white:not([style*="background"]) {
+  background-color: rgba(56, 189, 248, 0.24) !important;
+  color: #ffffff !important;
 }
 body :is(.text-red-600,
   .text-red-700,
@@ -1679,14 +1738,21 @@ body[data-birim-gpu-tier="low"] .birim-ice-pill {
   -webkit-backdrop-filter: none !important;
 }
 
-body[data-birim-gpu-tier="low"] .birim-dramatic-panel {
-  background-color: rgba(28, 34, 46, 0.96) !important;
+body[data-birim-orbiting="true"] [class*="backdrop-blur"] {
+  background-color: rgba(28, 34, 46, 0.92) !important;
 }
 
+body[data-birim-gpu-tier="low"] .birim-dramatic-panel,
 body[data-birim-gpu-tier="low"] .birim-ice-floating-shell,
 body[data-birim-gpu-tier="low"] .birim-ice-modal,
-body[data-birim-gpu-tier="low"] .birim-ice-bar {
-  background: rgba(248, 246, 241, 0.97) !important;
+body[data-birim-gpu-tier="low"] .birim-ice-popover,
+body[data-birim-gpu-tier="low"] .birim-ice-bar,
+body[data-birim-gpu-tier="low"] .birim-ice-rail,
+body[data-birim-gpu-tier="low"] .birim-ice-pill,
+body[data-birim-gpu-tier="low"] .birim-ice-rail-pill,
+body[data-birim-gpu-tier="low"] [class*="backdrop-blur"] {
+  background-color: rgba(28, 34, 46, 0.96) !important;
+  color: #f1f5f9 !important;
 }
 
 @keyframes birim-drawer-content-in {

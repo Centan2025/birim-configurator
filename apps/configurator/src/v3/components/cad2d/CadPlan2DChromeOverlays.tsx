@@ -912,7 +912,7 @@ export const CadPlan2DChromeOverlays: React.FC<CadPlan2DChromeOverlaysProps> = (
                     onClick={() => setMagnetEnabled((m) => !m)}
                     className={`px-2 py-1 rounded-lg font-bold transition cursor-pointer ${
                       magnetEnabled
-                        ? "bg-emerald-600 text-white shadow-2xs"
+                        ? "bg-emerald-700 text-white shadow-2xs"
                         : "bg-slate-200 text-slate-800 hover:bg-slate-300"
                     }`}
                   >
@@ -1076,7 +1076,7 @@ export const CadPlan2DChromeOverlays: React.FC<CadPlan2DChromeOverlaysProps> = (
                       setChainOriginPoint(null);
                       setActiveSnapTarget(null);
                     }}
-                    className="px-2.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold cursor-pointer"
+                    className="px-2.5 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold cursor-pointer"
                   >
                     ✓ Bitir (Esc)
                   </button>
@@ -1275,7 +1275,7 @@ export const CadPlan2DChromeOverlays: React.FC<CadPlan2DChromeOverlaysProps> = (
                   }}
                   className={`px-2.5 py-1 rounded-xl font-bold cursor-pointer ${
                     isPlacingObstacle
-                      ? "bg-amber-600 text-white"
+                      ? "bg-amber-700 text-white"
                       : "bg-white hover:bg-slate-100 text-slate-700 border border-slate-200"
                   }`}
                 >
@@ -1318,7 +1318,7 @@ export const CadPlan2DChromeOverlays: React.FC<CadPlan2DChromeOverlaysProps> = (
                         type="button"
                         data-testid="plan-import-dxf-walls-btn"
                         onClick={() => importWallsFromUnderlay(false)}
-                        className="px-2.5 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold cursor-pointer"
+                        className="px-2.5 py-1 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold cursor-pointer"
                       >
                         Duvara Dönüştür
                       </button>

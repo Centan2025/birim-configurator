@@ -36,7 +36,8 @@
       "/embed/" +
       encodeURIComponent(tenantSlug) +
       "?currency=" +
-      encodeURIComponent(currency);
+      encodeURIComponent(currency) +
+      (global.location && global.location.origin ? "&parentOrigin=" + encodeURIComponent(global.location.origin) : "");
 
     var iframe = global.document.createElement("iframe");
     iframe.src = iframeUrl;
@@ -57,6 +58,9 @@
       if (!ev || !ev.data || typeof ev.data !== "object") return;
       if (ev.origin !== origin && origin !== "*") return;
       if (ev.data.namespace !== "modul-embed-v1") return;
+      if (ev.data.type === "MODUL_READY" && iframe.contentWindow) {
+        try { iframe.contentWindow.postMessage({ namespace: "modul-embed-v1", type: "MODUL_HOST_HANDSHAKE" }, origin); } catch (_err) {}
+      }
 
       if (ev.data.type === "MODUL_RESIZE" && typeof ev.data.heightPx === "number") {
         iframe.style.height = Math.max(480, Math.round(ev.data.heightPx)) + "px";

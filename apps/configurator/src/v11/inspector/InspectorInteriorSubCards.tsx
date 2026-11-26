@@ -764,7 +764,7 @@ export const InspectorLedLightingCard: React.FC<InspectorLedLightingCardProps> =
                           onClick={lt.onClick}
                           className={`py-1.5 px-2 rounded-xl text-[10.5px] font-semibold cursor-pointer flex items-center gap-2 text-left ${
                             lt.isSel
-                              ? "bg-amber-600 text-white"
+                              ? "bg-amber-700 text-white"
                               : "bg-[#F5F2EA] hover:bg-[#EAE3D5] text-[#44403C]"
                           }`}
                         >

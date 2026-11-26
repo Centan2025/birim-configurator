@@ -22,3 +22,5 @@ export * from "./smart-hardware-engine";
 export * from "./hardware-certification-export";
 export * from "./sloped-ceiling-engine";
 export * from "./binary-utils";
+
+export * from "./smart-bay-and-load-advisor";

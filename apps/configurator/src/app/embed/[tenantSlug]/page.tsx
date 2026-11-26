@@ -1,8 +1,13 @@
 "use client";
 
-import React, { useEffect } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
-import { checkTenantEntitlement, getTenantProfileByIdOrSlug } from "@birim/core";
+import {
+  checkTenantEntitlement,
+  getTenantProfileByIdOrSlug,
+  isOriginAllowedForTenantEmbed,
+  sanitizeHttpOrigin,
+} from "@birim/core";
 import { useConfiguratorStore, type ConfiguratorState } from "../../../store/useConfiguratorStore";
 import { BirimStudioWorkspace } from "../../../v11/BirimStudioWorkspace";
 import { Lock } from "lucide-react";
@@ -12,6 +17,7 @@ function TenantWhiteLabelEmbedPageInner() {
   const searchParams = useSearchParams();
   const slug = String(params?.tenantSlug || "birim").toLowerCase();
   const currencyParam = searchParams?.get("currency");
+  const parentOriginParam = searchParams?.get("parentOrigin");
 
   const switchActiveTenant = useConfiguratorStore((s: ConfiguratorState) => s.switchActiveTenant);
   const setUserExperienceTier = useConfiguratorStore((s: ConfiguratorState) => s.setUserExperienceTier);
@@ -19,6 +25,17 @@ function TenantWhiteLabelEmbedPageInner() {
   const activeTenantProfile = useConfiguratorStore((s: ConfiguratorState) => s.activeTenantProfile);
   const pricing = useConfiguratorStore((s: ConfiguratorState) => s.pricing);
   const project = useConfiguratorStore((s: ConfiguratorState) => s.project);
+
+  const [verifiedParentOrigin, setVerifiedParentOrigin] = useState<string | null>(null);
+
+  const resolvedInitialOrigin = useMemo(() => {
+    const fromParam = sanitizeHttpOrigin(parentOriginParam);
+    if (fromParam) return fromParam;
+    if (typeof document !== "undefined" && document.referrer) {
+      return sanitizeHttpOrigin(document.referrer);
+    }
+    return null;
+  }, [parentOriginParam]);
 
   useEffect(() => {
     const resolved = getTenantProfileByIdOrSlug(slug);
@@ -29,17 +46,50 @@ function TenantWhiteLabelEmbedPageInner() {
         pricing: { ...resolved.pricing, currency: currencyParam },
       });
     }
-    if (typeof window !== "undefined" && window.parent && window.parent !== window) {
-      window.parent.postMessage(
-        {
-          namespace: "modul-embed-v1",
-          type: "MODUL_READY",
-          tenantSlug: resolved.slug,
-        },
-        "*"
-      );
+
+    const onHostHandshake = (ev: MessageEvent) => {
+      if (!ev || !ev.data || typeof ev.data !== "object") return;
+      if (ev.data.namespace !== "modul-embed-v1" || ev.data.type !== "MODUL_HOST_HANDSHAKE") return;
+      const cleanOrigin = sanitizeHttpOrigin(ev.origin);
+      if (cleanOrigin && isOriginAllowedForTenantEmbed(cleanOrigin, resolved)) {
+        setVerifiedParentOrigin(cleanOrigin);
+      }
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("message", onHostHandshake);
     }
-  }, [slug, currencyParam, switchActiveTenant, setUserExperienceTier, updateActiveTenantProfile]);
+
+    if (typeof window !== "undefined" && window.parent && window.parent !== window) {
+      const candidateOrigin = verifiedParentOrigin || resolvedInitialOrigin;
+      const hasExplicitAllowlist = Boolean(
+        resolved.allowedEmbedOrigins && resolved.allowedEmbedOrigins.length > 0
+      );
+      if (!hasExplicitAllowlist || isOriginAllowedForTenantEmbed(candidateOrigin, resolved)) {
+        window.parent.postMessage(
+          {
+            namespace: "modul-embed-v1",
+            type: "MODUL_READY",
+            tenantSlug: resolved.slug,
+          },
+          candidateOrigin || "*"
+        );
+      }
+    }
+
+    return () => {
+      if (typeof window !== "undefined") {
+        window.removeEventListener("message", onHostHandshake);
+      }
+    };
+  }, [
+    slug,
+    currencyParam,
+    resolvedInitialOrigin,
+    verifiedParentOrigin,
+    switchActiveTenant,
+    setUserExperienceTier,
+    updateActiveTenantProfile,
+  ]);
 
   const embedCheck = checkTenantEntitlement(activeTenantProfile, "allowWhiteLabelEmbed");
   if (!embedCheck.allowed) {
@@ -62,6 +112,14 @@ function TenantWhiteLabelEmbedPageInner() {
         data-testid="embed-send-to-cart-btn"
         onClick={() => {
           if (typeof window !== "undefined" && window.parent) {
+            const targetOrigin = verifiedParentOrigin || resolvedInitialOrigin;
+            const hasExplicitAllowlist = Boolean(
+              activeTenantProfile.allowedEmbedOrigins &&
+                activeTenantProfile.allowedEmbedOrigins.length > 0
+            );
+            if (hasExplicitAllowlist && !isOriginAllowedForTenantEmbed(targetOrigin, activeTenantProfile)) {
+              return;
+            }
             window.parent.postMessage(
               {
                 namespace: "modul-embed-v1",
@@ -76,7 +134,7 @@ function TenantWhiteLabelEmbedPageInner() {
                   totalWithVatTry: pricing.totalWithVatTry,
                 },
               },
-              "*"
+              targetOrigin || "*"
             );
           }
         }}

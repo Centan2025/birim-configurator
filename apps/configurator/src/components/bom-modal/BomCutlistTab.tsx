@@ -309,7 +309,7 @@ export const BomCutlistTab: React.FC<BomCutlistTabProps> = (props) => {
                                           if (!inspectorOpen) setInspectorOpen(true);
                                         }}
                                         className={`group cursor-pointer transition-colors ${
-                                          isSel ? "bg-blue-50/75" : "hover:bg-[#FAF7F1]"
+                                          isSel ? "bg-sky-500/20" : "hover:bg-[#FAF7F1]"
                                         }`}
                                       >
                                         <td
@@ -353,7 +353,7 @@ export const BomCutlistTab: React.FC<BomCutlistTabProps> = (props) => {
                                                 </span>
                                               )}
                                               {p.polygonContourMm && p.polygonContourMm.length > 4 && !p.tambourTrackGrooveSpec && (
-                                                <span className="px-1.5 py-0.2 rounded bg-purple-100 border border-purple-300 text-purple-900 text-[9.5px] font-bold">
+                                                <span className="px-1.5 py-0.2 rounded bg-violet-500/20 border border-violet-400/45 text-violet-200 text-[9.5px] font-bold">
                                                   5-Eksen Kontur
                                                 </span>
                                               )}

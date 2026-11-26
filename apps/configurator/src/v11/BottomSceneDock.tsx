@@ -103,6 +103,7 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
     const [sectionRatio, setSectionRatio] = useState<number>(0.5);
     const [renderingPhoto, setRenderingPhoto] = useState(false);
     const [moveMode3D, setMoveMode3D] = useState(false);
+    const [humanScaleVisible, setHumanScaleVisible] = useState(false);
     const popRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -170,7 +171,7 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
         ref={popRef}
         data-testid="v11-bottom-scene-dock"
         style={{ bottom: "max(1rem, env(safe-area-inset-bottom))" }}
-        className={`fixed bottom-4 left-1/2 -translate-x-1/2 z-30 max-w-[calc(100vw-24px)] flex flex-col items-center transition-all duration-200 ${
+        className={`fixed bottom-4 left-1/2 -translate-x-1/2 z-[36] max-w-[calc(100vw-24px)] flex flex-col items-center transition-all duration-200 ${
           isHiddenOnCompactSheet ? "opacity-0 translate-y-6 pointer-events-none" : "opacity-100 translate-y-0"
         }`}
       >
@@ -328,6 +329,20 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
                   checked: doorsHidden,
                   onToggle: onToggleDoorsHidden,
                 },
+                {
+                  id: "sw_human_scale",
+                  label: "175 cm İnsan Boy Ölçeği",
+                  checked: humanScaleVisible,
+                  onToggle: () => {
+                    const next = !humanScaleVisible;
+                    setHumanScaleVisible(next);
+                    if (typeof window !== "undefined") {
+                      window.dispatchEvent(
+                        new CustomEvent("birim:set-human-scale-ref", { detail: next })
+                      );
+                    }
+                  },
+                },
                 ...(!isSimpleTier
                   ? [
                       {
@@ -344,6 +359,7 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
                   <button
                     type="button"
                     role="switch"
+                    aria-label={sw.label}
                     aria-checked={sw.checked}
                     onClick={sw.onToggle}
                     className={`relative inline-flex items-center w-9 h-5 p-[2px] rounded-full border transition-colors duration-200 cursor-pointer ${
@@ -721,6 +737,7 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
                 data-testid="v11-bottom-camera-dropdown-btn"
                 onClick={() => {
                   setCameraMenuOpen((v) => !v);
+                  setViewMenuOpen(false);
                   setScenePopoverOpen(false);
                   setSectionPopoverOpen(false);
                   setMobileMoreOpen(false);
@@ -781,8 +798,9 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
             </div>
           )}
 
-          {!isShowroom && (
+          {!isShowroom && (!isSimpleTier || moveMode3D || isQuickPaletteOpen || paintToolMode !== "none") && (
             <>
+              {(!isSimpleTier || moveMode3D) && (
               <button
                 type="button"
                 data-testid="v11-bottom-move-mode-btn"
@@ -805,16 +823,19 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
                 }`}
               >
                 <Move className="w-3.5 h-3.5" />
-                
               </button>
+              )}
 
-              {onToggleQuickPalette && (
+              {onToggleQuickPalette && (!isSimpleTier || isQuickPaletteOpen) && (
                 <button
                   type="button"
                   data-testid="v15-bottom-quick-palette-btn"
                   onClick={() => {
+                    setCameraMenuOpen(false);
+                    setViewMenuOpen(false);
                     setScenePopoverOpen(false);
                     setSectionPopoverOpen(false);
+                    setMobileMoreOpen(false);
                     onToggleQuickPalette();
                   }}
                   title="Bölgesel Hızlı Kartela ve 8 Hazır İmza Kombinasyonu (Kısayol: M)"
@@ -829,7 +850,7 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
                 </button>
               )}
 
-              {onTogglePaintBucket && (
+              {onTogglePaintBucket && (!isSimpleTier || paintToolMode !== "none") && (
                 <button
                   type="button"
                   data-testid="v15-bottom-paint-bucket-btn"
@@ -929,6 +950,7 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
                   setCameraMenuOpen(false);
                   setScenePopoverOpen(false);
                   setSectionPopoverOpen(false);
+                  setMobileMoreOpen(false);
                   setViewMenuOpen((v) => !v);
                 }}
                 title="Teknik Görünüm Modları (3B Kesit, Tel Çerçeve, İç Eşyalar, X-Ray)"
@@ -983,14 +1005,16 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
             </>
           )}
 
-          {!isShowroom && (
+          {!isShowroom && (!isSimpleTier || scenePopoverOpen || renderStyle !== "solid") && (
             <button
               type="button"
               data-testid="v11-open-scene-settings-btn"
               onClick={() => {
                 setScenePopoverOpen((v) => !v);
+                setViewMenuOpen(false);
                 setSectionPopoverOpen(false);
                 setCameraMenuOpen(false);
+                setMobileMoreOpen(false);
               }}
               title="Ultra PBR Render, Sahne Işığı ve Zemin Ayarları"
               className={`h-8 px-2.5 rounded-full hidden md:flex items-center gap-1.5 text-[11px] font-semibold transition cursor-pointer ${
@@ -1012,6 +1036,7 @@ export const BottomSceneDock: React.FC<BottomSceneDockProps> = React.memo(
                   data-testid="v11-bottom-mobile-more-btn"
                   onClick={() => {
                     setCameraMenuOpen(false);
+                    setViewMenuOpen(false);
                     setScenePopoverOpen(false);
                     setSectionPopoverOpen(false);
                     setMobileMoreOpen((v) => !v);

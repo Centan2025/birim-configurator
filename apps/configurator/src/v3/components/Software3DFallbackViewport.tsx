@@ -743,7 +743,7 @@ export const Software3DFallbackViewport: React.FC<Software3DFallbackViewportProp
       )}
 
       {/* Bottom Interactive Software 3D Camera & Door Controls */}
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 px-3 py-1.5 rounded-2xl bg-white/96 border border-stone-300 shadow-md flex flex-wrap items-center gap-1.5 text-[11px] text-[#141413]">
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 px-3 py-1.5 rounded-2xl bg-[#FAF8F4]/95 border border-stone-300 shadow-md flex flex-wrap items-center gap-1.5 text-[11px] text-[#141413]">
         <button
           type="button"
           onClick={() => {

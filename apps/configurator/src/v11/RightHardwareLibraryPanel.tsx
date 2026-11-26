@@ -910,7 +910,7 @@ export const RightHardwareLibraryPanel: React.FC<RightHardwareLibraryPanelProps>
             onClick={() => useConfiguratorStore.getState().toggleDoorOpen(true)}
             className={`px-2 py-1 rounded-lg text-[10px] font-semibold flex items-center gap-1 transition cursor-pointer ${
               isKinematicOpen
-                ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                ? "bg-emerald-700 text-white hover:bg-emerald-800"
                 : "bg-[#141413] text-white hover:bg-[#292524]"
             }`}
             title="3D sahnede kapak ve çekmeceleri canlı aç/kapa"

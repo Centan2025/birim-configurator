@@ -248,9 +248,9 @@ export function buildPortableNestingWorkerBootstrapSource(): string {
     `  var data = e.data || {};`,
     `  try {`,
     `    var result = __kernel(data.pieces || [], data.sheetConfig);`,
-    `    self.postMessage({ ok: true, result: result });`,
+    `    self.postMessage({ ok: true, reqSeq: data.reqSeq, result: result });`,
     `  } catch (err) {`,
-    `    self.postMessage({ ok: false, error: err && err.message ? err.message : "Worker nesting error" });`,
+    `    self.postMessage({ ok: false, reqSeq: data.reqSeq, error: err && err.message ? err.message : "Worker nesting error" });`,
     `  }`,
     `};`,
   ].join("\n");

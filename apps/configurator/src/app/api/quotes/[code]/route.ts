@@ -8,6 +8,7 @@ import {
   TenantSecurityError,
   checkTenantRateLimit,
   extractCookieValue,
+  resolveTrustedClientIp,
   verifyTenantSessionToken,
 } from "../../../../lib/tenant-auth-guard";
 import type { VerifiedQuoteRecord } from "../../../../lib/quote-codec";
@@ -26,10 +27,7 @@ export async function GET(
 ) {
   try {
     const { code } = await context.params;
-    const forwardedIp =
-      req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-      req.headers.get("x-real-ip")?.trim() ||
-      "anonymous";
+    const forwardedIp = resolveTrustedClientIp(req);
     checkTenantRateLimit(`ip:${forwardedIp}`, "quotes_get_code", 60);
 
     const explicitTenantParam = req.nextUrl?.searchParams?.get("tenantId");

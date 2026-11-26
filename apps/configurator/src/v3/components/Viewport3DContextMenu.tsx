@@ -269,14 +269,14 @@ const MenuSectionTitle: React.FC<{ title: string }> = ({ title }) => {
     : "PARÇA";
 
   const pillStyle = isBaySection
-    ? "bg-amber-400 text-[#141413]"
+    ? "bg-amber-500/25 border border-amber-400/60 text-amber-100"
     : isMatSection
-    ? "bg-emerald-400 text-[#141413]"
+    ? "bg-emerald-500/25 border border-emerald-400/60 text-emerald-100"
     : isModuleSection
-    ? "bg-violet-400 text-[#141413]"
+    ? "bg-violet-500/28 border border-violet-400/60 text-violet-100"
     : isSceneSection
-    ? "bg-slate-300 text-[#141413]"
-    : "bg-sky-400 text-[#141413]";
+    ? "bg-slate-600/55 border border-slate-400/50 text-slate-100"
+    : "bg-sky-500/28 border border-sky-400/65 text-sky-100";
 
   const SectionIcon = isBaySection
     ? Columns2
@@ -1318,7 +1318,7 @@ export const Viewport3DContextMenu: React.FC<Viewport3DContextMenuProps> = ({
                 title={mod.carcass.ledLightingEnabled ? "Dolap İçi LED: Açık" : "Dolap İçi LED: Kapalı"}
                 onClick={() => run(() => onToggleModuleLedLighting(!Boolean(mod.carcass.ledLightingEnabled)))}
                 className={`flex flex-col items-center justify-center gap-0.5 py-1.5 rounded-xl text-[9px] font-bold cursor-pointer ${
-                  mod.carcass.ledLightingEnabled ? "bg-amber-500/80 text-white" : "bg-white/10 hover:bg-white/18 text-slate-200"
+                  mod.carcass.ledLightingEnabled ? "bg-amber-700 border border-amber-400/55 text-white" : "bg-white/10 hover:bg-white/18 text-slate-200"
                 }`}
               >
                 <Lightbulb className="w-4 h-4" />

@@ -145,7 +145,7 @@ export const ElevationTopBar: React.FC<ElevationTopBarProps> = ({
                   rotationY: ((selectedObstacle.rotationY || 0) + 90) % 360,
                 })
               }
-              className="px-1.5 py-0.5 rounded bg-amber-600 hover:bg-amber-500 text-white font-bold cursor-pointer"
+              className="px-1.5 py-0.5 rounded bg-amber-700 hover:bg-amber-700 text-white font-bold cursor-pointer"
               title="90° Döndür"
             >
               🔄 {selectedObstacle.rotationY || 0}°
@@ -343,7 +343,7 @@ export const ElevationTopBar: React.FC<ElevationTopBarProps> = ({
               onClick={() => onChangeCoordMode("local")}
               className={`h-6 px-2 rounded-full transition cursor-pointer whitespace-nowrap ${
                 coordMode === "local"
-                  ? "bg-amber-600 text-white font-semibold shadow-xs"
+                  ? "bg-amber-700 text-white font-semibold shadow-xs"
                   : "text-slate-300 hover:text-white"
               }`}
             >

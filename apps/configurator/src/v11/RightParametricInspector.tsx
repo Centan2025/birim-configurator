@@ -580,7 +580,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                 "transform 380ms cubic-bezier(0.16, 1, 0.3, 1), opacity 260ms ease",
             } as React.CSSProperties
           }
-          className={`birim-dramatic-panel fixed right-4 top-[72px] bottom-[84px] max-w-[calc(100vw-32px)] max-lg:!w-[min(88vw,390px)] max-lg:left-auto max-lg:right-0 max-lg:top-0 max-lg:bottom-0 max-lg:h-dvh max-lg:max-w-none max-lg:rounded-none max-lg:rounded-l-[28px] max-lg:z-[65] z-30 rounded-3xl bg-[#2A313F]/66 backdrop-blur-2xl border border-white/[0.22] max-lg:border-r-0 ring-1 ring-black/60 shadow-[0_28px_68px_rgba(0,0,0,0.62)] flex flex-col overflow-hidden text-[#F3F4F6] will-change-[transform,opacity] ${
+          className={`birim-dramatic-panel fixed right-4 top-[72px] max-xl:top-[112px] bottom-[84px] max-w-[calc(100vw-32px)] max-lg:!w-[min(88vw,390px)] max-lg:left-auto max-lg:right-0 max-lg:!top-0 max-lg:bottom-0 max-lg:h-dvh max-lg:max-w-none max-lg:rounded-none max-lg:rounded-l-[28px] max-lg:z-[65] z-30 rounded-3xl bg-[#2A313F]/66 backdrop-blur-2xl border border-white/[0.22] max-lg:border-r-0 ring-1 ring-black/60 shadow-[0_28px_68px_rgba(0,0,0,0.62)] flex flex-col overflow-hidden text-[#F3F4F6] will-change-[transform,opacity] ${
             isOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
           }`}
         >
@@ -663,6 +663,9 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                   : `${Math.round(wMm)} × ${Math.round(hMm)} × ${Math.round(dMm)} mm`} •{" "}
                 {activeModule.bays.length} Bölme
               </p>
+              {(experienceTier !== "simple" ||
+                activeModule.includeInProduction === false ||
+                activeModule.includeInPricing === false) && (
               <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
                 <button
                   type="button"
@@ -699,6 +702,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                   {activeModule.includeInPricing !== false ? "✓ Fiyata Dahil" : "✕ Fiyat Dışı"}
                 </button>
               </div>
+              )}
             </div>
 
             <div className="relative flex items-center gap-1 shrink-0">
@@ -879,7 +883,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
             />
             {(
               [
-                { id: "dimensions", label: "Boyut" },
+                { id: "dimensions", label: experienceTier === "simple" ? "Ölçü & Gövde" : "Gövde" },
                 { id: "interior", label: "İç & Donanım" },
                 { id: "doors", label: "Kapak" },
                 { id: "materials", label: "Yüzey" },
@@ -892,7 +896,7 @@ export const RightParametricInspector: React.FC<RightParametricInspectorProps> =
                   type="button"
                   data-testid={`v11-tab-${tb.id}`}
                   onClick={() => onChangeTab(tb.id)}
-                  className={`relative z-10 py-2 px-1 rounded-xl text-xs font-semibold transition-colors duration-200 cursor-pointer ${
+                  className={`relative z-10 py-2 px-1 rounded-xl text-[11px] sm:text-xs font-semibold whitespace-nowrap truncate transition-colors duration-200 cursor-pointer ${
                     active
                       ? "text-white"
                       : "text-slate-700 hover:text-[#18181B]"

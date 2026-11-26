@@ -608,7 +608,7 @@ export const Viewport3DBottomAlertsAndContextMenu: React.FC<Viewport3DBottomAler
                           key={prop.id}
                           type="button"
                           onClick={() => applyApprovedEngineeringFix(prop)}
-                          className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] cursor-pointer transition"
+                          className="px-2.5 py-1 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-[11px] cursor-pointer transition"
                         >
                           ✓ Onayla: {prop.label}
                         </button>

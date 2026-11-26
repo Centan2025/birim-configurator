@@ -647,12 +647,51 @@ export function useViewport3DWindowAndKeyEvents(ctx: UseViewport3DWindowAndKeyEv
         }
       };
 
+      const onHumanScaleRefChange = (ev: Event) => {
+        const show = Boolean((ev as CustomEvent<boolean>).detail);
+        const mGrp = meshGroupRef.current;
+        const parentScene = mGrp?.parent;
+        if (!parentScene) return;
+        const existing = parentScene.getObjectByName("birim_human_scale_silhouette_175");
+        if (existing) {
+          parentScene.remove(existing);
+        }
+        if (show) {
+          const bounds = computeFastParametricSceneBounds(useConfiguratorStore.getState().project.modules);
+          const figGroup = new THREE.Group();
+          figGroup.name = "birim_human_scale_silhouette_175";
+          const silMat = new THREE.MeshStandardMaterial({
+            color: 0x334155,
+            roughness: 0.85,
+            metalness: 0.05,
+            transparent: true,
+            opacity: 0.42,
+            depthWrite: false,
+          });
+          // Minimalist 1750mm architectural figure (legs + torso + head) placed 280mm left of cabinet row
+          const torso = new THREE.Mesh(new THREE.CapsuleGeometry(135, 680, 6, 12), silMat);
+          torso.position.set(0, 1080, 0);
+          torso.raycast = () => {};
+          const legs = new THREE.Mesh(new THREE.CylinderGeometry(105, 80, 740, 12), silMat);
+          legs.position.set(0, 370, 0);
+          legs.raycast = () => {};
+          const head = new THREE.Mesh(new THREE.SphereGeometry(110, 14, 12), silMat);
+          head.position.set(0, 1640, 0);
+          head.raycast = () => {};
+          figGroup.add(legs, torso, head);
+          figGroup.position.set((bounds?.min.x ?? 0) - 340, 0, (bounds?.max.z ?? 600) * 0.55);
+          parentScene.add(figGroup);
+        }
+        needsRenderRef.current = true;
+      };
+      window.addEventListener("birim:set-human-scale-ref", onHumanScaleRefChange);
       window.addEventListener("keydown", onKeyDown);
       window.addEventListener("keyup", onKeyUp);
       window.addEventListener("pointermove", onPointerSyncCtrl, { passive: true });
       window.addEventListener("blur", onBlur);
       document.addEventListener("visibilitychange", onBlur);
       return () => {
+        window.removeEventListener("birim:set-human-scale-ref", onHumanScaleRefChange);
         window.removeEventListener("keydown", onKeyDown);
         window.removeEventListener("keyup", onKeyUp);
         window.removeEventListener("pointermove", onPointerSyncCtrl);

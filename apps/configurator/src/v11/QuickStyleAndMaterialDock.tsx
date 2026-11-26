@@ -210,11 +210,14 @@ export const QuickStyleAndMaterialDock: React.FC<QuickStyleAndMaterialDockProps>
       <AnimatedPopoverPresence isOpen={isOpen} origin="left" className="fixed left-[72px] top-1/2 -translate-y-1/2 z-40 max-lg:z-[60] pointer-events-none max-lg:left-2.5 max-lg:right-2.5 max-lg:top-auto max-lg:bottom-2.5 max-lg:translate-y-0">
       <div
         data-testid="v15-quick-style-material-dock"
+        style={{
+          maxWidth: `min(500px, calc(100vw - ${72 + rightSafePx + 20}px))`,
+        }}
         onMouseLeave={() => {
           dispatchLive3DMaterialPreview(null);
           dispatchLive3DMoodboardPreview(null);
         }}
-        className="birim-dramatic-panel relative w-[500px] max-w-[calc(100vw-96px)] max-h-[78dvh] overflow-y-auto rounded-3xl bg-[#1C222E]/94 backdrop-blur-2xl border border-white/[0.18] ring-1 ring-black/60 shadow-[0_28px_68px_rgba(0,0,0,0.65)] p-4 text-xs text-[#F3F4F6] space-y-3 pointer-events-auto transition-all duration-200 max-lg:w-auto max-lg:max-w-none"
+        className="birim-dramatic-panel relative w-[500px] max-h-[calc(100dvh-188px)] overflow-y-auto rounded-3xl bg-[#1C222E]/94 backdrop-blur-2xl border border-white/[0.18] ring-1 ring-black/60 shadow-[0_28px_68px_rgba(0,0,0,0.65)] p-4 text-xs text-[#F3F4F6] space-y-3 pointer-events-auto transition-all duration-200 max-lg:!w-auto max-lg:!max-w-none"
       >
         {/* V49 KOMPAKT ÜST BAR: Sekmeler + Gruplu Hedef Seçici + İkon Araçları + Sahne Renk Noktaları */}
         <div className="flex flex-wrap items-center justify-between gap-2 pr-9">
@@ -433,7 +436,7 @@ export const QuickStyleAndMaterialDock: React.FC<QuickStyleAndMaterialDockProps>
                     onClick={() => setCategoryFilter(cat.id)}
                     className={`h-6 px-2.5 rounded-full text-[10.5px] font-semibold whitespace-nowrap transition cursor-pointer ${
                       categoryFilter === cat.id
-                        ? "bg-[#38BDF8] text-white"
+                        ? "bg-[#0369A1] border border-[#38BDF8]/70 text-white shadow-2xs"
                         : "bg-white/80 hover:bg-white border border-[#E5DFD3] text-[#57534E]"
                     }`}
                   >

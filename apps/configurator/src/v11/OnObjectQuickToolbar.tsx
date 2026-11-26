@@ -13,6 +13,7 @@ import {
   type ModuleInstance,
 } from "@birim/core";
 import { getBayShelfIntervalsForSubDivider } from "../v3/adapter/useV3Adapter";
+import { useConfiguratorStore } from "../store/useConfiguratorStore";
 
 export type Selected3DPartKind =
   | "door"
@@ -214,14 +215,15 @@ export const OnObjectQuickToolbar: React.FC<OnObjectQuickToolbarProps> = React.m
 
     const containerClass =
       placementMode === "docked"
-        ? "birim-dramatic-panel mx-3.5 mt-2.5 p-2.5 rounded-2xl bg-[#2B313E]/90 border border-white/[0.20] text-[#F3F4F6] shadow-md space-y-2 shrink-0"
-        : "birim-dramatic-panel fixed z-30 w-[min(372px,calc(100vw-24px))] p-2.5 rounded-2xl bg-[#252A34]/88 backdrop-blur-2xl border border-white/[0.22] ring-1 ring-black/60 text-[#F3F4F6] shadow-[0_20px_48px_rgba(0,0,0,0.56)] space-y-2";
+        ? "mx-3.5 mt-2.5 p-2.5 rounded-2xl bg-[#FAF8F4]/95 border border-[#E5DFD3] text-[#141413] shadow-sm space-y-2 shrink-0"
+        : "fixed z-30 w-[min(420px,calc(100vw-24px))] p-2.5 rounded-2xl bg-[#FAF8F4]/95 backdrop-blur-xl border border-[#DFD9CE] text-[#141413] shadow-[0_18px_42px_rgba(20,20,19,0.16)] space-y-2";
 
     const containerStyle: React.CSSProperties | undefined =
       placementMode === "stage"
         ? {
-            top: `${122 + (hasTopPaintBanner ? 42 : 0)}px`,
+            top: `${(hasGuidedStepStrip ? 118 : 78) + (hasTopPaintBanner ? 44 : 0)}px`,
             left: `calc(${leftSafePx}px + (100vw - ${leftSafePx + rightSafePx}px) / 2)`,
+            maxWidth: `min(420px, calc(100vw - ${leftSafePx + rightSafePx + 20}px))`,
             transform: "translateX(-50%)",
           }
         : undefined;
@@ -831,6 +833,33 @@ export const OnObjectQuickToolbar: React.FC<OnObjectQuickToolbarProps> = React.m
                 <Plus className="w-3 h-3 text-[#6B4F28]" />
                 <span>Askı</span>
               </button>
+
+              {/* USM HALLER TARZI MIKNATISLI MODÜL BÜYÜTME — yalnızca bölme/modül seçiliyken bağlamsal açılır */}
+              <span className="h-4 w-px bg-[#E5DFD3] mx-0.5 hidden sm:inline-block" aria-hidden="true" />
+              <button
+                type="button"
+                data-testid="v13-on-object-grow-adjacent"
+                aria-label="Sağına uyumlu yan modül ekle"
+                title="USM tarzı mıknatıslı büyütme: Yanına bitişik modül ekle"
+                onClick={() => useConfiguratorStore.getState().addAdjacentModule()}
+                className="h-7 px-2.5 rounded-xl bg-[#0284C7]/35 hover:bg-[#0284C7]/52 border border-[#38BDF8]/65 text-white text-[11px] font-semibold inline-flex items-center gap-1 shadow-[0_2px_10px_rgba(2,132,199,0.28)] transition cursor-pointer"
+              >
+                <Plus className="w-3 h-3" />
+                <span>Yan Modül</span>
+              </button>
+              {activeModule.dimensions.height <= 2350 && (
+                <button
+                  type="button"
+                  data-testid="v13-on-object-grow-top"
+                  aria-label="Üstüne modül ekle"
+                  title="Seçili modülün üstüne istifli üst dolap ekle"
+                  onClick={() => useConfiguratorStore.getState().addStackedTopModule()}
+                  className="h-7 px-2.5 rounded-xl bg-[#0284C7]/35 hover:bg-[#0284C7]/52 border border-[#38BDF8]/65 text-white text-[11px] font-semibold inline-flex items-center gap-1 shadow-[0_2px_10px_rgba(2,132,199,0.28)] transition cursor-pointer"
+                >
+                  <ArrowUp className="w-3 h-3" />
+                  <span>Üst Modül</span>
+                </button>
+              )}
             </>
           )}
         </div>

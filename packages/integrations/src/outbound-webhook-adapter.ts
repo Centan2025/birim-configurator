@@ -24,6 +24,43 @@ export interface IntegrationOutboxEvent {
 
 const OUTBOX_BY_TENANT = new Map<string, IntegrationOutboxEvent[]>();
 
+const BLOCKED_INTERNAL_PORTS = new Set<string>([
+  "21",
+  "22",
+  "23",
+  "25",
+  "53",
+  "110",
+  "135",
+  "139",
+  "143",
+  "445",
+  "1433",
+  "1521",
+  "2375",
+  "2379",
+  "3306",
+  "3389",
+  "5432",
+  "5672",
+  "6379",
+  "9200",
+  "11211",
+  "27017",
+]);
+
+const REBINDING_DOMAIN_SUFFIXES = [
+  ".local",
+  ".internal",
+  ".localhost",
+  ".home.arpa",
+  ".nip.io",
+  ".sslip.io",
+  ".xip.io",
+  ".localtest.me",
+  ".lvh.me",
+];
+
 export function signWebhookPayloadHmac256(
   rawBody: string,
   timestampIso: string,
@@ -53,8 +90,104 @@ export function verifyWebhookPayloadHmac256(
   }
 }
 
-const BLOCKED_SSRF_HOST_RE =
-  /^(localhost|127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|169\.254\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+|0\.0\.0\.0|\[::1\]|\[fc[0-9a-f]{2}:|\[fd[0-9a-f]{2}:|\[fe80:)$/i;
+function isPrivateOrReservedIpv4Octets(a: number, b: number, c: number, d: number): boolean {
+  if ([a, b, c, d].some((x) => !Number.isInteger(x) || x < 0 || x > 255)) return true;
+  if (a === 0 || a === 10 || a === 127) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 100 && b >= 64 && b <= 127) return true; // Carrier-grade NAT (RFC 6598)
+  if (a === 192 && b === 0 && (c === 0 || c === 2)) return true;
+  if (a === 198 && (b === 18 || b === 19)) return true;
+  if (a === 198 && b === 51 && c === 100) return true;
+  if (a === 203 && b === 0 && c === 113) return true;
+  if (a >= 224) return true; // Multicast & reserved
+  return false;
+}
+
+/**
+ * Evaluates whether a literal IPv4 or IPv6 address (including IPv4-mapped IPv6 such as
+ * `::ffff:127.0.0.1` or normalized `::ffff:7f00:1`, hex/octal/integer IPv4) belongs to
+ * private, loopback, link-local, cloud-metadata, or reserved address space.
+ */
+export function isPrivateOrReservedIpAddress(rawHost: string): boolean {
+  const stripped = rawHost.trim().toLowerCase().replace(/^\[|\]$/g, "");
+  if (!stripped) return true;
+
+  // Single-integer, hex, or octal IPv4 representation (e.g. 2130706433, 0x7f000001)
+  if (/^(0x[0-9a-f]+|\d+)$/i.test(stripped)) {
+    const num = stripped.startsWith("0x") ? parseInt(stripped, 16) : Number(stripped);
+    if (!Number.isFinite(num) || num < 0 || num > 0xffffffff) return true;
+    return isPrivateOrReservedIpv4Octets(
+      (num >>> 24) & 0xff,
+      (num >>> 16) & 0xff,
+      (num >>> 8) & 0xff,
+      num & 0xff
+    );
+  }
+
+  // Standard or octal dotted IPv4
+  if (/^[0-9.x]+$/i.test(stripped) && stripped.includes(".")) {
+    const parts = stripped.split(".");
+    if (parts.length !== 4) return true;
+    const octets = parts.map((p) => {
+      if (p.startsWith("0x")) return parseInt(p, 16);
+      if (p.length > 1 && p.startsWith("0")) return parseInt(p, 8);
+      return Number(p);
+    });
+    return isPrivateOrReservedIpv4Octets(octets[0], octets[1], octets[2], octets[3]);
+  }
+
+  // IPv6 checks (including IPv4-mapped IPv6 in dotted or hex-pair form)
+  if (stripped.includes(":")) {
+    const noZone = stripped.split("%")[0];
+    if (noZone === "::" || noZone === "::1" || noZone === "0:0:0:0:0:0:0:1" || noZone === "0:0:0:0:0:0:0:0") {
+      return true;
+    }
+    if (
+      noZone.startsWith("fc") ||
+      noZone.startsWith("fd") ||
+      noZone.startsWith("fe8") ||
+      noZone.startsWith("fe9") ||
+      noZone.startsWith("fea") ||
+      noZone.startsWith("feb") ||
+      noZone.startsWith("ff")
+    ) {
+      return true;
+    }
+    // Dotted IPv4-mapped IPv6: ::ffff:169.254.169.254
+    const dottedMapped = noZone.match(/(?::ffff:|0:0:0:0:0:ffff:)(\d+\.\d+\.\d+\.\d+)$/i);
+    if (dottedMapped) {
+      return isPrivateOrReservedIpAddress(dottedMapped[1]);
+    }
+    // Hex IPv4-mapped IPv6 (URL parser normalizes [::ffff:127.0.0.1] -> [::ffff:7f00:1])
+    const hexMapped = noZone.match(/(?:^::ffff:|^0:0:0:0:0:ffff:)([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+    if (hexMapped) {
+      const hi = parseInt(hexMapped[1], 16);
+      const lo = parseInt(hexMapped[2], 16);
+      return isPrivateOrReservedIpv4Octets(
+        (hi >>> 8) & 0xff,
+        hi & 0xff,
+        (lo >>> 8) & 0xff,
+        lo & 0xff
+      );
+    }
+    // Expanded IPv4-compatible IPv6 ::127.0.0.1 or ::7f00:1
+    const compatHex = noZone.match(/^::([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+    if (compatHex) {
+      const hi = parseInt(compatHex[1], 16);
+      const lo = parseInt(compatHex[2], 16);
+      return isPrivateOrReservedIpv4Octets(
+        (hi >>> 8) & 0xff,
+        hi & 0xff,
+        (lo >>> 8) & 0xff,
+        lo & 0xff
+      );
+    }
+  }
+
+  return false;
+}
 
 export function assertSafeOutboundWebhookUrl(rawUrl: string): URL {
   let parsed: URL;
@@ -63,20 +196,68 @@ export function assertSafeOutboundWebhookUrl(rawUrl: string): URL {
   } catch {
     throw new Error("Geçersiz webhook hedef URL formatı.");
   }
+  if (parsed.username || parsed.password) {
+    throw new Error("SSRF koruması: Webhook URL içinde kullanıcı adı veya parola bilgisi taşınamaz.");
+  }
   const isProd = typeof process !== "undefined" && process.env?.NODE_ENV === "production";
   if (parsed.protocol !== "https:" && (isProd || parsed.protocol !== "http:")) {
     throw new Error("Webhook hedef URL yalnızca HTTPS protokolünü kullanabilir.");
   }
+  if (parsed.port && BLOCKED_INTERNAL_PORTS.has(parsed.port)) {
+    throw new Error(`SSRF koruması: Yasaklı iç servis portuna (${parsed.port}) webhook gönderilemez.`);
+  }
   const host = parsed.hostname.toLowerCase();
   if (
-    BLOCKED_SSRF_HOST_RE.test(host) ||
-    host.endsWith(".local") ||
-    host.endsWith(".internal") ||
-    host === "metadata.google.internal"
+    host === "localhost" ||
+    host === "metadata.google.internal" ||
+    host === "metadata" ||
+    host === "instance-data" ||
+    REBINDING_DOMAIN_SUFFIXES.some((sfx) => host.endsWith(sfx)) ||
+    isPrivateOrReservedIpAddress(host)
   ) {
     throw new Error(`SSRF koruması: Özel/yerel ağ hedefine (${host}) webhook gönderimi engellendi.`);
   }
   return parsed;
+}
+
+/**
+ * Resolves DNS A/AAAA records on Node.js runtimes prior to outbound HTTP dispatch
+ * to defeat DNS-rebinding domains pointing to internal VPC or cloud metadata IPs.
+ */
+export async function verifyOutboundWebhookDnsSafety(parsedUrl: URL): Promise<void> {
+  assertSafeOutboundWebhookUrl(parsedUrl.toString());
+  const host = parsedUrl.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (typeof process === "undefined" || !process.versions?.node) return;
+
+  try {
+    // Dynamic require keeps client/Edge bundlers free of hard node:dns coupling
+    const dnsMod = require("dns") as typeof import("dns");
+    const records = await dnsMod.promises.lookup(host, { all: true, verbatim: true });
+    if (!Array.isArray(records) || records.length === 0) {
+      if (process.env?.NODE_ENV === "production") {
+        throw new Error(`SSRF koruması: Webhook alan adı (${host}) çözümlenemedi.`);
+      }
+      return;
+    }
+    for (const rec of records) {
+      if (isPrivateOrReservedIpAddress(rec.address)) {
+        throw new Error(
+          `SSRF koruması: Alan adı (${host}) özel/yerel IP adresine (${rec.address}) çözümlendiği için engellendi.`
+        );
+      }
+    }
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith("SSRF koruması:")) {
+      throw err;
+    }
+    // In offline unit test environments with mocked fetch, non-SSRF ENOTFOUND/EAI_AGAIN is allowed;
+    // in production, DNS resolution failure fails closed.
+    if (process.env?.NODE_ENV === "production") {
+      throw new Error(
+        `SSRF koruması: Webhook hedef DNS doğrulaması başarısız (${host}).`
+      );
+    }
+  }
 }
 
 export class OutboundWebhookErpAdapter {
@@ -147,13 +328,15 @@ export class OutboundWebhookErpAdapter {
       record.attemptCount += 1;
       record.updatedAt = new Date().toISOString();
       try {
-        assertSafeOutboundWebhookUrl(this.endpointUrl);
+        const parsedTarget = assertSafeOutboundWebhookUrl(this.endpointUrl);
+        await verifyOutboundWebhookDnsSafety(parsedTarget);
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 15_000);
         let res: Response;
         try {
           res = await fetch(this.endpointUrl, {
             method: "POST",
+            redirect: "error",
             headers: {
               "Content-Type": "application/json; charset=utf-8",
               "X-Modul-Tenant-Id": this.tenantId,

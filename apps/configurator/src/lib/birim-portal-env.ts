@@ -57,7 +57,7 @@ function discoverSiblingBirimPortalEnvFile(explicitPath?: string): {
   if (process.env.BIRIM_DISABLE_PORTAL_ENV_FALLBACK === "true") {
     return { filePath: null, parsed: {} };
   }
-  if (process.env.NODE_ENV === "production" && !explicitPath && !process.env.BIRIM_PORTAL_ENV_PATH) {
+  if (process.env.NODE_ENV === "production" && process.env.BIRIM_ALLOW_PROD_PORTAL_ENV_FILE !== "true") {
     return { filePath: null, parsed: {} };
   }
 

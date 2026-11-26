@@ -7,6 +7,8 @@ import {
   calculateSlopedCeilingGeometry,
   resolveSpaceCeilingConfig,
   computeEffectiveCeilingClearHeight,
+  autoPartitionModuleBaysForWidth,
+  computeModuleLoadCapacitySummary,
   type BackPanelType,
   type CarcassConfig,
   type CarcassJoineryTopology,
@@ -121,6 +123,27 @@ const DimensionNumberInput: React.FC<DimensionNumberInputProps> = ({
 };
 
 export const InspectorDimensionsTab: React.FC<InspectorDimensionsTabProps> = (props) => {
+  const [autoBayPartition, setAutoBayPartition] = React.useState<boolean>(false);
+  const loadSummary = React.useMemo(
+    () => computeModuleLoadCapacitySummary(props.activeModule),
+    [props.activeModule]
+  );
+  const applyWidthWithOptionalAutoPartition = React.useCallback(
+    (nextW: number) => {
+      props.onSetDimensions(nextW, props.hMm, props.dMm);
+      if (autoBayPartition) {
+        const st = useConfiguratorStore.getState();
+        const curMod = st.project.modules[st.activeModuleIndex];
+        if (curMod) {
+          const partitioned = autoPartitionModuleBaysForWidth(curMod, nextW);
+          if (partitioned.bays.length !== curMod.bays.length) {
+            st.setBayCount(partitioned.bays.length);
+          }
+        }
+      }
+    },
+    [autoBayPartition, props]
+  );
   const {
     activeHullShape,
     activeModule,
@@ -190,7 +213,7 @@ export const InspectorDimensionsTab: React.FC<InspectorDimensionsTabProps> = (pr
                       : isTableOrIslandMod
                       ? [1600, 2000, 2200, 2600]
                       : [600, 900, 1200, 1800, 2400],
-                    apply: (next: number) => onSetDimensions(next, hMm, dMm),
+                    apply: (next: number) => applyWidthWithOptionalAutoPartition(next),
                   },
                   {
                     key: "height",
@@ -303,6 +326,41 @@ export const InspectorDimensionsTab: React.FC<InspectorDimensionsTabProps> = (pr
                   </div>
                 );
               })}
+
+              {/* Tylko Esinli Otomatik Bölme Taksimatı & ISO 7170 Güvenli Yük Kapasitesi Özeti */}
+              {!isTableOrIslandMod && (
+                <div
+                  data-testid="v13-smart-bay-and-load-card"
+                  className="p-2.5 rounded-2xl bg-[#FAF8F4] border border-[#E5DFD3] space-y-2 text-[11px]"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <div className="font-bold text-[#141413]">Otomatik Bölme Taksimatı</div>
+                      <div className="text-[10px] text-[#78716C]">
+                        Genişlik değiştikçe sehim sınırına göre bölme sayısını ({loadSummary.recommendedBayCount} bölme) ayarlar
+                      </div>
+                    </div>
+                    <StudioToggleSwitch
+                      checked={autoBayPartition}
+                      onChange={(next) => {
+                        setAutoBayPartition(next);
+                        if (next && loadSummary.recommendedBayCount !== activeModule.bays.length) {
+                          useConfiguratorStore.getState().setBayCount(loadSummary.recommendedBayCount);
+                        }
+                      }}
+                    />
+                  </div>
+                  <div className="pt-1.5 border-t border-[#ECE7DD] flex flex-wrap items-center justify-between gap-1.5 text-[10.5px] text-[#57534E]">
+                    <span>
+                      Raf Kapasitesi: <strong className="font-mono text-[#141413]">{loadSummary.safeLoadPerShelfKg} kg</strong>
+                    </span>
+                    <span>•</span>
+                    <span>
+                      Toplam Güvenli Yük: <strong className="font-mono text-[#1E3A8A]">{loadSummary.totalSafeModuleLoadKg} kg</strong>
+                    </span>
+                  </div>
+                </div>
+              )}
 
               {/* Baza & Torna Ayak Yüksekliği */}
               {activeHullShape !== "capsule_table" && (

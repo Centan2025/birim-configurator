@@ -648,7 +648,7 @@ export const QuickMaterialPopoverBar: React.FC<QuickMaterialPopoverBarProps> = R
                     onClick={() => selectWallAndFocusCamera(w.id, w.name || `Duvar ${idx + 1}`)}
                     className={`w-full px-3 py-2 rounded-xl border flex items-center justify-between transition cursor-pointer ${
                       isSel
-                        ? "bg-gradient-to-r from-[#D6A676] to-[#B58253] border-[#E3B587] text-[#111318] font-bold shadow-sm"
+                        ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] border-[#38BDF8]/65 text-white font-bold shadow-sm"
                         : "bg-white/[0.08] hover:bg-white/[0.15] border-white/[0.12] text-[#F3F4F6]"
                     }`}
                   >
@@ -855,7 +855,7 @@ export const QuickMaterialPopoverBar: React.FC<QuickMaterialPopoverBarProps> = R
                     onClick={() => applyOrLoadMaterial(activeScopeForOpenMenu, mat)}
                     className={`group p-1.5 rounded-xl border text-left flex flex-col gap-1 transition cursor-pointer ${
                       isSelected
-                        ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] border-[#E3B587] text-[#111318] shadow-md"
+                        ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] border-[#38BDF8]/65 text-white shadow-md"
                         : "bg-white/[0.08] hover:bg-white/[0.16] border-white/12 text-slate-100"
                     }`}
                   >
@@ -976,7 +976,7 @@ export const QuickMaterialPopoverBar: React.FC<QuickMaterialPopoverBarProps> = R
                     onClick={() => handleSelectRenderQuality(q.id)}
                     className={`p-2 rounded-xl border text-left transition cursor-pointer ${
                       qualityTier === q.id
-                        ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] border-[#E3B587] text-[#111318] shadow-md"
+                        ? "bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] border-[#38BDF8]/65 text-white shadow-md"
                         : "bg-white/[0.08] hover:bg-white/[0.15] border-white/12 text-slate-100"
                     }`}
                   >
@@ -1048,7 +1048,7 @@ export const QuickMaterialPopoverBar: React.FC<QuickMaterialPopoverBarProps> = R
                   setExporting2K(false);
                 }
               }}
-              className="w-full h-8.5 rounded-xl bg-gradient-to-r from-[#D6A676] to-[#B58253] hover:brightness-105 disabled:opacity-50 text-[#111318] text-[11px] font-bold flex items-center justify-center gap-1.5 shadow-md transition cursor-pointer"
+              className="w-full h-8.5 rounded-xl bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] border border-[#38BDF8]/65 hover:brightness-110 disabled:opacity-50 text-white text-[11px] font-bold flex items-center justify-center gap-1.5 shadow-md transition cursor-pointer"
             >
               <Download className="w-3.5 h-3.5" />
               <span>

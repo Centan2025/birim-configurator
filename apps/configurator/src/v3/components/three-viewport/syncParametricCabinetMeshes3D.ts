@@ -3,7 +3,7 @@
 import { build3DModuleMultiHoleInstancedMesh } from "../../materials/ceilingAndMultiHole3DBuilder";
 import * as THREE from "three";
 import { createComponentMesh, publishSceneDiagnostics, createModuleGroup } from "../../../components/componentMesh";
-import { batchStaticModuleCarcassMeshes } from "../staticCarcassBatcher";
+import { batchStaticModuleCarcassMeshes, unbatchStaticModuleMeshes } from "../staticCarcassBatcher";
 import { generateModuleGeometry, DEFAULT_MATERIALS, getModuleOrientedFootprint } from "../../adapter/useV3Adapter";
 import { calculateModulePlacement, computeProjectGrainContinuityMap, syncProjectCustomMaterials, computeModuleStructuralSignature, type MaterialDefinition } from "@birim/core";
 import { GEOMETRY_ENGINE_REV } from "@birim/geometry";
@@ -178,6 +178,9 @@ export function syncParametricCabinetMeshes3D(ctx: SyncParametricCabinetMeshes3D
           modContainer.userData.topoSig = topoSigs[modIdx];
           modContainer.userData.moduleIndex = modIdx;
 
+          if (modContainer instanceof THREE.Group) {
+            unbatchStaticModuleMeshes(modContainer);
+          }
           const bd = generateModuleGeometry(mod, {
             doorOpenAngleDeg,
             drawerOpenMm,
@@ -240,6 +243,19 @@ export function syncParametricCabinetMeshes3D(ctx: SyncParametricCabinetMeshes3D
                 }
               }
             });
+          }
+          if (modContainer instanceof THREE.Group) {
+            if (modIdx === activeModuleIndex || isXrayActive) {
+              if (unbatchStaticModuleMeshes(modContainer) > 0) {
+                solidMeshesCacheRef.current.dirty = true;
+              }
+            } else if (mod.carcass.carcassJoineryTopology !== "miter_45" && mod.carcass.jointType !== "miter_45") {
+              batchStaticModuleCarcassMeshes(modContainer, modIdx, {
+                includeInteriorAndClosedFronts:
+                  doorOpenAngleDeg === 0 && drawerOpenMm === 0 && explodedFactor === 0,
+              });
+              solidMeshesCacheRef.current.dirty = true;
+            }
           }
         });
         updateSelectionFramesRef.current();
@@ -500,10 +516,13 @@ export function syncParametricCabinetMeshes3D(ctx: SyncParametricCabinetMeshes3D
         const aoTex = renderEdgeMode === "cad" ? null : getContactAoShadowTexture();
         if (aoTex) {
           const { groundAoMat, wallAoMat } = getCachedContactAoMaterials(aoTex);
-          if (!isActiveMod && !isXrayActive) {
-            if (mod.carcass.carcassJoineryTopology !== "miter_45" && mod.carcass.jointType !== "miter_45") {
-              batchStaticModuleCarcassMeshes(modContainer, modIdx);
-            }
+          if (isActiveMod || isXrayActive) {
+            unbatchStaticModuleMeshes(modContainer);
+          } else if (mod.carcass.carcassJoineryTopology !== "miter_45" && mod.carcass.jointType !== "miter_45") {
+            batchStaticModuleCarcassMeshes(modContainer, modIdx, {
+              includeInteriorAndClosedFronts:
+                doorOpenAngleDeg === 0 && drawerOpenMm === 0 && explodedFactor === 0,
+            });
           }
 
           if (mod.position.y <= 80) {

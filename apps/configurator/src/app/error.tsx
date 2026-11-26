@@ -34,7 +34,7 @@ export default function AppErrorBoundary({ error, reset }: AppErrorProps) {
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-[#F6F4EF] text-[#141413] p-6">
+    <div className="min-h-screen w-full flex items-center justify-center bg-[#1A1E26] text-slate-100 p-6">
       <div className="max-w-lg w-full rounded-3xl bg-white border border-[#E5DFD3] shadow-xl p-8 space-y-5">
         <div className="space-y-1.5">
           <p className="text-[11px] font-bold uppercase tracking-wider text-amber-700">

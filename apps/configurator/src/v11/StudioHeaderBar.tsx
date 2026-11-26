@@ -78,6 +78,7 @@ export interface StudioHeaderBarProps {
   uiFontScale?: number;
   onChangeUiFontScale?: (scale: number) => void;
   activeInspectorTab?: "dimensions" | "interior" | "doors" | "materials" | "hardware";
+  isInspectorOpen?: boolean;
   onQuickNavigateStep?: (step: "dimensions" | "interior" | "showroom") => void;
   variantSlots?: ReadonlyArray<{
     slot: "A" | "B" | "C";
@@ -131,6 +132,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
     uiFontScale = 1,
     onChangeUiFontScale,
     activeInspectorTab = "interior",
+    isInspectorOpen = true,
     onQuickNavigateStep,
     variantSlots,
     activeVariantSlot = null,
@@ -260,6 +262,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
               }
               setOutputsOpen(false);
               setIssuesOpen(false);
+              setSettingsOpen(false);
               setVariantOpen((v) => !v);
             }}
             title="Tasarım Seçenekleri (A / B / C) — Kaydet & Karşılaştır"
@@ -336,7 +339,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                                 ? "bg-[#2563EB] text-white"
                                 : vs.saved
                                 ? "bg-sky-500/25 text-sky-200 border border-sky-400/30"
-                                : "bg-white/10 text-slate-400"
+                                : "bg-white/10 text-slate-200"
                             }`}
                           >
                             {vs.slot}
@@ -869,7 +872,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                     }}
                     className="group w-full px-2.5 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
                   >
-                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-white flex items-center justify-center shrink-0 transition">
+                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-[#0284C7]/35 flex items-center justify-center shrink-0 transition">
                       <Zap className="w-4 h-4 text-[#44403C]" />
                     </span>
                     <div className="min-w-0">
@@ -885,7 +888,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                     }}
                     className="group w-full px-2.5 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
                   >
-                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-white flex items-center justify-center shrink-0 transition">
+                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-[#0284C7]/35 flex items-center justify-center shrink-0 transition">
                       <Scissors className="w-4 h-4 text-[#44403C]" />
                     </span>
                     <div className="min-w-0">
@@ -908,7 +911,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                     }}
                     className="group w-full px-2.5 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
                   >
-                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-white flex items-center justify-center shrink-0 transition">
+                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-[#0284C7]/35 flex items-center justify-center shrink-0 transition">
                       <Camera className="w-4 h-4 text-[#44403C]" />
                     </span>
                     <div className="min-w-0">
@@ -924,7 +927,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                     }}
                     className="group w-full px-2.5 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
                   >
-                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-white flex items-center justify-center shrink-0 transition">
+                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-[#0284C7]/35 flex items-center justify-center shrink-0 transition">
                       <Smartphone className="w-4 h-4 text-[#44403C]" />
                     </span>
                     <div className="min-w-0">
@@ -940,7 +943,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                     }}
                     className="group w-full px-2.5 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
                   >
-                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-white flex items-center justify-center shrink-0 transition">
+                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-[#0284C7]/35 flex items-center justify-center shrink-0 transition">
                       <Layers className="w-4 h-4 text-[#44403C]" />
                     </span>
                     <div className="min-w-0">
@@ -963,7 +966,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                     }}
                     className="group w-full px-2.5 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
                   >
-                    <span className="w-8 h-8 rounded-xl bg-sky-50 group-hover:bg-white flex items-center justify-center shrink-0 transition">
+                    <span className="w-8 h-8 rounded-xl bg-sky-50 group-hover:bg-[#0284C7]/35 flex items-center justify-center shrink-0 transition">
                       <FileText className="w-4 h-4 text-sky-700" />
                     </span>
                     <div className="min-w-0">
@@ -979,7 +982,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                     }}
                     className="group w-full px-2.5 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
                   >
-                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-white flex items-center justify-center shrink-0 transition">
+                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-[#0284C7]/35 flex items-center justify-center shrink-0 transition">
                       <FileSpreadsheet className="w-4 h-4 text-[#44403C]" />
                     </span>
                     <div className="min-w-0">
@@ -995,7 +998,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                     }}
                     className="group w-full px-2.5 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
                   >
-                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-white flex items-center justify-center shrink-0 transition">
+                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-[#0284C7]/35 flex items-center justify-center shrink-0 transition">
                       <Store className="w-4 h-4 text-[#44403C]" />
                     </span>
                     <div className="min-w-0">
@@ -1011,7 +1014,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                     }}
                     className="group w-full px-2.5 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
                   >
-                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-white flex items-center justify-center shrink-0 transition">
+                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-[#0284C7]/35 flex items-center justify-center shrink-0 transition">
                       <ShieldCheck className="w-4 h-4 text-[#44403C]" />
                     </span>
                     <div className="flex-1 min-w-0">
@@ -1035,7 +1038,7 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
                     }}
                     className="group w-full px-2.5 py-2 rounded-2xl hover:bg-[#EFECE4] flex items-center gap-3 text-left transition cursor-pointer"
                   >
-                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-white flex items-center justify-center shrink-0 transition">
+                    <span className="w-8 h-8 rounded-xl bg-[#EFECE4]/80 group-hover:bg-[#0284C7]/35 flex items-center justify-center shrink-0 transition">
                       <Building2 className="w-4 h-4 text-[#44403C]" />
                     </span>
                     <div className="min-w-0">
@@ -1074,7 +1077,46 @@ export const StudioHeaderBar: React.FC<StudioHeaderBarProps> = React.memo(
           )}
         </div>
 
-        {/* 3B kamera ve görünüm kontrolleri artık Alt Orta Yüzen Dock içinde birleştirildi */}
+        {/* Kolay Mod Yönlendirici 3 Adım Şeridi — yalnızca sağ denetçi kapalıyken görünür; ilk ekranda çifte bar ve çakışma yaratmaz */}
+        {!isShowroom && !isReadOnlyCustomer && experienceTier === "simple" && !isInspectorOpen && onQuickNavigateStep && (
+          <div
+            data-testid="v12-guided-step-strip"
+            className="pointer-events-auto inline-flex items-center gap-1 px-2 py-1 rounded-full bg-[#FAF8F4]/95 backdrop-blur-xl border border-[#DFD9CE] shadow-sm text-[11px] text-[#141413]"
+          >
+            <button
+              type="button"
+              onClick={() => onQuickNavigateStep("dimensions")}
+              className={`h-6 px-2.5 rounded-full font-semibold transition cursor-pointer ${
+                activeInspectorTab === "dimensions"
+                  ? "bg-[#141413] text-white"
+                  : "text-[#57534E] hover:text-[#141413]"
+              }`}
+            >
+              1. Ölçü &amp; Gövde
+            </button>
+            <span className="text-slate-300 font-bold" aria-hidden="true">→</span>
+            <button
+              type="button"
+              onClick={() => onQuickNavigateStep("interior")}
+              className={`h-6 px-2.5 rounded-full font-semibold transition cursor-pointer ${
+                activeInspectorTab !== "dimensions"
+                  ? "bg-[#141413] text-white"
+                  : "text-[#57534E] hover:text-[#141413]"
+              }`}
+            >
+              2. İç Düzen &amp; Yüzey
+            </button>
+            <span className="text-slate-300 font-bold" aria-hidden="true">→</span>
+            <button
+              type="button"
+              data-testid="v12-one-click-presentation-btn"
+              onClick={() => onQuickNavigateStep("showroom")}
+              className="h-6 px-2.5 rounded-full bg-gradient-to-br from-[#0284C7] via-[#1D4ED8] to-[#1E3A8A] hover:brightness-110 border border-[#38BDF8]/65 text-white font-bold shadow-[0_2px_12px_rgba(37,99,235,0.42)] transition cursor-pointer"
+            >
+              3. Sunumda Gör
+            </button>
+          </div>
+        )}
 
         {workspaceMode === "2d" && (
           <div className="pointer-events-auto max-w-[calc(100vw-16px)] overflow-x-auto no-scrollbar px-1.5 py-1 rounded-full bg-[#2A313F]/66 backdrop-blur-2xl border border-white/[0.22] ring-1 ring-black/50 shadow-[0_14px_36px_rgba(0,0,0,0.45)] flex items-center gap-1 text-xs text-[#F3F4F6] whitespace-nowrap">

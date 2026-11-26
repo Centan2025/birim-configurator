@@ -910,7 +910,7 @@ export const SceneObjectAndModuleHubModal: React.FC<SceneObjectAndModuleHubModal
                           ) : (
                             <Layers className="w-8 h-8 text-white/60" />
                           )}
-                          <span className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-amber-400/95 text-slate-950 text-[9.5px] font-extrabold shadow-xs">
+                          <span className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-amber-800/95 border border-amber-300/55 text-amber-50 text-[9.5px] font-extrabold shadow-xs">
                             {comp.badge}
                           </span>
                         </div>

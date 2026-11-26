@@ -136,6 +136,7 @@ export interface TenantWorkspaceProfile {
   planId: SaasPlanId;
   integrationMode: TenantIntegrationMode;
   webhookEndpointUrl?: string;
+  allowedEmbedOrigins?: string[];
   brand: TenantBrandTheme;
   construction: ConstructionRuleProfile;
   machine: TenantMachineProfile;
@@ -740,4 +741,42 @@ export function applyTenantConstructionToModule(
       doorMaterialId: defaultDoorMat,
     },
   };
+}
+
+
+export function sanitizeHttpOrigin(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  try {
+    const u = new URL(raw.trim());
+    if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+    return u.origin.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+export function normalizeAllowedEmbedOrigins(origins?: ReadonlyArray<string> | null): string[] {
+  if (!Array.isArray(origins)) return [];
+  const out = new Set<string>();
+  for (const item of origins) {
+    const clean = sanitizeHttpOrigin(item);
+    if (clean) out.add(clean);
+  }
+  return Array.from(out);
+}
+
+export function isOriginAllowedForTenantEmbed(
+  origin: string | null | undefined,
+  profile: Pick<TenantWorkspaceProfile, "allowedEmbedOrigins" | "brand">
+): boolean {
+  const normalized = normalizeAllowedEmbedOrigins(profile.allowedEmbedOrigins);
+  if (normalized.length === 0) return true;
+  const cleanCandidate = sanitizeHttpOrigin(origin);
+  if (!cleanCandidate) return false;
+  if (normalized.includes(cleanCandidate)) return true;
+  const customDom = (profile.brand?.customDomain || "").trim().toLowerCase();
+  if (customDom && (cleanCandidate === `https://${customDom}` || cleanCandidate === `http://${customDom}`)) {
+    return true;
+  }
+  return false;
 }

@@ -534,7 +534,7 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
                       : "bg-white hover:bg-[#FAF8F4] text-[#44403C] border-[#DFD9CE]"
                   }`}
                 >
-                  <span className={`font-mono text-[10px] px-1.5 py-0.5 rounded-md ${isSel ? "bg-sky-500 text-white" : "bg-[#EFECE4] text-[#57534E]"}`}>
+                  <span className={`font-mono text-[10px] px-1.5 py-0.5 rounded-md ${isSel ? "bg-sky-700 text-white" : "bg-[#EFECE4] text-[#57534E]"}`}>
                     M{idx + 1}
                   </span>
                   <span className="max-w-[140px] truncate">{m.name}</span>
@@ -1019,7 +1019,7 @@ export const AssemblyDiagramModal: React.FC<AssemblyDiagramModalProps> = ({
                       <span className="font-bold text-xs flex items-center gap-1.5">
                         <span
                           className={`w-5 h-5 rounded-full text-[10px] font-mono font-black flex items-center justify-center shrink-0 ${
-                            selected ? "bg-amber-400 text-[#141413]" : "bg-[#141413] text-white"
+                            selected ? "bg-amber-700 border border-amber-300/60 text-white" : "bg-[#141413] text-white"
                           }`}
                         >
                           {st.num}

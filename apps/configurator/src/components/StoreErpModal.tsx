@@ -707,7 +707,7 @@ function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
                     <div className="text-[10px] text-[#78716C] font-sans font-semibold">
                       Artık Plaka (≥400)
                     </div>
-                    <div className="font-extrabold text-cyan-800">
+                    <div className="font-extrabold text-cyan-300">
                       {liveErpNesting.summary.reclaimable_remnants_count} (
                       {liveErpNesting.summary.reclaimable_remnants_area_m2} m²)
                     </div>
@@ -839,7 +839,7 @@ function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
           <div className="p-5 rounded-2xl bg-white border border-[#E5DFD3] shadow-2xs space-y-3.5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-xl bg-cyan-50 border border-cyan-200 text-cyan-800">
+                <div className="p-2.5 rounded-xl bg-sky-500/20 border border-sky-400/45 text-cyan-300">
                   <CloudUpload className="w-5 h-5" />
                 </div>
                 <div>
@@ -903,7 +903,7 @@ function StoreErpModalInner({ isOpen, onClose }: StoreErpModalProps) {
                   href={lastR2ArchiveUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="font-mono text-[11px] text-cyan-800 font-semibold underline hover:text-cyan-950 truncate max-w-md"
+                  className="font-mono text-[11px] text-cyan-300 font-semibold underline hover:text-cyan-100 truncate max-w-md"
                 >
                   {lastR2ArchiveUrl}
                 </a>

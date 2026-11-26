@@ -15,7 +15,7 @@ import {
 import { V5_SPECIALIZED_MODULE_TEMPLATES } from "@birim/catalog";
 import { convertSceneObjectsToExportBoxes, generateModuleGeometry } from "@birim/geometry";
 import { useV3Adapter, type EngineeringValidationFinding } from "../v3/adapter/useV3Adapter";
-import { useConfiguratorStore } from "../store/useConfiguratorStore";
+import { useConfiguratorStore, type UserExperienceTier } from "../store/useConfiguratorStore";
 import { V3ThreeViewport } from "../v3/components/V3ThreeViewport";
 
 import { StudioHeaderBar } from "./StudioHeaderBar";
@@ -293,7 +293,23 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
   const [sectionRatio2D, setSectionRatio2D] = useState<number>(0.5);
 
   const [leftDrawer, setLeftDrawer] = useState<V11LeftDrawerTab>(null);
-  const [isInspectorOpen, setIsInspectorOpen] = useState<boolean>(true);
+  // Kolay modda tam sahne odaklı vitrin açılışı: sağ panel ilk saniyede kapalı başlar,
+  // dolaba/parçaya tıklandığında veya üstteki "1. Ölçü & Gövde" / "2. İç Düzen" adımına basıldığında açılır.
+  const [isInspectorOpen, setIsInspectorOpen] = useState<boolean>(() => experienceTier !== "simple");
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.innerWidth < 1024) {
+      setIsInspectorOpen(false);
+    }
+  }, []);
+  const handleChangeExperienceTier = useCallback(
+    (nextTier: UserExperienceTier) => {
+      setExperienceTier(nextTier);
+      if (nextTier !== "simple" && typeof window !== "undefined" && window.innerWidth >= 1024) {
+        setIsInspectorOpen(true);
+      }
+    },
+    [setExperienceTier]
+  );
   const [dismissedAutoFixKey, setDismissedAutoFixKey] = useState<string | null>(null);
   const [inspectorTab, setInspectorTab] = useState<V11InspectorTab>("interior");
   const [showDimensions3D, setShowDimensions3D] = useState<boolean>(true);
@@ -389,9 +405,15 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
   const handleChangeLeftDrawer = useCallback(
     (nextDrawer: V11LeftDrawerTab) => {
       setLeftDrawer(nextDrawer);
-      if (nextDrawer && deviceProfile.singleDrawerOnly) {
-        setIsInspectorOpen(false);
+      if (nextDrawer) {
         setQuickPaletteOpen(false);
+        setHardwareSwapTarget(null);
+        const narrowDualDrawer =
+          deviceProfile.singleDrawerOnly ||
+          (typeof window !== "undefined" && window.innerWidth < 1380);
+        if (narrowDualDrawer) {
+          setIsInspectorOpen(false);
+        }
       }
     },
     [deviceProfile.singleDrawerOnly]
@@ -618,8 +640,21 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
   }, []);
 
   const handleToggleQuickPalette = useCallback(() => {
-    setQuickPaletteOpen((v) => !v);
-  }, []);
+    setQuickPaletteOpen((v) => {
+      const next = !v;
+      if (next) {
+        setLeftDrawer(null);
+        setHardwareSwapTarget(null);
+        const narrowDualDrawer =
+          deviceProfile.singleDrawerOnly ||
+          (typeof window !== "undefined" && window.innerWidth < 1380);
+        if (narrowDualDrawer) {
+          setIsInspectorOpen(false);
+        }
+      }
+      return next;
+    });
+  }, [deviceProfile.singleDrawerOnly]);
 
   const handleTogglePaintBucketBtn = useCallback(() => {
     setPaintToolState((prev) => ({
@@ -767,13 +802,18 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
     return [...boxes, ...sceneBoxes];
   }, [arModalOpen, project.modules, project.sceneObjects]);
 
-  const hasSecondHeaderStrip = workspaceMode === "2d";
+  const hasSecondHeaderStrip =
+    workspaceMode === "2d" ||
+    (workspaceMode === "3d" &&
+      initialMode !== "showroom" &&
+      experienceTier === "simple" &&
+      !isInspectorOpen);
 
   const stageSafeInsets = useMemo(
     () => ({
-      topPx: hasSecondHeaderStrip ? 116 : 74,
+      topPx: hasSecondHeaderStrip ? 116 : 76,
       bottomPx: quickPaletteOpen ? 330 : 76,
-      leftPx: leftDrawer ? 492 : 76,
+      leftPx: leftDrawer ? 508 : quickPaletteOpen ? 576 : 76,
       rightPx: workspaceMode === "showroom" ? 24 : isInspectorOpen ? 444 : 68,
     }),
     [hasSecondHeaderStrip, quickPaletteOpen, leftDrawer, workspaceMode, isInspectorOpen]
@@ -1165,7 +1205,10 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
   const handleToggleInspectorOpen = useCallback(() => {
     setIsInspectorOpen((v) => {
       const next = !v;
-      if (next && deviceProfile.singleDrawerOnly) {
+      const narrowDualDrawer =
+        deviceProfile.singleDrawerOnly ||
+        (typeof window !== "undefined" && window.innerWidth < 1380);
+      if (next && narrowDualDrawer) {
         setLeftDrawer(null);
         setQuickPaletteOpen(false);
       }
@@ -1300,7 +1343,7 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
             placementMode={isInspectorOpen ? "docked" : "stage"}
             leftSafePx={leftDrawer ? 424 : 76}
             rightSafePx={isInspectorOpen ? 444 : 64}
-            hasGuidedStepStrip={experienceTier === "simple"}
+            hasGuidedStepStrip={experienceTier === "simple" && !isInspectorOpen}
             hasTopPaintBanner={paintToolState.mode !== "none"}
             materials={allMaterials}
             isInspectorOpen={isInspectorOpen}
@@ -1385,7 +1428,11 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
               removeSelectedInteriorComponent();
               setSelected3DContextLabel(null);
             }}
-            onOpenHardwareSwap={(group, bIdx) => setHardwareSwapTarget({ group, bayIndex: bIdx })}
+            onOpenHardwareSwap={(group, bIdx) => {
+              setLeftDrawer(null);
+              setQuickPaletteOpen(false);
+              setHardwareSwapTarget({ group, bayIndex: bIdx });
+            }}
             onOpenQuickPaletteDock={() => setQuickPaletteOpen(true)}
             onQuickApplyZoneMaterial={handleApplyZoneMaterial}
             onOpenInspectorDetails={() => {
@@ -1412,7 +1459,7 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
         split2DViewMode={split2DViewMode}
         onChangeSplit2DViewMode={setSplit2DViewMode}
         experienceTier={experienceTier}
-        onChangeExperienceTier={setExperienceTier}
+        onChangeExperienceTier={handleChangeExperienceTier}
         canUndo={canUndo}
         canRedo={canRedo}
         onUndo={undo}
@@ -1444,6 +1491,7 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
         uiFontScale={uiFontScale}
         onChangeUiFontScale={setUiFontScale}
         activeInspectorTab={inspectorTab}
+        isInspectorOpen={isInspectorOpen}
         onQuickNavigateStep={handleQuickNavigateStep}
         variantSlots={headerVariantSlots}
         activeVariantSlot={activeVariantSlot}
@@ -1669,7 +1717,7 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
           activeTab={inspectorTab}
           onChangeTab={setInspectorTab}
           experienceTier={experienceTier}
-          onChangeExperienceTier={setExperienceTier}
+          onChangeExperienceTier={handleChangeExperienceTier}
           modules={project.modules}
           activeModule={activeModule}
           activeModuleIndex={activeModuleIndex}
@@ -1843,7 +1891,8 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
         <div
           role="status"
           data-testid="v11-autosave-recovery-banner"
-          className="fixed top-[72px] left-1/2 -translate-x-1/2 z-40 max-w-[min(92vw,540px)] px-4 py-2.5 rounded-2xl bg-[#141413]/95 backdrop-blur-md border border-amber-400/40 text-white text-xs shadow-xl flex flex-wrap items-center justify-between gap-3"
+          style={{ top: `${stageSafeInsets.topPx + 6}px` }}
+          className="fixed left-1/2 -translate-x-1/2 z-50 max-w-[min(92vw,540px)] px-4 py-2.5 rounded-2xl bg-[#141413]/95 backdrop-blur-md border border-amber-400/40 text-white text-xs shadow-xl flex flex-wrap items-center justify-between gap-3"
         >
           <div className="min-w-0">
             <span className="font-semibold text-amber-300">Otomatik taslak bulundu:</span>{" "}
@@ -1863,7 +1912,7 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
                     : `Taslak geri yüklenemedi: ${res.error || "Bilinmeyen hata"}`
                 );
               }}
-              className="px-3 py-1 rounded-xl bg-amber-400 text-[#141413] font-bold hover:bg-amber-300 transition cursor-pointer"
+              className="px-3 py-1 rounded-xl bg-amber-700 hover:bg-amber-600 border border-amber-400/55 text-white font-bold transition cursor-pointer"
             >
               Geri Yükle
             </button>
@@ -1882,7 +1931,7 @@ export const BirimStudioWorkspace: React.FC<BirimStudioWorkspaceProps> = ({
       )}
 
       {/* 6. TÜM MODALLAR İÇİN YAY ANİMASYONLU AÇILIŞ & KAPANIŞ SAHNESİ */}
-      <StudioModalsLayer ArRoomPreviewModal={ArRoomPreviewModal} AssemblyDiagramModal={AssemblyDiagramModal} BomModal={BomModal} CommandSearchModal={CommandSearchModal} CustomHardwareModal={CustomHardwareModal} DoorSystemsShowcaseModal={DoorSystemsShowcaseModal} GuidedSetupModal={GuidedSetupModal} KitchenIslandTableModal={KitchenIslandTableModal} MepCoordinationModal={MepCoordinationModal} PanelCutoutModal={PanelCutoutModal} ProductionSheetStudioModal={ProductionSheetStudioModal} QuoteSummaryModal={QuoteSummaryModal} RulesStandardsModal={RulesStandardsModal} SaasTenantStudioModal={SaasTenantStudioModal} SceneObjectAndModuleHubModal={SceneObjectAndModuleHubModal} StoreErpModal={StoreErpModal} StudioRenderModal={StudioRenderModal} V3ProjectModal={V3ProjectModal} activeBayIndex={activeBayIndex} activeModule={activeModule} activeModuleIndex={activeModuleIndex} activeTenantId={activeTenantId} addCompositeAssemblyPreset={addCompositeAssemblyPreset} addCustomCapsuleModule={addCustomCapsuleModule} addCustomSceneObject={addCustomSceneObject} addKitchenIslandUnit={addKitchenIslandUnit} addOrUpdateAttachedTable={addOrUpdateAttachedTable} addSceneObjectFromCatalog={addSceneObjectFromCatalog} allFindings={allFindings} allMaterials={allMaterials} appendModuleWithMultiWallSnap={appendModuleWithMultiWallSnap} applyApprovedEngineeringFix={applyApprovedEngineeringFix} applyGuidedWizardLayout={applyGuidedWizardLayout} arExportParts={arExportParts} arModalOpen={arModalOpen} assemblyModalOpen={assemblyModalOpen} autoResolveCornerCollisions={autoResolveCornerCollisions} blockingCount={blockingCount} bom={bom} bomModalTab={bomModalTab} commandActions={commandActions} commandSearchOpen={commandSearchOpen} copyDoorConfigToAllBays={copyDoorConfigToAllBays} customHardwareOpen={customHardwareOpen} customStdRules={customStdRules} cutoutModalOpen={cutoutModalOpen} deleteCustomModuleTemplate={deleteCustomModuleTemplate} displayUnit={displayUnit} doorShowcaseOpen={doorShowcaseOpen} duplicateSceneObject={duplicateSceneObject} ergonomicProfileId={ergonomicProfileId} fillWallGapWithParametricModule={fillWallGapWithParametricModule} hardwareSwapTarget={hardwareSwapTarget} importRoomPlanLiDARJson={importRoomPlanLiDARJson} isShowroom={isShowroom} kitchenIslandOpen={kitchenIslandOpen} loadDoorSystemsShowcase={loadDoorSystemsShowcase} mepModalOpen={mepModalOpen} newStdCategory={newStdCategory} newStdMetric={newStdMetric} newStdName={newStdName} newStdRef={newStdRef} newStdSeverity={newStdSeverity} newStdThreshold={newStdThreshold} pricing={pricing} productionSheetModalOpen={productionSheetModalOpen} project={project} projectModalOpen={projectModalOpen} quoteModalOpen={quoteModalOpen} regionalErgonomicProfiles={regionalErgonomicProfiles} removeSceneObject={removeSceneObject} rulesTab={rulesTab} runAutoFillersAndCrown={runAutoFillersAndCrown} runAutoNotchObstacles={runAutoNotchObstacles} saasModalOpen={saasModalOpen} saveActiveModuleAsCustomTemplate={saveActiveModuleAsCustomTemplate} sceneHubTab={sceneHubTab} selectedSceneObjectId={selectedSceneObjectId} setArModalOpen={setArModalOpen} setAssemblyModalOpen={setAssemblyModalOpen} setBayV4DoorConfig={setBayV4DoorConfig} setBomModalTab={setBomModalTab} setCatalogBump={setCatalogBump} setCommandSearchOpen={setCommandSearchOpen} setCustomHardwareOpen={setCustomHardwareOpen} setCustomStdRules={setCustomStdRules} setCutoutModalOpen={setCutoutModalOpen} setDoorShowcaseOpen={setDoorShowcaseOpen} setErgonomicProfileId={setErgonomicProfileId} setHangingRailProfile={setHangingRailProfile} setHardwareSwapTarget={setHardwareSwapTarget} setKitchenIslandOpen={setKitchenIslandOpen} setMepModalOpen={setMepModalOpen} setModuleUtilityCutouts={setModuleUtilityCutouts} setNewStdCategory={setNewStdCategory} setNewStdMetric={setNewStdMetric} setNewStdName={setNewStdName} setNewStdRef={setNewStdRef} setNewStdSeverity={setNewStdSeverity} setNewStdThreshold={setNewStdThreshold} setProductionSheetModalOpen={setProductionSheetModalOpen} setProjectModalOpen={setProjectModalOpen} setQuoteModalOpen={setQuoteModalOpen} setRulesTab={setRulesTab} setSaasModalOpen={setSaasModalOpen} setSceneHubTab={setSceneHubTab} setSelectedSceneObjectId={setSelectedSceneObjectId} setStandardsModalOpen={setStandardsModalOpen} setStoreErpOpen={setStoreErpOpen} setStudioRenderOpen={setStudioRenderOpen} setWizardModalOpen={setWizardModalOpen} showToast={showToast} spaceObstacles={spaceObstacles} spaceWalls={spaceWalls} standardsModalOpen={standardsModalOpen} storeErpOpen={storeErpOpen} studioRenderOpen={studioRenderOpen} updateBayDrawerConfig={updateBayDrawerConfig} updateSceneObject={updateSceneObject} wizardModalOpen={wizardModalOpen} workspaceMode={workspaceMode} />
+      <StudioModalsLayer ArRoomPreviewModal={ArRoomPreviewModal} AssemblyDiagramModal={AssemblyDiagramModal} BomModal={BomModal} CommandSearchModal={CommandSearchModal} CustomHardwareModal={CustomHardwareModal} DoorSystemsShowcaseModal={DoorSystemsShowcaseModal} GuidedSetupModal={GuidedSetupModal} KitchenIslandTableModal={KitchenIslandTableModal} MepCoordinationModal={MepCoordinationModal} PanelCutoutModal={PanelCutoutModal} ProductionSheetStudioModal={ProductionSheetStudioModal} QuoteSummaryModal={QuoteSummaryModal} RulesStandardsModal={RulesStandardsModal} SaasTenantStudioModal={SaasTenantStudioModal} SceneObjectAndModuleHubModal={SceneObjectAndModuleHubModal} StoreErpModal={StoreErpModal} StudioRenderModal={StudioRenderModal} V3ProjectModal={V3ProjectModal} activeBayIndex={activeBayIndex} activeModule={activeModule} activeModuleIndex={activeModuleIndex} activeTenantId={activeTenantId} addCompositeAssemblyPreset={addCompositeAssemblyPreset} addCustomCapsuleModule={addCustomCapsuleModule} addCustomSceneObject={addCustomSceneObject} addKitchenIslandUnit={addKitchenIslandUnit} addOrUpdateAttachedTable={addOrUpdateAttachedTable} addSceneObjectFromCatalog={addSceneObjectFromCatalog} allFindings={allFindings} allMaterials={allMaterials} appendModuleWithMultiWallSnap={appendModuleWithMultiWallSnap} applyApprovedEngineeringFix={applyApprovedEngineeringFix} applyGuidedWizardLayout={applyGuidedWizardLayout} arExportParts={arExportParts} arModalOpen={arModalOpen} assemblyModalOpen={assemblyModalOpen} autoResolveCornerCollisions={autoResolveCornerCollisions} blockingCount={blockingCount} bom={bom} bomModalTab={bomModalTab} commandActions={commandActions} commandSearchOpen={commandSearchOpen} copyDoorConfigToAllBays={copyDoorConfigToAllBays} customHardwareOpen={customHardwareOpen} customStdRules={customStdRules} cutoutModalOpen={cutoutModalOpen} deleteCustomModuleTemplate={deleteCustomModuleTemplate} displayUnit={displayUnit} doorShowcaseOpen={doorShowcaseOpen} duplicateSceneObject={duplicateSceneObject} ergonomicProfileId={ergonomicProfileId} fillWallGapWithParametricModule={fillWallGapWithParametricModule} hardwareSwapTarget={hardwareSwapTarget} importRoomPlanLiDARJson={importRoomPlanLiDARJson} isInspectorOpen={isInspectorOpen} isShowroom={isShowroom} kitchenIslandOpen={kitchenIslandOpen} loadDoorSystemsShowcase={loadDoorSystemsShowcase} mepModalOpen={mepModalOpen} newStdCategory={newStdCategory} newStdMetric={newStdMetric} newStdName={newStdName} newStdRef={newStdRef} newStdSeverity={newStdSeverity} newStdThreshold={newStdThreshold} pricing={pricing} productionSheetModalOpen={productionSheetModalOpen} project={project} projectModalOpen={projectModalOpen} quoteModalOpen={quoteModalOpen} regionalErgonomicProfiles={regionalErgonomicProfiles} removeSceneObject={removeSceneObject} rulesTab={rulesTab} runAutoFillersAndCrown={runAutoFillersAndCrown} runAutoNotchObstacles={runAutoNotchObstacles} saasModalOpen={saasModalOpen} saveActiveModuleAsCustomTemplate={saveActiveModuleAsCustomTemplate} sceneHubTab={sceneHubTab} selectedSceneObjectId={selectedSceneObjectId} setArModalOpen={setArModalOpen} setAssemblyModalOpen={setAssemblyModalOpen} setBayV4DoorConfig={setBayV4DoorConfig} setBomModalTab={setBomModalTab} setCatalogBump={setCatalogBump} setCommandSearchOpen={setCommandSearchOpen} setCustomHardwareOpen={setCustomHardwareOpen} setCustomStdRules={setCustomStdRules} setCutoutModalOpen={setCutoutModalOpen} setDoorShowcaseOpen={setDoorShowcaseOpen} setErgonomicProfileId={setErgonomicProfileId} setHangingRailProfile={setHangingRailProfile} setHardwareSwapTarget={setHardwareSwapTarget} setKitchenIslandOpen={setKitchenIslandOpen} setMepModalOpen={setMepModalOpen} setModuleUtilityCutouts={setModuleUtilityCutouts} setNewStdCategory={setNewStdCategory} setNewStdMetric={setNewStdMetric} setNewStdName={setNewStdName} setNewStdRef={setNewStdRef} setNewStdSeverity={setNewStdSeverity} setNewStdThreshold={setNewStdThreshold} setProductionSheetModalOpen={setProductionSheetModalOpen} setProjectModalOpen={setProjectModalOpen} setQuoteModalOpen={setQuoteModalOpen} setRulesTab={setRulesTab} setSaasModalOpen={setSaasModalOpen} setSceneHubTab={setSceneHubTab} setSelectedSceneObjectId={setSelectedSceneObjectId} setStandardsModalOpen={setStandardsModalOpen} setStoreErpOpen={setStoreErpOpen} setStudioRenderOpen={setStudioRenderOpen} setWizardModalOpen={setWizardModalOpen} showToast={showToast} spaceObstacles={spaceObstacles} spaceWalls={spaceWalls} standardsModalOpen={standardsModalOpen} storeErpOpen={storeErpOpen} studioRenderOpen={studioRenderOpen} updateBayDrawerConfig={updateBayDrawerConfig} updateSceneObject={updateSceneObject} wizardModalOpen={wizardModalOpen} workspaceMode={workspaceMode} />
 
       {/* 3B Galeri Modundayken Paralel Modül İsim Şeridi (Tek Tıkla Seç & İncele) */}
       {workspaceMode === "3d" &&

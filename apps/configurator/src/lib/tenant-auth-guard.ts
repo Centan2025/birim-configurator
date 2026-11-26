@@ -141,10 +141,55 @@ export function verifyTenantSessionToken(rawToken: string | null | undefined): T
   }
 }
 
+/**
+ * Extracts a trustworthy client IP identifier without falling prey to left-prepended
+ * `X-Forwarded-For` spoofing. Prefers edge-terminated headers (`x-vercel-forwarded-for`,
+ * `cf-connecting-ip`, `x-real-ip`) and falls back to the rightmost proxy-appended hop
+ * of `x-forwarded-for`.
+ */
+export function resolveTrustedClientIp(req: Pick<Request, "headers">): string {
+  const sanitizeIp = (raw: string | null | undefined): string | null => {
+    if (!raw) return null;
+    const clean = raw.trim().slice(0, 64).replace(/[^a-fA-F0-9.:%_a-zA-Z-]/g, "");
+    return clean || null;
+  };
+
+  const vercelIp = sanitizeIp(req.headers.get("x-vercel-forwarded-for")?.split(",")[0]);
+  if (vercelIp) return vercelIp;
+
+  const cfIp = sanitizeIp(req.headers.get("cf-connecting-ip"));
+  if (cfIp) return cfIp;
+
+  const realIp = sanitizeIp(req.headers.get("x-real-ip"));
+  if (realIp) return realIp;
+
+  const xff = req.headers.get("x-forwarded-for");
+  if (xff) {
+    const hops = xff
+      .split(",")
+      .map((s) => sanitizeIp(s))
+      .filter((s): s is string => Boolean(s));
+    if (hops.length > 0) {
+      return hops[hops.length - 1];
+    }
+  }
+
+  return "anonymous";
+}
+
 function mapLegacySessionRoleToSaasRole(legacyRole?: string | null): SaasRoleId {
+  // Security Guard: Never allow unauthenticated callers to self-assign elevated roles
+  // in production or when strict unauthenticated role clamping is active.
+  if (
+    process.env.NODE_ENV === "production" ||
+    process.env.MODUL_SAAS_STRICT_UNAUTH_ROLE === "true"
+  ) {
+    return "readonly_viewer";
+  }
+
   const normalized = (legacyRole || "").trim().toLowerCase();
   if (!normalized) {
-    return process.env.NODE_ENV === "production" ? "readonly_viewer" : "org_owner";
+    return "org_owner";
   }
   switch (normalized) {
     case "owner":
@@ -177,15 +222,6 @@ function mapLegacySessionRoleToSaasRole(legacyRole?: string | null): SaasRoleId 
   }
 }
 
-/**
- * Zero-Trust Multi-Tenant Request Resolver:
- * 1. If a signed `x-modul-session-token` or `Authorization: Bearer mdl_sess_...` is supplied,
- *    the tenantId & role come EXCLUSIVELY from the verified cryptographic token, and any attempt
- *    to pass a mismatched `organizationId` / `tenantId` in headers or JSON body throws `403 TENANT_SPOOFING_BLOCKED`.
- * 2. When `MODUL_SAAS_REQUIRE_AUTH=true` in production SaaS deployments, unauthenticated requests are rejected with `401`.
- * 3. In local development / legacy Birim single-tenant RPC tests without bearer tokens, gracefully resolves the tenant
- *    profile while isolating non-Birim tenants from Birim's sibling `.env` files.
- */
 export function extractCookieValue(
   cookieHeader: string | null | undefined,
   cookieName: string
@@ -208,8 +244,19 @@ export function extractCookieValue(
   return null;
 }
 
+/**
+ * Zero-Trust Multi-Tenant Request Resolver:
+ * 1. If a signed `x-modul-session-token`, `Authorization: Bearer mdl_sess_...`, or `modul_session` cookie
+ *    is supplied, `tenantId` & `role` come EXCLUSIVELY from the verified cryptographic token, and any
+ *    attempt to pass a mismatched `organizationId` / `tenantId` throws `403 TENANT_SPOOFING_BLOCKED`.
+ * 2. In `NODE_ENV === "production"` (or when `MODUL_SAAS_REQUIRE_AUTH=true`), unauthenticated requests
+ *    are unconditionally rejected with `401 AUTH_SESSION_REQUIRED` (ignoring accidental `MODUL_SAAS_REQUIRE_AUTH=false`
+ *    unless `MODUL_UNSAFE_ALLOW_UNAUTH_PROD=true` is explicitly set for isolated local build audits).
+ * 3. In local development / automated unit tests without bearer tokens, resolves the tenant profile
+ *    while isolating non-Birim tenants from Birim's sibling `.env` files.
+ */
 export function resolveTenantRequestContext(
-  req: Request,
+  req?: Request | null,
   bodyHint?: {
     organizationId?: string | null;
     tenantId?: string | null;
@@ -218,15 +265,15 @@ export function resolveTenantRequestContext(
     sessionRole?: string | null;
   }
 ): ResolvedTenantRequestContext {
-  const authHeader = req.headers.get("authorization") || "";
+  const authHeader = req?.headers?.get("authorization") || "";
   const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : null;
-  const cookieToken = extractCookieValue(req.headers.get("cookie"), "modul_session");
-  const headerToken = req.headers.get("x-modul-session-token") || bearerToken || cookieToken;
+  const cookieToken = extractCookieValue(req?.headers?.get("cookie"), "modul_session");
+  const headerToken = req?.headers?.get("x-modul-session-token") || bearerToken || cookieToken;
 
   const explicitHeaderOrgId =
-    req.headers.get("x-modul-tenant-id") ||
-    req.headers.get("x-birim-org-id");
-  const passiveMiddlewareSlug = req.headers.get("x-modul-resolved-tenant-slug");
+    req?.headers?.get("x-modul-tenant-id") ||
+    req?.headers?.get("x-birim-org-id");
+  const passiveMiddlewareSlug = req?.headers?.get("x-modul-resolved-tenant-slug");
   const explicitRequestedOrgRaw = (
     bodyHint?.tenantId ||
     bodyHint?.organizationId ||
@@ -281,9 +328,11 @@ export function resolveTenantRequestContext(
     };
   }
 
+  const isProdStrict =
+    process.env.NODE_ENV === "production" &&
+    process.env.MODUL_UNSAFE_ALLOW_UNAUTH_PROD !== "true";
   const requireAuth =
-    process.env.MODUL_SAAS_REQUIRE_AUTH === "true" ||
-    (process.env.NODE_ENV === "production" && process.env.MODUL_SAAS_REQUIRE_AUTH !== "false");
+    process.env.MODUL_SAAS_REQUIRE_AUTH === "true" || isProdStrict;
   if (requireAuth) {
     throw new TenantSecurityError(
       "AUTH_SESSION_REQUIRED",
@@ -364,12 +413,61 @@ export function assertTenantPermissionAndEntitlement(
 }
 
 const MAX_RATE_LIMIT_BUCKETS = 4096;
+let rateLimitHydratedFromLedger = false;
+
+function hydrateRateLimitBucketsFromLedgerOnce(): void {
+  if (rateLimitHydratedFromLedger) return;
+  rateLimitHydratedFromLedger = true;
+  try {
+    const ledger = readSaasPersistentLedger() as unknown as {
+      rateLimitBuckets?: Record<string, { count: number; resetAtMs: number }>;
+    };
+    const saved = ledger.rateLimitBuckets;
+    if (!saved || typeof saved !== "object") return;
+    const now = Date.now();
+    for (const [k, v] of Object.entries(saved)) {
+      if (v && typeof v.count === "number" && typeof v.resetAtMs === "number" && v.resetAtMs > now) {
+        RATE_LIMIT_BUCKETS.set(k, { count: v.count, resetAtMs: v.resetAtMs });
+      }
+    }
+  } catch {
+    // Non-fatal
+  }
+}
+
+function persistRateLimitBucketToLedger(key: string, bucket: { count: number; resetAtMs: number }): void {
+  try {
+    const ledger = readSaasPersistentLedger() as unknown as {
+      rateLimitBuckets?: Record<string, { count: number; resetAtMs: number }>;
+    };
+    if (!ledger.rateLimitBuckets) {
+      ledger.rateLimitBuckets = {};
+    }
+    ledger.rateLimitBuckets[key] = bucket;
+    // Periodically prune expired keys in ledger snapshot
+    const entries = Object.entries(ledger.rateLimitBuckets);
+    if (entries.length > 512) {
+      const now = Date.now();
+      for (const [k, v] of entries) {
+        if (!v || v.resetAtMs <= now) delete ledger.rateLimitBuckets[k];
+      }
+    }
+    flushSaasPersistentLedger();
+  } catch {
+    // Non-fatal on read-only containers
+  }
+}
+
+export function resetTenantRateLimitBucketsForTests(): void {
+  RATE_LIMIT_BUCKETS.clear();
+}
 
 export function checkTenantRateLimit(
   tenantId: string,
   bucketName: string,
   maxRequestsPerMinute = 120
 ): void {
+  hydrateRateLimitBucketsFromLedgerOnce();
   const now = Date.now();
   if (RATE_LIMIT_BUCKETS.size > MAX_RATE_LIMIT_BUCKETS) {
     for (const [k, v] of RATE_LIMIT_BUCKETS.entries()) {
@@ -383,10 +481,13 @@ export function checkTenantRateLimit(
   const key = `${tenantId}:${bucketName}`;
   const entry = RATE_LIMIT_BUCKETS.get(key);
   if (!entry || now >= entry.resetAtMs) {
-    RATE_LIMIT_BUCKETS.set(key, { count: 1, resetAtMs: now + 60_000 });
+    const fresh = { count: 1, resetAtMs: now + 60_000 };
+    RATE_LIMIT_BUCKETS.set(key, fresh);
+    persistRateLimitBucketToLedger(key, fresh);
     return;
   }
   entry.count += 1;
+  persistRateLimitBucketToLedger(key, entry);
   if (entry.count > maxRequestsPerMinute) {
     throw new TenantSecurityError(
       "RATE_LIMIT_EXCEEDED",

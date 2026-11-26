@@ -258,7 +258,7 @@ export const RulesStandardsModal: React.FC<RulesStandardsModalProps> = ({
                                   text: `✓ Onaylı düzeltme uygulandı: ${prop.label}`,
                                 });
                               }}
-                              className="px-2.5 py-1 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-[11px] cursor-pointer transition"
+                              className="px-2.5 py-1 rounded-lg bg-emerald-700 hover:bg-emerald-700 text-white font-bold text-[11px] cursor-pointer transition"
                             >
                               ✓ Onayla ve Uygula: {prop.label}
                             </button>
@@ -302,7 +302,7 @@ export const RulesStandardsModal: React.FC<RulesStandardsModalProps> = ({
                           type="button"
                           onClick={() => setCustomStdRules(toggleCustomStandardRule(cr.id, tenantId))}
                           className={`px-2.5 py-1 rounded-lg text-[10px] font-bold cursor-pointer ${
-                            cr.enabled ? "bg-emerald-600 text-white" : "bg-stone-200 text-stone-600"
+                            cr.enabled ? "bg-emerald-700 text-white" : "bg-stone-200 text-stone-600"
                           }`}
                         >
                           {cr.enabled ? "Aktif" : "Pasif"}

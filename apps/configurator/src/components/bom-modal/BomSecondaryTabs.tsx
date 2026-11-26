@@ -412,7 +412,7 @@ export const BomSecondaryTabs: React.FC<BomSecondaryTabsProps> = (props) => {
                                 <td className="p-2 text-emerald-800 font-bold">
                                   {drw.woodenBackWidthMm} × {drw.woodenBackHeightMm} mm (16mm)
                                 </td>
-                                <td className="p-2 text-purple-800">
+                                <td className="p-2 text-violet-200">
                                   Y:{drw.easystickElevationYMm}mm → X:[
                                   {drw.easystickSideHoleXCoordsMm.join(", ")}]
                                 </td>

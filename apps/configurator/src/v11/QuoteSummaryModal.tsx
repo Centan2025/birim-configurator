@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { X, Printer, FileSpreadsheet, Store, CheckCircle2 } from "lucide-react";
+import { X, Printer, FileSpreadsheet, Store, CheckCircle2, Compass } from "lucide-react";
 import type { DesignProject, MaterialDefinition } from "@birim/core";
 import type { PricingBreakdown } from "@birim/pricing";
 import { BirimLogo } from "../v3/design-system";
@@ -14,6 +14,15 @@ export interface QuoteSummaryModalProps {
   onClose: () => void;
   onOpenBomModal: (tab?: "cutlist" | "nesting" | "cnc_mpr_cix") => void;
   onOpenStoreErpModal: () => void;
+}
+
+export function escapeHtmlForQuotePrint(raw: unknown): string {
+  return String(raw ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 export const QuoteSummaryModal: React.FC<QuoteSummaryModalProps> = React.memo(
@@ -32,9 +41,17 @@ export const QuoteSummaryModal: React.FC<QuoteSummaryModalProps> = React.memo(
     const [snapshotUrl, setSnapshotUrl] = useState<string | null>(null);
     const [selectedPackageTier, setSelectedPackageTier] = useState<"eco" | "std" | "pro">("std");
     const [sampleRequested, setSampleRequested] = useState(false);
+    const [sampleTrackingCode, setSampleTrackingCode] = useState<string | null>(null);
+    const [architectRequested, setArchitectRequested] = useState(false);
+    const [architectTrackingCode, setArchitectTrackingCode] = useState<string | null>(null);
+    const [conciergeBusy, setConciergeBusy] = useState(false);
 
     useEffect(() => {
       if (!isOpen || typeof window === "undefined") return;
+      const onEsc = (e: KeyboardEvent) => {
+        if (e.key === "Escape") onClose();
+      };
+      window.addEventListener("keydown", onEsc);
       const win = window as unknown as {
         __birimCapture3DSnapshot?: (opts?: {
           angle?: "current" | "iso" | "front";
@@ -44,12 +61,13 @@ export const QuoteSummaryModal: React.FC<QuoteSummaryModalProps> = React.memo(
       if (typeof win.__birimCapture3DSnapshot === "function") {
         try {
           const snap = win.__birimCapture3DSnapshot({ angle: "current", hideOverlays: true });
-          if (snap) setSnapshotUrl(snap);
+          if (snap && snap.startsWith("data:image/")) setSnapshotUrl(snap);
         } catch {
           // ignore snapshot error
         }
       }
-    }, [isOpen]);
+      return () => window.removeEventListener("keydown", onEsc);
+    }, [isOpen, onClose]);
 
     if (!isOpen) return null;
 
@@ -70,23 +88,91 @@ export const QuoteSummaryModal: React.FC<QuoteSummaryModalProps> = React.memo(
     const resolveMatName = (id?: string) =>
       materials.find((m) => m.id === id)?.name || id || "Standart";
 
+    const submitConciergeRequest = async (kind: "sample_box" | "architect_review") => {
+      if (conciergeBusy) return;
+      setConciergeBusy(true);
+      const uniqueSwatches = Array.from(
+        new Set(
+          mainModules.flatMap((m) => [
+            m.carcass.doorMaterialId,
+            m.carcass.bodyMaterialId,
+            m.carcass.countertopMaterialId,
+          ])
+        )
+      )
+        .filter((x): x is string => Boolean(x))
+        .slice(0, 3);
+
+      try {
+        const res = await fetch("/api/quotes/concierge", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            requestKind: kind,
+            tenantId: project.tenantId,
+            projectId: project.id,
+            projectTitle: project.title,
+            customerName: clientName,
+            contactNote: projectNote,
+            swatchIds: uniqueSwatches,
+            moduleCount: mainModules.length,
+          }),
+        });
+        const data = (await res.json()) as {
+          ok?: boolean;
+          request?: { trackingCode?: string };
+        };
+        const code =
+          data?.request?.trackingCode ||
+          `${kind === "sample_box" ? "SMP" : "ARC"}-${project.id.slice(-6).toUpperCase()}`;
+        if (kind === "sample_box") {
+          setSampleRequested(true);
+          setSampleTrackingCode(code);
+        } else {
+          setArchitectRequested(true);
+          setArchitectTrackingCode(code);
+        }
+      } catch {
+        const fallbackCode = `${kind === "sample_box" ? "SMP" : "ARC"}-LOCAL`;
+        if (kind === "sample_box") {
+          setSampleRequested(true);
+          setSampleTrackingCode(fallbackCode);
+        } else {
+          setArchitectRequested(true);
+          setArchitectTrackingCode(fallbackCode);
+        }
+      } finally {
+        setConciergeBusy(false);
+      }
+    };
+
     const handlePrintOffer = () => {
       if (typeof window === "undefined") return;
       const w = window.open("", "_blank", "width=960,height=780");
       if (!w) return;
+      const safeProjectTitle = escapeHtmlForQuotePrint(project.title);
+      const safeClientName = escapeHtmlForQuotePrint(clientName);
+      const safeProjectNote = escapeHtmlForQuotePrint(projectNote);
+      const safeSnapshot =
+        snapshotUrl && snapshotUrl.startsWith("data:image/")
+          ? escapeHtmlForQuotePrint(snapshotUrl)
+          : null;
+
       const rowsHtml = mainModules
         .map(
           (m, i) => `
           <tr>
-            <td style="padding:10px 12px;border-bottom:1px solid #e5e0d5;">${i + 1}. ${m.name}</td>
+            <td style="padding:10px 12px;border-bottom:1px solid #e5e0d5;">${i + 1}. ${escapeHtmlForQuotePrint(
+              m.name
+            )}</td>
             <td style="padding:10px 12px;border-bottom:1px solid #e5e0d5;font-family:monospace;">${Math.round(
               m.dimensions.width / 10
             )} × ${Math.round(m.dimensions.height / 10)} × ${Math.round(
             m.dimensions.depth / 10
           )} cm</td>
-            <td style="padding:10px 12px;border-bottom:1px solid #e5e0d5;">${resolveMatName(
-              m.carcass.doorMaterialId
-            )} / ${resolveMatName(m.carcass.bodyMaterialId)}</td>
+            <td style="padding:10px 12px;border-bottom:1px solid #e5e0d5;">${escapeHtmlForQuotePrint(
+              resolveMatName(m.carcass.doorMaterialId)
+            )} / ${escapeHtmlForQuotePrint(resolveMatName(m.carcass.bodyMaterialId))}</td>
             <td style="padding:10px 12px;border-bottom:1px solid #e5e0d5;text-align:center;">${
               m.bays.length
             }</td>
@@ -98,7 +184,7 @@ export const QuoteSummaryModal: React.FC<QuoteSummaryModalProps> = React.memo(
 <html lang="tr">
 <head>
   <meta charset="utf-8" />
-  <title>BİRİM Teklif — ${project.title}</title>
+  <title>BİRİM Teklif — ${safeProjectTitle}</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #141413; background: #fff; margin: 36px; }
     h1 { font-size: 20px; margin: 0 0 4px; }
@@ -110,15 +196,15 @@ export const QuoteSummaryModal: React.FC<QuoteSummaryModalProps> = React.memo(
   <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #141413;padding-bottom:16px;">
     <div>
       <h1>BİRİM® Mimari Modüler Mobilya Teklifi</h1>
-      <div style="font-size:13px;color:#57534e;">Proje: ${project.title} ${
-        clientName ? `• Müşteri: ${clientName}` : ""
+      <div style="font-size:13px;color:#57534e;">Proje: ${safeProjectTitle} ${
+        safeClientName ? `• Müşteri: ${safeClientName}` : ""
       }</div>
     </div>
     <div style="font-size:12px;color:#78716c;">Tarih: ${new Date().toLocaleDateString("tr-TR")}</div>
   </div>
   ${
-    snapshotUrl
-      ? `<div style="margin:20px 0;text-align:center;"><img src="${snapshotUrl}" style="max-width:100%;max-height:340px;border-radius:16px;border:1px solid #e5dfd3;" /></div>`
+    safeSnapshot
+      ? `<div style="margin:20px 0;text-align:center;"><img src="${safeSnapshot}" style="max-width:100%;max-height:340px;border-radius:16px;border:1px solid #e5dfd3;" /></div>`
       : ""
   }
   <table>
@@ -127,7 +213,18 @@ export const QuoteSummaryModal: React.FC<QuoteSummaryModalProps> = React.memo(
     </thead>
     <tbody>${rowsHtml}</tbody>
   </table>
-  ${projectNote ? `<p style="margin-top:16px;font-size:13px;color:#44403c;"><strong>Proje Notu:</strong> ${projectNote}</p>` : ""}
+  ${safeProjectNote ? `<p style="margin-top:16px;font-size:13px;color:#44403c;"><strong>Proje Notu:</strong> ${safeProjectNote}</p>` : ""}
+  ${
+    sampleTrackingCode || architectTrackingCode
+      ? `<p style="margin-top:10px;font-size:12px;color:#1e3a8a;font-family:monospace;">${
+          sampleTrackingCode ? `Numune Kodu: ${escapeHtmlForQuotePrint(sampleTrackingCode)} ` : ""
+        }${
+          architectTrackingCode
+            ? `• Mimari İnceleme Kodu: ${escapeHtmlForQuotePrint(architectTrackingCode)}`
+            : ""
+        }</p>`
+      : ""
+  }
   <div style="margin-top:24px;padding:18px;border-radius:14px;background:#f5f2ea;display:flex;justify-content:space-between;align-items:center;">
     <span style="font-size:14px;font-weight:600;">KDV Dahil Toplam Teklif Bedeli${
       discountPct > 0 ? ` (%${discountPct} İskontolu)` : ""
@@ -145,6 +242,9 @@ export const QuoteSummaryModal: React.FC<QuoteSummaryModalProps> = React.memo(
 
     return (
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Fiyat Özeti, Teklif ve Sipariş Penceresi"
         data-testid="v11-quote-summary-modal"
         className="fixed inset-0 z-[154] bg-[#141413]/50 backdrop-blur-xs flex items-center justify-center p-0 md:p-5"
         onClick={onClose}
@@ -161,6 +261,7 @@ export const QuoteSummaryModal: React.FC<QuoteSummaryModalProps> = React.memo(
             </div>
             <button
               type="button"
+              aria-label="Teklif penceresini kapat"
               onClick={onClose}
               className="w-8 h-8 rounded-full hover:bg-[#EFECE4] flex items-center justify-center cursor-pointer"
             >
@@ -205,7 +306,9 @@ export const QuoteSummaryModal: React.FC<QuoteSummaryModalProps> = React.memo(
                   <div className="flex items-center justify-between pt-1">
                     <span className="text-[#57534E]">Özel İskonto (%)</span>
                     <input
-                      type="number" inputMode="decimal"
+                      type="number"
+                      inputMode="decimal"
+                      aria-label="Özel iskonto yüzdesi"
                       min={0}
                       max={40}
                       value={discountPct}
@@ -322,23 +425,54 @@ export const QuoteSummaryModal: React.FC<QuoteSummaryModalProps> = React.memo(
                 })}
               </div>
 
-              {/* Ücretsiz 3 Yüzey Numunesi Talebi */}
-              <div className="pt-2.5 border-t border-[#F0ECE3] flex flex-wrap items-center justify-between gap-2">
-                <div className="text-[11px] text-[#57534E]">
-                  <strong className="text-[#141413]">Ücretsiz 3 Malzeme Numunesi:</strong>{" "}
-                  Seçili kapak ve gövde renklerini sipariş öncesi evinizde inceleyin.
+              {/* Ücretsiz 3 Yüzey Numunesi & Uzman İç Mimar Röleve İnceleme Talebi */}
+              <div className="pt-2.5 border-t border-[#F0ECE3] space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-[11px] text-[#57534E]">
+                    <strong className="text-[#141413]">Ücretsiz 3 Malzeme Numunesi:</strong>{" "}
+                    Seçili kapak ve gövde renklerini sipariş öncesi evinizde inceleyin.
+                  </div>
+                  <button
+                    type="button"
+                    data-testid="quote-request-sample-box-btn"
+                    disabled={conciergeBusy}
+                    onClick={() => void submitConciergeRequest("sample_box")}
+                    className={`h-8 px-3.5 rounded-full text-[11px] font-semibold transition cursor-pointer ${
+                      sampleRequested
+                        ? "bg-emerald-700 text-white"
+                        : "bg-[#F1EDE4] hover:bg-[#E7E1D5] text-[#141413] border border-[#DED7C8]"
+                    }`}
+                  >
+                    {sampleRequested
+                      ? `✓ Numune Kaydedildi (${sampleTrackingCode || "SMP"})`
+                      : "3 Ücretsiz Numune İste"}
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setSampleRequested(true)}
-                  className={`h-8 px-3.5 rounded-full text-[11px] font-semibold transition cursor-pointer ${
-                    sampleRequested
-                      ? "bg-emerald-700 text-white"
-                      : "bg-[#F1EDE4] hover:bg-[#E7E1D5] text-[#141413] border border-[#DED7C8]"
-                  }`}
-                >
-                  {sampleRequested ? "✓ Numune Kutusu Talebe Eklendi" : "3 Ücretsiz Numune İste"}
-                </button>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-[#F6F3EC]">
+                  <div className="text-[11px] text-[#57534E]">
+                    <strong className="text-[#141413]">Uzman İç Mimar Kontrolü:</strong>{" "}
+                    Köşe, kolon veya süpürgelik detaylarını Birim mimarı ücretsiz doğrulasın.
+                  </div>
+                  <button
+                    type="button"
+                    data-testid="quote-request-architect-review-btn"
+                    disabled={conciergeBusy}
+                    onClick={() => void submitConciergeRequest("architect_review")}
+                    className={`h-8 px-3.5 rounded-full text-[11px] font-semibold inline-flex items-center gap-1.5 transition cursor-pointer ${
+                      architectRequested
+                        ? "bg-[#1D4ED8] text-white"
+                        : "bg-white hover:bg-[#F3EFE6] text-[#141413] border border-[#DED7C8]"
+                    }`}
+                  >
+                    <Compass className="w-3.5 h-3.5" />
+                    <span>
+                      {architectRequested
+                        ? `✓ Mimar İncelemede (${architectTrackingCode || "ARC"})`
+                        : "İç Mimar Desteği İste"}
+                    </span>
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -346,6 +480,7 @@ export const QuoteSummaryModal: React.FC<QuoteSummaryModalProps> = React.memo(
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <input
                 type="text"
+                aria-label="Müşteri adı soyadı veya firma"
                 value={clientName}
                 onChange={(e) => setClientName(e.target.value)}
                 placeholder="Müşteri Adı Soyadı / Firma..."
@@ -353,6 +488,7 @@ export const QuoteSummaryModal: React.FC<QuoteSummaryModalProps> = React.memo(
               />
               <input
                 type="text"
+                aria-label="Teslimat veya montaj notu"
                 value={projectNote}
                 onChange={(e) => setProjectNote(e.target.value)}
                 placeholder="Teslimat veya montaj notu..."

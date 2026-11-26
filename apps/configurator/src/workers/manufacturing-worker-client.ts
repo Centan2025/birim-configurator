@@ -26,14 +26,30 @@ export interface NestingWorkerRequestOptions {
   revisionId?: string;
 }
 
+interface InFlightOrQueuedWorkerTask {
+  job: AsyncNestingJob;
+  pieces: CutPiece[];
+  sheetConfig: SheetDimension;
+  t0: number;
+  resolve: (result: NestingOptimizationResult[] | null) => void;
+}
+
 let activeSequenceId = 0;
 let latestSequenceByProject = new Map<string, number>();
 let activeProjectId = "default_project";
 let currentJob: AsyncNestingJob | null = null;
 let persistentBrowserWorker: Worker | null = null;
 let workerIdleTimer: ReturnType<typeof setTimeout> | null = null;
-let activeJobResolver: ((result: NestingOptimizationResult[] | null) => void) | null = null;
+let workerInFlightTask: InFlightOrQueuedWorkerTask | null = null;
+let workerQueuedLatestTask: InFlightOrQueuedWorkerTask | null = null;
+let workerSpawnCount = 0;
 const listeners = new Set<(job: AsyncNestingJob) => void>();
+
+function cancelTaskImmediately(task: InFlightOrQueuedWorkerTask): void {
+  const durationMs = Number((performance.now() - task.t0).toFixed(2));
+  notify({ ...task.job, status: "cancelled", durationMs });
+  task.resolve(null);
+}
 
 function terminateActiveWorkerAndBlob(): void {
   if (workerIdleTimer !== null) {
@@ -44,10 +60,15 @@ function terminateActiveWorkerAndBlob(): void {
     persistentBrowserWorker.terminate();
     persistentBrowserWorker = null;
   }
-  if (activeJobResolver) {
-    const prevResolve = activeJobResolver;
-    activeJobResolver = null;
-    prevResolve(null);
+  if (workerQueuedLatestTask) {
+    const q = workerQueuedLatestTask;
+    workerQueuedLatestTask = null;
+    cancelTaskImmediately(q);
+  }
+  if (workerInFlightTask) {
+    const cur = workerInFlightTask;
+    workerInFlightTask = null;
+    cancelTaskImmediately(cur);
   }
 }
 
@@ -55,11 +76,136 @@ function scheduleWorkerIdleTerminate(): void {
   if (workerIdleTimer !== null) clearTimeout(workerIdleTimer);
   workerIdleTimer = setTimeout(() => {
     workerIdleTimer = null;
-    if (!activeJobResolver && persistentBrowserWorker) {
+    if (!workerInFlightTask && !workerQueuedLatestTask && persistentBrowserWorker) {
       persistentBrowserWorker.terminate();
       persistentBrowserWorker = null;
     }
-  }, 30_000);
+  }, 45_000);
+}
+
+function isTaskStale(task: InFlightOrQueuedWorkerTask): boolean {
+  return (
+    activeProjectId !== task.job.projectId ||
+    (latestSequenceByProject.get(task.job.projectId) ?? 0) > task.job.sequenceId
+  );
+}
+
+function dispatchNextQueuedTaskOnWarmWorker(): void {
+  if (workerInFlightTask || !workerQueuedLatestTask) {
+    if (!workerInFlightTask && !workerQueuedLatestTask) {
+      scheduleWorkerIdleTerminate();
+    }
+    return;
+  }
+  const nextTask = workerQueuedLatestTask;
+  workerQueuedLatestTask = null;
+
+  if (isTaskStale(nextTask)) {
+    cancelTaskImmediately(nextTask);
+    dispatchNextQueuedTaskOnWarmWorker();
+    return;
+  }
+
+  const worker = getOrCreatePersistentNestingWorker();
+  if (!worker) {
+    // Fallback if worker creation unexpectedly failed mid-session
+    const result = optimizeSheetNesting(nextTask.pieces, nextTask.sheetConfig);
+    const durationMs = Number((performance.now() - nextTask.t0).toFixed(2));
+    if (isTaskStale(nextTask)) {
+      cancelTaskImmediately(nextTask);
+    } else {
+      notify({
+        ...nextTask.job,
+        executionMode: "async_fallback",
+        status: "completed",
+        result,
+        durationMs,
+      });
+      nextTask.resolve(result);
+    }
+    return;
+  }
+
+  workerInFlightTask = nextTask;
+  worker.postMessage({
+    reqSeq: nextTask.job.sequenceId,
+    pieces: nextTask.pieces,
+    sheetConfig: nextTask.sheetConfig,
+  });
+}
+
+function bindWarmWorkerHandlers(worker: Worker): void {
+  worker.onmessage = (
+    ev: MessageEvent<{
+      ok: boolean;
+      reqSeq?: number;
+      result?: NestingOptimizationResult[];
+      error?: string;
+    }>
+  ) => {
+    const finishedTask = workerInFlightTask;
+    workerInFlightTask = null;
+
+    if (finishedTask) {
+      const seqMatches =
+        ev.data?.reqSeq === undefined || ev.data.reqSeq === finishedTask.job.sequenceId;
+      const durationMs = Number((performance.now() - finishedTask.t0).toFixed(2));
+      if (!seqMatches || isTaskStale(finishedTask)) {
+        // Might already have been cancelled cooperatively when a newer task arrived
+        if (
+          (latestSequenceByProject.get(finishedTask.job.projectId) ?? 0) ===
+          finishedTask.job.sequenceId
+        ) {
+          notify({ ...finishedTask.job, status: "cancelled", durationMs });
+        }
+        finishedTask.resolve(null);
+      } else if (ev.data?.ok && ev.data.result) {
+        notify({
+          ...finishedTask.job,
+          status: "completed",
+          result: ev.data.result,
+          durationMs,
+        });
+        finishedTask.resolve(ev.data.result);
+      } else {
+        notify({
+          ...finishedTask.job,
+          status: "cancelled",
+          error: ev.data?.error || "Nesting worker hatası",
+          durationMs,
+        });
+        finishedTask.resolve(null);
+      }
+    }
+
+    dispatchNextQueuedTaskOnWarmWorker();
+  };
+
+  worker.onerror = () => {
+    const crashedTask = workerInFlightTask;
+    workerInFlightTask = null;
+    if (persistentBrowserWorker === worker) {
+      persistentBrowserWorker.terminate();
+      persistentBrowserWorker = null;
+    }
+    if (crashedTask) {
+      if (isTaskStale(crashedTask)) {
+        cancelTaskImmediately(crashedTask);
+      } else {
+        const result = optimizeSheetNesting(crashedTask.pieces, crashedTask.sheetConfig);
+        const durationMs = Number((performance.now() - crashedTask.t0).toFixed(2));
+        notify({
+          ...crashedTask.job,
+          executionMode: "async_fallback",
+          status: "completed",
+          result,
+          durationMs,
+        });
+        crashedTask.resolve(result);
+      }
+    }
+    dispatchNextQueuedTaskOnWarmWorker();
+  };
 }
 
 function getOrCreatePersistentNestingWorker(): Worker | null {
@@ -77,12 +223,18 @@ function getOrCreatePersistentNestingWorker(): Worker | null {
     const worker = new Worker(blobUrl);
     URL.revokeObjectURL(blobUrl);
     blobUrl = null;
+    workerSpawnCount += 1;
+    bindWarmWorkerHandlers(worker);
     persistentBrowserWorker = worker;
     return worker;
   } catch {
     if (blobUrl) URL.revokeObjectURL(blobUrl);
     return null;
   }
+}
+
+export function getWorkerSpawnCountForDiagnostics(): number {
+  return workerSpawnCount;
 }
 
 // Single-Source-of-Truth Worker Bootstrap generated from @birim/manufacturing
@@ -105,15 +257,15 @@ export function resetNestingWorkerState(): void {
   latestSequenceByProject = new Map();
   activeProjectId = "default_project";
   currentJob = null;
+  workerSpawnCount = 0;
 }
 
 /**
- * Dispatches heavy nesting bin-packing asynchronously.
- * WP-12 Contract:
- * - Tracks `projectId + revisionId + jobId + sequenceId`.
- * - Executes inside an isolated browser Web Worker thread when `Worker` + `Blob` are available,
- *   immediately terminating any superseded in-flight worker and revoking its Blob URL, and falls
- *   back to async scheduling in non-Worker environments (such as Node/Vitest).
+ * Dispatches heavy nesting bin-packing asynchronously with Warm Cooperative Worker Reuse:
+ * - Never destroys/re-creates the V8 Worker thread during rapid slider drags; instead,
+ *   cancels any superseded in-flight/queued task in 0ms and keeps a single latest-wins slot
+ *   ready on the warm persistent Worker!
+ * - Falls back cleanly to non-blocking microtask/timeout execution in Node/Vitest environments.
  */
 export async function computeNestingAsync(
   pieces: CutPiece[],
@@ -121,18 +273,30 @@ export async function computeNestingAsync(
   sheetConfig: SheetDimension = STANDARD_SHEET_2800x2070,
   options: NestingWorkerRequestOptions = {}
 ): Promise<NestingOptimizationResult[] | null> {
-  // If a previous job is still running inside the worker, terminate to guarantee
-  // its late response can never resolve the new job; when idle, reuse the persistent worker.
-  if (activeJobResolver) {
-    terminateActiveWorkerAndBlob();
-  }
-
   const sequenceId = ++activeSequenceId;
   const projectId = options.projectId || "default_project";
   const revisionId = options.revisionId || `rev_v${version}`;
 
   activeProjectId = projectId;
   latestSequenceByProject.set(projectId, sequenceId);
+
+  // Cooperatively cancel any superseded queued or in-flight promises immediately (zero Worker teardown!)
+  if (workerQueuedLatestTask) {
+    const prevQueued = workerQueuedLatestTask;
+    workerQueuedLatestTask = null;
+    cancelTaskImmediately(prevQueued);
+  }
+  if (workerInFlightTask) {
+    const prevInFlight = workerInFlightTask;
+    // Resolve superseded caller immediately with null while letting the warm worker finish its ~4ms turn cleanly
+    const durationMs = Number((performance.now() - prevInFlight.t0).toFixed(2));
+    notify({ ...prevInFlight.job, status: "cancelled", durationMs });
+    prevInFlight.resolve(null);
+    workerInFlightTask = {
+      ...prevInFlight,
+      resolve: () => {},
+    };
+  }
 
   const jobId = `nest_${projectId}_${revisionId}_seq${sequenceId}`;
   const hasBrowserWorker =
@@ -164,91 +328,14 @@ export async function computeNestingAsync(
     const worker = getOrCreatePersistentNestingWorker();
     if (worker) {
       return new Promise((resolve) => {
-        activeJobResolver = resolve;
-        const finish = (res: NestingOptimizationResult[] | null) => {
-          if (activeJobResolver === resolve) {
-            activeJobResolver = null;
-          }
-          scheduleWorkerIdleTerminate();
-          resolve(res);
+        workerQueuedLatestTask = {
+          job,
+          pieces,
+          sheetConfig,
+          t0,
+          resolve,
         };
-
-        worker.onmessage = (
-          ev: MessageEvent<{ ok: boolean; result?: NestingOptimizationResult[]; error?: string }>
-        ) => {
-          const durationMs = Number((performance.now() - t0).toFixed(2));
-          if (isStale()) {
-            notify({ ...job, status: "cancelled", durationMs });
-            finish(null);
-            return;
-          }
-          if (ev.data?.ok && ev.data.result) {
-            const completedJob: AsyncNestingJob = {
-              ...job,
-              status: "completed",
-              result: ev.data.result,
-              durationMs,
-            };
-            notify(completedJob);
-            finish(ev.data.result);
-          } else {
-            notify({
-              ...job,
-              status: "cancelled",
-              error: ev.data?.error || "Nesting worker hatası",
-            });
-            finish(null);
-          }
-        };
-
-        worker.onerror = () => {
-          // Reset crashed worker instance and fall back synchronously
-          if (persistentBrowserWorker === worker) {
-            persistentBrowserWorker.terminate();
-            persistentBrowserWorker = null;
-          }
-          const result = optimizeSheetNesting(pieces, sheetConfig);
-          const durationMs = Number((performance.now() - t0).toFixed(2));
-          if (isStale()) {
-            notify({ ...job, status: "cancelled", durationMs });
-            finish(null);
-            return;
-          }
-          notify({
-            ...job,
-            executionMode: "async_fallback",
-            status: "completed",
-            result,
-            durationMs,
-          });
-          finish(result);
-        };
-
-        try {
-          worker.postMessage({ pieces, sheetConfig });
-        } catch {
-          if (persistentBrowserWorker === worker) {
-            persistentBrowserWorker.terminate();
-            persistentBrowserWorker = null;
-          }
-          setTimeout(() => {
-            if (isStale()) {
-              notify({ ...job, status: "cancelled" });
-              finish(null);
-              return;
-            }
-            const result = optimizeSheetNesting(pieces, sheetConfig);
-            const durationMs = Number((performance.now() - t0).toFixed(2));
-            notify({
-              ...job,
-              executionMode: "async_fallback",
-              status: "completed",
-              result,
-              durationMs,
-            });
-            finish(result);
-          }, 0);
-        }
+        dispatchNextQueuedTaskOnWarmWorker();
       });
     }
   }
@@ -256,32 +343,33 @@ export async function computeNestingAsync(
   return new Promise((resolve) => {
     setTimeout(() => {
       if (isStale()) {
-        notify({ ...job, status: "cancelled" });
+        const durationMs = Number((performance.now() - t0).toFixed(2));
+        notify({ ...job, status: "cancelled", durationMs });
         resolve(null);
         return;
       }
-
       try {
         const result = optimizeSheetNesting(pieces, sheetConfig);
         const durationMs = Number((performance.now() - t0).toFixed(2));
-
         if (isStale()) {
           notify({ ...job, status: "cancelled", durationMs });
           resolve(null);
           return;
         }
-
-        const completedJob: AsyncNestingJob = {
+        notify({
           ...job,
+          executionMode: "async_fallback",
           status: "completed",
           result,
           durationMs,
-        };
-        notify(completedJob);
+        });
         resolve(result);
-      } catch (err: unknown) {
-        const errorMsg = err instanceof Error ? err.message : "Nesting hesaplama hatası";
-        notify({ ...job, status: "cancelled", error: errorMsg });
+      } catch (err) {
+        notify({
+          ...job,
+          status: "cancelled",
+          error: err instanceof Error ? err.message : "Nesting hesaplama hatası",
+        });
         resolve(null);
       }
     }, 0);

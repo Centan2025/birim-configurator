@@ -4,9 +4,11 @@ import { Download, FileCode } from "lucide-react";
 import { BirimLogo, V3PremiumDropdown } from "../../v3/design-system";
 import {
   adjustErpGrooveSideForRotation,
+  optimizeMultiProjectBatchNesting,
   type ManufacturingBOM,
   type buildBirimErpNestingBundle,
 } from "@birim/manufacturing";
+import { useConfiguratorStore } from "../../store/useConfiguratorStore";
 
 export interface BomNestingTabProps {
   activeTab: string;
@@ -60,18 +62,77 @@ export const BomNestingTab: React.FC<BomNestingTabProps> = (props) => {
     showCutSequences,
     showErpContractPreview,
   } = props;
+  const [batchApartmentCount, setBatchApartmentCount] = React.useState<1 | 5 | 10 | 25>(1);
+  const currentProject = useConfiguratorStore((s) => s.project);
+  const batchSummary = React.useMemo(() => {
+    if (batchApartmentCount <= 1) return null;
+    return optimizeMultiProjectBatchNesting([
+      {
+        project: currentProject,
+        unitMultiplier: batchApartmentCount,
+        unitLabelPrefix: currentProject.title || "Daire",
+      },
+    ]);
+  }, [batchApartmentCount, currentProject]);
+
   return (
     <>
           {/* TAB 3: BIRIM PORTAL ERP 2D NESTING ENGINE & EXPORTER */}
           {activeTab === "nesting" && erpNestingBundle && (
             <div className="space-y-4 text-xs">
               <div className="p-4 bg-white border border-[#E5DFD3] rounded-2xl shadow-2xs space-y-3.5">
+                {/* KesApp Esinli Çoklu Daire / Toplu Proje Plaka Optimizasyon Simülatörü */}
+                <div
+                  data-testid="v13-batch-apartment-nesting-bar"
+                  className="p-3 rounded-xl bg-[#FAF8F4] border border-[#E5DFD3] flex flex-wrap items-center justify-between gap-2.5"
+                >
+                  <div className="space-y-0.5">
+                    <div className="font-bold text-[#141413]">
+                      Toplu Konut / Çoklu Daire Plaka Birleştirme
+                    </div>
+                    <div className="text-[11px] text-[#57534E]">
+                      Aynı projeyi birden fazla daire için ortak kesime sokarak parça birleşiminden doğan net plaka kazancını görün
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {([1, 5, 10, 25] as const).map((cnt) => (
+                      <button
+                        key={cnt}
+                        type="button"
+                        onClick={() => setBatchApartmentCount(cnt)}
+                        className={`px-2.5 py-1 rounded-lg font-mono text-[11px] font-bold transition cursor-pointer ${
+                          batchApartmentCount === cnt
+                            ? "bg-[#141413] text-white"
+                            : "bg-white hover:bg-[#EFECE4] border border-[#DED8CC] text-[#44403C]"
+                        }`}
+                      >
+                        {cnt === 1 ? "Tekil (1x)" : `${cnt} Daire`}
+                      </button>
+                    ))}
+                  </div>
+                  {batchSummary && (
+                    <div className="w-full pt-2 border-t border-[#ECE7DD] flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                      <span>
+                        Ayrı Kesim: <strong className="font-mono">{batchSummary.separateTotalSheetsCount} plaka</strong>{" "}
+                        (%{batchSummary.separateAverageWastePercent} fire)
+                      </span>
+                      <span>
+                        Ortak Kesim: <strong className="font-mono text-emerald-800">{batchSummary.combinedTotalSheetsCount} plaka</strong>{" "}
+                        (%{batchSummary.combinedAverageWastePercent} fire)
+                      </span>
+                      <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-900 font-bold font-mono">
+                        Kazanç: {batchSummary.savedSheetsCount} Plaka (~€{batchSummary.estimatedSavedBoardCostEur.toFixed(2)})
+                      </span>
+                    </div>
+                  )}
+                </div>
+
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <h3 className="text-sm font-extrabold text-[#141413] flex items-center gap-2">
                       <BirimLogo className="h-4 w-auto text-[#141413]" />
                       <span>Portal ERP — CNC Panel Nesting &amp; Kesim Motoru</span>
-                      <span className="px-2 py-0.5 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-900 font-mono text-[10px]">
+                      <span className="px-2 py-0.5 rounded-full bg-sky-500/20 border border-sky-400/45 text-sky-200 font-mono text-[10px]">
                         {erpNestingBundle.schema_version}
                       </span>
                     </h3>
@@ -258,7 +319,7 @@ export const BomNestingTab: React.FC<BomNestingTabProps> = (props) => {
                     </span>
                     <span>
                       Artık Plaka (≥400×400):{" "}
-                      <strong className="text-cyan-800">
+                      <strong className="text-cyan-300">
                         {erpNestingBundle.summary.reclaimable_remnants_count} adet (
                         {erpNestingBundle.summary.reclaimable_remnants_area_m2} m²)
                       </strong>
@@ -272,7 +333,7 @@ export const BomNestingTab: React.FC<BomNestingTabProps> = (props) => {
                     <span className="inline-flex items-center gap-1 text-amber-800">
                       <span className="w-2.5 h-1.5 bg-amber-500 inline-block rounded" /> 1.0mm PVC
                     </span>
-                    <span className="inline-flex items-center gap-1 text-cyan-800">
+                    <span className="inline-flex items-center gap-1 text-cyan-300">
                       <span className="w-2.5 h-1.5 bg-cyan-500 inline-block rounded" /> 0.4mm PVC
                     </span>
                     <span className="inline-flex items-center gap-1 text-sky-800">
@@ -399,7 +460,7 @@ export const BomNestingTab: React.FC<BomNestingTabProps> = (props) => {
                               </span>
                               <div className="flex items-center gap-3 font-mono text-[11px] font-bold">
                                 {sheetRemnants.length > 0 && (
-                                  <span className="text-cyan-800">
+                                  <span className="text-cyan-300">
                                     Artık: {sheetRemnants.length} adet
                                   </span>
                                 )}

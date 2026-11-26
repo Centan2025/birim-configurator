@@ -767,7 +767,7 @@ function BomModalInner({ isOpen, onClose, initialTab = "cutlist" }: BomModalProp
                           className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-[#EFECE4] flex items-center justify-between gap-2 transition cursor-pointer"
                         >
                           <span className="text-xs font-semibold text-[#141413] truncate">OptiCut CSV</span>
-                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-white border border-[#E5DFD3] text-teal-700 font-bold">CSV</span>
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-white border border-[#E5DFD3] text-emerald-300 font-bold">CSV</span>
                         </button>
                         <button
                           type="button"
@@ -819,7 +819,7 @@ function BomModalInner({ isOpen, onClose, initialTab = "cutlist" }: BomModalProp
                           className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-[#EFECE4] flex items-center justify-between gap-2 transition cursor-pointer"
                         >
                           <span className="text-xs font-bold text-indigo-800 truncate">Tüm Parçalar DXF ({bom.cutList.length})</span>
-                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold">DXF</span>
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-sky-500/20 border border-sky-400/45 text-sky-200 font-bold">DXF</span>
                         </button>
                         <button
                           type="button"
@@ -828,7 +828,7 @@ function BomModalInner({ isOpen, onClose, initialTab = "cutlist" }: BomModalProp
                           className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-[#EFECE4] flex items-center justify-between gap-2 transition cursor-pointer"
                         >
                           <span className="text-xs font-semibold text-[#141413] truncate">2800×2070 Plaka Şeması</span>
-                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-white border border-[#E5DFD3] text-purple-700 font-bold">DXF</span>
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-violet-500/20 border border-violet-400/45 text-violet-200 font-bold">DXF</span>
                         </button>
                         <button
                           type="button"
@@ -837,7 +837,7 @@ function BomModalInner({ isOpen, onClose, initialTab = "cutlist" }: BomModalProp
                           className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-[#EFECE4] flex items-center justify-between gap-2 transition cursor-pointer"
                         >
                           <span className="text-xs font-semibold text-[#141413] truncate">Plaka Nest Şeması</span>
-                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-white border border-[#E5DFD3] text-fuchsia-700 font-bold">SVG</span>
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-violet-500/20 border border-violet-400/45 text-violet-200 font-bold">SVG</span>
                         </button>
                         <button
                           type="button"
@@ -1223,7 +1223,7 @@ function BomModalInner({ isOpen, onClose, initialTab = "cutlist" }: BomModalProp
               </button>
             </div>
             <div className="p-4 bg-[#EFECE4]">
-              <div className="bg-white text-zinc-950 rounded-xl p-4 border-2 border-dashed border-stone-400">
+              <div style={{ backgroundColor: "#ffffff", color: "#09090b" }} className="rounded-xl p-4 border-2 border-dashed border-stone-400">
                 <div className="flex items-start justify-between border-b-2 border-zinc-900 pb-2">
                   <div>
                     <div className="text-[9px] font-extrabold tracking-[0.18em] uppercase">BİRİM® · İMALAT ETİKETİ</div>
@@ -1233,18 +1233,18 @@ function BomModalInner({ isOpen, onClose, initialTab = "cutlist" }: BomModalProp
                     <div className="text-base font-extrabold leading-none">
                       #{String(Math.max(1, bom.cutList.findIndex((x) => x.id === labelPreviewPiece.id) + 1)).padStart(2, "0")}
                     </div>
-                    <div className="text-[9px] text-zinc-600">/ {bom.cutList.length} PARÇA</div>
+                    <div style={{ color: "#3f3f46" }} className="text-[9px]">/ {bom.cutList.length} PARÇA</div>
                   </div>
                 </div>
                 <div className="grid grid-cols-12 gap-3 py-3 items-center">
                   <div className="col-span-8 space-y-1">
                     <div className="text-sm font-extrabold leading-tight">{labelPreviewPiece.pieceName}</div>
-                    <div className="font-mono text-[9.5px] text-zinc-600 break-all">{labelPreviewPiece.id}</div>
+                    <div style={{ color: "#3f3f46" }} className="font-mono text-[9.5px] break-all">{labelPreviewPiece.id}</div>
                     <div className="pt-1 flex items-center gap-3 font-mono text-xs">
                       <span><strong>NET:</strong> {labelPreviewPiece.netCutLengthMm ?? labelPreviewPiece.lengthMm}×{labelPreviewPiece.netCutWidthMm ?? labelPreviewPiece.widthMm}</span>
                       <span><strong>{labelPreviewPiece.thicknessMm}mm</strong></span>
                     </div>
-                    <div className="text-[10px] text-zinc-700">
+                    <div style={{ color: "#27272a" }} className="text-[10px]">
                       {labelPreviewPiece.materialName} • CNC: {(labelPreviewPiece.holes?.length || 0) > 0 ? `${labelPreviewPiece.holes!.length} delik` : "Yok"}
                     </div>
                   </div>

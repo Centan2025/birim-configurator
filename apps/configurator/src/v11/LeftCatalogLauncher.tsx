@@ -560,7 +560,7 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
                   "width 360ms cubic-bezier(0.16, 1, 0.3, 1), height 360ms cubic-bezier(0.16, 1, 0.3, 1), transform 360ms cubic-bezier(0.16, 1, 0.3, 1), opacity 240ms ease",
               } as React.CSSProperties
             }
-            className={`birim-dramatic-panel fixed left-[76px] top-[72px] bottom-[84px] max-w-[calc(100vw-96px)] max-lg:!w-auto max-lg:left-2.5 max-lg:right-2.5 max-lg:top-auto max-lg:bottom-2.5 max-lg:h-[var(--birim-left-sheet-h)] max-lg:max-w-none max-lg:rounded-t-3xl max-lg:rounded-b-2xl max-lg:origin-bottom max-lg:z-[60] z-30 rounded-3xl bg-[#2A313F]/66 backdrop-blur-2xl border border-white/[0.22] ring-1 ring-black/60 shadow-[0_28px_68px_rgba(0,0,0,0.62)] flex flex-col overflow-hidden text-[#F3F4F6] origin-left will-change-[width,height,transform,opacity] ${
+            className={`birim-dramatic-panel fixed left-[76px] top-[72px] max-xl:top-[112px] bottom-[84px] max-w-[calc(100vw-96px)] max-lg:!w-auto max-lg:left-2.5 max-lg:right-2.5 max-lg:!top-auto max-lg:bottom-2.5 max-lg:h-[var(--birim-left-sheet-h)] max-lg:max-w-none max-lg:rounded-t-3xl max-lg:rounded-b-2xl max-lg:origin-bottom max-lg:z-[60] z-30 rounded-3xl bg-[#2A313F]/66 backdrop-blur-2xl border border-white/[0.22] ring-1 ring-black/60 shadow-[0_28px_68px_rgba(0,0,0,0.62)] flex flex-col overflow-hidden text-[#F3F4F6] origin-left will-change-[width,height,transform,opacity] ${
               !isDrawerOpen
                 ? "opacity-0 scale-95 -translate-x-6 max-lg:translate-x-0 max-lg:translate-y-6 pointer-events-none"
                 : isDraggingCatalogItem
@@ -802,7 +802,7 @@ export const LeftCatalogLauncher: React.FC<LeftCatalogLauncherProps> = React.mem
 
               {/* Arama İkonu + Şık Arama Girişi (Mini Oda Yanında) */}
               <div className="flex-1 flex items-center gap-2 min-w-0">
-                <div className="w-9 h-9 rounded-xl bg-[#D6A874]/90 text-[#18181B] flex items-center justify-center shrink-0 shadow-sm">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#0284C7] to-[#1D4ED8] border border-[#38BDF8]/55 text-white flex items-center justify-center shrink-0 shadow-sm">
                   <Search className="w-4 h-4" />
                 </div>
                 <div className="relative flex-1 min-w-0">

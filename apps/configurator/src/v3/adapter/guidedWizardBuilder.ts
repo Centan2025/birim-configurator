@@ -1158,13 +1158,21 @@ export function buildGuidedWizardProject(
               height: 85,
             });
           } else {
+            const maxDrwTop = Math.max(
+              0,
+              ...nextDrawers.map((d) => (d.elevationY || 0) + (d.height || 180))
+            );
+            const safeTrY = Math.min(
+              Math.max(896, Math.ceil((maxDrwTop + 520) / 32) * 32),
+              Math.max(896, netH - 280)
+            );
             nextShelves = nextShelves.filter(
-              (s) => s.elevationY <= 448 || s.elevationY >= 896
+              (s) => s.elevationY <= safeTrY - 512 || s.elevationY >= safeTrY + 160
             );
             nextFittings.push({
               id: `fit_tr_${m.id}_${bIdx}`,
               bayIndex: bIdx,
-              elevationY: 672,
+              elevationY: safeTrY,
               type: "trouser_rack",
               height: 85,
             });
