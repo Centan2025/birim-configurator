@@ -8,7 +8,7 @@ import { generateModuleGeometry, DEFAULT_MATERIALS, getModuleOrientedFootprint }
 import { calculateModulePlacement, computeProjectGrainContinuityMap, syncProjectCustomMaterials, computeModuleStructuralSignature, type MaterialDefinition } from "@birim/core";
 import { GEOMETRY_ENGINE_REV } from "@birim/geometry";
 import { getV3PbrMaterial } from "../../materials/pbrMaterialSystem";
-import { markSharedMaterial, disposeObject3DTree } from "../../materials/webglResourceGuard";
+import { markSharedMaterial, disposeObject3DTree, getCachedHardwarePerformanceTier } from "../../materials/webglResourceGuard";
 import { buildCapsuleParametricModuleGroup } from "../../materials/capsuleAndProfileGeometry";
 import { useConfiguratorStore } from "../../../store/useConfiguratorStore";
 import { generateBOMForProject } from "@birim/manufacturing";
@@ -554,7 +554,11 @@ export function syncParametricCabinetMeshes3D(ctx: SyncParametricCabinetMeshes3D
           const ledHex =
             ledKelvin <= 2800 ? 0xffa73b : ledKelvin >= 3800 ? 0xfff1d6 : 0xffc864;
 
-          if (isLedActive && activeSceneLedLights < 3) {
+          const hwTierForLights = getCachedHardwarePerformanceTier();
+          const allowDynamicPointLights =
+            hwTierForLights !== "tier0_software" && hwTierForLights !== "tier1_low_igpu";
+
+          if (allowDynamicPointLights && isLedActive && activeSceneLedLights < 3) {
             activeSceneLedLights += 1;
             const cavityLight = new THREE.PointLight(
               ledHex,
@@ -695,9 +699,9 @@ export function syncParametricCabinetMeshes3D(ctx: SyncParametricCabinetMeshes3D
               const emitHorizontalLedGlow = (undersideY: number, shelfOwnerId?: string) => {
                 if (stripBloomTex) {
                   const hChanZ = Math.max(34, Math.round(mod.dimensions.depth - hSetbackMm));
-                  // PlaneGeometry(bloomSpanMm, stripW): local X has Gaussian bell-curve falloff to 0 at edges!
+                  // Reuse SHARED_UNIT_AO_PLANE_GEO (scaled) to avoid per-shelf BufferGeometry allocation
                   const underGlow = new THREE.Mesh(
-                    new THREE.PlaneGeometry(bloomSpanMm, Math.max(60, bW - 8)),
+                    SHARED_UNIT_AO_PLANE_GEO,
                     new THREE.MeshBasicMaterial({
                       map: stripBloomTex,
                       transparent: true,
@@ -707,6 +711,7 @@ export function syncParametricCabinetMeshes3D(ctx: SyncParametricCabinetMeshes3D
                       side: THREE.DoubleSide,
                     })
                   );
+                  underGlow.scale.set(bloomSpanMm, Math.max(60, bW - 8), 1);
                   underGlow.raycast = () => {};
                   if (shelfOwnerId) underGlow.userData = { shelfOwnerId };
                   underGlow.rotation.x = Math.PI / 2;
@@ -717,7 +722,7 @@ export function syncParametricCabinetMeshes3D(ctx: SyncParametricCabinetMeshes3D
 
                 const backWashH = 145;
                 const backWash = new THREE.Mesh(
-                  new THREE.PlaneGeometry(Math.max(60, bW - 8), backWashH),
+                  SHARED_UNIT_AO_PLANE_GEO,
                   new THREE.MeshBasicMaterial({
                     map: underShelfLedTex,
                     transparent: true,
@@ -726,6 +731,7 @@ export function syncParametricCabinetMeshes3D(ctx: SyncParametricCabinetMeshes3D
                     depthWrite: false,
                   })
                 );
+                backWash.scale.set(Math.max(60, bW - 8), backWashH, 1);
                 backWash.raycast = () => {};
                 if (shelfOwnerId) backWash.userData = { shelfOwnerId };
                 backWash.position.set(bxCursor + bW / 2, undersideY - backWashH / 2, pT + 2.0);
@@ -746,7 +752,6 @@ export function syncParametricCabinetMeshes3D(ctx: SyncParametricCabinetMeshes3D
                 const vSpanH = Math.max(120, inH - openFloorLocalY - 10);
                 const vCenterY = plH + pT + openFloorLocalY + 4 + vSpanH / 2;
                 const vChanCenterZ = Math.max(34, Math.round(mod.dimensions.depth - vSetbackMm));
-                const sideGlowGeo = new THREE.PlaneGeometry(bloomSpanMm, vSpanH);
                 const sideGlowMat = new THREE.MeshBasicMaterial({
                   map: stripBloomTex,
                   transparent: true,
@@ -759,7 +764,8 @@ export function syncParametricCabinetMeshes3D(ctx: SyncParametricCabinetMeshes3D
                   { x: bxCursor + 2.1, rotY: Math.PI / 2 },
                   { x: bxCursor + bW - 2.1, rotY: -Math.PI / 2 },
                 ].forEach((sideSpec) => {
-                  const glowPlane = new THREE.Mesh(sideGlowGeo, sideGlowMat);
+                  const glowPlane = new THREE.Mesh(SHARED_UNIT_AO_PLANE_GEO, sideGlowMat);
+                  glowPlane.scale.set(bloomSpanMm, vSpanH, 1);
                   glowPlane.raycast = () => {};
                   glowPlane.rotation.y = sideSpec.rotY;
                   glowPlane.position.set(sideSpec.x, vCenterY, vChanCenterZ);
@@ -767,8 +773,14 @@ export function syncParametricCabinetMeshes3D(ctx: SyncParametricCabinetMeshes3D
                 });
               }
 
-              // Warm 3D PBR interior illumination (capped at <= 6 bay lights across multi-module scenes for 60 FPS)
-              if (project.modules.length <= 3 && mod.bays.length <= 5) {
+              // Warm 3D PBR interior illumination (strictly capped at <= 3 total scene PointLights & disabled on tier0/tier1)
+              if (
+                allowDynamicPointLights &&
+                activeSceneLedLights < 3 &&
+                project.modules.length <= 3 &&
+                mod.bays.length <= 5
+              ) {
+                activeSceneLedLights += 1;
                 const openSpanH = Math.max(200, inH - openFloorLocalY);
                 const lightHex =
                   ledKelvin <= 2800 ? 0xffbe6b : ledKelvin >= 3800 ? 0xfff6e8 : 0xffdc9e;
@@ -937,6 +949,7 @@ export function syncParametricCabinetMeshes3D(ctx: SyncParametricCabinetMeshes3D
           // so X-Ray minifix/dowel/hinge holes track cabinet width/height/depth resizes in real time
           // instead of lagging behind a stale batch-deferred `storeBom`!
           const liveModBom = (() => {
+            if (isStoreBatchDragging && storeBom) return storeBom;
             try {
               return generateBOMForProject(
                 { ...project, modules: [mod] },
@@ -1643,6 +1656,12 @@ export function syncParametricCabinetMeshes3D(ctx: SyncParametricCabinetMeshes3D
         leftovers.forEach((unusedGroup) => disposeObject3DTree(unusedGroup));
       });
 
-      if (rendererRef.current) publishSceneDiagnostics(rendererRef.current.domElement, meshGroup);
+      if (
+        rendererRef.current &&
+        typeof window !== "undefined" &&
+        window.location.search.includes("audit")
+      ) {
+        publishSceneDiagnostics(rendererRef.current.domElement, meshGroup);
+      }
   return true;
 }

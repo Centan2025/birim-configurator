@@ -3,7 +3,7 @@ import {
   isCompactTouchMobileDevice,
   type AdaptiveWebglRenderBudget,
 } from "./webglResourceGuard";
-import { canUseAsyncWoodPbrWorker, scheduleAsyncStonePbrUpgrade, scheduleAsyncWoodPbrUpgrade } from "./pbrWoodWorker";
+import { canUseAsyncWoodPbrWorker, invalidatePbrWorkerJobs, scheduleAsyncStonePbrUpgrade, scheduleAsyncWoodPbrUpgrade } from "./pbrWoodWorker";
 import * as THREE from "three";
 import { MaterialDefinition } from "@birim/core";
 import { markSharedMaterial, markSharedTexture } from "./webglResourceGuard";
@@ -128,6 +128,7 @@ export function configurePbrForHardwareTier(budget: AdaptiveWebglRenderBudget): 
  * without disturbing currently rendered cabinet materials.
  */
 export function trimPbrCachesUnderMemoryPressure(): void {
+  invalidatePbrWorkerJobs();
   textureCache.setMaxSize(10);
   rotatedTexCache.setMaxSize(10);
   pbrMaterialCache.setMaxSize(36);
@@ -141,6 +142,7 @@ export function trimPbrCachesUnderMemoryPressure(): void {
 export function setProceduralTextureQualityTier(tier: ProceduralTextureQualityTier): void {
   if (proceduralTextureQualityTier === tier) return;
   proceduralTextureQualityTier = tier;
+  invalidatePbrWorkerJobs();
   // Properly release GPU VRAM for every cached Texture & MeshPhysicalMaterial before clearing
   textureCache.clear();
   rotatedTexCache.clear();
@@ -163,24 +165,23 @@ export function getProceduralTextureQualityTier(): ProceduralTextureQualityTier 
 export function applyMaxAnisotropyToCachedTextures(maxAniso: number): void {
   const clamped = Math.max(1, Math.min(16, Math.round(maxAniso || 8)));
   hardwareMaxAnisotropy = clamped;
+  // Avoid setting `needsUpdate = true` on existing CanvasTextures: in Three.js that forces
+  // full gl.texImage2D + gl.generateMipmap() re-uploads right when the frame-time governor throttles!
   textureCache.forEach((set) => {
     [set.colorMap, set.roughnessMap, set.normalMap, set.bumpMap].forEach((t) => {
       if (t && t.anisotropy !== clamped) {
         t.anisotropy = clamped;
-        t.needsUpdate = true;
       }
     });
   });
   rotatedTexCache.forEach((t) => {
     if (t.anisotropy !== clamped) {
       t.anisotropy = clamped;
-      t.needsUpdate = true;
     }
   });
   customImageTexCache.forEach((t) => {
     if (t.anisotropy !== clamped) {
       t.anisotropy = clamped;
-      t.needsUpdate = true;
     }
   });
 }
@@ -965,8 +966,11 @@ export function getArchitecturalWallTexture(
   const cached = wallTextureCache.get(tone);
   if (cached) return cached;
 
+  const hwTier = getCachedHardwarePerformanceTier();
   const S = !isRealInteractiveBrowser()
     ? 96
+    : hwTier === "tier0_software" || hwTier === "tier1_low_igpu"
+    ? 128
     : proceduralTextureQualityTier === "ultra"
     ? 512
     : 256;
@@ -1028,8 +1032,10 @@ export function getArchitecturalWallTexture(
   tex.needsUpdate = true;
   wallTextureCache.set(tone, tex);
 
-  const nTex = buildNormalMapFromHeightField(heightField, S, S, 1.35, 3.2, 2.1);
-  wallNormalCache.set(tone, nTex);
+  if (hwTier !== "tier0_software") {
+    const nTex = buildNormalMapFromHeightField(heightField, S, S, 1.35, 3.2, 2.1);
+    wallNormalCache.set(tone, nTex);
+  }
 
   return tex;
 }
@@ -1038,6 +1044,7 @@ export function getArchitecturalWallNormalMap(
   tone: ArchitecturalWallTone
 ): THREE.CanvasTexture | null {
   if (typeof document === "undefined") return null;
+  if (getCachedHardwarePerformanceTier() === "tier0_software") return null;
   if (!wallNormalCache.has(tone)) {
     getArchitecturalWallTexture(tone);
   }
@@ -1060,7 +1067,10 @@ export function getArchitecturalFloorTexture(
   const cached = floorTextureCache.get(style);
   if (cached) return cached;
 
+  const hwTier = getCachedHardwarePerformanceTier();
   const S = !isRealInteractiveBrowser()
+    ? 128
+    : hwTier === "tier0_software" || hwTier === "tier1_low_igpu"
     ? 128
     : proceduralTextureQualityTier === "ultra"
     ? 512

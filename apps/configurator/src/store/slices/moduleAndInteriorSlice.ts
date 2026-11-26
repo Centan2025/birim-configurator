@@ -25,7 +25,7 @@ export function createModuleAndInteriorSlice(set: StoreSet, get: StoreGet): Part
     const resolvedModIdx = updated.modules[activeModuleIndex] ? activeModuleIndex : 0;
     const mod = updated.modules[resolvedModIdx];
     if (!mod) return;
-    const oldModSnapshot: ModuleInstance = JSON.parse(JSON.stringify(mod));
+    const oldModSnapshot: ModuleInstance = structuredClone(mod);
 
     if (![width, height, depth].every(Number.isFinite)) return;
     const template = mod.templateId ? getV4TemplateById(mod.templateId) : undefined;
@@ -567,7 +567,7 @@ export function createModuleAndInteriorSlice(set: StoreSet, get: StoreGet): Part
         mod.dimensions.depth = 600;
       }
       if (mod.bays.length < 2) {
-        const clonedBay = JSON.parse(JSON.stringify(mod.bays[0]));
+        const clonedBay = structuredClone(mod.bays[0]);
         clonedBay.index = 1;
         clonedBay.door.id = `${mod.id}_door_1`;
         clonedBay.door.bayIndex = 1;
@@ -1261,7 +1261,7 @@ export function createModuleAndInteriorSlice(set: StoreSet, get: StoreGet): Part
     );
 
     if (targetMod) {
-      const clonedMod: ModuleInstance = JSON.parse(JSON.stringify(targetMod));
+      const clonedMod: ModuleInstance = structuredClone(targetMod);
       const uid = `${Date.now()}_${updated.modules.length + 1}`;
       clonedMod.id = `mod_${uid}`;
       const baseName = targetMod.name.replace(/\s*\(Kopya\)|\s*#\d+$/g, "").trim();
@@ -1313,7 +1313,7 @@ export function createModuleAndInteriorSlice(set: StoreSet, get: StoreGet): Part
     const targetMod = updated.modules[activeModuleIndex] || updated.modules[0];
     if (!targetMod) return;
 
-    const clonedMod: ModuleInstance = JSON.parse(JSON.stringify(targetMod));
+    const clonedMod: ModuleInstance = structuredClone(targetMod);
     const uid = `${Date.now()}_${updated.modules.length + 1}`;
     clonedMod.id = `mod_${uid}`;
     const baseName = targetMod.name
@@ -1392,7 +1392,7 @@ export function createModuleAndInteriorSlice(set: StoreSet, get: StoreGet): Part
       updated.space.walls = effWalls.map((w) => ({ ...w, position: { ...w.position } }));
     }
 
-    const clonedMod: ModuleInstance = JSON.parse(JSON.stringify(targetMod));
+    const clonedMod: ModuleInstance = structuredClone(targetMod);
     clonedMod.id = `mod_${crypto.randomUUID()}`;
     clonedMod.bays.forEach((b, i) => {
       b.door.id = `${clonedMod.id}_door_${i}`;

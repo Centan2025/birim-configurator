@@ -17,6 +17,7 @@ import {
   attachWebGLContextRecovery,
   disposeObject3DTree,
   disposeWebGLRendererCleanly,
+  getCachedHardwarePerformanceTier,
   probeWebGL2Support,
 } from "../materials/webglResourceGuard";
 
@@ -73,8 +74,10 @@ function getThumbRig(): {
   camera: THREE.PerspectiveCamera;
 } | null {
   if (typeof window === "undefined") return null;
+  const hwTier = getCachedHardwarePerformanceTier();
+  if (hwTier === "tier0_software") return null;
   const cap = probeWebGL2Support();
-  if (!cap.supported) return null;
+  if (!cap.supported || cap.isLegacyOrLowSpecGpu) return null;
   if (sharedThumbRenderer && sharedThumbScene && sharedThumbCamera) {
     return {
       renderer: sharedThumbRenderer,
@@ -86,7 +89,7 @@ function getThumbRig(): {
   try {
     const renderer = new THREE.WebGLRenderer({
       alpha: true,
-      antialias: true,
+      antialias: hwTier === "tier3_discrete",
       preserveDrawingBuffer: true,
       powerPreference: "low-power",
     });
@@ -304,7 +307,7 @@ export const SceneObjectThumbnail: React.FC<SceneObjectThumbnailProps> = React.m
     if (!src) {
       return (
         <div
-          className="w-8 h-8 rounded-full border border-black/10 animate-pulse"
+          className="w-8 h-8 rounded-full border border-black/10"
           style={{ backgroundColor: item.primaryColorHex || "#D6D3D1" }}
           aria-hidden="true"
         />

@@ -697,11 +697,25 @@ export const V3ThreeViewport: React.FC<V3ThreeViewportProps> = React.memo(
       needsRenderRef.current = true;
     }, [fitKeyLightShadowToSceneBounds]);
 
+    const hasVisibleInteriorForGlbPreload =
+      effectiveDoorsHiddenIn3D ||
+      doorOpenAngleDeg > 5 ||
+      project.modules.some(
+        (m) =>
+          Boolean(m.isOpenFront) ||
+          m.bays.some(
+            (b) =>
+              b.door.type === "open" ||
+              b.door.doorSystemId === "open" ||
+              Boolean(b.door.isGlassFramed)
+          )
+      );
+
     useEffect(() => {
-      if (showInteriorProps3D) {
+      if (showInteriorProps3D && hasVisibleInteriorForGlbPreload) {
         preloadAllWardrobeGlbAssets();
       }
-    }, [showInteriorProps3D]);
+    }, [showInteriorProps3D, hasVisibleInteriorForGlbPreload]);
 
     useEffect(() => {
       const unsubRender = subscribeWardrobeGlbRenderNeeded(() => {

@@ -187,8 +187,11 @@ self.onmessage = (ev) => {
 `;
 
 let sharedWorker: Worker | null = null;
+let workerIdleTimer: ReturnType<typeof setTimeout> | null = null;
 let nextJobId = 1;
+let cacheEpoch = 0;
 interface PendingCanvasJob {
+  epoch: number;
   colorCanvas: HTMLCanvasElement;
   roughCanvas: HTMLCanvasElement;
   normalCanvas: HTMLCanvasElement;
@@ -198,9 +201,29 @@ interface PendingCanvasJob {
 }
 const pendingJobs = new Map<number, PendingCanvasJob>();
 
+export function invalidatePbrWorkerJobs(): void {
+  cacheEpoch += 1;
+  pendingJobs.clear();
+}
+
+function schedulePbrWorkerIdleTerminate(): void {
+  if (workerIdleTimer !== null) clearTimeout(workerIdleTimer);
+  workerIdleTimer = setTimeout(() => {
+    workerIdleTimer = null;
+    if (pendingJobs.size === 0 && sharedWorker) {
+      sharedWorker.terminate();
+      sharedWorker = null;
+    }
+  }, 30_000);
+}
+
 function getOrCreateWoodWorker(): Worker | null {
   if (typeof window === "undefined" || typeof Worker === "undefined" || typeof Blob === "undefined") {
     return null;
+  }
+  if (workerIdleTimer !== null) {
+    clearTimeout(workerIdleTimer);
+    workerIdleTimer = null;
   }
   if (sharedWorker) return sharedWorker;
   try {
@@ -217,8 +240,15 @@ function getOrCreateWoodWorker(): Worker | null {
     }>) => {
       const { id, size, colorBuf, roughBuf, normalBuf } = ev.data;
       const job = pendingJobs.get(id);
-      if (!job) return;
+      if (!job) {
+        if (pendingJobs.size === 0) schedulePbrWorkerIdleTerminate();
+        return;
+      }
       pendingJobs.delete(id);
+      if (job.epoch !== cacheEpoch) {
+        if (pendingJobs.size === 0) schedulePbrWorkerIdleTerminate();
+        return;
+      }
       try {
         const applyBuf = (canvas: HTMLCanvasElement, buf: ArrayBuffer, tex: THREE.CanvasTexture) => {
           const resized = canvas.width !== size || canvas.height !== size;
@@ -240,6 +270,8 @@ function getOrCreateWoodWorker(): Worker | null {
         window.dispatchEvent(new CustomEvent("birim:pbr-texture-ready"));
       } catch {
         // ignore disposed canvas/texture
+      } finally {
+        if (pendingJobs.size === 0) schedulePbrWorkerIdleTerminate();
       }
     };
     return sharedWorker;
@@ -256,7 +288,7 @@ export function scheduleAsyncWoodPbrUpgrade(params: WoodWorkerUpgradeParams): bo
   const worker = getOrCreateWoodWorker();
   if (!worker) return false;
   const id = nextJobId++;
-  pendingJobs.set(id, params);
+  pendingJobs.set(id, { ...params, epoch: cacheEpoch });
   worker.postMessage({
     id,
     kind: "wood",
@@ -273,7 +305,7 @@ export function scheduleAsyncStonePbrUpgrade(params: StoneWorkerUpgradeParams): 
   const worker = getOrCreateWoodWorker();
   if (!worker) return false;
   const id = nextJobId++;
-  pendingJobs.set(id, params);
+  pendingJobs.set(id, { ...params, epoch: cacheEpoch });
   worker.postMessage({
     id,
     kind: "stone",

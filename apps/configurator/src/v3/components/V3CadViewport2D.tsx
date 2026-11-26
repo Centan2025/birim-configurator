@@ -110,7 +110,7 @@ export const V3CadViewport2D: React.FC<V3CadViewport2DProps> = React.memo(
       applyMaterialToSimilarComponents,
       undo,
       redo,
-    } = useV3Adapter({ lightweightViewport: true });
+    } = useV3Adapter({ lightweightViewport: true, skipKinematics: true });
     const [cadContextMenu, setCadContextMenu] = useState<CadContextMenuState | null>(null);
     const storeValidationIssues = useConfiguratorStore((s) => s.validationIssues);
     const isStoreBatchDragging = useConfiguratorStore((s) => s.batchStartProject !== null);

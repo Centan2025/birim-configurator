@@ -8,18 +8,19 @@ import { getEffectiveSpaceObstacles } from "../../engine/kitchenSpatialEngine";
 import { commitAdapterState, EMPTY_VALIDATION_ISSUES, EMPTY_REVISIONS } from "../adapterMathAndCache";
 
 
-export function useAdapterStoreAndCoreBindings(ctx: { options?: { lightweightViewport?: boolean } }) {
+export function useAdapterStoreAndCoreBindings(ctx: { options?: { lightweightViewport?: boolean; skipKinematics?: boolean } }) {
   const { options } = ctx;
-const isLite = Boolean(options?.lightweightViewport);
+  const isLite = Boolean(options?.lightweightViewport);
+  const skipKin = Boolean(options?.skipKinematics);
   const project = useConfiguratorStore((s) => s.project);
   const activeModuleIndex = useConfiguratorStore((s) => s.activeModuleIndex);
   const activeBayIndex = useConfiguratorStore((s) => s.activeBayIndex);
   const viewMode = useConfiguratorStore((s) => s.viewMode);
   const selectedComponentId = useConfiguratorStore((s) => s.selectedComponentId);
   const selectedModuleIds = useConfiguratorStore((s) => s.selectedModuleIds);
-  const doorOpenAngleDeg = useConfiguratorStore((s) => s.doorOpenAngleDeg);
-  const drawerOpenMm = useConfiguratorStore((s) => s.drawerOpenMm);
-  const explodedFactor = useConfiguratorStore((s) => s.explodedFactor);
+  const doorOpenAngleDeg = useConfiguratorStore((s) => (skipKin ? 0 : s.doorOpenAngleDeg));
+  const drawerOpenMm = useConfiguratorStore((s) => (skipKin ? 0 : s.drawerOpenMm));
+  const explodedFactor = useConfiguratorStore((s) => (skipKin ? 0 : s.explodedFactor));
   const isOrthographic = useConfiguratorStore((s) => s.isOrthographic);
   const cncXrayMode = useConfiguratorStore((s) => s.cncXrayMode);
   const setCncXrayMode = useConfiguratorStore((s) => s.setCncXrayMode);

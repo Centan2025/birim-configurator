@@ -283,7 +283,7 @@ export function recompute(
 
 export function nextHistory(history: DesignProject[], current: DesignProject, batchStartProject: DesignProject | null): DesignProject[] {
   if (batchStartProject) return history;
-  return [...history.slice(-50), current];
+  return [...history.slice(-getAdaptiveMaxHistoryEntries()), current];
 }
 
 export const initialProj = createInitialProject();

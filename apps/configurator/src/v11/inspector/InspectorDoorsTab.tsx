@@ -12,7 +12,10 @@ import {
 import type { HandleProfileDefinition } from "@birim/catalog";
 import { V11_DOOR_PROFILES, type V11InspectorTab } from "../v11Constants";
 import type { RightParametricInspectorProps } from "../RightParametricInspector";
-import { CustomDoorSketchEditor, type CustomDoorProfilePreset } from "../CustomDoorSketchEditor";
+import type { CustomDoorProfilePreset } from "../CustomDoorSketchEditor";
+const CustomDoorSketchEditor = React.lazy(() =>
+  import("../CustomDoorSketchEditor").then((m) => ({ default: m.CustomDoorSketchEditor }))
+);
 import { HandleCrossSectionSvg, getHandleCrossSectionMeta } from "../HandleCrossSectionSvg";
 import { renderPhotorealDoorProfileArt, renderDoorTypeIcon, renderDoorProfileIcon } from "./inspectorSvgIcons";
 import { StudioToggleSwitch } from "./InspectorControls";
@@ -65,7 +68,7 @@ export interface InspectorDoorsTabProps {
   setSelectedDrawerFrontId: React.Dispatch<React.SetStateAction<string | null>>;
 }
 
-export const InspectorDoorsTab: React.FC<InspectorDoorsTabProps> = (props) => {
+export const InspectorDoorsTab: React.FC<InspectorDoorsTabProps> = React.memo((props) => {
   const {
     activeBay,
     activeModule,
@@ -450,6 +453,7 @@ export const InspectorDoorsTab: React.FC<InspectorDoorsTabProps> = (props) => {
               </div>
 
               {customDoorOpen && (
+                <React.Suspense fallback={null}>
                 <CustomDoorSketchEditor
                   defaultTarget={curDoorType === "open" && activeBay.drawers.length > 0 ? "drawer" : "door"}
                   onCancel={() => setCustomDoorOpen(false)}
@@ -484,6 +488,7 @@ export const InspectorDoorsTab: React.FC<InspectorDoorsTabProps> = (props) => {
                     setCustomDoorOpen(false);
                   }}
                 />
+                </React.Suspense>
               )}
 
               {(curDoorType !== "open" || activeBay.drawers.length > 0) && (
@@ -1189,4 +1194,5 @@ export const InspectorDoorsTab: React.FC<InspectorDoorsTabProps> = (props) => {
           )}
     </>
   );
-};
+});
+InspectorDoorsTab.displayName = "InspectorDoorsTab";

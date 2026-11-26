@@ -30,18 +30,58 @@ let activeSequenceId = 0;
 let latestSequenceByProject = new Map<string, number>();
 let activeProjectId = "default_project";
 let currentJob: AsyncNestingJob | null = null;
-let activeBrowserWorker: Worker | null = null;
-let activeWorkerBlobUrl: string | null = null;
+let persistentBrowserWorker: Worker | null = null;
+let workerIdleTimer: ReturnType<typeof setTimeout> | null = null;
+let activeJobResolver: ((result: NestingOptimizationResult[] | null) => void) | null = null;
 const listeners = new Set<(job: AsyncNestingJob) => void>();
 
 function terminateActiveWorkerAndBlob(): void {
-  if (activeBrowserWorker) {
-    activeBrowserWorker.terminate();
-    activeBrowserWorker = null;
+  if (workerIdleTimer !== null) {
+    clearTimeout(workerIdleTimer);
+    workerIdleTimer = null;
   }
-  if (activeWorkerBlobUrl && typeof URL !== "undefined" && typeof URL.revokeObjectURL === "function") {
-    URL.revokeObjectURL(activeWorkerBlobUrl);
-    activeWorkerBlobUrl = null;
+  if (persistentBrowserWorker) {
+    persistentBrowserWorker.terminate();
+    persistentBrowserWorker = null;
+  }
+  if (activeJobResolver) {
+    const prevResolve = activeJobResolver;
+    activeJobResolver = null;
+    prevResolve(null);
+  }
+}
+
+function scheduleWorkerIdleTerminate(): void {
+  if (workerIdleTimer !== null) clearTimeout(workerIdleTimer);
+  workerIdleTimer = setTimeout(() => {
+    workerIdleTimer = null;
+    if (!activeJobResolver && persistentBrowserWorker) {
+      persistentBrowserWorker.terminate();
+      persistentBrowserWorker = null;
+    }
+  }, 30_000);
+}
+
+function getOrCreatePersistentNestingWorker(): Worker | null {
+  if (workerIdleTimer !== null) {
+    clearTimeout(workerIdleTimer);
+    workerIdleTimer = null;
+  }
+  if (persistentBrowserWorker) return persistentBrowserWorker;
+  let blobUrl: string | null = null;
+  try {
+    const blob = new Blob([buildPortableNestingWorkerBootstrapSource()], {
+      type: "application/javascript",
+    });
+    blobUrl = URL.createObjectURL(blob);
+    const worker = new Worker(blobUrl);
+    URL.revokeObjectURL(blobUrl);
+    blobUrl = null;
+    persistentBrowserWorker = worker;
+    return worker;
+  } catch {
+    if (blobUrl) URL.revokeObjectURL(blobUrl);
+    return null;
   }
 }
 
@@ -81,7 +121,11 @@ export async function computeNestingAsync(
   sheetConfig: SheetDimension = STANDARD_SHEET_2800x2070,
   options: NestingWorkerRequestOptions = {}
 ): Promise<NestingOptimizationResult[] | null> {
-  terminateActiveWorkerAndBlob();
+  // If a previous job is still running inside the worker, terminate to guarantee
+  // its late response can never resolve the new job; when idle, reuse the persistent worker.
+  if (activeJobResolver) {
+    terminateActiveWorkerAndBlob();
+  }
 
   const sequenceId = ++activeSequenceId;
   const projectId = options.projectId || "default_project";
@@ -117,38 +161,25 @@ export async function computeNestingAsync(
   const t0 = performance.now();
 
   if (hasBrowserWorker) {
-    return new Promise((resolve) => {
-      let localBlobUrl: string | null = null;
-      try {
-        const blob = new Blob([buildPortableNestingWorkerBootstrapSource()], {
-          type: "application/javascript",
-        });
-        localBlobUrl = URL.createObjectURL(blob);
-        activeWorkerBlobUrl = localBlobUrl;
-        const worker = new Worker(localBlobUrl);
-        activeBrowserWorker = worker;
-
-        const cleanup = () => {
-          if (localBlobUrl) {
-            URL.revokeObjectURL(localBlobUrl);
-            if (activeWorkerBlobUrl === localBlobUrl) {
-              activeWorkerBlobUrl = null;
-            }
-            localBlobUrl = null;
+    const worker = getOrCreatePersistentNestingWorker();
+    if (worker) {
+      return new Promise((resolve) => {
+        activeJobResolver = resolve;
+        const finish = (res: NestingOptimizationResult[] | null) => {
+          if (activeJobResolver === resolve) {
+            activeJobResolver = null;
           }
-          if (activeBrowserWorker === worker) {
-            activeBrowserWorker = null;
-          }
+          scheduleWorkerIdleTerminate();
+          resolve(res);
         };
 
         worker.onmessage = (
           ev: MessageEvent<{ ok: boolean; result?: NestingOptimizationResult[]; error?: string }>
         ) => {
-          cleanup();
           const durationMs = Number((performance.now() - t0).toFixed(2));
           if (isStale()) {
             notify({ ...job, status: "cancelled", durationMs });
-            resolve(null);
+            finish(null);
             return;
           }
           if (ev.data?.ok && ev.data.result) {
@@ -159,24 +190,28 @@ export async function computeNestingAsync(
               durationMs,
             };
             notify(completedJob);
-            resolve(ev.data.result);
+            finish(ev.data.result);
           } else {
             notify({
               ...job,
               status: "cancelled",
               error: ev.data?.error || "Nesting worker hatası",
             });
-            resolve(null);
+            finish(null);
           }
         };
 
         worker.onerror = () => {
-          cleanup();
+          // Reset crashed worker instance and fall back synchronously
+          if (persistentBrowserWorker === worker) {
+            persistentBrowserWorker.terminate();
+            persistentBrowserWorker = null;
+          }
           const result = optimizeSheetNesting(pieces, sheetConfig);
           const durationMs = Number((performance.now() - t0).toFixed(2));
           if (isStale()) {
             notify({ ...job, status: "cancelled", durationMs });
-            resolve(null);
+            finish(null);
             return;
           }
           notify({
@@ -186,36 +221,36 @@ export async function computeNestingAsync(
             result,
             durationMs,
           });
-          resolve(result);
+          finish(result);
         };
 
-        worker.postMessage({ pieces, sheetConfig });
-      } catch {
-        if (localBlobUrl) {
-          URL.revokeObjectURL(localBlobUrl);
-          if (activeWorkerBlobUrl === localBlobUrl) {
-            activeWorkerBlobUrl = null;
+        try {
+          worker.postMessage({ pieces, sheetConfig });
+        } catch {
+          if (persistentBrowserWorker === worker) {
+            persistentBrowserWorker.terminate();
+            persistentBrowserWorker = null;
           }
+          setTimeout(() => {
+            if (isStale()) {
+              notify({ ...job, status: "cancelled" });
+              finish(null);
+              return;
+            }
+            const result = optimizeSheetNesting(pieces, sheetConfig);
+            const durationMs = Number((performance.now() - t0).toFixed(2));
+            notify({
+              ...job,
+              executionMode: "async_fallback",
+              status: "completed",
+              result,
+              durationMs,
+            });
+            finish(result);
+          }, 0);
         }
-        setTimeout(() => {
-          if (isStale()) {
-            notify({ ...job, status: "cancelled" });
-            resolve(null);
-            return;
-          }
-          const result = optimizeSheetNesting(pieces, sheetConfig);
-          const durationMs = Number((performance.now() - t0).toFixed(2));
-          notify({
-            ...job,
-            executionMode: "async_fallback",
-            status: "completed",
-            result,
-            durationMs,
-          });
-          resolve(result);
-        }, 0);
-      }
-    });
+      });
+    }
   }
 
   return new Promise((resolve) => {

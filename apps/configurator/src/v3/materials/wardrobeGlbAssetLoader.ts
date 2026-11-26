@@ -3,6 +3,7 @@ import { GLTFLoader, type GLTF } from "three/examples/jsm/loaders/GLTFLoader.js"
 import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
 import {
   disposeObject3DTree,
+  getCachedHardwarePerformanceTier,
   markSharedGeometry,
   markSharedMaterial,
   markSharedTexture,
@@ -1817,6 +1818,10 @@ export function createReadyMadeShelfAccessoryGroup(
 
 export function preloadAllWardrobeGlbAssets(): void {
   if (typeof window === "undefined" || !isWardrobeGlbPropsEnabled() || idlePreloadScheduled) {
+    return;
+  }
+  const hwTier = getCachedHardwarePerformanceTier();
+  if (hwTier === "tier0_software" || hwTier === "tier1_low_igpu") {
     return;
   }
   idlePreloadScheduled = true;
